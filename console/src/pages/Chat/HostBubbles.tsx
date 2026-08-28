@@ -34,6 +34,7 @@ import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
 import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
 import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
+import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
 // Vendor `.d.ts` doesn't yet describe the request content slots.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +51,18 @@ import type {
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
+import {
+  countCollapsedSteps,
+  findActiveStepBlockIndex,
+  findLastStepBlockIndex,
+  getCollapsedGroupStatus,
+  getCollapsedStepPresentation,
+  getCollapsedStepRenderKey,
+  getResponseMessageDisplayMode,
+  groupResponseMessages,
+} from "./messageDisplay";
+import styles from "./HostBubbles.module.less";
+import LazyAccordion from "./LazyAccordion";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -161,6 +174,31 @@ const HostMessage = React.memo(function HostMessage({
   );
 });
 
+function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
+  switch (item.type) {
+    case AgentScopeRuntimeMessageType.MESSAGE:
+      return <HostMessage key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.PLUGIN_CALL:
+    case AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT:
+    case AgentScopeRuntimeMessageType.TOOL_CALL:
+    case AgentScopeRuntimeMessageType.TOOL_CALL_OUTPUT:
+    case AgentScopeRuntimeMessageType.MCP_CALL:
+    case AgentScopeRuntimeMessageType.MCP_CALL_OUTPUT:
+      return <ResponseTool key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
+      return <ResponseTool key={item.id} data={item} isApproval />;
+    case AgentScopeRuntimeMessageType.REASONING:
+      return <ResponseReasoning key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.ERROR:
+      return <ResponseError key={item.id} data={item} />;
+    case AgentScopeRuntimeMessageType.HEARTBEAT:
+      return null;
+    default:
+      console.warn(`[WIP] Unknown message type: ${item.type}`);
+      return null;
+  }
+}
+
 function DefaultHostResponseCard({
   data,
   isLast,
@@ -172,12 +210,23 @@ function DefaultHostResponseCard({
   contentPrepend?: React.ReactNode;
   contentAppend?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
   const messages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
+  const messageDisplayMode = getResponseMessageDisplayMode(data.status);
+  const messageBlocks = useMemo(
+    () => groupResponseMessages(messages, messageDisplayMode),
+    [messageDisplayMode, messages],
+  );
+  const activeStepBlockIndex = findActiveStepBlockIndex(messageBlocks);
+  const statusStepBlockIndex =
+    messageDisplayMode === "text-only"
+      ? activeStepBlockIndex
+      : findLastStepBlockIndex(messageBlocks);
 
   if (
     !messages.length &&
@@ -195,29 +244,43 @@ function DefaultHostResponseCard({
         </Flex>
       ) : null}
       {contentPrepend}
-      {messages.map((item) => {
-        switch (item.type) {
-          case AgentScopeRuntimeMessageType.MESSAGE:
-            return <HostMessage key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.PLUGIN_CALL:
-          case AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT:
-          case AgentScopeRuntimeMessageType.TOOL_CALL:
-          case AgentScopeRuntimeMessageType.TOOL_CALL_OUTPUT:
-          case AgentScopeRuntimeMessageType.MCP_CALL:
-          case AgentScopeRuntimeMessageType.MCP_CALL_OUTPUT:
-            return <ResponseTool key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
-            return <ResponseTool key={item.id} data={item} isApproval />;
-          case AgentScopeRuntimeMessageType.REASONING:
-            return <ResponseReasoning key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.ERROR:
-            return <ResponseError key={item.id} data={item} />;
-          case AgentScopeRuntimeMessageType.HEARTBEAT:
-            return null;
-          default:
-            console.warn(`[WIP] Unknown message type: ${item.type}`);
-            return null;
+      {messageBlocks.map((block, index) => {
+        if (block.kind === "message") {
+          return renderResponseMessage(block.message);
         }
+
+        const groupStatus = getCollapsedGroupStatus(
+          data.status,
+          index === statusStepBlockIndex,
+        );
+        const presentation = getCollapsedStepPresentation(groupStatus);
+        const firstId = block.messages[0]?.id ?? index;
+        const stepCount = countCollapsedSteps(block.messages);
+        if (stepCount === 0) {
+          return (
+            <React.Fragment key={`messages-${firstId}`}>
+              {block.messages.map(renderResponseMessage)}
+            </React.Fragment>
+          );
+        }
+        return (
+          <LazyAccordion
+            className={styles.collapsedSteps}
+            key={getCollapsedStepRenderKey(
+              firstId,
+              messageDisplayMode,
+              presentation.status,
+            )}
+            status={presentation.status}
+            title={t(presentation.titleKey, {
+              count: stepCount,
+            })}
+            defaultOpen={presentation.defaultOpen}
+            renderChildren={() => (
+              <>{block.messages.map(renderResponseMessage)}</>
+            )}
+          />
+        );
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
       {contentAppend}

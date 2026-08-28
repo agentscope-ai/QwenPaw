@@ -502,6 +502,134 @@ def _migrate_v7_to_v8(document: dict[str, Any]) -> dict[str, Any]:
 PROJECT_MIGRATIONS[7] = _migrate_v7_to_v8
 
 
+def _element_span_ticks(element: Mapping[str, Any]) -> tuple[int, int] | None:
+    span = element.get("span")
+    if not isinstance(span, Mapping):
+        return None
+    start = span.get("start_tick")
+    duration = span.get("duration_tick")
+    if isinstance(start, bool) or not isinstance(start, int):
+        return None
+    if isinstance(duration, bool) or not isinstance(duration, int):
+        return None
+    return start, start + duration
+
+
+def _voiced_spans_v8(
+    elements: Mapping[str, Any],
+) -> list[tuple[int, int]]:
+    """Whole-span voiced intervals of a raw v8 timeline.
+
+    Whole spans are a superset of the shot-granular intervals the v9
+    narration gate rejects, so any audio clear of these is guaranteed to
+    load as narration.
+    """
+
+    spans: list[tuple[int, int]] = []
+    for element in elements.values():
+        if not isinstance(element, Mapping) or element.get("enabled") is False:
+            continue
+        creation = element.get("creation")
+        if not isinstance(creation, Mapping):
+            continue
+        voiced = False
+        if creation.get("type") == "s2v":
+            voiced = True
+        elif creation.get("type") == "r2v":
+            shots = creation.get("shots")
+            items = shots.get("items") if isinstance(shots, Mapping) else None
+            if isinstance(items, Mapping):
+                voiced = any(
+                    isinstance(shot, Mapping)
+                    and isinstance(shot.get("dialogue"), str)
+                    and shot["dialogue"].strip()
+                    for shot in items.values()
+                )
+        if not voiced:
+            continue
+        ticks = _element_span_ticks(element)
+        if ticks is not None and ticks[1] > ticks[0]:
+            spans.append(ticks)
+    return spans
+
+
+def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
+    """Make the audio mixing ``role`` an explicit stored fact.
+
+    v9 requires ``creation.role`` on audio Elements so the
+    narration-overlap gate cannot be bypassed by omitting the field.
+    Pre-role documents are stamped ``"narration"``: the pre-role mixer
+    ducked the footage audio under *every* audio track (TTS narration and
+    uploaded audio alike), and narration is the role that preserves that
+    behaviour exactly — nothing silently becomes a -12dB music bed.
+
+    A migration must never emit a document its own validator rejects:
+    narration overlapping a natively voiced interval is exactly what the
+    v9 gate refuses, so audio overlapping a voiced element is stamped
+    ``sfx`` instead (mixed verbatim, not gated). That track keeps
+    playing and the project keeps loading; re-authoring it as narration
+    is an explicit user/agent decision the gate can then arbitrate.
+    """
+
+    migrated = dict(document)
+    timelines = dict(migrated.get("timelines") or {})
+    items = dict(timelines.get("items") or {})
+    for timeline_id, timeline in list(items.items()):
+        if not isinstance(timeline, Mapping):
+            continue
+        elements = dict(timeline.get("elements_by_id") or {})
+        voiced_spans = _voiced_spans_v8(elements)
+        changed = False
+        for element_id, element in list(elements.items()):
+            if not isinstance(element, Mapping):
+                continue
+            creation = element.get("creation")
+            if (
+                not isinstance(creation, Mapping)
+                or creation.get("type") != "audio"
+                or "role" in creation
+            ):
+                continue
+            ticks = _element_span_ticks(element)
+            overlaps_voiced = ticks is not None and any(
+                ticks[0] < end and start < ticks[1]
+                for start, end in voiced_spans
+            )
+            role = "sfx" if overlaps_voiced else "narration"
+            updated_creation = dict(creation)
+            updated_creation["role"] = role
+            updated_element = dict(element)
+            updated_element["creation"] = updated_creation
+            elements[element_id] = updated_element
+            changed = True
+            if overlaps_voiced:
+                logger.warning(
+                    "v8->v9: audio element %s/%s overlaps a natively "
+                    "voiced element; stamped role=sfx so the narration "
+                    "gate keeps the project loadable",
+                    timeline_id,
+                    element_id,
+                )
+            else:
+                logger.info(
+                    "v8->v9: audio element %s/%s stamped role=narration "
+                    "(pre-role mixing behaviour)",
+                    timeline_id,
+                    element_id,
+                )
+        if changed:
+            updated_timeline = dict(timeline)
+            updated_timeline["elements_by_id"] = elements
+            items[timeline_id] = updated_timeline
+    timelines["items"] = items
+    migrated["timelines"] = timelines
+    migrated["schema_version"] = 9
+    return migrated
+
+
+PROJECT_MIGRATIONS[8] = _migrate_v8_to_v9
+
+
 def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Return a detached document at the current Project schema version.
 

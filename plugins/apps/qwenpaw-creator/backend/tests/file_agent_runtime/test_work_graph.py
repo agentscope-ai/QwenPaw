@@ -548,3 +548,57 @@ def test_stale_final_render_reopens_compose() -> None:
     compose = graph.by_id["compose:final"]
     assert compose.status is WorkNodeStatus.READY
     assert compose in graph.ready_media_nodes()
+
+
+def test_superseded_render_source_reopens_compose_without_stale_flag() -> None:
+    """Frozen selections are authoritative even if impact missed stale."""
+
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    _select_slot(
+        project,
+        slot_id="element:elem:one:storyboard",
+        kind="r2v_storyboard_image",
+        owner_ref="element:elem:one",
+        version_id="art:sb",
+    )
+    _select_slot(
+        project,
+        slot_id="element:elem:one:main",
+        kind="element_video",
+        owner_ref="element:elem:one",
+        version_id="art:vid-old",
+    )
+    _select_slot(
+        project,
+        slot_id="timeline:timeline:main:render",
+        kind="final_video",
+        owner_ref="timeline:timeline:main",
+        version_id="art:final",
+    )
+    project.assets.artifact_versions_by_id["art:final"].metadata = {
+        "sourceSelections": [
+            {
+                "sourceRef": "element:elem:one",
+                "versionId": "art:vid-old",
+            },
+        ],
+    }
+    assert (
+        derive_work_graph(project).by_id["compose:final"].status
+        is WorkNodeStatus.DONE
+    )
+
+    _select_slot(
+        project,
+        slot_id="element:elem:one:main",
+        kind="element_video",
+        owner_ref="element:elem:one",
+        version_id="art:vid-new",
+    )
+    # The lifecycle bug observed in the real run left this false.
+    assert not project.assets.artifact_versions_by_id["art:final"].stale
+    graph = derive_work_graph(project)
+    compose = graph.by_id["compose:final"]
+    assert compose.status is WorkNodeStatus.READY
+    assert compose in graph.ready_media_nodes()

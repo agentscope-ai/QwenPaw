@@ -7,6 +7,9 @@ DINGTALK_TOKEN_TTL_SECONDS = 3600
 # Short suffix length for session_id from conversation_id
 DINGTALK_SESSION_ID_SUFFIX_LEN = 8
 
+# Shared-group session IDs use 64 bits from SHA-256.
+DINGTALK_SHARED_SESSION_HASH_LEN = 16
+
 # DingTalk message type to runtime content type
 DINGTALK_TYPE_MAPPING = {
     "picture": "image",

@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from domain.errors import (
+    BadRequestError,
     ConflictError,
     CreatorError,
     RuntimeBusyError,
@@ -26,6 +27,7 @@ from services.project_files.facade import (
     CreatorFileServices,
     creator_file_services,
 )
+from services.project_files.store import InvalidProjectId
 from services.observability import (
     bind_trace_context,
     report_error,
@@ -323,6 +325,15 @@ class CreatorErrorRoute(APIRoute):
                             attributes["statusCode"] = response.status_code
                 except CreatorError as error:
                     response = await creator_error_handler(request, error)
+                except InvalidProjectId as error:
+                    # A malformed id is a client addressing mistake. Routes
+                    # that fold ProjectStoreError into a storage fault
+                    # translate it themselves; this catches the rest before
+                    # the generic branch reports an INTERNAL_ERROR.
+                    response = await creator_error_handler(
+                        request,
+                        BadRequestError(str(error)),
+                    )
                 except RequestValidationError as error:
                     response = await creator_error_handler(
                         request,

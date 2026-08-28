@@ -1,0 +1,32 @@
+.collapsedSteps {
+  width: calc(100% + 8px);
+  margin-left: -8px;
+
+  /* Closed headers add a 1px border; keep both content baselines equal. */
+  :global([class$="-accordion-group-header-close"]) {
+    padding-left: 8px;
+  }
+
+  :global([class$="-accordion-group-header-open"]) {
+    padding-left: 9px;
+  }
+
+  :global([class$="-accordion-group-open"]) {
+    border: 0;
+  }
+
+  :global(.dark-mode) & {
+    :global([class$="-accordion-group-header-close"]),
+    :global([class$="-accordion-group-header-open"]),
+    :global([class$="-accordion-group-open"]) {
+      background-color: transparent;
+    }
+
+    /* Beat the dark chat blanket `span { color: ... !important }` rule. */
+    :global(
+        [class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"]
+      ) {
+      color: #52c41a !important;
+    }
+  }
+}

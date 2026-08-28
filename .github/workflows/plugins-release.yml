@@ -53,8 +53,8 @@ jobs:
               echo "Skipping ${app_dir} (released via creator-release.yml)"
               continue
             fi
-            if [[ "$(basename "$app_dir")" == "datapaw" ]]; then
-              echo "Skipping ${app_dir} (released via datapaw-release.yml)"
+            if [[ "$(basename "$app_dir")" == "qwenpaw-data" ]]; then
+              echo "Skipping ${app_dir} (released via qwenpaw-data-release.yml)"
               continue
             fi
             if [[ -f "$app_dir/ui/package-lock.json" ]]; then
@@ -65,9 +65,9 @@ jobs:
           done
 
       - name: Pack plugins and build index
-        # qwenpaw-creator and datapaw are released through their own
+        # qwenpaw-creator and qwenpaw-data are released through their own
         # version-driven pipelines (creator-release.yml,
-        # datapaw-release.yml); datapaw additionally needs the vendored
+        # qwenpaw-data-release.yml); qwenpaw-data additionally needs the vendored
         # context console staged before packing. Their plugin.json
         # pack_requires declarations make an accidental un-exclude fail
         # this step loudly instead of shipping a broken artifact.
@@ -78,7 +78,7 @@ jobs:
             --metadata-out dist/plugins/index.json \
             --cdn-prefix /files/plugins \
             --exclude qwenpaw-creator \
-            --exclude datapaw
+            --exclude qwenpaw-data
 
       - name: Install ossutil
         run: |

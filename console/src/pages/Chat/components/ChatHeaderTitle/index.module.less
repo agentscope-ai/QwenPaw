@@ -69,14 +69,27 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
   cursor: pointer;
   user-select: none;
+  min-width: 0;
   max-width: 260px;
 
   &:hover {
     .chatName {
       color: var(--colorPrimary, #ff7f16);
     }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ant-color-primary-border);
+    outline-offset: -2px;
+    border-radius: 6px;
   }
 
   @media (max-width: 768px) {
@@ -88,16 +101,44 @@
   }
 }
 
+/* Keep long session lists inside their own scroll region. Without an explicit
+ * width and height cap, the portalled popup expands the document itself. */
+.sessionDropdown {
+  width: min(320px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+
+  :global(.qwenpaw-dropdown-menu),
+  :global(.ant-dropdown-menu) {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: min(420px, calc(100dvh - 120px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  @media (max-width: 768px) {
+    width: min(280px, calc(100vw - 96px));
+
+    :global(.qwenpaw-dropdown-menu),
+    :global(.ant-dropdown-menu) {
+      max-height: min(360px, calc(100dvh - 160px));
+    }
+  }
+}
+
 /* ---- Dropdown menu items ---- */
 .menuItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-width: 200px;
+  width: 100%;
+  min-width: 0;
 }
 
 .menuItemName {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -106,6 +147,5 @@
 
 .menuItemActive {
   color: var(--colorPrimary, #ff7f16);
-  font-size: 12px;
   flex-shrink: 0;
 }

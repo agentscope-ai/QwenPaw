@@ -589,6 +589,55 @@ def _expand_pattern_fields(schema: Any) -> Any:
     return result
 
 
+def _map_tool_parameters(
+    tools: list[dict[str, Any]],
+    transform: Callable[[dict[str, Any]], Any],
+) -> list[dict[str, Any]]:
+    """Apply *transform* to each tool's ``function.parameters`` object."""
+    sanitized = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            sanitized.append(tool)
+            continue
+        func = tool.get("function")
+        if not isinstance(func, dict):
+            sanitized.append(tool)
+            continue
+        params = func.get("parameters")
+        if not isinstance(params, dict):
+            sanitized.append(tool)
+            continue
+        sanitized.append(
+            {
+                **tool,
+                "function": {**func, "parameters": transform(params)},
+            },
+        )
+    return sanitized
+
+
+def _sanitize_nullable_tool_schemas(
+    tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Normalize nullable / empty tool-parameter branches only.
+
+    Unlike :func:`_sanitize_tool_schemas`, this pass does not inline
+    ``$ref`` / ``$defs``, rewrite boolean schemas, or expand regex
+    shorthands.  Use it on providers that only reject ``Optional`` unions.
+    """
+    return _map_tool_parameters(tools, _sanitize_nullable_schemas)
+
+
+def _apply_openai_compat_schema_passes(params: dict[str, Any]) -> Any:
+    return _expand_pattern_fields(
+        _sanitize_nullable_schemas(
+            _sanitize_boolean_schemas(
+                _expand_schema_refs(params),
+            ),
+        ),
+    )
+
+
 def _sanitize_tool_schemas(
     tools: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -609,30 +658,7 @@ def _sanitize_tool_schemas(
        classes (``[0-9]``, ``[a-zA-Z0-9_]``, etc.).  llama.cpp's GBNF grammar
        parser does not support these escape sequences (#6201).
     """
-    sanitized = []
-    for tool in tools:
-        if not isinstance(tool, dict):
-            sanitized.append(tool)
-            continue
-        func = tool.get("function")
-        if not isinstance(func, dict):
-            sanitized.append(tool)
-            continue
-        params = func.get("parameters")
-        if not isinstance(params, dict):
-            sanitized.append(tool)
-            continue
-        sanitized_params = _expand_pattern_fields(
-            _sanitize_nullable_schemas(
-                _sanitize_boolean_schemas(
-                    _expand_schema_refs(params),
-                ),
-            ),
-        )
-        sanitized.append(
-            {**tool, "function": {**func, "parameters": sanitized_params}},
-        )
-    return sanitized
+    return _map_tool_parameters(tools, _apply_openai_compat_schema_passes)
 
 
 class OpenAIChatModelCompat(OpenAIChatModel):

@@ -40,6 +40,7 @@ from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
 from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
 from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.tool_calls import (  # noqa: E402
+    COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     ToolCoordinator,
     ToolCoordinatorMiddleware,
 )
@@ -544,6 +545,24 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     )
 
 
+def test_spawn_subagent_hook_exposes_internal_timeout_cap():
+    coordinator = ToolCoordinator()
+    agent = types.SimpleNamespace(
+        _request_context={"agent_id": "agent-1"},
+        _agent_config=types.SimpleNamespace(tools=None),
+        name="agent-1",
+        _get_tool_coordinator=lambda: coordinator,
+    )
+
+    QwenPawAgent._register_tool_call_hooks(agent)
+
+    hook = coordinator.hooks.get("spawn_subagent")
+    assert hook.default_timeout_secs is None
+    assert hook.max_internal_timeout_secs == float(
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+    )
+
+
 def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
     agent_config = types.SimpleNamespace(
         id="agent-1",
@@ -571,7 +590,7 @@ def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
     )
 
 
-def test_context_config_disables_agentscope_duplicate_tool_result_cap():
+def test_context_config_disables_agentscope_duplicate_context_limits():
     agent_config = types.SimpleNamespace(
         running=types.SimpleNamespace(
             light_context_config=LightContextConfig(
@@ -587,6 +606,13 @@ def test_context_config_disables_agentscope_duplicate_tool_result_cap():
     context_config = AgentBuilder._build_context_config(agent_config)
 
     assert context_config.tool_result_limit == 2**63 - 1
+    assert context_config.max_image_num == 2**63 - 1
+
+
+def test_context_config_fallback_keeps_image_limit_non_binding():
+    context_config = AgentBuilder._build_context_config(object())
+
+    assert context_config.max_image_num == 2**63 - 1
 
 
 @pytest.mark.asyncio

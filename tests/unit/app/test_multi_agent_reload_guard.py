@@ -88,7 +88,10 @@ async def test_stale_reload_aborts_when_config_changes_mid_build(manager):
 
     assert await reload_task is False
     assert mgr.agents["agent"] is old_instance
-    new_instance.stop.assert_awaited()
+    new_instance.stop.assert_awaited_once_with(
+        final=True,
+        preserve_reused=True,
+    )
 
 
 async def test_reload_swaps_when_no_write_intervenes(manager):
@@ -99,6 +102,32 @@ async def test_reload_swaps_when_no_write_intervenes(manager):
     assert await mgr.reload_agent("agent") is True
     assert mgr.agents["agent"] is new_instance
     assert mgr.agents["agent"] is not old_instance
+
+
+async def test_cancelled_plugin_setup_cleans_uncommitted_candidate(manager):
+    mgr, old_instance = manager
+    new_instance = _fake_workspace()
+    plugin_setup_entered = asyncio.Event()
+    mgr._create_workspace = lambda agent_id, workspace_dir: new_instance
+
+    async def blocking_plugin_setup(*_args) -> None:
+        plugin_setup_entered.set()
+        await asyncio.Event().wait()
+
+    mgr._setup_workspace_plugins = blocking_plugin_setup
+
+    reload_task = asyncio.create_task(mgr.reload_agent("agent"))
+    await plugin_setup_entered.wait()
+    reload_task.cancel("reload cancelled")
+
+    with pytest.raises(asyncio.CancelledError, match="reload cancelled"):
+        await reload_task
+
+    new_instance.stop.assert_awaited_once_with(
+        final=True,
+        preserve_reused=True,
+    )
+    assert mgr.agents["agent"] is old_instance
 
 
 async def test_writers_reload_lands_after_stale_abort(manager):

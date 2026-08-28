@@ -10,6 +10,7 @@ just enough endpoints for token login + sync + send:
 * ``PUT  /_matrix/client/v3/rooms/{id}/send/{type}/{txn}`` -> recorded
 * misc (versions/joined_rooms/join/keys/...) -> benign 200s
 """
+
 from __future__ import annotations
 
 # pylint: disable=protected-access  # nested handler touches own instance
@@ -40,6 +41,8 @@ class MockMatrixHomeserver:
         # Pending timeline events per room, drained by /sync.
         self._pending: list[tuple[str, dict[str, Any]]] = []
         self._batch = 0
+        self._sync_request_count = 0
+        self._delivered_at_sync_request: dict[str, int] = {}
         self._event_counter = 0
         # Recorded room sends.
         self.sent_events: list[dict[str, Any]] = []
@@ -172,6 +175,9 @@ class MockMatrixHomeserver:
 
     def _build_sync(self) -> dict:
         """Drain pending events into a sync response (long-poll-ish)."""
+        with self._lock:
+            self._sync_request_count += 1
+            sync_request = self._sync_request_count
         deadline = time.time() + 2.0
         drained: list[tuple[str, dict[str, Any]]] = []
         while time.time() < deadline:
@@ -182,6 +188,10 @@ class MockMatrixHomeserver:
                     break
             time.sleep(0.1)
         with self._lock:
+            for _, event in drained:
+                event_id = event.get("event_id")
+                if isinstance(event_id, str):
+                    self._delivered_at_sync_request[event_id] = sync_request
             self._batch += 1
             batch = f"batch-{self._batch}"
         rooms_join: dict[str, Any] = {}
@@ -297,3 +307,22 @@ class MockMatrixHomeserver:
                     return text
             time.sleep(0.2)
         return None
+
+    def wait_for_followup_sync_after(
+        self,
+        event_id: str,
+        *,
+        timeout: float = 30.0,
+    ) -> bool:
+        """Wait for the client to sync again after receiving an event."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                delivered_at = self._delivered_at_sync_request.get(event_id)
+                if (
+                    delivered_at is not None
+                    and self._sync_request_count > delivered_at
+                ):
+                    return True
+            time.sleep(0.05)
+        return False

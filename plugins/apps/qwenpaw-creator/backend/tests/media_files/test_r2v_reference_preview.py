@@ -120,20 +120,21 @@ def test_preview_mirrors_submit_order_and_shifts_without_storyboard() -> None:
 
     assert preview["elementId"] == "elem:1"
     assert preview["storyboardSelected"] is True
+    # Agent-specified references are authoritative: the explicit list is
+    # used verbatim after the storyboard, with no auto-injected anchors.
     assert [
         (item["index"], item["versionId"], item["kind"])
         for item in preview["references"]
     ] == [
         (1, "art:sb-1", "storyboard"),
-        (2, "art:a-main", "artifact"),
-        (3, "src:upload-1", "source"),
-        (4, "art:extra", "artifact"),
+        (2, "src:upload-1", "source"),
+        (3, "art:extra", "artifact"),
     ]
     assert preview["references"][0]["name"] == "第一镜 分镜图"
-    assert preview["references"][2]["name"] == "用户上传参考"
+    assert preview["references"][1]["name"] == "用户上传参考"
 
     # Without a selected storyboard the chain starts at [Image 1] with the
-    # first resolved visual reference.
+    # first explicit reference.
     slot = project.assets.artifact_slots_by_id["element:elem:1:storyboard"]
     slot.selected_version_id = None
     shifted = preview_r2v_reference_order(project, "elem:1")
@@ -141,7 +142,62 @@ def test_preview_mirrors_submit_order_and_shifts_without_storyboard() -> None:
     assert [
         (item["index"], item["versionId"]) for item in shifted["references"]
     ] == [
-        (1, "art:a-main"),
-        (2, "src:upload-1"),
-        (3, "art:extra"),
+        (1, "src:upload-1"),
+        (2, "art:extra"),
     ]
+
+    # An element with no explicit references falls back to the automatic
+    # chain (resolved variant anchors).
+    element = None
+    for timeline in project.timelines.items.values():
+        element = timeline.elements_by_id.get("elem:1") or element
+    element.creation.video_reference_version_ids.clear()
+    auto = preview_r2v_reference_order(project, "elem:1")
+    assert [
+        (item["index"], item["versionId"]) for item in auto["references"]
+    ] == [
+        (1, "art:a-main"),
+    ]
+
+
+def test_explicit_reference_from_another_variant_is_rejected() -> None:
+    """A bound entity never consumes an ArtifactVersion owned by another
+    Variant: instead of silently dropping the conflicting reference, the
+    resolver fails loudly so the agent fixes the list or the binding."""
+    from domain.errors import ValidationError
+    from services.media_files.visual_reference_resolution import (
+        resolve_r2v_visual_reference_version_ids,
+    )
+
+    project = _project()
+    entity = project.visual.entities.items["char:a"]
+    entity.variants.items["var:z"] = VisualVariant(
+        variant_id="var:z",
+        generated_artifact_version_ids=["art:a-alt"],
+        selected_artifact_version_id="art:a-alt",
+    )
+    entity.variants.order.append("var:z")
+    project.assets.artifact_versions_by_id["art:a-alt"] = _artifact(
+        "art:a-alt",
+        slot_id="slot:char-a-alt",
+        name="阿珍 战损造型",
+    )
+    creation = R2VCreation(
+        character_refs=["char:a"],
+        visual_variant_refs={"char:a": "var:x"},
+    )
+
+    with pytest.raises(ValidationError, match="var:z"):
+        resolve_r2v_visual_reference_version_ids(
+            project,
+            creation,
+            ["art:a-alt"],
+        )
+
+    # A reference from the bound Variant itself stays authoritative.
+    resolved = resolve_r2v_visual_reference_version_ids(
+        project,
+        creation,
+        ["art:a-main", "art:extra"],
+    )
+    assert resolved == ("art:a-main", "art:extra")

@@ -130,12 +130,22 @@ vi.mock("@/api/config", () => ({
   getApiToken: vi.fn(() => ""),
 }));
 
-vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
+vi.mock("@/stores/agentStore", () => {
+  const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
-  })),
-}));
+    agents: [],
+    setLastChatId: vi.fn(),
+    getLastChatId: vi.fn(() => null),
+    removeLastChatId: vi.fn(),
+  });
+  const store = Object.assign(vi.fn(makeState), {
+    subscribe: vi.fn(() => vi.fn()),
+    getState: vi.fn(makeState),
+    setState: vi.fn(),
+  });
+  return { useAgentStore: store };
+});
 
 vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
@@ -153,9 +163,24 @@ vi.mock("./sessionApi", () => ({
 }));
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
-  default: { theme: { leftHeader: {} }, api: {} },
+  default: {
+    theme: {
+      leftHeader: {},
+      bubbleList: {
+        userMessageAnchors: {},
+        assistantMessageAnchors: {},
+      },
+    },
+    api: {},
+  },
   getDefaultConfig: vi.fn(() => ({
-    theme: { leftHeader: {} },
+    theme: {
+      leftHeader: {},
+      bubbleList: {
+        userMessageAnchors: {},
+        assistantMessageAnchors: {},
+      },
+    },
     welcome: {},
     sender: {},
   })),

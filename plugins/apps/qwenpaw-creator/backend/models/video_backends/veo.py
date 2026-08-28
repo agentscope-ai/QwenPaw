@@ -36,6 +36,7 @@ from models.video_capabilities import (
     VEO_RATIOS,
     VEO_REFERENCE_DURATION_SECONDS,
     VEO_RESOLUTIONS,
+    validate_video_mode,
 )
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
@@ -84,6 +85,11 @@ def build_submit_request(
     base_url: str,
 ) -> tuple[str, dict, dict]:
     """Render the predictLongRunning submit request for one Veo task."""
+
+    try:
+        mode = validate_video_mode("veo", model_name, mode)
+    except ValueError as exc:
+        raise ModelError(str(exc), model_name=model_name) from exc
 
     normalized_ratio = ratio or "16:9"
     if normalized_ratio not in VEO_RATIOS:

@@ -3,117 +3,104 @@ title: "把上下文变成环境：QwenPaw Scroll 的程序化上下文管理"
 date: 2026-08-05
 author: QwenPaw Team
 tags: [上下文工程, 长上下文 Agent, Scroll, CodeAct, 检索]
-excerpt: "QwenPaw Scroll 面向 long-context agentic tasks：它将完整交互轨迹外部化到 SQLite/FTS 持久日志，使 Agent 能够在超长历史上持续检索、推理和行动。"
+excerpt: "QwenPaw Scroll 将 CodeAct 风格接口用于 context management：交互历史持久化在窗口之外，Agent 在 query time 通过结构化 recall 或 sandboxed Python 构造有界证据。"
 ---
 
 # 把上下文变成环境：QwenPaw Scroll 的程序化上下文管理
 
-QwenPaw Scroll 面向的是 **long-context agentic tasks**。在这类任务中，Agent 需要在持续增长的 user instruction、tool call、tool result、失败尝试、决策与环境状态上连续推理并执行动作。核心问题不仅是能否从历史中 recall 某个事实，更是模型能否基于超长交互轨迹保持任务状态、恢复相关证据，并据此继续 reasoning and acting。
+QwenPaw Scroll 面向的是 **long-context agentic tasks**。在这类任务中，Agent 需要在持续增长的 user instruction、tool call、tool result、失败尝试、决策与环境状态上连续推理并执行动作。核心问题不仅是能否从历史中 recall 某个事实，更是当 session state 已经无法装进 context window 时，模型如何仍然能够在这些状态之上持续工作。
 
 因此，长时程 Agent 的上下文管理，本质上是在有限推理预算下选择模型当前可见的信息。常见实现会把相关历史直接注入 prompt；当累计历史接近上下文窗口上限时，再截断或摘要较早的内容。这类方法能够控制输入规模，但也把信息保留决策提前到了压缩时刻：系统必须在未来查询尚未出现时，预测哪些细节值得长期保留。
 
-持久化存储的成本远低于持续占用模型上下文。基于这一点，QwenPaw Scroll 采用不同的系统边界：完整交互历史无需常驻模型上下文，而是被外部化到 SQLite 与全文索引构成的持久化存储中；Agent 通过结构化检索工具和沙箱 Python REPL，按需读取、关联并计算历史记录。
+QwenPaw Scroll 将 **CodeAct 风格接口用于 context management**。Scroll 将交互历史 write-through 到 durable storage，并通过 recent tail、eviction index、continuation summary 和显式 recall 控制 live context。结构化 `recall_history` 只执行系统预先实现的参数化 read-only operation，因此在没有 sandbox 时仍然可用；当 sandbox 可用时，Scroll 还会提供更灵活的 `recall_history_python` environment，让 Agent 编写的 Python program 通过预绑定的 `ms`（`MemorySpace`）interface 操作历史。
 
-在这一设计中，conversation history 不再作为静态文本常驻注入 prompt，而是被组织为一个**可查询、可计算的外部历史环境**。模型上下文只维护有界的 working set，完整历史位于窗口之外，并保持可寻址、可验证和可重新计算。
+`recall_history_python` 在 sandboxed environment 中运行 Agent 编写的代码，并预绑定 `ms` interface。Durable history 保持 read-only，file-backed scratch database 则可以为多步分析保留 derived table。稳定的 `seq`、`tool_call_id` 和 recovery metadata 将这个 query interface 与 SQLite 中的历史、以及保存为文件的超大工具输出连接起来。Program 在 externalized history 上完成筛选和计算，然后只返回下一步推理所需的有界证据。因此，context window 是 durable session history 之上的 working view，而不是它的容器。
 
-本文从这一问题设定出发，说明 QwenPaw Scroll 的几个核心机制：tool description 如何定义 Agent 可执行的 retrieval contract，headline 如何依据时间距离调整表示粒度，eviction index 如何保存可恢复的历史索引，以及 continuation summary 如何通过多层校验限制误差累积。
+## 1. 交互历史存在 Event Log 中，Context 是 Working Set
 
-## 1. Context Window 是工作记忆，不是历史档案
-
-Live-context compaction、durable interaction history 与 semantic memory 是三个不同的系统层次：
-
-- **Compaction**：控制模型当前输入的规模；
-- **Durable interaction history**：逐字保存跨轮次的原始事件，并提供可寻址的访问接口；
-- **Semantic memory**：从历史或外部来源派生实体、关系与抽象表示，用于语义召回和知识组织。
+Scroll 将两种角色明确分开：**context window 是服务于当前推理步骤的有界 working set；`history.db` 中以追加为主的 Event Log 是交互历史的 durable source of truth。** 超大工具文本可以保存到 `tool_results/`，对应消息则保留有界 preview 和 recovery metadata。记录和已保存输出通过稳定数据库地址、文件指针与 recall interface 保持可访问，但不会被 materialize 成一套统一的 Python object hierarchy。
 
 如果 summary 成为历史内容唯一保留的表示，那么每次压缩都隐含了一次不可逆的信息选择：系统需要预先判断未来不会再依赖哪些细节。然而，一条精确报错、一个被否决的实现方案，或某项偏好发生变化的具体日期，都可能在后续 session 中成为关键证据。
 
-因此，Scroll 把 live prompt 与 durable record 分开：
+因此，Scroll 把 live prompt、durable history 与 query-time computation 分开：
 
 ```mermaid
 flowchart LR
-    A[Agent loop] --> W["有界 live context<br/>summary + eviction index + recent turns"]
-    A -->|每轮 write-through| H["history.db<br/>SQLite + FTS5<br/>逐字 source of truth"]
-    W -->|普通召回| R["recall_history<br/>结构化只读操作"]
-    W -->|自定义分析| P["recall_history_python<br/>沙箱 Python REPL"]
+    A["Agent loop"]
+    C["Live context<br/>recent tail + summary + eviction index"]
+    H["history.db<br/>conversation_history + FTS5"]
+    F["tool_results/*.txt<br/>超大 raw output"]
+    R["recall_history<br/>结构化 read-only operation"]
+    P["recall_history_python<br/>可选 sandboxed Python + 预绑定 ms"]
+    S["File-backed scratch DB<br/>持久化 derived table"]
+    A <--> C
+    C -->|eviction 前 write-through| H
+    C -->|常见读取| R
+    C -->|自定义 program| P
     R --> H
-    P -->|只读历史| H
-    P --> S["持久 scratch tables<br/>派生状态"]
-    H -->|选中的证据| W
-    S -->|计算结果| W
+    P -->|read-only history| H
+    P <--> S
+    H -. recovery metadata .-> F
+    R -->|有界证据| C
+    P -->|有界 stdout| C
 ```
 
-### `conversation_history` 的简化 Schema
+### Event Log：Durable History 的主干
 
-Scroll 将不同类型的交互事件保存在同一张 `conversation_history` 表中。下表是面向 Agent retrieval 的逻辑视图，而不是完整 SQL DDL：
+Scroll 通过一张 `conversation_history` 表表示 append-only log 中的不同 event 类型。下表展示暴露给 Agent 的逻辑接口，而不是底层 SQL DDL：
 
 | 字段组     | 关键字段                                   | 作用                                                |
 | ---------- | ------------------------------------------ | --------------------------------------------------- |
 | Addressing | `seq`                                      | 提供全局稳定地址，用于精确展开与 provenance         |
 | Scope      | `session_id`, `agent_id`                   | 支持跨 session 检索，也可以限定到指定 Agent         |
 | Event type | `kind`, `role`, `name`                     | 区分 user/model turn 与 tool result，并标识工具名称 |
-| Payload    | `content`, `blocks`                        | 保存原始文本与结构化 message block                  |
+| Payload    | `content`, `blocks`                        | 保存内联文本、结构化 block 或外部数据的有界 view    |
 | Tool state | `tool_call_id`, `tool_input`, `tool_state` | 精确恢复工具调用、输入及执行状态                    |
 | Navigation | `headline`                                 | 为 eviction index 提供紧凑的 retrieval label        |
 | Time       | `created_at`                               | 支持日期过滤、时间范围检索和事实更新判断            |
-| Recovery   | `metadata`, `dedup_key`                    | 保存 artifact pointer、恢复信息与幂等写入标识       |
+| Recovery   | `metadata`, `dedup_key`                    | 保存 payload pointer、恢复信息与幂等写入标识        |
 
-其中，`seq` 是连接 durable history、eviction index、summary provenance 与精确 recall 的稳定地址。FTS5 只对 `content` 建立全文索引；scope、event type 与时间字段则用于结构化过滤。Schema 保留的是原始 event，而不是在写入阶段预先提取的“重要事实”，因此 Agent 可以在 query time 重新选择、关联和计算历史证据。
+较小的 event payload 直接内联在 SQLite 中。超大的文本 tool result 在为 context 截断之前，`ToolResultPruningMiddleware` 会先把完整 raw output 以文本文件形式保存到 `tool_results/`。结构化的 tool-result block 保留有界 preview 和 block-scoped recovery metadata，其中包括文件路径和继续通过 `read_file` 读取的提示。因此，持久化 event 记录模型实际看到的内容，同时保留恢复完整输出的路径。
 
-写入路径以追加为主，并跨 session 持久化。关键词查询使用 FTS5 的 BM25 排序；环境不支持 FTS5 时，则降级为较慢的 `LIKE` 扫描。无论采用哪种检索 backend，live context 都可以受控收缩，而 durable record 的完整性不受影响。
+其中，`seq` 是连接 durable history、eviction index、summary provenance 与精确 recall 的稳定地址。FTS5 只对 `content` 建立全文索引；scope、event type 与时间字段则用于结构化过滤。Search、span expand 和精确 tool-result recovery 由结构化 `recall_history` 完成；当 sandboxed execution 可用时，`recall_history_python` 还会通过 `ms`（`MemorySpace`）query surface 支持自定义 SQL、aggregation 和 scratch table。Schema 保留的是原始 event，而不是在写入阶段预先提取的“重要事实”，因此 Agent 可以在 query time 选择当前任务所需的 view。
 
-## 2. Tool Description 如何定义 Retrieval Interface
+写入路径以追加为主，并跨 session 持久化。关键词查询使用 FTS5 的 BM25 排序；环境不支持 FTS5 时，则降级为较慢的 `LIKE` 扫描。无论采用哪种检索 backend，live context 都可以受控收缩，而 durable event record 和已保存的工具输出文件不受影响。
 
-仅提供 retrieval function，并不能保证 Agent 正确调用它。模型还需要明确 recall 的触发条件、operation 的选择规则、搜索范围、查询语义，以及空结果、分页和时间过滤的解释方式。
+## 2. CodeAct：在 Query Time 构造证据
 
-QwenPaw 将这些约束直接编码在 **tool description** 中。这里的 description 不只是功能标签，而是面向 Agent 的接口规范：它同时描述 capability boundary、operation routing、result protocol 与 failure semantics。
+当前实现的核心机制是：**由 Agent 编写 program，构造下一步推理所需的历史证据**。Scroll 不会把普通工具路由进这个 Python environment。普通 agent loop 产生的 tool call 和 tool result 会先写入 `conversation_history`；如果文本结果过大，pruning middleware 会把完整 raw output 保存到 `tool_results/`，并在消息中保留 preview 与 recovery metadata。
 
-`recall_history` 的 description 包含五类信息：
+当相关证据离开 live context 后，Scroll 提供两种 recall interface。`recall_history` 将 `expand`、`search`、`recall_tool` 与 `days_between` 预先实现为有界、参数化的 read-only operation，因此即使没有 sandbox 也可以使用。当 sandboxed execution 可用时，Scroll 还会额外提供 `recall_history_python`：同一份 durable history 之上更灵活的程序化执行环境。
 
-1. **Capability boundary。** 工具读取原始历史 turn，包括当前 session 中已经移出窗口的内容，以及过去 session 的记录。
-2. **Operation routing。** `expand` 读取精确 `seq` 区间；`search` 处理关键词与日期检索；`recall_tool` 恢复某次工具调用及结果；`days_between` 执行确定性的日历运算。我们的实验观察到，对于这些高频且可以标准化的检索操作，预先封装的结构化 API 比每次由模型生成 free-form code 具有更高的 retrieval accuracy，同时减少了参数构造、结果解析和异常处理带来的不确定性。因此，QwenPaw 默认使用结构化 API，将沙箱 REPL 保留给 join、aggregation 和其他难以预先定义的查询。
-3. **Query semantics。** 查询使用检索词而非完整问句；多个 term 默认采用合取语义；大写 `OR` 用于扩大召回范围；日期 filter 可以脱离文本 query 独立运行。
-4. **Completeness protocol。** 空结果会被显式返回，代表当前条件下不存在匹配记录。较大结果通过 opaque cursor 分页；Agent 必须保持原参数继续读取，不能将 partial page 解释为完整结果。
-5. **Execution boundary。** 常规 retrieval 采用有界、参数化、只读的操作；任意 SQL、跨结果关联和程序化分析由高级的沙箱化 Python 工具承担。
+### `ms`：Sandboxed Environment 中的受控接口
 
-系统 prompt 再围绕这份接口补充 retrieval discipline：历史事实不在 live context 时先 recall 再回答；“列出全部/一共有多少”要更换关键词并扩大搜索；重复 mention 需要去重；事实发生变化时，以日期最新的 user evidence 为准。
+`recall_history_python` 会预绑定 `ms`，以 read-only 方式暴露 durable history，同时提供独立的 writable scratch database。它的 capability boundary 固定且受控，但 Agent 可以在这个边界内使用 Python control flow、SQL、join、aggregation 和数据变换自由组合这些能力：
 
-这里形成了明确的职责拆分：system prompt 定义**检索策略**，tool description 定义**操作契约**。将接口语义放在 tool 附近，可以提高 capability selection 的准确性，同时避免在无关 turn 中重复注入工具细节。
+| Interface                           | 当前作用                                                     |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `ms.expand(lo, hi)`                 | 读取精确的 inclusive `seq` span                              |
+| `ms.search(...)`                    | 搜索历史，并在需要时搜索已保存的大型工具输出文件             |
+| `ms.recall_tool(tool_call_id)`      | 恢复 tool call/result，并报告已保存的完整输出文件            |
+| `ms.sessions()` / `ms.session(...)` | 发现并读取 session history                                   |
+| `ms.sql_query(sql, params)`         | 在 `hist.conversation_history` 与 scratch table 上自定义读取 |
+| `ms.sql_exec(sql, params)`          | 只向 persistent scratch database 写入 derived table          |
 
-### 分层检索：结构化操作与可编程查询
-
-常见历史查询无需执行模型生成代码：
-
-```python
-# 某个来源日期发生了什么？
-recall_history(op="search", created_on="2026-05-14", k=20)
-
-# 从 in-context map 重新打开一个已驱逐区间。
-recall_history(op="expand", lo=180, hi=184)
-
-# 恢复某次 large tool output。
-recall_history(op="recall_tool", tool_call_id="call_abc")
-```
-
-Long-horizon task 还会产生固定 retriever 难以预先覆盖的查询，例如：统计某项决定之前的全部失败尝试，将销售事件与历史最低供应商报价进行 join，比较一项偏好在多个 session 中的更新时间，或将一组历史记录计算成可复用的派生表。
-
-这时，QwenPaw 会暴露 `recall_history_python`。REPL 中已经预先定义好 `ms` memory surface：
+Agent 可以在一次 program 中对历史记录执行 search、filter、join 和 reduce，然后只 print 模型真正需要的有界结果：
 
 ```python
-sales = ms.search("sale", k=200, include_turn=False)
-quotes = ms.search("price OR quote", k=200, include_turn=False)
-
-# Agent 可以解析、join、group、rank，或者执行有界的自定义 SQL。
-# 只有 print 出来的结果会回到模型上下文。
+events = ms.search("sale OR quote", k=200, include_turn=False)
+selected = sorted(events, key=lambda row: row["seq"])[-20:]
+for row in selected:
+    print(row["seq"], row["content"][:1000])
 ```
 
-历史库以 read-only 方式 attach；派生 scratch table 可以写入，并能跨原本无状态的 Python process 保留。模型生成的代码在 QwenPaw Sandbox 中运行；隔离不可用时默认 fail closed，仅允许 operator 在可信本地开发场景中显式启用 unsandboxed fallback。
+输出有明确上限，过大结果会被截断且没有 cursor，因此 program 必须在返回证据前完成 filter 或 pagination。对于跨多次 recall 的分析，Agent 可以通过 `ms.sql_exec` 写入 derived table，并在后续调用中重新读取。模型生成的代码通常只在 sandbox 可用时运行；除非 operator 明确开启不安全的本地 fallback，否则该工具会 fail closed。
 
-由此形成 CodeAct 风格的 loop：retrieval 不再局限于设计阶段确定的固定 pipeline，也可以由 Agent 在 query time 动态生成程序。
+当前控制循环因此是：**识别缺失的历史证据 → 执行 structured recall 或有界 Python recall program → 将选中的证据返回 model context**。CodeAct 提供 query-time programmability，Scroll 则提供 durable Event Log、导航、压缩与恢复 substrate。
 
 ## 3. Headline：沿时间轴进行信息压缩
 
-Durable log 保证历史可恢复，但 Agent 仍需要一个 token 开销较低的索引，用于定位已经移出窗口的历史区段。QwenPaw 会要求模型在每个包含实质任务信息的回复后，追加一条对用户隐藏的 retrieval headline：
+Event Log 保存完整的交互序列，recovery metadata 则保持对超大工具输出的访问。但如果历史移出 live window 后只剩关键词搜索，Agent 必须预先猜中原始措辞，也难以从搜索结果中理解任务状态与时间位置。Scroll 因此为已经移出窗口的历史维护一个 token 开销较低的 navigation view：retrieval headline 将每个包含实质任务信息的 turn 压缩成语义 checkpoint，并在持久化后与稳定 `seq` 绑定。Agent 可以先通过 headline 定位相关区段，再按 `seq` 恢复原始证据；全文搜索则作为互补的 recall 路径。QwenPaw 会要求模型在每个包含实质任务信息的回复后，追加一条对用户隐藏的 retrieval headline：
 
 ```text
 ⟦ 模型发现修复｜进行中：OpenAI 已完成；下一步：修复 DashScope｜锚点：AllowlistFilter、registry.py ⟧
@@ -143,7 +130,7 @@ flowchart BT
     T0["Tier 0 · 最新 eviction<br/>每条 milestone headline 保持可见"]
     T1["Tier 1 · 更早的 blocks<br/>每个 block 压成首尾 headline + seq span"]
     T2["Tier 2+ · 最老的历史<br/>range of ranges，粒度逐步变粗"]
-    DB["history.db<br/>所有原始 turn 仍逐字保留"]
+    DB["Durable history<br/>history.db + 已保存工具输出"]
     T0 -->|达到 tier block cap| T1
     T1 -->|继续 carry| T2
     T0 -. 精确 seq recall .-> DB
@@ -153,9 +140,9 @@ flowchart BT
 
 每次 eviction 会在 Tier 0 增加一个保留完整 headline 的 block。当某一 tier 达到容量上限，新 block 保持详细，较早的 blocks 则 collapse 后向上一层 carry。Collapse 会保留整个 `seq` range，以及 block 的首尾 headline。因此，近期历史具有较细的表示粒度；随着时间距离增加，索引逐步转化为更粗粒度的区间表示。
 
-这里有损的是**导航视图**，而不是底层存储。中间 headline 即使不再直接显示，仍可以通过保留的 `seq` span 展开，或在完整日志中搜索。Headline map 用于定位 evidence，SQLite 用于恢复原始内容。
+这里有损的是**导航视图**，而不是底层存储。中间 headline 即使不再直接显示，仍可以通过保留的 `seq` span 展开，或在完整日志中搜索。Headline map 用于定位 event，recall layer 用于恢复原始 turn 或沿 saved-output metadata 访问完整内容。
 
-## 4. QwenPaw 的分级压缩算法
+## 4. 外部化与恢复流程
 
 达到 context threshold 后，QwenPaw 不会立即 summarize 整段对话，而是按照恢复成本与信息风险分级处理：
 
@@ -167,12 +154,12 @@ flowchart BT
 
 Eviction index 与 continuation summary 刻意承担不同工作：
 
-| Layer                | 作用           | 可能的退化               | 恢复方式                       |
-| -------------------- | -------------- | ------------------------ | ------------------------------ |
-| Raw log              | 逐字证据       | 存储持续增长             | Retention policy / archive     |
-| Eviction index       | 低开销时间索引 | 旧 map 粒度变粗          | 展开或搜索 `seq` span          |
-| Continuation summary | 当前任务状态   | Summary drift / omission | 校验、保留旧状态、恢复原始证据 |
-| Recent tail          | 局部对话连续性 | 受窗口大小限制           | 只 eviction completed history  |
+| Layer                     | 作用           | 可能的退化               | 恢复方式                       |
+| ------------------------- | -------------- | ------------------------ | ------------------------------ |
+| Event log + saved outputs | 逐字证据       | 存储持续增长             | Retention policy / archive     |
+| Eviction index            | 低开销时间索引 | 旧 map 粒度变粗          | 展开或搜索 `seq` span          |
+| Continuation summary      | 当前任务状态   | Summary drift / omission | 校验、保留旧状态、恢复原始证据 |
+| Recent tail               | 局部对话连续性 | 受窗口大小限制           | 只 eviction completed history  |
 
 ## 5. 多重 Summarization & Update 机制如何防止 Snowballing
 
@@ -181,7 +168,7 @@ Eviction index 与 continuation summary 刻意承担不同工作：
 当前实现用多重机制限制 drift：
 
 - **增量更新 + 冲突规则。** Previous summary 只是 baseline。它与本轮新归档的精确证据冲突时，以 source evidence 为准；事实随时间变化时，以较新的证据为准。
-- **有界、role-aware 的输入。** User text 与 retrieval headline 优先；tool result 只提供有限 preview 与 artifact pointer，避免大规模工具输出占用任务状态的输入预算。
+- **有界、role-aware 的输入。** User text 与 retrieval headline 优先；tool result 只提供有限 preview 与 saved-output recovery metadata，避免大规模工具输出占用任务状态的输入预算。
 - **固定状态 schema。** 生成的 Markdown 必须包含 `Active Task`、`Current State`、`Constraints`、`Decisions` 和 `Open Work`，并提供一个合法 task status。
 - **由代码管理 provenance。** 每个 summary item 带 durable source span。系统检查 seq endpoint 是否仍然存在，非 seq pointer 是否真的出现在输入证据中。
 - **确定性的本地质量检查。** Validator 会拒绝 section 格式错误、缺少 source、重复状态、疑似 secret、非法 range，以及输入 evidence 中从未出现过的 identifier。
@@ -189,7 +176,7 @@ Eviction index 与 continuation summary 刻意承担不同工作：
 - **不继承已经失去依据的状态。** Previous summary 的 durable source endpoint 如果已经过期，QwenPaw 不会把它静默绑定到一个更新的范围，而是丢弃这份 unsupported cache，并从仍然持久化的证据重新构建状态。
 - **明确的 background-only 语义。** 注入的 summary 不能覆盖当前 live user request；精确细节仍必须从 history recall。
 
-这些 safeguard 不会使 summarization 成为无损过程，但会明确其证据角色：summary 用于维持任务连续性，raw log 与 recovery pointer 才是权威证据。未来还可以加入周期性的 source-backed rebase，进一步降低超长 update chain 中的误差传播，而不改变底层架构。
+这些 safeguard 不会使 summarization 成为无损过程，但会明确其证据角色：summary 用于维持任务连续性；`history.db` 是“发生过什么”的权威记录；需要 pruning 时，已保存的工具输出文件则保留超大 raw text。未来还可以加入周期性的 source-backed rebase，进一步降低超长 update chain 中的误差传播，而不改变底层架构。
 
 ## 6. 仍然可以外接 Semantic Long-Term Memory
 
@@ -197,43 +184,44 @@ Externalized interaction history 解决的是 episodic layer 的可恢复性与�
 
 两层 memory 的职责不同：
 
-| 维度           | Externalized interaction history               | External semantic long-term memory                    |
-| -------------- | ---------------------------------------------- | ----------------------------------------------------- |
-| 主要 substrate | 逐字交互事件                                   | 派生出的 entity、relation、concept 与 embedding       |
-| 自然查询方式   | 精确 recall、时间 filter、aggregate、任意 join | 语义相似度、关系遍历、ontology query 与 hybrid recall |
-| 结构何时确定   | Agent 在 query time 通过 code 临时决定         | ingestion、indexing 与 retrieval routing 阶段         |
-| 最适合的角色   | Episodic source of truth 与未预见计算          | Connected knowledge、抽象与跨来源语义召回             |
+| 维度           | Externalized interaction history                 | External semantic long-term memory                    |
+| -------------- | ------------------------------------------------ | ----------------------------------------------------- |
+| 主要 substrate | 逐字交互事件                                     | 派生出的 entity、relation、concept 与 embedding       |
+| 自然查询方式   | 精确 recall、时间 filter、aggregate、任意 join   | 语义相似度、关系遍历、ontology query 与 hybrid recall |
+| 结构何时确定   | Query time，通过 structured recall 或 Agent code | ingestion、indexing 与 retrieval routing 阶段         |
+| 最适合的角色   | Interaction provenance 与未预见计算              | Connected knowledge、抽象与跨来源语义召回             |
 
-两层可以在同一系统中协同工作。Semantic long-term memory 负责知识抽象、语义召回和关系推断；Scroll 在下层提供可恢复的 event substrate 与原始证据。Agent 可以先从 semantic layer 检索实体、概念或关系，再通过 SQLite 验证对应的原始 turn，并在此基础上继续计算。由此，QwenPaw 可以扩展不同的长期记忆实现，而无需改变 Scroll 的持久历史与 context management 机制。
+两层可以在同一系统中协同工作。Semantic long-term memory 负责知识抽象、语义召回和关系推断；Scroll 在下层提供可恢复的 event substrate 与原始证据。Agent 可以先从 semantic layer 检索实体、概念或关系，再验证对应的 Event Log record，并在需要时读取已保存的工具输出，然后继续计算。由此，QwenPaw 可以扩展不同的长期记忆实现，而无需改变 Scroll 的持久历史与 context management 机制。
 
 ## 7. Evaluation
 
-我们使用 **Qwen 3.8 Max** 作为 backbone，并搭配一致的 **ReAct agent scaffold** 评估 QwenPaw Scroll。在对应的 evaluation settings 下，Scroll 在两个 long-context benchmark 上均取得了 state-of-the-art 结果：
+我们使用 **Qwen 3.8 Max** 作为 backbone，评估 QwenPaw Scroll 在 context explosion 下执行长程任务的效果。**LongMemEval_S** 与 **BEAM_10M** 检验历史持续增长后，关键信息能否被准确取回并用于推理；**LOCA_256K** 则检验 agent trajectory 动态增长时，context management 能否维持 end-to-end task completion。
 
-| Benchmark  |     Score |
-| ---------- | --------: |
-| BEAM_10M   | **68.9%** |
-| LOCA-bench | **57.3%** |
+| Benchmark     |    Score |
+| ------------- | -------: |
+| LongMemEval_S | **94.8** |
+| BEAM_10M      | **73.1** |
+| LOCA_256K     | **86.7** |
 
-BEAM_10M 评估模型在最长 10M tokens 的连贯历史上进行长期记忆与推理的能力。LOCA-bench 则面向 context 持续增长的 agentic environment，评估模型与 scaffold 能否在探索环境、调用工具和预测后续动作的过程中保持可靠性。这两个结果分别覆盖超长历史上的 memory reasoning，以及动态 agent trajectory 上的 reasoning and acting。
+使用 Qwen 3.8 Max，Scroll 在 **LongMemEval_S** 上达到 **94.8**，在 **BEAM_10M** 上达到 **73.1**（**比此前 SOTA 高 5.1**），并在 **LOCA_256K** 上达到 **86.7**（**比此前 SOTA 高 37.4**）。
 
-更详细的 ablation studies 和可复现结果分析将在后续版本中发布。
+具体的实现细节和可复现结果，请参阅 [QwenPaw Scroll Technical Report](https://arxiv.org/pdf/2608.21690)。
 
 ## 8. Design Implications
 
-该设计的核心并不是生成更好的 summary，而是重新定义模型与记忆之间的系统边界：
+当前实现让 model context 与 durable history 之间形成一条可执行边界：
 
-- prompt 是 working set；
-- log 是 durable source of truth；
-- eviction index 是沿时间压缩的 map；
-- continuation summary 是带 safeguard 的 state cache；
-- structured recall 处理常规读取；
-- sandboxed REPL 把特殊 retrieval 变成可执行计算。
+- Scroll 在从 live context eviction 之前，先把交互历史写入 `history.db`；
+- 超大的文本 tool result 会按 byte 为 context 截断，并保存到 `tool_results/`，同时记录 recovery metadata；
+- recent tail、continuation summary 与 eviction index 共同构成模型看到的有界 working set；
+- `recall_history` 提供不依赖 sandbox 的结构化恢复；在支持 sandboxed execution 的部署中，还可以通过预绑定 `ms` 的 `recall_history_python` 提供程序化恢复；
+- derived scratch table 可以跨 recall step 持久化，只有有界结果返回 model context。
 
-随着模型生成和检查代码的能力提升，这一接口的能力上限可以继续提高，而无需替换底层历史记录。History 因而从被动注入的上下文，转变为 Agent 可以主动查询和计算的环境。Scroll 最终服务的不是孤立的事实检索，而是模型在超长上下文之上持续 reasoning、决策与行动的能力。
+因此，context 不是必须常驻的 transcript，而是由 live turn、紧凑导航与任务状态，以及 query time 选中的 recall evidence 共同组成的有界 working view。Scroll 提供 durable history 与 recovery substrate；它的 CodeAct 风格 recall interface 让 Agent 在不把整份记录展开进 prompt 的情况下，对历史 turn 和已保存工具输出执行计算。这些机制共同服务的不只是孤立事实检索，而是让 Agent 在 trajectory 超出当前 context window 后仍能持续推理和行动。
 
 ### References
 
 - [Recursive Language Models](https://arxiv.org/abs/2512.24601)
+- [LongMemEval](https://arxiv.org/abs/2410.10813)
 - [BEAM](https://arxiv.org/abs/2510.27246)
-- [LOCA-bench](https://arxiv.org/abs/2602.07962)
+- [LOCA-bench（LOCA_256K）](https://arxiv.org/abs/2602.07962)

@@ -345,7 +345,9 @@ class ModelCommandHandler(BaseControlCommandHandler):
         source: ModelSource = (
             "agent"
             if model_context.agent_slot
-            else "global" if model_context.global_slot else "none"
+            else "global"
+            if model_context.global_slot
+            else "none"
         )
         update_current_model_context(fallback_model, source)
         if fallback_model is None:

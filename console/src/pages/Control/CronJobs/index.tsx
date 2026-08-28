@@ -34,6 +34,7 @@ import {
   DEFAULT_FORM_VALUES,
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
+import { getCalendarDays, getCalendarWeekLabels } from "./calendar";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -470,11 +471,7 @@ function CronJobsPage() {
   }, [jobs, scheduleTypeFilter]);
 
   const calendarDays = useMemo(() => {
-    const monthStart = calendarMonth.startOf("month");
-    const calendarStart = monthStart.startOf("week");
-    return Array.from({ length: 42 }, (_, index) =>
-      calendarStart.add(index, "day"),
-    );
+    return getCalendarDays(calendarMonth);
   }, [calendarMonth]);
 
   const oneTimeJobEvents = useMemo<OneTimeJobEvent[]>(() => {
@@ -760,9 +757,9 @@ function CronJobsPage() {
           )}
 
           <div className={styles.calendarWeekHeader}>
-            {[0, 1, 2, 3, 4, 5, 6].map((day) => (
-              <div key={day} className={styles.calendarWeekCell}>
-                {dayjs().day(day).format("dd")}
+            {getCalendarWeekLabels(calendarDays).map((label, index) => (
+              <div key={index} className={styles.calendarWeekCell}>
+                {label}
               </div>
             ))}
           </div>

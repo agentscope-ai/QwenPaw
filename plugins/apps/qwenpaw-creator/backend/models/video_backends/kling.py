@@ -44,6 +44,7 @@ from models.video_capabilities import (
     KLING_V26_DURATIONS,
     KLING_V26_RESOLUTIONS,
     is_kling_omni_model,
+    validate_video_mode,
 )
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
@@ -135,6 +136,11 @@ def build_submit_request(
     base_url: str,
 ) -> tuple[str, dict, dict]:
     """Render the official-channel Kling create-task request."""
+
+    try:
+        mode = validate_video_mode("kling", model_name, mode)
+    except ValueError as exc:
+        raise ModelError(str(exc), model_name=model_name) from exc
 
     if len(prompt) > KLING_MAX_PROMPT_CHARS:
         raise ModelError(

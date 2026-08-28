@@ -249,6 +249,18 @@ class TestAddEnvironment:
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - add env var works")
 
+# ============================================================================
+# ENV-002b: Add env var — cancel & validation (p2 tier)
+# Split out of TestAddEnvironment (p0) so tier markers stay mutually
+# exclusive; nightly shards by single tier (integration and pX).
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p2
+@pytest.mark.envs
+class TestAddEnvironmentP2:
+    """P2-tier add-env cases (cancel + key-required validation)."""
+
     @pytest.mark.integration
     @pytest.mark.p2
     @pytest.mark.test_id("ENV-002-CANCEL")
@@ -340,6 +352,8 @@ class TestAddEnvironment:
             page.wait_for_timeout(500)
 
         log_test_result(test_name, True, 0)
+
+
 
 
 # ============================================================================

@@ -27,6 +27,7 @@ export interface SessionItemProps {
   channelLabel?: string;
   chatStatus?: ChatStatus;
   generating?: boolean;
+  unseenResult?: boolean;
   archived?: boolean;
   pinned?: boolean;
   source?: "chat" | "cron" | "subagent";
@@ -62,6 +63,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   channelLabel,
   chatStatus,
   generating,
+  unseenResult = false,
   archived,
   pinned = false,
   source,
@@ -95,8 +97,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
     ? t("chat.groups.cronShort", "Cron")
     : t("chat.groups.subagentShort", "Subagent");
   const isIdle = !inProgress && !!chatStatus;
+  const hasUnseenResult = isIdle && unseenResult;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
+    : hasUnseenResult
+    ? t("chat.statusUnseenResult", "New result")
     : t("chat.statusIdle");
 
   const handleClick = useCallback(() => {
@@ -203,7 +208,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
       {!editing && variant === "sidebar" && (
         <span className={styles.statusSlot}>
           {inProgress && <span className={styles.runningDot} />}
-          {isIdle && <span className={styles.idleDot} />}
+          {hasUnseenResult && <span className={styles.unseenDot} />}
+          {isIdle && !hasUnseenResult && <span className={styles.idleDot} />}
         </span>
       )}
 
@@ -254,7 +260,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
                 >
                   <span
                     className={`${styles.statusDot} ${
-                      inProgress ? styles.statusDotActive : styles.statusDotIdle
+                      inProgress
+                        ? styles.statusDotActive
+                        : hasUnseenResult
+                        ? styles.statusDotUnseen
+                        : styles.statusDotIdle
                     }`}
                     aria-hidden
                   />

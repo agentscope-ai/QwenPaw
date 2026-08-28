@@ -171,19 +171,20 @@ class _CappingAnthropicFormatter(
     AnthropicChatFormatter,
     CappingFormatterMixin,
 ):
-    """Anthropic formatter that caps oversized local image media."""
+    """Anthropic formatter that caps oversized image and PDF media."""
 
-    def _format_image_source(
+    def _format_source(
         self,
         source: URLSource | Base64Source,
+        block_type: str,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "image")
+        capped = self._maybe_cap(source, block_type)
         if capped is not None:
             return capped
-        unprepared = self._unprepared_local_placeholder(source, "image")
+        unprepared = self._unprepared_local_placeholder(source, block_type)
         if unprepared is not None:
             return unprepared
-        return super()._format_image_source(source)
+        return super()._format_source(source, block_type)
 
 
 class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):

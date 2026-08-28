@@ -2,13 +2,13 @@
   0%,
   100% {
     opacity: 0.65;
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.55);
+    box-shadow: 0 0 0 0 rgba(0, 165, 251, 0.55);
     transform: scale(1);
   }
 
   50% {
     opacity: 1;
-    box-shadow: 0 0 10px 3px rgba(20, 184, 166, 0.35);
+    box-shadow: 0 0 10px 3px rgba(0, 165, 251, 0.35);
     transform: scale(1.12);
   }
 }
@@ -243,8 +243,13 @@
 }
 
 .statusDotActive {
-  background: rgba(20, 184, 166, 1);
+  background: #00a5fb;
   animation: chatStatusBreathe 1.6s ease-in-out infinite;
+}
+
+.statusDotUnseen {
+  background: #52c41a;
+  box-shadow: 0 0 6px 1px rgba(82, 196, 26, 0.28);
 }
 
 .runningDot {
@@ -252,8 +257,18 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #52c41a;
+  background: #00a5fb;
   animation: sidebarStatusBreathe 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.unseenDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  box-shadow: 0 0 5px 1px rgba(82, 196, 26, 0.25);
   pointer-events: none;
 }
 

@@ -57,5 +57,6 @@ class CapabilityError(MailError):
         self.alternatives = alternatives
         alt_text = "; ".join(alternatives)
         super().__init__(
-            f"{provider_name} 的 IMAP 服务器不支持 {operation}。" f"替代方案: {alt_text}",
+            f"{provider_name}'s IMAP server does not support {operation}. "
+            f"Alternatives: {alt_text}",
         )

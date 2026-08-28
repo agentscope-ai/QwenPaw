@@ -38,7 +38,7 @@ from uuid import NAMESPACE_URL, uuid5
 import numpy as np
 from pydantic import Field
 
-from domain.enums import TaskKind, TaskStatus
+from domain.enums import CreatorSessionStatus, TaskKind, TaskStatus
 from domain.errors import ValidationError
 from models import asr_model, embedding_model, vlm_model
 from models import config as model_config
@@ -67,6 +67,7 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
+from services.runtime_files.session_store import RuntimeSessionNotFound
 from vendor.media_toolkit.video_memory.aggregation import aggregate_hierarchy
 from vendor.media_toolkit.video_memory.embeddings import EmbeddingIndex
 from vendor.media_toolkit.video_memory.json_utils import extract_json
@@ -890,6 +891,7 @@ class SourceMemoryService:
             pass
 
     def _fail_sync(self, job: SourceMemoryBuildJob, error: Exception) -> None:
+        failure_message = str(error)[:2000]
         try:
             task = self.executions.get_task(job.project_id, job.task_id)
             if task.status is TaskStatus.RUNNING:
@@ -902,7 +904,7 @@ class SourceMemoryService:
                     status=TaskAttemptStatus.FAILED,
                     error={
                         "code": "MEMORY_BUILD_FAILED",
-                        "message": str(error)[:2000],
+                        "message": failure_message,
                     },
                 )
             elif task.status is TaskStatus.QUEUED:
@@ -914,11 +916,45 @@ class SourceMemoryService:
                     updates={
                         "error": {
                             "code": "MEMORY_BUILD_FAILED",
-                            "message": str(error)[:2000],
+                            "message": failure_message,
                         },
                     },
                 )
         except (ExecutionStateConflict, RecordNotFoundError):
+            pass
+        self._surface_session_error(job, failure_message)
+
+    def _surface_session_error(
+        self,
+        job: SourceMemoryBuildJob,
+        message: str,
+    ) -> None:
+        """Surface a background task failure to the session status so the
+        project card reflects the error."""
+        try:
+            session = self.services.sessions.get_project_session_snapshot(
+                job.project_id,
+            )
+        except (
+            RuntimeSessionNotFound,
+            Exception,
+        ):  # pylint: disable=broad-except
+            return
+        passive = {
+            CreatorSessionStatus.IDLE,
+            CreatorSessionStatus.ERROR,
+            CreatorSessionStatus.CANCELLED,
+        }
+        if session.status not in passive:
+            return
+        try:
+            self.services.sessions.set_session_error(
+                job.project_id,
+                session.session_id,
+                code="MEMORY_BUILD_FAILED",
+                message=message,
+            )
+        except Exception:  # pylint: disable=broad-except
             pass
 
     @staticmethod

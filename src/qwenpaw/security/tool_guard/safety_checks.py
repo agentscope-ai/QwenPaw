@@ -106,9 +106,14 @@ _RM_CATASTROPHIC_TARGET = (
     # Critical system trees (full subtree).  ``system`` is separate so the
     # macOS firmlink prefix ``/System/Volumes/Data/...`` can fall through
     # to resolve + _logical_posix_parts (same policy as /Users, /tmp, …).
-    + r"|/(?:root|boot|dev|applications|etc|usr|bin|sbin|lib|"
-    r"opt|windows|library|proc|sys)"
-    + r"(?:/|"
+    + r"|/(?:boot|dev|applications|etc|usr|bin|sbin|lib|"
+    r"opt|windows|library|proc|sys)" + r"(?:/|" + _PATH_END + r")"
+    # /root is the root user's home directory, not a plain system tree.
+    # Match /root itself and /root/* (home-content wipe) but NOT
+    # /root/project (workspace subpath under root's home).
+    + r"|/root(?:"
+    + _HOME_STAR_GLOB
+    + r"?/?"
     + _PATH_END
     + r")"
     + r"|/system(?!/volumes/data(?:/|\b))(?:/|"
@@ -315,7 +320,8 @@ BLOCKED_COMMAND_PATTERNS: tuple[str, ...] = (
 # depth-capped separately).
 _CATASTROPHIC_TOP_LEVEL = frozenset(
     {
-        "root",
+        # NOTE: "root" is NOT here — /root is the root user's home
+        # directory, handled separately (like /home/<user>).
         "boot",
         "dev",
         "applications",
@@ -436,6 +442,11 @@ def _is_resolved_path_catastrophic(resolved: Path | PurePath) -> bool:
     # ('/', 'Users', 'alice', 'proj') → not
     if top in _HOME_TOP_LEVEL:
         return len(parts) <= 3
+    # /root is the root user's home directory (not a plain system tree).
+    # ('/', 'root') → catastrophic (home root)
+    # ('/', 'root', 'project') → not (workspace subpath under root's home)
+    if top == "root":
+        return len(parts) <= 2
     # macOS volumes: /Volumes or /Volumes/<vol> only — not project paths
     # under an external disk (e.g. /Volumes/External/project/build).
     if top == _VOLUMES_TOP_LEVEL:

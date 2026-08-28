@@ -1,11 +1,14 @@
 import { Card, Table } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
+import { cacheHitRate, formatPercent } from "../../../../utils/cacheUsage";
 import styles from "../index.module.less";
 
 interface TokenRow {
   prompt_tokens: number;
   completion_tokens: number;
+  cache_read_tokens: number;
+  cache_eligible_input_tokens: number;
   call_count: number;
 }
 
@@ -34,6 +37,8 @@ function tokenStatColumns<T extends TokenRow>(titles: {
   prompt: string;
   completion: string;
   total: string;
+  cacheRead: string;
+  cacheHitRate: string;
   calls: string;
 }) {
   return [
@@ -43,6 +48,29 @@ function tokenStatColumns<T extends TokenRow>(titles: {
       key: "prompt_tokens",
       render: (v: number) => formatCompact(v),
       sorter: (a: T, b: T) => a.prompt_tokens - b.prompt_tokens,
+    },
+    {
+      title: titles.cacheRead,
+      dataIndex: "cache_read_tokens",
+      key: "cache_read_tokens",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: T, b: T) => a.cache_read_tokens - b.cache_read_tokens,
+    },
+    {
+      title: titles.cacheHitRate,
+      key: "cache_hit_rate",
+      render: (_: unknown, record: T) =>
+        formatPercent(
+          cacheHitRate(
+            record.cache_read_tokens,
+            record.cache_eligible_input_tokens,
+          ),
+        ),
+      sorter: (a: T, b: T) =>
+        (cacheHitRate(a.cache_read_tokens, a.cache_eligible_input_tokens) ??
+          -1) -
+        (cacheHitRate(b.cache_read_tokens, b.cache_eligible_input_tokens) ??
+          -1),
     },
     {
       title: titles.completion,
@@ -81,6 +109,8 @@ export function DataTables({
     prompt: t("tokenUsage.promptTokens"),
     completion: t("tokenUsage.completionTokens"),
     total: t("tokenUsage.totalTokens"),
+    cacheRead: t("tokenUsage.cacheRead"),
+    cacheHitRate: t("tokenUsage.cacheHitRate"),
     calls: t("tokenUsage.totalCalls"),
   };
 

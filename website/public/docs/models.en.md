@@ -159,6 +159,13 @@ Currently supported cloud providers include:
 - Zhipu
 - SiliconFlow
 - OpenCode
+- Volcengine
+- Volcengine Coding Plan
+- Volcengine Agent Plan
+- Xiaomi MiMo
+- Xiaomi MiMo Token Plan
+- GitHub Models
+- Kilo
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 

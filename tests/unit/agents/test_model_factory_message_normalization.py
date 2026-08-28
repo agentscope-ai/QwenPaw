@@ -5,6 +5,7 @@
 import asyncio
 import base64
 import json
+from io import BytesIO
 import threading
 from types import SimpleNamespace
 
@@ -34,6 +35,8 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
+from PIL import Image
+
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.providers.capping_formatter import (
@@ -56,6 +59,12 @@ def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
             data=base64.b64encode(content).decode("ascii"),
         ),
     )
+
+
+def _png_bytes(size: tuple[int, int]) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", size, color="red").save(output, format="PNG")
+    return output.getvalue()
 
 
 def test_anthropic_dedup_key_uses_immutable_base64_directly() -> None:
@@ -256,6 +265,68 @@ async def test_anthropic_dedup_omits_identical_media(
     assert [item["type"] for item in content] == ["image", "text"]
     assert "omitted" in content[1]["text"]
     assert formatter._qwenpaw_last_wire_media_count == 1
+
+
+@pytest.mark.asyncio
+async def test_request_time_image_resize_preserves_original(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "1250")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    original = _base64_data_block("image/png", _png_bytes((100, 50)))
+    msg = Msg(name="user", role="user", content=[original])
+
+    formatted = await formatter.format([msg])
+
+    image_url = formatted[0]["content"][0]["image_url"]["url"]
+    resized_data = image_url.split(",", 1)[1]
+    with Image.open(BytesIO(base64.b64decode(resized_data))) as resized:
+        assert resized.size == (50, 25)
+    with Image.open(
+        BytesIO(base64.b64decode(original.source.data)),
+    ) as untouched:
+        assert untouched.size == (100, 50)
+
+
+@pytest.mark.asyncio
+async def test_resize_failure_preserves_media_dedup_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "invalid")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    previous_context = {"existing-media"}
+    outer_token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(
+        previous_context,
+    )
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="hello")],
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="QWENPAW_MAX_IMAGE_PIXELS must be zero or a positive",
+        ):
+            await formatter.format([msg])
+
+        assert model_factory._FORMATTER_SEEN_MEDIA_KEYS.get() is (
+            previous_context
+        )
+    finally:
+        model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(outer_token)
 
 
 @pytest.mark.asyncio
@@ -890,40 +961,40 @@ def test_extra_content_original_preserved(monkeypatch) -> None:
 
 
 # -----------------------------------------------------------------
-# _fixup_media_list: Windows file URI → local path for DataBlock
+# _fixup_media_list: normalize local file URIs for DataBlock
 # -----------------------------------------------------------------
 
 
-def test_datablock_windows_file_uri_resolved_to_local_path(
+def test_datablock_windows_file_uri_preserved(
     monkeypatch,
 ) -> None:
-    """file:///C:/Temp/x.png must become C:/Temp/x.png in source.url."""
+    """Windows paths must remain local file URIs."""
     monkeypatch.setattr("os.path.exists", lambda p: True)
 
     block = _data_block("image/png", "file:///C:/Temp/x.png")
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "C:/Temp/x.png"
+    assert items[0].source.url == "file://C:/Temp/x.png"
 
 
-def test_datablock_unix_file_uri_resolved_to_local_path(
+def test_datablock_unix_file_uri_preserved(
     monkeypatch,
 ) -> None:
-    """file:///tmp/demo.png must become /tmp/demo.png."""
+    """Unix paths must remain local file URIs."""
     monkeypatch.setattr("os.path.exists", lambda p: True)
 
     block = _data_block("image/png", "file:///tmp/demo.png")
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "/tmp/demo.png"
+    assert items[0].source.url == "file:///tmp/demo.png"
 
 
 def test_datablock_percent_encoded_uri_resolved(
     monkeypatch,
 ) -> None:
-    """file:///tmp/%E4%B8%AD%E6%96%87.png → /tmp/中文.png."""
+    """Percent-encoded paths must be decoded without losing the scheme."""
     monkeypatch.setattr("os.path.exists", lambda p: True)
 
     block = _data_block(
@@ -933,13 +1004,13 @@ def test_datablock_percent_encoded_uri_resolved(
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "/tmp/中文.png"
+    assert items[0].source.url == "file:///tmp/中文.png"
 
 
-def test_datablock_unc_file_uri_resolved(
+def test_datablock_unc_file_uri_preserved(
     monkeypatch,
 ) -> None:
-    """file://server/share/x.png → //server/share/x.png (UNC)."""
+    """UNC paths must remain local file URIs."""
     monkeypatch.setattr("os.path.exists", lambda p: True)
 
     block = _data_block(
@@ -949,7 +1020,63 @@ def test_datablock_unc_file_uri_resolved(
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "//server/share/x.png"
+    assert items[0].source.url == "file:////server/share/x.png"
+
+
+@pytest.mark.asyncio
+async def test_openai_local_pdf_uses_file_uri_without_http_download(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A local PDF must be read from disk instead of passed to requests."""
+    pdf_path = tmp_path / "hello.pdf"
+    pdf_bytes = b"%PDF-1.4\n%%EOF"
+    pdf_path.write_bytes(pdf_bytes)
+
+    def fail_http_download(*_args, **_kwargs):
+        raise AssertionError("Local PDF must not use requests.get")
+
+    monkeypatch.setattr(
+        "agentscope.formatter._openai_formatter.requests.get",
+        fail_http_download,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                source=URLSource(
+                    url=f"file://{pdf_path}",
+                    media_type="application/pdf",
+                ),
+                name="hello.pdf",
+            ),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    encoded = base64.b64encode(pdf_bytes).decode("ascii")
+    assert formatted == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": "hello.pdf",
+                        "file_data": (
+                            f"data:application/pdf;base64,{encoded}"
+                        ),
+                    },
+                },
+            ],
+        },
+    ]
 
 
 @pytest.mark.asyncio

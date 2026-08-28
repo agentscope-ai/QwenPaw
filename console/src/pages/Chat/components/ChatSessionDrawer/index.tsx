@@ -20,6 +20,7 @@ import { useRevealActiveChatGroup } from "../../../../hooks/useRevealActiveChatG
 import { useChatGroups } from "../../../../hooks/useChatGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
+import { formatSessionTime, pickSessionDisplayTime } from "./sessionTime";
 import SessionGroupHeader from "../../../../components/SessionGroupHeader";
 import SessionDateHeader from "../../../../components/SessionDateHeader";
 import {
@@ -50,6 +51,7 @@ import {
   type ChatDateGroup,
 } from "../../../../utils/chatGroups";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { useSessionAttention } from "../../../../hooks/useSessionAttention";
 import styles from "./index.module.less";
 import type { ChatGroup, ChatStatus } from "../../../../api/types/chat";
 
@@ -78,6 +80,7 @@ type FlatRow =
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   switchingSessionId: string | null;
   editingSessionId: string | null;
@@ -190,13 +193,12 @@ const VirtualRow = React.memo(function VirtualRow({
           variant="drawer"
           sessionId={session.id!}
           name={session.name || "New Chat"}
-          time={formatCreatedAtCached(
-            session.updatedAt ?? session.createdAt ?? null,
-          )}
+          time={formatCreatedAtCached(pickSessionDisplayTime(session))}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}
           generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
           archived={session.archived}
           pinned={session.pinned}
           source={session.source}
@@ -234,6 +236,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
@@ -262,20 +265,9 @@ interface ChatSessionDrawerProps {
   embedded?: boolean;
 }
 
-/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
-const formatCreatedAt = (raw: string | null | undefined): string => {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
-    date.getSeconds(),
-  )}`;
-};
+/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss (sessionTime module) */
 
-/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+/** Simple cache for formatSessionTime to avoid re-parsing the same timestamp */
 const formatCache = new Map<string, string>();
 const FORMAT_CACHE_MAX = 200;
 
@@ -283,7 +275,7 @@ const formatCreatedAtCached = (raw: string | null | undefined): string => {
   if (!raw) return "";
   const cached = formatCache.get(raw);
   if (cached !== undefined) return cached;
-  const result = formatCreatedAt(raw);
+  const result = formatSessionTime(raw);
   if (formatCache.size >= FORMAT_CACHE_MAX) {
     // Evict oldest entry
     const firstKey = formatCache.keys().next().value;
@@ -413,14 +405,20 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         const extA = a as ExtendedChatSession;
         const extB = b as ExtendedChatSession;
 
-        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        const aTime = pickSessionDisplayTime(extA) ?? "";
+        const bTime = pickSessionDisplayTime(extB) ?? "";
         if (!aTime && !bTime) return 0;
         if (!aTime) return 1;
         if (!bTime) return -1;
         return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
   }, [resolvedSessions]);
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions as ExtendedChatSession[],
+    currentSessionId,
+  );
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -930,6 +928,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -953,6 +952,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
