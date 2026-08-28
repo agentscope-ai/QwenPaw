@@ -1,0 +1,270 @@
+.shell {
+  --startup-accent: #ba5b18;
+  --startup-border: #deded8;
+  --startup-muted: #686862;
+  --startup-sidebar: #f1f1ed;
+  --startup-surface: #fafaf8;
+  --startup-text: #20201d;
+  background: var(--startup-surface);
+  color: var(--startup-text);
+  display: grid;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  grid-template-columns: 224px minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.sidebar {
+  background: var(--startup-sidebar);
+  border-right: 1px solid var(--startup-border);
+  padding: 20px 14px;
+}
+
+.brand {
+  align-items: center;
+  display: flex;
+  font-size: 15px;
+  font-weight: 650;
+  gap: 10px;
+  letter-spacing: -0.01em;
+  padding: 0 8px 22px;
+}
+
+.brand img {
+  height: 28px;
+  object-fit: contain;
+  width: 28px;
+}
+
+.navigation {
+  display: grid;
+  gap: 4px;
+}
+
+.navItem,
+.activeItem {
+  align-items: center;
+  border-radius: 8px;
+  display: flex;
+  font-size: 14px;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.navItem {
+  color: var(--startup-muted);
+}
+
+.activeItem {
+  background: color-mix(in srgb, var(--startup-accent) 10%, transparent);
+  color: var(--startup-text);
+  font-weight: 600;
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.header {
+  align-items: center;
+  border-bottom: 1px solid var(--startup-border);
+  display: flex;
+  justify-content: space-between;
+  min-height: 76px;
+  padding: 14px 28px;
+}
+
+.header h1,
+.intro h2 {
+  margin: 0;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  color: var(--startup-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+  margin: 0 0 3px;
+  text-transform: uppercase;
+}
+
+.status {
+  border: 1px solid var(--startup-border);
+  border-radius: 999px;
+  color: var(--startup-muted);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.workspace {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.intro,
+.composer {
+  max-width: 760px;
+  width: 100%;
+}
+
+.intro {
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.intro h2 {
+  font-size: clamp(25px, 3vw, 34px);
+  font-weight: 620;
+  letter-spacing: -0.035em;
+}
+
+.intro p {
+  color: var(--startup-muted);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 10px auto 0;
+  max-width: 580px;
+}
+
+.composer {
+  background: var(--startup-surface);
+  border: 1px solid var(--startup-border);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgb(31 31 28 / 7%);
+  padding: 14px;
+}
+
+.composer > label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px 2px;
+}
+
+.inputRow {
+  align-items: flex-end;
+  display: flex;
+  gap: 10px;
+}
+
+.inputRow textarea {
+  background: transparent;
+  border: 0;
+  color: var(--startup-text);
+  flex: 1;
+  font: inherit;
+  line-height: 1.5;
+  min-height: 58px;
+  outline: none;
+  padding: 8px;
+  resize: none;
+}
+
+.inputRow textarea::placeholder {
+  color: var(--startup-muted);
+}
+
+.inputRow button {
+  align-items: center;
+  background: var(--startup-text);
+  border: 0;
+  border-radius: 10px;
+  color: var(--startup-surface);
+  cursor: pointer;
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  transition: opacity 140ms ease;
+  width: 42px;
+}
+
+.inputRow button:focus-visible,
+.inputRow textarea:focus-visible {
+  outline: 2px solid var(--startup-accent);
+  outline-offset: 2px;
+}
+
+.inputRow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.helper {
+  color: var(--startup-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 9px 2px 0;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding-inline: 10px;
+  }
+
+  .brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .brand span,
+  .navItem span,
+  .activeItem span {
+    display: none;
+  }
+
+  .navItem,
+  .activeItem {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .header {
+    padding-inline: 18px;
+  }
+
+  .status {
+    display: none;
+  }
+
+  .workspace {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .shell {
+    --startup-accent: #e58a46;
+    --startup-border: #383834;
+    --startup-muted: #b4b4ad;
+    --startup-sidebar: #1b1b19;
+    --startup-surface: #222220;
+    --startup-text: #f2f2ee;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inputRow button {
+    transition: none;
+  }
+}

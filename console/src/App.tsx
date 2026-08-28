@@ -47,6 +47,8 @@ import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import BackendLoadingPage from "./tauri/BackendLoadingPage";
+import DesktopStartupShell from "./tauri/DesktopStartupShell";
+import { isDesktopApp } from "./tauri/backendRuntime";
 import {
   resolveAuthGate,
   resolveBackendInfo,
@@ -429,7 +431,7 @@ function BackendModeRouter() {
   }, [retryKey]);
 
   if (backendInfo === "loading") {
-    return null;
+    return isDesktopApp() ? <DesktopStartupShell /> : null;
   }
   if (backendInfo === "error") {
     return (

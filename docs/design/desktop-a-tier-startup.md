@@ -74,8 +74,8 @@ work is limited to source validation and tests.
 - [ ] Reduce the remaining synchronous full-app lifespan to its safe minimum.
 - [ ] Prioritize default chat-core startup.
 - [ ] Move optional capabilities into supervised background workers.
-- [ ] Render the local desktop shell without the blocking backend gate.
-- [ ] Queue and replay the first chat submission while chat core starts.
+- [x] Render the local desktop shell without the blocking backend gate.
+- [x] Queue and replay the first chat submission while chat core starts.
 - [ ] Add Python, frontend, and Rust tests.
 - [x] Add packaged startup milestones and CI comparisons.
 - [ ] Run Windows and macOS GitHub Actions builds.
