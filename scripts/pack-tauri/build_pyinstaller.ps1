@@ -5,7 +5,7 @@
 #   powershell ./scripts/pack-tauri/build_pyinstaller.ps1
 #
 # Prerequisites:
-#   - Python 3.10+ with virtual environment
+#   - Python 3.10+ on PATH (used only to bootstrap the bundled runtime)
 #   - PyInstaller 6.0+ (will be installed if not present)
 
 param()
@@ -18,6 +18,12 @@ $DIST = if ($env:DIST) { $env:DIST } else { "dist" }
 if (-not [System.IO.Path]::IsPathRooted($DIST)) {
     $DIST = Join-Path $REPO_ROOT $DIST
 }
+$BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
+$PYTHON_RUNTIME_DIR = Join-Path $BINARIES_DIR "python-runtime"
+$RUNTIME_PYTHON_DIR = Join-Path $PYTHON_RUNTIME_DIR "python"
+$NATIVE_HOST_PYTHON = Join-Path $RUNTIME_PYTHON_DIR "python.exe"
+$BUILD_VENV = Join-Path $DIST "pyinstaller-venv"
+$PYTHON_BIN = Join-Path $BUILD_VENV "Scripts\python.exe"
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
 # Extract version
@@ -42,28 +48,74 @@ Write-Host ""
 # Check prerequisites
 Write-Host "== Checking prerequisites ==" -ForegroundColor Yellow
 
-$UV_BIN = (Get-Command uv -ErrorAction SilentlyContinue).Source
-$PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
-if (-not (Test-Path $PYTHON_BIN)) {
-    if ($UV_BIN) {
-        Write-Host ".venv not found, creating virtual environment with uv" -ForegroundColor Yellow
-        & $UV_BIN venv "$REPO_ROOT\.venv"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create virtual environment with uv"
-        }
-    } else {
-        Write-Host ".venv not found, using system Python" -ForegroundColor Yellow
-        $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
-    }
-    if (-not $PYTHON_BIN -or -not (Test-Path $PYTHON_BIN)) {
-        Write-Host "ERROR: Python not found in .venv or PATH" -ForegroundColor Red
-        Write-Host "Please create virtual environment first: python -m venv .venv"
-        exit 1
-    }
+function Assert-LastExit {
+    param([string]$Message)
+    if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
-$pythonVersion = & $PYTHON_BIN --version
-Write-Host "Python: $pythonVersion" -ForegroundColor Green
+$UV_BIN = (Get-Command uv -ErrorAction SilentlyContinue).Source
+$BOOTSTRAP_PYTHON = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $BOOTSTRAP_PYTHON -or -not (Test-Path $BOOTSTRAP_PYTHON)) {
+    throw "Python not found on PATH; it is required to stage the bundled runtime"
+}
+
+New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
+
+# The staged python-build-standalone runtime is the canonical source for both
+# the helper interpreter and the PyInstaller build environment. The PATH
+# Python only selects the X.Y version to download and runs the staging script.
+Write-Host "== Staging canonical Python runtime ==" -ForegroundColor Yellow
+& $BOOTSTRAP_PYTHON `
+    (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
+    --dest $PYTHON_RUNTIME_DIR
+Assert-LastExit "Failed to stage bundled Python runtime"
+if (-not (Test-Path $NATIVE_HOST_PYTHON -PathType Leaf)) {
+    throw "Bundled Python interpreter not found at $NATIVE_HOST_PYTHON"
+}
+
+Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yellow
+& $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
+Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
+
+$canonicalVersion = & $NATIVE_HOST_PYTHON -c "import sys; print(sys.version)"
+Assert-LastExit "Failed to inspect bundled Python version"
+$buildVersion = & $PYTHON_BIN -c "import sys; print(sys.version)"
+Assert-LastExit "Failed to inspect PyInstaller environment version"
+$canonicalOpenSSL = & $NATIVE_HOST_PYTHON -c "import ssl; print(ssl.OPENSSL_VERSION)"
+Assert-LastExit "Failed to inspect bundled Python OpenSSL"
+$buildOpenSSL = & $PYTHON_BIN -c "import ssl; print(ssl.OPENSSL_VERSION)"
+Assert-LastExit "Failed to inspect PyInstaller environment OpenSSL"
+$canonicalBasePrefix = & $NATIVE_HOST_PYTHON -c "import os, sys; print(os.path.realpath(sys.base_prefix))"
+Assert-LastExit "Failed to inspect bundled Python base prefix"
+$buildBasePrefix = & $PYTHON_BIN -c "import os, sys; print(os.path.realpath(sys.base_prefix))"
+Assert-LastExit "Failed to inspect PyInstaller environment base prefix"
+$expectedBasePrefix = (Resolve-Path -LiteralPath $RUNTIME_PYTHON_DIR).Path
+
+if ($canonicalVersion -ne $buildVersion) {
+    throw "Python version mismatch between bundled runtime and PyInstaller environment"
+}
+if ($canonicalOpenSSL -ne $buildOpenSSL) {
+    throw "OpenSSL mismatch between bundled runtime and PyInstaller environment"
+}
+if (
+    -not $canonicalBasePrefix.Equals(
+        $expectedBasePrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not $buildBasePrefix.Equals(
+        $expectedBasePrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )
+) {
+    throw "PyInstaller environment was not created from $RUNTIME_PYTHON_DIR"
+}
+
+Write-Host "Python: $canonicalVersion" -ForegroundColor Green
+Write-Host "OpenSSL: $canonicalOpenSSL" -ForegroundColor Green
+Write-Host "Canonical interpreter: $NATIVE_HOST_PYTHON" -ForegroundColor Green
+Write-Host "Build interpreter: $PYTHON_BIN" -ForegroundColor Green
+Write-Host "Build base prefix: $buildBasePrefix" -ForegroundColor Green
+Write-Host ""
 
 function Test-PythonImport {
     param([string]$Statement)
@@ -75,11 +127,6 @@ function Test-PythonImport {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-}
-
-function Assert-LastExit {
-    param([string]$Message)
-    if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
 function Install-PythonPackages {
@@ -200,6 +247,53 @@ if (-not (Test-Path $MODEL_CATALOG)) {
 
 Write-Host "Backend bundle created: $BACKEND_DIR" -ForegroundColor Green
 
+# A venv can report the expected version while still resolving DLLs from an
+# unintended installation. Compare the frozen Windows runtime files directly
+# with the canonical python-build-standalone files before packaging them.
+Write-Host "== Verifying frozen Python runtime identity ==" -ForegroundColor Yellow
+function Assert-SameFileHash {
+    param(
+        [string]$Source,
+        [string]$Bundled
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+        throw "Runtime file not found for identity check: $Source"
+    }
+    if (-not (Test-Path -LiteralPath $Bundled -PathType Leaf)) {
+        throw "PyInstaller file not found for identity check: $Bundled"
+    }
+    $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
+    $bundledHash = (Get-FileHash -LiteralPath $Bundled -Algorithm SHA256).Hash
+    if ($sourceHash -ne $bundledHash) {
+        throw "Runtime identity check failed: $Source and $Bundled differ"
+    }
+    Write-Host "Verified identical: $(Split-Path -Leaf $Bundled)" -ForegroundColor Green
+}
+
+$BACKEND_INTERNAL_DIR = Join-Path $BACKEND_DIR "_internal"
+$PYTHON_DLL_NAME = & $NATIVE_HOST_PYTHON -c `
+    "import sys; print(f'python{sys.version_info.major}{sys.version_info.minor}.dll')"
+Assert-LastExit "Failed to determine bundled Python DLL name"
+Assert-SameFileHash `
+    -Source (Join-Path $RUNTIME_PYTHON_DIR $PYTHON_DLL_NAME) `
+    -Bundled (Join-Path $BACKEND_INTERNAL_DIR $PYTHON_DLL_NAME)
+Assert-SameFileHash `
+    -Source (Join-Path $RUNTIME_PYTHON_DIR "DLLs\_ssl.pyd") `
+    -Bundled (Join-Path $BACKEND_INTERNAL_DIR "_ssl.pyd")
+
+$runtimeOpenSslDlls = @(
+    Get-ChildItem -LiteralPath (Join-Path $RUNTIME_PYTHON_DIR "DLLs") -File |
+        Where-Object { $_.Name -match '^lib(ssl|crypto)-.*\.dll$' }
+)
+if ($runtimeOpenSslDlls.Count -lt 2) {
+    throw "Expected OpenSSL runtime DLLs under $RUNTIME_PYTHON_DIR\DLLs"
+}
+foreach ($runtimeDll in $runtimeOpenSslDlls) {
+    Assert-SameFileHash `
+        -Source $runtimeDll.FullName `
+        -Bundled (Join-Path $BACKEND_INTERNAL_DIR $runtimeDll.Name)
+}
+
 # Get size
 $bundleSize = (Get-ChildItem $BACKEND_DIR -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB
 Write-Host "Bundle size: $([math]::Round($bundleSize, 2)) MB"
@@ -207,9 +301,6 @@ Write-Host ""
 
 # Copy to Tauri resources directory
 Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
-$BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
-New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
-
 $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
 New-Item -ItemType Directory -Force -Path $DEST | Out-Null
 Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
@@ -217,16 +308,9 @@ Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""
 
-# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
-# frozen backend can install third-party plugin dependencies at runtime.
-Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
-& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
-    --dest (Join-Path $BINARIES_DIR "python-runtime")
-Assert-LastExit "Failed to stage bundled Python runtime"
-
 # The Chrome Native Messaging host runs under this standalone interpreter,
 # outside the PyInstaller backend, so its dependencies must be installed here.
-$NATIVE_HOST_PYTHON = Join-Path $BINARIES_DIR "python-runtime\python\python.exe"
+Write-Host "== Installing bundled Python helper dependencies ==" -ForegroundColor Yellow
 $NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
 & $NATIVE_HOST_PYTHON -m pip install `
     --disable-pip-version-check `
