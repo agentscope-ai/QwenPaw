@@ -418,11 +418,14 @@ class OpenRouterProvider(Provider):
             List of unique provider names (e.g., ['openai', 'google'])
         """
         models = await self.fetch_extended_models(timeout=timeout)
-        providers_set = set()
-        for model in models:
-            if model.provider:
-                providers_set.add(model.provider)
-        return sorted(list(providers_set))
+        return self.available_providers_from_models(models)
+
+    @staticmethod
+    def available_providers_from_models(
+        models: List[ExtendedModelInfo],
+    ) -> List[str]:
+        """Return sorted provider names from an existing model catalog."""
+        return sorted({model.provider for model in models if model.provider})
 
     async def check_model_connection(
         self,

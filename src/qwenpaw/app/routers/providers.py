@@ -30,6 +30,7 @@ from ...config.config import (
 )
 from ...providers.provider import (
     ModelInfo,
+    Provider,
     ProviderInfo,
     validate_custom_provider_id,
 )
@@ -1032,9 +1033,11 @@ async def get_openrouter_series(
         series = await provider.get_available_providers()
         return SeriesResponse(series=series)
     except Exception as exc:
+        detail = Provider.connection_error_message(exc)
+        logger.warning(f"Failed to fetch OpenRouter series: {detail}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch series: {str(exc)}",
+            status_code=503,
+            detail=f"Failed to fetch series: {detail}",
         ) from exc
 
 
@@ -1069,7 +1072,7 @@ async def discover_openrouter_extended(
 
     try:
         models = await provider.fetch_extended_models()
-        providers = await provider.get_available_providers()
+        providers = provider.available_providers_from_models(models)
 
         models_dict = [
             {
@@ -1094,7 +1097,11 @@ async def discover_openrouter_extended(
             providers=providers,
             total_count=len(models_dict),
         )
-    except Exception:
+    except Exception as exc:
+        detail = Provider.connection_error_message(exc)
+        logger.warning(
+            f"Failed to discover extended OpenRouter models: {detail}",
+        )
         return DiscoverExtendedResponse(
             success=False,
             models=[],
@@ -1165,7 +1172,10 @@ async def filter_openrouter_models(
             total_count=len(models_dict),
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to filter models: {str(exc)}",
-        ) from exc
+        detail = Provider.connection_error_message(exc)
+        logger.warning(f"Failed to filter OpenRouter models: {detail}")
+        return FilterModelsResponse(
+            success=False,
+            models=[],
+            total_count=0,
+        )

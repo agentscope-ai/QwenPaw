@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
+from qwenpaw.providers.provider import ExtendedModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
 
@@ -48,6 +49,32 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
         await provider.fetch_models(timeout=2)
 
     close.assert_awaited_once()
+
+
+def test_available_providers_from_existing_models() -> None:
+    provider = _make_provider()
+    models = [
+        ExtendedModelInfo(
+            id="openai/gpt-test",
+            name="GPT Test",
+            provider="openai",
+        ),
+        ExtendedModelInfo(
+            id="google/gemini-test",
+            name="Gemini Test",
+            provider="google",
+        ),
+        ExtendedModelInfo(
+            id="openai/gpt-other",
+            name="GPT Other",
+            provider="openai",
+        ),
+        ExtendedModelInfo(id="unowned", name="Unowned"),
+    ]
+
+    result = provider.available_providers_from_models(models)
+
+    assert result == ["google", "openai"]
 
 
 async def test_empty_discovery_succeeds_and_closes_clients(
