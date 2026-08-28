@@ -6,5 +6,10 @@ export { LlmRateLimiterCard } from "./LlmRateLimiterCard";
 export { LightContextCard } from "./LightContextCard";
 export { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
 export { EmbeddingModelCard } from "./EmbeddingModelCard";
+export {
+  FallbackModelCard,
+  type FallbackModelCardHandle,
+  type FallbackModelCardStatus,
+} from "./FallbackModelCard";
 export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";
 export { ADBPGConfigCard } from "./ADBPGConfigCard";

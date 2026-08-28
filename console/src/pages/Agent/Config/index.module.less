@@ -1781,6 +1781,318 @@
   flex-shrink: 0;
 }
 
+.fallbackCard {
+  width: 100%;
+}
+
+.fallbackOverview {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid rgba(255, 127, 22, 0.16);
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 127, 22, 0.075),
+    rgba(255, 255, 255, 0) 58%
+  );
+}
+
+.fallbackOverviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.fallbackTitleGroup {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+
+  h3 {
+    margin: 2px 0 4px;
+    color: #282624;
+    font-size: 17px;
+    font-weight: 650;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    color: rgba(20, 20, 19, 0.54);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.fallbackIcon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(196, 98, 54, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgba(226, 124, 76, 0.18),
+    rgba(244, 181, 126, 0.08)
+  );
+  color: #b95f36;
+}
+
+.fallbackToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  color: #383532;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fallbackSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid rgba(20, 20, 19, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+
+  > div {
+    min-width: 0;
+    padding: 13px 15px;
+    border-right: 1px solid rgba(20, 20, 19, 0.07);
+
+    &:last-child {
+      border-right: 0;
+    }
+  }
+
+  span,
+  strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    margin-bottom: 5px;
+    color: rgba(20, 20, 19, 0.48);
+    font-size: 11px;
+  }
+
+  strong {
+    color: #2f2d2a;
+    font-size: 13px;
+    font-weight: 600;
+  }
+}
+
+.fallbackConfigGrid {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.fallbackConfigPanel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid rgba(20, 20, 19, 0.09);
+  border-radius: 14px;
+  background: rgba(20, 20, 19, 0.018);
+}
+
+.fallbackSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 20px;
+
+  > span {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(196, 98, 54, 0.2);
+    border-radius: 10px;
+    background: rgba(226, 124, 76, 0.1);
+    color: #b95f36;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  h4 {
+    margin: 2px 0 4px;
+    color: #2c2a27;
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(20, 20, 19, 0.5);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.fallbackField {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+
+  > span {
+    color: #383532;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  :global(.qwenpaw-select) {
+    width: 100%;
+  }
+}
+
+.fallbackHint {
+  margin: 10px 0 0;
+  color: rgba(20, 20, 19, 0.45);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.fallbackComposer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  :global(.qwenpaw-select) {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+.fallbackIconButton {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(20, 20, 19, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(20, 20, 19, 0.58);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(255, 127, 22, 0.4);
+    color: #c85e08;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
+.fallbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.fallbackListItem {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 5px 7px;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.fallbackOrder {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(255, 127, 22, 0.1);
+  color: #b95f36;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fallbackModelName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #34312e;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fallbackEmpty,
+.fallbackState,
+.fallbackError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  color: rgba(20, 20, 19, 0.48);
+  font-size: 13px;
+}
+
+.fallbackEmpty {
+  margin-top: 12px;
+  min-height: 72px;
+  border: 1px dashed rgba(20, 20, 19, 0.14);
+  border-radius: 9px;
+  background: rgba(20, 20, 19, 0.012);
+}
+
+.fallbackError {
+  flex-direction: column;
+  color: #c4313a;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid rgba(196, 49, 58, 0.25);
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+.spinning {
+  animation: fallbackSpin 0.9s linear infinite;
+}
+
+@keyframes fallbackSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .visualCompactEffortControl {
@@ -1832,6 +2144,34 @@
       background: #ff7f16 !important;
     }
   }
+
+  .fallbackTitleGroup h3,
+  .fallbackSummary strong,
+  .fallbackSectionHeader h4,
+  .fallbackModelName,
+  .fallbackToggle {
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .fallbackOverview {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 127, 22, 0.1),
+      rgba(255, 255, 255, 0) 58%
+    );
+  }
+
+  .fallbackSummary,
+  .fallbackListItem,
+  .fallbackIconButton {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .fallbackEmpty {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.025);
+  }
 }
 
 /* ─── Mobile responsive ─────────────────────────────────────────────────────── */
@@ -1864,6 +2204,24 @@
 
   .llmRetryField {
     margin-bottom: 12px !important;
+  }
+
+  .fallbackOverviewHeader {
+    flex-direction: column;
+  }
+
+  .fallbackSummary,
+  .fallbackConfigGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fallbackSummary > div {
+    border-right: 0;
+    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+
+    &:last-child {
+      border-bottom: 0;
+    }
   }
 
   .formCard {

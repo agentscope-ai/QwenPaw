@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -10,6 +10,9 @@ import {
   ToolExecutionLevelCard,
   AgentLoopCard,
   EmbeddingModelCard,
+  FallbackModelCard,
+  type FallbackModelCardHandle,
+  type FallbackModelCardStatus,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -30,6 +33,13 @@ function AgentConfigPage() {
   );
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setLocalReindexing] = useState(false);
+  const fallbackModelRef = useRef<FallbackModelCardHandle>(null);
+  const [fallbackStatus, setFallbackStatus] = useState<FallbackModelCardStatus>(
+    {
+      loading: true,
+      saving: false,
+    },
+  );
   const syncReindexRequirement = useCallback(
     (config: { reme_light_memory_config?: { needs_reindex?: boolean } }) => {
       setNeedsReindex(config.reme_light_memory_config?.needs_reindex === true);
@@ -64,6 +74,13 @@ function AgentConfigPage() {
   const remoteReindexing =
     runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   const reindexing = localReindexing || remoteReindexing;
+
+  const handleFallbackStatusChange = useCallback(
+    (status: FallbackModelCardStatus) => {
+      setFallbackStatus(status);
+    },
+    [],
+  );
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
   const refreshEffectiveContextWindow = useCallback(() => {
@@ -163,6 +180,22 @@ function AgentConfigPage() {
         ),
       },
       {
+        key: "fallbackModel",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.fallbackModelTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <FallbackModelCard
+              ref={fallbackModelRef}
+              onStatusChange={handleFallbackStatusChange}
+            />
+          </div>
+        ),
+      },
+      {
         key: "llmRateLimiter",
         label: (
           <span className={styles.tabLabel}>
@@ -257,6 +290,7 @@ function AgentConfigPage() {
     savingTimezone,
     handleLanguageChange,
     handleTimezoneChange,
+    handleFallbackStatusChange,
     llmRetryEnabled,
     maxInputLength,
     contextBackend,
@@ -272,6 +306,12 @@ function AgentConfigPage() {
       setActiveTab(tabKeys[0] ?? "reactAgent");
     }
   }, [dynamicTabs, activeTab]);
+
+  const fallbackTabActive = activeTab === "fallbackModel";
+  const footerLoading = fallbackTabActive ? fallbackStatus.saving : saving;
+  const footerDisabled = fallbackTabActive
+    ? fallbackStatus.loading || fallbackStatus.saving
+    : saving;
 
   if (loading) {
     return (
@@ -327,13 +367,30 @@ function AgentConfigPage() {
 
       <div className={styles.footerActions}>
         <Button
-          onClick={fetchConfig}
-          disabled={saving}
+          onClick={() => {
+            if (fallbackTabActive) {
+              void fallbackModelRef.current?.reset();
+            } else {
+              void fetchConfig();
+            }
+          }}
+          disabled={footerDisabled}
           style={{ marginRight: 8 }}
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button
+          type="primary"
+          onClick={() => {
+            if (fallbackTabActive) {
+              void fallbackModelRef.current?.save();
+            } else {
+              void handleSave();
+            }
+          }}
+          loading={footerLoading}
+          disabled={footerDisabled}
+        >
           {t("common.save")}
         </Button>
       </div>
