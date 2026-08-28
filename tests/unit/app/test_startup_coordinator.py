@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for desktop startup phase supervision."""
+"""Tests for shared startup phase supervision."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from qwenpaw.tauri.startup_coordinator import StartupCoordinator
+from qwenpaw.app.startup_coordinator import StartupCoordinator
 
 
 def test_phase_transitions_are_exposed() -> None:

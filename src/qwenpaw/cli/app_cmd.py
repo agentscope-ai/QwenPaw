@@ -158,7 +158,7 @@ def app_cmd(
     _warn_if_auth_off_non_loopback_bind(host, port)
 
     uvicorn.run(
-        "qwenpaw.app._app:app",
+        "qwenpaw.app.deferred_app:app",
         host=host,
         port=port,
         reload=reload,

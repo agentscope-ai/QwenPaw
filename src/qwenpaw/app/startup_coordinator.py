@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Readiness and failure tracking for desktop startup phases."""
+"""Readiness and failure tracking for application startup phases."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class StartupPhase:
 
 
 class StartupCoordinator:
-    """Supervise desktop startup tasks and publish monotonic readiness."""
+    """Supervise startup tasks and publish monotonic readiness."""
 
     def __init__(self, phase_names: tuple[str, ...]) -> None:
         self._started_at = time.monotonic()
@@ -37,7 +37,7 @@ class StartupCoordinator:
         self._tasks: set[asyncio.Task[Any]] = set()
 
     def mark_running(self, phase_name: str) -> None:
-        """Mark a phase as running without resetting an earlier timestamp."""
+        """Mark a phase as running without resetting its timestamp."""
         phase = self._phase(phase_name)
         if phase.status in {_READY, _FAILED}:
             return
@@ -95,7 +95,7 @@ class StartupCoordinator:
 
         task = asyncio.create_task(
             _run(),
-            name=f"desktop-startup:{phase_name}",
+            name=f"startup:{phase_name}",
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -115,7 +115,7 @@ class StartupCoordinator:
             return self._phases[phase_name]
         except KeyError as exc:
             raise ValueError(
-                f"Unknown desktop startup phase: {phase_name}",
+                f"Unknown startup phase: {phase_name}",
             ) from exc
 
     def _elapsed_ms(self) -> float:
