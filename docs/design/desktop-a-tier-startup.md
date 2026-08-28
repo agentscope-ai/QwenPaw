@@ -68,12 +68,14 @@ work is limited to source validation and tests.
 
 - [x] Create `perf/desktop-startup-a-tier` from current `upstream/main`.
 - [x] Apply the independently validated provider import deferrals.
-- [ ] Add a startup coordinator and status API.
-- [ ] Reduce the synchronous FastAPI lifespan to its safe minimum.
+- [x] Add a startup coordinator and status API.
+- [x] Move the complete desktop app import behind a lightweight ASGI shell.
+- [x] Publish API, chat, browser, memory, channel, and plugin readiness.
+- [ ] Reduce the remaining synchronous full-app lifespan to its safe minimum.
 - [ ] Prioritize default chat-core startup.
 - [ ] Move optional capabilities into supervised background workers.
 - [ ] Render the local desktop shell without the blocking backend gate.
 - [ ] Queue and replay the first chat submission while chat core starts.
 - [ ] Add Python, frontend, and Rust tests.
-- [ ] Add packaged startup milestones and CI comparisons.
+- [x] Add packaged startup milestones and CI comparisons.
 - [ ] Run Windows and macOS GitHub Actions builds.

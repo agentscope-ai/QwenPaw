@@ -79,6 +79,7 @@ class DeferredRuntime:
     def start(self, shell_app: FastAPI) -> None:
         """Start importing and initializing the complete app."""
         self.coordinator.mark_ready("api_ready")
+        self._mark(shell_app, "api_ready")
         self.coordinator.mark_running("chat_core_ready")
         self._task = asyncio.create_task(
             self._run(shell_app),
@@ -94,7 +95,9 @@ class DeferredRuntime:
 
     async def _run(self, shell_app: FastAPI) -> None:
         try:
+            self._mark(shell_app, "full_app_import_started")
             full_app = await asyncio.to_thread(self._app_loader)
+            self._mark(shell_app, "full_app_import_done")
             self._copy_desktop_state(shell_app, full_app)
             full_app.state.startup_coordinator = self.coordinator
             async with full_app.router.lifespan_context(full_app):
@@ -109,6 +112,12 @@ class DeferredRuntime:
             self.load_error = str(exc)
             self.coordinator.mark_failed("chat_core_ready", exc)
             self.ready.set()
+
+    @staticmethod
+    def _mark(shell_app: FastAPI, event: str) -> None:
+        metric = getattr(shell_app.state, "desktop_startup_metric", None)
+        if metric is not None:
+            metric(event)
 
     @staticmethod
     def _copy_desktop_state(shell_app: FastAPI, full_app: FastAPI) -> None:

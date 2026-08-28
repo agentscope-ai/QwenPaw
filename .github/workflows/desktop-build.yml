@@ -93,6 +93,28 @@ jobs:
           TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
+      - name: Benchmark packaged backend startup (Windows)
+        id: startup-benchmark-windows
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          python scripts/benchmarks/desktop_startup/run_backend_benchmark.py `
+            --executable console/src-tauri/binaries/qwenpaw-backend/qwenpaw-backend.exe `
+            --runs 10 `
+            --warmup-runs 1 `
+            --timeout 60 `
+            --output dist/startup-benchmark-windows.json
+
+      - name: Upload backend startup benchmark (Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-startup-benchmark-windows-${{ github.sha }}
+          path: dist/startup-benchmark-windows.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Stage Tauri Windows installer and updater assets
         shell: pwsh
         env:
@@ -234,6 +256,27 @@ jobs:
         run: |
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
+
+      - name: Benchmark packaged backend startup (macOS)
+        id: startup-benchmark-macos
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          python scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable console/src-tauri/binaries/qwenpaw-backend/qwenpaw-backend \
+            --runs 10 \
+            --warmup-runs 1 \
+            --timeout 60 \
+            --output dist/startup-benchmark-macos.json
+
+      - name: Upload backend startup benchmark (macOS)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-startup-benchmark-macos-${{ github.sha }}
+          path: dist/startup-benchmark-macos.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Verify desktop (Tauri macOS)
         timeout-minutes: 10

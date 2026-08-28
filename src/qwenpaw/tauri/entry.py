@@ -20,8 +20,10 @@ from qwenpaw.tauri.env import (
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
+from qwenpaw.tauri.startup_metrics import mark
 
 logger = logging.getLogger(__name__)
+mark("python_entry")
 
 
 def _is_frozen_desktop() -> bool:
@@ -258,6 +260,7 @@ def _emit_backend_ready(port: int) -> None:
 
 
 def _run_backend_server(log_level: str) -> None:
+    mark("backend_server_imports_started")
     import uvicorn
 
     from qwenpaw.browser.control_link.chrome.protocol import (
@@ -308,7 +311,11 @@ def _run_backend_server(log_level: str) -> None:
 
     # The lightweight shell serves the console while the complete app imports
     # and initializes in its supervised background runtime.
+    mark("desktop_shell_import_started")
     from qwenpaw.tauri.deferred_app import app as fastapi_app
+
+    mark("desktop_shell_import_done")
+    fastapi_app.state.desktop_startup_metric = mark
 
     config = uvicorn.Config(
         fastapi_app,
@@ -332,6 +339,7 @@ def _run_backend_server(log_level: str) -> None:
 
     try:
         port = _socket_port(backend_socket)
+        mark("port_bound", port=port)
         write_port_file(port_file, port)
         write_last_api(host, port)
         server = uvicorn.Server(config)
@@ -358,11 +366,13 @@ def main() -> None:
     _ensure_utf8_stdio()
     _install_subprocess_guard()
     _install_desktop_runtime()
+    mark("desktop_runtime_installed")
 
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
     install_sidecar_logging(WORKING_DIR / "desktop.log")
     _install_certifi_env()
+    mark("sidecar_logging_installed")
 
     # Auto-initialize if no config exists
     config_path = WORKING_DIR / "config.json"
