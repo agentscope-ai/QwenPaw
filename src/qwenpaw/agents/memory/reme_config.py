@@ -673,18 +673,9 @@ def _apply_embedding_config(
         components.pop("as_embedding", None)
         return
 
-    components["as_embedding"]["default"].update(
-        {
-            "backend": embedding_config.backend,
-            "model": embedding_config.model_name,
-            "dimensions": embedding_config.dimensions,
-            "credential": _embedding_credential(embedding_config),
-        },
+    components["as_embedding"]["default"] = _as_embedding_component_config(
+        embedding_config,
     )
-    if embedding_config.backend == "openai":
-        components["as_embedding"]["default"][
-            "pass_dimensions"
-        ] = embedding_config.use_dimensions
     components["embedding_store"]["default"].update(
         {
             "enable_cache": embedding_config.enable_cache,
@@ -695,6 +686,22 @@ def _apply_embedding_config(
         },
     )
     components["file_store"]["default"]["embedding_store"] = "default"
+
+
+def _as_embedding_component_config(
+    embedding_config: EmbeddingModelConfig,
+) -> dict[str, Any]:
+    """Return the complete ReMe config for one embedding wrapper."""
+    component: dict[str, Any] = {
+        "backend": embedding_config.backend,
+        "model": embedding_config.model_name,
+        "dimensions": embedding_config.dimensions,
+        "credential": _embedding_credential(embedding_config),
+        "parameters": {},
+    }
+    if embedding_config.backend == "openai":
+        component["pass_dimensions"] = embedding_config.use_dimensions
+    return component
 
 
 def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:

@@ -26,7 +26,10 @@ from .embedding_model import (
     test_embedding_model,
 )
 from .prompts import build_memory_guidance_prompt
-from .reme_config import get_reme_app_config
+from .reme_config import (
+    _as_embedding_component_config,
+    get_reme_app_config,
+)
 from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
@@ -377,22 +380,34 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         async with self._exclusive_reme_lifecycle("embedding-update"):
             old_config = self._active_embedding_config
-            if old_config is not None and old_config.backend != config.backend:
-                # update_component() can replace the provider model but not the
-                # backend-specific wrapper class. Keeping the old wrapper would
-                # make ReMe's vector_space_id describe the previous provider and
-                # could reuse that provider's cache during a requested rebuild.
-                return await self._reload_embedding_config_unlocked()
-
             tested_model = staged[1]
             if hasattr(tested_model, "context_size"):
                 tested_model.context_size = config.max_input_length
             try:
-                await self._reme.update_component(
-                    "as_embedding",
-                    "default",
-                    model=tested_model,
+                backend_changed = (
+                    old_config is not None
+                    and old_config.backend != config.backend
                 )
+                if backend_changed:
+                    replace_component = getattr(
+                        self._reme,
+                        "replace_component",
+                        None,
+                    )
+                    if not callable(replace_component):
+                        return await self._reload_embedding_config_unlocked()
+                    await replace_component(  # pylint: disable=not-callable
+                        "as_embedding",
+                        "default",
+                        config=_as_embedding_component_config(config),
+                        runtime_updates={"model": tested_model},
+                    )
+                else:
+                    await self._reme.update_component(
+                        "as_embedding",
+                        "default",
+                        model=tested_model,
+                    )
                 await self._reme.update_component(
                     "embedding_store",
                     "default",

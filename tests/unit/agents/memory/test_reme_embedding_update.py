@@ -38,6 +38,26 @@ class FakeReMe:
             setattr(component, key, value)
         return component
 
+    async def replace_component(
+        self,
+        component_type,
+        _name,
+        *,
+        config,
+        runtime_updates=None,
+    ):
+        assert component_type == "as_embedding"
+        replacement = SimpleNamespace(
+            backend=config["backend"],
+            config=config,
+            model=None,
+        )
+        for key, value in (runtime_updates or {}).items():
+            setattr(replacement, key, value)
+        self.embedding_wrapper = replacement
+        self.embedding_store.as_embedding = replacement
+        return replacement
+
 
 def _config(**overrides) -> EmbeddingModelConfig:
     values = {
@@ -62,6 +82,7 @@ def _manager(config: EmbeddingModelConfig):
     manager._active_embedding_config = config.model_copy(deep=True)
     wrapper = SimpleNamespace(model=object())
     store = SimpleNamespace(
+        as_embedding=wrapper,
         enable_cache=True,
         max_cache_size=10,
         max_input_length=100,
@@ -120,11 +141,35 @@ async def test_model_change_requests_reme_managed_background_rebuild() -> None:
 
 
 @pytest.mark.asyncio
-async def test_backend_change_reloads_backend_specific_wrapper() -> None:
+async def test_backend_change_atomically_replaces_backend_wrapper() -> None:
     old_config = _config(backend="openai")
     new_config = _config(backend="dashscope")
-    manager, wrapper, _store = _manager(old_config)
-    original_model = wrapper.model
+    manager, old_wrapper, store = _manager(old_config)
+    tested_model = object()
+    manager._tested_embedding = (
+        embedding_config_fingerprint(new_config),
+        tested_model,
+    )
+
+    assert await manager.apply_tested_embedding(new_config) is True
+    replacement = manager._reme.embedding_wrapper
+    assert replacement is not old_wrapper
+    assert replacement.backend == "dashscope"
+    assert replacement.model is tested_model
+    assert store.as_embedding is replacement
+    assert "pass_dimensions" not in replacement.config
+    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
+        verified=True,
+        rebuild=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_backend_change_reloads_without_replace_api() -> None:
+    old_config = _config(backend="openai")
+    new_config = _config(backend="dashscope")
+    manager, old_wrapper, _store = _manager(old_config)
+    manager._reme.replace_component = None
     manager._tested_embedding = (
         embedding_config_fingerprint(new_config),
         object(),
@@ -140,8 +185,7 @@ async def test_backend_change_reloads_backend_specific_wrapper() -> None:
 
     assert await manager.apply_tested_embedding(new_config) is True
     manager._reload_embedding_config_unlocked.assert_awaited_once_with()
-    assert wrapper.model is original_model
-    manager._reme.file_store.resume_embedding.assert_not_awaited()
+    assert manager._reme.embedding_wrapper is old_wrapper
 
 
 @pytest.mark.asyncio
