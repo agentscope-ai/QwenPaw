@@ -22,8 +22,11 @@
       background-color: transparent;
     }
 
-    :global([class$="-accordion-group-icon-success"]) {
-      color: #52c41a;
+    /* Beat the dark chat blanket `span { color: ... !important }` rule. */
+    :global(
+        [class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"]
+      ) {
+      color: #52c41a !important;
     }
   }
 }
