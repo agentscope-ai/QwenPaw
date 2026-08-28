@@ -5,14 +5,15 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
-
-from agentscope.model import ChatModelBase, OpenAIResponseModel
+from typing import TYPE_CHECKING, Any
 
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
 from .provider import ModelConnectionResult
 from ..utils.logging import sanitize_log_value
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def _extract_reasoning_text(response: Any) -> str:
     return " ".join(parts)
 
 
-class OpenAIResponseModelCompat(OpenAIResponseModel):
+class OpenAIResponseModelCompat:
     """OpenAIResponseModel with extra-kwargs injection and tool schema
     sanitization.
 
@@ -83,59 +84,66 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
       providers reject (same fix as ``OpenAIChatModelCompat``).
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
         extra_generate_kwargs: dict[str, Any] | None = None,
         **kwargs: Any,
-    ) -> None:
-        self._extra_generate_kwargs = extra_generate_kwargs or {}
-        super().__init__(**kwargs)
-
-    async def _call_api(
-        self,
-        model_name: str,
-        messages: Any,
-        tools: list[dict] | None = None,
-        tool_choice: Any | None = None,
-        **generate_kwargs: Any,
     ) -> Any:
-        max_tokens = generate_kwargs.pop("max_tokens", None)
-        if (
-            max_tokens is not None
-            and "max_output_tokens" not in generate_kwargs
-        ):
-            generate_kwargs["max_output_tokens"] = max_tokens
-        merged = {**self._extra_generate_kwargs, **generate_kwargs}
-        disable_thinking = merged.pop("disable_thinking", False)
-        inherited_max_tokens = merged.pop("max_tokens", None)
-        if (
-            inherited_max_tokens is not None
-            and "max_output_tokens" not in merged
-        ):
-            merged["max_output_tokens"] = inherited_max_tokens
-        if disable_thinking:
-            merged.pop("reasoning", None)
-            if _supports_none_reasoning_effort(model_name):
-                merged["reasoning"] = {"effort": "none"}
-        return await super()._call_api(
-            model_name,
-            messages,
-            tools,
-            tool_choice,
-            **merged,
-        )
+        from agentscope.model import OpenAIResponseModel
 
-    def _format_tools(
-        self,
-        tools: list[dict] | None,
-        tool_choice: Any | None,
-    ) -> tuple[list[dict] | None, Any]:
-        from .openai_chat_model_compat import _sanitize_tool_schemas
+        class _Compat(OpenAIResponseModel):
+            async def _call_api(
+                self,
+                model_name: str,
+                messages: Any,
+                tools: list[dict] | None = None,
+                tool_choice: Any | None = None,
+                **generate_kwargs: Any,
+            ) -> Any:
+                max_tokens = generate_kwargs.pop("max_tokens", None)
+                if (
+                    max_tokens is not None
+                    and "max_output_tokens" not in generate_kwargs
+                ):
+                    generate_kwargs["max_output_tokens"] = max_tokens
+                merged = {
+                    **self._qp_extra_generate_kwargs,
+                    **generate_kwargs,
+                }
+                disable_thinking = merged.pop("disable_thinking", False)
+                inherited_max_tokens = merged.pop("max_tokens", None)
+                if (
+                    inherited_max_tokens is not None
+                    and "max_output_tokens" not in merged
+                ):
+                    merged["max_output_tokens"] = inherited_max_tokens
+                if disable_thinking:
+                    merged.pop("reasoning", None)
+                    if _supports_none_reasoning_effort(model_name):
+                        merged["reasoning"] = {"effort": "none"}
+                return await super()._call_api(
+                    model_name,
+                    messages,
+                    tools,
+                    tool_choice,
+                    **merged,
+                )
 
-        if tools:
-            tools = _sanitize_tool_schemas(tools)
-        return super()._format_tools(tools, tool_choice)
+            def _format_tools(
+                self,
+                tools: list[dict] | None,
+                tool_choice: Any | None,
+            ) -> tuple[list[dict] | None, Any]:
+                from .openai_chat_model_compat import _sanitize_tool_schemas
+
+                if tools:
+                    tools = _sanitize_tool_schemas(tools)
+                return super()._format_tools(tools, tool_choice)
+
+        model = _Compat(**kwargs)
+        model._qp_extra_generate_kwargs = extra_generate_kwargs or {}
+        return model
 
 
 class OpenAIResponseProvider(OpenAIProvider):
@@ -382,6 +390,7 @@ class OpenAIResponseProvider(OpenAIProvider):
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import OpenAICredential
+        from agentscope.model import OpenAIResponseModel
 
         credential = OpenAICredential(
             id=f"qwenpaw-{self.id}",

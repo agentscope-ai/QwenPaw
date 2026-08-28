@@ -77,6 +77,23 @@ def _resolve_effective_stream_task_timeout(
     return resolve_stream_task_timeout(raw_timeout, field_name="timeout")
 
 
+async def _get_console_channel(workspace: Any) -> Any:
+    """Return the local console channel or a stable readiness error."""
+    manager = workspace.channel_manager
+    if manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not ready",
+        )
+    console_channel = await manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+    return console_channel
+
+
 def _background_task_cancel_error(
     *,
     timed_out: bool,
@@ -376,12 +393,7 @@ async def post_console_chat(
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
     workspace = await get_agent_for_request(request)
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _get_console_channel(workspace)
     try:
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
@@ -530,12 +542,7 @@ async def post_console_upload(
     """Save to console channel media_dir."""
 
     workspace = await get_agent_for_request(request)
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _get_console_channel(workspace)
     media_dir = console_channel.media_dir
     media_dir.mkdir(parents=True, exist_ok=True)
     data = await file.read()
@@ -826,12 +833,7 @@ async def post_console_chat_task(
     ``GET /console/chat/task/{task_id}``.
     """
     workspace = await get_agent_for_request(request)
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _get_console_channel(workspace)
 
     # Single validation path for task timeout — always HTTP 400 on error.
     try:

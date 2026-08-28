@@ -54,12 +54,18 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+        defer_optional_services: bool = False,
+    ):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
+            defer_optional_services: Start non-chat services in background.
         """
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
@@ -83,6 +89,9 @@ class Workspace:
         self._config_mtime: float | None = None
         self._started = False
         self._start_attempted = False
+        self._defer_optional_services = defer_optional_services
+        self._deferred_start_task: asyncio.Task[None] | None = None
+        self._deferred_start_error: str | None = None
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
@@ -454,7 +463,8 @@ class Workspace:
             ),
         )
 
-        # Priority 30: Channel manager
+        # Priority 20: Console chat transport. External channel connections
+        # are started as background tasks by ChannelManager.start_all().
         sm.register(
             ServiceDescriptor(
                 name="channel_manager",
@@ -462,8 +472,8 @@ class Workspace:
                 post_init=create_channel_service,
                 start_method="start_all",
                 stop_method="stop_all",
-                priority=30,
-                concurrent_init=False,
+                priority=20,
+                concurrent_init=True,
             ),
         )
 
@@ -603,10 +613,20 @@ class Workspace:
             # start so ChatManager / Runner see the canonical layout.
             self._migrate_legacy_weixin_data()
 
-            # 3. Start all services via ServiceManager
-            await self._service_manager.start_all()
+            # 3. Start chat-critical services before optional desktop workers.
+            if self._defer_optional_services:
+                await self._service_manager.start_through(20)
+            else:
+                await self._service_manager.start_all()
+
+            await self._require_console_chat_ready()
 
             self._started = True
+            if self._defer_optional_services:
+                self._deferred_start_task = asyncio.create_task(
+                    self._start_deferred_services(),
+                    name=f"workspace-deferred:{self.agent_id}",
+                )
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -636,6 +656,35 @@ class Workspace:
                     f"{sanitize_log_value(cleanup_error)}",
                 )
             raise
+
+    async def _require_console_chat_ready(self) -> None:
+        """Fail startup unless the local console chat path is usable."""
+        if self.chat_manager is None:
+            raise RuntimeError("ChatManager is not ready")
+        manager = self.channel_manager
+        if manager is None:
+            raise RuntimeError("ChannelManager is not ready")
+        if await manager.get_channel("console") is None:
+            raise RuntimeError("Console channel is not ready")
+
+    async def _start_deferred_services(self) -> None:
+        """Start channel and maintenance services without blocking chat."""
+        try:
+            await self._service_manager.start_after(20)
+        except Exception as exc:  # noqa: BLE001 - worker isolation
+            self._deferred_start_error = str(exc)
+            logger.error(
+                "Deferred services failed for %s",
+                sanitize_log_value(self.agent_id),
+                exc_info=True,
+            )
+
+    async def wait_for_deferred_services(self) -> None:
+        """Wait until deferred services either complete or fail."""
+        if self._deferred_start_task is not None:
+            await self._deferred_start_task
+        if self._deferred_start_error is not None:
+            raise RuntimeError(self._deferred_start_error)
 
     def _migrate_legacy_weixin_data(self) -> None:
         """Eagerly migrate legacy weixin -> wechat data on workspace start.
@@ -719,6 +768,15 @@ class Workspace:
             "Stopping agent instance: "
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
+
+        if self._deferred_start_task is not None:
+            if not self._deferred_start_task.done():
+                self._deferred_start_task.cancel()
+            await asyncio.gather(
+                self._deferred_start_task,
+                return_exceptions=True,
+            )
+            self._deferred_start_task = None
 
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(

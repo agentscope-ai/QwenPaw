@@ -7,11 +7,9 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
 import httpx
-from agentscope.model import ChatModelBase
-import anthropic
 from pydantic import Field
 
 from qwenpaw.providers.multimodal_prober import (
@@ -33,6 +31,11 @@ from qwenpaw.providers.provider import (
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+
+if TYPE_CHECKING:
+    import anthropic
+
+    from agentscope.model import ChatModelBase
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,8 @@ class AnthropicProvider(Provider):
         return self._strip_http_client
 
     def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
+        import anthropic
+
         default_headers = self._build_default_headers()
         if self.auth_mode == "auth_token":
             return anthropic.AsyncAnthropic(
@@ -182,6 +187,8 @@ class AnthropicProvider(Provider):
         call so that custom proxies that only expose the messages API still
         pass the connection test.
         """
+        import anthropic
+
         client = self._client(timeout=timeout)
         try:
             await client.models.list()
@@ -208,6 +215,8 @@ class AnthropicProvider(Provider):
         client: anthropic.AsyncAnthropic,
     ) -> tuple[bool, str]:
         """Fallback: check reachability via messages.create."""
+        import anthropic
+
         model = self.models[0].id if self.models else "claude-opus-4-5"
         try:
             await client.messages.create(
@@ -246,6 +255,8 @@ class AnthropicProvider(Provider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable."""
+        import anthropic
+
         target = (model_id or "").strip()
         if not target:
             return ModelConnectionResult(
@@ -477,6 +488,8 @@ class AnthropicProvider(Provider):
         error summary is appended to help callers log the
         actual rejection reason.
         """
+        import anthropic
+
         log_model = sanitize_log_value(model_id)
         client = self._client(timeout=timeout)
         try:
@@ -574,8 +587,10 @@ class AnthropicProvider(Provider):
            image by asking for the dominant color of a solid-red PNG.
            Some providers silently accept image payloads without
            processing them, so a pure API-error check would produce
-           false positives.
+        false positives.
         """
+        import anthropic
+
         log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
@@ -653,6 +668,8 @@ class _AnthropicChatModelCompat:
     """
 
     def __new__(cls, **kwargs: Any) -> Any:
+        import anthropic
+
         from agentscope.model import AnthropicChatModel
 
         default_headers = kwargs.pop("default_headers", None)

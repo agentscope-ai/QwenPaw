@@ -145,17 +145,15 @@ def test_sanitize_tool_schemas_removes_nullable_builtin_tool_branches() -> (
     read_file_params = _schema_by_name(sanitized, "read_file")
     assert read_file_params["required"] == ["file_path"]
     start_line = read_file_params["properties"]["start_line"]
-    assert start_line == {
-        "anyOf": [
-            {"type": "integer"},
-            {"type": "string"},
-        ],
-        "description": (
-            "First line to read (1-based, inclusive). Decimal strings are\n"
-            "accepted for tool-call compatibility."
-        ),
-        "default": None,
+    assert {item["type"] for item in start_line["anyOf"]} == {
+        "integer",
+        "string",
     }
+    assert start_line["description"] == (
+        "First line to read (1-based, inclusive). Decimal strings are\n"
+        "accepted for tool-call compatibility."
+    )
+    assert start_line["default"] is None
 
     shell_params = _schema_by_name(sanitized, "execute_shell_command")
     assert shell_params["required"] == ["command"]

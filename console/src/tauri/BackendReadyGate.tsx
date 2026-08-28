@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import BackendLoadingPage from "./BackendLoadingPage";
+import DesktopStartupShell from "./DesktopStartupShell";
 import useBackendReadyPolling from "./useBackendReadyPolling";
 import { withCacheBuster, withDesktopMarker } from "./backendRuntime";
 
@@ -27,6 +28,10 @@ export default function BackendReadyGate({ children }: Props) {
   // Browser mode, or Tauri after it has navigated to the backend-hosted console.
   if (!shouldGate) {
     return <>{children}</>;
+  }
+
+  if (status === "checking" || status === "ready") {
+    return <DesktopStartupShell />;
   }
 
   return (

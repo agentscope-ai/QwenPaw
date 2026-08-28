@@ -22,9 +22,10 @@ from typing import (
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
 from .renderer import ChannelDisplayConfig
 from .command_registry import CommandRegistry
-from .registry import get_channel_registry
+from .registry import get_channel_class, get_channel_registry
 from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
+from ...config.utils import get_startup_channel_keys
 
 if TYPE_CHECKING:
     from ...config.config import Config
@@ -129,15 +130,13 @@ class ChannelManager:
             on_last_dispatch: Callback for dispatch events
             workspace_dir: Agent workspace directory for channel state files
         """
-        available = get_available_channels()
+        available = get_startup_channel_keys()
         ch = config.channels
         show_tool_details = getattr(config, "show_tool_details", True)
         extra = getattr(ch, "__pydantic_extra__", None) or {}
 
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
-            if key not in available:
-                continue
+        for key in available:
             ch_cfg = getattr(ch, key, None)
             if ch_cfg is None and key in extra:
                 ch_cfg = extra[key]
@@ -159,6 +158,10 @@ class ChannelManager:
             else:
                 enabled = getattr(ch_cfg, "enabled", False)
             if not enabled:
+                continue
+
+            ch_cls = get_channel_class(key)
+            if ch_cls is None:
                 continue
 
             no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)

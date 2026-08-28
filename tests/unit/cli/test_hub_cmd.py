@@ -70,6 +70,14 @@ def test_app_rejects_removed_pro_option() -> None:
     assert "--pro" in result.output
 
 
+def test_app_uses_shared_deferred_entry_point() -> None:
+    with patch("qwenpaw.cli.app_cmd.uvicorn.run") as run_server:
+        result = CliRunner().invoke(app_cmd, ["--port", "9088"])
+
+    assert result.exit_code == 0
+    assert run_server.call_args.args[0] == ("qwenpaw.app.deferred_app:app")
+
+
 def test_hub_is_registered_at_root() -> None:
     result = CliRunner().invoke(cli, ["hub", "--help"])
 

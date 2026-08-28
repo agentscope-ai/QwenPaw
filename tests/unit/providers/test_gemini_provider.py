@@ -7,10 +7,10 @@ import copy
 from types import SimpleNamespace
 
 import pytest
+from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
@@ -38,7 +38,7 @@ def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
         captured.append(kwargs)
         return fake_client
 
-    monkeypatch.setattr(gemini_provider_module.genai, "Client", create_client)
+    monkeypatch.setattr(genai, "Client", create_client)
 
     model = _make_provider(
         custom_headers={"X-QwenPaw-Test": "enabled"},
@@ -65,7 +65,7 @@ async def test_summary_limit_is_adapted_without_mutating_thinking(
         aio=SimpleNamespace(models=FakeModels()),
     )
     monkeypatch.setattr(
-        gemini_provider_module.genai,
+        genai,
         "Client",
         lambda **kwargs: fake_client,
     )
@@ -115,7 +115,7 @@ async def test_summary_thinking_override_is_concurrency_safe(
         aio=SimpleNamespace(models=FakeModels()),
     )
     monkeypatch.setattr(
-        gemini_provider_module.genai,
+        genai,
         "Client",
         lambda **kwargs: fake_client,
     )

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,6 +23,17 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.routers.console import _extract_session_and_payload
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
+
+
+@pytest.mark.asyncio
+async def test_console_route_reports_not_ready_without_channel_manager():
+    from qwenpaw.app.routers.console import _get_console_channel
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _get_console_channel(SimpleNamespace(channel_manager=None))
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Channel Console not ready"
 
 
 @pytest.fixture

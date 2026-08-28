@@ -13,9 +13,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, List
 from urllib.parse import urlparse
 
 import httpx
-
-from agentscope.model import ChatModelBase
-from openai import APIError
 from pydantic import Field
 
 from qwenpaw.providers.provider import (
@@ -29,6 +26,9 @@ from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
 if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
+    from openai import AsyncOpenAI
+
     from qwenpaw.providers.multimodal_prober import ProbeResult
 
 logger = logging.getLogger(__name__)
@@ -125,17 +125,22 @@ def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
     return {"max_tokens": limit}
 
 
-if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
-    "langfuse",
-):
-    from langfuse.openai import AsyncOpenAI  # type: ignore[import]
-else:
+def _get_async_openai_class() -> type[AsyncOpenAI]:
+    """Resolve the configured OpenAI client only when it is first used."""
+    if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
+        "langfuse",
+    ):
+        from langfuse.openai import AsyncOpenAI
+
+        return AsyncOpenAI
     if os.environ.get("LANGFUSE_SECRET_KEY"):
         logger.warning(
             "LANGFUSE_SECRET_KEY is set but langfuse is not installed; "
             "install with `pip install langfuse` to enable tracing",
         )
-    from openai import AsyncOpenAI  # pylint: disable=ungrouped-imports
+    from openai import AsyncOpenAI
+
+    return AsyncOpenAI
 
 
 class OpenAIProvider(Provider):
@@ -165,7 +170,7 @@ class OpenAIProvider(Provider):
         headers = self._build_default_headers()
         if headers:
             kwargs["default_headers"] = headers
-        return AsyncOpenAI(**kwargs)
+        return _get_async_openai_class()(**kwargs)
 
     @staticmethod
     async def _close_client(client: AsyncOpenAI) -> None:
@@ -213,6 +218,8 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
+        from openai import APIError
+
         client = self._client(timeout=timeout)
         try:
             await client.models.list(timeout=timeout)
@@ -236,6 +243,8 @@ class OpenAIProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
+        from openai import APIError
+
         client = self._client(timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
@@ -254,6 +263,8 @@ class OpenAIProvider(Provider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         """Check that a model can complete a basic chat request."""
+        from openai import APIError
+
         model_id = (model_id or "").strip()
         if not model_id:
             return ModelConnectionResult(
@@ -620,6 +631,7 @@ class OpenAIProvider(Provider):
             _is_media_keyword_error,
             evaluate_image_probe_answer,
         )
+        from openai import APIError
 
         log_model = sanitize_log_value(model_id)
         logger.info(
@@ -742,6 +754,8 @@ class OpenAIProvider(Provider):
         start_time: float,
     ) -> tuple[bool, str] | None:
         """Try a single video URL format. Return None to try next."""
+        from openai import APIError
+
         from .multimodal_prober import (
             _PROBE_VIDEO_URL,
             _is_media_keyword_error,
@@ -945,6 +959,8 @@ class GitHubModelsProvider(OpenAIProvider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check connectivity via a tiny chat completion request."""
+        from openai import APIError
+
         # Prefer a built-in model; fall back to a well-known GitHub Models id.
         model_id = ""
         for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
