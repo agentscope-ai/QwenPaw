@@ -125,6 +125,31 @@ def _timeout_seconds(value: float | timedelta) -> float:
     )
 
 
+def _normalized_port(url: httpx.URL) -> int:
+    if url.port is not None:
+        return url.port
+    return 443 if url.scheme == "https" else 80
+
+
+def _same_origin(left: httpx.URL, right: httpx.URL) -> bool:
+    return (
+        left.scheme == right.scheme
+        and left.host == right.host
+        and _normalized_port(left) == _normalized_port(right)
+    )
+
+
+def _is_https_upgrade(url: httpx.URL, location: httpx.URL) -> bool:
+    """Allow http:80 → https:443 on the same host only."""
+    return (
+        url.host == location.host
+        and url.scheme == "http"
+        and _normalized_port(url) == 80
+        and location.scheme == "https"
+        and _normalized_port(location) == 443
+    )
+
+
 def _headers_without_session_id(
     headers: dict[str, str] | None,
 ) -> dict[str, str]:
@@ -466,10 +491,7 @@ class _AsyncClient(httpx.AsyncClient):
     """Refuse cross-origin redirects; credentials use arbitrary headers."""
 
     def _redirect_headers(self, request, url, method):
-        # httpx private helpers: same origin is scheme+host+port.
-        from httpx._client import _is_https_redirect, _same_origin
-
-        if _same_origin(request.url, url) or _is_https_redirect(
+        if _same_origin(request.url, url) or _is_https_upgrade(
             request.url,
             url,
         ):
@@ -863,6 +885,7 @@ class HttpAutoClient(_HttpClientBase):
             raise _already_connected(self.name)
         kw = dict(self.client_kwargs)
         http_transport = kw.pop("http_transport", None)
+        follow_redirects = kw.pop("follow_redirects", True)
         shared = {
             "name": self.name,
             "transport": "streamable_http",
@@ -875,7 +898,10 @@ class HttpAutoClient(_HttpClientBase):
         deadline = time.monotonic() + float(timeout)
         if http_transport is not None:
             shared["http_transport"] = http_transport
-        modern = HttpStatelessClient(**shared)
+        modern = HttpStatelessClient(
+            follow_redirects=follow_redirects,
+            **shared,
+        )
         try:
             await modern.connect(timeout=timeout)
         except _LegacyProtocolError as exc:

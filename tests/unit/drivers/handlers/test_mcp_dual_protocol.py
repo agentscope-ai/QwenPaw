@@ -32,7 +32,9 @@ from qwenpaw.drivers.handlers.mcp_streamable_http import (
     _LegacyProtocolError,
     _build_mcp_param_headers,
     _collect_tool_header_bindings,
+    _is_https_upgrade,
     _normalize_call_tool_result,
+    _same_origin,
     _supported_versions_from_payload,
 )
 
@@ -745,7 +747,25 @@ async def test_call_tool_rejects_unknown_result_type():
         await c.close()
 
 
-async def test_connect_follows_redirect():
+def test_origin_helpers_use_scheme_host_and_port():
+    http80 = httpx.URL("http://mcp.test/mcp")
+    http80_explicit = httpx.URL("http://mcp.test:80/mcp")
+    http8000 = httpx.URL("http://mcp.test:8000/mcp")
+    http9000 = httpx.URL("http://mcp.test:9000/mcp")
+    other = httpx.URL("http://other.test/mcp")
+    https443 = httpx.URL("https://mcp.test/mcp")
+    https8080 = httpx.URL("https://mcp.test:8080/mcp")
+    assert _same_origin(http80, http80_explicit)
+    assert not _same_origin(http8000, http9000)
+    assert not _same_origin(http80, other)
+    assert not _same_origin(http80, https443)
+    assert _is_https_upgrade(http80, https443)
+    assert not _is_https_upgrade(https443, http80)
+    assert not _is_https_upgrade(http8000, https8080)
+
+
+@pytest.mark.parametrize("kwargs", ({}, {"follow_redirects": True}))
+async def test_connect_follows_same_origin_redirect(kwargs):
     seen: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -757,7 +777,7 @@ async def test_connect_follows_redirect():
             )
         return _disc(_rid(req))
 
-    c = _cli(HttpStatelessClient, "modern", handler, follow_redirects=True)
+    c = _cli(HttpStatelessClient, "modern", handler, **kwargs)
     await c.connect()
     try:
         assert c.is_connected
@@ -767,7 +787,10 @@ async def test_connect_follows_redirect():
 
 
 async def test_connect_blocks_cross_origin_redirect():
+    seen: list[str] = []
+
     def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.host)
         if req.url.host == "mcp.test":
             return httpx.Response(
                 307,
@@ -783,10 +806,14 @@ async def test_connect_blocks_cross_origin_redirect():
     )
     with pytest.raises(RuntimeError, match="cross-origin redirect"):
         await c.connect()
+    assert seen == ["mcp.test"]
 
 
 async def test_connect_blocks_cross_port_redirect():
+    seen: list[int | None] = []
+
     def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.port)
         if req.url.port == 8000:
             return httpx.Response(
                 307,
@@ -799,16 +826,18 @@ async def test_connect_blocks_cross_port_redirect():
         "streamable_http",
         "http://mcp.test:8000/mcp",
         http_transport=httpx.MockTransport(handler),
+        headers={"X-Api-Key": "k"},
     )
     with pytest.raises(RuntimeError, match="cross-origin redirect"):
         await c.connect()
+    assert seen == [8000]
 
 
 async def test_connect_allows_http_to_https_upgrade():
-    seen: list[str] = []
+    seen: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(str(req.url))
+        seen.append(req)
         if req.url.scheme == "http":
             return httpx.Response(
                 307,
@@ -816,13 +845,78 @@ async def test_connect_allows_http_to_https_upgrade():
             )
         return _disc(_rid(req))
 
-    c = _cli(HttpStatelessClient, "modern", handler)
+    c = _cli(
+        HttpStatelessClient,
+        "modern",
+        handler,
+        headers={"X-Auth-Token": "secret"},
+    )
     await c.connect()
     try:
         assert c.is_connected
-        assert any(u.startswith("https://mcp.test/") for u in seen)
+        https_reqs = [req for req in seen if req.url.scheme == "https"]
+        assert https_reqs
+        assert https_reqs[0].headers["X-Auth-Token"] == "secret"
     finally:
         await c.close()
+
+
+async def test_connect_blocks_https_to_http_downgrade():
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.scheme)
+        if req.url.scheme == "https":
+            return httpx.Response(
+                307,
+                headers={"location": "http://mcp.test/mcp"},
+            )
+        return _disc(_rid(req))
+
+    c = HttpStatelessClient(
+        "modern",
+        "streamable_http",
+        "https://mcp.test/mcp",
+        http_transport=httpx.MockTransport(handler),
+        headers={"X-Auth-Token": "secret"},
+    )
+    with pytest.raises(RuntimeError, match="cross-origin redirect"):
+        await c.connect()
+    assert seen == ["https"]
+
+
+async def test_connect_blocks_http_to_https_non_default_port():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.scheme == "http":
+            return httpx.Response(
+                307,
+                headers={"location": "https://mcp.test:8080/mcp"},
+            )
+        return _disc(_rid(req))
+
+    c = HttpStatelessClient(
+        "modern",
+        "streamable_http",
+        "http://mcp.test:8080/mcp",
+        http_transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RuntimeError, match="cross-origin redirect"):
+        await c.connect()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    ({}, {"follow_redirects": True}, {"follow_redirects": False}),
+)
+async def test_follow_redirects_kwarg_does_not_duplicate(kwargs):
+    c = _cli(
+        HttpStatelessClient,
+        "modern",
+        lambda r: _disc(_rid(r)),
+        **kwargs,
+    )
+    await c.connect()
+    await c.close()
 
 
 async def test_follow_redirects_kwarg_override():
@@ -841,6 +935,30 @@ async def test_follow_redirects_kwarg_override():
     )
     with pytest.raises(RuntimeError, match="non-JSON-RPC"):
         await c.connect()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    ({}, {"follow_redirects": True}, {"follow_redirects": False}),
+)
+async def test_auto_follow_redirects_kwarg_does_not_duplicate(
+    monkeypatch,
+    kwargs,
+):
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+    c = _cli(
+        HttpAutoClient,
+        "auto",
+        lambda r: httpx.Response(405, text=""),
+        **kwargs,
+    )
+    await c.connect()
+    try:
+        assert c.is_stateful
+        assert "follow_redirects" not in c._impl.client_kwargs
+    finally:
+        await c.close()
 
 
 async def test_auto_client_strict_close_retains_impl_on_failure():
