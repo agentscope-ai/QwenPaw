@@ -14,4 +14,10 @@
   :global([class$="-accordion-group-open"]) {
     border: 0;
   }
+
+  :global(.dark-mode) & {
+    :global([class$="-accordion-group-open"]) {
+      background-color: transparent;
+    }
+  }
 }
