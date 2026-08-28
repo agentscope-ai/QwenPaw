@@ -97,7 +97,7 @@ def test_migration_applies_to_extra_models_and_is_idempotent() -> None:
 
 
 def test_discovered_model_migration_preserves_secret() -> None:
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "api_key": "ENC:encrypted-provider-key",
         "discovered_models": [
             {
