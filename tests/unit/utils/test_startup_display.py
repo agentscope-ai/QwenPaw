@@ -93,7 +93,7 @@ def test_ready_time_is_stable_while_background_work_finishes() -> None:
     assert "Startup: 1.250s" in loading
     assert "Background: Loading" in loading
     assert "Startup: 1.250s" in completed
-    assert "Background: Ready (4.500s)" in completed
+    assert "Background: Ready 4.500s (+3.250s)" in completed
 
 
 def test_startup_display_preserves_file_logging(tmp_path) -> None:

@@ -307,8 +307,16 @@ def _build_startup_panel(
         background_value = background_status
         if background_elapsed_seconds is not None:
             background_value = (
-                f"{background_value} " f"({background_elapsed_seconds:.3f}s)"
+                f"{background_value} {background_elapsed_seconds:.3f}s"
             )
+            if elapsed_seconds is not None:
+                additional_elapsed = max(
+                    0.0,
+                    background_elapsed_seconds - elapsed_seconds,
+                )
+                background_value = (
+                    f"{background_value} (+{additional_elapsed:.3f}s)"
+                )
         tree.add(
             f"[dim]Background:[/dim] "
             f"[{background_color}]{background_value}"
