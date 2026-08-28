@@ -250,6 +250,31 @@ class TestEnsureUserBinsOnPath:
         entries = result["PATH"].split(os.pathsep)
         assert entries.count(str(local_bin)) == 1
 
+    def test_dedup_normalizes_candidate_before_compare(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Regression: dedup must compare the normalized candidate.
+
+        The candidate dir (``os.path.join``) is not normalized, while the
+        existing PATH may hold the same dir in normalized form. Without
+        normalizing both sides before the membership test, the dir is
+        appended a second time and PATH ends up with duplicates.
+        """
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        # Store the dir in normalized form (trailing slash) so the raw
+        # candidate string differs from the existing entry.
+        normalized = os.path.normpath(str(local_bin))
+        existing = os.pathsep.join([normalized + os.sep, "/usr/bin"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert len(entries) == len(set(entries)), "PATH contains duplicates"
+        assert entries.count(normalized) <= 1
+
     def test_preserves_existing_path_order_after_prepending(
         self,
         monkeypatch,

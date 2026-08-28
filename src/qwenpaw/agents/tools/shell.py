@@ -148,7 +148,9 @@ def _ensure_user_bins_on_path(
     candidate_dirs: list[str] = []
     existing_path = env.get("PATH", "")
     existing_lower = (
-        existing_path.lower().split(os.pathsep) if existing_path else []
+        {os.path.normpath(p).lower() for p in existing_path.split(os.pathsep)}
+        if existing_path
+        else set()
     )
 
     if sys.platform != "win32":
@@ -165,9 +167,11 @@ def _ensure_user_bins_on_path(
 
     additions: list[str] = []
     for d in candidate_dirs:
-        if not d or d.lower() in existing_lower:
+        if not d:
             continue
         d = os.path.normpath(d)
+        if d.lower() in existing_lower:
+            continue
         if not os.path.isdir(d):
             continue
         additions.append(d)
