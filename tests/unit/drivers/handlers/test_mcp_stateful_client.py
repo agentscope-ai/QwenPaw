@@ -836,3 +836,41 @@ async def test_list_tools_cache_survives_anyio_taskgroup_reconnect(
             asyncio.gather(task, return_exceptions=True),
             timeout=2,
         )
+
+
+async def test_close_wakes_backoff_sleep(monkeypatch):
+    """close() must return immediately while reconnect backoff is sleeping."""
+    c, n = _client(), [0]
+
+    class S:
+        async def initialize(self):
+            return self
+
+        __aenter__ = initialize
+
+        async def __aexit__(self, *_a):
+            return None
+
+    async def setup(_s):
+        n[0] += 1
+        if n[0] == 1:
+            return object(), object()
+        raise ConnectionError("boom")
+
+    monkeypatch.setattr(mod, "ClientSession", lambda *_a, **_k: S())
+    monkeypatch.setattr(c, "_setup_transport", setup)
+    await c.connect()
+    c._reconnect_delay = 30.0
+    reload_task = asyncio.create_task(c.reload())
+    try:
+
+        async def in_backoff():
+            while not (n[0] >= 2 and not c.is_connected):
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(in_backoff(), timeout=2)
+        await asyncio.sleep(0)
+        await asyncio.wait_for(c.close(), timeout=1)
+        assert c._lifecycle_task is None and not c.is_connected
+    finally:
+        await asyncio.gather(reload_task, return_exceptions=True)

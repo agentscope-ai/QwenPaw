@@ -352,7 +352,13 @@ class _MCPClientMixin:
                     jittered_delay,
                     self._reconnect_delay,
                 )
-                await asyncio.sleep(jittered_delay)
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=jittered_delay,
+                    )
+                except asyncio.TimeoutError:
+                    pass
                 # Increase delay for next attempt (capped)
                 self._reconnect_delay = min(
                     self._reconnect_delay * 2,
