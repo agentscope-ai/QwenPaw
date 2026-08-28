@@ -25,6 +25,8 @@ import {
   type ProjectDirPayloadEntry,
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { useIsMobile } from "../../hooks/useIsMobile";
+import { OsDrawer } from "../../os/OsOverlay";
 import { useProjectDirectoryStore } from "../../stores/projectDirectoryStore";
 import type {
   BrowseDirsResponse,
@@ -74,6 +76,7 @@ function exactSamePath(a: string, b: string): boolean {
 interface SessionProjectDirectoryProps {
   scope: FilesWorkspaceScope;
   compact?: boolean;
+  className?: string;
   showFullPath?: boolean;
   beforeChange?: () => boolean | Promise<boolean>;
   onChanged?: () => void;
@@ -91,6 +94,7 @@ interface SessionProjectDirectoryProps {
 export default function SessionProjectDirectory({
   scope,
   compact = false,
+  className,
   showFullPath = false,
   beforeChange,
   onChanged,
@@ -99,6 +103,7 @@ export default function SessionProjectDirectory({
   hideTrigger = false,
 }: SessionProjectDirectoryProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const selectedAgent = scope.agentId;
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
@@ -616,6 +621,15 @@ export default function SessionProjectDirectory({
         {!isAgentScope && (
           <span className={styles.headingCount}>{dirs.length}</span>
         )}
+        {isMobile && (
+          <Button
+            type="text"
+            className={styles.panelClose}
+            aria-label={t("common.close")}
+            icon={<X size={18} />}
+            onClick={() => handleOpenChange(false)}
+          />
+        )}
       </div>
 
       {/* Agent scope keeps the single-path field; session scope shows the
@@ -952,6 +966,100 @@ export default function SessionProjectDirectory({
     </div>
   );
 
+  const triggerButton = (
+    <button
+      type="button"
+      className={`${styles.trigger} ${
+        info && !info.exists ? styles.triggerError : ""
+      } ${compact ? styles.triggerCompact : ""} ${
+        showFullPath ? styles.triggerFullPath : ""
+      } ${className ?? ""}`}
+      aria-expanded={open}
+      aria-label={t(
+        isAgentScope
+          ? "projectDirectory.agentTitle"
+          : "projectDirectory.sessionTitle",
+      )}
+      onClick={isMobile ? () => handleOpenChange(!open) : undefined}
+    >
+      {!info ? (
+        <LoaderCircle className={styles.spin} size={14} />
+      ) : info.exists ? (
+        <FolderOpen size={14} />
+      ) : (
+        <CircleAlert size={14} />
+      )}
+      {!compact && (
+        <>
+          {showFullPath ? (
+            <span className={styles.triggerIdentity}>
+              <strong>{basename}</strong>
+              <small>{info?.project_dir}</small>
+            </span>
+          ) : (
+            <span>{basename}</span>
+          )}
+          {/* Extra roots are not listed here; the count signals that
+              more than the primary is bound. Driven by the applied list
+              so an abandoned edit never shows up as bound. */}
+          {!isAgentScope && appliedCount > 1 && (
+            <em title={t("projectDirectory.countTitle")}>·{appliedCount}</em>
+          )}
+          {!showFullPath && (
+            <em>
+              {t(
+                info?.source === "session"
+                  ? "projectDirectory.sessionSource"
+                  : "projectDirectory.agentSource",
+              )}
+            </em>
+          )}
+          <ChevronDown size={12} />
+        </>
+      )}
+    </button>
+  );
+  const trigger = isMobile ? (
+    triggerButton
+  ) : (
+    <Tooltip title={info?.project_dir}>{triggerButton}</Tooltip>
+  );
+
+  const mobileDrawer = (
+    <OsDrawer
+      aria-label={t(
+        isAgentScope
+          ? "projectDirectory.agentTitle"
+          : "projectDirectory.boundDirs",
+      )}
+      open={open}
+      placement="bottom"
+      height="min(72dvh, 620px)"
+      closable={false}
+      destroyOnHidden
+      rootClassName={styles.mobileDrawer}
+      onClose={() => handleOpenChange(false)}
+      styles={{
+        body: { padding: 0, overflow: "hidden" },
+        content: {
+          borderRadius: "14px 14px 0 0",
+          overflow: "hidden",
+        },
+      }}
+    >
+      {panel}
+    </OsDrawer>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {!hideTrigger && trigger}
+        {mobileDrawer}
+      </>
+    );
+  }
+
   // `hideTrigger` callers drive `open` themselves and already render their own
   // control, so the Popover only needs a zero-size element to anchor to — and
   // no trigger events, which would otherwise reopen it on a stray click.
@@ -963,6 +1071,7 @@ export default function SessionProjectDirectory({
         open={open}
         onOpenChange={handleOpenChange}
         placement={isAgentScope ? "rightTop" : "topRight"}
+        overlayClassName={styles.desktopPopover}
       >
         <span className={styles.hiddenAnchor} aria-hidden="true" />
       </Popover>
@@ -976,60 +1085,9 @@ export default function SessionProjectDirectory({
       open={open}
       onOpenChange={handleOpenChange}
       placement={isAgentScope ? "rightTop" : "topRight"}
+      overlayClassName={styles.desktopPopover}
     >
-      <Tooltip title={info?.project_dir}>
-        <button
-          type="button"
-          className={`${styles.trigger} ${
-            info && !info.exists ? styles.triggerError : ""
-          } ${compact ? styles.triggerCompact : ""} ${
-            showFullPath ? styles.triggerFullPath : ""
-          }`}
-          aria-label={t(
-            isAgentScope
-              ? "projectDirectory.agentTitle"
-              : "projectDirectory.sessionTitle",
-          )}
-        >
-          {!info ? (
-            <LoaderCircle className={styles.spin} size={14} />
-          ) : info.exists ? (
-            <FolderOpen size={14} />
-          ) : (
-            <CircleAlert size={14} />
-          )}
-          {!compact && (
-            <>
-              {showFullPath ? (
-                <span className={styles.triggerIdentity}>
-                  <strong>{basename}</strong>
-                  <small>{info?.project_dir}</small>
-                </span>
-              ) : (
-                <span>{basename}</span>
-              )}
-              {/* Extra roots are not listed here; the count signals that
-                  more than the primary is bound. Driven by the applied list
-                  so an abandoned edit never shows up as bound. */}
-              {!isAgentScope && appliedCount > 1 && (
-                <em title={t("projectDirectory.countTitle")}>
-                  ·{appliedCount}
-                </em>
-              )}
-              {!showFullPath && (
-                <em>
-                  {t(
-                    info?.source === "session"
-                      ? "projectDirectory.sessionSource"
-                      : "projectDirectory.agentSource",
-                  )}
-                </em>
-              )}
-              <ChevronDown size={12} />
-            </>
-          )}
-        </button>
-      </Tooltip>
+      {trigger}
     </Popover>
   );
 }

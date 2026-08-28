@@ -2,6 +2,7 @@
 .chatPageRoot {
   height: 100%;
   width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: row;
   position: relative;
@@ -84,6 +85,13 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.senderContextAffix {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
 }
 
 @media (max-width: 1024px) {
@@ -187,6 +195,20 @@
   }
 }
 
+.headerSpacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .chatMessagesArea :global {
+    [class*="chat-anywhere-default-header-right"] {
+      gap: 4px;
+      padding-inline: 4px;
+    }
+  }
+}
+
 /* Right-side history panel */
 .historyPanel {
   width: 330px;
@@ -199,7 +221,7 @@
 @media (max-width: 900px) {
   .historyPanel {
     position: fixed;
-    top: 90px;
+    top: 56px;
     right: 0;
     bottom: 0;
     width: min(330px, 85vw);
@@ -212,6 +234,247 @@
     inset: 0;
     background: rgba(0, 0, 0, 0.45);
     z-index: 999;
+  }
+}
+
+/* The vendor chat layout keeps a 300px minimum width by default. Release
+ * that constraint on mobile so the page follows the available content width
+ * after the collapsed navigation rail is accounted for. */
+@media (max-width: 768px) {
+  .chatPageRoot,
+  .chatMainArea,
+  .chatMessagesArea {
+    min-width: 0;
+  }
+
+  .filesPreviewOpen .chatMainArea,
+  .filesWorkspaceOpen .chatMainArea {
+    min-width: 0;
+  }
+
+  .chatMessagesArea :global {
+    .qwenpaw-chat-anywhere,
+    .qwenpaw-chat-anywhere-layout,
+    .qwenpaw-chat-anywhere-layout-right,
+    .qwenpaw-chat-anywhere-chat,
+    .qwenpaw-chat-anywhere-message-list,
+    .qwenpaw-chat-anywhere-message-list-welcome,
+    .qwenpaw-chat-anywhere-welcome,
+    .qwenpaw-chat-anywhere-input,
+    .qwenpaw-chat-anywhere-input-wrapper,
+    .qwenpaw-chat-anywhere-sender-wrapper,
+    .qwenpaw-bubble-list {
+      width: 100%;
+      min-width: 0 !important;
+      max-width: 100% !important;
+    }
+
+    .qwenpaw-chat-anywhere-layout-right-header,
+    .qwenpaw-chat-anywhere-default-header-right,
+    .qwenpaw-chat-anywhere-default-header-right > * {
+      min-width: 0;
+    }
+
+    .qwenpaw-chat-anywhere-default-header-right {
+      overflow: hidden;
+    }
+
+    .qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list {
+      box-sizing: border-box;
+      padding-inline: 8px !important;
+    }
+
+    .qwenpaw-chat-anywhere-input {
+      box-sizing: border-box;
+      padding-inline: 8px !important;
+    }
+
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      box-sizing: border-box;
+      padding: 0 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    [class*="bubble-content-wrapper"],
+    [class*="bubble-content"] {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    [class$="-sender-content"],
+    [class$="-sender-prefix"],
+    [class$="-sender-input"] {
+      min-width: 0;
+    }
+
+    [class$="-sender-actions-list"] {
+      min-width: 0;
+      max-width: 100%;
+      flex-wrap: wrap;
+      column-gap: 4px;
+    }
+  }
+}
+
+/* Mobile composer: keep the input row dominant and the toolbar predictable. */
+@media (max-width: 600px) {
+  .chatMessagesArea :global {
+    [class$="-sender-content"] {
+      padding: 8px !important;
+    }
+
+    [class$="-sender-input"] {
+      min-height: 44px !important;
+      margin: 0;
+      padding-inline: 4px;
+      line-height: 22px;
+    }
+
+    [class$="-sender-content-bottom"] {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      column-gap: 8px;
+      margin-top: 8px;
+    }
+
+    [class$="-sender-prefix"] {
+      width: auto;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+      touch-action: pan-x;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+
+    [class$="-sender-prefix"] > [class*="flex"] {
+      width: 100%;
+      min-width: 0;
+      gap: 4px !important;
+      overflow: visible;
+    }
+
+    [class$="-sender-prefix"] button {
+      min-width: 44px;
+      min-height: 44px;
+      flex: 0 0 auto;
+    }
+
+    [class$="-sender-actions-list"] {
+      display: flex;
+      min-width: 0;
+      max-width: 100%;
+      flex-wrap: nowrap;
+      align-items: center;
+      column-gap: 4px;
+      margin-left: auto;
+    }
+
+    [class$="-sender-actions-list-presets"] {
+      flex: 0 0 auto;
+    }
+
+    [class$="-sender-actions-btn"] {
+      width: 44px !important;
+      min-width: 44px !important;
+      height: 44px !important;
+      border-radius: 12px !important;
+    }
+  }
+
+  .senderActionAffix {
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px;
+  }
+
+  .senderActionAffix > button {
+    min-width: 0;
+    max-width: 116px;
+  }
+}
+
+@media (max-width: 480px) {
+  .chatMessagesArea :global {
+    [class$="-sender-content"] {
+      padding: 6px;
+    }
+
+    [class$="-sender-content-bottom"] {
+      column-gap: 4px;
+      row-gap: 4px;
+    }
+
+    [class$="-sender-actions-list-length"] {
+      display: none;
+    }
+  }
+
+  .senderContextAffix {
+    display: none;
+  }
+}
+
+/* Mobile composer controls share one quiet visual treatment. Their component
+ * compact variants remove labels and chevrons from the rendered structure. */
+.mobileComposerControl {
+  width: 44px !important;
+  max-width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
+  flex: 0 0 44px;
+  padding: 0 !important;
+  margin-inline-end: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  line-height: 1 !important;
+  touch-action: manipulation;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease !important;
+
+  > svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
+
+  &:hover,
+  &:active,
+  &[aria-expanded="true"] {
+    background: var(--ant-color-fill-tertiary) !important;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ant-color-primary-border);
+    outline-offset: 1px;
+  }
+
+  &[data-state] {
+    pointer-events: none;
+  }
+
+  &[data-state="starting"] {
+    color: var(--ant-color-primary) !important;
+  }
+
+  &[data-state="running"] {
+    color: var(--ant-color-success) !important;
+  }
+
+  &[data-state="awaiting_user"] {
+    color: var(--ant-color-warning) !important;
   }
 }
 
