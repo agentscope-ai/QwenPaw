@@ -2806,6 +2806,33 @@ class TestDingTalkFileDownload:
 # =============================================================================
 
 
+class TestDingTalkStreamRequestTimeout:
+    """Tests for bounded synchronous requests in the stream SDK."""
+
+    def test_stream_requests_add_default_timeout(self, monkeypatch):
+        """SDK HTTP calls should use bounded connect and read timeouts."""
+        from qwenpaw.app.channels.dingtalk.channel import (
+            _DingTalkRequestsWithTimeout,
+        )
+
+        mock_post = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.dingtalk.channel.requests.post",
+            mock_post,
+        )
+
+        _DingTalkRequestsWithTimeout.post(
+            "https://api.dingtalk.com/connection",
+            data=b"{}",
+        )
+
+        mock_post.assert_called_once_with(
+            "https://api.dingtalk.com/connection",
+            data=b"{}",
+            timeout=(10, 30),
+        )
+
+
 @pytest.mark.asyncio
 class TestDingTalkStreamMode:
     """Tests for Stream/WebSocket mode."""
@@ -2862,6 +2889,75 @@ class TestDingTalkStreamMode:
         dingtalk_channel.robot_code = "robot_123"
 
         assert dingtalk_channel._ai_card_enabled() is False
+
+
+@pytest.mark.asyncio
+class TestDingTalkHealthCheck:
+    """Tests for DingTalk connection health reporting."""
+
+    @staticmethod
+    def _set_runtime_state(
+        channel,
+        *,
+        thread_alive: bool = True,
+        websocket_state: str = "OPEN",
+        watchdog_age: float = 0.0,
+    ) -> None:
+        websocket = MagicMock()
+        websocket.state.name = websocket_state
+        client = MagicMock()
+        client.websocket = websocket
+        channel._client = client
+        channel._stream_thread = MagicMock()
+        channel._stream_thread.is_alive.return_value = thread_alive
+        channel._stream_watchdog_at = time.time() - watchdog_age
+        channel._http = MagicMock()
+        channel._http.closed = False
+
+    async def test_reports_healthy_for_live_stream(
+        self,
+        dingtalk_channel,
+    ):
+        """A connected and responsive stream should be healthy."""
+        self._set_runtime_state(dingtalk_channel)
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "healthy"
+
+    @pytest.mark.parametrize(
+        (
+            "thread_alive",
+            "websocket_state",
+            "watchdog_age",
+            "expected_detail",
+        ),
+        [
+            (False, "OPEN", 0.0, "Stream thread is not running"),
+            (True, "CLOSED", 0.0, "WebSocket connection is not open"),
+            (True, "OPEN", 91.0, "Stream event loop is unresponsive"),
+        ],
+    )
+    async def test_reports_unhealthy_for_broken_stream_state(
+        self,
+        dingtalk_channel,
+        thread_alive,
+        websocket_state,
+        watchdog_age,
+        expected_detail,
+    ):
+        """Broken stream states should not be reported as healthy."""
+        self._set_runtime_state(
+            dingtalk_channel,
+            thread_alive=thread_alive,
+            websocket_state=websocket_state,
+            watchdog_age=watchdog_age,
+        )
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert expected_detail in result["detail"]
 
 
 # =============================================================================
