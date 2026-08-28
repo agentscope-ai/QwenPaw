@@ -156,12 +156,12 @@ export default function ModelSelector({
   const {
     activeModels,
     commitActiveModels,
+    commitProviders,
     fetchData,
     loading,
     loadError,
     providers,
     refreshActiveModels,
-    setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
     onActiveModels: handleActiveModels,
@@ -512,7 +512,7 @@ export default function ModelSelector({
         candidate.model.id,
         hidden,
       );
-      setProviders((current) =>
+      commitProviders((current) =>
         current.map((provider) =>
           provider.id === updated.id ? updated : provider,
         ),

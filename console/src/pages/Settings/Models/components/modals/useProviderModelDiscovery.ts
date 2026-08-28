@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import api from "../../../../../api";
 import type {
@@ -74,7 +80,7 @@ export function useProviderModelDiscovery({
   );
   const previewAttemptedProviderRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (targetKeyRef.current !== targetKey) {
       targetKeyRef.current = targetKey;
       requestRevisionRef.current += 1;
@@ -82,6 +88,9 @@ export function useProviderModelDiscovery({
       previewAttemptedProviderRef.current = null;
       setRequestRunning(false);
     }
+  }, [targetKey]);
+
+  useEffect(() => {
     if (inFlightRef.current) return;
     setModels(providerModels(serverModels));
     setState(providerState(serverModels, serverSyncedAt, serverSyncError));

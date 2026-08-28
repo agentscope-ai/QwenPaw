@@ -166,6 +166,52 @@ describe("useModelSelectorData", () => {
     unmount();
   });
 
+  it("does not let an old poll overwrite committed providers", async () => {
+    vi.useFakeTimers();
+    const syncing = [
+      { id: "custom", name: "Custom", models_syncing: true },
+    ] as ProviderInfo[];
+    const committed = syncing.map((provider) => ({
+      ...provider,
+      models_syncing: false,
+      hidden_model_ids: ["hidden-model"],
+    }));
+    const stale = syncing.map((provider) => ({
+      ...provider,
+      hidden_model_ids: [],
+    }));
+    const poll = deferred<ProviderInfo[]>();
+    vi.mocked(modelSelectorApi.loadModelSelectorData).mockResolvedValue({
+      providers: syncing,
+      activeModels: null,
+      loadError: false,
+    });
+    vi.mocked(modelSelectorApi.loadProviders).mockReturnValue(poll.promise);
+
+    const onActiveModels = vi.fn();
+    const { result } = renderHook(() =>
+      useModelSelectorData({ agentId: "default", onActiveModels }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.providers).toEqual(syncing);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(modelSelectorApi.loadProviders).toHaveBeenCalledOnce();
+
+    act(() => {
+      result.current.commitProviders(committed);
+    });
+    await act(async () => {
+      poll.resolve(stale);
+      await poll.promise;
+    });
+
+    expect(result.current.providers).toEqual(committed);
+  });
+
   it("keeps valid providers when a poll returns malformed data", async () => {
     vi.useFakeTimers();
     const syncing = [

@@ -451,6 +451,54 @@ async def test_provider_info_exposes_only_runtime_revision(
     assert "provider_runtime_revision" not in persisted.get("meta", {})
 
 
+async def test_provider_mutations_return_current_runtime_revision(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider_id = "custom-runtime-revision"
+    model_id = "custom-model"
+
+    created = await manager.add_custom_provider(
+        OpenAIProvider(
+            id=provider_id,
+            name="Custom Runtime Revision",
+        ),
+    )
+    added = await manager.add_model_to_provider(
+        provider_id,
+        ModelInfo(id=model_id, name="Custom Model"),
+    )
+    hidden = await manager.set_model_hidden(
+        provider_id,
+        model_id,
+        hidden=True,
+    )
+    configured = await manager.update_model_config(
+        provider_id,
+        model_id,
+        {"thinking_enabled": True},
+    )
+    deleted = await manager.delete_model_from_provider(
+        provider_id,
+        model_id,
+    )
+
+    responses = [created, added, hidden, configured, deleted]
+    assert [
+        response.meta["provider_runtime_revision"] for response in responses
+    ] == [1, 2, 3, 4, 5]
+
+    provider = manager.get_provider(provider_id)
+    assert provider is not None
+    assert "provider_runtime_revision" not in provider.meta
+    persisted = json.loads(
+        manager._provider_config_path(provider_id).read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert "provider_runtime_revision" not in persisted.get("meta", {})
+
+
 async def test_custom_provider_preserves_explicit_default_context_window(
     isolated_secret_dir,
 ) -> None:

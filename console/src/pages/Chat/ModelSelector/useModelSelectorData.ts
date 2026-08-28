@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 
 import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
 import { modelSelectorApi } from "./modelSelectorApi";
@@ -72,6 +78,14 @@ export function useModelSelectorData({
     setActiveModelsState(value);
   }, []);
 
+  const commitProviders = useCallback(
+    (value: SetStateAction<ProviderInfo[]>) => {
+      providersRequestRef.current += 1;
+      setProviders(value);
+    },
+    [],
+  );
+
   const refreshActiveModels = useCallback(async () => {
     const requestId = ++activeRequestRef.current;
     const value = await modelSelectorApi.loadActiveModels(agentId);
@@ -106,11 +120,11 @@ export function useModelSelectorData({
   return {
     activeModels,
     commitActiveModels,
+    commitProviders,
     fetchData,
     loading,
     loadError,
     providers,
     refreshActiveModels,
-    setProviders,
   };
 }

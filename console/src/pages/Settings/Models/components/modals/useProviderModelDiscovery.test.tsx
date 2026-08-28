@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "../../../../../api";
@@ -280,5 +281,66 @@ describe("useProviderModelDiscovery", () => {
       "new-model",
     ]);
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("invalidates pending discovery before consumer layout effects", async () => {
+    const stale = deferred<DiscoverModelsResponse>();
+    const fresh = deferred<DiscoverModelsResponse>();
+    vi.mocked(api.discoverModels)
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise);
+    const onSaved = vi.fn();
+    let current: ReturnType<typeof useProviderModelDiscovery> | undefined;
+
+    function Harness({
+      discoverInLayout,
+      provider,
+    }: {
+      discoverInLayout: boolean;
+      provider: ProviderInfo;
+    }) {
+      const discovery = useProviderModelDiscovery({
+        provider,
+        autoPreview: false,
+        fallbackError: "Discovery failed",
+        onSaved,
+      });
+      const { discover } = discovery;
+      current = discovery;
+      useLayoutEffect(() => {
+        if (discoverInLayout) void discover();
+      }, [discover, discoverInLayout]);
+      return null;
+    }
+
+    const initialProvider = makeProvider({
+      meta: { provider_runtime_revision: 0 },
+    });
+    const { rerender } = render(
+      <Harness discoverInLayout={false} provider={initialProvider} />,
+    );
+    act(() => {
+      void current?.discover();
+    });
+
+    const refreshedProvider = makeProvider({
+      discovered_models: successfulDiscovery("server-model").models,
+      meta: { provider_runtime_revision: 1 },
+    });
+    rerender(<Harness discoverInLayout provider={refreshedProvider} />);
+    expect(api.discoverModels).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      stale.resolve(successfulDiscovery("stale-model"));
+      await stale.promise;
+    });
+    expect(onSaved).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fresh.resolve(successfulDiscovery("fresh-model"));
+      await fresh.promise;
+    });
+    expect(current?.models.map((model) => model.id)).toEqual(["fresh-model"]);
+    expect(onSaved).toHaveBeenCalledOnce();
   });
 });

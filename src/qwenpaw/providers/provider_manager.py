@@ -504,7 +504,7 @@ class ProviderManager(
         provider_key = self._normalize_provider_id(provider.id)
         self.custom_providers[provider_key] = provider
         self._bump_provider_revision(provider.id)
-        return await provider.get_info()
+        return self._with_provider_runtime_revision(await provider.get_info())
 
     def remove_custom_provider(self, provider_id: str) -> bool:
         # Remove a custom provider by its ID. This will update the
@@ -706,7 +706,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return await provider.get_info()
+        return self._with_provider_runtime_revision(await provider.get_info())
 
     async def set_model_hidden(
         self,
@@ -739,7 +739,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return await provider.get_info()
+        return self._with_provider_runtime_revision(await provider.get_info())
 
     async def update_model_config(
         self,
@@ -771,7 +771,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return await provider.get_info()
+        return self._with_provider_runtime_revision(await provider.get_info())
 
     async def delete_model_from_provider(
         self,
@@ -797,7 +797,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return await provider.get_info()
+        return self._with_provider_runtime_revision(await provider.get_info())
 
     async def probe_model_multimodal(
         self,
