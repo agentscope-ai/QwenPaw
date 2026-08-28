@@ -130,7 +130,7 @@ class OpenAIRuntimeProviderConfig:
             )
         if self.max_output_tokens is not None:
             model_kwargs["generate_kwargs"] = {
-                "max_tokens": self.max_output_tokens,
+                "max_completion_tokens": self.max_output_tokens,
             }
         return OpenAIProvider(
             id=RUNTIME_OPENAI_PROVIDER_ID,

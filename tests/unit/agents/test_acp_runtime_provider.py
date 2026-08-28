@@ -105,11 +105,17 @@ def test_runtime_provider_rejects_invalid_base_url(base_url):
 
 def test_runtime_provider_builds_openai_provider():
     provider = _config().build_provider()
+    model = provider.models[0]
+    chat_model = provider.get_chat_model_instance("policy")
 
     assert provider.id == RUNTIME_OPENAI_PROVIDER_ID
     assert provider.base_url == "https://policy.example.test/v1"
     assert provider.api_key == "execution-secret"
     assert provider.has_model("policy")
+    assert model.generate_kwargs == {}
+    assert not provider.get_effective_generate_kwargs("policy")
+    assert chat_model.parameters.max_tokens is None
+    assert chat_model._extra_generate_kwargs == {}
 
 
 def test_runtime_provider_applies_model_info():
@@ -126,16 +132,21 @@ def test_runtime_provider_applies_model_info():
 
     provider = config.build_provider()
     model = provider.models[0]
+    chat_model = provider.get_chat_model_instance("policy")
 
     assert config.max_input_tokens == 32768
     assert config.max_output_tokens == 4096
     assert model.max_input_length == 32768
     assert model.max_input_length_configured is True
-    assert model.generate_kwargs["max_tokens"] == 4096
+    assert model.generate_kwargs == {"max_completion_tokens": 4096}
     assert provider.get_context_size("policy") == 32768
-    assert (
-        provider.get_effective_generate_kwargs("policy")["max_tokens"] == 4096
-    )
+    assert provider.get_effective_generate_kwargs("policy") == {
+        "max_completion_tokens": 4096,
+    }
+    assert chat_model.parameters.max_tokens is None
+    assert chat_model._extra_generate_kwargs == {
+        "max_completion_tokens": 4096,
+    }
 
 
 @pytest.mark.parametrize(
