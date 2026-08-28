@@ -3259,17 +3259,18 @@
     "embeddingMaxBatchSizeTooltip": "Jumlah item maksimum dalam satu permintaan embedding batch",
     "embeddingMaxBatchSizeRequired": "Ukuran batch maksimum wajib diisi",
     "toolExecutionLevelTitle": "Mode Persetujuan Alat",
+    "toolExecutionLevelTooltip": "Mode Persetujuan",
     "toolExecutionLevel": {
       "title": "Mode Persetujuan Alat",
       "alertMessage": "Atur persetujuan sebelum panggilan alat. Aturan File Guard berlaku secara terpisah.",
       "strict": "Mode Ketat",
-      "strictDesc": "Setiap panggilan alat memerlukan persetujuan",
+      "strictDesc": "Setiap panggilan alat dan akses file eksternal memerlukan persetujuan terlebih dahulu",
       "smart": "Mode Cerdas",
-      "smartDesc": "Alat berisiko rendah berjalan otomatis; alat berisiko sedang dan tinggi memerlukan persetujuan",
+      "smartDesc": "Panggilan alat berisiko rendah dan akses file eksternal berjalan otomatis; operasi berisiko sedang dan tinggi memerlukan persetujuan",
       "auto": "Mode Otomatis",
-      "autoDesc": "Hanya panggilan alat yang cocok dengan aturan persetujuan yang memerlukan persetujuan (default)",
+      "autoDesc": "Hanya operasi yang cocok dengan aturan persetujuan alat dan file yang memerlukan persetujuan (default)",
       "off": "Mode Mati",
-      "offDesc": "Persetujuan alat dinonaktifkan; File Guard tetap independen dan langsung memblokir akses file yang cocok dengan aturannya"
+      "offDesc": "Persetujuan alat dan file dinonaktifkan"
     },
     "saveLevelSuccess": "Mode persetujuan alat tersimpan",
     "saveLevelFailed": "Gagal menyimpan mode persetujuan alat",

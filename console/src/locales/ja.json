@@ -2465,17 +2465,18 @@
     "visualCompactCapabilityNote": "画像入力に対応するモデルでのみ有効です。",
     "remeLightMemoryTitle": "長期記憶",
     "toolExecutionLevelTitle": "ツール承認モード",
+    "toolExecutionLevelTooltip": "承認モード",
     "toolExecutionLevel": {
       "title": "ツール承認モード",
       "alertMessage": "ツール呼び出し前の承認を設定します。ファイル保護ルールは独立して適用されます。",
       "strict": "厳格モード",
-      "strictDesc": "すべてのツール呼び出しに承認が必要です",
+      "strictDesc": "すべてのツール呼び出しと外部ファイルへのアクセス前に承認が必要です",
       "smart": "スマートモード",
-      "smartDesc": "低リスクツールは自動実行され、中〜高リスクツールは承認が必要です",
+      "smartDesc": "低リスクのツール呼び出しと外部ファイルアクセスは自動実行され、中〜高リスクの操作には承認が必要です",
       "auto": "自動モード",
-      "autoDesc": "ツール承認ルールに一致する呼び出しのみ承認が必要です（デフォルト）",
+      "autoDesc": "ツールとファイルの承認ルールに一致する操作のみ承認が必要です（デフォルト）",
       "off": "オフモード",
-      "offDesc": "ツール承認を無効にします。ファイル保護は引き続き独立して動作し、ルールに一致するファイルアクセスを直接ブロックします"
+      "offDesc": "ツールとファイルの承認を無効にします"
     },
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",

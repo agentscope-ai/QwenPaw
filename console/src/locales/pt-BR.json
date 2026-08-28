@@ -2664,17 +2664,18 @@
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
     "toolExecutionLevelTitle": "Modo de Aprovação de Ferramentas",
+    "toolExecutionLevelTooltip": "Modo de Aprovação",
     "toolExecutionLevel": {
       "title": "Modo de Aprovação de Ferramentas",
       "alertMessage": "Configure a aprovação antes das chamadas de ferramentas. As regras do File Guard são aplicadas separadamente.",
       "strict": "Modo Estrito",
-      "strictDesc": "Toda chamada de ferramenta requer aprovação",
+      "strictDesc": "Toda chamada de ferramenta e acesso a arquivos externos requer aprovação prévia",
       "smart": "Modo Inteligente",
-      "smartDesc": "Ferramentas de baixo risco são executadas automaticamente; as de médio e alto risco requerem aprovação",
+      "smartDesc": "Chamadas de ferramentas de baixo risco e acessos a arquivos externos são executados automaticamente; operações de médio e alto risco requerem aprovação",
       "auto": "Modo Automático",
-      "autoDesc": "Somente chamadas de ferramentas que correspondem às regras de aprovação exigem aprovação (padrão)",
+      "autoDesc": "Somente operações que correspondem às regras de aprovação de ferramentas e arquivos exigem aprovação (padrão)",
       "off": "Modo Desativado",
-      "offDesc": "A aprovação de ferramentas é desativada; o File Guard continua independente e bloqueia diretamente o acesso a arquivos que corresponda às suas regras"
+      "offDesc": "As aprovações de ferramentas e arquivos são desativadas"
     },
     "saveLevelSuccess": "Modo de aprovação de ferramentas salvo",
     "saveLevelFailed": "Falha ao salvar o modo de aprovação de ferramentas",

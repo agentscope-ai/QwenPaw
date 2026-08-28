@@ -2893,17 +2893,18 @@
     "memoryMaintenanceTitle": "重建记忆索引",
     "memoryMaintenanceDescription": "清除并重新生成搜索索引。仅建议在索引损坏或搜索结果异常时使用。",
     "toolExecutionLevelTitle": "工具审批模式",
+    "toolExecutionLevelTooltip": "审批模式",
     "toolExecutionLevel": {
       "title": "工具审批模式",
       "alertMessage": "配置工具调用前的审批策略；文件防护规则独立生效",
       "strict": "严格模式",
-      "strictDesc": "每次工具调用前均需审批",
+      "strictDesc": "每次工具调用和外部文件访问前均需审批",
       "smart": "智能模式",
-      "smartDesc": "低风险工具自动执行，中高风险工具调用前需审批",
+      "smartDesc": "低风险工具调用和外部文件访问操作自动执行，中高风险需审批",
       "auto": "自动模式",
-      "autoDesc": "仅命中工具审批规则的调用需要审批（默认）",
+      "autoDesc": "仅命中工具和文件审批规则的操作需审批（默认）",
       "off": "关闭模式",
-      "offDesc": "关闭工具审批；文件防护仍独立生效，命中规则的文件访问将直接阻止"
+      "offDesc": "关闭工具和文件审批"
     },
     "saveLevelSuccess": "工具审批模式已保存",
     "saveLevelFailed": "保存工具审批模式失败",

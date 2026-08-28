@@ -92,7 +92,7 @@ describe("compact approval controls", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("shows only the tool approval mode title in the tooltip", async () => {
+  it("shows only the approval mode title in the tooltip", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ApprovalLevelToggle
@@ -108,8 +108,11 @@ describe("compact approval controls", () => {
     await user.hover(trigger);
 
     expect(
-      await screen.findByText("agentConfig.toolExecutionLevelTitle"),
+      await screen.findByText("agentConfig.toolExecutionLevelTooltip"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.toolExecutionLevelTitle"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText("agentConfig.toolExecutionLevel.autoDesc"),
     ).not.toBeInTheDocument();

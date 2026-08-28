@@ -3035,17 +3035,18 @@
     "memoryMaintenanceTitle": "Rebuild memory index",
     "memoryMaintenanceDescription": "Clear and regenerate the search index. Recommended only when the index is damaged or search results are abnormal.",
     "toolExecutionLevelTitle": "Tool Approval Mode",
+    "toolExecutionLevelTooltip": "Approval Mode",
     "toolExecutionLevel": {
       "title": "Tool Approval Mode",
       "alertMessage": "Configure approval before tool calls. File Guard rules apply independently.",
       "strict": "Strict Mode",
-      "strictDesc": "Every tool call requires approval",
+      "strictDesc": "Every tool call and external file access requires approval",
       "smart": "Smart Mode",
-      "smartDesc": "Low-risk tools run automatically; medium- and high-risk tools require approval",
+      "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
       "auto": "Auto Mode",
-      "autoDesc": "Only tool calls matching approval rules require approval (default)",
+      "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
       "off": "Off Mode",
-      "offDesc": "Tool approval is disabled; File Guard remains independent and directly blocks file access that matches its rules"
+      "offDesc": "Tool and file approvals are disabled"
     },
     "saveLevelSuccess": "Tool approval mode saved",
     "saveLevelFailed": "Failed to save tool approval mode",
