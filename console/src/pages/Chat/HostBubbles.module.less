@@ -16,8 +16,14 @@
   }
 
   :global(.dark-mode) & {
+    :global([class$="-accordion-group-header-close"]),
+    :global([class$="-accordion-group-header-open"]),
     :global([class$="-accordion-group-open"]) {
       background-color: transparent;
+    }
+
+    :global([class$="-accordion-group-icon-success"]) {
+      color: #52c41a;
     }
   }
 }
