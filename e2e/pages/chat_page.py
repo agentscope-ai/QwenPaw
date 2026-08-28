@@ -108,21 +108,31 @@ class ChatPage(BasePage):
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
 
     # --- Tool approval level toggle (composer / sender area) — upstream #5685 ---
-    # A single antd Tag whose text is one of the 4 levels; clicking it opens a
-    # dropdown of exactly 4 options. No CSS-module class or data-testid, so we
-    # anchor on the level texts (browser locale is en-US; ZH kept as fallback).
+    # Upstream #7334 rebuilt ApprovalLevelToggle from an antd Tag into a plain
+    # ``<button class="...trigger">`` (CSS-module hash class, not stable), so
+    # the old ``span.qwenpaw-tag`` anchor no longer exists. The button carries
+    # ``aria-label=<i18n toolExecutionLevelTitle>`` — the same handle upstream
+    # uses in its own unit test (ApprovalToggle.test.tsx) — so we anchor on it.
+    # Note: #7368 renamed that title from "Tool Execution Security" to
+    # "Tool Approval Mode" (zh: 工具审批模式). In non-compact desktop mode the
+    # button text also contains the current level label (e.g. "Strict Mode");
+    # in compact/mobile mode it is icon-only. Only one of ApprovalLevelToggle /
+    # HarnessApprovalToggle renders at a time (mutually exclusive in the
+    # composer), and the harness variant uses a different aria-label, so the
+    # locator below is unambiguous.
+    APPROVAL_TOGGLE = (
+        'button[aria-label="Tool Approval Mode"], '
+        'button[aria-label="工具审批模式"]'
+    )
     APPROVAL_LEVELS = {
         "STRICT": ("Strict Mode", "严格模式"),
         "SMART": ("Smart Mode", "智能模式"),
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
-    _APPROVAL_LABEL_RE = re.compile(
-        r"Strict Mode|Smart Mode|Auto Mode|Off Mode|"
-        r"严格模式|智能模式|自动模式|关闭模式"
-    )
     # Only items inside the currently-open dropdown (antd keeps closed menus in
-    # the DOM with a ``-hidden`` modifier).
+    # the DOM with a ``-hidden`` modifier). The #7334 rebuild kept the antd
+    # Dropdown for the menu itself, so this selector is unchanged.
     APPROVAL_MENU_ITEM = (
         '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
         '.qwenpaw-dropdown-menu-item'
@@ -1150,12 +1160,13 @@ class ChatPage(BasePage):
     # ========== Tool approval level toggle ==========
 
     def get_approval_toggle(self) -> Locator:
-        """Locate the approval-level Tag in the composer (matches any level)."""
-        return (
-            self.page.locator("span.qwenpaw-tag")
-            .filter(has_text=self._APPROVAL_LABEL_RE)
-            .first
-        )
+        """Locate the approval-level trigger button in the composer.
+
+        Upstream #7334 replaced the antd Tag with a ``<button>`` carrying an
+        ``aria-label`` (localized approval-mode title); we anchor on that
+        attribute, exactly like upstream's own ApprovalToggle.test.tsx.
+        """
+        return self.page.locator(self.APPROVAL_TOGGLE).first
 
     def open_approval_menu(self) -> "ChatPage":
         """Click the approval Tag and wait for its dropdown to render."""
