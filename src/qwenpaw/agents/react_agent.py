@@ -1109,6 +1109,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             default_timeout_secs=300.0,
             max_internal_timeout_secs=_owned_cap,
         )
+        mgr.hooks.register(
+            "spawn_subagent",
+            max_internal_timeout_secs=_owned_cap,
+        )
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)

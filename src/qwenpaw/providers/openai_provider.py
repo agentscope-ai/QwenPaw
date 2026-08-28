@@ -197,7 +197,7 @@ class OpenAIProvider(Provider):
                     break
             output_limit = getattr(row, "max_output_tokens", None)
             if isinstance(output_limit, (int, float)) and output_limit > 0:
-                metadata["max_tokens"] = int(output_limit)
+                metadata["max_output_length"] = int(output_limit)
             models.append(
                 ModelInfo(id=model_id, name=model_name, **metadata),
             )
