@@ -757,7 +757,7 @@ async def test_connect_follows_redirect():
             )
         return _disc(_rid(req))
 
-    c = _cli(HttpStatelessClient, "modern", handler)
+    c = _cli(HttpStatelessClient, "modern", handler, follow_redirects=True)
     await c.connect()
     try:
         assert c.is_connected
@@ -766,11 +766,8 @@ async def test_connect_follows_redirect():
         await c.close()
 
 
-async def test_connect_strips_sensitive_headers_on_cross_origin_redirect():
-    seen: list[dict[str, str]] = []
-
+async def test_connect_blocks_cross_origin_redirect():
     def handler(req: httpx.Request) -> httpx.Response:
-        seen.append({k.lower(): v for k, v in req.headers.items()})
         if req.url.host == "mcp.test":
             return httpx.Response(
                 307,
@@ -782,21 +779,68 @@ async def test_connect_strips_sensitive_headers_on_cross_origin_redirect():
         HttpStatelessClient,
         "modern",
         handler,
-        headers={"Authorization": "Bearer secret", "X-Api-Key": "k"},
+        headers={"X-Auth-Token": "secret", "Api-Key": "k"},
     )
+    with pytest.raises(RuntimeError, match="cross-origin redirect"):
+        await c.connect()
+
+
+async def test_connect_blocks_cross_port_redirect():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.port == 8000:
+            return httpx.Response(
+                307,
+                headers={"location": "http://mcp.test:9000/mcp"},
+            )
+        return _disc(_rid(req))
+
+    c = HttpStatelessClient(
+        "modern",
+        "streamable_http",
+        "http://mcp.test:8000/mcp",
+        http_transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RuntimeError, match="cross-origin redirect"):
+        await c.connect()
+
+
+async def test_connect_allows_http_to_https_upgrade():
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        if req.url.scheme == "http":
+            return httpx.Response(
+                307,
+                headers={"location": "https://mcp.test/mcp"},
+            )
+        return _disc(_rid(req))
+
+    c = _cli(HttpStatelessClient, "modern", handler)
     await c.connect()
     try:
-        assert c.is_connected and len(seen) >= 2
-        first, hop = seen[0], seen[-1]
-        assert first.get("authorization") == "Bearer secret"
-        assert first.get("x-api-key") == "k"
-        assert first.get("mcp-protocol-version") == _MODERN_PROTOCOL_VERSION
-        assert "authorization" not in hop
-        assert "x-api-key" not in hop
-        assert "mcp-protocol-version" not in hop
-        assert "mcp-method" not in hop
+        assert c.is_connected
+        assert any(u.startswith("https://mcp.test/") for u in seen)
     finally:
         await c.close()
+
+
+async def test_follow_redirects_kwarg_override():
+    def handler(req: httpx.Request) -> httpx.Response:
+        del req
+        return httpx.Response(
+            307,
+            headers={"location": "http://mcp.test/mcp/"},
+        )
+
+    c = _cli(
+        HttpStatelessClient,
+        "modern",
+        handler,
+        follow_redirects=False,
+    )
+    with pytest.raises(RuntimeError, match="non-JSON-RPC"):
+        await c.connect()
 
 
 async def test_auto_client_strict_close_retains_impl_on_failure():

@@ -463,25 +463,21 @@ class _HttpClientBase:
 
 
 class _AsyncClient(httpx.AsyncClient):
-    """Like HTTPX, but drop MCP/auth headers on true cross-origin hops."""
+    """Refuse cross-origin redirects; credentials use arbitrary headers."""
 
     def _redirect_headers(self, request, url, method):
-        headers = super()._redirect_headers(request, url, method)
-        src = request.url
-        if src.host == url.host and (
-            src.scheme == url.scheme
-            or (src.scheme == "http" and url.scheme == "https")
+        # httpx private helpers: same origin is scheme+host+port.
+        from httpx._client import _is_https_redirect, _same_origin
+
+        if _same_origin(request.url, url) or _is_https_redirect(
+            request.url,
+            url,
         ):
-            return headers
-        for key in list(headers):
-            name = key.lower()
-            if name.startswith("mcp-") or name in {
-                "authorization",
-                "proxy-authorization",
-                "x-api-key",
-            }:
-                headers.pop(key, None)
-        return headers
+            return super()._redirect_headers(request, url, method)
+        raise RuntimeError(
+            f"MCP client refuses cross-origin redirect: "
+            f"{request.url} -> {url}",
+        )
 
 
 class HttpStatelessClient(_HttpClientBase):
@@ -492,6 +488,10 @@ class HttpStatelessClient(_HttpClientBase):
         http_transport = self.client_kwargs.pop("http_transport", None)
         if http_transport is not None:
             self.client_kwargs["transport"] = http_transport
+        self._follow_redirects: bool = self.client_kwargs.pop(
+            "follow_redirects",
+            True,
+        )
         self._http: httpx.AsyncClient | None = None
         self._rpc_ids = itertools.count(1)
         self._tool_param_headers: dict[str, list[_HeaderBinding]] = {}
@@ -508,7 +508,7 @@ class HttpStatelessClient(_HttpClientBase):
         self._http = _AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(connect=t, read=r, write=t, pool=t),
-            follow_redirects=True,
+            follow_redirects=self._follow_redirects,
             **self.client_kwargs,
         )
         try:
