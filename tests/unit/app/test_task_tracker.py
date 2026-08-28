@@ -135,21 +135,28 @@ async def test_attach_or_start_streams_events_and_marks_completion():
 async def test_attach_or_start_reports_completion_before_becoming_idle():
     tracker = TaskTracker()
     completions = []
+    outcomes = []
 
     async def on_finished(run_key, finished_at):
         completions.append((run_key, finished_at))
         assert await tracker.get_status(run_key) == "running"
+
+    async def on_settled(run_key, finished_at, outcome):
+        outcomes.append((run_key, finished_at, outcome))
 
     queue, _ = await tracker.attach_or_start(
         "run-with-callback",
         payload=None,
         stream_fn=_make_stream([]),
         on_finished=on_finished,
+        on_settled=on_settled,
     )
     assert await asyncio.wait_for(queue.get(), timeout=1) is None
 
     assert len(completions) == 1
     assert completions[0][0] == "run-with-callback"
+    assert outcomes[0][0] == "run-with-callback"
+    assert outcomes[0][2] == "completed"
     assert await tracker.get_status("run-with-callback") == "idle"
 
 
@@ -249,6 +256,7 @@ async def test_request_stop_returns_false_when_no_run():
 @pytest.mark.asyncio
 async def test_producer_exception_emits_error_sse():
     tracker = TaskTracker()
+    outcomes = []
 
     async def boom(_payload):
         # Make the function an async generator without yielding anything,
@@ -257,10 +265,14 @@ async def test_producer_exception_emits_error_sse():
             yield
         raise RuntimeError("kaboom")
 
+    async def on_settled(run_key, _finished_at, outcome):
+        outcomes.append((run_key, outcome))
+
     queue, _ = await tracker.attach_or_start(
         "run-error",
         payload=None,
         stream_fn=boom,
+        on_settled=on_settled,
     )
 
     err = await asyncio.wait_for(queue.get(), timeout=1)
@@ -270,6 +282,7 @@ async def test_producer_exception_emits_error_sse():
     payload = json.loads(err[len("data: ") :].rstrip("\n"))
     assert payload == {"error": "internal server error"}
     assert sentinel is None
+    assert outcomes == [("run-error", "failed")]
 
 
 # ---------------------------------------------------------------------------

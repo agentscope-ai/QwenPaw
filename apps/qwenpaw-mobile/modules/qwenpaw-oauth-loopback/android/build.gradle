@@ -1,0 +1,19 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'io.agentscope.qwenpaw'
+version = '1.0.0'
+
+android {
+  namespace "io.agentscope.qwenpaw.oauthloopback"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+}

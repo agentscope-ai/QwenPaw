@@ -2,20 +2,28 @@
 """Authentication API endpoints."""
 from __future__ import annotations
 
+from urllib.parse import urlencode, urlsplit, urlunsplit
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...constant import EnvVarLoader
 from ..auth import (
     authenticate,
+    create_token,
     has_registered_users,
     is_auth_enabled,
     register_user,
+    resolve_client_ip,
     revoke_all_tokens,
     revoke_token,
     update_credentials,
     verify_token,
-    resolve_client_ip,
+)
+from ..channels.qrcode_auth_handler import generate_qrcode_image
+from ..pairing import (
+    MOBILE_TOKEN_EXPIRY_SECONDS,
+    pairing_ticket_store,
 )
 from ..rate_limiter import rate_limiter
 
@@ -46,6 +54,26 @@ class RegisterRequest(BaseModel):
 class AuthStatusResponse(BaseModel):
     enabled: bool
     has_users: bool
+
+
+class PairingCreateRequest(BaseModel):
+    """Public origin that the mobile device can reach."""
+
+    base_url: str = Field(min_length=8, max_length=2048)
+
+
+class PairingCreateResponse(BaseModel):
+    """Pairing URI and QR image returned to the authenticated Console."""
+
+    pairing_uri: str
+    qrcode_img: str
+    expires_at: int
+
+
+class PairingRedeemRequest(BaseModel):
+    """One-time ticket read from a QwenPaw pairing QR code."""
+
+    ticket: str = Field(min_length=32, max_length=256)
 
 
 @router.post("/login")
@@ -148,6 +176,77 @@ async def auth_status():
         enabled=is_auth_enabled(),
         has_users=has_registered_users(),
     )
+
+
+@router.post("/pairing", response_model=PairingCreateResponse)
+async def create_mobile_pairing(
+    request: Request,
+    req: PairingCreateRequest,
+) -> PairingCreateResponse:
+    """Create a short-lived QR payload for a trusted mobile client."""
+    username = ""
+    if is_auth_enabled():
+        username = getattr(request.state, "user", "")
+        if not username:
+            auth_header = request.headers.get("Authorization", "")
+            caller_token = (
+                auth_header[7:] if auth_header.startswith("Bearer ") else ""
+            )
+            username = verify_token(caller_token) or ""
+        if not username:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+    base_url = _normalize_pairing_base_url(req.base_url)
+    ticket, expires_at = pairing_ticket_store.create(username)
+    query = urlencode(
+        {
+            "v": "1",
+            "base_url": base_url,
+            "ticket": ticket,
+        },
+    )
+    pairing_uri = f"qwenpaw://pair?{query}"
+    return PairingCreateResponse(
+        pairing_uri=pairing_uri,
+        qrcode_img=generate_qrcode_image(pairing_uri),
+        expires_at=expires_at,
+    )
+
+
+@router.post("/pairing/redeem", response_model=LoginResponse)
+async def redeem_mobile_pairing(
+    req: PairingRedeemRequest,
+) -> LoginResponse:
+    """Atomically exchange a one-time pairing ticket for a token."""
+    username = pairing_ticket_store.redeem(req.ticket)
+    if username is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired pairing code",
+        )
+    token = (
+        create_token(username, MOBILE_TOKEN_EXPIRY_SECONDS)
+        if is_auth_enabled()
+        else ""
+    )
+    return LoginResponse(token=token, username=username)
+
+
+def _normalize_pairing_base_url(value: str) -> str:
+    """Validate and normalize a mobile-reachable HTTP origin."""
+    parsed = urlsplit(value.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address must use HTTP or HTTPS",
+        )
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address contains unsupported components",
+        )
+    path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 @router.get("/verify")

@@ -53,6 +53,8 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from "@ant-design/icons";
+import { Smartphone } from "lucide-react";
+import { MobilePairingModal } from "../components/MobilePairingModal";
 
 const { Header: AntHeader } = Layout;
 
@@ -90,6 +92,7 @@ export default function Header() {
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
+  const [pairingOpen, setPairingOpen] = useState(false);
   const logoClicksRef = useRef<number[]>([]);
 
   useEffect(() => {
@@ -221,6 +224,13 @@ export default function Header() {
   ];
 
   const mobileMenuItems: MenuProps["items"] = [
+    {
+      key: "pair-mobile",
+      icon: <Smartphone size={16} />,
+      label: "Pair mobile",
+      onClick: () => setPairingOpen(true),
+    },
+    { type: "divider" },
     {
       key: "language",
       label: t("sidebar.settings.language"),
@@ -453,6 +463,14 @@ export default function Header() {
               {t("header.github")}
             </Button>
           </Tooltip>
+          <Button
+            type="text"
+            icon={<Smartphone size={16} />}
+            onClick={() => setPairingOpen(true)}
+            className={styles.hideOnMobile}
+          >
+            Pair mobile
+          </Button>
           <div className={styles.headerDivider} />
           <span className={styles.hideOnMobile}>
             <LanguageSwitcher />
@@ -555,6 +573,10 @@ export default function Header() {
           )}
         </div>
       </Modal>
+      <MobilePairingModal
+        open={pairingOpen}
+        onClose={() => setPairingOpen(false)}
+      />
     </>
   );
 }

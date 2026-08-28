@@ -26,6 +26,7 @@
     "@agentscope-ai/chat": "1.1.73-beta.1787638407498",
     "@agentscope-ai/design": "1.0.29",
     "@agentscope-ai/icons": "1.0.67",
+    "@qwenpaw/api-contract": "file:../packages/qwenpaw-api-contract",
     "@ant-design/icons": "^5.0.1",
     "@ant-design/plots": "^2.6.8",
     "@ant-design/x-markdown": "^2.2.2",
