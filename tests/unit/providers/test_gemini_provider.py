@@ -273,7 +273,7 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
     assert [m.id for m in models] == ["gemini-2.5-flash", "gemini-2.5-pro"]
     assert [m.name for m in models] == ["Gemini 2.5 Flash", "gemini-2.5-pro"]
     assert models[0].max_input_length_auto_detected == 1_048_576
-    assert models[0].max_tokens == 65_536
+    assert models[0].max_output_length == 65_536
     assert not provider.models
 
 

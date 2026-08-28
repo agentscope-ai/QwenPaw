@@ -142,6 +142,7 @@ class AgentBuilder:
 
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
+        tools.sort(key=self._tool_name)
 
         skills = await run_sync_io(
             self._load_runtime_skills,
@@ -153,7 +154,7 @@ class AgentBuilder:
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
-        """Best-effort tool name for whitelist filtering."""
+        """Return the model-facing name used for sorting and filtering."""
         name = getattr(tool, "name", None)
         if isinstance(name, str) and name:
             return name

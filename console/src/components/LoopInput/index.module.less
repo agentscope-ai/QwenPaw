@@ -105,6 +105,13 @@
   padding: 5px 6px 10px;
 }
 
+.menuActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
 .menuTitle {
   color: var(--ant-color-text);
   font-size: 13px;
@@ -133,6 +140,10 @@
 .settingsButton:hover {
   background: var(--ant-color-fill-tertiary);
   color: var(--ant-color-text);
+}
+
+.modeList {
+  min-height: 0;
 }
 
 .modeGroup + .modeGroup {
@@ -234,4 +245,38 @@
   color: var(--ant-color-primary);
   font: inherit;
   cursor: pointer;
+}
+
+.modeDrawer {
+  .modeMenu {
+    width: 100%;
+    height: auto;
+    max-height: min(48dvh, 400px);
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .menuHeader {
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 2px 0 10px 6px;
+  }
+
+  .settingsButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .modeList {
+    flex: 0 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .modeOption {
+    min-height: 56px;
+    padding: 8px 10px;
+  }
 }

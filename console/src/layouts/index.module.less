@@ -1,6 +1,16 @@
 // ─── MainLayout ───────────────────────────────────────────────────────────────
 .mainLayout {
   height: 100vh;
+  min-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .mainLayout {
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+  }
 }
 
 // ─── Header ───────────────────────────────────────────────────────────────────
@@ -176,6 +186,14 @@
     display: flex;
     flex-direction: column;
     padding: 0 8px;
+
+    :global(.qwenpaw-layout-sider-children) {
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
     .agentSelectorContainer {
       display: flex;
@@ -871,11 +889,30 @@
 /* Collapsed nav (icon-only group list) */
 .collapsedNav {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 4px 0;
+  overflow: hidden;
+}
+
+.collapsedNavPinned {
+  width: 100%;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.collapsedNavScroll {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -935,6 +972,10 @@
     padding: 2px 0;
   }
 
+  .collapsedNavScroll {
+    gap: 2px;
+  }
+
   .collapsedNavItem {
     width: 36px;
     height: 36px;
@@ -946,6 +987,14 @@
     margin: 0 -8px;
     padding: 8px 0;
     justify-content: center;
+  }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .sider {
+      height: calc(100dvh - 56px) !important;
+    }
   }
 }
 

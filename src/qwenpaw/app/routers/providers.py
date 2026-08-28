@@ -33,6 +33,10 @@ from ...providers.provider import (
     ProviderInfo,
     validate_custom_provider_id,
 )
+from ...providers.provider_discovery_policy import (
+    CUSTOM_CHAT_MODEL_NAMES,
+    CustomChatModelName,
+)
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
 from ...utils.io_utils import run_sync_io
@@ -163,7 +167,7 @@ class CreateCustomProviderRequest(BaseModel):
     name: str = Field(...)
     default_base_url: str = Field(default="")
     api_key_prefix: str = Field(default="")
-    chat_model: ChatModelName = Field(default="OpenAIChatModel")
+    chat_model: CustomChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
 
     @field_validator("id")
@@ -199,10 +203,6 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
-    max_tokens: Optional[int] = Field(
-        default=None,
-        description="Maximum output tokens per response.",
-    )
     max_input_length: Optional[int] = Field(
         default=None,
         description="Maximum input context window size (tokens).",
@@ -214,6 +214,28 @@ class ModelConfigRequest(BaseModel):
             "These override provider-level generate_kwargs."
         ),
     )
+
+    @field_validator("generate_kwargs")
+    @classmethod
+    def validate_generate_kwargs(cls, value: Optional[dict]) -> Optional[dict]:
+        """Validate and normalize typed generation parameters."""
+        if value is None:
+            return None
+        normalized = dict(value)
+        max_tokens = normalized.get("max_tokens")
+        if max_tokens is None:
+            normalized.pop("max_tokens", None)
+            return normalized
+        if (
+            isinstance(max_tokens, bool)
+            or not isinstance(max_tokens, int)
+            or max_tokens < 1
+        ):
+            raise ValueError(
+                "generate_kwargs.max_tokens must be an integer >= 1",
+            )
+        return normalized
+
     relay_reasoning: Optional[bool] = Field(
         default=None,
         description="Whether to relay reasoning_content in subsequent turns.",
@@ -302,6 +324,17 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
+    provider = manager.get_provider(provider_id)
+    if (
+        provider is not None
+        and provider.is_custom
+        and body.chat_model is not None
+        and body.chat_model not in CUSTOM_CHAT_MODEL_NAMES
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported custom protocol: {body.chat_model}",
+        )
     config = {
         "api_key": body.api_key,
         "base_url": body.base_url,
@@ -313,10 +346,8 @@ async def configure_provider(
     # Renaming is restricted to custom providers so built-in
     # provider names stay immutable.
     name = body.name.strip() if body.name else None
-    if name:
-        provider = manager.get_provider(provider_id)
-        if provider is not None and provider.is_custom:
-            config["name"] = name
+    if name and provider is not None and provider.is_custom:
+        config["name"] = name
     ok = await manager.update_provider_async(provider_id, config)
     if not ok:
         raise HTTPException(
@@ -326,11 +357,15 @@ async def configure_provider(
 
     provider = manager.get_provider(provider_id)
     if _should_auto_discover(body, provider):
-        background_tasks.add_task(
-            manager.discover_provider_models,
+        prepared_discovery = await manager.prepare_provider_model_discovery(
             provider_id,
-            save=True,
         )
+        if prepared_discovery is not None:
+            background_tasks.add_task(
+                manager.discover_provider_models,
+                provider_id,
+                prepared_discovery=prepared_discovery,
+            )
 
     provider_info = await manager.get_provider_info(provider_id)
     if provider_info is None:

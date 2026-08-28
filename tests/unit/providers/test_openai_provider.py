@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from agentscope.model import OpenAIChatModel
+import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import (
@@ -14,6 +15,7 @@ from qwenpaw.providers.openai_provider import (
     OpenCodeProvider,
     OpenAIProvider,
 )
+from qwenpaw.providers.provider import ModelInfo
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -97,7 +99,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
     assert models[0].max_input_length_auto_detected == 128_000
-    assert models[0].max_tokens == 16_384
+    assert models[0].max_output_length == 16_384
     assert not provider.models  # should not update provider state
     close.assert_awaited_once()
 
@@ -185,8 +187,8 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
     close.assert_awaited_once()
 
 
-async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
-    provider = _make_provider()
+async def test_custom_list_model_error_propagates(monkeypatch) -> None:
+    provider = _make_provider(is_custom=True)
 
     class FakeModels:
         async def list(self, timeout=None):
@@ -195,11 +197,10 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    models = await provider.fetch_models(timeout=3)
+    with pytest.raises(RuntimeError, match="failed"):
+        await provider.fetch_models(timeout=3)
 
-    assert models == []
     close.assert_awaited_once()
 
 
@@ -474,6 +475,55 @@ def test_get_gpt5_model_maps_configured_max_tokens() -> None:
     assert model._extra_generate_kwargs == {
         "max_completion_tokens": 4096,
     }
+
+
+def test_get_model_omits_unknown_max_tokens() -> None:
+    provider = _make_provider()
+    provider.models = [ModelInfo(id="unknown-limit", name="Unknown Limit")]
+
+    model = provider.get_chat_model_instance("unknown-limit")
+
+    assert model.parameters.max_tokens is None
+
+
+def test_legacy_model_max_tokens_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no longer supported"):
+        ModelInfo(
+            id="legacy-limit",
+            name="Legacy Limit",
+            max_tokens=1234,
+        )
+
+
+def test_model_generate_kwargs_sets_request_limit() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="configured-limit",
+            name="Configured Limit",
+            generate_kwargs={"max_tokens": 2048},
+        ),
+    ]
+
+    kwargs = provider.get_effective_generate_kwargs("configured-limit")
+
+    assert kwargs["max_tokens"] == 2048
+
+
+def test_get_model_does_not_send_discovered_output_capability() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="known-limit",
+            name="Known Limit",
+            max_output_length=16_384,
+            max_output_length_source="api",
+        ),
+    ]
+
+    model = provider.get_chat_model_instance("known-limit")
+
+    assert model.parameters.max_tokens is None
 
 
 def test_get_o_series_model_maps_configured_max_tokens() -> None:

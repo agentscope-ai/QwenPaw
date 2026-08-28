@@ -40,6 +40,7 @@ from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
 from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
 from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.tool_calls import (  # noqa: E402
+    COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     ToolCoordinator,
     ToolCoordinatorMiddleware,
 )
@@ -541,6 +542,24 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     assert (
         coordinator_middleware._background_result_processor
         == middlewares[pruning_index].prune_tool_response_async
+    )
+
+
+def test_spawn_subagent_hook_exposes_internal_timeout_cap():
+    coordinator = ToolCoordinator()
+    agent = types.SimpleNamespace(
+        _request_context={"agent_id": "agent-1"},
+        _agent_config=types.SimpleNamespace(tools=None),
+        name="agent-1",
+        _get_tool_coordinator=lambda: coordinator,
+    )
+
+    QwenPawAgent._register_tool_call_hooks(agent)
+
+    hook = coordinator.hooks.get("spawn_subagent")
+    assert hook.default_timeout_secs is None
+    assert hook.max_internal_timeout_secs == float(
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     )
 
 

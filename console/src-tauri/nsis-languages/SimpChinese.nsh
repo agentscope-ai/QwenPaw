@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_SIMPCHINESE} "WebView2 引导程序下
 LangString webview2Downloading ${LANG_SIMPCHINESE} "正在下载 WebView2 引导程序..."
 LangString webview2InstallError ${LANG_SIMPCHINESE} "错误：安装 WebView2 时失败，错误代码：$1"
 LangString webview2InstallSuccess ${LANG_SIMPCHINESE} "成功安装 WebView2"
-LangString deleteAppData ${LANG_SIMPCHINESE} "删除本地应用缓存"
+LangString deleteAppData ${LANG_SIMPCHINESE} "清除应用数据（如设置、草稿、登录、缓存等；保留 Agent/会话）"
 LangString qwenpawCliPathPageTitle ${LANG_SIMPCHINESE} "命令行"
 LangString qwenpawCliPathPageSubtitle ${LANG_SIMPCHINESE} "选择是否让终端可以直接使用 qwenpaw。"
 LangString qwenpawCliPathPageDescription ${LANG_SIMPCHINESE} "这会把随包提供的 qwenpaw 命令加入你的用户 PATH。之后可通过重新安装或卸载 QwenPaw Desktop 变更。"

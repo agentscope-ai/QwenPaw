@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite fetchConfig loop via useEffect.
   const stableT = (k: string) => k;
+  const agentState = { selectedAgent: "agent-1" };
   return {
     mockSetFieldsValue,
     mockValidateFields,
@@ -38,6 +39,7 @@ const hoisted = vi.hoisted(() => {
     apiMocks,
     modalConfirmMock,
     stableT,
+    agentState,
   };
 });
 
@@ -63,9 +65,13 @@ vi.mock("../../../api", () => ({
   default: hoisted.apiMocks,
 }));
 
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
-}));
+vi.mock("../../../stores/agentStore", () => {
+  const useAgentStore = Object.assign(
+    () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
+    { getState: () => hoisted.agentState },
+  );
+  return { useAgentStore };
+});
 
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message: hoisted.messageMock }),
@@ -84,6 +90,7 @@ const {
   apiMocks,
   messageMock,
   modalConfirmMock,
+  agentState,
 } = hoisted;
 
 type Config = AgentsRunningConfig;
@@ -144,6 +151,7 @@ describe("useAgentConfig", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
+    agentState.selectedAgent = "agent-1";
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
@@ -207,6 +215,49 @@ describe("useAgentConfig", () => {
       expect(result.current.error).toBe("boom");
     });
     expect(result.current.loading).toBe(false);
+  });
+
+  it("ignores a stale config response after switching away and back", async () => {
+    let resolveDisabledAgent!: (config: Config) => void;
+    const disabledAgentConfig = new Promise<Config>((resolve) => {
+      resolveDisabledAgent = resolve;
+    });
+    const currentAgentConfig = makeConfig({ history_max_length: 300 });
+
+    const view = renderConfigHook();
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    mockSetFieldsValue.mockClear();
+
+    apiMocks.getAgentRunningConfig
+      .mockImplementationOnce(() => disabledAgentConfig)
+      .mockResolvedValueOnce(currentAgentConfig);
+
+    agentState.selectedAgent = "agent-2";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(2),
+    );
+
+    agentState.selectedAgent = "agent-1";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(3),
+    );
+    await waitFor(() =>
+      expect(mockSetFieldsValue).toHaveBeenCalledWith(
+        expect.objectContaining({ history_max_length: 300 }),
+      ),
+    );
+
+    await act(async () => {
+      resolveDisabledAgent(makeConfig({ history_max_length: 200 }));
+      await disabledAgentConfig;
+    });
+
+    expect(mockSetFieldsValue).not.toHaveBeenCalledWith(
+      expect.objectContaining({ history_max_length: 200 }),
+    );
+    expect(view.result.current.loading).toBe(false);
   });
 
   it("falls back context_manager_backend to 'light' when not in MAPPINGS", async () => {
