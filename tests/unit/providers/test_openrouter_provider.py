@@ -7,10 +7,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
-
+import qwenpaw.providers.openrouter_provider as openrouter_provider_module
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
-from qwenpaw.providers.provider import ExtendedModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
 
@@ -44,40 +42,15 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
     models = SimpleNamespace(list=AsyncMock(side_effect=RuntimeError("boom")))
     client = SimpleNamespace(models=models, close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=30: client)
+    monkeypatch.setattr(openrouter_provider_module, "APIError", Exception)
 
-    with pytest.raises(RuntimeError, match="boom"):
-        await provider.fetch_models(timeout=2)
+    result = await provider.fetch_models(timeout=2)
 
+    assert result == []
     close.assert_awaited_once()
 
 
-def test_available_providers_from_existing_models() -> None:
-    provider = _make_provider()
-    models = [
-        ExtendedModelInfo(
-            id="openai/gpt-test",
-            name="GPT Test",
-            provider="openai",
-        ),
-        ExtendedModelInfo(
-            id="google/gemini-test",
-            name="Gemini Test",
-            provider="google",
-        ),
-        ExtendedModelInfo(
-            id="openai/gpt-other",
-            name="GPT Other",
-            provider="openai",
-        ),
-        ExtendedModelInfo(id="unowned", name="Unowned"),
-    ]
-
-    result = provider.available_providers_from_models(models)
-
-    assert result == ["google", "openai"]
-
-
-async def test_empty_discovery_succeeds_and_closes_clients(
+async def test_empty_discovery_closes_fetch_and_probe_clients(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -88,22 +61,29 @@ async def test_empty_discovery_succeeds_and_closes_clients(
     provider.api_key = "sk-or-test"
 
     fetch_close = AsyncMock()
+    probe_close = AsyncMock()
     fetch_client = SimpleNamespace(
         models=SimpleNamespace(
             list=AsyncMock(return_value=SimpleNamespace(data=[])),
         ),
         close=fetch_close,
     )
+    probe_client = SimpleNamespace(
+        models=SimpleNamespace(
+            list=AsyncMock(return_value=SimpleNamespace(data=[])),
+        ),
+        close=probe_close,
+    )
+    clients = iter((fetch_client, probe_client))
     monkeypatch.setattr(
         provider,
         "_client",
-        lambda timeout=30: fetch_client,
+        lambda timeout=30: next(clients),
     )
 
     result = await manager.discover_provider_models("openrouter")
 
-    assert result.success is True
-    assert result.models == []
-    assert result.discovered_count == 0
-    assert result.error is None
+    assert result.success is False
+    assert result.error == "Provider returned no models"
     fetch_close.assert_awaited_once()
+    probe_close.assert_awaited_once()

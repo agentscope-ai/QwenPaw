@@ -30,7 +30,6 @@ from ...config.config import (
 )
 from ...providers.provider import (
     ModelInfo,
-    Provider,
     ProviderInfo,
     validate_custom_provider_id,
 )
@@ -345,16 +344,15 @@ async def configure_provider(
 
     provider = manager.get_provider(provider_id)
     if _should_auto_discover(body, provider):
-        if not await manager.prepare_provider_model_discovery(provider_id):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Provider '{provider_id}' not found",
-            )
-        background_tasks.add_task(
-            manager.discover_provider_models,
+        prepared_discovery = await manager.prepare_provider_model_discovery(
             provider_id,
-            save=True,
         )
+        if prepared_discovery is not None:
+            background_tasks.add_task(
+                manager.discover_provider_models,
+                provider_id,
+                prepared_discovery=prepared_discovery,
+            )
 
     provider_info = await manager.get_provider_info(provider_id)
     if provider_info is None:
@@ -1033,11 +1031,9 @@ async def get_openrouter_series(
         series = await provider.get_available_providers()
         return SeriesResponse(series=series)
     except Exception as exc:
-        detail = Provider.connection_error_message(exc)
-        logger.warning(f"Failed to fetch OpenRouter series: {detail}")
         raise HTTPException(
-            status_code=503,
-            detail=f"Failed to fetch series: {detail}",
+            status_code=500,
+            detail=f"Failed to fetch series: {str(exc)}",
         ) from exc
 
 
@@ -1072,7 +1068,7 @@ async def discover_openrouter_extended(
 
     try:
         models = await provider.fetch_extended_models()
-        providers = provider.available_providers_from_models(models)
+        providers = await provider.get_available_providers()
 
         models_dict = [
             {
@@ -1097,11 +1093,7 @@ async def discover_openrouter_extended(
             providers=providers,
             total_count=len(models_dict),
         )
-    except Exception as exc:
-        detail = Provider.connection_error_message(exc)
-        logger.warning(
-            f"Failed to discover extended OpenRouter models: {detail}",
-        )
+    except Exception:
         return DiscoverExtendedResponse(
             success=False,
             models=[],
@@ -1172,10 +1164,7 @@ async def filter_openrouter_models(
             total_count=len(models_dict),
         )
     except Exception as exc:
-        detail = Provider.connection_error_message(exc)
-        logger.warning(f"Failed to filter OpenRouter models: {detail}")
-        return FilterModelsResponse(
-            success=False,
-            models=[],
-            total_count=0,
-        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to filter models: {str(exc)}",
+        ) from exc

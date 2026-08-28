@@ -5,38 +5,20 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks
 from pydantic import ValidationError
 
 from qwenpaw.app.routers.providers import (
     CreateCustomProviderRequest,
     DiscoverModelsRequest,
-    FilterModelsRequest,
     ProviderConfigRequest,
     TestProviderRequest,
     configure_provider,
-    discover_openrouter_extended,
     discover_models,
-    filter_openrouter_models,
-    get_openrouter_series,
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
 )
-from qwenpaw.providers.openrouter_provider import OpenRouterProvider
-from qwenpaw.providers.provider import (
-    ExtendedModelInfo,
-    ModelInfo,
-    ProviderInfo,
-)
-
-
-def _make_openrouter_provider() -> OpenRouterProvider:
-    return OpenRouterProvider(
-        id="openrouter",
-        name="OpenRouter",
-        base_url="https://openrouter.example/v1",
-        api_key="sk-or-test",
-    )
+from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 
 
 @pytest.mark.parametrize(
@@ -75,8 +57,9 @@ async def test_configure_provider_schedules_model_discovery() -> None:
             models_syncing=True,
         ),
     )
+    prepared_discovery = object()
     manager.prepare_provider_model_discovery = AsyncMock(
-        return_value=True,
+        return_value=prepared_discovery,
     )
     manager.discover_provider_models = AsyncMock()
     tasks = BackgroundTasks()
@@ -107,7 +90,8 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     task = tasks.tasks[0]
     assert task.func == manager.discover_provider_models
     assert task.args == ("openai",)
-    assert task.kwargs == {"save": True}
+    assert task.kwargs == {"prepared_discovery": prepared_discovery}
+    manager.discover_provider_models.assert_not_awaited()
 
 
 async def test_discover_route_returns_sync_status() -> None:
@@ -139,179 +123,6 @@ async def test_discover_route_returns_sync_status() -> None:
     assert result.message == "upstream unavailable"
     assert result.error_kind == "provider_unavailable"
     assert [model.id for model in result.models] == ["cached"]
-
-
-async def test_openrouter_series_empty_catalog_is_success(monkeypatch) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-
-    async def get_available_providers(_self, _timeout=30):
-        return []
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "get_available_providers",
-        get_available_providers,
-    )
-
-    result = await get_openrouter_series(manager=manager)
-
-    assert result.series == []
-
-
-async def test_openrouter_series_failure_is_sanitized_503(
-    monkeypatch,
-) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-
-    async def get_available_providers(_self, timeout=30):
-        raise RuntimeError("api_key=secret-value upstream unavailable")
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "get_available_providers",
-        get_available_providers,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        await get_openrouter_series(manager=manager)
-
-    assert exc_info.value.status_code == 503
-    assert "[redacted]" in exc_info.value.detail
-    assert "secret-value" not in exc_info.value.detail
-
-
-async def test_openrouter_extended_discovery_reuses_fetched_models(
-    monkeypatch,
-) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-    fetch_count = 0
-
-    async def fetch_extended_models(_self, _timeout=30):
-        nonlocal fetch_count
-        fetch_count += 1
-        return [
-            ExtendedModelInfo(
-                id="openai/gpt-test",
-                name="GPT Test",
-                provider="openai",
-            ),
-            ExtendedModelInfo(
-                id="google/gemini-test",
-                name="Gemini Test",
-                provider="google",
-            ),
-        ]
-
-    async def get_available_providers(_self, _timeout=30):
-        pytest.fail("Extended discovery must not fetch the catalog twice")
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "fetch_extended_models",
-        fetch_extended_models,
-    )
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "get_available_providers",
-        get_available_providers,
-    )
-
-    result = await discover_openrouter_extended(
-        manager=manager,
-        body=None,
-    )
-
-    assert result.success is True
-    assert result.providers == ["google", "openai"]
-    assert result.total_count == 2
-    assert fetch_count == 1
-
-
-async def test_openrouter_extended_discovery_failure_is_sanitized(
-    monkeypatch,
-    caplog,
-) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-
-    async def fetch_extended_models(_self, _timeout=30):
-        raise RuntimeError("api_key=secret-value upstream unavailable")
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "fetch_extended_models",
-        fetch_extended_models,
-    )
-
-    result = await discover_openrouter_extended(
-        manager=manager,
-        body=None,
-    )
-
-    assert result.success is False
-    assert result.models == []
-    assert "[redacted]" in caplog.text
-    assert "secret-value" not in caplog.text
-
-
-async def test_openrouter_filter_empty_catalog_is_success(monkeypatch) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-
-    async def fetch_extended_models(_self, _timeout=30):
-        return []
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "fetch_extended_models",
-        fetch_extended_models,
-    )
-
-    result = await filter_openrouter_models(
-        manager=manager,
-        body=FilterModelsRequest(),
-    )
-
-    assert result.success is True
-    assert result.models == []
-    assert result.total_count == 0
-
-
-async def test_openrouter_filter_failure_is_sanitized(
-    monkeypatch,
-    caplog,
-) -> None:
-    provider = _make_openrouter_provider()
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-
-    async def fetch_extended_models(_self, timeout=30):
-        raise RuntimeError("api_key=secret-value upstream unavailable")
-
-    monkeypatch.setattr(
-        OpenRouterProvider,
-        "fetch_extended_models",
-        fetch_extended_models,
-    )
-
-    result = await filter_openrouter_models(
-        manager=manager,
-        body=FilterModelsRequest(),
-    )
-
-    assert result.success is False
-    assert result.models == []
-    assert result.total_count == 0
-    assert "[redacted]" in caplog.text
-    assert "secret-value" not in caplog.text
 
 
 async def test_discover_preview_does_not_persist_credentials() -> None:

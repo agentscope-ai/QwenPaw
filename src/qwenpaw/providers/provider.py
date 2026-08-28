@@ -527,7 +527,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     @abstractmethod
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
-        """Fetch models, raising when the provider request fails."""
+        """Fetch the list of available models from the provider."""
 
     @abstractmethod
     async def check_model_connection(

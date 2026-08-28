@@ -371,7 +371,6 @@ def test_get_api_models_openrouter_series_15(app_server) -> None:
         409,
         415,
         422,
-        503,
     ), app_server.logs_tail()
     if resp.status_code == 200:
         try:

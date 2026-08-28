@@ -277,6 +277,10 @@ class GeminiProvider(Provider):
                 payload.append(model)
             models = self._normalize_models_payload(payload)
             return models
+        except genai_errors.APIError:
+            return []
+        except Exception:
+            return []
         finally:
             await self._close_async_resource(response)
             if client is not None:

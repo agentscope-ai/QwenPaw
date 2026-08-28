@@ -791,18 +791,6 @@ class ProviderManagerPersistenceMixin(
                 data["is_custom"] = True
                 needs_rewrite = True
             provider = self._provider_from_data(data)
-            normalized_fields = (
-                "discovery_strategy",
-                "discovery_support_reason",
-                "discovery_requires_auth",
-                "model_sync_mode",
-                "support_model_discovery",
-            )
-            if provider.is_custom and any(
-                data.get(field) != getattr(provider, field)
-                for field in normalized_fields
-            ):
-                needs_rewrite = True
             provider.models_syncing = False
             if not self._remember_provider_path(
                 storage_kind,

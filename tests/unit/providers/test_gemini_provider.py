@@ -277,7 +277,7 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
     assert not provider.models
 
 
-async def test_fetch_models_api_error_propagates(monkeypatch) -> None:
+async def test_fetch_models_api_error_returns_empty(monkeypatch) -> None:
     provider = _make_provider()
 
     class FakeModels:
@@ -289,11 +289,12 @@ async def test_fetch_models_api_error_propagates(monkeypatch) -> None:
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    with pytest.raises(genai_errors.APIError):
-        await provider.fetch_models(timeout=3.0)
+    models = await provider.fetch_models(timeout=3.0)
+
+    assert models == []
 
 
-async def test_fetch_models_generic_exception_propagates(
+async def test_fetch_models_generic_exception_returns_empty(
     monkeypatch,
 ) -> None:
     provider = _make_provider()
@@ -307,8 +308,9 @@ async def test_fetch_models_generic_exception_propagates(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    with pytest.raises(OSError, match="network unreachable"):
-        await provider.fetch_models(timeout=3.0)
+    models = await provider.fetch_models(timeout=3.0)
+
+    assert models == []
 
 
 # -- check_model_connection ---------------------------------------------------

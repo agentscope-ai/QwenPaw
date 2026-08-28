@@ -84,6 +84,27 @@ class ProviderManagerDiscoveryMixin(
         )
         return self._provider_from_data(payload)
 
+    @staticmethod
+    async def _probe_discovery_failure_reason(
+        provider: Provider,
+        timeout: float,
+    ) -> str | None:
+        """Return the real reason an empty discovery result may hide.
+
+        ``fetch_models`` may swallow transport errors and return an empty
+        list, so an empty result is ambiguous. When the provider exposes a
+        connection check, use it to distinguish an empty catalog from a
+        failed request. The probe never masks the original empty result.
+        """
+        check = getattr(provider, "check_connection", None)
+        if check is None:
+            return None
+        try:
+            ok, detail = await check(timeout=timeout)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+        return None if ok else (detail or None)
+
     async def _save_discovery_locked(
         self,
         provider_id: str,
@@ -92,14 +113,14 @@ class ProviderManagerDiscoveryMixin(
         revision: int,
         generation: int | None,
         **fields: Any,
-    ) -> None:
+    ) -> bool:
         """Persist a discovery outcome if its snapshot is still current."""
         lock = self._provider_save_locks.setdefault(
             provider_id,
             asyncio.Lock(),
         )
         async with lock:
-            await run_async_to_completion(
+            return await run_async_to_completion(
                 self._save_discovery_snapshot(
                     provider_id,
                     provider,
@@ -109,11 +130,12 @@ class ProviderManagerDiscoveryMixin(
                 ),
             )
 
-    async def _begin_discovery(
+    async def prepare_provider_model_discovery(
         self,
         provider_id: str,
     ) -> tuple[Provider, int, int] | None:
-        """Mark one provider as syncing and reserve its generation."""
+        """Reserve a persisted discovery without waiting for remote I/O."""
+        provider_id = self._normalize_provider_id(provider_id)
         lock = self._provider_save_locks.setdefault(
             provider_id,
             asyncio.Lock(),
@@ -122,17 +144,16 @@ class ProviderManagerDiscoveryMixin(
             provider = self.get_provider(provider_id)
             if provider is None:
                 return None
+            if provider.models_syncing:
+                return None
             provider.models_syncing = True
             generation = self._discovery_generations.get(provider_id, 0) + 1
             self._discovery_generations[provider_id] = generation
-            return provider, self._provider_revision(provider_id), generation
-
-    async def prepare_provider_model_discovery(
-        self,
-        provider_id: str,
-    ) -> bool:
-        """Expose the syncing state before a background refresh starts."""
-        return await self._begin_discovery(provider_id) is not None
+            return (
+                provider,
+                self._provider_revision(provider_id),
+                generation,
+            )
 
     async def _clear_discovery_syncing(
         self,
@@ -187,21 +208,6 @@ class ProviderManagerDiscoveryMixin(
         else:
             candidate.models_last_sync_error = error
         candidate.models_syncing = False
-        provider_path = await self._provider_config_path_async(provider_id)
-        await run_sync_io(
-            self._save_provider_snapshot_locked,
-            provider_id,
-            candidate,
-            provider_path,
-        )
-        if generation != self._discovery_generations.get(provider_id):
-            return False
-        if not self._is_current_provider(
-            provider_id,
-            expected_provider,
-            revision,
-        ):
-            return False
         if provider_id in self.plugin_providers:
             persisted = self._merge_plugin_snapshot(
                 provider_id,
@@ -218,6 +224,7 @@ class ProviderManagerDiscoveryMixin(
                 model_id=None,
                 fields=None,
             )
+        provider_path = await self._provider_config_path_async(provider_id)
         await run_sync_io(
             self._save_provider_snapshot_locked,
             provider_id,
@@ -254,6 +261,7 @@ class ProviderManagerDiscoveryMixin(
         save: bool = True,
         timeout: float = 10,
         provider_override: Provider | None = None,
+        prepared_discovery: tuple[Provider, int, int] | None = None,
     ) -> ProviderModelDiscoveryResult:
         """Discover, normalize and optionally persist a provider's models.
 
@@ -271,28 +279,54 @@ class ProviderManagerDiscoveryMixin(
             )
         generation = None
         if save:
-            started = await self._begin_discovery(provider_id)
-            if started is None:
+            if prepared_discovery is None:
+                prepared_discovery = (
+                    await self.prepare_provider_model_discovery(
+                        provider_id,
+                    )
+                )
+            if prepared_discovery is None:
                 return ProviderModelDiscoveryResult(
                     success=False,
+                    models=provider.discovery_candidates(),
+                    last_synced_at=provider.models_last_synced_at,
                     used_static_fallback=True,
-                    error=f"Provider '{provider_id}' not found",
+                    error="Model discovery is already in progress",
                     error_kind="configuration",
                 )
-            provider, revision, generation = started
+            provider, revision, generation = prepared_discovery
         else:
             revision = self._provider_revision(provider_id)
         fetch_provider = provider_override or provider
 
-        previous_api_ids = {
-            model.id
-            for model in provider.discovered_models
-            if model.discovery_origin in {None, "api", "both"}
-        }
-        removed_ids = set(provider.removed_model_ids)
         try:
+            if save and not self._is_current_provider(
+                provider_id,
+                provider,
+                revision,
+            ):
+                return ProviderModelDiscoveryResult(
+                    success=False,
+                    models=provider.discovery_candidates(),
+                    last_synced_at=provider.models_last_synced_at,
+                    used_static_fallback=True,
+                    error="Model discovery was superseded by a newer update",
+                    error_kind="configuration",
+                )
+            previous_api_ids = {
+                model.id
+                for model in provider.discovered_models
+                if model.discovery_origin in {None, "api", "both"}
+            }
+            removed_ids = set(provider.removed_model_ids)
             fetched = await fetch_provider.fetch_models(timeout=timeout)
             fetched = [model for model in fetched if model.id.strip()]
+            if not fetched:
+                reason = await self._probe_discovery_failure_reason(
+                    fetch_provider,
+                    timeout,
+                )
+                raise ValueError(reason or "Provider returned no models")
             fetched = [
                 model
                 for model in fetched
@@ -336,7 +370,7 @@ class ProviderManagerDiscoveryMixin(
             models = list(by_id.values())
 
             if save:
-                await self._save_discovery_locked(
+                committed = await self._save_discovery_locked(
                     provider_id,
                     provider,
                     revision=revision,
@@ -345,6 +379,17 @@ class ProviderManagerDiscoveryMixin(
                     models=models,
                     synced_at=synced_at,
                 )
+                if not committed:
+                    return ProviderModelDiscoveryResult(
+                        success=False,
+                        models=provider.discovery_candidates(),
+                        last_synced_at=provider.models_last_synced_at,
+                        used_static_fallback=True,
+                        error=(
+                            "Model discovery was superseded by a newer update"
+                        ),
+                        error_kind="configuration",
+                    )
             current_removed = set(provider.removed_model_ids)
             models = [
                 model for model in models if model.id not in current_removed
@@ -364,13 +409,24 @@ class ProviderManagerDiscoveryMixin(
             )
             logger.warning("Model discovery failed; using static fallback")
             if save:
-                await self._save_discovery_locked(
+                committed = await self._save_discovery_locked(
                     provider_id,
                     provider,
                     revision=revision,
                     generation=generation,
                     error=error,
                 )
+                if not committed:
+                    return ProviderModelDiscoveryResult(
+                        success=False,
+                        models=provider.discovery_candidates(),
+                        last_synced_at=provider.models_last_synced_at,
+                        used_static_fallback=True,
+                        error=(
+                            "Model discovery was superseded by a newer update"
+                        ),
+                        error_kind="configuration",
+                    )
             return ProviderModelDiscoveryResult(
                 success=False,
                 models=provider.discovery_candidates(),

@@ -157,22 +157,9 @@ class ProviderManager(
         ]
 
         provider_infos = await asyncio.gather(*tasks)
-        provider_infos = list(provider_infos) + (
+        return list(provider_infos) + (
             self._plugin_registry.list_provider_infos()
         )
-        return [
-            self._with_provider_runtime_revision(info)
-            for info in provider_infos
-        ]
-
-    def _with_provider_runtime_revision(
-        self,
-        info: ProviderInfo,
-    ) -> ProviderInfo:
-        """Expose volatile provider identity without persisting it."""
-        meta = dict(info.meta)
-        meta["provider_runtime_revision"] = self._provider_revision(info.id)
-        return info.model_copy(update={"meta": meta})
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
@@ -201,10 +188,7 @@ class ProviderManager(
 
     async def get_provider_info(self, provider_id: str) -> ProviderInfo | None:
         provider = self.get_provider(provider_id)
-        if provider is None:
-            return None
-        info = await provider.get_info()
-        return self._with_provider_runtime_revision(info)
+        return await provider.get_info() if provider else None
 
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
@@ -504,7 +488,7 @@ class ProviderManager(
         provider_key = self._normalize_provider_id(provider.id)
         self.custom_providers[provider_key] = provider
         self._bump_provider_revision(provider.id)
-        return self._with_provider_runtime_revision(await provider.get_info())
+        return await provider.get_info()
 
     def remove_custom_provider(self, provider_id: str) -> bool:
         # Remove a custom provider by its ID. This will update the
@@ -706,7 +690,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return self._with_provider_runtime_revision(await provider.get_info())
+        return await provider.get_info()
 
     async def set_model_hidden(
         self,
@@ -739,7 +723,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return self._with_provider_runtime_revision(await provider.get_info())
+        return await provider.get_info()
 
     async def update_model_config(
         self,
@@ -771,7 +755,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return self._with_provider_runtime_revision(await provider.get_info())
+        return await provider.get_info()
 
     async def delete_model_from_provider(
         self,
@@ -797,7 +781,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        return self._with_provider_runtime_revision(await provider.get_info())
+        return await provider.get_info()
 
     async def probe_model_multimodal(
         self,

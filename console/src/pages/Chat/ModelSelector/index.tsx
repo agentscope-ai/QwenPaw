@@ -155,13 +155,13 @@ export default function ModelSelector({
   }, []);
   const {
     activeModels,
-    commitActiveModels,
-    commitProviders,
     fetchData,
     loading,
     loadError,
     providers,
     refreshActiveModels,
+    setActiveModels,
+    setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
     onActiveModels: handleActiveModels,
@@ -400,7 +400,7 @@ export default function ModelSelector({
       ) {
         return;
       }
-      commitActiveModels(
+      setActiveModels(
         updated?.active_llm
           ? updated
           : {
@@ -512,7 +512,7 @@ export default function ModelSelector({
         candidate.model.id,
         hidden,
       );
-      commitProviders((current) =>
+      setProviders((current) =>
         current.map((provider) =>
           provider.id === updated.id ? updated : provider,
         ),
@@ -966,7 +966,7 @@ export default function ModelSelector({
         {loadError && (
           <div className={styles.loadError} role="alert">
             <span>{t("modelSelector.partialLoadFailed")}</span>
-            <button type="button" onClick={() => void fetchData()}>
+            <button type="button" onClick={fetchData}>
               {t("modelSelector.retry")}
             </button>
           </div>

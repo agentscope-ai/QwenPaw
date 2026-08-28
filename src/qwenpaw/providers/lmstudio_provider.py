@@ -14,18 +14,7 @@ class LMStudioProvider(OpenAIProvider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable"""
-        try:
-            models = await self.fetch_models(timeout=timeout)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            return ModelConnectionResult(
-                success=False,
-                message=(
-                    "Unable to list LM Studio models: "
-                    f"{self.connection_error_message(exc)}"
-                ),
-                error_kind="transient_error",
-                verification="provider_only",
-            )
+        models = await self.fetch_models(timeout=timeout)
         if any(model.id == model_id for model in models):
             return ModelConnectionResult(
                 success=True,
