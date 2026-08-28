@@ -96,7 +96,7 @@ def test_migration_applies_to_extra_models_and_is_idempotent() -> None:
     assert snapshot == migrated
 
 
-def test_migration_applies_to_discovered_models_and_preserves_secret() -> None:
+def test_discovered_model_migration_preserves_secret() -> None:
     snapshot = {
         "api_key": "ENC:encrypted-provider-key",
         "discovered_models": [
