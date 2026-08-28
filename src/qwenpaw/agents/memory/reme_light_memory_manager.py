@@ -436,11 +436,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 embedding_vector_space_fingerprint(old_config)
                 != embedding_vector_space_fingerprint(config)
             )
-            if not await self._resume_verified_embedding(
-                rebuild=vector_space_changed,
-            ):
+            try:
+                resumed = await self._resume_verified_embedding(
+                    rebuild=vector_space_changed,
+                )
+            except Exception:
+                logger.exception(
+                    "Embedding resume failed after hot update; reloading ReMe",
+                )
+                resumed = False
+            if not resumed:
                 # Older embedded ReMe versions permanently dropped the file
-                # store's reference after a failed probe. Reload to restore it.
+                # store's reference after a failed probe. Recovery errors also
+                # require a reload before the lifecycle gate is released.
                 return await self._reload_embedding_config_unlocked()
 
             self._active_embedding_config = config.model_copy(deep=True)

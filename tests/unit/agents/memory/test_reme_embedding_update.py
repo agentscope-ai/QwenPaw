@@ -278,6 +278,36 @@ async def test_partial_hot_update_reloads_with_lifecycle_lock() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resume_failure_reloads_while_lifecycle_locked() -> None:
+    """A failed repair cannot expose the newly switched vector space."""
+    old_config = _config(backend="openai")
+    new_config = _config(backend="dashscope")
+    manager, _wrapper, _store = _manager(old_config)
+    manager._tested_embedding = (
+        embedding_config_fingerprint(new_config),
+        object(),
+    )
+    manager._reme.file_store.resume_embedding.side_effect = RuntimeError(
+        "repair failed",
+    )
+
+    async def reload_while_locked():
+        assert manager._lifecycle_operation == "embedding-update"
+        return True
+
+    manager._reload_embedding_config_unlocked = AsyncMock(
+        side_effect=reload_while_locked,
+    )
+
+    assert await manager.apply_tested_embedding(new_config) is True
+    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
+        verified=True,
+        rebuild=True,
+    )
+    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_embedding_update_waits_for_inflight_reme_job() -> None:
     config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
