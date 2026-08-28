@@ -631,6 +631,12 @@
     "chatHistoryTooltip": "Riwayat chat",
     "wideModeTooltip": "Mode lebar",
     "normalModeTooltip": "Mode normal",
+    "messageDisplay": {
+      "stepsRunning": "Berjalan… · {{count}} langkah",
+      "stepsCanceled": "Dibatalkan · {{count}} langkah",
+      "stepsFailed": "Gagal · {{count}} langkah",
+      "stepsCompleted": "Selesai {{count}} langkah"
+    },
     "allChats": "Semua Chat",
     "createNewChat": "Buat Chat Baru",
     "pinDrawer": "Sematkan",

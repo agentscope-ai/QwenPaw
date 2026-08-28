@@ -2625,6 +2625,12 @@
     "chatHistoryTooltip": "История чатов",
     "wideModeTooltip": "Широкий режим",
     "normalModeTooltip": "Обычный режим",
+    "messageDisplay": {
+      "stepsRunning": "Выполняется… · шагов: {{count}}",
+      "stepsCanceled": "Отменено · шагов: {{count}}",
+      "stepsFailed": "Ошибка · шагов: {{count}}",
+      "stepsCompleted": "Выполнено шагов: {{count}}"
+    },
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
     "pinDrawer": "Закрепить",

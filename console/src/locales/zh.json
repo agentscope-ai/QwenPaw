@@ -3053,6 +3053,12 @@
     "chatHistoryTooltip": "聊天历史",
     "wideModeTooltip": "宽屏模式",
     "normalModeTooltip": "正常模式",
+    "messageDisplay": {
+      "stepsRunning": "正在执行中… · {{count}} 个步骤",
+      "stepsCanceled": "已取消 · {{count}} 个步骤",
+      "stepsFailed": "执行失败 · {{count}} 个步骤",
+      "stepsCompleted": "已完成 {{count}} 个步骤"
+    },
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
     "pinDrawer": "固定",

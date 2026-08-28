@@ -2854,6 +2854,12 @@
     "chatHistoryTooltip": "Chat history",
     "wideModeTooltip": "Modo amplo",
     "normalModeTooltip": "Modo normal",
+    "messageDisplay": {
+      "stepsRunning": "Em execução… · {{count}} etapas",
+      "stepsCanceled": "Cancelado · {{count}} etapas",
+      "stepsFailed": "Falhou · {{count}} etapas",
+      "stepsCompleted": "{{count}} etapas concluídas"
+    },
     "allChats": "Todos Chats",
     "createNewChat": "Criar Novo Chat",
     "pinDrawer": "Fixar",

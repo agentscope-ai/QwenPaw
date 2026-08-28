@@ -3196,6 +3196,12 @@
     "chatHistoryTooltip": "Chat history",
     "wideModeTooltip": "Wide mode",
     "normalModeTooltip": "Normal mode",
+    "messageDisplay": {
+      "stepsRunning": "Running… · {{count}} steps",
+      "stepsCanceled": "Canceled · {{count}} steps",
+      "stepsFailed": "Failed · {{count}} steps",
+      "stepsCompleted": "Completed {{count}} steps"
+    },
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
     "pinDrawer": "Pin",

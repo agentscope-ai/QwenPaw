@@ -1,0 +1,17 @@
+.collapsedSteps {
+  width: calc(100% + 8px);
+  margin-left: -8px;
+
+  /* Closed headers add a 1px border; keep both content baselines equal. */
+  :global([class$="-accordion-group-header-close"]) {
+    padding-left: 8px;
+  }
+
+  :global([class$="-accordion-group-header-open"]) {
+    padding-left: 9px;
+  }
+
+  :global([class$="-accordion-group-open"]) {
+    border: 0;
+  }
+}

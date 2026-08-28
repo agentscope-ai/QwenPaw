@@ -2610,6 +2610,12 @@
     "chatHistoryTooltip": "チャット履歴",
     "wideModeTooltip": "ワイドモード",
     "normalModeTooltip": "標準モード",
+    "messageDisplay": {
+      "stepsRunning": "実行中… · {{count}} ステップ",
+      "stepsCanceled": "キャンセル済み · {{count}} ステップ",
+      "stepsFailed": "実行失敗 · {{count}} ステップ",
+      "stepsCompleted": "{{count}} ステップ完了"
+    },
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
     "pinDrawer": "固定",
