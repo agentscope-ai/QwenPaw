@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
+import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import {
   Button,
   Form,
@@ -39,6 +39,7 @@ import {
   getTestConnectionFailureDetail,
 } from "./testConnectionMessage";
 import { OpenRouterFilterSection } from "./OpenRouterFilterSection";
+import { useProviderModelDiscovery } from "./useProviderModelDiscovery";
 import styles from "../../index.module.less";
 
 interface RemoteModelManageModalProps {
@@ -48,8 +49,6 @@ interface RemoteModelManageModalProps {
   onSaved: () => void | Promise<void>;
   onProviderUpdated?: (provider: ProviderInfo) => void;
 }
-
-type DiscoveryPreviewState = "idle" | "loading" | "failed" | "empty" | "ready";
 
 export function RemoteModelManageModal({
   provider,
@@ -66,11 +65,6 @@ export function RemoteModelManageModal({
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [bulkAdding, setBulkAdding] = useState(false);
-  const [discoveringModels, setDiscoveringModels] = useState(false);
-  const [previewDiscovering, setPreviewDiscovering] = useState(false);
-  const [previewState, setPreviewState] =
-    useState<DiscoveryPreviewState>("idle");
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
@@ -82,9 +76,6 @@ export function RemoteModelManageModal({
   const isOpenRouter = provider.id === "openrouter";
   const [showFilters, setShowFilters] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<string[]>([]);
-  const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>(
-    () => (provider.discovered_models ?? []) as unknown as ExtendedModelInfo[],
-  );
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedInputModalities, setSelectedInputModalities] = useState<
     string[]
@@ -94,7 +85,21 @@ export function RemoteModelManageModal({
 
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const previewAttemptedProviderRef = useRef<string | null>(null);
+  const {
+    discover: discoverModels,
+    error: previewError,
+    isDiscovering,
+    models: discoveredModels,
+    removeModels: removeDiscoveredModels,
+    replaceModels: setDiscoveredModels,
+    state: discoveryState,
+  } = useProviderModelDiscovery({
+    provider,
+    autoPreview:
+      open && adding && !isOpenRouter && supportsAutoDiscover,
+    fallbackError: t("models.autoDiscoverModelsFailed"),
+    onSaved,
+  });
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -356,7 +361,7 @@ export function RemoteModelManageModal({
       });
       message.success(t("models.modelAdded", { name: model.name }));
       await onSaved();
-      setDiscoveredModels((prev) => prev.filter((m) => m.id !== model.id));
+      removeDiscoveredModels(new Set([model.id]));
     } catch {
       message.error(t("models.modelAddFailed"));
     } finally {
@@ -365,19 +370,9 @@ export function RemoteModelManageModal({
   };
 
   const handleAutoDiscoverModels = async () => {
-    setDiscoveringModels(true);
     try {
-      const result = await api.discoverModels(provider.id, undefined, true);
-      setDiscoveredModels((result.models || []) as ExtendedModelInfo[]);
-      setPreviewState(
-        result.success
-          ? result.models.length > 0
-            ? "ready"
-            : "empty"
-          : "failed",
-      );
-      setPreviewError(result.success ? null : result.message || null);
-      await onSaved();
+      const result = await discoverModels();
+      if (result === null) return;
 
       if (!result.success) {
         message.error(result.message || t("models.autoDiscoverModelsFailed"));
@@ -404,82 +399,9 @@ export function RemoteModelManageModal({
         error instanceof Error
           ? error.message
           : t("models.autoDiscoverModelsFailed");
-      setPreviewState("failed");
-      setPreviewError(errMsg);
       message.error(errMsg);
-    } finally {
-      setDiscoveringModels(false);
     }
   };
-
-  useEffect(() => {
-    setDiscoveredModels(
-      (provider.discovered_models ?? []) as unknown as ExtendedModelInfo[],
-    );
-  }, [provider.discovered_models]);
-
-  useEffect(() => {
-    previewAttemptedProviderRef.current = null;
-    setPreviewState("idle");
-    setPreviewError(null);
-  }, [provider.id]);
-
-  useEffect(() => {
-    if (
-      !adding ||
-      isOpenRouter ||
-      !supportsAutoDiscover ||
-      provider.models_syncing ||
-      discoveredModels.length > 0 ||
-      previewAttemptedProviderRef.current === provider.id
-    ) {
-      return;
-    }
-
-    previewAttemptedProviderRef.current = provider.id;
-    setPreviewDiscovering(true);
-    setPreviewState("loading");
-    setPreviewError(null);
-    api
-      .discoverModels(provider.id, undefined, true)
-      .then((result) => {
-        setDiscoveredModels((result.models || []) as ExtendedModelInfo[]);
-        if (result.success) {
-          setPreviewState(result.models.length > 0 ? "ready" : "empty");
-        } else {
-          setPreviewState("failed");
-          setPreviewError(result.message || null);
-        }
-      })
-      .catch((error) => {
-        setPreviewState("failed");
-        setPreviewError(
-          error instanceof Error
-            ? error.message
-            : t("models.autoDiscoverModelsFailed"),
-        );
-      })
-      .finally(() => setPreviewDiscovering(false));
-  }, [
-    adding,
-    discoveredModels.length,
-    isOpenRouter,
-    provider.id,
-    provider.models_syncing,
-    supportsAutoDiscover,
-    t,
-  ]);
-
-  const discoveryState: DiscoveryPreviewState =
-    previewDiscovering || provider.models_syncing
-      ? "loading"
-      : previewState === "failed" || provider.models_last_sync_error
-      ? "failed"
-      : discoveredModels.length > 0
-      ? "ready"
-      : previewState === "empty" || provider.models_last_synced_at
-      ? "empty"
-      : previewState;
   const modelDiscoveryHint =
     discoveryState === "loading"
       ? t("common.loading")
@@ -560,9 +482,7 @@ export function RemoteModelManageModal({
           .map((model) => model.id),
       );
       const failedCount = results.length - addedIds.size;
-      setDiscoveredModels((current) =>
-        current.filter((model) => !addedIds.has(model.id)),
-      );
+      removeDiscoveredModels(addedIds);
       if (addedIds.size > 0) {
         await onSaved();
         message.success(
@@ -992,6 +912,7 @@ export function RemoteModelManageModal({
                   type="primary"
                   size="small"
                   loading={saving}
+                  disabled={isDiscovering}
                   onClick={handleAddModel}
                 >
                   {t("models.addModel")}
@@ -1004,7 +925,7 @@ export function RemoteModelManageModal({
             {supportsAutoDiscover && (
               <Button
                 icon={<RefreshCw size={18} />}
-                loading={discoveringModels}
+                loading={isDiscovering}
                 onClick={handleAutoDiscoverModels}
                 style={{ flex: 1 }}
               >
@@ -1016,6 +937,7 @@ export function RemoteModelManageModal({
             <Button
               type="dashed"
               icon={<Plus size={18} />}
+              disabled={isDiscovering}
               onClick={openAddModel}
               style={{ flex: 1 }}
             >
