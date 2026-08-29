@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 from agentscope.message import Msg, TextBlock, ToolResultState
@@ -74,6 +75,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
             self._resolved_scope_id = ""
 
     async def close(self) -> bool:
+        # ``/new`` and ``/compact`` can start the inherited summarize worker.
+        # Stop it before draining writes: otherwise it could schedule a new
+        # remote write while this method is closing the HTTP client.
+        if not await self._shutdown_summarize_worker():
+            return False
         if self._pending:
             await asyncio.gather(*self._pending, return_exceptions=True)
             self._pending.clear()
@@ -90,7 +96,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 safe_powercontext_exception_summary(
                     exc,
                     token=str(
-                        getattr(getattr(client, "config", None), "token", "")
+                        getattr(getattr(client, "config", None), "token", ""),
                     ),
                 ),
             )
@@ -116,7 +122,24 @@ class PowerContextMemoryManager(BaseMemoryManager):
     def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
         if self._client is None:
             return []
-        return [self.memory_search, self.memory_remember]
+
+        @wraps(self.memory_search)
+        async def powercontext_memory_search(
+            query: str,
+            max_results: int = 5,
+            min_score: float = 0.0,
+        ) -> ToolChunk:
+            return await self.memory_search(query, max_results, min_score)
+
+        # The public function name remains ``memory_search`` for agent and
+        # prompt compatibility. Governance must nevertheless classify this
+        # remote implementation as network I/O rather than local lookup.
+        setattr(
+            powercontext_memory_search,
+            "_qwenpaw_policy_name",
+            "PowerContextMemorySearch",
+        )
+        return [powercontext_memory_search, self.memory_remember]
 
     def get_auto_memory_interval(self) -> int:
         return 1 if self._client is not None else 0

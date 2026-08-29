@@ -448,17 +448,25 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         owner="builtin",
     )
     # Memory manager tools are registered dynamically outside agents.tools.
-    # Search remains a read-only internal operation. Explicit remember can
-    # persist data through an external backend, so it is network-scoped.
+    # Local searches remain internal. The PowerContext wrapper keeps the
+    # public ``memory_search`` name but opts into its separate network policy
+    # identity because its query leaves the process.
     for python_name, policy_name, tool_type in (
         ("memory_search", "MemorySearch", "internal"),
         ("memory_remember", "MemoryRemember", "network"),
+        (
+            "powercontext_memory_search",
+            "PowerContextMemorySearch",
+            "network",
+        ),
     ):
         register_tool_governance(
             registry,
             python_name=python_name,
             tool_type=tool_type,
-            target_param="",
+            target_param=(
+                "query" if policy_name == "PowerContextMemorySearch" else ""
+            ),
             policy_name=policy_name,
             owner="builtin",
         )

@@ -720,6 +720,10 @@ def get_or_create_powercontext_installation_id() -> str:
     persisted through the root-config transaction, so independently created
     QwenPaw installations do not share an implicit memory scope.
     """
+    existing = load_config().powercontext_installation_id
+    if existing:
+        return existing
+
     generated = uuid.uuid4().hex
 
     def ensure_identity(config: Config) -> None:

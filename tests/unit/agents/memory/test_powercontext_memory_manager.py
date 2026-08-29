@@ -18,6 +18,7 @@ from qwenpaw.agents.memory.powercontext_prompts import (
 from qwenpaw.config.config import (
     PowerContextMemoryConfig,
 )
+from qwenpaw.governance import PolicyGuardedTool
 
 
 def user(text: str) -> Msg:
@@ -329,6 +330,29 @@ async def test_auto_memory_schedules_structured_write(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_close_stops_inherited_summary_worker_before_client_close(
+    tmp_path,
+):
+    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+
+    async def assert_worker_is_stopped() -> None:
+        assert manager._worker_task is None
+
+    client = SimpleNamespace(close=AsyncMock())
+    client.close.side_effect = assert_worker_is_stopped
+    manager._client = client
+    manager.add_summarize_task([user("queued summary")])
+    worker = manager._worker_task
+
+    assert worker is not None
+    assert not worker.done()
+    assert await manager.close() is True
+    assert manager._worker_task is None
+    assert worker.done()
+    client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_auto_memory_bounds_multibyte_text_and_excludes_search(tmp_path):
     manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
     client = SimpleNamespace(remember=AsyncMock())
@@ -362,6 +386,21 @@ async def test_unconfigured_backend_is_inactive(tmp_path, monkeypatch):
     assert not manager.list_memory_tools()
     assert manager.get_memory_prompt() == ""
     assert manager.get_auto_memory_interval() == 0
+
+
+def test_powercontext_search_keeps_public_name_but_uses_network_policy(
+    tmp_path,
+):
+    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager._client = object()
+
+    search_tool = PolicyGuardedTool(manager.list_memory_tools()[0])
+    search_tool._qp_raw_params = {"query": "remote query"}
+    spec = search_tool._build_tc_spec()
+
+    assert search_tool.name == "memory_search"
+    assert spec.tool_name == "PowerContextMemorySearch"
+    assert spec.target == "remote query"
 
 
 @pytest.mark.asyncio
