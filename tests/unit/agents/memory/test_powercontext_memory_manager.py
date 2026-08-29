@@ -19,6 +19,9 @@ from qwenpaw.config.config import (
     PowerContextMemoryConfig,
 )
 from qwenpaw.governance import PolicyGuardedTool
+from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
+from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
+from qwenpaw.runtime.builder import AgentBuilder
 
 
 def user(text: str) -> Msg:
@@ -401,6 +404,35 @@ def test_powercontext_search_keeps_public_name_but_uses_network_policy(
     assert search_tool.name == "memory_search"
     assert spec.tool_name == "PowerContextMemorySearch"
     assert spec.target == "remote query"
+
+
+@pytest.mark.asyncio
+async def test_runtime_builder_registers_powercontext_search_as_network(
+    tmp_path,
+):
+    """The toolkit path must retain the PowerContext policy override."""
+    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager._client = object()
+
+    toolkit = await AgentBuilder().build_toolkit(
+        SimpleNamespace(),
+        memory_tools=manager.list_memory_tools(),
+    )
+    search_tool = next(
+        tool
+        for tool in toolkit.tool_groups[0].tools
+        if tool.name == "memory_search"
+    )
+    search_tool._qp_raw_params = {"query": "remote query"}
+    spec = search_tool._build_tc_spec()
+
+    assert spec.tool_name == "PowerContextMemorySearch"
+    assert spec.target == "remote query"
+    assert DEFAULT_REGISTRY.get_type(spec.tool_name) == "network"
+    assert (
+        GovernancePolicy(execution_level="strict").evaluate(spec).action
+        is GovernanceAction.ASK
+    )
 
 
 @pytest.mark.asyncio
