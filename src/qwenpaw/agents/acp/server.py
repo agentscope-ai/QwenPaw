@@ -456,9 +456,14 @@ class QwenPawACPAgent(Agent):
                 workspace_dir=str(workspace_dir),
             )
             app_services = await self._ensure_app_services()
-            workspace.bootstrap_plugins(
-                **self._build_bootstrap_kwargs(app_services),
-            )
+            bootstrap_kwargs = self._build_bootstrap_kwargs(app_services)
+            if bootstrap_kwargs:
+                await asyncio.to_thread(
+                    workspace.bootstrap_plugins,
+                    **bootstrap_kwargs,
+                )
+            else:
+                await asyncio.to_thread(workspace.bootstrap_plugins)
             workspace.set_app_services(app_services)
             await workspace.start()
 
@@ -1553,6 +1558,49 @@ class QwenPawACPAgent(Agent):
         return agent_config.active_model
 
 
+def _sync_stdout_write(data: bytes) -> None:
+    """Synchronous stdout write, safe to call from a worker thread."""
+    import sys
+
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+
+
+def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
+    """Windows sender that writes responses from a worker thread.
+
+    The event loop can be blocked for a long time while the workspace
+    bootstraps (plugin loading / MCP init can take minutes).  The default
+    in-loop sender never gets scheduled during that window, so the client
+    times out and closes the pipe; the eventual write then fails with
+    ``OSError: [Errno 22]`` (ERROR_NO_DATA).  Running the write in the
+    executor keeps responses flowing even while the loop is busy.
+    """
+    from acp.task.sender import MessageSender
+
+    class _ThreadedMessageSender(MessageSender):
+        async def send(self, payload: dict[str, Any]) -> None:
+            data = (json.dumps(payload, separators=(",", ":")) + "\n").encode(
+                "utf-8",
+            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _sync_stdout_write, data)
+
+        async def _loop(self) -> None:  # type: ignore[override]
+            # All writes happen in send(); nothing to drain here.
+            return
+
+    return _ThreadedMessageSender(writer, supervisor)
+
+
+def _make_agent_sender_factory() -> Any:
+    import platform
+
+    if platform.system() == "Windows":
+        return _threaded_sender_factory
+    return None
+
+
 async def run_qwenpaw_agent(
     agent_id: str | None = None,
     workspace_dir: Path | None = None,
@@ -1569,6 +1617,10 @@ async def run_qwenpaw_agent(
     try:
         # pylint: disable=protected-access
         await agent._install_runtime_provider()
-        await run_agent(agent, use_unstable_protocol=True)
+        kwargs: dict[str, Any] = {"use_unstable_protocol": True}
+        sender_factory = _make_agent_sender_factory()
+        if sender_factory is not None:
+            kwargs["sender_factory"] = sender_factory
+        await run_agent(agent, **kwargs)
     finally:
         await agent._shutdown_workspace()  # pylint: disable=protected-access
