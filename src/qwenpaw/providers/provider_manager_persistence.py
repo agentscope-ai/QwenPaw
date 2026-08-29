@@ -34,9 +34,11 @@ from .provider_discovery import (
     DISCOVERY_MODEL_FIELDS as _DISCOVERY_MODEL_FIELDS,
 )
 from .provider_model_state import (
+    migrate_provider_snapshot,
     restore_model_state,
     serialize_model_state,
 )
+from .provider_discovery_policy import apply_custom_discovery_policy
 from . import provider_persistence
 from .provider_update_fields import (
     AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
@@ -343,7 +345,15 @@ class ProviderManagerPersistenceMixin(
             )
             return
         current = self.get_provider(provider_id)
-        if current is not None:
+        if (
+            current is not None
+            and provider_id in self.custom_providers
+            and current.__class__ is not snapshot.__class__
+        ):
+            self.custom_providers[provider_id] = snapshot.model_copy(
+                deep=True,
+            )
+        elif current is not None:
             self._copy_provider_state(current, snapshot)
 
     @staticmethod
@@ -542,10 +552,12 @@ class ProviderManagerPersistenceMixin(
         if saved_config_path.exists():
             try:
                 with open(saved_config_path, "r", encoding="utf-8") as handle:
-                    saved_config = decrypt_dict_fields(
-                        json.load(handle),
-                        PROVIDER_SECRET_FIELDS,
-                    )
+                    snapshot = json.load(handle)
+                snapshot_migrated = migrate_provider_snapshot(snapshot)
+                saved_config = decrypt_dict_fields(
+                    snapshot,
+                    PROVIDER_SECRET_FIELDS,
+                )
                 for field in (
                     "api_key",
                     "base_url",
@@ -573,6 +585,11 @@ class ProviderManagerPersistenceMixin(
                 provider_info.models_last_sync_error = saved_config.get(
                     "models_last_sync_error",
                 )
+                if snapshot_migrated:
+                    provider_persistence.write_snapshot_payload(
+                        snapshot,
+                        saved_config_path,
+                    )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.warning(
                     f"Failed to load saved config for {provider_id}: {exc}",
@@ -761,11 +778,18 @@ class ProviderManagerPersistenceMixin(
             with open(provider_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            needs_rewrite = self._maybe_migrate_plaintext(
-                data,
-                PROVIDER_SECRET_FIELDS,
+            needs_rewrite = migrate_provider_snapshot(data)
+            needs_rewrite = (
+                self._maybe_migrate_plaintext(
+                    data,
+                    PROVIDER_SECRET_FIELDS,
+                )
+                or needs_rewrite
             )
             data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
+            if storage_kind == "custom" and not data.get("is_custom"):
+                data["is_custom"] = True
+                needs_rewrite = True
             provider = self._provider_from_data(data)
             provider.models_syncing = False
             if not self._remember_provider_path(
@@ -832,7 +856,9 @@ class ProviderManagerPersistenceMixin(
             provider_type = OpenAIResponseProvider
         else:
             provider_type = OpenAIProvider
-        return provider_type.model_validate(data)
+        provider = provider_type.model_validate(data)
+        apply_custom_discovery_policy(provider)
+        return provider
 
     def save_active_model(self, active_model: ModelSlotConfig):
         """Atomically save the active provider/model configuration."""
@@ -1029,19 +1055,16 @@ class ProviderManagerPersistenceMixin(
     ) -> None:
         """Persist custom providers from the legacy configuration."""
         for provider_id, data in custom_providers.items():
-            custom_provider = OpenAIProvider(
-                id=provider_id,
-                name=data.get("name", provider_id),
-                base_url=data.get("base_url", ""),
-                api_key=data.get("api_key", ""),
-                is_custom=True,
-            )
-            if "models" in data:
-                custom_provider.extra_models = [
-                    ModelInfo.model_validate(model) for model in data["models"]
-                ]
-            if "chat_model" in data:
-                custom_provider.chat_model = data["chat_model"]
+            payload = {
+                "id": provider_id,
+                "name": data.get("name", provider_id),
+                "base_url": data.get("base_url", ""),
+                "api_key": data.get("api_key", ""),
+                "chat_model": data.get("chat_model", "OpenAIChatModel"),
+                "extra_models": data.get("models", []),
+                "is_custom": True,
+            }
+            custom_provider = self._provider_from_data(payload)
             self._save_provider(custom_provider, is_builtin=False)
 
     def _migrate_legacy_active_model(self, active_model: dict) -> None:

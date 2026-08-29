@@ -10,6 +10,7 @@ import sys
 import threading
 import types
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -40,6 +41,7 @@ from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
 from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
 from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.tool_calls import (  # noqa: E402
+    COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     ToolCoordinator,
     ToolCoordinatorMiddleware,
 )
@@ -142,6 +144,97 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
     assert saved[0].read_text(encoding="utf-8") == text
+
+
+@pytest.mark.asyncio
+async def test_single_line_tool_response_is_pruned_before_yield(tmp_path):
+    """Compact JSON must not bypass the fresh-result admission cap."""
+    middleware = ToolResultPruningMiddleware(
+        recent_max_bytes=512,
+        tool_results_dir=str(tmp_path),
+    )
+    text = '{"rows":["' + ("数据" * 1000) + '"]}'
+    response = ToolResponse(
+        id="call-single-line-json",
+        content=[TextBlock(type="text", text=text)],
+    )
+
+    async def next_handler() -> AsyncGenerator[Any, None]:
+        yield response
+
+    agent = type(
+        "AgentStub",
+        (),
+        {"state": type("StateStub", (), {"context": []})()},
+    )()
+
+    result = (
+        await _collect(
+            middleware.on_acting(agent, {}, next_handler),
+        )
+    )[0]
+
+    result_text = result.content[0].text
+    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert result_text != text
+    assert TRUNCATION_NOTICE_MARKER in result_text
+    assert len(result_text.encode("utf-8")) <= (
+        512 + MAX_TRUNCATION_NOTICE_BYTES
+    )
+    assert info["excerpt_bytes"] <= 512
+    assert info["file_size_bytes"] == len(text.encode("utf-8"))
+    assert info["continuation_mode"] == "artifact"
+    assert info["read_from"] is None
+    assert "line-based continuation is unavailable" in info["notice"]
+
+    saved = list(tmp_path.iterdir())
+    assert len(saved) == 1
+    assert saved[0].read_text(encoding="utf-8") == text
+
+
+def test_single_line_tool_result_retruncate_stays_artifact_backed(tmp_path):
+    """A smaller historical cap must preserve single-line recovery metadata."""
+    pruner = ToolResultPruner(tmp_path)
+    text = '{"rows":["' + ("x" * 5000) + '"]}'
+
+    first, metadata = pruner.prune_text(text, max_bytes=512)
+    second, updated = pruner.prune_text(
+        first,
+        max_bytes=128,
+        metadata=metadata,
+    )
+
+    info = updated[TRUNCATION_METADATA_KEY]["0"]
+    assert TRUNCATION_NOTICE_MARKER in second
+    assert len(second.split(TRUNCATION_NOTICE_MARKER, 1)[0].encode()) <= 128
+    assert info["continuation_mode"] == "artifact"
+    assert info["read_from"] is None
+    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
+
+
+def test_oversized_non_final_line_stays_artifact_backed(tmp_path):
+    """Line continuation must not skip an unseen oversized-line suffix."""
+    pruner = ToolResultPruner(tmp_path)
+    text = ("x" * 1000) + "\ntail"
+
+    first, metadata = pruner.prune_text(text, max_bytes=128)
+    first_info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert first.split(TRUNCATION_NOTICE_MARKER, 1)[0] == "x" * 128
+    assert first_info["total_lines"] == 2
+    assert first_info["continuation_mode"] == "artifact"
+    assert first_info["read_from"] is None
+
+    second, updated = pruner.prune_text(
+        first,
+        max_bytes=64,
+        metadata=metadata,
+    )
+
+    info = updated[TRUNCATION_METADATA_KEY]["0"]
+    assert second.split(TRUNCATION_NOTICE_MARKER, 1)[0] == "x" * 64
+    assert info["continuation_mode"] == "artifact"
+    assert info["read_from"] is None
+    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
 
 
 @pytest.mark.asyncio
@@ -541,6 +634,24 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     assert (
         coordinator_middleware._background_result_processor
         == middlewares[pruning_index].prune_tool_response_async
+    )
+
+
+def test_spawn_subagent_hook_exposes_internal_timeout_cap():
+    coordinator = ToolCoordinator()
+    agent = types.SimpleNamespace(
+        _request_context={"agent_id": "agent-1"},
+        _agent_config=types.SimpleNamespace(tools=None),
+        name="agent-1",
+        _get_tool_coordinator=lambda: coordinator,
+    )
+
+    QwenPawAgent._register_tool_call_hooks(agent)
+
+    hook = coordinator.hooks.get("spawn_subagent")
+    assert hook.default_timeout_secs is None
+    assert hook.max_internal_timeout_secs == float(
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     )
 
 

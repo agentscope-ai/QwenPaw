@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_INDONESIAN} "Bootstrapper WebView2 ber
 LangString webview2Downloading ${LANG_INDONESIAN} "Mengunduh bootstrapper WebView2..."
 LangString webview2InstallError ${LANG_INDONESIAN} "Kesalahan: Instalasi WebView2 gagal dengan kode keluar $1"
 LangString webview2InstallSuccess ${LANG_INDONESIAN} "WebView2 berhasil diinstal"
-LangString deleteAppData ${LANG_INDONESIAN} "Hapus cache aplikasi lokal"
+LangString deleteAppData ${LANG_INDONESIAN} "Hapus data aplikasi (setelan, draf, dll.; agen/chat disimpan)"
 LangString qwenpawCliPathPageTitle ${LANG_INDONESIAN} "Command line"
 LangString qwenpawCliPathPageSubtitle ${LANG_INDONESIAN} "Choose whether qwenpaw is available in terminals."
 LangString qwenpawCliPathPageDescription ${LANG_INDONESIAN} "This adds the bundled qwenpaw command to your user PATH. You can change it later by reinstalling or uninstalling QwenPaw Desktop."

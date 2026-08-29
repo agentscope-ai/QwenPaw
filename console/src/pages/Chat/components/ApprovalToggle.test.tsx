@@ -92,6 +92,32 @@ describe("compact approval controls", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("shows only the approval mode title in the tooltip", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ApprovalLevelToggle
+        onChange={vi.fn()}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="tooltip-test"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: "agentConfig.toolExecutionLevelTitle",
+    });
+    await user.hover(trigger);
+
+    expect(
+      await screen.findByText("agentConfig.toolExecutionLevelTooltip"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.toolExecutionLevelTitle"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.toolExecutionLevel.autoDesc"),
+    ).not.toBeInTheDocument();
+  });
+
   it("uses a bottom drawer for harness approval on mobile", async () => {
     mockUseIsMobile.mockReturnValue(true);
     const user = userEvent.setup();

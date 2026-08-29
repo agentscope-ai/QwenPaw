@@ -266,7 +266,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   }
 
   return (
-    <Tooltip title={t("agentConfig.toolExecutionLevelTitle")}>
+    <Tooltip title={t("agentConfig.toolExecutionLevelTooltip")}>
       <Dropdown
         menu={{ items: menuItems, selectedKeys: [effectiveLevel] }}
         trigger={["click"]}

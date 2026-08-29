@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
 from qwenpaw.app.routers.providers import (
@@ -40,8 +40,18 @@ def test_custom_provider_request_rejects_unsafe_id(
         CreateCustomProviderRequest(id=provider_id, name="Unsafe")
 
 
+def test_custom_provider_request_rejects_unsupported_protocol() -> None:
+    with pytest.raises(ValidationError):
+        CreateCustomProviderRequest(
+            id="custom-gemini",
+            name="Custom Gemini",
+            chat_model="GeminiChatModel",
+        )
+
+
 async def test_configure_provider_schedules_model_discovery() -> None:
     provider = SimpleNamespace(
+        is_custom=False,
         support_model_discovery=True,
         api_key="sk-test",
         require_api_key=True,
@@ -51,7 +61,15 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.update_provider_async = AsyncMock(return_value=True)
     manager.get_provider.return_value = provider
     manager.get_provider_info = AsyncMock(
-        return_value=ProviderInfo(id="openai", name="OpenAI"),
+        return_value=ProviderInfo(
+            id="openai",
+            name="OpenAI",
+            models_syncing=True,
+        ),
+    )
+    prepared_discovery = object()
+    manager.prepare_provider_model_discovery = AsyncMock(
+        return_value=prepared_discovery,
     )
     manager.discover_provider_models = AsyncMock()
     tasks = BackgroundTasks()
@@ -76,11 +94,31 @@ async def test_configure_provider_schedules_model_discovery() -> None:
         },
     )
     assert len(tasks.tasks) == 1
-    assert provider.models_syncing is False
+    manager.prepare_provider_model_discovery.assert_awaited_once_with(
+        "openai",
+    )
     task = tasks.tasks[0]
     assert task.func == manager.discover_provider_models
     assert task.args == ("openai",)
-    assert task.kwargs == {"save": True}
+    assert task.kwargs == {"prepared_discovery": prepared_discovery}
+    manager.discover_provider_models.assert_not_awaited()
+
+
+async def test_configure_custom_provider_rejects_gemini() -> None:
+    manager = MagicMock()
+    manager.get_provider.return_value = SimpleNamespace(is_custom=True)
+    manager.update_provider_async = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await configure_provider(
+            background_tasks=BackgroundTasks(),
+            manager=manager,
+            provider_id="custom-provider",
+            body=ProviderConfigRequest(chat_model="GeminiChatModel"),
+        )
+
+    assert exc_info.value.status_code == 400
+    manager.update_provider_async.assert_not_awaited()
 
 
 async def test_discover_route_returns_sync_status() -> None:

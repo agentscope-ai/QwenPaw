@@ -147,11 +147,24 @@ class ModelInfo(BaseModel):
         default_factory=list,
         description="Model fields explicitly changed by the user.",
     )
-    max_tokens: int = Field(
-        default=8192,
+    max_output_length: int | None = Field(
+        default=None,
         ge=1,
-        description="Maximum number of tokens the model can generate per "
-        "response. Merged into generate_kwargs unless explicitly overridden.",
+        description="Maximum output capability reported for this model.",
+    )
+    max_output_length_source: Literal[
+        "api",
+        "catalog",
+        "adapter",
+        "user",
+        "unknown",
+    ] = Field(
+        default="unknown",
+        description="Source of the maximum output capability.",
+    )
+    max_output_length_updated_at: str | None = Field(
+        default=None,
+        description="UTC timestamp of the output capability update.",
     )
     max_input_length: int = Field(
         default=DEFAULT_CONTEXT_WINDOW,
@@ -189,6 +202,12 @@ class ModelInfo(BaseModel):
         """Normalize legacy model fields and obsolete probe results."""
         if not isinstance(data, dict):
             return data
+        if "max_tokens" in data:
+            raise ValueError(
+                "ModelInfo.max_tokens is no longer supported; use "
+                "max_output_length for capability metadata or "
+                "generate_kwargs.max_tokens for a request limit",
+            )
         if "preserve_thinking" in data:
             data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
 
@@ -770,8 +789,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
         """Return merged generate_kwargs: provider-level as base, model-level
-        overrides on top (deep merge for nested dicts).  The model's
-        ``max_tokens`` is injected unless already present in kwargs.
+        overrides on top (deep merge for nested dicts).
 
         Always returns a new dict so callers never mutate provider state.
         """
@@ -785,8 +803,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs
                     else dict(self.generate_kwargs)
                 )
-                if "max_tokens" not in result:
-                    result["max_tokens"] = model.max_tokens
                 self._apply_agent_thinking_level(result, model_id)
                 return result
         result = dict(self.generate_kwargs)
@@ -950,15 +966,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     and config["generate_kwargs"] is not None
                     and isinstance(config["generate_kwargs"], dict)
                 ):
-                    generate_kwargs = config["generate_kwargs"]
+                    generate_kwargs = dict(config["generate_kwargs"])
                     if model.generate_kwargs != generate_kwargs:
                         model.generate_kwargs = generate_kwargs
                         changed_fields.append("generate_kwargs")
-                if "max_tokens" in config and config["max_tokens"] is not None:
-                    max_tokens = int(config["max_tokens"])
-                    if model.max_tokens != max_tokens:
-                        model.max_tokens = max_tokens
-                        changed_fields.append("max_tokens")
                 if (
                     "max_input_length" in config
                     and config["max_input_length"] is not None
