@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -498,6 +499,49 @@ def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
                 "path": "/models",
             },
         },
+    }
+
+
+def test_chat_routes_report_the_same_runtime_unavailable_error() -> None:
+    class MissingRuntimeContext:
+        app_id = "fixture"
+
+        @staticmethod
+        def _error() -> ConfigurationException:
+            return ConfigurationException(
+                "Agent chat runtime is unavailable",
+                config_key="agent_runtime",
+                error_code="AGENT_CHAT_RUNTIME_UNAVAILABLE",
+            )
+
+        async def chat(self, *_args, **_kwargs):
+            raise self._error()
+
+        async def chat_stream(self, *_args, **_kwargs):
+            for item in ():
+                yield item
+            raise self._error()
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_scoped_ctx] = MissingRuntimeContext
+    client = TestClient(fixture)
+    expected = {
+        "code": "AGENT_CHAT_RUNTIME_UNAVAILABLE",
+        "message": "Agent chat runtime is unavailable",
+        "config_key": "agent_runtime",
+    }
+
+    response = client.post("/chat", json={"message": "run"})
+    stream = client.post("/chat/stream", json={"message": "run"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": expected}
+    assert stream.status_code == 200
+    assert '"type": "error"' in stream.text
+    assert json.loads(stream.text.removeprefix("data: ").strip()) == {
+        "type": "error",
+        "error": expected,
     }
 
 

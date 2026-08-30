@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
 from uuid import uuid4
 
+from qwenpaw.exceptions import ConfigurationException
+
 logger = logging.getLogger(__name__)
 
 
@@ -227,7 +229,7 @@ class PawAppContext:
         """
         workspace = await self._get_workspace()
         if workspace is None:
-            raise RuntimeError("No workspace available for chat")
+            raise self._chat_runtime_unavailable()
 
         chunks: List[Any] = []
         async for event in self._stream_query(
@@ -262,9 +264,7 @@ class PawAppContext:
         """
         workspace = await self._get_workspace()
         if workspace is None:
-            raise RuntimeError(
-                "No workspace available for chat_stream",
-            )
+            raise self._chat_runtime_unavailable()
 
         async for event in self._stream_query(
             workspace,
@@ -609,12 +609,16 @@ class PawAppContext:
             async for event in workspace.stream_query(request):
                 yield event
         else:
-            # Fallback: try direct agent call
-            logger.warning("Workspace has no stream_query; using fallback")
-            yield {
-                "type": "text",
-                "content": f"[PawApp ctx.chat fallback] {message}",
-            }
+            raise self._chat_runtime_unavailable()
+
+    @staticmethod
+    def _chat_runtime_unavailable() -> ConfigurationException:
+        """Return the standard structured error for a missing chat runtime."""
+        return ConfigurationException(
+            "Agent chat runtime is unavailable",
+            config_key="agent_runtime",
+            error_code="AGENT_CHAT_RUNTIME_UNAVAILABLE",
+        )
 
     # ─── Cached sub-objects ────────────────────────────────────────
 

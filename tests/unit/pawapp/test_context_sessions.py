@@ -8,6 +8,7 @@ import pytest
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.exceptions import ConfigurationException
 from qwenpaw.pawapp.context import PawAppContext
 
 
@@ -18,6 +19,28 @@ class _WorkspaceRegistry:
     async def get_agent(self, agent_id: str):
         assert agent_id == "qwenpaw-data"
         return self.workspace
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workspace", [None, SimpleNamespace()])
+async def test_pawapp_chat_fails_closed_without_runtime(workspace) -> None:
+    context = PawAppContext(
+        app_id="qwenpaw-data",
+        agent_id="qwenpaw-data",
+        _workspace_registry=_WorkspaceRegistry(workspace),
+    )
+
+    with pytest.raises(ConfigurationException) as chat_error:
+        await context.chat("do not fake this reply")
+
+    assert chat_error.value.error_code == "AGENT_CHAT_RUNTIME_UNAVAILABLE"
+    assert chat_error.value.config_key == "agent_runtime"
+
+    with pytest.raises(ConfigurationException) as stream_error:
+        await anext(context.chat_stream("do not fake this reply"))
+
+    assert stream_error.value.error_code == "AGENT_CHAT_RUNTIME_UNAVAILABLE"
+    assert stream_error.value.config_key == "agent_runtime"
 
 
 @pytest.mark.asyncio
