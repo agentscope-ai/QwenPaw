@@ -36,6 +36,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   card_template_key: string;
   robot_code: string;
   at_sender_on_reply?: boolean;
+  card_auto_layout?: boolean;
   streaming_enabled?: boolean;
   share_session_in_group?: boolean;
   endpoint?: string;

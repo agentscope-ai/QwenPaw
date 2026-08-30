@@ -496,6 +496,14 @@ export function ChannelDrawer({
                     >
                       <Input placeholder="robot code (default client_id)" />
                     </Form.Item>
+                    <Form.Item
+                      name="card_auto_layout"
+                      label={t("channels.cardAutoLayout")}
+                      tooltip={t("channels.cardAutoLayoutTooltip")}
+                      valuePropName="checked"
+                    >
+                      <Switch />
+                    </Form.Item>
                   </>
                 );
               }}

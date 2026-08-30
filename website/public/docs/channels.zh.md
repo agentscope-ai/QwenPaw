@@ -91,6 +91,7 @@
 | `card_template_id`       | string | `""`         | AI 卡片模板 ID（当 `message_type` 为 `"card"` 时必填）                                 |
 | `card_template_key`      | string | `"content"`  | AI 卡片模板变量名（必须与钉钉模板中的变量名完全一致）                                  |
 | `robot_code`             | string | `""`         | 机器人编码（群聊卡片场景建议配置，留空时回退使用 `client_id`）                         |
+| `card_auto_layout`       | bool   | `false`      | 为 `true` 时以 `config.autoLayout=true` 下发 AI 卡片，使钉钉在桌面端以宽屏渲染         |
 | `share_session_in_group` | bool   | `false`      | 为 `true` 时群内所有成员共享同一会话上下文；为 `false`（默认）时每位成员拥有独立上下文 |
 | `media_dir`              | string | `null`       | 媒体文件下载目录（留空则不保存）                                                       |
 
@@ -98,6 +99,7 @@
 >
 > - 工具调用和结果可以分别控制是否显示；最大长度设置为 `0` 时不截断。
 > - AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
+> - `card_auto_layout` 可在桌面端启用宽屏 AI 卡片；卡片模板需已发布，且修改后需重启 channel 才生效。
 > - 群聊场景建议显式配置 `robot_code`；留空时 QwenPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `qwenpaw app` 启动。
