@@ -86,6 +86,16 @@ export interface ReMeLightMemoryConfig {
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
+  reranker_config: RerankerConfig;
+}
+
+export interface RerankerConfig {
+  enabled: boolean;
+  api_key: string;
+  base_url: string;
+  model_name: string;
+  candidate_multiplier: number;
+  timeout: number;
 }
 
 export interface AutoTitleConfig {

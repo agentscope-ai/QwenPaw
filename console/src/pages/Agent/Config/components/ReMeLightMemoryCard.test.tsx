@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useEffect, useState, type ReactNode } from "react";
+import React, { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -80,6 +80,7 @@ const persistedDashScopeEmbeddingConfig = {
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
   const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
     useReMeRuntimeStatus(true);
   const remoteReindexing =
@@ -95,6 +96,8 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
         runtimeStatus,
         diagnosticsStatus,
         checkMemoryStatus,
+        rerankerExpanded,
+        setRerankerExpanded,
       }}
     >
       {children}
@@ -103,6 +106,7 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
 }
 
 function StaticMemoryProvider({ children }: { children: ReactNode }) {
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
   return (
     <MemoryMaintenanceContext.Provider
       value={{
@@ -114,6 +118,8 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded,
+        setRerankerExpanded,
       }}
     >
       {children}
@@ -199,6 +205,8 @@ function ReindexingEmbeddingForm() {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -287,6 +295,8 @@ function NeedsReindexEmbeddingForm({ undoAvailable = true }) {
         },
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -298,6 +308,7 @@ function MemoryAndEmbeddingForm() {
   const [form] = Form.useForm();
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setReindexing] = useState(false);
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
   const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
     useReMeRuntimeStatus(true);
   const remoteReindexing =
@@ -313,6 +324,8 @@ function MemoryAndEmbeddingForm() {
         runtimeStatus,
         diagnosticsStatus,
         checkMemoryStatus,
+        rerankerExpanded,
+        setRerankerExpanded,
       }}
     >
       <Form
@@ -937,6 +950,324 @@ describe("embedding card separation", () => {
         name: "agentConfig.rebuildEmbeddingIndex",
       }),
     ).toBeEnabled();
+  });
+});
+
+describe("reranker validation", () => {
+  function switchInRow(el: HTMLElement) {
+    return within(
+      el.closest(".ant-form-item") ??
+        el.closest("tr") ??
+        el.parentElement ??
+        el,
+    ).getByRole("switch") as HTMLElement;
+  }
+
+  function RerankerForm({
+    enabled = false,
+    base_url = "",
+    model_name = "",
+    formRef,
+  }: {
+    enabled?: boolean;
+    base_url?: string;
+    model_name?: string;
+    formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+  }) {
+    const [form] = Form.useForm();
+    formRef.current = form;
+    return (
+      <StaticMemoryProvider>
+        <Form
+          form={form}
+          initialValues={{
+            reme_light_memory_config: {
+              reranker_config: {
+                enabled,
+                base_url,
+                model_name,
+                api_key: "",
+                candidate_multiplier: 3,
+                timeout: 10,
+              },
+            },
+          }}
+        >
+          <ReMeLightMemoryCard />
+        </Form>
+      </StaticMemoryProvider>
+    );
+  }
+
+  it("validates base_url and model_name when reranker is enabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(2);
+  });
+
+  it("does not require base_url and model_name when reranker is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it("triggers validation when reranker switch is toggled on with empty fields", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(2);
+  });
+
+  it("rejects fractional candidate_multiplier values", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      1.5,
+    );
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].errors[0]).toContain("rerankerCandidateMultiplierInteger");
+  });
+
+  it("clears base_url and model_name errors when reranking is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    // Trigger validation — should produce 2 errors
+    const firstErrors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(firstErrors).toHaveLength(2);
+
+    // Toggle switch off — errors should clear
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    const secondErrors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(secondErrors).toHaveLength(0);
+  });
+
+  function rerankerDetailsVisible(container: HTMLElement) {
+    const details = container.querySelector("#reranker-details");
+    return details !== null && getComputedStyle(details).display !== "none";
+  }
+
+  it("expands reranker details when enabled and collapses when disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+
+    // Initially disabled: details stay mounted but hidden
+    expect(screen.getByText("agentConfig.rerankerBaseUrl")).toBeInTheDocument();
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Toggle on: details should expand (become visible)
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Manual collapse via toggle button
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Re-expand via toggle button
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(true);
+  });
+
+  it("full-form validation still fails after collapsing with a cleared required value", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    // Details are expanded because reranking is enabled
+    const baseUrlInput = screen.getByPlaceholderText(
+      "agentConfig.rerankerBaseUrlPlaceholder",
+    );
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Clear a required value
+    await act(async () => {
+      fireEvent.change(baseUrlInput, { target: { value: "" } });
+    });
+    const modelNameInput = screen.getByPlaceholderText(
+      "agentConfig.rerankerModelNamePlaceholder",
+    );
+    await act(async () => {
+      fireEvent.change(modelNameInput, { target: { value: "" } });
+    });
+
+    // Collapse the details section
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Full-form validation must still fail on the (now hidden) required fields
+    const errors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    const errorNames = errors.map((e: { name: string[] }) => e.name.join("."));
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.base_url",
+    );
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.model_name",
+    );
   });
 });
 
