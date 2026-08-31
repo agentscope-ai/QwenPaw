@@ -1,5 +1,5 @@
 import { Button, Checkbox, Tag } from "antd";
-import { RotateCcw } from "lucide-react";
+import { CheckCheck, Repeat2, RotateCcw } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -22,6 +22,8 @@ export default function NavigationSettings() {
     focusItemIds,
     hiddenPluginItemIds,
     setSidebarItemVisible,
+    setSidebarItemsVisible,
+    invertSidebarItems,
     resetFocusItemIds,
   } = useSidebarModeStore();
 
@@ -67,6 +69,10 @@ export default function NavigationSettings() {
     itemId.startsWith("core.")
       ? focusItemIds.includes(itemId)
       : !hiddenPluginItemIds.includes(itemId);
+  const configurableItemIds = configurableGroups.flatMap((group) =>
+    group.entries.map((entry) => entry.key),
+  );
+  const allItemsSelected = configurableItemIds.every(isItemVisible);
 
   return (
     <div className={styles.preferencePage}>
@@ -91,9 +97,25 @@ export default function NavigationSettings() {
               )}
             </p>
           </div>
-          <Button icon={<RotateCcw size={15} />} onClick={resetFocusItemIds}>
-            {t("common.reset")}
-          </Button>
+          <div className={styles.bulkActions}>
+            <Button
+              icon={<CheckCheck size={15} />}
+              disabled={configurableItemIds.length === 0 || allItemsSelected}
+              onClick={() => setSidebarItemsVisible(configurableItemIds, true)}
+            >
+              {t("settingsCenter.selectAll", "Select all")}
+            </Button>
+            <Button
+              icon={<Repeat2 size={15} />}
+              disabled={configurableItemIds.length === 0}
+              onClick={() => invertSidebarItems(configurableItemIds)}
+            >
+              {t("settingsCenter.invertSelection", "Invert")}
+            </Button>
+            <Button icon={<RotateCcw size={15} />} onClick={resetFocusItemIds}>
+              {t("common.reset")}
+            </Button>
+          </div>
         </div>
 
         <div className={styles.fixedItem}>

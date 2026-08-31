@@ -323,6 +323,14 @@
   }
 }
 
+.bulkActions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .fixedItem {
   display: flex;
   align-items: center;
@@ -419,6 +427,15 @@
 
   .inlineControls {
     flex-wrap: wrap;
+  }
+
+  .cardHeading {
+    flex-direction: column;
+  }
+
+  .bulkActions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .itemGrid {

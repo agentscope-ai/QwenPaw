@@ -21,7 +21,14 @@ interface SidebarModeState {
   setMode: (mode: SidebarMode) => void;
   setFocusItemIds: (itemIds: string[]) => void;
   setSidebarItemVisible: (itemId: string, visible: boolean) => void;
+  setSidebarItemsVisible: (itemIds: string[], visible: boolean) => void;
+  invertSidebarItems: (itemIds: string[]) => void;
   resetFocusItemIds: () => void;
+}
+
+interface SidebarVisibilityState {
+  focusItemIds: string[];
+  hiddenPluginItemIds: string[];
 }
 
 function loadFocusItemIds(): string[] {
@@ -71,6 +78,38 @@ function persistHiddenPluginItemIds(itemIds: string[]) {
   } catch {
     // storage unavailable
   }
+}
+
+function updateSidebarItemsVisibility(
+  state: SidebarVisibilityState,
+  itemIds: string[],
+  resolveVisible: (currentlyVisible: boolean) => boolean,
+): SidebarVisibilityState {
+  const focusItemIds = new Set(state.focusItemIds);
+  const hiddenPluginItemIds = new Set(state.hiddenPluginItemIds);
+  const configurableItemIds = [...new Set(itemIds)].filter(
+    (itemId) => itemId !== "core.inbox",
+  );
+
+  for (const itemId of configurableItemIds) {
+    if (itemId.startsWith("core.")) {
+      const visible = resolveVisible(focusItemIds.has(itemId));
+      if (visible) focusItemIds.add(itemId);
+      else focusItemIds.delete(itemId);
+    } else {
+      const visible = resolveVisible(!hiddenPluginItemIds.has(itemId));
+      if (visible) hiddenPluginItemIds.delete(itemId);
+      else hiddenPluginItemIds.add(itemId);
+    }
+  }
+
+  const next = {
+    focusItemIds: [...focusItemIds],
+    hiddenPluginItemIds: [...hiddenPluginItemIds],
+  };
+  persistFocusItemIds(next.focusItemIds);
+  persistHiddenPluginItemIds(next.hiddenPluginItemIds);
+  return next;
 }
 
 export const useSidebarModeStore = create<SidebarModeState>((set) => ({
@@ -138,6 +177,18 @@ export const useSidebarModeStore = create<SidebarModeState>((set) => ({
       persistHiddenPluginItemIds(hiddenPluginItemIds);
       return { hiddenPluginItemIds };
     }),
+
+  setSidebarItemsVisible: (itemIds, visible) =>
+    set((state) => updateSidebarItemsVisibility(state, itemIds, () => visible)),
+
+  invertSidebarItems: (itemIds) =>
+    set((state) =>
+      updateSidebarItemsVisibility(
+        state,
+        itemIds,
+        (currentlyVisible) => !currentlyVisible,
+      ),
+    ),
 
   resetFocusItemIds: () => {
     persistFocusItemIds(DEFAULT_FOCUS_ITEM_IDS);

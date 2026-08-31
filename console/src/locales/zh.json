@@ -315,6 +315,8 @@
     "navigationDescription": "选择侧边栏中直接展示的快捷入口。隐藏项目仍可在这里重新开启。",
     "visibleItems": "侧边栏快捷入口",
     "visibleItemsHint": "勾选后直接展示；隐藏只影响入口，不删除内置能力或插件的数据与路由。",
+    "selectAll": "全选",
+    "invertSelection": "反选",
     "sidebarGroups": {
       "work": "工作入口",
       "global": "全局设置",

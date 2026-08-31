@@ -315,6 +315,8 @@
     "navigationDescription": "Choose which shortcuts appear in the sidebar. Hidden items can be enabled again here.",
     "visibleItems": "Sidebar shortcuts",
     "visibleItemsHint": "Selected items are shown directly. Hiding affects only the entry, not a built-in capability or plugin's route and data.",
+    "selectAll": "Select all",
+    "invertSelection": "Invert",
     "sidebarGroups": {
       "work": "Work shortcuts",
       "global": "Global settings",

@@ -260,4 +260,48 @@ describe("SettingsCenter", () => {
       "core.security",
     );
   });
+
+  it("selects all and inverts mixed built-in and plugin shortcuts", async () => {
+    registry.routes = [
+      { id: "core.security", path: "/security", Component: () => null },
+      {
+        id: "example.settings",
+        path: "/example-settings",
+        Component: () => null,
+      },
+    ];
+    registry.settingsMenu = [
+      {
+        id: "core.security",
+        location: "primary.settings",
+        label: "Security",
+        route: "core.security",
+      },
+      {
+        id: "example.settings.menu",
+        location: "primary.settings",
+        label: "Example extension",
+        route: "example.settings",
+      },
+    ];
+
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/navigation"],
+    });
+
+    const security = screen.getByRole("checkbox", { name: "Security" });
+    const plugin = screen.getByRole("checkbox", {
+      name: "Example extension",
+    });
+    expect(security).not.toBeChecked();
+    expect(plugin).toBeChecked();
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(security).toBeChecked();
+    expect(plugin).toBeChecked();
+
+    await userEvent.click(screen.getByRole("button", { name: "Invert" }));
+    expect(security).not.toBeChecked();
+    expect(plugin).not.toBeChecked();
+  });
 });

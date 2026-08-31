@@ -156,6 +156,51 @@ describe("sidebarModeStore", () => {
     expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
+  it("selects all built-in and plugin shortcuts in one update", () => {
+    useSidebarModeStore.setState({
+      focusItemIds: ["core.files"],
+      hiddenPluginItemIds: ["plugin.example"],
+    });
+
+    useSidebarModeStore
+      .getState()
+      .setSidebarItemsVisible(
+        ["core.inbox", "core.security", "plugin.example"],
+        true,
+      );
+
+    expect(useSidebarModeStore.getState().focusItemIds).toEqual([
+      "core.files",
+      "core.security",
+    ]);
+    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
+  });
+
+  it("inverts built-in and plugin shortcuts while ignoring the fixed inbox", () => {
+    useSidebarModeStore.setState({
+      focusItemIds: ["core.files", "core.security"],
+      hiddenPluginItemIds: ["plugin.hidden"],
+    });
+
+    useSidebarModeStore
+      .getState()
+      .invertSidebarItems([
+        "core.inbox",
+        "core.security",
+        "core.debug",
+        "plugin.visible",
+        "plugin.hidden",
+      ]);
+
+    expect(useSidebarModeStore.getState().focusItemIds).toEqual([
+      "core.files",
+      "core.debug",
+    ]);
+    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([
+      "plugin.visible",
+    ]);
+  });
+
   // ---------------------------------------------------------------------------
   // Storage failure resilience
   // ---------------------------------------------------------------------------
