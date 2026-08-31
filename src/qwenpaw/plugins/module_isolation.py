@@ -61,7 +61,7 @@ import os
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 
 class _NamespaceLoader:
@@ -188,7 +188,10 @@ def strip_plugin_sys_path(source_path: Any) -> None:
     sys.path[:] = [p for p in sys.path if _keep(p)]
 
 
-def sweep_bare_tree_modules(source_path: Any) -> None:
+def sweep_bare_tree_modules(
+    source_path: Any,
+    previous_modules: Optional[Mapping[str, Any]] = None,
+) -> None:
     """Pop non-namespaced ``sys.modules`` entries rooted in *source_path*.
 
     Redirected plugin imports live under ``plugin_<id>`` and are exempt
@@ -198,15 +201,35 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
     data-directory fallthrough; left in place, the ``sys.modules``
     cache would keep serving it to later imports even after the
     plugin's ``sys.path`` entries are swept.
+
+    When *previous_modules* is provided, bindings unchanged since that
+    snapshot are skipped.  Changed bindings rooted in the plugin tree are
+    removed, or restored when they replaced an existing binding.  This keeps
+    load-end cleanup proportional to modules imported by that plugin instead
+    of filesystem-normalizing the entire process module table.
     """
     root = _norm(source_path)
     prefix = root + os.sep
+    missing = object()
 
     def _under(path: Any) -> bool:
         resolved = _norm(path)
         return resolved == root or resolved.startswith(prefix)
 
+    def _remove_or_restore(name: str, mod: Any, previous: Any) -> None:
+        if sys.modules.get(name, missing) is not mod:
+            return
+        if previous is missing:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+
     for name, mod in list(sys.modules.items()):
+        previous = missing
+        if previous_modules is not None:
+            previous = previous_modules.get(name, missing)
+            if previous is mod:
+                continue
         top = name.partition(".")[0]
         if _finder is not None and _finder.is_registered(top):
             continue
@@ -214,7 +237,7 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
             mod_file = getattr(mod, "__file__", None)
             if mod_file is not None:
                 if _under(mod_file):
-                    sys.modules.pop(name, None)
+                    _remove_or_restore(name, mod, previous)
                 continue
             # Namespace packages have no __file__; match by __path__.
             # Accessing __path__ recomputes _NamespacePath, which can
@@ -223,10 +246,10 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
             try:
                 portions = list(getattr(mod, "__path__", None) or [])
             except KeyError:
-                sys.modules.pop(name, None)
+                _remove_or_restore(name, mod, previous)
                 continue
             if portions and any(_under(p) for p in portions):
-                sys.modules.pop(name, None)
+                _remove_or_restore(name, mod, previous)
         except Exception:  # pylint: disable=broad-except
             # Best-effort cleanup: lazy-module proxies or broken path
             # hooks must not turn a sweep into a load failure.
