@@ -72,7 +72,7 @@ os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
-_REQUIRED_REME_VERSION = "0.4.1.10"
+_REQUIRED_REME_VERSION = "0.4.1.11"
 
 
 class _ReMeContractError(RuntimeError):
