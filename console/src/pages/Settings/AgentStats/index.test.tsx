@@ -107,6 +107,9 @@ function summary(
     agent_prompt_tokens: agentPromptTokens,
     agent_completion_tokens: agentCompletionTokens,
     agent_llm_calls: recordedTurns,
+    agent_cache_read_tokens: 0,
+    agent_cache_eligible_input_tokens: 0,
+    agent_cache_hit_rate: null,
     by_date: [
       {
         date: "2026-08-13",
@@ -122,6 +125,7 @@ function summary(
         agent_prompt_tokens: agentPromptTokens,
         agent_completion_tokens: agentCompletionTokens,
         agent_llm_calls: recordedTurns,
+        agent_cache_read_tokens: 0,
       },
     ],
     channel_stats: [],
