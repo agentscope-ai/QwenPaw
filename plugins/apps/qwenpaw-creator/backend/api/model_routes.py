@@ -18,7 +18,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Body, Header, Request, Response, status
+from fastapi import APIRouter, Body, Header, Query, Request, Response, status
 from pydantic import ValidationError as PydanticValidationError
 
 from domain.errors import ConflictError, StorageIntegrityError, ValidationError
@@ -643,7 +643,7 @@ def mutate_model_config(
         # The self-review env-override report is response-only state and
         # must never land in the persisted file.
         updated_dict = updated.model_dump(
-            exclude={"self_review": {"env_overrides"}},
+            exclude={"self_review": {"env_overrides", "operator_status"}},
         )
         _encrypt_secret_fields(updated_dict)
 
@@ -1046,6 +1046,11 @@ async def get_model_config() -> ModelConfigData:
         for name, value in forced_review_env_overrides().items()
         if name in env_to_tier
     }
+    # Advanced per-operator resolution (user/auto + dependency probe);
+    # response-only, mirrors the env-override report above.
+    from services.run_review.operator_registry import operator_status_report
+
+    loaded.self_review.operator_status = operator_status_report()
     return _mask_secrets(loaded)
 
 
@@ -1063,30 +1068,52 @@ async def get_resolved_models() -> dict[str, Any]:
     model, so mode workbenches can show the model their element will bill
     against.  Read-only.
     """
-    from models.video_capabilities import (
-        effective_video_model_name,
-        video_backend_key,
-    )
+    from models.video_capabilities import video_model_capability_payload
 
     video_model = model_config.get_video_model_name()
-    backend_key = video_backend_key(video_model)
+    protocol_backend = model_config.get_video_backend()
+    capability = video_model_capability_payload(
+        video_model,
+        protocol_backend,
+    )
     return {
         "video": {
-            "provider": model_config.get_video_backend(),
+            "provider": capability["provider"],
             "model": video_model,
-            "byMode": {
-                mode: effective_video_model_name(
-                    video_model,
-                    mode,
-                    backend_key,
-                )
-                for mode in ("r2v", "t2v", "i2v", "video_edit")
-            },
+            "known": capability["known"],
+            "supportedModes": capability["supportedModes"],
+            "byMode": capability["effectiveModels"],
         },
         "s2v": {
             "model": model_config.get_s2v_model_name(),
         },
     }
+
+
+@router.get("/video-capabilities")
+async def get_video_capabilities(
+    model_name: str = Query(default="", alias="modelName"),
+    protocol: str = Query(default=""),
+) -> dict[str, object]:
+    """Exact, documented generation modes for one video selection.
+
+    The settings UI calls this before saving, so query values take priority;
+    omitted values resolve to the active runtime configuration.  This route is
+    read-only and never probes or bills an upstream provider.
+    """
+
+    from models.video_capabilities import video_model_capability_payload
+
+    selected_model = model_name.strip() or model_config.get_video_model_name()
+    selected_backend = (
+        model_config.video_backend_for_protocol(protocol)
+        if protocol.strip()
+        else model_config.get_video_backend()
+    )
+    return video_model_capability_payload(
+        selected_model,
+        selected_backend or "",
+    )
 
 
 @router.get("/tts-capabilities")
@@ -1340,21 +1367,51 @@ async def patch_self_review(
         if not isinstance(value, bool):
             raise ValidationError(f"{tier} 必须是布尔值")
         updates[tier] = value
-    unknown = set(data) - set(tier_keys)
+    operator_updates: dict[str, bool | None] | None = None
+    if "operators" in data:
+        raw_operators = data["operators"]
+        if not isinstance(raw_operators, dict):
+            raise ValidationError("operators 必须是对象")
+        from services.run_review.operator_registry import operator_keys
+
+        known = set(operator_keys())
+        unknown_ops = set(raw_operators) - known
+        if unknown_ops:
+            raise ValidationError(
+                f"不支持的算子: {', '.join(sorted(unknown_ops))}",
+            )
+        operator_updates = {}
+        for key, value in raw_operators.items():
+            # ``null`` restores the auto (能开尽开) resolution for one
+            # operator; booleans persist an explicit user choice.
+            if value is not None and not isinstance(value, bool):
+                raise ValidationError(f"operators.{key} 必须是布尔值或 null")
+            operator_updates[key] = value
+    unknown = set(data) - set(tier_keys) - {"operators"}
     if unknown:
         raise ValidationError(f"不支持的字段: {', '.join(sorted(unknown))}")
-    if not updates:
+    if not updates and operator_updates is None:
         raise ValidationError(
-            "至少提供 sync_enabled / media_enabled / render_enabled 之一",
+            "至少提供 sync_enabled / media_enabled / render_enabled / "
+            "operators 之一",
         )
 
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
         section = dict(merged.get("self_review") or {})
         section.update(updates)
-        # Response-only state: the env-override report must never land in
-        # the persisted config file.
+        if operator_updates is not None:
+            operators = dict(section.get("operators") or {})
+            for key, value in operator_updates.items():
+                if value is None:
+                    operators.pop(key, None)
+                else:
+                    operators[key] = value
+            section["operators"] = operators
+        # Response-only state: the env-override / operator-status reports
+        # must never land in the persisted config file.
         section.pop("env_overrides", None)
+        section.pop("operator_status", None)
         merged["self_review"] = section
         try:
             return ModelConfigData.model_validate(merged)
@@ -1470,6 +1527,28 @@ def _dashscope_policy_probe(
         headers,
         {"_get_probe": True, "action": "getPolicy", "model": body.model_name},
     )
+
+
+def _dashscope_video_task_probe(
+    body: ModelConnectionTestRequest,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Validate a DashScope video endpoint with a zero-cost task lookup.
+
+    The task endpoint is shared by Bailian's video models on both legacy and
+    Workspace API roots.  Unlike the temporary-upload policy endpoint, this
+    checks the configured host itself without creating a billable task.
+    """
+
+    base = body.base_url.rstrip("/")
+    submit_suffix = "/services/aigc/video-generation/video-synthesis"
+    api_root = (
+        base[: -len(submit_suffix)] if base.endswith(submit_suffix) else base
+    )
+    # A syntactically valid but nonexistent task ID produces the documented
+    # UNKNOWN status without creating or billing a generation task.
+    task_id = "11111111-1111-4111-8111-111111111111"
+    return f"{api_root}/tasks/{task_id}", headers, {"_get_probe": True}
 
 
 def _openai_model_probe(
@@ -1679,6 +1758,57 @@ def _probe_payload(
         if "dashscope" in body.protocol.casefold() or "百炼" in body.protocol:
             return _dashscope_policy_probe(body, headers)
         return _openai_model_probe(body, headers)
+    if body.type == "video":
+        from models.video_capabilities import video_model_capability
+
+        video_backend = (
+            model_config.video_backend_for_protocol(
+                body.protocol,
+            )
+            or ""
+        )
+        capability = video_model_capability(
+            body.model_name,
+            video_backend,
+        )
+        if not capability.known:
+            unknown_capability_error = (
+                "VIDEO_MODEL_CAPABILITY_UNKNOWN: 精确模型 ID 与协议组合" + "未收录，已停止连接探测"
+            )
+            raise ValueError(unknown_capability_error)
+        if video_backend == "veo":
+            headers.pop("Authorization", None)
+            headers["x-goog-api-key"] = body.api_key
+            return (
+                f"{base}/models/{body.model_name}",
+                headers,
+                {"_get_probe": True},
+            )
+        if video_backend == "minimax":
+            return (
+                f"{base}/v1/query/video_generation",
+                headers,
+                {
+                    "_get_probe": True,
+                    "task_id": "creator-connection-probe",
+                },
+            )
+        if video_backend == "kling":
+            return (
+                f"{base}/tasks",
+                headers,
+                {
+                    "_get_probe": True,
+                    "task_ids": "creator-connection-probe",
+                },
+            )
+        if video_backend == "vidu":
+            headers["Authorization"] = f"Token {body.api_key}"
+            return (
+                f"{base}/ent/v2/credits",
+                headers,
+                {"_get_probe": True, "show_detail": "false"},
+            )
     if "volcano" in body.protocol.casefold() or "火山" in body.protocol:
         # Zero-cost Ark probe: the task-list API is read-only and free,
         # unlike posting a real generation task.
@@ -1689,6 +1819,17 @@ def _probe_payload(
         )
     if "token plan" in body.protocol.casefold():
         return _token_plan_models_probe(body, headers)
+    if body.type == "video":
+        hostname = (urlparse(body.base_url).hostname or "").casefold()
+        is_dashscope_protocol = (
+            "dashscope" in body.protocol.casefold() or "百炼" in body.protocol
+        )
+        if is_dashscope_protocol and (
+            hostname
+            in {"dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"}
+            or hostname.endswith(".maas.aliyuncs.com")
+        ):
+            return _dashscope_video_task_probe(body, headers)
     return _dashscope_policy_probe(body, headers)
 
 

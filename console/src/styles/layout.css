@@ -897,6 +897,7 @@ html.dark-mode
 
 #root {
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -908,6 +909,8 @@ html.dark-mode
 }
 
 .ant-layout-content {
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: #f9f8f4;
 }
@@ -992,6 +995,8 @@ html.dark-mode .qwenpaw-sender-content {
 
 .page-container {
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1005,6 +1010,8 @@ html.dark-mode .qwenpaw-sender-content {
 
 .page-content {
   flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   background-color: #fff;
   border-radius: 8px;
@@ -1012,6 +1019,22 @@ html.dark-mode .qwenpaw-sender-content {
   box-sizing: border-box;
   border: 1px solid #eae9e7;
   /* #EAE9E7 */
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .ant-layout {
+      min-height: 100dvh;
+      max-height: 100dvh;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding-right: 0;
+    padding-bottom: 0;
+  }
 }
 
 .table-container {

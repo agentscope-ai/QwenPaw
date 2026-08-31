@@ -161,12 +161,10 @@ def _dashscope_temp_upload_cache_key(
     )
 
 
-def _mask_key(key: str, prefix: int = 10) -> str:
+def _mask_key(key: str) -> str:
     if not key:
         return "(empty)"
-    if len(key) <= prefix:
-        return key
-    return f"{key[:prefix]}...({len(key)} chars)"
+    return "[redacted]"
 
 
 def _fetch_dashscope_upload_policy(
@@ -193,9 +191,8 @@ def _fetch_dashscope_upload_policy(
         },
     )
     logger.info(
-        "DashScope upload policy response | status=%d, body=%s",
+        "DashScope upload policy response | status=%d",
         policy_response.status_code,
-        policy_response.text[:500],
     )
     policy_response.raise_for_status()
     payload = policy_response.json()

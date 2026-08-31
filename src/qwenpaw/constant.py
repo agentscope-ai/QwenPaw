@@ -111,6 +111,14 @@ else:
         WORKING_DIR = _legacy_copaw_dir.resolve()
     else:
         WORKING_DIR = Path("~/.qwenpaw").expanduser().resolve()
+# Load user-level .env (e.g. ~/.qwenpaw/.env) after WORKING_DIR is resolved.
+# Repo root .env was loaded at the top of this module; it takes precedence
+# over the user-level file because load_dotenv(..., override=False) keeps
+# existing values.
+_user_env_path = WORKING_DIR / ".env"
+if _user_env_path.exists():
+    load_dotenv(_user_env_path)
+
 SECRET_DIR = (
     Path(
         EnvVarLoader.get_str(

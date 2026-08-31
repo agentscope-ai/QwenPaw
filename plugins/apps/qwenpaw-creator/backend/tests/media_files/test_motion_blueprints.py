@@ -8,6 +8,7 @@ import pytest
 
 from domain.errors import ValidationError
 from services.media_files.motion_blueprints import (
+    CAPTION_BLUEPRINTS,
     CAPTION_BLUEPRINT_ORDER,
     DECORATION_BLUEPRINTS,
     FRAME_BLUEPRINTS,
@@ -58,6 +59,28 @@ class TestBlueprintRendering:
             if extra_snippet is not None:
                 assert extra_snippet in html
 
+    @pytest.mark.parametrize(
+        ("names", "render"),
+        [
+            (
+                CAPTION_BLUEPRINTS,
+                lambda name: render_caption_blueprint(name, "测试 字幕"),
+            ),
+            (DECORATION_BLUEPRINTS, render_decoration_blueprint),
+            (FRAME_BLUEPRINTS, render_frame_blueprint),
+        ],
+        ids=["caption", "decoration", "frame"],
+    )
+    def test_every_blueprint_resolves_python_template_braces(
+        self,
+        names,
+        render,
+    ) -> None:
+        for name in names:
+            html, _duration = render(name)
+            assert "{{" not in html, name
+            assert "}}" not in html, name
+
     def test_unknown_blueprint_rejected(self) -> None:
         with pytest.raises(ValueError, match="unknown caption blueprint"):
             render_caption_blueprint("nope", "文字")
@@ -80,6 +103,17 @@ class TestBlueprintRendering:
         assert window["width"] >= 0.40 - 1e-9
         # Garbage input falls back to the default centered window.
         assert validated_frame_window(None)["width"] == pytest.approx(0.86)
+
+    def test_tutorial_family_is_modern_seek_safe_and_ui_faithful(self) -> None:
+        caption, _ = render_caption_blueprint(
+            "precision_subtitle",
+            "点击搜索框，输入 QwenPaw",
+        )
+        ripple, _ = render_decoration_blueprint("cursor_ripple")
+        frame, _ = render_frame_blueprint("product_ui")
+        assert "backdrop-filter:blur" in caption
+        assert "cursor" in ripple and "requestAnimationFrame" not in ripple
+        assert 'data-motion-window="' in frame
 
 
 class TestBlueprintDesignValidation:

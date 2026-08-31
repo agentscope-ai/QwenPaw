@@ -230,23 +230,48 @@ describe("useInboxData", () => {
     expect(ids).toEqual(["new", "mid", "old"]);
   });
 
-  it('maps heartbeat content via getHeartbeatSummary(status="success")', async () => {
+  it("maps heartbeat statuses through localized summaries", async () => {
     const events = [
       makeEvent({
-        id: "hb-1",
+        id: "hb-success",
         source_type: "heartbeat",
         status: "success",
         body: "should not be used",
+      }),
+      makeEvent({
+        id: "hb-timeout",
+        source_type: "heartbeat",
+        status: "timeout",
+      }),
+      makeEvent({
+        id: "hb-cancelled",
+        source_type: "heartbeat",
+        status: "cancelled",
+      }),
+      makeEvent({
+        id: "hb-failed",
+        source_type: "heartbeat",
+        status: "failed",
       }),
     ];
     mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
 
     const { result } = renderHook(() => useInboxData());
 
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-    const msg = result.current.pushMessages[0];
-    expect(msg.channelType).toBe("heartbeat");
-    expect(msg.content).toBe("Heartbeat 执行成功");
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(4));
+    const contentById = Object.fromEntries(
+      result.current.pushMessages.map((message) => [
+        message.id,
+        message.content,
+      ]),
+    );
+    expect(contentById).toEqual({
+      "hb-success": "inbox.heartbeatSuccess",
+      "hb-timeout": "inbox.heartbeatTimeout",
+      "hb-cancelled": "inbox.heartbeatCancelled",
+      "hb-failed": "inbox.heartbeatFailed",
+    });
+    expect(result.current.pushMessages[0].channelType).toBe("heartbeat");
   });
 
   it("markMessageAsRead optimistically marks read and decrements unread", async () => {

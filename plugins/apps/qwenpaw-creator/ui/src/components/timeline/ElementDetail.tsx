@@ -874,6 +874,103 @@ export default function ElementDetail({
                       />
                     )}
                   </div>
+                  <label
+                    data-creator-field={`element:${element.element_id}/creation/role`}
+                    data-creator-path={pointer("creation", "role")}
+                    className="block"
+                  >
+                    <FieldLabel>{t("elementDetail.audioRole")}</FieldLabel>
+                    <Select
+                      value={creation.role ?? "narration"}
+                      disabled={applying}
+                      className="w-full"
+                      options={[
+                        {
+                          value: "narration",
+                          label: t("elementDetail.audioRoleNarration"),
+                        },
+                        {
+                          value: "bgm",
+                          label: t("elementDetail.audioRoleBgm"),
+                        },
+                        {
+                          value: "sfx",
+                          label: t("elementDetail.audioRoleSfx"),
+                        },
+                      ]}
+                      onChange={(value) =>
+                        onChange((draft) => {
+                          if (draft.creation.type === "audio")
+                            draft.creation.role = value as
+                              | "bgm"
+                              | "narration"
+                              | "sfx";
+                        })
+                      }
+                    />
+                    <InlineReviewDiff pointer={pointer("creation", "role")} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label
+                      data-creator-field={`element:${element.element_id}/creation/fade_in_seconds`}
+                      data-creator-path={pointer("creation", "fade_in_seconds")}
+                      className="block"
+                    >
+                      <FieldLabel>{t("elementDetail.audioFadeIn")}</FieldLabel>
+                      <InputNumber
+                        value={creation.fade_in_seconds ?? undefined}
+                        placeholder={t("elementDetail.audioFadeAdaptive")}
+                        step={0.5}
+                        min={0}
+                        max={10}
+                        disabled={applying}
+                        className="w-full"
+                        onChange={(value) =>
+                          onChange((draft) => {
+                            if (draft.creation.type === "audio")
+                              draft.creation.fade_in_seconds =
+                                value === null || value === undefined
+                                  ? null
+                                  : Number(value);
+                          })
+                        }
+                      />
+                      <InlineReviewDiff
+                        pointer={pointer("creation", "fade_in_seconds")}
+                      />
+                    </label>
+                    <label
+                      data-creator-field={`element:${element.element_id}/creation/fade_out_seconds`}
+                      data-creator-path={pointer(
+                        "creation",
+                        "fade_out_seconds",
+                      )}
+                      className="block"
+                    >
+                      <FieldLabel>{t("elementDetail.audioFadeOut")}</FieldLabel>
+                      <InputNumber
+                        value={creation.fade_out_seconds ?? undefined}
+                        placeholder={t("elementDetail.audioFadeAdaptive")}
+                        step={0.5}
+                        min={0}
+                        max={10}
+                        disabled={applying}
+                        className="w-full"
+                        onChange={(value) =>
+                          onChange((draft) => {
+                            if (draft.creation.type === "audio")
+                              draft.creation.fade_out_seconds =
+                                value === null || value === undefined
+                                  ? null
+                                  : Number(value);
+                          })
+                        }
+                      />
+                      <InlineReviewDiff
+                        pointer={pointer("creation", "fade_out_seconds")}
+                      />
+                    </label>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label
                       data-creator-field={`element:${element.element_id}/creation/gain_db`}

@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite fetchConfig loop via useEffect.
   const stableT = (k: string) => k;
+  const agentState = { selectedAgent: "agent-1" };
   return {
     mockSetFieldsValue,
     mockValidateFields,
@@ -38,6 +39,7 @@ const hoisted = vi.hoisted(() => {
     apiMocks,
     modalConfirmMock,
     stableT,
+    agentState,
   };
 });
 
@@ -63,9 +65,13 @@ vi.mock("../../../api", () => ({
   default: hoisted.apiMocks,
 }));
 
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
-}));
+vi.mock("../../../stores/agentStore", () => {
+  const useAgentStore = Object.assign(
+    () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
+    { getState: () => hoisted.agentState },
+  );
+  return { useAgentStore };
+});
 
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message: hoisted.messageMock }),
@@ -84,6 +90,7 @@ const {
   apiMocks,
   messageMock,
   modalConfirmMock,
+  agentState,
 } = hoisted;
 
 type Config = AgentsRunningConfig;
@@ -144,6 +151,7 @@ describe("useAgentConfig", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
+    agentState.selectedAgent = "agent-1";
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
@@ -207,6 +215,49 @@ describe("useAgentConfig", () => {
       expect(result.current.error).toBe("boom");
     });
     expect(result.current.loading).toBe(false);
+  });
+
+  it("ignores a stale config response after switching away and back", async () => {
+    let resolveDisabledAgent!: (config: Config) => void;
+    const disabledAgentConfig = new Promise<Config>((resolve) => {
+      resolveDisabledAgent = resolve;
+    });
+    const currentAgentConfig = makeConfig({ history_max_length: 300 });
+
+    const view = renderConfigHook();
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    mockSetFieldsValue.mockClear();
+
+    apiMocks.getAgentRunningConfig
+      .mockImplementationOnce(() => disabledAgentConfig)
+      .mockResolvedValueOnce(currentAgentConfig);
+
+    agentState.selectedAgent = "agent-2";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(2),
+    );
+
+    agentState.selectedAgent = "agent-1";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(3),
+    );
+    await waitFor(() =>
+      expect(mockSetFieldsValue).toHaveBeenCalledWith(
+        expect.objectContaining({ history_max_length: 300 }),
+      ),
+    );
+
+    await act(async () => {
+      resolveDisabledAgent(makeConfig({ history_max_length: 200 }));
+      await disabledAgentConfig;
+    });
+
+    expect(mockSetFieldsValue).not.toHaveBeenCalledWith(
+      expect.objectContaining({ history_max_length: 200 }),
+    );
+    expect(view.result.current.loading).toBe(false);
   });
 
   it("falls back context_manager_backend to 'light' when not in MAPPINGS", async () => {
@@ -435,5 +486,95 @@ describe("useAgentConfig", () => {
     expect(modalConfirmMock).toHaveBeenCalledTimes(1);
     const options = modalConfirmMock.mock.calls[0][0] as { title: string };
     expect(options.title).toBe("agentConfig.languageConfirmTitle");
+  });
+
+  // -------------------------------------------------------------------------
+  // #5137 — config lost when Collapse is not rendered
+  // When a Collapse panel is collapsed (unrendered), form.getFieldsValue()
+  // only returns currently registered fields. The deep-merge logic in
+  // handleSave must preserve the original nested values from collapsed panels
+  // so they are not lost on save.
+  // -------------------------------------------------------------------------
+  it("handleSave preserves collapsed (unrendered) nested config via deep merge (#5137)", async () => {
+    const originalConfig = makeConfig({
+      reme_light_memory_config: {
+        needs_reindex: false,
+        embedding_model: "text-embedding-v3",
+        search_top_k: 5,
+      } as unknown as Config["reme_light_memory_config"],
+      light_context_config: {
+        strategy: "scroll",
+        context_compact_config: {
+          enabled: true,
+          compact_threshold_ratio: 0.8,
+          reserve_threshold_ratio: 0.1,
+        },
+        scroll_config: {
+          history_retention_days: 14,
+        },
+      } as unknown as Config["light_context_config"],
+      adbpg_memory_config: {
+        auto_search_enabled: true,
+        auto_save_enabled: true,
+        search_top_k: 10,
+      } as unknown as Config["adbpg_memory_config"],
+    });
+
+    apiMocks.getAgentRunningConfig.mockResolvedValue(originalConfig);
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(originalConfig);
+
+    // Simulate: only light_context_config.strategy is rendered (other panels collapsed).
+    // getFieldsValue(true) returns partial nested objects.
+    mockGetFieldsValue.mockReturnValue({
+      light_context_config: {
+        strategy: "native",
+        // context_compact_config and scroll_config are MISSING because their
+        // Collapse panels are collapsed (unrendered).
+      },
+      reme_light_memory_config: {
+        // Only needs_reindex is rendered; embedding_model and search_top_k are
+        // inside a collapsed sub-panel.
+        needs_reindex: true,
+      },
+      // adbpg_memory_config is entirely inside a collapsed panel — not in form values at all.
+    });
+
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
+
+    // The rendered field should be updated
+    expect((saved.light_context_config as any).strategy).toBe("native");
+
+    // The collapsed (unrendered) nested fields must be preserved from original
+    expect(
+      (saved.light_context_config as any).context_compact_config.enabled,
+    ).toBe(true);
+    expect(
+      (saved.light_context_config as any).context_compact_config
+        .compact_threshold_ratio,
+    ).toBe(0.8);
+    expect(
+      (saved.light_context_config as any).scroll_config.history_retention_days,
+    ).toBe(14);
+
+    // reme_light_memory_config: rendered field updated, collapsed fields preserved
+    expect((saved.reme_light_memory_config as any).needs_reindex).toBe(true);
+    expect((saved.reme_light_memory_config as any).embedding_model).toBe(
+      "text-embedding-v3",
+    );
+    expect((saved.reme_light_memory_config as any).search_top_k).toBe(5);
+
+    // adbpg_memory_config: entirely collapsed — original values fully preserved
+    expect((saved.adbpg_memory_config as any).auto_search_enabled).toBe(true);
+    expect((saved.adbpg_memory_config as any).auto_save_enabled).toBe(true);
+    expect((saved.adbpg_memory_config as any).search_top_k).toBe(10);
   });
 });

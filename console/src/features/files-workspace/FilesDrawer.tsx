@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Copy,
   Download,
   Expand,
   FileText,
@@ -21,6 +22,8 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+import { copyText } from "../../utils/clipboard";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
 import styles from "./FilesWorkspace.module.less";
@@ -63,6 +66,7 @@ export default function FilesDrawer({
   scope,
 }: FilesDrawerProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const drawerRef = useRef<HTMLElement>(null);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [content, setContent] = useState("");
@@ -246,6 +250,17 @@ export default function FilesDrawer({
 
   const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
+  const canCopy =
+    metadata?.preview_kind === "text" || metadata?.preview_kind === "csv";
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await copyText(content);
+      message.success(t("common.copied"));
+    } catch {
+      message.error(t("common.copyFailed"));
+    }
+  }, [content, message, t]);
 
   return (
     <motion.aside
@@ -339,6 +354,16 @@ export default function FilesDrawer({
           >
             <ArrowLeft size={15} />
             {t("files.backToPreview")}
+          </button>
+        )}
+        {target && canCopy && (
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label={t("common.copy")}
+            onClick={() => void handleCopy()}
+          >
+            <Copy size={16} />
           </button>
         )}
         {target && (target.source === "workspace" || target.artifactUrl) && (

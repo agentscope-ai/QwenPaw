@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +21,7 @@ from services.render_review.protocol import (
     findings_feedback_payload,
     parse_review_report,
 )
+from services.render_review.review import derive_plan_context
 
 pytestmark = pytest.mark.unit
 
@@ -125,6 +127,62 @@ def test_build_review_user_text_lists_all_evidence() -> None:
     # The edit-plan contract ships verbatim, exactly once.
     assert "【剪辑契约" in text
     assert text.count("猫的越狱日记") == 1
+
+
+def test_build_review_user_text_scopes_live_tutorial_rubric() -> None:
+    profile = AudioProfile(has_audio=False)
+    ordinary = build_review_user_text(
+        frames=[],
+        audio_profile=profile,
+        video_duration_seconds=3.0,
+        plan_context={},
+    )
+    tutorial = build_review_user_text(
+        frames=[],
+        audio_profile=profile,
+        video_duration_seconds=3.0,
+        plan_context={
+            "live_operation_tutorial": True,
+            "live_operation_take_count": 2,
+        },
+    )
+    assert "【真实操作教程专项验收】" not in ordinary
+    assert "【真实操作教程专项验收】" in tutorial
+    assert "三层深度" in tutorial
+
+
+def test_plan_context_detects_live_tutorial_and_any_text_caption() -> None:
+    live_version = SimpleNamespace(
+        metadata={"sourceKind": "live_operation_take"},
+    )
+    edit = SimpleNamespace(
+        enabled=True,
+        creation=SimpleNamespace(type="edit"),
+        render_source=SimpleNamespace(version_id="asset-version-live"),
+    )
+    caption = SimpleNamespace(
+        enabled=True,
+        creation=SimpleNamespace(type="overlay", text="点击搜索框"),
+        render_source=None,
+    )
+    timeline = SimpleNamespace(
+        edit_plan=None,
+        elements_by_id={"edit-1": edit, "caption-1": caption},
+    )
+    project = SimpleNamespace(
+        settings=None,
+        description="GitHub 使用教程",
+        timelines=SimpleNamespace(items={"timeline:main": timeline}),
+        assets=SimpleNamespace(
+            source_versions_by_id={"asset-version-live": live_version},
+        ),
+    )
+
+    context = derive_plan_context(project, "timeline:main")
+
+    assert context["expects_subtitles"] is True
+    assert context["live_operation_tutorial"] is True
+    assert context["live_operation_take_count"] == 1
 
 
 def test_dimensions_match_the_vendored_appeal_rubric() -> None:

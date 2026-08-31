@@ -69,7 +69,7 @@ def test_overlay_kind_is_dropped_when_migrating_from_v2() -> None:
 
     project = load_project_json(json.dumps(raw))
 
-    assert project.schema_version == 8
+    assert project.schema_version == 9
     creation = _element(project, "overlay-1").creation.model_dump(mode="json")
     assert "overlay_kind" not in creation
     assert creation["text"] == "抓到你了"
@@ -149,7 +149,7 @@ def test_unregistered_or_future_schema_fails_closed() -> None:
         load_project_json(json.dumps(raw))
     assert "no Project migration is registered" in str(caught.value.__cause__)
 
-    for version in (0, 9):
+    for version in (0, 10):
         raw["schema_version"] = version
         with pytest.raises(CanonicalJsonError):
             load_project_json(json.dumps(raw))
@@ -231,7 +231,7 @@ def test_v3_migration_declares_existing_variants_as_required() -> None:
     migrated = migrate_project_document(raw)
 
     # The chain continues through v4 -> v5 (overlay_kind removal).
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 9
     assert migrated["visual"]["entities"]["items"]["char:hero"][
         "required_variant_ids"
     ] == ["variant:peak", "variant:fallen"]
@@ -364,7 +364,7 @@ def test_v6_and_v7_migrations_add_edit_plan_and_clear_color_grade() -> None:
 
     migrated = migrate_project_document(raw)
 
-    assert migrated["schema_version"] == 8
+    assert migrated["schema_version"] == 9
     for timeline in migrated["timelines"]["items"].values():
         assert timeline["edit_plan"] is None
         assert timeline["color_grade"] == ""

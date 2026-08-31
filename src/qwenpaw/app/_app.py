@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
+from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
@@ -307,6 +308,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             exc_info=True,
         )
 
+    backup_manager = BackupManager()
+
     # Start token usage manager background tasks
     logger.debug("Starting TokenUsageManager background tasks...")
     from ..token_usage import get_token_usage_manager
@@ -320,6 +323,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
+    app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
 
@@ -427,9 +431,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
-            startup_provider_ids = (
-                provider_manager.prepare_startup_provider_model_sync()
-            )
+            startup_provider_ids = provider_manager.startup_sync_provider_ids()
             asyncio.create_task(
                 provider_manager.sync_startup_provider_models(
                     startup_provider_ids,
@@ -588,6 +590,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
+
+        logger.info("Stopping BackupManager...")
+        await backup_manager.shutdown()
 
         await _stop_browser_runtime(app)
         from ..agents.tools import shutdown_browser_runtime

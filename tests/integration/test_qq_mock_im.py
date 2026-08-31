@@ -155,14 +155,30 @@ def test_qq_channel_health_reports_running(
       - Cover the health_check path for a live (mock-connected) QQ
         channel rather than the usual disabled/unhealthy branch.
 
+    Test flow:
+      1. Poll GET /health until 200: enabling a channel is an async
+         reload, and a single query can land in the registration
+         window and get 404 (see comment below).
+
     API endpoints:
       - GET /api/config/channels/qq/health
     """
-    resp = app_server.api_request(
-        "GET",
-        "/api/config/channels/qq/health",
-        timeout=_HTTP_TIMEOUT,
-    )
+    # Enabling the channel is an async reload: replace_channel()
+    # awaits channel.start() outside the manager lock (the WS thread
+    # can complete IDENTIFY before that), then registers the channel
+    # under the lock. The health endpoint walks the registry, so it
+    # returns 404 during that window -- a CI flake was traced to this
+    # race. Poll until the channel becomes visible.
+    deadline = time.time() + 10.0
+    while True:
+        resp = app_server.api_request(
+            "GET",
+            "/api/config/channels/qq/health",
+            timeout=_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200 or time.time() >= deadline:
+            break
+        time.sleep(0.3)
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
     assert body.get("channel") == "qq" or "status" in body, body

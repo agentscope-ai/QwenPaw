@@ -72,6 +72,10 @@ export function navigateToLocator(
     // clear the pulse created by a newer one.
     [0, 180, 420, 800].forEach((delay) =>
       window.setTimeout(() => {
+        // A replay outlives the click that scheduled it, so the page may be
+        // gone by the time it fires (a closed window, or a unit test whose
+        // environment was torn down). Drop it instead of touching the global.
+        if (typeof window === "undefined" || !window.document) return;
         const runtime = window as Window & {
           __creatorReviewFocus?: (request: {
             path: string;

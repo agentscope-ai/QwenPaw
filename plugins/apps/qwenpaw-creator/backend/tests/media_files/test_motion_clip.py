@@ -28,7 +28,9 @@ _CLIP_HTML = (
     "<!DOCTYPE html><html><head><style>"
     "html,body{margin:0;width:100%;height:100%;overflow:hidden}"
     ".stage{position:fixed;inset:0;"
-    "background:linear-gradient(160deg,#1c2f5e,#7a3d8f)}"
+    "background:linear-gradient(160deg,#1c2f5e,#7a3d8f);"
+    "animation:pulse 2s ease-in-out infinite}"
+    "@keyframes pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.08)}}"
     "</style></head><body><div class='stage'></div></body></html>"
 )
 

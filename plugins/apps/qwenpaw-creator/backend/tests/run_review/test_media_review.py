@@ -125,6 +125,83 @@ def test_media_admission_rounds_dedup_and_ownership(tmp_path: Path) -> None:
     assert _admit(root, "v3") is None
 
 
+def test_superseded_media_review_still_consumes_physical_budget(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "run-review"
+    assert _admit(root, "v-old") == 1
+    assert _admit(root, "v-new") == 2
+    assert (
+        admission.finalize_media_round(
+            root,
+            slot_id=SLOT_ID,
+            version_id="v-old",
+            owner="owner-a",
+            counted=False,
+        )
+        is False
+    )
+    assert _finalize(root, "v-new")
+    assert _admit(root, "v-third") is None
+    state = admission.read_json(
+        root / "media" / f"state-{admission.safe_ref(SLOT_ID)}.json",
+    )
+    assert state["attempts_started"] == admission.MAX_MEDIA_REVIEW_ROUNDS
+
+
+def test_repair_budget_is_atomic_idempotent_and_hard_capped(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "run-review"
+    target = "element:e1"
+    for index in range(1, admission.MAX_REPAIR_ATTEMPTS + 1):
+        assert admission.admit_repair_attempts(
+            root,
+            target_refs=[target],
+            attempt_id=f"repair-{index}",
+        ) == {target: index}
+    # Replaying an admitted action is free and returns its original number.
+    assert admission.admit_repair_attempts(
+        root,
+        target_refs=[target],
+        attempt_id="repair-2",
+    ) == {target: 2}
+    assert (
+        admission.admit_repair_attempts(
+            root,
+            target_refs=[target],
+            attempt_id="repair-4",
+        )
+        is None
+    )
+    # Multi-target admission is all-or-nothing when one target is spent.
+    assert (
+        admission.admit_repair_attempts(
+            root,
+            target_refs=[target, "element:e2"],
+            attempt_id="repair-multi",
+        )
+        is None
+    )
+    state = admission.read_json(root / "repair-budget" / "state.json")
+    assert "element:e2" not in state["targets"]
+
+
+def test_legacy_media_history_migrates_to_physical_cap(tmp_path: Path) -> None:
+    root = tmp_path / "run-review"
+    state_path = root / "media" / f"state-{admission.safe_ref(SLOT_ID)}.json"
+    admission.write_json(
+        state_path,
+        {
+            "slot_id": SLOT_ID,
+            "rounds_completed": 0,
+            "reviewed_version_ids": ["legacy-1", "legacy-2"],
+            "claim": None,
+        },
+    )
+    assert _admit(root, "after-upgrade") is None
+
+
 def _published(relative_uri: str) -> dict:
     return {
         "commandType": "GENERATE_STORYBOARD_IMAGE",
@@ -166,12 +243,95 @@ def test_schedule_respects_switch_and_filters(monkeypatch) -> None:
         _schedule(_published("assets/artifacts/a.png"))
         # In-flight tasks stay strongly referenced until they settle.
         assert len(media_module._ACTIVE_REVIEW_TASKS) == 1
+        assert media_module.active_media_review_slots(PROJECT_ID) == {
+            SLOT_ID,
+        }
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert not media_module._ACTIVE_REVIEW_TASKS
+        assert not media_module.active_media_review_slots(PROJECT_ID)
 
     asyncio.run(_run())
     assert started == ["image"]
+
+
+def test_schedule_review_fence_is_reference_counted(monkeypatch) -> None:
+    """One completed review must not release a sibling's scheduler fence."""
+
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+    releases = [asyncio.Event(), asyncio.Event()]
+    started = 0
+
+    async def fake_loop(services, *, project_id, published, kind):
+        nonlocal started
+        mine = started
+        started += 1
+        await releases[mine].wait()
+
+    monkeypatch.setattr(media_module, "run_media_review_loop", fake_loop)
+
+    async def _run() -> None:
+        first = _published("assets/artifacts/a.png")
+        second = _published("assets/artifacts/b.png")
+        second["artifactVersion"]["version_id"] = "artifact-version-img-2"
+        _schedule(first)
+        _schedule(second)
+        assert media_module.active_media_review_slots(PROJECT_ID) == {
+            SLOT_ID,
+        }
+        await asyncio.sleep(0)
+        assert started == 2
+
+        releases[0].set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert media_module.active_media_review_slots(PROJECT_ID) == {
+            SLOT_ID,
+        }
+
+        releases[1].set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not media_module.active_media_review_slots(PROJECT_ID)
+
+    asyncio.run(_run())
+
+
+def test_prepublication_reservation_closes_commit_listener_race(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+    release = asyncio.Event()
+
+    async def fake_loop(services, *, project_id, published, kind):
+        await release.wait()
+
+    monkeypatch.setattr(media_module, "run_media_review_loop", fake_loop)
+
+    async def _run() -> None:
+        published = _published("assets/artifacts/precommit.png")
+        token = media_module.reserve_media_review(
+            SimpleNamespace(),
+            project_id=PROJECT_ID,
+            published_result=published,
+        )
+        assert token is not None
+        # This is the interval in which Project publication wakes the work
+        # scheduler. The slot must already be visible before schedule() runs.
+        assert media_module.active_media_review_slots(PROJECT_ID) == {SLOT_ID}
+        media_module.schedule_media_review(
+            SimpleNamespace(),
+            project_id=PROJECT_ID,
+            published_result=published,
+            reservation_token=token,
+        )
+        assert media_module.active_media_review_slots(PROJECT_ID) == {SLOT_ID}
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not media_module.active_media_review_slots(PROJECT_ID)
+
+    asyncio.run(_run())
 
 
 def _make_media(path: Path, *, video: bool = False) -> None:
@@ -291,7 +451,7 @@ def test_image_loop_retries_dedups_and_drops_stale_feedback(
 
     monkeypatch.setattr(media_module, "chat_completion", _boom)
     assert _run_loop(services, relative_uri) is None
-    # The claim was released: the retry admits round 1 again.
+    # The claim was released, but the failed paid attempt remains consumed.
     calls = _stub_vlm(
         monkeypatch,
         [_findings(IMAGE_CHECKS, "craft", suggestion="手指畸变，重新生成")],
@@ -304,7 +464,7 @@ def test_image_loop_retries_dedups_and_drops_stale_feedback(
     )
     report = _run_loop(services, relative_uri)
     assert report.verdict == "revise"
-    assert report.round == 1
+    assert report.round == 2
     assert _feedback_messages(services) == []
     assert _run_loop(services, relative_uri) is None
     assert len(calls) == 1, "the same version is never reviewed twice"
@@ -328,3 +488,43 @@ def test_element_video_loop_embeds_gate_block(
     assert report.gate_block["passed"] is False
     assert "门禁证据块" in calls[0]["content"][0]["text"]
     assert "分镜视频" in _feedback_messages(services)[0].content_parts[0].text
+
+
+def test_gather_or_cancel_joins_thread_workers_before_raising() -> None:
+    """A failed leg must not leave decode threads running unattended.
+
+    asyncio.to_thread detaches on cancellation, so _gather_or_cancel could
+    return (and the review loop release its media claim) while an ffmpeg
+    or decode worker still reads the file. The thread legs are joined:
+    the error propagates only after the worker has actually finished.
+    """
+    import threading
+
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_worker() -> str:
+        release.wait(timeout=10)
+        finished.set()
+        return "done"
+
+    async def failing_leg() -> None:
+        await asyncio.sleep(0)
+        raise RuntimeError("probe failed")
+
+    async def scenario() -> None:
+        # The happy path still returns results and surfaces worker errors.
+        assert await media_module._to_thread_or_join(lambda: 41 + 1) == 42
+
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.1, release.set)
+        with pytest.raises(RuntimeError, match="probe failed"):
+            await media_module._gather_or_cancel(
+                media_module._to_thread_or_join(slow_worker),
+                failing_leg(),
+            )
+        assert (
+            finished.is_set()
+        ), "the error propagated before the thread worker finished"
+
+    asyncio.run(scenario())

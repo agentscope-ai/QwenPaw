@@ -403,10 +403,47 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
-  e2e-tests:
+  # E2E split into three parallel priority shards. The full
+  # -m integration sweep holds 202 cases and takes ~90 minutes to
+  # run serially -- double this workflow's 45-minute job timeout,
+  # which cancelled the suite every night for weeks.
+  #
+  # Shard sizes and wall-clock timings were verified two ways.
+  # Static audit of this revision: p0 73, p1 89, p2 42, where two
+  # cases (test_add_environment_cancel / test_add_environment_key_required)
+  # carry both p0 and p2 markers and therefore execute in two shards
+  # (204 executions covering all 202 cases); zero cases are unmarked,
+  # so the union of the three shard selections is exactly the old
+  # -m integration set -- nothing is silently skipped.
+  # Live runs of the split expressions on a branch that also resolves
+  # the dual-marker overlap (71/89/42, zero overlap): p0 selected 71
+  # in 11:24 (run 32727540603), p1 selected 89 in
+  # 14:46 (run 32727547551), p2 selected 42 in 5:48 (run 32727554417),
+  # all green. The slowest shard stays far inside the timeout even
+  # with the two dual-marker cases still on this revision.
+  #
+  # Marker expressions must stay "integration and pX": a bare -m pX
+  # would silently drag in 12 slash_commands cases that carry a
+  # priority marker but no integration marker.
+  e2e-p0:
     uses: ./.github/workflows/_e2e-job.yml
     with:
-      test_marker: 'integration'
+      test_marker: 'integration and p0'
+      shard_suffix: p0
+    secrets: inherit
+
+  e2e-p1:
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: 'integration and p1'
+      shard_suffix: p1
+    secrets: inherit
+
+  e2e-p2:
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: 'integration and p2'
+      shard_suffix: p2
     secrets: inherit
 
   frontend-tests:
@@ -460,7 +497,7 @@ jobs:
 
   coverage-report:
     name: Coverage Report
-    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, frontend-tests]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-p0, e2e-p1, e2e-p2, frontend-tests]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -534,7 +571,7 @@ jobs:
               D:\a\QwenPaw\QwenPaw\src\qwenpaw
           RCEOF
           COMBINE_ARGS=""
-          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.integration.* .coverage.e2e; do
+          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.integration.* .coverage.e2e .coverage.e2e.*; do
             [ -f "$f" ] && COMBINE_ARGS="$COMBINE_ARGS $f"
           done
           if [ -z "$COMBINE_ARGS" ]; then
@@ -558,6 +595,23 @@ jobs:
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           fi
           rm -f .coverage.integration.merged
+          # Same precedent for the E2E tier: the nightly fan-out uploads
+          # one data file per shard (.coverage.e2e.p0 / .p1 / .p2). Merge
+          # them into one merged file + xml so the per-tier summary table
+          # still has a single "E2E" number after the three-way split.
+          E2E_FILES=""
+          for f in .coverage.e2e .coverage.e2e.*; do
+            [ -f "$f" ] && E2E_FILES="$E2E_FILES $f"
+          done
+          if [ -n "$E2E_FILES" ]; then
+            coverage combine --rcfile=.coveragerc --keep \
+              --data-file=.coverage.e2e.merged \
+              $E2E_FILES
+            coverage xml --rcfile=.coveragerc \
+              --data-file=.coverage.e2e.merged \
+              -o coverage.e2e.xml || [ "$?" -eq 2 ]
+          fi
+          rm -f .coverage.e2e.merged
           coverage combine --rcfile=.coveragerc $COMBINE_ARGS
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
           coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
@@ -631,7 +685,7 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, frontend-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-p0, e2e-p1, e2e-p2, frontend-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -641,15 +695,25 @@ jobs:
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
-          echo "E2E tests: ${{ needs.e2e-tests.result }}"
+          echo "E2E p0: ${{ needs.e2e-p0.result }}"
+          echo "E2E p1: ${{ needs.e2e-p1.result }}"
+          echo "E2E p2: ${{ needs.e2e-p2.result }}"
           echo "Frontend tests: ${{ needs.frontend-tests.result }}"
 
-          if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
-             [ "${{ needs.contract-tests.result }}" = "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" = "failure" ] || \
-             [ "${{ needs.e2e-tests.result }}" = "failure" ] || \
-             [ "${{ needs.frontend-tests.result }}" = "failure" ]; then
-            echo "❌ Some tests failed"
+          # Fail-closed: any result that is not an outright success
+          # (failure OR cancelled OR skipped) turns the summary red.
+          # The previous check only looked for "failure", so a suite
+          # killed by its job timeout (result "cancelled") still passed
+          # the summary -- which masked the nightly E2E timeout for
+          # weeks behind a green summary.
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.contract-tests.result }}" != "success" ] || \
+             [ "${{ needs.integrated-tests.result }}" != "success" ] || \
+             [ "${{ needs.e2e-p0.result }}" != "success" ] || \
+             [ "${{ needs.e2e-p1.result }}" != "success" ] || \
+             [ "${{ needs.e2e-p2.result }}" != "success" ] || \
+             [ "${{ needs.frontend-tests.result }}" != "success" ]; then
+            echo "❌ Some tests did not succeed"
             exit 1
           else
             echo "✅ All tests passed"

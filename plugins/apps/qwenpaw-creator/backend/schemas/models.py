@@ -220,9 +220,20 @@ class SelfReviewConfig(_ConfigBase):
     sync_enabled: bool = False
     media_enabled: bool = False
     render_enabled: bool = False
+    # Advanced per-operator switches (self-review 高级配置). Keys come
+    # from ``services.run_review.operator_registry``; a missing key means
+    # "auto" — enabled whenever the operator's own dependency (ASR key,
+    # easyocr, opencv) is available (能开尽开). Explicit booleans win.
+    operators: dict[str, bool] = Field(default_factory=dict)
     env_overrides: dict[str, str] = Field(
         default_factory=dict,
         alias="envOverrides",
+    )
+    # Response-only resolved operator states (source: user/auto plus the
+    # dependency probe) for the settings UI; never persisted.
+    operator_status: list[dict[str, Any]] = Field(
+        default_factory=list,
+        alias="operatorStatus",
     )
 
 
