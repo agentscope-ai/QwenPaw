@@ -81,6 +81,8 @@ vi.mock("./QrcodeAuthBlock", () => ({
               app_id: "aid",
               app_secret: "as",
               bot_token: "bt",
+              bot_id: "bid",
+              secret: "sec",
             })
           }
         >
@@ -129,7 +131,7 @@ function renderDrawer(
     return (
       <ChannelDrawer
         open={props.open ?? true}
-        activeKey={props.activeKey ?? "telegram"}
+        activeKey={props.activeKey === undefined ? "telegram" : props.activeKey}
         activeLabel={props.activeLabel ?? ""}
         form={form}
         saving={props.saving ?? false}
@@ -360,6 +362,32 @@ describe("ChannelDrawer qrcode auth callbacks", () => {
     fireEvent.click(screen.getByTestId("qr-failed-wechat"));
     expect(mockMessage.error).toHaveBeenCalled();
   });
+
+  it("qq success fills credentials and reports failures", () => {
+    const { form } = renderDrawer({ activeKey: "qq" });
+    fireEvent.click(screen.getByTestId("qr-success-qq"));
+    expect(form.getFieldValue("app_id")).toBe("aid");
+    expect(form.getFieldValue("client_secret")).toBe("cs");
+    expect(mockMessage.success).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("qr-expired-qq"));
+    expect(mockMessage.warning).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("qr-failed-qq"));
+    expect(mockMessage.error).toHaveBeenCalled();
+  });
+
+  it("wecom success fills bot credentials and any error reports failure", () => {
+    const { form } = renderDrawer({ activeKey: "wecom" });
+    fireEvent.click(screen.getByTestId("qr-success-wecom"));
+    expect(form.getFieldValue("bot_id")).toBe("bid");
+    expect(form.getFieldValue("secret")).toBe("sec");
+    expect(mockMessage.success).toHaveBeenCalled();
+    // wecom uses a single onError handler for every failure type
+    fireEvent.click(screen.getByTestId("qr-expired-wecom"));
+    expect(mockMessage.error).toHaveBeenCalled();
+    mockMessage.error.mockClear();
+    fireEvent.click(screen.getByTestId("qr-failed-wecom"));
+    expect(mockMessage.error).toHaveBeenCalled();
+  });
 });
 
 // ---- Plugin schema fields + resolveLocalized --------------------------------
@@ -460,6 +488,45 @@ describe("ChannelDrawer plugin schema rendering", () => {
       initialValues: undefined,
     });
     expect(screen.queryByText("Custom Fields")).toBeNull();
+  });
+
+  it("validates the wechat message merge delay validator", async () => {
+    // valid integer passes
+    const ok = renderDrawer({
+      activeKey: "wechat",
+      initialValues: { message_merge_enabled: true },
+    });
+    expect(screen.getByText("channels.wechatMessageMergeDelayMs")).toBeTruthy();
+    await ok.form.validateFields(["message_merge_delay_ms"]);
+
+    // empty string also passes (no-op branch)
+    ok.form.setFieldsValue({ message_merge_delay_ms: "" });
+    await ok.form.validateFields(["message_merge_delay_ms"]);
+
+    // negative / non-integer rejects
+    ok.form.setFieldsValue({ message_merge_delay_ms: -5 });
+    await expect(
+      ok.form.validateFields(["message_merge_delay_ms"]),
+    ).rejects.toBeTruthy();
+    ok.unmount();
+
+    const bad = renderDrawer({
+      activeKey: "wechat",
+      initialValues: {
+        message_merge_enabled: true,
+        message_merge_delay_ms: 1.5,
+      },
+    });
+    await expect(
+      bad.form.validateFields(["message_merge_delay_ms"]),
+    ).rejects.toBeTruthy();
+  });
+
+  it("renders the generic settings title when no channel is active", async () => {
+    renderDrawer({ activeKey: null, activeLabel: "" });
+    await screen.findByText("channels.channelSettings");
+    // no form body is rendered without an active channel
+    expect(screen.queryByText("channels.showToolCalls")).toBeNull();
   });
 });
 
