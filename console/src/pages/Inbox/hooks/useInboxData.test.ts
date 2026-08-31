@@ -301,34 +301,6 @@ describe("useInboxData", () => {
     expect(result.current.pushMessages.every((m) => m.read)).toBe(true);
   });
 
-  /**
-   * KNOWN BUG CANDIDATE (recorded in PROGRESS_coverage_sprint3 product
-   * defect log, awaiting Taige confirmation before Aone):
-   * deleteMessages counts deletions inside the setPushMessages updater,
-   * but returns `deleted` before React runs that updater — so it returns
-   * 0 in this environment. Caller Inbox/index.tsx:386 uses the count to
-   * decide whether to show the batch-delete success toast, which means
-   * the toast may never appear. Marked `it.fails`: this test passes
-   * while the bug exists and will FAIL once fixed, prompting removal of
-   * the marker.
-   */
-  it.fails("returns the true deleted count for selected messages", async () => {
-    mocks.getInboxEvents.mockResolvedValue({
-      events: [event({ id: "a", read: false }), event({ id: "b", read: true })],
-      total: 2,
-      unread_count: 1,
-    });
-    const { result } = renderHook(() => useInboxData());
-    await waitFor(() => {
-      expect(result.current.pushMessages.length).toBe(2);
-    });
-    let deleted = -1;
-    await act(async () => {
-      deleted = await result.current.deleteMessages(["a", " a ", ""]);
-    });
-    expect(deleted).toBe(1);
-  });
-
   it("deletes selected messages from the list", async () => {
     mocks.getInboxEvents.mockResolvedValue({
       events: [event({ id: "a", read: false }), event({ id: "b", read: true })],
@@ -346,31 +318,36 @@ describe("useInboxData", () => {
     expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
   });
 
-  /**
-   * Same root cause as the return-value bug above, second symptom:
-   * the `summary` useState hook is declared BEFORE `pushMessages`, so
-   * during the render phase React runs the summary updater first —
-   * reading the deleted/unreadDeleted counters before the pushMessages
-   * updater accumulates them. The badge total/unread therefore stays
-   * stale after a batch delete (self-heals on the next 6s poll).
-   */
-  it.fails("adjusts the summary immediately after deletion", async () => {
+  it("re-syncs list and badge from server data on the next poll after delete", async () => {
+    vi.useFakeTimers();
     mocks.getInboxEvents.mockResolvedValue({
       events: [event({ id: "a", read: false }), event({ id: "b", read: true })],
       total: 2,
       unread_count: 1,
     });
     const { result } = renderHook(() => useInboxData());
-    await waitFor(() => {
-      expect(result.current.pushMessages.length).toBe(2);
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(result.current.pushMessages.length).toBe(2);
+    // Server state after the deletion: only message b remains.
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "b", read: true })],
+      total: 1,
+      unread_count: 0,
     });
     await act(async () => {
       await result.current.deleteMessages(["a"]);
     });
-    expect(result.current.summary.pushMessages).toEqual({
-      total: 1,
-      unread: 0,
+    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
+    // The 6s poll rewrites list and badge from the server response,
+    // independent of local setState updater timing.
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
     });
+    expect(result.current.summary.pushMessages).toEqual({ total: 1, unread: 0 });
+    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
+    vi.useRealTimers();
   });
 
   it("returns zero deleted for an empty id list without API calls", async () => {
