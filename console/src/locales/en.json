@@ -1738,7 +1738,7 @@
     "dingtalkEndpoint": "API Endpoint",
     "dingtalkEndpointTooltip": "Custom API endpoint for private DingTalk deployments. Leave empty to use the official default.",
     "cardAutoLayout": "Widescreen Card (Auto Layout)",
-    "cardAutoLayoutTooltip": "When enabled, the bot sends config.autoLayout=true so DingTalk renders AI cards in widescreen on desktop. Only applies when the message type is card. The card template must be published.",
+    "cardAutoLayoutTooltip": "When enabled, DingTalk renders AI cards in widescreen on desktop. Only applies when the message type is card. The card template must be published.",
     "wecomCancelled": "Authorization cancelled",
     "wecomAuthFailed": "Authorization failed: {{msg}}",
     "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",

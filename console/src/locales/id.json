@@ -1208,6 +1208,8 @@
     "groupDisabledTooltip": "Saat diaktifkan, bot akan sepenuhnya mengabaikan semua pesan grup",
     "shareSessionInGroup": "Bagikan Konteks dalam Grup",
     "shareSessionInGroupTooltip": "Saat diaktifkan, semua anggota grup berbagi konteks percakapan yang sama. Saat dinonaktifkan, setiap anggota memiliki konteks independen.",
+    "cardAutoLayout": "Kartu Layar Lebar (Tata Letak Otomatis)",
+    "cardAutoLayoutTooltip": "Saat diaktifkan, DingTalk merender kartu AI dalam format layar lebar di desktop. Hanya berlaku jika jenis pesan adalah card. Templat kartu harus sudah dipublikasikan.",
     "manageAccessControl": "Kontrol Akses",
     "pendingApprovals": "Menunggu Persetujuan",
     "whitelist": "Daftar Putih",

@@ -96,7 +96,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 | `card_template_id`       | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                                      |
 | `card_template_key`      | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                                       |
 | `robot_code`             | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty)           |
-| `card_auto_layout`       | bool   | `false`         | If `true`, AI Cards are delivered with `config.autoLayout=true` so DingTalk renders them in widescreen on desktop          |
+| `card_auto_layout`       | bool   | `false`         | If `true`, DingTalk renders AI Cards in widescreen on desktop (only for `card` messages)                                   |
 | `share_session_in_group` | bool   | `false`         | If `true`, all group members share one conversation context; if `false` (default), each member gets an independent context |
 | `media_dir`              | string | `null`          | Media file download directory (leave empty to not save)                                                                    |
 
@@ -104,7 +104,6 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 >
 > - Tool calls and results can be shown independently. Set a maximum length to `0` to disable truncation.
 > - AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
-> - `card_auto_layout` enables widescreen AI Cards on desktop; the card template must be published, and a channel restart is required for the change to take effect.
 > - `robot_code` is recommended in group scenarios; if empty, QwenPaw falls back to `client_id`.
 
 Save the file; if the app is already running, the channel will reload. Otherwise run `qwenpaw app`.
