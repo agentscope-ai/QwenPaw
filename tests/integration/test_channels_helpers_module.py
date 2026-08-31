@@ -131,7 +131,7 @@ def test_telegram_chunk_text_short() -> None:
 
     channel = TelegramChannel.__new__(TelegramChannel)
     assert channel._chunk_text("short") == ["short"]
-    assert channel._chunk_text("") == []
+    assert not channel._chunk_text("")
 
 
 @pytest.mark.integration

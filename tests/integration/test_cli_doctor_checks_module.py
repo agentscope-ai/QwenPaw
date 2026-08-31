@@ -30,7 +30,7 @@ def test_scan_unknown_config_keys_clean_dict() -> None:
     from qwenpaw.cli.doctor_checks import scan_unknown_config_keys
 
     findings = scan_unknown_config_keys({})
-    assert findings == []
+    assert not findings
 
 
 @pytest.mark.integration

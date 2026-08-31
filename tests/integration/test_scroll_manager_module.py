@@ -140,8 +140,8 @@ def test_summary_metadata_pointers_non_container() -> None:
     """Scalars and lists of scalars yield no pointers."""
     from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 
-    assert ScrollContextManager._summary_metadata_pointers(42) == []
-    assert ScrollContextManager._summary_metadata_pointers([1, 2]) == []
+    assert not ScrollContextManager._summary_metadata_pointers(42)
+    assert not ScrollContextManager._summary_metadata_pointers([1, 2])
 
 
 @pytest.mark.integration

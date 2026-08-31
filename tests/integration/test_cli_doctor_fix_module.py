@@ -300,4 +300,4 @@ def test_planned_fix_dataclass() -> None:
         apply_fn=lambda: None,
     )
     assert fix.fix_id == "ensure-working-dir"
-    assert fix.paths_to_backup == ()
+    assert not fix.paths_to_backup
