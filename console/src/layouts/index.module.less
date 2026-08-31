@@ -674,18 +674,30 @@
 
 .simpleAgentDisclosureHandle {
   display: inline-flex;
-  width: 30px;
+  min-width: 58px;
   height: 22px;
   align-items: center;
   justify-content: center;
+  gap: 3px;
+  padding: 0 8px;
   border: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.08));
   border-radius: 999px;
   background: color-mix(in srgb, white 48%, transparent);
+  font-size: 11px;
   box-shadow: 0 2px 8px rgba(43, 18, 0, 0.055);
   transition:
     border-color 0.16s ease,
     background 0.16s ease,
     box-shadow 0.16s ease;
+}
+
+.simpleAgentDisclosureChevron {
+  display: inline-flex;
+  transition: transform 0.16s ease;
+}
+
+.simpleAgentDisclosureChevronExpanded {
+  transform: rotate(180deg);
 }
 
 .simpleAgentFunctionsMotion {

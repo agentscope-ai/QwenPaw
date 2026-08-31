@@ -2,11 +2,7 @@ import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
 import { SparkHistoryLine, SparkNewChatFill } from "@agentscope-ai/icons";
-import {
-  ExpandAltOutlined,
-  CompressOutlined,
-  MoreOutlined,
-} from "@ant-design/icons";
+import { MoreOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Dropdown, Flex, Tooltip } from "antd";
 import { Files } from "lucide-react";
@@ -22,8 +18,6 @@ interface ChatActionGroupProps {
   historyOpen?: boolean;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
-  isWideMode?: boolean;
-  onToggleWideMode?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
@@ -31,8 +25,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   historyOpen = false,
   onToggleWorkspace,
   workspaceOpen = false,
-  isWideMode = false,
-  onToggleWideMode,
 }) => {
   const { t } = useTranslation();
 
@@ -42,7 +34,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   // mobile. This saves space on phones while keeping actions visible on desktop.
   const isCompact = useIsMobile();
 
-  // Build "more" dropdown items for compact mode: History, WideMode.
+  // Build the compact overflow menu for optional secondary actions.
   const moreItems: MenuProps["items"] = [];
   if (onToggleHistory) {
     moreItems.push({
@@ -54,18 +46,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </div>
       ),
       onClick: () => onToggleHistory(),
-    });
-  }
-  if (onToggleWideMode) {
-    moreItems.push({
-      key: "wideMode",
-      icon: isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />,
-      label: (
-        <div style={{ textAlign: "center" }}>
-          {isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")}
-        </div>
-      ),
-      onClick: () => onToggleWideMode(),
     });
   }
 
@@ -113,7 +93,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </Tooltip>
       )}
 
-      {/* History + WideMode: inline when NOT compact */}
+      {/* History is inline when not compact. */}
       {!isCompact && onToggleHistory && (
         <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
           <IconButton
@@ -128,22 +108,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           />
         </Tooltip>
       )}
-      {!isCompact && onToggleWideMode && (
-        <Tooltip
-          title={
-            isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")
-          }
-          mouseEnterDelay={0.5}
-        >
-          <IconButton
-            bordered={false}
-            icon={isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />}
-            onClick={onToggleWideMode}
-          />
-        </Tooltip>
-      )}
-
-      {/* Compact mode: collapse History/WideMode into more dropdown */}
+      {/* Compact mode: collapse History into the overflow menu. */}
       {isCompact && moreItems.length > 0 && (
         <Dropdown
           menu={{ items: moreItems }}

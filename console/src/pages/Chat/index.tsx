@@ -57,9 +57,9 @@ import { LoopModeSelector } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
+import { getChatWideModePreference } from "@/utils/chatLayoutPreference";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
-import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
   patchContextMaxInputLength,
@@ -649,7 +649,6 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
-const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -1245,29 +1244,8 @@ export default function ChatPage() {
     [dispatchFilesDrawer],
   );
 
-  // Wide mode toggle: expand chat content to full available width
-  const [isWideMode, setIsWideMode] = useState(() => {
-    try {
-      return localStorage.getItem(WIDE_MODE_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleWideMode = useCallback(() => {
-    setIsWideMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) {
-          localStorage.setItem(WIDE_MODE_STORAGE_KEY, "true");
-        } else {
-          localStorage.removeItem(WIDE_MODE_STORAGE_KEY);
-        }
-      } catch {
-        // storage unavailable
-      }
-      return next;
-    });
-  }, []);
+  // Wide mode is configured in Settings > General.
+  const [isWideMode] = useState(getChatWideModePreference);
 
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
@@ -1550,14 +1528,11 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-  const { mode: sidebarMode } = useSidebarModeStore();
-  const isFullMode = sidebarMode === "full";
-
-  // On mobile viewports the right-side history panel should always be
-  // available regardless of the sidebar mode setting.
+  // Desktop sessions live in the unified left sidebar. Mobile keeps the
+  // right-side history panel because the left sidebar starts collapsed.
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
-  const effectiveIsFullMode = isFullMode || isMobile;
+  const historyPanelAvailable = isMobile;
 
   // Right-side history panel state
   const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
@@ -3137,11 +3112,9 @@ export default function ChatPage() {
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
               onToggleHistory={
-                effectiveIsFullMode ? toggleHistoryPanel : undefined
+                historyPanelAvailable ? toggleHistoryPanel : undefined
               }
-              historyOpen={effectiveIsFullMode ? historyPanelOpen : false}
-              isWideMode={isWideMode}
-              onToggleWideMode={toggleWideMode}
+              historyOpen={historyPanelAvailable ? historyPanelOpen : false}
             />
             {pluginRightHeader}
           </>
@@ -3547,7 +3520,6 @@ export default function ChatPage() {
     whisperEnabled,
     handleWhisperTranscription,
     isWideMode,
-    toggleWideMode,
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
@@ -3559,7 +3531,7 @@ export default function ChatPage() {
     handleQueuePauseResume,
     handleQueueRetry,
     handleQueueSkip,
-    effectiveIsFullMode,
+    historyPanelAvailable,
     historyPanelOpen,
     toggleHistoryPanel,
     handleCompactCommand,
@@ -3818,8 +3790,8 @@ export default function ChatPage() {
       </motion.div>
       {/* End of main chat area */}
 
-      {/* Right-side history panel (full mode only) */}
-      {effectiveIsFullMode && historyPanelOpen && (
+      {/* Mobile history panel; desktop sessions live in the left sidebar. */}
+      {historyPanelAvailable && historyPanelOpen && (
         <>
           {isMobile ? (
             <ChatSessionDrawer

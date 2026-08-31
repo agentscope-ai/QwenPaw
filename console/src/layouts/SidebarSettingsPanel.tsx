@@ -11,12 +11,9 @@ import {
   SparkJapanLine,
   SparkRusLine,
   SparkPtLine,
-  SparkFullscreenLine,
-  SparkExitFullscreenLine,
 } from "@agentscope-ai/icons";
 import { languageApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
-import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { isTauriRuntime } from "../tauri/backendRuntime";
 import {
   clearRememberedCloseAction,
@@ -51,8 +48,6 @@ export default function SidebarSettingsPanel({
 }: SidebarSettingsPanelProps) {
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
-  const { mode: sidebarMode, toggleMode: toggleSidebarMode } =
-    useSidebarModeStore();
   const [closeBehavior, setCloseBehavior] = React.useState<CloseBehavior>(() =>
     isTauriRuntime() ? getRememberedCloseAction() ?? "ask" : "ask",
   );
@@ -174,37 +169,13 @@ export default function SidebarSettingsPanel({
         </div>
       ) : null}
 
-      {/* ── Mode ─────────────────────────────────────────── */}
-      <div className={styles.row}>
-        <span className={styles.label}>
-          {t("sidebar.settings.mode", "Mode")}
-        </span>
-        <div className={styles.modeActions}>
+      {isTauriRuntime() ? (
+        <div className={styles.row}>
+          <span className={styles.label}>
+            {t("sidebar.settings.desktopMode", "Desktop Mode")}
+          </span>
           <button
-            className={`${styles.optBtn} ${styles.optBtnBlock}`}
-            onClick={() => {
-              toggleSidebarMode();
-              onClose?.();
-            }}
-          >
-            {sidebarMode === "simple" ? (
-              <>
-                <SparkFullscreenLine size={14} />
-                <span className={styles.optLabel}>
-                  {t("sidebar.fullMode", "Full Mode")}
-                </span>
-              </>
-            ) : (
-              <>
-                <SparkExitFullscreenLine size={14} />
-                <span className={styles.optLabel}>
-                  {t("sidebar.simpleMode", "Simple Mode")}
-                </span>
-              </>
-            )}
-          </button>
-          <button
-            className={`${styles.optBtn} ${styles.optBtnBlock} ${styles.desktopModeBtn}`}
+            className={`${styles.optBtn} ${styles.desktopModeBtn}`}
             onClick={() => {
               onClose?.();
               window.location.assign(getOsRootHref(window.location.pathname));
@@ -216,7 +187,7 @@ export default function SidebarSettingsPanel({
             </span>
           </button>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

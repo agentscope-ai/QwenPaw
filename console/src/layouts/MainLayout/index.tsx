@@ -35,6 +35,8 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const { t } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
+  const settingsCenterActive =
+    currentPath === "/settings" || currentPath.startsWith("/settings/");
   const routes = useRoutes();
 
   // Backend is the source of truth for Coding Mode state — refill the
@@ -60,7 +62,9 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     <Layout className={styles.mainLayout}>
       <Header />
       <Layout>
-        <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
+        {!settingsCenterActive && (
+          <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
+        )}
         <Content className="page-container">
           <ConsolePollService />
           <AgentStatusPollingController />

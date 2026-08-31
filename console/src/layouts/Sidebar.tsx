@@ -1,13 +1,10 @@
 import {
   Layout,
-  Menu,
   Button,
   Modal,
   Input,
   Form,
   Tooltip,
-  Badge,
-  Popover,
   Popconfirm,
   Divider,
 } from "antd";
@@ -15,7 +12,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, MessageSquareText, RotateCw } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
@@ -28,7 +24,6 @@ import {
   SparkSettingLine,
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
-import SidebarSettingsPanel from "./SidebarSettingsPanel";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
@@ -45,17 +40,13 @@ import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
-import {
-  deriveOpenKeys,
-  findMenuItem,
-  flattenMenu,
-  renderIcon,
-  routeIdToPath,
-  toAntdItems,
-} from "./registry/adapter";
+import { flattenMenu } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
-import type { MenuItem } from "../plugins/registry/types";
+import {
+  filterSidebarMenuItems,
+  splitSidebarEntriesForDisplay,
+} from "./registry/sidebarEntries";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { hubApi } from "../api/modules/hub";
@@ -73,41 +64,6 @@ function isMobileSidebarViewport() {
   );
 }
 const INBOX_BADGE_POLLING_MS = 6000;
-
-// ── Simple mode whitelist ─────────────────────────────────────────────────
-
-/** Menu item IDs that remain visible in simple sidebar mode (no groups). */
-const SIMPLE_MODE_WHITELIST = new Set([
-  "core.files",
-  "core.inbox",
-  "core.marketplace",
-  "core.cron-jobs",
-  "core.agent-config",
-  "core.models",
-]);
-
-/**
- * Flatten a MenuItem tree into a leaf-only list for simple sidebar mode.
- * Groups are eliminated entirely — only whitelisted children survive
- * as top-level items.
- */
-function flattenMenuForSimpleMode(items: MenuItem[]): MenuItem[] {
-  const result: MenuItem[] = [];
-  for (const rawItem of items) {
-    const item = rawItem as MenuItem & { __children?: MenuItem[] };
-    if (item.__children && item.__children.length > 0) {
-      for (const child of item.__children) {
-        if (SIMPLE_MODE_WHITELIST.has(child.id)) {
-          result.push(child);
-        }
-      }
-    } else if (SIMPLE_MODE_WHITELIST.has(item.id)) {
-      result.push(item);
-    }
-  }
-  return result;
-}
-
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -139,11 +95,8 @@ export default function Sidebar({
   // Start collapsed on mobile so the first paint does not overlay/obscure
   // the main content on narrow viewports.
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
-  const [simpleAgentFunctionsExpanded, setSimpleAgentFunctionsExpanded] =
-    useState(false);
-  const prefersReducedMotion = useReducedMotion();
+  const [navOverflowExpanded, setNavOverflowExpanded] = useState(false);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
@@ -151,8 +104,9 @@ export default function Sidebar({
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
-  // Sidebar mode: "simple" (only core items) or "full" (everything)
-  const { mode: sidebarMode } = useSidebarModeStore();
+  // The legacy store name is retained for persisted-data compatibility. The
+  // user-facing UI now exposes one sidebar with configurable visibility.
+  const { focusItemIds, hiddenPluginItemIds } = useSidebarModeStore();
   const { selectedAgent, agents } = useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
   const backendCapabilities = useMemo(
@@ -174,37 +128,53 @@ export default function Sidebar({
   const rawSettingsMenu = useMenuItems("primary.settings");
   const routes = useRoutes();
 
-  // Apply simple-mode filtering when enabled
-  const agentMenu = useMemo(() => {
-    const visibleMenu = filterMenuForAgentCapabilities(
-      rawAgentMenu,
-      backendCapabilities,
-    );
-    return sidebarMode === "simple"
-      ? flattenMenuForSimpleMode(visibleMenu)
-      : visibleMenu;
-  }, [backendCapabilities, rawAgentMenu, sidebarMode]);
-  const settingsMenu = useMemo(
-    () =>
-      sidebarMode === "simple"
-        ? flattenMenuForSimpleMode(rawSettingsMenu)
-        : rawSettingsMenu,
-    [rawSettingsMenu, sidebarMode],
+  const visibleAgentMenu = useMemo(
+    () => filterMenuForAgentCapabilities(rawAgentMenu, backendCapabilities),
+    [backendCapabilities, rawAgentMenu],
+  );
+  const focusItemIdSet = useMemo(() => new Set(focusItemIds), [focusItemIds]);
+  const hiddenPluginItemIdSet = useMemo(
+    () => new Set(hiddenPluginItemIds),
+    [hiddenPluginItemIds],
   );
 
-  // Flat nav entries for simple mode (icon + label + path)
-  const simpleFlatNav = useMemo(() => {
-    if (sidebarMode !== "simple") return [];
-    return [
+  // Selected entries form both the expanded and collapsed navigation surface.
+  const agentMenu = useMemo(
+    () =>
+      filterSidebarMenuItems(
+        visibleAgentMenu,
+        focusItemIdSet,
+        hiddenPluginItemIdSet,
+      ),
+    [focusItemIdSet, hiddenPluginItemIdSet, visibleAgentMenu],
+  );
+  const selectedSettingsMenu = useMemo(
+    () =>
+      filterSidebarMenuItems(
+        rawSettingsMenu,
+        focusItemIdSet,
+        hiddenPluginItemIdSet,
+      ),
+    [focusItemIdSet, hiddenPluginItemIdSet, rawSettingsMenu],
+  );
+
+  const selectedFlatNav = useMemo(() => {
+    const entries = [
       ...flattenMenu(agentMenu, routes, 16),
-      ...flattenMenu(settingsMenu, routes, 16),
+      ...flattenMenu(selectedSettingsMenu, routes, 16),
     ];
-  }, [agentMenu, settingsMenu, routes, sidebarMode]);
-  const simpleInboxEntry = simpleFlatNav.find(
+    return [...new Map(entries.map((entry) => [entry.key, entry])).values()];
+  }, [agentMenu, routes, selectedSettingsMenu]);
+  const simpleInboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
-  const simpleFoldedNav = simpleFlatNav.filter(
-    (entry) => entry.key !== "core.inbox",
+  const visibleSidebarNav = useMemo(
+    () => selectedFlatNav.filter((entry) => entry.key !== "core.inbox"),
+    [selectedFlatNav],
+  );
+  const { direct: directSidebarNav, overflow: overflowSidebarNav } = useMemo(
+    () => splitSidebarEntriesForDisplay(visibleSidebarNav),
+    [visibleSidebarNav],
   );
 
   // ── Effects ──────────────────────────────────────────────────────────────
@@ -222,6 +192,14 @@ export default function Sidebar({
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (overflowSidebarNav.some((entry) => entry.key === selectedKey)) {
+      setNavOverflowExpanded(true);
+    } else if (overflowSidebarNav.length === 0) {
+      setNavOverflowExpanded(false);
+    }
+  }, [overflowSidebarNav, selectedKey]);
 
   useEffect(() => {
     if (
@@ -321,62 +299,6 @@ export default function Sidebar({
     setShakeInbox(false);
   }, []);
 
-  /**
-   * Bridge hover events from the antd Menu `<li>` to our handler.
-   * addEventListener de-duplicates the same function reference, so re-calling
-   * on the same element is harmless; old detached elements are GC'd naturally.
-   */
-  const inboxLiRefCallback = useCallback(
-    (node: HTMLSpanElement | null) => {
-      const li = node?.closest("li");
-      if (!li) return;
-      li.addEventListener("mouseenter", handleInboxHover);
-    },
-    [handleInboxHover],
-  );
-
-  /** Wrap the inbox label with the unread-Badge while keeping all other labels intact. */
-  const decorateLabel = (item: MenuItem, label: ReactNode): ReactNode => {
-    if (item.id !== "core.inbox" || label == null) return label;
-    return (
-      <span ref={inboxLiRefCallback}>
-        <Badge dot={hasInboxUnread} color={inboxDotColor} offset={[5, 7]}>
-          <span>{label}</span>
-        </Badge>
-      </span>
-    );
-  };
-
-  const getItemClassName = (item: MenuItem) => {
-    if (item.id === "core.inbox" && effectiveShake) {
-      return styles.inboxShake;
-    }
-    return undefined;
-  };
-
-  const agentMenuItems = useMemo(
-    () =>
-      toAntdItems(agentMenu, { collapsed, decorateLabel, getItemClassName }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      agentMenu,
-      collapsed,
-      hasUnreadMessages,
-      hasPendingApprovals,
-      effectiveShake,
-    ],
-  );
-
-  const settingsMenuItems = useMemo(
-    () => toAntdItems(settingsMenu, { collapsed }),
-    [settingsMenu, collapsed],
-  );
-
-  const openKeys = useMemo(
-    () => [...deriveOpenKeys(agentMenu), ...deriveOpenKeys(settingsMenu)],
-    [agentMenu, settingsMenu],
-  );
-
   const collapsedNavItems = useMemo(() => {
     // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
     const stickyChat: FlatMenuEntry = {
@@ -408,7 +330,7 @@ export default function Sidebar({
     const flat = [
       stickyChat,
       ...flattenMenu(agentMenu, routes, 18),
-      ...flattenMenu(settingsMenu, routes, 18),
+      ...flattenMenu(selectedSettingsMenu, routes, 18),
     ];
     return flat.map((entry) =>
       entry.key === "core.inbox"
@@ -417,7 +339,7 @@ export default function Sidebar({
     );
   }, [
     agentMenu,
-    settingsMenu,
+    selectedSettingsMenu,
     routes,
     chatPath,
     t,
@@ -426,16 +348,6 @@ export default function Sidebar({
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const handleMenuClick = (key: string, allItems: MenuItem[]) => {
-    const item = findMenuItem(allItems, key);
-    if (item?.href) {
-      window.open(item.href, "_blank", "noopener,noreferrer");
-      return;
-    }
-    const path = routeIdToPath(item?.route, routes);
-    if (path) navigate(path);
-  };
 
   /**
    * New chat: if we're already on the chat page, dispatch the event so
@@ -594,19 +506,31 @@ export default function Sidebar({
     );
   };
 
-  // `renderIcon` retained for tree-shaking awareness.
-  void renderIcon;
+  const renderSimpleNavItem = (entry: FlatMenuEntry) => {
+    const isActive = selectedKey === entry.key;
+    return (
+      <button
+        key={entry.key}
+        type="button"
+        className={`${styles.simpleNavItem} ${
+          isActive ? styles.simpleNavItemActive : ""
+        }`}
+        onClick={() => {
+          if (entry.href) {
+            window.open(entry.href, "_blank", "noopener,noreferrer");
+          } else {
+            navigate(entry.path);
+          }
+        }}
+      >
+        {entry.icon}
+        <span>{entry.label}</span>
+      </button>
+    );
+  };
 
-  // On mobile, the expanded sidebar shows sessions (like simple mode) instead
-  // of the full menu — matching the desktop history panel UX.
-  const isSimpleExpanded = (sidebarMode === "simple" || isMobile) && !collapsed;
-  const siderWidth = collapsed
-    ? isMobile
-      ? 56
-      : 72
-    : sidebarMode === "simple" && !isMobile
-    ? 280
-    : 240;
+  // The expanded sidebar uses the same content on desktop and mobile.
+  const siderWidth = collapsed ? (isMobile ? 56 : 72) : 280;
 
   return (
     <Sider
@@ -614,7 +538,7 @@ export default function Sidebar({
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}${
-        isSimpleExpanded ? ` ${styles.siderSimple}` : ""
+        !collapsed ? ` ${styles.siderSimple}` : ""
       }`}
     >
       {collapsed ? (
@@ -628,15 +552,16 @@ export default function Sidebar({
             {collapsedScrollableItems.map(renderCollapsedNavItem)}
           </div>
         </nav>
-      ) : isSimpleExpanded ? (
+      ) : (
         <>
-          {/* Simple mode: agent context and navigation share one panel. */}
+          {/* Unified sidebar: selected shortcuts and sessions. */}
           <div
             className={`${styles.agentScopedSection} ${styles.simpleAgentPanel}`}
           >
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
             </div>
+            <Slot name="sider.top" kind="fill" />
             <button
               type="button"
               className={`${styles.simpleNavItem} ${styles.simpleChatItem} ${
@@ -680,128 +605,53 @@ export default function Sidebar({
                 <span>{simpleInboxEntry.label}</span>
               </button>
             )}
-            <button
-              type="button"
-              className={styles.simpleAgentDisclosure}
-              aria-expanded={simpleAgentFunctionsExpanded}
-              aria-controls="simple-agent-functions"
-              aria-label={t(
-                "sidebar.toggleAgentNavigation",
-                "Expand or collapse agent navigation",
-              )}
-              onClick={() =>
-                setSimpleAgentFunctionsExpanded((expanded) => !expanded)
-              }
-            >
-              <span className={styles.simpleAgentDisclosureLine} />
-              <motion.span
-                className={styles.simpleAgentDisclosureHandle}
-                animate={{ rotate: simpleAgentFunctionsExpanded ? 180 : 0 }}
-                transition={
-                  prefersReducedMotion
-                    ? { duration: 0 }
-                    : { duration: 0.22, ease: [0.22, 0.78, 0.24, 1] }
-                }
-              >
-                <ChevronDown size={14} />
-              </motion.span>
-              <span className={styles.simpleAgentDisclosureLine} />
-            </button>
-            <AnimatePresence initial={false}>
-              {simpleAgentFunctionsExpanded && (
-                <motion.div
-                  key="simple-agent-functions"
-                  id="simple-agent-functions"
-                  className={styles.simpleAgentFunctionsMotion}
-                  initial={
-                    prefersReducedMotion
-                      ? false
-                      : { height: 0, opacity: 0, y: -4 }
-                  }
-                  animate={{ height: "auto", opacity: 1, y: 0 }}
-                  exit={{ height: 0, opacity: 0, y: -4 }}
-                  transition={
-                    prefersReducedMotion
-                      ? { duration: 0 }
-                      : { duration: 0.24, ease: [0.22, 0.78, 0.24, 1] }
+            {directSidebarNav.map(renderSimpleNavItem)}
+            {overflowSidebarNav.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className={styles.simpleAgentDisclosure}
+                  aria-expanded={navOverflowExpanded}
+                  aria-controls="sidebar-overflow-shortcuts"
+                  onClick={() =>
+                    setNavOverflowExpanded((expanded) => !expanded)
                   }
                 >
-                  <div className={styles.simpleNavItems}>
-                    {simpleFoldedNav.map((entry) => {
-                      const isActive = selectedKey === entry.key;
-                      return (
-                        <button
-                          key={entry.key}
-                          className={`${styles.simpleNavItem} ${
-                            isActive ? styles.simpleNavItemActive : ""
-                          }`}
-                          onClick={() => {
-                            if (entry.href) {
-                              window.open(
-                                entry.href,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            } else {
-                              navigate(entry.path);
-                            }
-                          }}
-                        >
-                          {entry.icon}
-                          <span>{entry.label}</span>
-                        </button>
-                      );
-                    })}
+                  <span className={styles.simpleAgentDisclosureLine} />
+                  <span className={styles.simpleAgentDisclosureHandle}>
+                    {navOverflowExpanded
+                      ? t("sidebar.collapseShortcuts", "Collapse")
+                      : t("sidebar.expandShortcuts", {
+                          count: overflowSidebarNav.length,
+                          defaultValue: "Show {{count}} more",
+                        })}
+                    <ChevronDown
+                      size={13}
+                      className={`${styles.simpleAgentDisclosureChevron} ${
+                        navOverflowExpanded
+                          ? styles.simpleAgentDisclosureChevronExpanded
+                          : ""
+                      }`}
+                    />
+                  </span>
+                  <span className={styles.simpleAgentDisclosureLine} />
+                </button>
+                {navOverflowExpanded && (
+                  <div
+                    id="sidebar-overflow-shortcuts"
+                    className={styles.simpleNavItems}
+                  >
+                    {overflowSidebarNav.map(renderSimpleNavItem)}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+              </>
+            )}
           </div>
 
           {/* Session list — fills the primary space. */}
           <SidebarSessionList
             onNewChat={handleNewChat}
             onSessionClick={handleSidebarSessionClick}
-          />
-        </>
-      ) : (
-        <>
-          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
-          <div className={styles.agentScopedSection}>
-            <div className={styles.agentSelectorContainer}>
-              <AgentSelector collapsed={collapsed} />
-              {/* Chat entry — sticky together with agent selector */}
-              <button
-                className={`${styles.stickyChatButton}${
-                  isChatActive ? ` ${styles.stickyChatButtonActive}` : ""
-                }`}
-                onClick={() => navigate(chatPath)}
-              >
-                <SparkChatTabFill size={16} />
-                <span>{t("nav.chat")}</span>
-              </button>
-            </div>
-            <Slot name="sider.top" kind="fill" />
-            <Menu
-              mode="inline"
-              selectedKeys={[selectedKey]}
-              openKeys={openKeys}
-              onClick={({ key }) => handleMenuClick(String(key), agentMenu)}
-              items={agentMenuItems}
-              theme={isDark ? "dark" : "light"}
-              className={styles.sideMenu}
-            />
-          </div>
-
-          {/* Global settings section */}
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            openKeys={openKeys}
-            onClick={({ key }) => handleMenuClick(String(key), settingsMenu)}
-            items={settingsMenuItems}
-            theme={isDark ? "dark" : "light"}
-            className={styles.sideMenu}
           />
           <Slot name="sider.bottom" kind="fill" />
         </>
@@ -852,24 +702,19 @@ export default function Sidebar({
       )}
 
       <div className={styles.collapseToggleContainer}>
-        {/* Gear stays visible in collapsed state too — otherwise users
-            (especially on mobile, where the sidebar starts collapsed)
-            cannot discover how to restore full mode. */}
-        <Popover
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          placement={collapsed ? "rightBottom" : "topRight"}
-          trigger="click"
-          content={
-            <SidebarSettingsPanel onClose={() => setSettingsOpen(false)} />
-          }
-        >
+        <Tooltip title={t("nav.settings")} placement="right">
           <Button
             type="text"
+            aria-label={t("nav.settings")}
             icon={<SparkSettingLine size={18} />}
             className={styles.collapseToggle}
+            onClick={() =>
+              navigate("/settings/general", {
+                state: { settingsReturnTo: location.pathname },
+              })
+            }
           />
-        </Popover>
+        </Tooltip>
         <Button
           type="text"
           icon={
