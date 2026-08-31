@@ -108,6 +108,7 @@ vi.mock("@agentscope-ai/design", async () => {
       value,
       onChange,
       onBlur,
+      onSearch,
       options = [],
       placeholder,
       children,
@@ -115,26 +116,35 @@ vi.mock("@agentscope-ai/design", async () => {
       value?: string;
       onChange?: (value: string) => void;
       onBlur?: () => void;
+      onSearch?: (value: string) => void;
       options?: OptionLike[];
       placeholder?: string;
       children?: React.ReactNode;
     }) => {
       capturedSelects.set(placeholder ?? "", options);
       return (
-        <select
-          value={value ?? ""}
-          placeholder={placeholder}
-          onChange={(e) => onChange?.(e.target.value)}
-          onBlur={onBlur}
-        >
-          <option value="">{placeholder}</option>
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {String(o.label)}
-            </option>
-          ))}
-          {children}
-        </select>
+        <>
+          {onSearch ? (
+            <input
+              data-testid={`search-${placeholder}`}
+              onChange={(e) => onSearch(e.target.value)}
+            />
+          ) : null}
+          <select
+            value={value ?? ""}
+            placeholder={placeholder}
+            onChange={(e) => onChange?.(e.target.value)}
+            onBlur={onBlur}
+          >
+            <option value="">{placeholder}</option>
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {String(o.label)}
+              </option>
+            ))}
+            {children}
+          </select>
+        </>
       );
     },
     { Option: SelectOption },
@@ -448,6 +458,55 @@ describe("JobDrawer dispatch target options", () => {
     await waitFor(() =>
       expect(optionLabels("console")).toContain("my-custom-channel"),
     );
+  });
+
+  it("merges a typed search term into the channel option list", async () => {
+    renderDrawer();
+    await screen.findByText("cronJobs.createJob");
+    // typing into the searchable channel select triggers onSearch, whose
+    // value is merged into the option list (custom value support)
+    const searchInput = screen.getByTestId("search-console");
+    act(() => {
+      fireEvent.change(searchInput, { target: { value: "typed-channel" } });
+    });
+    await waitFor(() =>
+      expect(optionLabels("console")).toContain("typed-channel"),
+    );
+  });
+});
+
+describe("JobDrawer request input validation", () => {
+  it("accepts valid JSON and rejects malformed JSON for agent tasks", async () => {
+    const onSubmit = vi.fn();
+    const { getForm } = renderDrawer({ onSubmit });
+    await screen.findByText("cronJobs.createJob");
+
+    // malformed JSON: submission is blocked with the validator error
+    act(() => {
+      getForm().setFieldsValue({
+        name: "j",
+        task_type: "agent",
+        request: { input: "{not-json", user_id: "", session_id: "" },
+        dispatch: {
+          channel: "console",
+          target: { user_id: "u1", session_id: "s1" },
+        },
+      });
+    });
+    fireEvent.click(screen.getByText("common.save"));
+    await waitFor(() =>
+      expect(
+        screen.getByText("cronJobs.invalidJsonFormat"),
+      ).toBeInTheDocument(),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // valid JSON: the validator lets the form through
+    act(() => {
+      getForm().setFieldValue(["request", "input"], '[{"role":"user"}]');
+    });
+    fireEvent.click(screen.getByText("common.save"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   });
 });
 
