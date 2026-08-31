@@ -74,44 +74,21 @@ export default function AgentsPage() {
     setModalVisible(true);
   };
 
-  const handleEdit = async (agent: AgentSummary) => {
+  const handleRename = async (agentId: string, name: string) => {
     try {
-      setSelectedSkills([]);
-      installedSkillsRef.current = [];
-      invalidateSkillCache({ agentId: agent.id });
-      const config = await agentsApi.getAgent(agent.id);
-      setEditingAgent(agent);
-      const { mail, ...configRest } = config;
-      form.setFieldsValue({
-        ...configRest,
-        active_model_provider: config.active_model?.provider_id || undefined,
-        active_model_model: config.active_model?.model || undefined,
-        mail_mode: mail
-          ? mail.is_new_account
-            ? "dedicated"
-            : "personal"
-          : "none",
-        mail_credential: mail ? mail.credential : undefined,
-        mail_push: mail?.push
-          ? {
-              mode: mail.push.mode ?? "off",
-              // Legacy field "subject" is displayed and saved as
-              // "content" (subject + body matching).
-              rules: (mail.push.rules ?? []).map((rule) =>
-                rule.field === "subject"
-                  ? { ...rule, field: "content" as const }
-                  : rule,
-              ),
-              poll_interval_seconds: mail.push.poll_interval_seconds,
-              // Missing in legacy configs → backend defaults to false.
-              access_control_enabled: mail.push.access_control_enabled ?? false,
-            }
-          : undefined,
-      });
-      setModalVisible(true);
-    } catch (error) {
-      console.error("Failed to load agent config:", error);
-      message.error(t("agent.loadConfigFailed"));
+      await agentsApi.renameAgent(agentId, name);
+      setAgents(
+        agents.map((agent) =>
+          agent.id === agentId ? { ...agent, name } : agent,
+        ),
+      );
+      message.success(t("agent.updateSuccess"));
+    } catch (error: unknown) {
+      console.error("Failed to rename agent:", error);
+      message.error(
+        error instanceof Error ? error.message : t("agent.updateFailed"),
+      );
+      throw error;
     }
   };
 
@@ -379,7 +356,7 @@ export default function AgentsPage() {
           agents={agents}
           loading={loading || reordering}
           reordering={reordering}
-          onEdit={handleEdit}
+          onRename={handleRename}
           onCopy={handleOpenCopy}
           onDelete={handleDelete}
           onToggle={handleToggle}

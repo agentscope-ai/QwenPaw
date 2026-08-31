@@ -6,6 +6,7 @@ vi.mock("../request", () => ({
 
 import { agentsApi } from "./agents";
 import { request } from "../request";
+import type { AgentProfileConfig } from "../types/agents";
 
 describe("agentsApi", () => {
   beforeEach(() => {
@@ -48,6 +49,22 @@ describe("agentsApi", () => {
     const agent = { name: "updated" } as any;
     vi.mocked(request).mockResolvedValue(agent);
     const result = await agentsApi.updateAgent("a1", agent);
+    expect(request).toHaveBeenCalledWith("/agents/a1", {
+      method: "PUT",
+      body: JSON.stringify(agent),
+    });
+    expect(result).toEqual(agent);
+  });
+
+  it("renameAgent sends only the agent id and name", async () => {
+    const agent = {
+      id: "a1",
+      name: "Renamed",
+    } as unknown as AgentProfileConfig;
+    vi.mocked(request).mockResolvedValue(agent);
+
+    const result = await agentsApi.renameAgent("a1", "Renamed");
+
     expect(request).toHaveBeenCalledWith("/agents/a1", {
       method: "PUT",
       body: JSON.stringify(agent),
