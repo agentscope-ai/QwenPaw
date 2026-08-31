@@ -74,7 +74,7 @@ NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
 _REME_LLM_ACTIONS = frozenset(
-    {"auto_dream", "auto_memory", "daily_paper", "auto_fin"},
+    {"auto_dream", "auto_memory", "daily_paper"},
 )
 _REQUIRED_REME_VERSION = "0.4.1.10"
 
@@ -373,7 +373,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 ServiceCronJob(
                     key="daily-paper",
                     cron=cfg.daily_paper_cron,
-                    callback=self.daily_paper,
+                    callback=self._daily_paper,
                     misfire_grace_seconds=600,
                 ),
             )
@@ -842,22 +842,15 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
 
-    async def daily_paper(self, **kwargs: Any) -> None:
-        """Build one Daily Paper brief and publish its result to inbox."""
+    async def _daily_paper(self) -> None:
+        """Run the scheduled ReMe Daily Paper action with config defaults."""
         cfg = await run_sync_io(self.get_memory_config)
-        response = await self._run_reme_job(
+        response = await self.run_action(
             "daily_paper",
-            needs_llm=True,
-            raise_on_error=True,
-            date=str(kwargs.get("date") or ""),
-            force=bool(kwargs.get("force", False)),
-            use_hf_mirror=bool(
-                kwargs.get(
-                    "use_hf_mirror",
-                    cfg.daily_paper_use_hf_mirror,
-                ),
-            ),
-            topics=str(kwargs.get("topics", cfg.daily_paper_topics) or ""),
+            date="",
+            force=False,
+            use_hf_mirror=bool(cfg.daily_paper_use_hf_mirror),
+            topics=str(cfg.daily_paper_topics or ""),
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")
