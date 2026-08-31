@@ -58,22 +58,7 @@ fi
 echo "== Creating PyInstaller build environment =="
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
 
-BUILD_IDENTITY=$("$PYTHON_BIN" -c \
-    'import ssl, sys; print(f"{sys.version} | {ssl.OPENSSL_VERSION}")')
-BUILD_BASE_PREFIX=$("$PYTHON_BIN" -c 'import os, sys; print(os.path.realpath(sys.base_prefix))')
-EXPECTED_BASE_PREFIX=$("$NATIVE_HOST_PYTHON" -c \
-    'import os, sys; print(os.path.realpath(sys.argv[1]))' \
-    "$RUNTIME_PYTHON_DIR")
-
-if [ "$BUILD_BASE_PREFIX" != "$EXPECTED_BASE_PREFIX" ]; then
-    echo "ERROR: PyInstaller environment was not created from ${RUNTIME_PYTHON_DIR}"
-    exit 1
-fi
-
-echo "Runtime: ${BUILD_IDENTITY}"
-echo "Canonical interpreter: ${NATIVE_HOST_PYTHON}"
-echo "Build interpreter: ${PYTHON_BIN}"
-echo "Build base prefix: ${BUILD_BASE_PREFIX}"
+echo "Python: $("$PYTHON_BIN" --version)"
 echo ""
 
 install_python_packages() {

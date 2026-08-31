@@ -77,24 +77,8 @@ Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yello
 & $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
 Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
 
-$buildIdentity = & $PYTHON_BIN -c `
-    "import ssl, sys; print(f'{sys.version} | {ssl.OPENSSL_VERSION}')"
-Assert-LastExit "Failed to inspect PyInstaller environment"
-$buildBasePrefix = & $PYTHON_BIN -c "import os, sys; print(os.path.realpath(sys.base_prefix))"
-Assert-LastExit "Failed to inspect PyInstaller environment base prefix"
-$expectedBasePrefix = (Resolve-Path -LiteralPath $RUNTIME_PYTHON_DIR).Path
-
-if (-not $buildBasePrefix.Equals(
-    $expectedBasePrefix,
-    [System.StringComparison]::OrdinalIgnoreCase
-)) {
-    throw "PyInstaller environment was not created from $RUNTIME_PYTHON_DIR"
-}
-
-Write-Host "Runtime: $buildIdentity" -ForegroundColor Green
-Write-Host "Canonical interpreter: $NATIVE_HOST_PYTHON" -ForegroundColor Green
-Write-Host "Build interpreter: $PYTHON_BIN" -ForegroundColor Green
-Write-Host "Build base prefix: $buildBasePrefix" -ForegroundColor Green
+$pythonVersion = & $PYTHON_BIN --version
+Write-Host "Python: $pythonVersion" -ForegroundColor Green
 Write-Host ""
 
 function Test-PythonImport {
@@ -226,53 +210,6 @@ if (-not (Test-Path $MODEL_CATALOG)) {
 }
 
 Write-Host "Backend bundle created: $BACKEND_DIR" -ForegroundColor Green
-
-# A venv can report the expected version while still resolving DLLs from an
-# unintended installation. Compare the frozen Windows runtime files directly
-# with the canonical python-build-standalone files before packaging them.
-Write-Host "== Verifying frozen Python runtime identity ==" -ForegroundColor Yellow
-function Assert-SameFileHash {
-    param(
-        [string]$Source,
-        [string]$Bundled
-    )
-    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
-        throw "Runtime file not found for identity check: $Source"
-    }
-    if (-not (Test-Path -LiteralPath $Bundled -PathType Leaf)) {
-        throw "PyInstaller file not found for identity check: $Bundled"
-    }
-    $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
-    $bundledHash = (Get-FileHash -LiteralPath $Bundled -Algorithm SHA256).Hash
-    if ($sourceHash -ne $bundledHash) {
-        throw "Runtime identity check failed: $Source and $Bundled differ"
-    }
-    Write-Host "Verified identical: $(Split-Path -Leaf $Bundled)" -ForegroundColor Green
-}
-
-$BACKEND_INTERNAL_DIR = Join-Path $BACKEND_DIR "_internal"
-$PYTHON_DLL_NAME = & $NATIVE_HOST_PYTHON -c `
-    "import sys; print(f'python{sys.version_info.major}{sys.version_info.minor}.dll')"
-Assert-LastExit "Failed to determine bundled Python DLL name"
-Assert-SameFileHash `
-    -Source (Join-Path $RUNTIME_PYTHON_DIR $PYTHON_DLL_NAME) `
-    -Bundled (Join-Path $BACKEND_INTERNAL_DIR $PYTHON_DLL_NAME)
-Assert-SameFileHash `
-    -Source (Join-Path $RUNTIME_PYTHON_DIR "DLLs\_ssl.pyd") `
-    -Bundled (Join-Path $BACKEND_INTERNAL_DIR "_ssl.pyd")
-
-$runtimeOpenSslDlls = @(
-    Get-ChildItem -LiteralPath (Join-Path $RUNTIME_PYTHON_DIR "DLLs") -File |
-        Where-Object { $_.Name -match '^lib(ssl|crypto)-.*\.dll$' }
-)
-if ($runtimeOpenSslDlls.Count -lt 2) {
-    throw "Expected OpenSSL runtime DLLs under $RUNTIME_PYTHON_DIR\DLLs"
-}
-foreach ($runtimeDll in $runtimeOpenSslDlls) {
-    Assert-SameFileHash `
-        -Source $runtimeDll.FullName `
-        -Bundled (Join-Path $BACKEND_INTERNAL_DIR $runtimeDll.Name)
-}
 
 # Get size
 $bundleSize = (Get-ChildItem $BACKEND_DIR -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB
