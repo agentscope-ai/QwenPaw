@@ -1313,6 +1313,20 @@ export default function ChatPage() {
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
   const sessionThinkingLevelRef = useRef<SessionThinkingLevel | null>(null);
+  const sessionThinkingOwnerRef = useRef({
+    agentId: selectedAgent,
+    sessionId: queueSessionId,
+  });
+  if (
+    sessionThinkingOwnerRef.current.agentId !== selectedAgent ||
+    sessionThinkingOwnerRef.current.sessionId !== queueSessionId
+  ) {
+    sessionThinkingOwnerRef.current = {
+      agentId: selectedAgent,
+      sessionId: queueSessionId,
+    };
+    sessionThinkingLevelRef.current = null;
+  }
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
@@ -2459,7 +2473,6 @@ export default function ChatPage() {
       // so in-flight results owned by the previous agent are stale by now.
 
       useTurnUsageStore.getState().invalidateTurn();
-      sessionThinkingLevelRef.current = null;
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could
@@ -2725,7 +2738,13 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef, usageTurn);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      queueSessionId,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+    ],
   );
 
   const handleFileUpload = useCallback(
