@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronUp,
   LoaderCircle,
-  Plus,
   Save,
   Settings2,
   Trash2,
@@ -79,7 +78,6 @@ export function AgentModelSettings({
     "configured" | "free_only"
   >("configured");
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
-  const [pendingFallback, setPendingFallback] = useState(EMPTY_KEY);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
   const loadRevision = useRef(0);
   const saveRevision = useRef(0);
@@ -256,11 +254,10 @@ export function AgentModelSettings({
     notifyDraft({ fallbackKeys: nextFallbackKeys });
   };
 
-  const addFallback = () => {
-    if (!pendingFallback || fallbackKeys.includes(pendingFallback)) return;
-    const nextFallbackKeys = [...fallbackKeys, pendingFallback];
+  const addFallback = (fallbackKey: string) => {
+    if (!fallbackKey || fallbackKeys.includes(fallbackKey)) return;
+    const nextFallbackKeys = [...fallbackKeys, fallbackKey];
     setFallbackKeys(nextFallbackKeys);
-    setPendingFallback(EMPTY_KEY);
     notifyDraft({ fallbackKeys: nextFallbackKeys });
   };
 
@@ -463,22 +460,14 @@ export function AgentModelSettings({
                           classNames={{
                             popup: { root: styles.agentSelectDropdown },
                           }}
-                          value={pendingFallback}
                           options={fallbackOptions}
                           showSearch
                           optionFilterProp="label"
                           listHeight={280}
                           popupMatchSelectWidth={320}
-                          onChange={setPendingFallback}
+                          value={EMPTY_KEY}
+                          onChange={addFallback}
                         />
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.addFallback")}
-                          disabled={!pendingFallback}
-                          onClick={addFallback}
-                        >
-                          <Plus size={14} />
-                        </button>
                       </div>
                     </div>
                     <div className={styles.fallbackList}>

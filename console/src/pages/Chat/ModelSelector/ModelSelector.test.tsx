@@ -1056,9 +1056,6 @@ describe("ModelSelector", () => {
     const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
     await user.click(fallbackOptions[fallbackOptions.length - 1]);
     await user.click(
-      screen.getByRole("button", { name: "modelSelector.addFallback" }),
-    );
-    await user.click(
       screen.getByRole("button", {
         name: "modelSelector.saveAgentSettings",
       }),
@@ -1117,6 +1114,23 @@ describe("ModelSelector", () => {
 
     expect(onDraftChange).toHaveBeenLastCalledWith({
       fallback_models: [],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "free_only",
+      },
+      subagent_model: null,
+    });
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.chooseFallback",
+      }),
+    );
+    const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(fallbackOptions[fallbackOptions.length - 1]);
+
+    expect(onDraftChange).toHaveBeenLastCalledWith({
+      fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
       fallback_policy: {
         enabled: true,
         target_scope: "free_only",
