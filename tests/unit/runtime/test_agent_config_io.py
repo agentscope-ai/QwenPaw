@@ -88,8 +88,13 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
 
     builder = AgentBuilder.__new__(AgentBuilder)
 
-    def build_model(_config, model_slot_override=None):
+    def build_model(
+        _config,
+        model_slot_override=None,
+        thinking_level_override=None,
+    ):
         _ = model_slot_override
+        _ = thinking_level_override
         model_threads.append(threading.get_ident())
         raise RuntimeError("model built")
 
@@ -247,4 +252,5 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
         "agent_id": "agent-1",
         "model_slot_override": "provider:model",
         "agent_config": config,
+        "thinking_level_override": None,
     }
