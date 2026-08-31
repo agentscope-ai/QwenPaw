@@ -257,7 +257,8 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
 
 
 @pytest.mark.asyncio
-async def test_save_cancel_after_persist_completes_runtime() -> (None):
+async def test_save_cancel_after_persist_completes_runtime() -> None:
+    # pylint: disable=protected-access
     old_running, new_running = _embedding_update_configs()
     old_embedding = old_running.reme_light_memory_config.embedding_model_config
     new_embedding = new_running.reme_light_memory_config.embedding_model_config

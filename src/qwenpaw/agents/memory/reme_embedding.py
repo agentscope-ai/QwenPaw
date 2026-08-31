@@ -153,6 +153,7 @@ class ReMeEmbedding:
             if not rebuilds_embedding or response is None:
                 return response
             if response.success:
+                assert fingerprint is not None
                 await run_async_to_completion(
                     self._finalize_embedding_reindex(fingerprint),
                 )
