@@ -1,6 +1,12 @@
 name: NPM Format (website & console)
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the checks really run
+    # right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   spam-gate:
@@ -21,14 +27,36 @@ jobs:
       run:
         working-directory: website
     steps:
+      # Draft PRs defer the real run: this job still reports a green
+      # placeholder so the required-check context stays present (GitHub
+      # forbids merging drafts), and the ready_for_review trigger
+      # re-runs everything once the PR is marked ready.
+      - name: Detect draft PR
+        id: draft
+        # Override the job-level working-directory: the website/console
+        # subdirectories only exist after checkout, and this step must run
+        # before checkout to decide whether the real steps run at all.
+        working-directory: .
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.draft.outputs.value != 'true'
 
       - name: Setup pnpm
+        if: steps.draft.outputs.value != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node
+        if: steps.draft.outputs.value != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -36,10 +64,20 @@ jobs:
           cache-dependency-path: website/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.draft.outputs.value != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Run format check
+        if: steps.draft.outputs.value != 'true'
         run: pnpm run format:check
+
+      - name: Report draft placeholder
+        if: steps.draft.outputs.value == 'true'
+        # Same override as the draft-detection step: the subdirectory does
+        # not exist before checkout, which never runs on draft PRs.
+        working-directory: .
+        shell: bash
+        run: echo "✅ Draft PR — website format check deferred until the PR is marked ready for review"
 
   console:
     name: console format check
@@ -52,9 +90,26 @@ jobs:
       run:
         working-directory: console
     steps:
+      - name: Detect draft PR
+        id: draft
+        # Override the job-level working-directory: the website/console
+        # subdirectories only exist after checkout, and this step must run
+        # before checkout to decide whether the real steps run at all.
+        working-directory: .
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.draft.outputs.value != 'true'
 
       - name: Setup Node
+        if: steps.draft.outputs.value != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -62,7 +117,17 @@ jobs:
           cache-dependency-path: console/package-lock.json
 
       - name: Install dependencies
+        if: steps.draft.outputs.value != 'true'
         run: npm ci
 
       - name: Run format check
+        if: steps.draft.outputs.value != 'true'
         run: npm run format:check
+
+      - name: Report draft placeholder
+        if: steps.draft.outputs.value == 'true'
+        # Same override as the draft-detection step: the subdirectory does
+        # not exist before checkout, which never runs on draft PRs.
+        working-directory: .
+        shell: bash
+        run: echo "✅ Draft PR — console format check deferred until the PR is marked ready for review"
