@@ -20,6 +20,7 @@ import {
   EyeOff,
   Eye,
   PawPrint,
+  Pencil,
   Pin,
   PinOff,
   SquareTerminal,
@@ -225,15 +226,15 @@ export function AgentTable({
               </span>
               {record.id !== "default" && (
                 <Button
-                  type="link"
+                  type="text"
                   size="small"
                   className={styles.agentNameEditButton}
                   aria-label={t("agent.editName")}
+                  title={t("agent.editName")}
+                  icon={<Pencil size={14} />}
                   onClick={() => startRename(record)}
                   disabled={Boolean(savingAgentId)}
-                >
-                  {t("agent.editName")}
-                </Button>
+                />
               )}
             </Space>
           )}
