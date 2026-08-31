@@ -152,37 +152,46 @@ class ReMeEmbedding:
             )
             if not rebuilds_embedding or response is None:
                 return response
-            requirement_cleared = False
-
-            def clear_requirement(config: AgentProfileConfig) -> None:
-                nonlocal requirement_cleared
-                memory = config.running.reme_light_memory_config
-                persisted = embedding_vector_space_fingerprint(
-                    memory.embedding_model_config,
-                )
-                if persisted == fingerprint:
-                    memory.needs_reindex = False
-                    memory.pending_reindex_embedding_config = None
-                    requirement_cleared = True
-
             if response.success:
-                try:
-                    await self.update_agent_config(
-                        self.runtime.agent_id,
-                        clear_requirement,
-                    )
-                except Exception:
-                    try:
-                        await self.runtime._require_embedding_rebuild()
-                    except Exception:
-                        logger.exception(
-                            "Failed to restore embedding gate for '%s'",
-                            self.runtime.agent_id,
-                        )
-                    raise
-            if response.success and not requirement_cleared:
-                await self.runtime._require_embedding_rebuild()
+                await run_async_to_completion(
+                    self._finalize_embedding_reindex(fingerprint),
+                )
             return response
+
+    async def _finalize_embedding_reindex(
+        self,
+        fingerprint: tuple[Any, ...],
+    ) -> None:
+        """Clear the matching requirement or restore the live vector gate."""
+        requirement_cleared = False
+
+        def clear_requirement(config: AgentProfileConfig) -> None:
+            nonlocal requirement_cleared
+            memory = config.running.reme_light_memory_config
+            persisted = embedding_vector_space_fingerprint(
+                memory.embedding_model_config,
+            )
+            if persisted == fingerprint:
+                memory.needs_reindex = False
+                memory.pending_reindex_embedding_config = None
+                requirement_cleared = True
+
+        try:
+            await self.update_agent_config(
+                self.runtime.agent_id,
+                clear_requirement,
+            )
+        except Exception:
+            try:
+                await self.runtime._require_embedding_rebuild()
+            except Exception:
+                logger.exception(
+                    "Failed to restore embedding gate for '%s'",
+                    self.runtime.agent_id,
+                )
+            raise
+        if not requirement_cleared:
+            await self.runtime._require_embedding_rebuild()
 
     async def _prepare_embedding_reindex(
         self,

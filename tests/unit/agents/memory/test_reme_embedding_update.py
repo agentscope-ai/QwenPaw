@@ -336,6 +336,54 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reindex_cancel_regates_newer_vector_space() -> None:
+    indexed = _config(model_name="indexed-model")
+    target = _config(model_name="target-model")
+    newer = _config(model_name="newer-model")
+    manager, _wrapper, _store = _manager(target)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = target
+    memory_config.needs_reindex = True
+    memory_config.pending_reindex_embedding_config = indexed
+    caller = asyncio.current_task()
+    assert caller is not None
+    update_count = 0
+
+    async def update_config(_agent_id, updater):
+        nonlocal update_count
+        update_count += 1
+        if update_count == 2:
+            memory_config.embedding_model_config = newer
+        updater(profile)
+        if update_count == 2:
+            caller.cancel()
+        return profile
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await manager.rebuild_index("embedding")
+
+    assert memory_config.embedding_model_config == newer
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == indexed
+    assert manager._active_embedding_config == target
+    assert manager._reme.is_started is True
+    assert manager._reme.file_store.require_embedding_rebuild.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_reindex_regates_vectors_when_state_persistence_fails() -> None:
     config = _config()
     manager, _wrapper, _store = _manager(config)
