@@ -117,7 +117,7 @@ describe("SettingsCenter", () => {
     expect(screen.queryByText("Heartbeat")).toBeNull();
   });
 
-  it("opens with language, theme and sidebar preferences", () => {
+  it("keeps sidebar customization out of General settings", () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
     });
@@ -125,8 +125,9 @@ describe("SettingsCenter", () => {
     expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
     expect(screen.getByText("Language")).toBeVisible();
     expect(screen.getByText("Theme")).toBeVisible();
-    expect(screen.getByText("Sidebar content")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Customize" })).toBeVisible();
+    expect(screen.getByText("Wide mode")).toBeVisible();
+    expect(screen.queryByText("Sidebar content")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sidebar/i })).toBeVisible();
   });
 
   it("opens plugin settings at the original registered path", async () => {

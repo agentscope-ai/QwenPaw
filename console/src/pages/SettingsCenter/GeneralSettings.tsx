@@ -1,8 +1,7 @@
 import { Button, Segmented, Select, Switch } from "antd";
-import { Expand, Monitor, PanelLeft, Palette, Languages } from "lucide-react";
+import { Expand, Monitor, Palette, Languages } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
 
 import { languageApi } from "@/api/modules/language";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -34,8 +33,6 @@ const LANGUAGES = [
 
 export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
-  const location = useLocation();
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
@@ -71,7 +68,7 @@ export default function GeneralSettings() {
         <p>
           {t(
             "settingsCenter.generalDescription",
-            "Language, appearance and navigation preferences apply immediately.",
+            "Language, appearance and application behavior apply immediately.",
           )}
         </p>
       </div>
@@ -141,28 +138,6 @@ export default function GeneralSettings() {
             checked={wideMode}
             onChange={changeWideMode}
           />
-        </div>
-
-        <div className={styles.settingRow}>
-          <span className={styles.settingIcon}>
-            <PanelLeft size={18} />
-          </span>
-          <span className={styles.settingCopy}>
-            <strong>{t("settingsCenter.navigationMode", "Navigation")}</strong>
-            <small>
-              {t(
-                "settingsCenter.navigationHint",
-                "Choose which shortcuts appear in the sidebar.",
-              )}
-            </small>
-          </span>
-          <Button
-            onClick={() =>
-              navigate("/settings/navigation", { state: location.state })
-            }
-          >
-            {t("settingsCenter.customize", "Customize")}
-          </Button>
         </div>
       </section>
 
