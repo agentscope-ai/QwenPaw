@@ -1083,6 +1083,49 @@ describe("ModelSelector", () => {
     );
   });
 
+  it("reports draft settings without rendering an internal save action", async () => {
+    const onDraftChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+        initialConfig={{
+          fallback_models: [],
+          fallback_policy: { enabled: true, target_scope: "configured" },
+          subagent_model: null,
+        }}
+        onDraftChange={onDraftChange}
+      />,
+    );
+
+    await screen.findByLabelText("modelSelector.enableFallback");
+    expect(
+      screen.queryByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("modelSelector.freeModelsOnly"));
+
+    expect(onDraftChange).toHaveBeenLastCalledWith({
+      fallback_models: [],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "free_only",
+      },
+      subagent_model: null,
+    });
+    expect(agentsApi.updateModelSettings).not.toHaveBeenCalled();
+  });
+
   it("does not send a cached active model when saving settings", async () => {
     const user = userEvent.setup();
     const settingsProps = {

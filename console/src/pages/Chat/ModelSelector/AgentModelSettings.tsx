@@ -166,30 +166,6 @@ export function AgentModelSettings({
 
   useEffect(() => {
     if (agentId) return;
-    const fallbackModels = fallbackKeys.flatMap((key) => {
-      const slot = slotByKey.get(key);
-      return slot ? [slot] : [];
-    });
-    onDraftChange?.({
-      fallback_models: fallbackModels,
-      fallback_policy: {
-        enabled: fallbackEnabled,
-        target_scope: fallbackScope,
-      },
-      subagent_model: slotByKey.get(subagentKey) ?? null,
-    });
-  }, [
-    agentId,
-    fallbackEnabled,
-    fallbackKeys,
-    fallbackScope,
-    onDraftChange,
-    slotByKey,
-    subagentKey,
-  ]);
-
-  useEffect(() => {
-    if (agentId) return;
     if (draftTokenRef.current === draftResetToken && config) return;
     draftTokenRef.current = draftResetToken;
     applyConfig(
@@ -271,18 +247,48 @@ export function AgentModelSettings({
   const moveFallback = (index: number, offset: -1 | 1) => {
     const target = index + offset;
     if (target < 0 || target >= fallbackKeys.length) return;
-    setFallbackKeys((current) => {
-      const next = [...current];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
+    const nextFallbackKeys = [...fallbackKeys];
+    [nextFallbackKeys[index], nextFallbackKeys[target]] = [
+      nextFallbackKeys[target],
+      nextFallbackKeys[index],
+    ];
+    setFallbackKeys(nextFallbackKeys);
+    notifyDraft({ fallbackKeys: nextFallbackKeys });
   };
 
   const addFallback = () => {
     if (!pendingFallback || fallbackKeys.includes(pendingFallback)) return;
-    setFallbackKeys((current) => [...current, pendingFallback]);
+    const nextFallbackKeys = [...fallbackKeys, pendingFallback];
+    setFallbackKeys(nextFallbackKeys);
     setPendingFallback(EMPTY_KEY);
+    notifyDraft({ fallbackKeys: nextFallbackKeys });
   };
+
+  function notifyDraft({
+    fallbackEnabled: nextFallbackEnabled = fallbackEnabled,
+    fallbackKeys: nextFallbackKeys = fallbackKeys,
+    fallbackScope: nextFallbackScope = fallbackScope,
+    subagentKey: nextSubagentKey = subagentKey,
+  }: {
+    fallbackEnabled?: boolean;
+    fallbackKeys?: string[];
+    fallbackScope?: typeof fallbackScope;
+    subagentKey?: string;
+  } = {}): void {
+    if (agentId || !onDraftChange || !config) return;
+    const fallbackModels = nextFallbackKeys.flatMap((key) => {
+      const slot = slotByKey.get(key);
+      return slot ? [slot] : [];
+    });
+    onDraftChange({
+      fallback_models: fallbackModels,
+      fallback_policy: {
+        enabled: nextFallbackEnabled,
+        target_scope: nextFallbackScope,
+      },
+      subagent_model: slotByKey.get(nextSubagentKey) ?? null,
+    });
+  }
 
   const save = async () => {
     if (!agentId || !config || saving || configAgentId.current !== agentId) {
@@ -390,7 +396,10 @@ export function AgentModelSettings({
                     optionFilterProp="label"
                     listHeight={280}
                     popupMatchSelectWidth={320}
-                    onChange={setSubagentKey}
+                    onChange={(value) => {
+                      setSubagentKey(value);
+                      notifyDraft({ subagentKey: value });
+                    }}
                   />
                 </label>
               </div>
@@ -399,9 +408,11 @@ export function AgentModelSettings({
                   <input
                     type="checkbox"
                     checked={fallbackEnabled}
-                    onChange={(event) =>
-                      setFallbackEnabled(event.target.checked)
-                    }
+                    onChange={(event) => {
+                      const nextFallbackEnabled = event.target.checked;
+                      setFallbackEnabled(nextFallbackEnabled);
+                      notifyDraft({ fallbackEnabled: nextFallbackEnabled });
+                    }}
                   />
                   <span>{t("modelSelector.enableFallback")}</span>
                 </label>
@@ -426,9 +437,12 @@ export function AgentModelSettings({
                             value: "free_only",
                           },
                         ]}
-                        onChange={(value) =>
-                          setFallbackScope(value as typeof fallbackScope)
-                        }
+                        onChange={(value) => {
+                          const nextFallbackScope =
+                            value as typeof fallbackScope;
+                          setFallbackScope(nextFallbackScope);
+                          notifyDraft({ fallbackScope: nextFallbackScope });
+                        }}
                       />
                     </div>
                     <div className={styles.settingsField}>
@@ -498,11 +512,13 @@ export function AgentModelSettings({
                             aria-label={t("modelSelector.removeFallback", {
                               model: optionByKey.get(key)?.label ?? key,
                             })}
-                            onClick={() =>
-                              setFallbackKeys((current) =>
-                                current.filter((item) => item !== key),
-                              )
-                            }
+                            onClick={() => {
+                              const nextFallbackKeys = fallbackKeys.filter(
+                                (item) => item !== key,
+                              );
+                              setFallbackKeys(nextFallbackKeys);
+                              notifyDraft({ fallbackKeys: nextFallbackKeys });
+                            }}
                           >
                             <Trash2 size={13} />
                           </button>

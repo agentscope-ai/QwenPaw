@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, Select } from "@agentscope-ai/design";
-import { SaveOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 
 import { providerApi } from "@/api/modules/provider";
-import type { ActiveModelsInfo, ProviderInfo } from "@/api/types";
-import { useAppMessage } from "@/hooks/useAppMessage";
-import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
+import type { AgentModelRoutingDraft, ProviderInfo } from "@/api/types";
 import {
   buildEligibleProviders,
   type EligibleProvider,
@@ -15,8 +12,9 @@ import { AgentModelSettings } from "../../../Chat/ModelSelector/AgentModelSettin
 import styles from "../index.module.less";
 
 interface ModelRoutingCardProps {
-  agentId: string;
-  onModelSaved?: () => void;
+  modelRouting: AgentModelRoutingDraft;
+  onModelRoutingChange: (routing: AgentModelRoutingDraft) => void;
+  draftResetToken: number;
 }
 
 function modelList(provider: ProviderInfo | undefined) {
@@ -24,20 +22,18 @@ function modelList(provider: ProviderInfo | undefined) {
 }
 
 export function ModelRoutingCard({
-  agentId,
-  onModelSaved,
+  modelRouting,
+  onModelRoutingChange,
+  draftResetToken,
 }: ModelRoutingCardProps) {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
-    null,
-  );
   const [selectedProviderId, setSelectedProviderId] = useState<string>();
   const [selectedModel, setSelectedModel] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const modelRoutingRef = useRef(modelRouting);
+  modelRoutingRef.current = modelRouting;
 
   const eligibleProviders = useMemo<EligibleProvider[]>(
     () => buildEligibleProviders(providers),
@@ -48,14 +44,8 @@ export function ModelRoutingCard({
     setLoading(true);
     setError(null);
     try {
-      const [providerData, activeData] = await Promise.all([
-        providerApi.listProviders(),
-        providerApi.getActiveModels({ scope: "effective", agent_id: agentId }),
-      ]);
+      const providerData = await providerApi.listProviders();
       setProviders(providerData);
-      setActiveModels(activeData);
-      setSelectedProviderId(activeData.active_llm?.provider_id);
-      setSelectedModel(activeData.active_llm?.model);
     } catch (err) {
       const text =
         err instanceof Error ? err.message : t("agentConfig.modelLoadFailed");
@@ -63,7 +53,12 @@ export function ModelRoutingCard({
     } finally {
       setLoading(false);
     }
-  }, [agentId, t]);
+  }, [t]);
+
+  useEffect(() => {
+    setSelectedProviderId(modelRoutingRef.current.active_model?.provider_id);
+    setSelectedModel(modelRoutingRef.current.active_model?.model);
+  }, [draftResetToken]);
 
   useEffect(() => {
     void fetchData();
@@ -80,34 +75,19 @@ export function ModelRoutingCard({
   const handleProviderChange = (providerId: string) => {
     setSelectedProviderId(providerId);
     setSelectedModel(undefined);
+    onModelRoutingChange({
+      ...modelRouting,
+      active_model: null,
+    });
   };
 
-  const handleSave = async () => {
-    if (!selectedProviderId || !selectedModel || saving) return;
-    const provider = providers.find((item) => item.id === selectedProviderId);
-    const model = modelList(provider).find((item) => item.id === selectedModel);
-    if (provider && model) {
-      const confirmed = await confirmFreeModelSwitch({ provider, model, t });
-      if (!confirmed) return;
-    }
-
-    setSaving(true);
-    try {
-      const updated = await providerApi.setActiveLlm({
-        provider_id: selectedProviderId,
-        model: selectedModel,
-        scope: "agent",
-        agent_id: agentId,
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+    if (selectedProviderId) {
+      onModelRoutingChange({
+        ...modelRouting,
+        active_model: { provider_id: selectedProviderId, model },
       });
-      setActiveModels(updated);
-      message.success(t("agentConfig.modelSaved"));
-      onModelSaved?.();
-    } catch (err) {
-      message.error(
-        err instanceof Error ? err.message : t("agentConfig.modelSaveFailed"),
-      );
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -163,29 +143,19 @@ export function ModelRoutingCard({
             options={modelOptions}
             showSearch
             optionFilterProp="label"
-            onChange={setSelectedModel}
+            onChange={handleModelChange}
           />
         </div>
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
-          loading={saving}
-          disabled={
-            !selectedProviderId ||
-            !selectedModel ||
-            (activeModels?.active_llm?.provider_id === selectedProviderId &&
-              activeModels?.active_llm?.model === selectedModel)
-          }
-          onClick={() => void handleSave()}
-        >
-          {t("common.save")}
-        </Button>
       </div>
       <AgentModelSettings
-        agentId={agentId}
         providers={eligibleProviders}
         activeProviderId={selectedProviderId}
         activeModelId={selectedModel}
+        initialConfig={modelRouting}
+        draftResetToken={draftResetToken}
+        onDraftChange={(settings) =>
+          onModelRoutingChange({ ...modelRouting, ...settings })
+        }
       />
     </Card>
   );

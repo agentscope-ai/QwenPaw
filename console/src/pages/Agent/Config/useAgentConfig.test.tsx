@@ -341,6 +341,32 @@ describe("useAgentConfig", () => {
     expect(saved.approval_level).toBe("STRICT");
   });
 
+  it("handleSave includes the model routing draft", async () => {
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    const routing = {
+      active_model: { provider_id: "openai", model: "gpt-4" },
+      fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
+      fallback_policy: { enabled: true, target_scope: "free_only" as const },
+      subagent_model: { provider_id: "openai", model: "gpt-3.5-turbo" },
+    };
+    act(() => {
+      result.current.setModelRouting(routing);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(apiMocks.updateAgentRunningConfig).toHaveBeenCalledWith(
+      expect.objectContaining(routing),
+    );
+  });
+
   it("handleSave syncs legacy max_iters from loop.iteration.max_iterations", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ max_iters: 100 }),

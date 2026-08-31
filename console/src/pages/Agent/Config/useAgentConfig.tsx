@@ -2,7 +2,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import type { AgentsRunningConfig } from "../../../api/types";
+import type {
+  AgentModelRoutingDraft,
+  AgentRunningConfigUpdate,
+  AgentsRunningConfig,
+} from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -28,6 +32,13 @@ export function useAgentConfig(
   const [savingTimezone, setSavingTimezone] = useState(false);
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
+  const [modelRouting, setModelRouting] = useState<AgentModelRoutingDraft>({
+    active_model: null,
+    fallback_models: [],
+    fallback_policy: { enabled: true, target_scope: "configured" },
+    subagent_model: null,
+  });
+  const [modelRoutingResetToken, setModelRoutingResetToken] = useState(0);
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
   const latestConfigRequestRef = useRef(0);
 
@@ -97,6 +108,16 @@ export function useAgentConfig(
 
       // Store original config for complete save
       originalConfigRef.current = config;
+      setModelRouting({
+        active_model: config.active_model ?? null,
+        fallback_models: config.fallback_models ?? [],
+        fallback_policy: config.fallback_policy ?? {
+          enabled: true,
+          target_scope: "configured",
+        },
+        subagent_model: config.subagent_model ?? null,
+      });
+      setModelRoutingResetToken((token) => token + 1);
       onConfigLoaded?.(config);
 
       setLanguage(langResp.language);
@@ -187,10 +208,33 @@ export function useAgentConfig(
           formValues.loop?.iteration?.max_iterations ?? original.max_iters,
       };
 
-      const savedConfig = await api.updateAgentRunningConfig(configToSave);
+      const submittedConfig: AgentRunningConfigUpdate = {
+        ...configToSave,
+        ...modelRouting,
+      };
+      const savedConfig = await api.updateAgentRunningConfig(submittedConfig);
 
       // Update original config after successful save
       originalConfigRef.current = savedConfig;
+      setModelRouting({
+        active_model:
+          "active_model" in savedConfig
+            ? savedConfig.active_model ?? null
+            : modelRouting.active_model,
+        fallback_models:
+          "fallback_models" in savedConfig
+            ? savedConfig.fallback_models ?? []
+            : modelRouting.fallback_models,
+        fallback_policy:
+          "fallback_policy" in savedConfig && savedConfig.fallback_policy
+            ? savedConfig.fallback_policy
+            : modelRouting.fallback_policy,
+        subagent_model:
+          "subagent_model" in savedConfig
+            ? savedConfig.subagent_model ?? null
+            : modelRouting.subagent_model,
+      });
+      setModelRoutingResetToken((token) => token + 1);
       onConfigLoaded?.(savedConfig);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
@@ -201,7 +245,7 @@ export function useAgentConfig(
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel, onConfigLoaded]);
+  }, [form, t, approvalLevel, onConfigLoaded, modelRouting, message]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
@@ -241,7 +285,7 @@ export function useAgentConfig(
         },
       });
     },
-    [language, t],
+    [language, t, message],
   );
 
   const handleTimezoneChange = useCallback(
@@ -262,7 +306,7 @@ export function useAgentConfig(
         setSavingTimezone(false);
       }
     },
-    [timezone, t],
+    [timezone, t, message],
   );
 
   return {
@@ -276,6 +320,9 @@ export function useAgentConfig(
     savingTimezone,
     approvalLevel,
     setApprovalLevel,
+    modelRouting,
+    setModelRouting,
+    modelRoutingResetToken,
     fetchConfig,
     handleSave,
     handleLanguageChange,

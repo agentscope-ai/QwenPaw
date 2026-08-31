@@ -10,10 +10,15 @@ from fastapi import HTTPException
 from qwenpaw.app.routers.workspace import (
     _ConfigRollbackConflict,
     _conditionally_restore_config_changes,
+    AgentRunningConfigUpdate,
     put_agents_running_config,
 )
 from qwenpaw.config import AgentsRunningConfig
-from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.config.config import (
+    AgentProfileConfig,
+    FallbackPolicyConfig,
+    ModelSlotConfig,
+)
 
 
 def _embedding_update_configs():
@@ -127,6 +132,103 @@ async def test_backend_only_switch_persists_and_schedules_reload(
     assert response.memory_manager_backend == new_backend
     assert agent_config.running.memory_manager_backend == new_backend
     schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_running_config_update_persists_model_routing() -> None:
+    old_running = AgentsRunningConfig()
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+        active_model=ModelSlotConfig(provider_id="old", model="old-model"),
+        fallback_models=[
+            ModelSlotConfig(provider_id="old", model="fallback-model"),
+        ],
+        fallback_policy=FallbackPolicyConfig(
+            enabled=True,
+            target_scope="configured",
+        ),
+    )
+    new_running = AgentRunningConfigUpdate(
+        **old_running.model_dump(),
+        active_model=ModelSlotConfig(provider_id="new", model="new-model"),
+        fallback_models=[
+            ModelSlotConfig(provider_id="new", model="fallback-model"),
+        ],
+        fallback_policy=FallbackPolicyConfig(
+            enabled=False,
+            target_scope="free_only",
+        ),
+        subagent_model=ModelSlotConfig(
+            provider_id="new",
+            model="subagent-model",
+        ),
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agents_running_config(new_running, MagicMock())
+
+    assert agent_config.running == old_running
+    assert agent_config.active_model == new_running.active_model
+    assert agent_config.fallback_models == new_running.fallback_models
+    assert agent_config.fallback_policy == new_running.fallback_policy
+    assert agent_config.subagent_model == new_running.subagent_model
+    assert response.active_model == new_running.active_model
+    assert response.fallback_models == new_running.fallback_models
+    assert response.fallback_policy == new_running.fallback_policy
+    assert response.subagent_model == new_running.subagent_model
+    schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_legacy_running_config_update_preserves_model_routing() -> None:
+    old_running = AgentsRunningConfig()
+    active_model = ModelSlotConfig(provider_id="old", model="old-model")
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+        active_model=active_model,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ),
+    ):
+        response = await put_agents_running_config(old_running, MagicMock())
+
+    assert agent_config.active_model == active_model
+    assert response is old_running
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,5 @@
+import type { ModelSlotConfig } from "./provider";
+
 export interface AgentRequest {
   input: unknown;
   session_id?: string | null;
@@ -193,4 +195,21 @@ export interface AgentsRunningConfig {
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;
+}
+
+export interface AgentModelRoutingDraft {
+  active_model: ModelSlotConfig | null;
+  fallback_models: ModelSlotConfig[];
+  fallback_policy: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model: ModelSlotConfig | null;
+}
+
+export interface AgentRunningConfigUpdate extends AgentsRunningConfig {
+  active_model?: ModelSlotConfig | null;
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: AgentModelRoutingDraft["fallback_policy"];
+  subagent_model?: ModelSlotConfig | null;
 }

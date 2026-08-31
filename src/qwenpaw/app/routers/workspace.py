@@ -45,7 +45,9 @@ from ...config import (
 from ...config.utils import mutate_config
 from ...config.config import (
     EmbeddingModelConfig,
+    FallbackPolicyConfig,
     load_agent_config,
+    ModelSlotConfig,
     save_agent_config,
     update_agent_config_async,
 )
@@ -111,6 +113,65 @@ class EmbeddingTestResponse(BaseModel):
     actual_dimensions: int | None = None
     latency_ms: int
     message: str
+
+
+class AgentRunningConfigUpdate(AgentsRunningConfig):
+    """Running configuration plus optional agent model routing fields."""
+
+    active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] | None = None
+    fallback_policy: FallbackPolicyConfig | None = None
+    subagent_model: ModelSlotConfig | None = None
+
+
+_MODEL_ROUTING_FIELDS = {
+    "active_model",
+    "fallback_models",
+    "fallback_policy",
+    "subagent_model",
+}
+
+
+def _validate_running_config_model(
+    request: Request | None,
+    model: ModelSlotConfig,
+) -> None:
+    """Validate a model slot when the provider manager is available."""
+    if request is None:
+        return
+    state = getattr(getattr(request, "app", None), "state", None)
+    manager = getattr(state, "provider_manager", None)
+    if manager is None or not hasattr(manager, "get_provider"):
+        return
+    provider = manager.get_provider(model.provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{model.provider_id}' not found.",
+        )
+    if not provider.has_model(model.model):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{model.model}' not found in provider "
+                f"'{model.provider_id}'."
+            ),
+        )
+
+
+def _apply_model_routing_fields(
+    agent_config: Any,
+    running_config: AgentRunningConfigUpdate,
+    fields: set[str],
+) -> None:
+    """Apply only model-routing fields included in the request."""
+    for field_name in fields:
+        value = getattr(running_config, field_name)
+        if field_name == "fallback_models":
+            value = value or []
+        elif field_name == "fallback_policy":
+            value = value or FallbackPolicyConfig()
+        setattr(agent_config, field_name, value)
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -1600,19 +1661,25 @@ async def test_embedding_configuration(
 
 @router.get(
     "/running-config",
-    response_model=AgentsRunningConfig,
+    response_model=AgentRunningConfigUpdate,
     summary="Get agent running config",
     description="Get running configuration for active agent",
 )
 async def get_agents_running_config(
     request: Request,
-) -> AgentsRunningConfig:
+) -> AgentRunningConfigUpdate:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
     agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
-    return running
+    return AgentRunningConfigUpdate(
+        **running.model_dump(),
+        active_model=agent_config.active_model,
+        fallback_models=agent_config.fallback_models,
+        fallback_policy=agent_config.fallback_policy,
+        subagent_model=agent_config.subagent_model,
+    )
 
 
 class _ConfigRollbackConflict(RuntimeError):
@@ -1750,22 +1817,25 @@ async def _rollback_embedding_update(
 
 @router.put(
     "/running-config",
-    response_model=AgentsRunningConfig,
+    response_model=AgentRunningConfigUpdate,
     summary="Update agent running config",
     description="Update running configuration for active agent",
 )
 async def put_agents_running_config(
-    running_config: AgentsRunningConfig = Body(
+    running_config: AgentRunningConfigUpdate = Body(
         ...,
         description="Updated agent running configuration",
     ),
     request: Request = None,
-) -> AgentsRunningConfig:
+) -> AgentRunningConfigUpdate:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
     memory_manager = workspace.memory_manager
     workspace_dir = getattr(workspace, "workspace_dir", ".")
     config_path = Path(workspace_dir) / "agent.json"
+    model_fields_set = running_config.model_fields_set & _MODEL_ROUTING_FIELDS
+    if "active_model" in model_fields_set and running_config.active_model:
+        _validate_running_config_model(request, running_config.active_model)
     async with get_path_lock(config_path):
         old_agent_config = None
         embedding_changed = False
@@ -1807,10 +1877,22 @@ async def put_agents_running_config(
                         "memory index is rebuilding"
                     ),
                 )
-            if running_config.approval_level is not None:
-                agent_config.approval_level = running_config.approval_level
-            running_config.approval_level = None
-            agent_config.running = running_config
+            if isinstance(running_config, AgentRunningConfigUpdate):
+                persisted_running = AgentsRunningConfig.model_validate(
+                    running_config.model_dump(exclude=_MODEL_ROUTING_FIELDS),
+                )
+            else:
+                persisted_running = running_config
+            if persisted_running.approval_level is not None:
+                agent_config.approval_level = persisted_running.approval_level
+            persisted_running.approval_level = None
+            agent_config.running = persisted_running
+            if isinstance(running_config, AgentRunningConfigUpdate):
+                _apply_model_routing_fields(
+                    agent_config,
+                    running_config,
+                    model_fields_set,
+                )
 
         agent_config = await update_agent_config_async(
             workspace.agent_id,
@@ -1840,7 +1922,12 @@ async def put_agents_running_config(
     schedule_agent_reload(request, workspace.agent_id)
 
     running_config.approval_level = agent_config.approval_level
-    return running_config
+    if isinstance(running_config, AgentRunningConfigUpdate):
+        running_config.active_model = agent_config.active_model
+        running_config.fallback_models = agent_config.fallback_models
+        running_config.fallback_policy = agent_config.fallback_policy
+        running_config.subagent_model = agent_config.subagent_model
+    return running_config  # type: ignore[return-value]
 
 
 @router.get(
