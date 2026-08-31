@@ -219,6 +219,8 @@ class MemoryRuntimeStatus(BaseModel):
     tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
+    embedding_reindex_required: bool = False
+    embedding_reindex_undo_available: bool = False
 
 
 class ReMeMemoryStatusResponse(BaseModel):
@@ -1416,10 +1418,18 @@ async def get_agent_memory_runtime_status(
     if workspace is None or workspace.memory_manager is None:
         raise HTTPException(status_code=503, detail="Agent is not running")
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = workspace.memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     return MemoryRuntimeStatus.model_validate(
-        workspace.memory_manager.get_runtime_status(
-            auto_memory_interval=memory_config.auto_memory_interval,
-        ),
+        runtime_status,
     )
 
 
@@ -1479,13 +1489,21 @@ async def get_agent_memory_status(
             detail="ReMe returned an invalid memory status payload",
         )
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     try:
         return ReMeMemoryStatusResponse.model_validate(
             {
                 **memory,
-                "runtime": memory_manager.get_runtime_status(
-                    auto_memory_interval=memory_config.auto_memory_interval,
-                ),
+                "runtime": runtime_status,
             },
         )
     except ValueError as exc:

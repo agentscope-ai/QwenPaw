@@ -1668,9 +1668,11 @@ async def _apply_embedding_runtime(
     memory_manager: Any,
     embedding_config: EmbeddingModelConfig,
     agent_id: str,
+    *,
+    force_reload: bool = False,
 ) -> bool:
     """Apply an embedding config to a running memory manager."""
-    if hasattr(memory_manager, "apply_tested_embedding"):
+    if not force_reload and hasattr(memory_manager, "apply_tested_embedding"):
         try:
             if await memory_manager.apply_tested_embedding(embedding_config):
                 return True
@@ -1681,6 +1683,10 @@ async def _apply_embedding_runtime(
                 exc,
                 exc_info=True,
             )
+            # An exception is an integration/runtime failure, not the normal
+            # "reload required" result.  Return failure so the caller rolls
+            # back the persisted config before restoring the old runtime.
+            return False
     if hasattr(memory_manager, "reload_embedding_config"):
         try:
             return bool(await memory_manager.reload_embedding_config())
@@ -1770,6 +1776,7 @@ async def put_agents_running_config(
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False
+        restores_indexed_space = False
         new_embedding_config = (
             running_config.reme_light_memory_config.embedding_model_config
         )
@@ -1778,6 +1785,7 @@ async def put_agents_running_config(
         def persist_running_config(agent_config):
             nonlocal old_agent_config, embedding_changed
             nonlocal memory_manager_backend_changed
+            nonlocal restores_indexed_space
             old_agent_config = agent_config.model_copy(deep=True)
             old_running_config = agent_config.running or AgentsRunningConfig()
             memory_manager_backend_changed = (
@@ -1797,6 +1805,7 @@ async def put_agents_running_config(
                 and embedding_vector_space_fingerprint(new_embedding_config)
                 == embedding_vector_space_fingerprint(indexed_config),
             )
+            restores_indexed_space = matches_existing_index
             if matches_existing_index:
                 new_memory_config.needs_reindex = False
                 new_memory_config.pending_reindex_embedding_config = None
@@ -1846,6 +1855,7 @@ async def put_agents_running_config(
                 memory_manager,
                 new_embedding_config,
                 workspace.agent_id,
+                force_reload=restores_indexed_space,
             )
             if not embedding_updated:
                 assert old_agent_config is not None

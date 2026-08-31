@@ -1302,9 +1302,49 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     reindex_fingerprint = embedding_vector_space_fingerprint(
                         target_config,
                     )
+
+                    def persist_requirement(
+                        current_agent_config: AgentProfileConfig,
+                    ) -> None:
+                        """Fail closed before ReMe starts destructive work."""
+                        current_running = current_agent_config.running
+                        current_memory = (
+                            current_running.reme_light_memory_config
+                        )
+                        current_fingerprint = (
+                            embedding_vector_space_fingerprint(
+                                current_memory.embedding_model_config,
+                            )
+                        )
+                        if current_fingerprint != reindex_fingerprint:
+                            raise RuntimeError(
+                                "Embedding configuration changed before "
+                                "reindex started",
+                            )
+                        if not current_memory.needs_reindex:
+                            # A maintenance rebuild of an already matching
+                            # space has no safe undo target once ReMe begins
+                            # clearing vectors.
+                            current_memory.pending_reindex_embedding_config = (
+                                None
+                            )
+                        current_memory.needs_reindex = True
+
+                    # ReMe keeps its gate in memory. Persist the host-owned
+                    # restart gate before invoking a job that can clear
+                    # vectors, so failure, cancellation, or shutdown remains
+                    # fail-closed.
+                    await update_agent_config_async(
+                        self.agent_id,
+                        persist_requirement,
+                    )
                     if self._active_embedding_config != target_config:
                         if not await self._reload_embedding_config_unlocked():
                             return None
+                    # Keep the live runtime aligned with the durable gate from
+                    # this point onward, including while scope=all rebuilds
+                    # BM25 before entering ReMe's embedding maintenance step.
+                    await self._require_embedding_rebuild()
                 response = await self._run_reme_job(
                     "reindex",
                     raise_on_error=True,
@@ -1332,11 +1372,28 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         requirement_cleared = True
 
                 if response.success:
-                    await update_agent_config_async(
-                        self.agent_id,
-                        clear_requirement,
-                    )
-                if not requirement_cleared:
+                    try:
+                        await update_agent_config_async(
+                            self.agent_id,
+                            clear_requirement,
+                        )
+                    except Exception:
+                        # ReMe has already published the rebuilt index and
+                        # opened its vector gate.  If QwenPaw cannot persist
+                        # the matching state transition, close the gate again
+                        # before releasing the lifecycle lock so runtime and
+                        # durable state cannot disagree about readiness.
+                        try:
+                            await self._require_embedding_rebuild()
+                        except Exception:
+                            logger.exception(
+                                "Failed to restore the embedding rebuild gate "
+                                "after config persistence failed for agent "
+                                "'%s'",
+                                self.agent_id,
+                            )
+                        raise
+                if response.success and not requirement_cleared:
                     await self._require_embedding_rebuild()
                 return response
 

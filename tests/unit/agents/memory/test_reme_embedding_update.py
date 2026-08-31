@@ -38,26 +38,6 @@ class FakeReMe:
             setattr(component, key, value)
         return component
 
-    async def replace_component(
-        self,
-        component_type,
-        _name,
-        *,
-        config,
-        runtime_updates=None,
-    ):
-        assert component_type == "as_embedding"
-        replacement = SimpleNamespace(
-            backend=config["backend"],
-            config=config,
-            model=None,
-        )
-        for key, value in (runtime_updates or {}).items():
-            setattr(replacement, key, value)
-        self.embedding_wrapper = replacement
-        self.embedding_store.as_embedding = replacement
-        return replacement
-
 
 def _config(**overrides) -> EmbeddingModelConfig:
     values = {
@@ -199,7 +179,7 @@ async def test_manual_reindex_clears_persisted_requirement() -> None:
         lifecycle_locked=True,
         scope="all",
     )
-    update_config_mock.assert_awaited_once()
+    assert update_config_mock.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -212,9 +192,13 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
     memory_config.needs_reindex = True
 
     newer_config = _config(model_name="newer-model")
+    update_count = 0
 
     async def update_config(_agent_id, updater):
-        memory_config.embedding_model_config = newer_config
+        nonlocal update_count
+        update_count += 1
+        if update_count == 2:
+            memory_config.embedding_model_config = newer_config
         updater(profile)
         return profile
 
@@ -237,26 +221,114 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reindex_regates_vectors_when_state_persistence_fails() -> None:
+    config = _config()
+    manager, _wrapper, _store = _manager(config)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = config
+    memory_config.needs_reindex = True
+
+    update_count = 0
+
+    async def update_config(_agent_id, updater):
+        nonlocal update_count
+        update_count += 1
+        if update_count == 2:
+            raise OSError("disk full")
+        updater(profile)
+        return profile
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        await manager.rebuild_index("embedding")
+
+    assert memory_config.needs_reindex is True
+    require_rebuild = manager._reme.file_store.require_embedding_rebuild
+    assert require_rebuild.await_count == 2
+    manager._run_reme_job.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_failed_embedding_reindex_keeps_vector_search_disabled() -> None:
     config = _config()
     manager, _wrapper, _store = _manager(config)
     profile = AgentProfileConfig(id="bot", name="Bot")
-    profile.running.reme_light_memory_config.embedding_model_config = config
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = config
     manager._run_reme_job.return_value = SimpleNamespace(
         success=False,
         answer="failed",
     )
 
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "load_agent_config_async",
-        return_value=profile,
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
     ):
         response = await manager.rebuild_index("embedding")
 
     assert response.success is False
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config is None
     require_rebuild = manager._reme.file_store.require_embedding_rebuild
     require_rebuild.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_embedding_reindex_keeps_restart_gate_persisted() -> (
+    None
+):
+    config = _config()
+    manager, _wrapper, _store = _manager(config)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = config
+    manager._run_reme_job.side_effect = asyncio.CancelledError()
+
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await manager.rebuild_index("embedding")
+
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config is None
 
 
 @pytest.mark.asyncio

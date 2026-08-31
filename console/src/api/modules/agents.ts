@@ -45,6 +45,8 @@ export interface ReMeMemoryStatusResponse {
       last_error: string | null;
     };
     reindexing: boolean;
+    embedding_reindex_required: boolean;
+    embedding_reindex_undo_available: boolean;
   };
 }
 

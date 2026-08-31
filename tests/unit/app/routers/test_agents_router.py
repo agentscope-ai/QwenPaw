@@ -686,6 +686,11 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = agent_config.running.reme_light_memory_config
+    memory_config.needs_reindex = True
+    memory_config.pending_reindex_embedding_config = (
+        memory_config.embedding_model_config.model_copy(deep=True)
+    )
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -701,6 +706,8 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
             "last_error": None,
         },
         "reindexing": True,
+        "embedding_reindex_required": True,
+        "embedding_reindex_undo_available": True,
     }
     memory_manager = MagicMock()
     memory_manager.get_runtime_status.return_value = runtime_status
@@ -765,6 +772,8 @@ def test_get_memory_status_returns_structured_reme_metrics(
             "last_error": None,
         },
         "reindexing": False,
+        "embedding_reindex_required": False,
+        "embedding_reindex_undo_available": False,
     }
     memory_manager.get_runtime_status.return_value = runtime_status
     manager_mock.get_loaded_agent.return_value = MagicMock(

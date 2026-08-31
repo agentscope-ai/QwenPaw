@@ -41,6 +41,7 @@ export function EmbeddingModelCard() {
     setReindexing,
     persistedEmbeddingFingerprint,
     setPersistedEmbeddingFingerprint,
+    runtimeStatus,
     checkMemoryStatus,
   } = useMemoryMaintenance();
 
@@ -73,6 +74,10 @@ export function EmbeddingModelCard() {
     persistedEmbeddingFingerprint !== undefined &&
     getEmbeddingConfigFingerprint(embeddingConfig) !==
       persistedEmbeddingFingerprint;
+  const undoEmbeddingAvailable =
+    needsReindex &&
+    runtimeStatus.type === "healthy" &&
+    runtimeStatus.data.embedding_reindex_undo_available;
 
   const rebuildEmbeddingIndex = () => {
     modal.confirm({
@@ -355,7 +360,7 @@ export function EmbeddingModelCard() {
               </small>
               <ChevronRight size={16} aria-hidden="true" />
             </button>
-            {needsReindex && (
+            {undoEmbeddingAvailable && (
               <button
                 type="button"
                 className={styles.embeddingIndexUndoAction}

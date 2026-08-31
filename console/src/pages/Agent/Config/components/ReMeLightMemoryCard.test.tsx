@@ -56,6 +56,8 @@ const memoryStatus = {
       last_error: null,
     },
     reindexing: false,
+    embedding_reindex_required: false,
+    embedding_reindex_undo_available: false,
   },
 };
 
@@ -218,7 +220,7 @@ function PersistedEmbeddingForm() {
   );
 }
 
-function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
+function NeedsReindexEmbeddingForm({ undoAvailable = true }) {
   const [needsReindex, setNeedsReindex] = useState(true);
   return (
     <MemoryMaintenanceContext.Provider
@@ -227,8 +229,15 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         setNeedsReindex,
         reindexing: false,
         setReindexing: vi.fn(),
-        openMemorySettings: onOpen,
-        runtimeStatus: unknownRuntime,
+        openMemorySettings: vi.fn(),
+        runtimeStatus: {
+          type: "healthy",
+          agentId: "bot",
+          data: {
+            ...memoryStatus.runtime,
+            embedding_reindex_undo_available: undoAvailable,
+          },
+        },
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
       }}
@@ -778,6 +787,19 @@ describe("embedding card separation", () => {
     expect(
       screen.getByText("agentConfig.embeddingSearchModeBm25Pending"),
     ).toBeInTheDocument();
+  });
+
+  it("hides undo when a legacy pending state has no indexed snapshot", async () => {
+    renderWithProviders(<NeedsReindexEmbeddingForm undoAvailable={false} />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexNeedsRebuild"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("always shows embedding index status and the manual rebuild action", async () => {

@@ -71,6 +71,12 @@ function AgentConfigPage() {
     runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   const reindexing = localReindexing || remoteReindexing;
 
+  useEffect(() => {
+    if (runtimeStatus.type === "healthy") {
+      setNeedsReindex(runtimeStatus.data.embedding_reindex_required);
+    }
+  }, [runtimeStatus]);
+
   const [maxInputLength, setMaxInputLength] = useState(131072);
   const refreshEffectiveContextWindow = useCallback(() => {
     return api

@@ -21,9 +21,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    # Temporary immutable source pin for ReMe#508. Replace with
-    # reme-ai==0.4.1.10 after that release is published to PyPI.
-    "reme-ai @ git+https://github.com/jinliyl/ReMe.git@ca85ba23280cb9f3ae56d7f5b27122250bdff5c1",
+    "reme-ai==0.4.1.10",
     "reme-auto-fin==0.1.2",
     "reme-daily-paper==0.1.2",
     "transformers>=4.30.0",
