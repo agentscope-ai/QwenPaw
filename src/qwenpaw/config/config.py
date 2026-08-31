@@ -904,6 +904,10 @@ class ReMeLightMemoryConfig(BaseModel):
         default=True,
         description="Whether to push Daily Paper results to the inbox",
     )
+    auto_fin_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Auto Fin results to the inbox",
+    )
 
     auto_memory_interval: int | None = Field(
         default=5,
@@ -953,6 +957,30 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Topics to prioritize when selecting Daily Paper papers",
     )
 
+    auto_fin_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Auto Fin job",
+    )
+
+    auto_fin_cron: str = Field(
+        default="0 18 * * *",
+        description=(
+            "Cron expression for Auto Fin generation "
+            "(use auto_fin_cron_enabled to enable/disable)"
+        ),
+    )
+
+    auto_fin_topics: str = Field(
+        default="黄金,机器人,半导体",
+        description="Comma-separated topics used to filter CLS news",
+    )
+
+    auto_fin_window_hours: float = Field(
+        default=24,
+        gt=0,
+        description="Rolling number of hours of CLS news to analyze",
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -986,7 +1014,7 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to expose the memory_search tool to the agent",
     )
 
-    @field_validator("dream_cron", "daily_paper_cron")
+    @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod
     def validate_service_cron(cls, value: str) -> str:
         """Reject expressions that the runtime scheduler cannot install."""
@@ -1000,6 +1028,16 @@ class ReMeLightMemoryConfig(BaseModel):
             raise ValueError(f"Invalid cron expression: {value!r}") from exc
         return value
 
+    @model_validator(mode="after")
+    def validate_enabled_auto_fin_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a schedule whenever the Auto Fin job is enabled."""
+        if self.auto_fin_cron_enabled and not self.auto_fin_cron.strip():
+            raise ValueError(
+                "auto_fin_cron must not be empty when "
+                "auto_fin_cron_enabled is true",
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def migrate_shared_inbox_switch(cls, values: Any) -> Any:
@@ -1012,6 +1050,7 @@ class ReMeLightMemoryConfig(BaseModel):
             "auto_memory_inbox_push_enabled",
             "auto_dream_inbox_push_enabled",
             "daily_paper_inbox_push_enabled",
+            "auto_fin_inbox_push_enabled",
         ):
             migrated.setdefault(field_name, legacy_value)
         return migrated

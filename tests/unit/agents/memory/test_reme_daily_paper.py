@@ -63,6 +63,29 @@ async def test_daily_paper_passes_configured_source_preferences() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_fin_passes_configured_topics_and_window() -> None:
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager._run_reme_job = AsyncMock(
+        return_value=SimpleNamespace(success=True, answer="done"),
+    )
+    manager.get_memory_config = lambda: SimpleNamespace(
+        auto_fin_topics="黄金,AI",
+        auto_fin_window_hours=12,
+    )
+
+    await manager.auto_fin()
+
+    manager._run_reme_job.assert_awaited_once_with(
+        "auto_fin",
+        needs_llm=True,
+        raise_on_error=True,
+        date="",
+        topics="黄金,AI",
+        window_hours=12.0,
+    )
+
+
+@pytest.mark.asyncio
 async def test_daily_paper_fails_when_reme_is_unavailable() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._run_reme_job = AsyncMock(return_value=None)
@@ -223,16 +246,20 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
         dream_cron="0 23 * * *",
         daily_paper_cron_enabled=True,
         daily_paper_cron="0 9 * * *",
+        auto_fin_cron_enabled=True,
+        auto_fin_cron="0 18 * * *",
     )
 
     jobs = manager.list_cron_jobs()
 
-    assert [job.key for job in jobs] == ["dream", "daily-paper"]
+    assert [job.key for job in jobs] == ["dream", "daily-paper", "auto-fin"]
     assert jobs[0].callback.__self__ is manager
     assert jobs[0].callback.__func__ is ReMeLightMemoryManager.dream
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.__self__ is manager
     assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper
+    assert jobs[2].callback.__self__ is manager
+    assert jobs[2].callback.__func__ is ReMeLightMemoryManager.auto_fin
 
 
 @pytest.mark.asyncio

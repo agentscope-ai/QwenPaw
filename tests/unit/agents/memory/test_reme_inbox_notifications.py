@@ -18,6 +18,7 @@ def _manager() -> ReMeLightMemoryManager:
     manager.get_memory_config = lambda: SimpleNamespace(
         auto_memory_inbox_push_enabled=True,
         auto_dream_inbox_push_enabled=True,
+        auto_fin_inbox_push_enabled=True,
     )
     return manager
 
@@ -98,6 +99,24 @@ def _manager() -> ReMeLightMemoryManager:
                         "deleted_paths": [],
                     },
                 },
+            ),
+            True,
+        ),
+        (
+            "auto_fin",
+            SimpleNamespace(
+                success=True,
+                answer="No related CLS news",
+                metadata={"skipped": True},
+            ),
+            False,
+        ),
+        (
+            "auto_fin",
+            SimpleNamespace(
+                success=True,
+                answer="Financial research generated",
+                metadata={"digest_path": "memory/2026-08-31/auto_fin.md"},
             ),
             True,
         ),

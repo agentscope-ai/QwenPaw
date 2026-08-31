@@ -326,6 +326,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     misfire_grace_seconds=600,
                 ),
             )
+        if cfg.auto_fin_cron_enabled and cfg.auto_fin_cron:
+            jobs.append(
+                ServiceCronJob(
+                    key="auto-fin",
+                    cron=cfg.auto_fin_cron,
+                    callback=self.auto_fin,
+                    misfire_grace_seconds=600,
+                ),
+            )
         return jobs
 
     def list_memory_tools(self):
@@ -814,6 +823,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")
+        if not response.success:
+            raise RuntimeError(str(response.answer))
+
+    async def auto_fin(self, **kwargs: Any) -> None:
+        """Build one Auto Fin report and publish its result to inbox."""
+        cfg = await run_sync_io(self.get_memory_config)
+        response = await self._run_reme_job(
+            "auto_fin",
+            needs_llm=True,
+            raise_on_error=True,
+            date=str(kwargs.get("date") or ""),
+            topics=str(kwargs.get("topics", cfg.auto_fin_topics) or ""),
+            window_hours=float(
+                kwargs.get("window_hours", cfg.auto_fin_window_hours),
+            ),
+        )
+        if response is None:
+            raise RuntimeError("ReMe is not started; Auto Fin did not run")
         if not response.success:
             raise RuntimeError(str(response.answer))
 
