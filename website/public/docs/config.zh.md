@@ -454,7 +454,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `auto_fin_cron_enabled`          | bool        | `false`                | 是否启用按 Cron 定时执行的 Auto Fin 任务                                                          |
 | `auto_fin_cron`                  | string      | `"0 18 * * *"`         | Auto Fin 的有效 5 段 Cron 表达式（启用时必填）                                                    |
 | `auto_fin_topics`                | string      | `"黄金,机器人,半导体"` | 用逗号分隔的财联社新闻筛选主题                                                                    |
-| `auto_fin_window_hours`          | float       | `24`                   | 每次向前抓取财联社电报的滚动小时数，必须大于 0                                                    |
+| `auto_fin_window_hours`          | float       | `24`                   | 每次向前抓取财联社电报的滚动小时数，至少为 1                                                      |
 | `memory_search_enabled`          | bool        | `true`                 | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
 | `auto_memory_search_config`      | object      | _（见下方）_           | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`         | object      | _（见下方）_           | Embedding 模型配置                                                                                |

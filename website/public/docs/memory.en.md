@@ -349,7 +349,7 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
 | `auto_fin_cron_enabled`                 | `false`                | Enable scheduled Auto Fin                                                         |
 | `auto_fin_cron`                         | `"0 18 * * *"`         | Five-field Auto Fin cron expression                                               |
 | `auto_fin_topics`                       | `"黄金,机器人,半导体"` | Comma-separated topics used to filter CLS news                                    |
-| `auto_fin_window_hours`                 | `24`                   | Rolling number of hours of CLS telegraph news to fetch; must be positive          |
+| `auto_fin_window_hours`                 | `24`                   | Rolling number of hours of CLS telegraph news to fetch; must be at least 1        |
 | `auto_fin_inbox_push_enabled`           | `true`                 | Push generated Auto Fin reports or failures to Inbox                              |
 | `memory_search_enabled`                 | `true`                 | Expose the manual `memory_search` tool to the Agent                               |
 | `auto_memory_search_config.enabled`     | `false`                | Search memory before every normal user request                                    |

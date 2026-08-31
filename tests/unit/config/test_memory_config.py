@@ -99,6 +99,18 @@ def test_auto_fin_cron_is_disabled_by_default():
     assert cfg.auto_fin_window_hours == 24
 
 
+@pytest.mark.parametrize("window_hours", [0, 0.5, -1])
+def test_auto_fin_window_requires_at_least_one_hour(window_hours):
+    with pytest.raises(ValidationError):
+        ReMeLightMemoryConfig(auto_fin_window_hours=window_hours)
+
+
+def test_auto_fin_window_accepts_one_hour_boundary():
+    cfg = ReMeLightMemoryConfig(auto_fin_window_hours=1)
+
+    assert cfg.auto_fin_window_hours == 1
+
+
 def test_enabled_auto_fin_requires_non_empty_cron():
     with pytest.raises(
         ValidationError,

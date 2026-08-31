@@ -977,8 +977,11 @@ class ReMeLightMemoryConfig(BaseModel):
 
     auto_fin_window_hours: float = Field(
         default=24,
-        gt=0,
-        description="Rolling number of hours of CLS news to analyze",
+        ge=1,
+        description=(
+            "Rolling number of hours of CLS news to analyze; "
+            "must be at least 1"
+        ),
     )
 
     auto_memory_search_config: AutoMemorySearchConfig = Field(

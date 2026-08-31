@@ -348,7 +348,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 | `auto_fin_cron_enabled`                 | `false`                | 启用定时 Auto Fin                                                  |
 | `auto_fin_cron`                         | `"0 18 * * *"`         | Auto Fin 的五段式 cron                                             |
 | `auto_fin_topics`                       | `"黄金,机器人,半导体"` | 用逗号分隔的财联社新闻筛选主题                                     |
-| `auto_fin_window_hours`                 | `24`                   | 每次向前抓取财联社电报的滚动小时数，必须大于 0                     |
+| `auto_fin_window_hours`                 | `24`                   | 每次向前抓取财联社电报的滚动小时数，至少为 1                       |
 | `auto_fin_inbox_push_enabled`           | `true`                 | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
 | `memory_search_enabled`                 | `true`                 | 向 Agent 提供手动 `memory_search` 工具                             |
 | `auto_memory_search_config.enabled`     | `false`                | 每次普通用户请求前自动搜索记忆                                     |

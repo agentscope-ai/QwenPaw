@@ -78,6 +78,8 @@ def build_payload(
     else:
         payload["force"] = bool(kwargs.get("force", False))
     if isinstance(metadata, dict):
+        if not payload["date"]:
+            payload["date"] = str(metadata.get("date") or "")
         keys = (
             (
                 "digest_path",
@@ -91,8 +93,6 @@ def build_payload(
                 "digest_path",
                 "selected_news_count",
                 "relevant_news_count",
-                "topics",
-                "window_hours",
                 "skipped",
                 "skip_reason",
             )
@@ -100,6 +100,10 @@ def build_payload(
         for key in keys:
             if key in metadata:
                 payload[key] = metadata[key]
+        if name == "auto_fin" and isinstance(metadata.get("topics"), list):
+            payload["effective_topics"] = [
+                str(topic) for topic in metadata["topics"]
+            ]
     return payload
 
 
