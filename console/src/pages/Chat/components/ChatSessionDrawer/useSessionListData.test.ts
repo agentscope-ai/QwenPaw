@@ -270,7 +270,10 @@ describe("useSessionListData switchingSessionId lifecycle (#5354)", () => {
 // ---------------------------------------------------------------------------
 describe("getBackendId", () => {
   it("prefers realId over the (possibly local) id", () => {
-    const s = { id: "1724000000000-abc123", realId: "real-uuid" } as ExtendedChatSession;
+    const s = {
+      id: "1724000000000-abc123",
+      realId: "real-uuid",
+    } as ExtendedChatSession;
     expect(getBackendId(s)).toBe("real-uuid");
   });
 
@@ -314,8 +317,14 @@ describe("formatCreatedAt", () => {
 describe("useSessionListData list shaping", () => {
   it("drops local-format ids without realId, hides archived, sorts newest first", () => {
     sessionApi.setActiveAgent("agent-a");
-    const old = { ...makeSession("old-uuid"), updatedAt: "2026-08-31T10:00:00Z" };
-    const fresh = { ...makeSession("new-uuid"), updatedAt: "2026-08-31T12:00:00Z" };
+    const old = {
+      ...makeSession("old-uuid"),
+      updatedAt: "2026-08-31T10:00:00Z",
+    };
+    const fresh = {
+      ...makeSession("new-uuid"),
+      updatedAt: "2026-08-31T12:00:00Z",
+    };
     const archived = {
       ...makeSession("arch-uuid"),
       updatedAt: "2026-08-31T23:00:00Z",
@@ -676,7 +685,10 @@ describe("useSessionListData context menu", () => {
   });
 
   it("falls back to 'New Chat' when renaming a session without a name", () => {
-    const nameless = { ...makeSession(A_CHAT), name: "" } as ExtendedChatSession;
+    const nameless = {
+      ...makeSession(A_CHAT),
+      name: "",
+    } as ExtendedChatSession;
     const { hook } = renderListData([nameless]);
 
     act(() => {
@@ -729,7 +741,9 @@ describe("useSessionListData polling", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(setSessions).toHaveBeenCalledTimes(1);
-    expect(setSessions.mock.calls[0][0].map((s: ExtendedChatSession) => s.id)).toEqual(["s1"]);
+    expect(
+      setSessions.mock.calls[0][0].map((s: ExtendedChatSession) => s.id),
+    ).toEqual(["s1"]);
 
     // Next poll returns the same list → no redundant state update
     await act(async () => {
@@ -744,7 +758,9 @@ describe("useSessionListData polling", () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(setSessions).toHaveBeenCalledTimes(2);
-    expect(setSessions.mock.calls[1][0].map((s: ExtendedChatSession) => s.id)).toEqual(["s2"]);
+    expect(
+      setSessions.mock.calls[1][0].map((s: ExtendedChatSession) => s.id),
+    ).toEqual(["s2"]);
   });
 
   it("pauses polling while a session switch is in flight", async () => {
@@ -987,9 +1003,7 @@ describe("useSessionListData owner guards and misc edges", () => {
   });
 
   it("handleEditSubmit skips the refetch when the owner changed mid-rename", async () => {
-    const dUpdate = deferred<
-      Awaited<ReturnType<typeof chatApi.updateChat>>
-    >();
+    const dUpdate = deferred<Awaited<ReturnType<typeof chatApi.updateChat>>>();
     const updateSpy = vi
       .spyOn(chatApi, "updateChat")
       .mockReturnValue(dUpdate.promise);
@@ -1016,9 +1030,8 @@ describe("useSessionListData owner guards and misc edges", () => {
   });
 
   it("handleArchiveToggle skips feedback and refetch after an owner switch", async () => {
-    const dArchive = deferred<
-      Awaited<ReturnType<typeof chatApi.archiveChat>>
-    >();
+    const dArchive =
+      deferred<Awaited<ReturnType<typeof chatApi.archiveChat>>>();
     vi.spyOn(chatApi, "archiveChat").mockReturnValue(dArchive.promise);
     const listSpy = vi.spyOn(api, "listChats");
     const { hook } = renderListData([makeSession(A_CHAT)]);
@@ -1049,9 +1062,7 @@ describe("useSessionListData owner guards and misc edges", () => {
   });
 
   it("handlePinToggle skips the refetch when the owner changed mid-update", async () => {
-    const dUpdate = deferred<
-      Awaited<ReturnType<typeof chatApi.updateChat>>
-    >();
+    const dUpdate = deferred<Awaited<ReturnType<typeof chatApi.updateChat>>>();
     vi.spyOn(chatApi, "updateChat").mockReturnValue(dUpdate.promise);
     const listSpy = vi.spyOn(api, "listChats");
     const { hook } = renderListData([makeSession(A_CHAT)]);
