@@ -237,11 +237,20 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 ### Auto-Dream 手动运行
 
 ```text
-/dream             # 立即执行一次 Auto-Dream
-/dream <提示信息>  # 带提示执行一次，例如指定关注方向
+/reme auto_dream                         # 立即执行一次 Auto-Dream
+/reme auto_dream hint="重点整理 AI 芯片" # 带提示执行一次
 ```
 
 平时不需要手动跑：Auto-Dream 默认每天定时执行一次。
+
+ReMe 相关操作统一使用 `/reme <action> key=value`。运行 `/reme help` 可查看
+当前 Agent 实际可用的 Job。例如，`/reme status` 查看运行状态，
+`/reme search query="项目决策" limit=5` 检索记忆，
+`/reme auto_memory count=2` 将当前会话最近两组回复提交给 Auto-Memory。
+直接修改或删除记忆文件的操作还需要显式传入 `confirm=true`。
+
+`/proactive` 管理 QwenPaw 的空闲主动提醒；`/reme proactive` 只读取 ReMe
+生成的兴趣主题，两者不是同一个功能。
 
 ### 与本页相关的配置项
 

@@ -19,9 +19,9 @@ def test_runtime_registers_every_command_handler_conversation_command():
     assert _CONVERSATION_COMMANDS == (
         ConversationCommandHandlerMixin.SYSTEM_COMMANDS
     )
-    assert "reme_status" in {
-        spec.name for spec in _collect_conversation_specs()
-    }
+    names = {spec.name for spec in _collect_conversation_specs()}
+    assert "reme" in names
+    assert {"dream", "memorize", "reme_status"}.isdisjoint(names)
 
 
 def test_compact_saves_the_refreshed_block():

@@ -1087,6 +1087,33 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ---
 
+## ReMe memory commands
+
+All ReMe operations use one system command:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme reindex scope=all
+```
+
+The syntax follows the ReMe CLI: `/reme <action> key=value`. Quote values that
+contain spaces. `/reme help` dynamically lists the jobs available in the
+current Agent's ReMe configuration. `auto_memory` is a QwenPaw-managed adapter:
+`count` selects recent reply groups from the current conversation, and QwenPaw
+injects the messages and session ID.
+
+`write`, `edit`, `move`, `delete`, `daily_write`, and frontmatter mutation
+actions directly change memory files and therefore require `confirm=true`.
+
+The old `/dream`, `/memorize`, and `/reme_status` commands have been removed;
+use `/reme auto_dream`, `/reme auto_memory`, and `/reme status` respectively.
+
+---
+
 ## Proactive Mode - Proactive Notification Mode
 
 Proactive Mode is an intelligent feature that allows the AI agent to actively analyze the user's current session context and screen activities after detecting that the user has been inactive for a prolonged period, and provide relevant assistance and information.

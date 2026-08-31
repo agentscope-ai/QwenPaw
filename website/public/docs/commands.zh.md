@@ -1086,6 +1086,32 @@ qwenpaw daemon version --agent-id abc123
 
 ---
 
+## ReMe 记忆命令
+
+所有 ReMe 操作统一通过一个系统命令调用：
+
+```text
+/reme help
+/reme status
+/reme search query="项目决策" limit=5
+/reme auto_dream hint="重点整理 AI 芯片"
+/reme auto_memory count=2 memory_hint="记录技术决策"
+/reme reindex scope=all
+```
+
+格式与 ReMe CLI 一致：`/reme <action> key=value`。带空格的参数值需要使用
+引号。`/reme help` 会根据当前 Agent 的 ReMe 配置动态列出可用 Job。
+`auto_memory` 是 QwenPaw 托管适配：`count` 表示从当前会话选择最近几组
+回复，QwenPaw 会自动注入消息和会话 ID。
+
+`write`、`edit`、`move`、`delete`、`daily_write` 以及 Frontmatter 修改类
+操作会直接改变记忆文件，必须额外传入 `confirm=true`。
+
+旧的 `/dream`、`/memorize` 和 `/reme_status` 已移除，分别改用
+`/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。
+
+---
+
 ## Proactive Mode - 主动提醒模式
 
 Proactive Mode（主动提醒模式）是一个智能化的功能，允许 AI 代理在检测到用户长时间未活动后，主动分析用户当前的会话上下文和屏幕活动，并提供相关的帮助和信息。

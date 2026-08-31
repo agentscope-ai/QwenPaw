@@ -7,9 +7,11 @@ This module handles system commands like /compact, /new, /clear, etc.
 import json
 import logging
 from pathlib import Path
+import shlex
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import HintBlock, Msg, TextBlock
+from reme.config import parse_action, parse_kwargs
 
 from .context.scroll.continuation_summary import (
     ContinuationSummary,
@@ -38,7 +40,8 @@ logger = logging.getLogger(__name__)
 # advertising commands to clients (e.g. the ACP
 # ``available_commands_update`` notification). Intentionally a small,
 # curated subset of ``SYSTEM_COMMANDS`` — only the conversation commands
-# meant to be typed by users are advertised (``/clear``, ``/compact``).
+# meant to be typed by users are advertised (``/clear``, ``/compact``,
+# ``/reme``).
 # The rest are still handled if typed but are not advertised, to keep the
 # ACP command palette focused:
 #   - ``new`` overlaps the dedicated ACP ``new_session`` affordance (clients
@@ -55,12 +58,41 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "compact": (
         "Compact the conversation context; optional instruction supported"
     ),
+    "reme": "Run and inspect ReMe memory jobs",
 }
 # Manual ``/compact`` skips the auto ``trigger_ratio`` gate and runs compaction
 # directly; the field is constrained ``gt=0``, so we use a negligible value
 # rather than zero.
 _FORCE_TRIGGER_RATIO = 1e-6
 _MAX_COMPACT_HINT_CHARS = 2000
+_MAX_REME_OUTPUT_CHARS = 20000
+_REME_NO_CONFIRM_ACTIONS = frozenset(
+    {
+        "auto_dream",
+        "auto_fin",
+        "auto_memory",
+        "daily_list",
+        "daily_paper",
+        "daily_reindex",
+        "frontmatter_read",
+        "graph_snapshot",
+        "list",
+        "node_search",
+        "proactive",
+        "read",
+        "read_image",
+        "reindex",
+        "search",
+        "stat",
+        "status",
+        "version",
+    },
+)
+
+
+def _reme_action_requires_confirmation(action: str) -> bool:
+    """Require opt-in for direct mutations and unknown plugin actions."""
+    return action not in _REME_NO_CONFIRM_ACTIONS
 
 
 def _fmt_tokens(n: int) -> str:
@@ -74,7 +106,7 @@ class ConversationCommandHandlerMixin:
     Expects self to have: agent_name, memory, formatter, memory_manager.
     """
 
-    # Supported conversation commands (unchanged set)
+    # Supported conversation commands.
     SYSTEM_COMMANDS = frozenset(
         {
             "compact",
@@ -89,9 +121,7 @@ class ConversationCommandHandlerMixin:
             "proactive",
             "plan",
             "system_prompt",
-            "dream",
-            "memorize",
-            "reme_status",
+            "reme",
         },
     )
 
@@ -846,118 +876,153 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         return await self._make_system_msg("".join(status_lines))
 
-    async def _process_dream(
+    async def _process_reme(
         self,
-        _messages: list[Msg],
+        messages: list[Msg],
         args: str = "",
     ) -> Msg:
-        """Process /dream command to run one auto-dream pass."""
+        """Process ``/reme <action> key=value`` against embedded ReMe."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
-                "- Cannot run auto-dream\n"
-                "- Enable memory manager to use this feature",
-            )
-
-        hint = args.strip()
-        try:
-            if hint:
-                await self.memory_manager.dream(hint=hint)
-            else:
-                await self.memory_manager.dream()
-        except Exception as e:
-            logger.exception("auto-dream failed: %s", e)
-            return await self._make_system_msg(
-                f"**Auto-dream Failed**\n\n- Error: {e}",
-            )
-
-        return await self._make_system_msg(
-            "**Auto-dream Complete**\n\n"
-            "- Ran one auto-dream memory optimization pass",
-        )
-
-    async def _process_reme_status(
-        self,
-        _messages: list[Msg],
-        _args: str = "",
-    ) -> Msg:
-        """Process /reme_status to report embedded ReMe memory usage."""
-        if not self._has_memory_manager():
-            return await self._make_system_msg(
-                "**Memory Manager Disabled**\n\n"
-                "- Cannot inspect ReMe memory usage\n"
+                "- Cannot run ReMe commands\n"
                 "- Set `memory_manager_backend` to `remelight` and restart "
                 "QwenPaw to enable this feature",
             )
 
         try:
-            response = await self.memory_manager.reme_status()
-        except Exception as e:
-            logger.exception("ReMe status failed: %s", e)
+            tokens = shlex.split(args)
+        except ValueError as exc:
             return await self._make_system_msg(
-                f"**ReMe Status Failed**\n\n- Error: {e}",
+                f"**Invalid ReMe Command**\n\n- Error: {exc}",
+            )
+
+        try:
+            actions = await self.memory_manager.list_reme_actions()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Could not list ReMe actions: %s", exc)
+            return await self._make_system_msg(
+                f"**ReMe Unavailable**\n\n- Error: {exc}",
+            )
+
+        if not actions:
+            return await self._make_system_msg(
+                "**ReMe Unavailable**\n\n"
+                "- ReMe is not started or this memory backend does not "
+                "support ReMe commands",
+            )
+
+        if not tokens or tokens[0].lower() == "help":
+            return await self._make_system_msg(self._format_reme_help(actions))
+
+        try:
+            action = parse_action(tokens[0])
+            kwargs = parse_kwargs(*tokens[1:])
+        except (TypeError, ValueError) as exc:
+            return await self._make_system_msg(
+                "**Invalid ReMe Command**\n\n"
+                f"- Error: {exc}\n"
+                '- Usage: `/reme <action> key=value`',
+            )
+
+        if action not in actions:
+            return await self._make_system_msg(
+                f"**Unknown ReMe Action: `{action}`**\n\n"
+                "- Run `/reme help` to list available actions",
+            )
+
+        if action == "auto_memory":
+            return await self._process_reme_auto_memory(
+                messages,
+                kwargs,
+            )
+
+        show_metadata = kwargs.pop("show_metadata", False)
+        confirmed = kwargs.pop("confirm", False)
+        if not isinstance(show_metadata, bool) or not isinstance(
+            confirmed,
+            bool,
+        ):
+            return await self._make_system_msg(
+                "**Invalid ReMe Command**\n\n"
+                "- `show_metadata` and `confirm` must be boolean values",
+            )
+        if _reme_action_requires_confirmation(action) and not confirmed:
+            return await self._make_system_msg(
+                f"**Confirmation Required: `{action}`**\n\n"
+                "- This action modifies or deletes memory files\n"
+                "- Re-run it with `confirm=true` after checking the target",
+            )
+
+        try:
+            response = await self.memory_manager.run_reme_action(
+                action,
+                **kwargs,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("ReMe action failed: %s", action)
+            return await self._make_system_msg(
+                f"**ReMe `{action}` Failed**\n\n- Error: {exc}",
             )
 
         if response is None:
             return await self._make_system_msg(
-                "**ReMe Status Unavailable**\n\n"
-                "- ReMe is not started or this memory backend does not "
-                "support status reporting",
+                f"**ReMe `{action}` Unavailable**\n\n"
+                "- ReMe stopped before the action could run",
             )
 
-        answer = str(getattr(response, "answer", "") or "").strip()
+        answer = self._format_reme_value(
+            getattr(response, "answer", ""),
+        )
+        metadata = dict(getattr(response, "metadata", None) or {})
         if not getattr(response, "success", False):
             return await self._make_system_msg(
-                "**ReMe Status Failed**\n\n"
-                f"- Error: {answer or 'Unknown ReMe error'}",
+                f"**ReMe `{action}` Failed**\n\n"
+                f"{answer or 'Unknown ReMe error'}",
+                metadata=metadata,
             )
 
-        warning = (
-            "⚠️ **Estimation note:** ReMe estimates `EMBEDDING_STORE`, "
-            "`FILE_GRAPH`, `FILE_STORE`, and `KEYWORD_INDEX` independently. "
-            "Objects shared across those components may be counted more than "
-            "once, so the components total is not unique memory usage and "
-            "should not be compared directly with process RSS."
-        )
-        return await self._make_system_msg(
-            f"**ReMe Memory Status**\n\n```text\n{answer}\n```\n\n{warning}",
-            metadata=dict(getattr(response, "metadata", None) or {}),
-        )
+        body = f"**ReMe `{action}` Complete**"
+        if answer:
+            body += f"\n\n{answer}"
+        if show_metadata and metadata:
+            body += "\n\n**Metadata**\n\n" + self._format_reme_value(metadata)
+        if action == "status":
+            body += (
+                "\n\n⚠️ ReMe estimates storage components independently; "
+                "shared objects may be counted more than once, so their "
+                "total should not be compared directly with process RSS."
+            )
+        return await self._make_system_msg(body, metadata=metadata)
 
-    async def _process_memorize(
+    async def _process_reme_auto_memory(
         self,
         messages: list[Msg],
-        args: str = "",
+        kwargs: dict[str, Any],
     ) -> Msg:
-        """Process /memorize command to run auto-memory for recent replies."""
-        if not self._has_memory_manager():
+        """Adapt current conversation replies to ReMe ``auto_memory``."""
+        unknown = sorted(set(kwargs).difference({"count", "memory_hint"}))
+        if unknown:
             return await self._make_system_msg(
-                "**Memory Manager Disabled**\n\n"
-                "- Cannot run auto-memory\n"
-                "- Enable memory manager to use this feature",
+                "**Invalid ReMe `auto_memory` Command**\n\n"
+                "- Unknown argument(s): " + ", ".join(unknown),
             )
-
-        invalid_count_message: str | None = None
-        try:
-            count = int(args.strip() or "1")
-        except ValueError:
-            count = 0
-            invalid_count_message = (
-                f"**Invalid Count: '{args}'**\n\n"
-                "- Count must be a positive integer\n"
-                "- Examples: /memorize, /memorize 2"
-            )
-
-        if invalid_count_message is None and count <= 0:
-            invalid_count_message = (
-                f"**Invalid Count: {count}**\n\n"
-                "- Count must be a positive integer\n"
-                "- Examples: /memorize, /memorize 2"
-            )
-
-        if invalid_count_message is not None:
+        count = kwargs.get("count", 1)
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or count <= 0
+        ):
             return await self._make_system_msg(
-                invalid_count_message,
+                "**Invalid Count**\n\n"
+                "- `count` must be a positive integer\n"
+                "- Example: `/reme auto_memory count=2`",
+            )
+        memory_hint = kwargs.get("memory_hint", "")
+        if not isinstance(memory_hint, str):
+            return await self._make_system_msg(
+                "**Invalid Memory Hint**\n\n"
+                "- `memory_hint` must be a string",
             )
 
         reply_ids = self._latest_reply_ids(messages, count=count)
@@ -983,17 +1048,75 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,
+                memory_hint=memory_hint,
             )
-        except Exception as e:
-            logger.exception("manual auto-memory failed: %s", e)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("manual auto-memory failed: %s", exc)
             return await self._make_system_msg(
-                f"**Auto-memory Failed**\n\n- Error: {e}",
+                f"**ReMe `auto_memory` Failed**\n\n- Error: {exc}",
             )
 
         return await self._make_system_msg(
-            "**Auto-memory Started**\n\n"
+            "**ReMe `auto_memory` Started**\n\n"
             f"- Reply groups: {len(reply_ids)}\n"
             f"- Messages submitted: {len(memory_messages)}",
+        )
+
+    @staticmethod
+    def _format_reme_help(actions: dict[str, dict[str, Any]]) -> str:
+        """Render the live ReMe job catalog as slash-command help."""
+        lines = [
+            "**ReMe Commands**",
+            "",
+            "Usage: `/reme <action> key=value`",
+            "",
+        ]
+        for name in sorted(actions):
+            spec = actions[name]
+            parameters = spec.get("parameters") or {}
+            properties = parameters.get("properties") or {}
+            required = set(parameters.get("required") or ())
+            rendered = []
+            for key, schema in properties.items():
+                suffix = "*" if key in required else ""
+                rendered.append(f"{key}={schema.get('type', 'value')}{suffix}")
+            if name == "auto_memory":
+                rendered = ["count=integer", "memory_hint=string"]
+            if _reme_action_requires_confirmation(name):
+                rendered.append("confirm=true")
+            signature = " ".join(rendered)
+            description = str(spec.get("description") or "").strip()
+            line = f"- `/reme {name}"
+            if signature:
+                line += f" {signature}"
+            line += "`"
+            if description:
+                line += f" — {description}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_reme_value(value: Any) -> str:
+        """Render a bounded ReMe result without flooding chat context."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            rendered = value.strip()
+        else:
+            try:
+                rendered = "```json\n" + json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                ) + "\n```"
+            except (TypeError, ValueError):
+                rendered = str(value)
+        if len(rendered) <= _MAX_REME_OUTPUT_CHARS:
+            return rendered
+        return (
+            rendered[:_MAX_REME_OUTPUT_CHARS]
+            + "\n\n… ReMe output truncated by QwenPaw."
         )
 
     def _latest_reply_ids(

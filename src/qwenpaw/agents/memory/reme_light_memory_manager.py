@@ -7,6 +7,7 @@ ReMe's application/job framework.
 """
 
 import asyncio
+from copy import deepcopy
 import hashlib
 import logging
 import os
@@ -71,7 +72,69 @@ os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
+_REME_LLM_ACTIONS = frozenset(
+    {"auto_dream", "auto_memory", "daily_paper", "auto_fin"},
+)
 _REQUIRED_REME_VERSION = "0.4.1.10"
+
+
+def _matches_json_schema_type(value: Any, expected: str) -> bool:
+    """Check the small JSON-Schema type subset used by ReMe jobs."""
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "null":
+        return value is None
+    return True
+
+
+def _validate_reme_job_kwargs(
+    action: str,
+    parameters: dict[str, Any],
+    kwargs: dict[str, Any],
+) -> None:
+    """Validate chat-provided kwargs against a ReMe job's public schema."""
+    properties = parameters.get("properties") or {}
+    required = set(parameters.get("required") or ())
+    missing = sorted(name for name in required if name not in kwargs)
+    if missing:
+        raise ValueError(
+            f"Missing required argument(s) for '{action}': "
+            + ", ".join(missing),
+        )
+
+    unknown = sorted(set(kwargs).difference(properties))
+    if unknown:
+        raise ValueError(
+            f"Unknown argument(s) for '{action}': " + ", ".join(unknown),
+        )
+
+    for name, value in kwargs.items():
+        schema = properties.get(name) or {}
+        expected = schema.get("type")
+        if isinstance(expected, str) and not _matches_json_schema_type(
+            value,
+            expected,
+        ):
+            raise ValueError(
+                f"Argument '{name}' for '{action}' must be {expected}",
+            )
+        choices = schema.get("enum")
+        if choices is not None and value not in choices:
+            rendered = ", ".join(repr(choice) for choice in choices)
+            raise ValueError(
+                f"Argument '{name}' for '{action}' must be one of: "
+                f"{rendered}",
+            )
 
 
 class _ReMeContractError(RuntimeError):
@@ -769,6 +832,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self.add_summarize_task(
             messages=all_messages,
             session_id=session_id,
+            memory_hint=str(kwargs.get("memory_hint") or ""),
         )
 
     async def dream(self, **kwargs: Any) -> None:
@@ -807,6 +871,55 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def reme_status(self) -> "Response | None":
         """Return embedded ReMe component memory estimates and process RSS."""
         return await self._run_reme_job("status")
+
+    async def list_reme_actions(self) -> dict[str, dict[str, Any]]:
+        """Describe the servable jobs in this Agent's embedded ReMe app."""
+        async with self._reme_job_lease():
+            reme = self._reme
+            if reme is None or not getattr(reme, "is_started", False):
+                return {}
+            jobs = getattr(getattr(reme, "context", None), "jobs", {})
+            return {
+                name: {
+                    "description": str(getattr(job, "description", "") or ""),
+                    "parameters": deepcopy(
+                        dict(getattr(job, "parameters", {}) or {}),
+                    ),
+                }
+                for name, job in jobs.items()
+                if getattr(job, "enable_serve", True)
+            }
+
+    async def run_reme_action(
+        self,
+        action: str,
+        **kwargs: Any,
+    ) -> "Response | None":
+        """Validate and run one servable embedded ReMe job."""
+        async with self._reme_job_lease():
+            reme = self._reme
+            if reme is None or not getattr(reme, "is_started", False):
+                return None
+            jobs = getattr(getattr(reme, "context", None), "jobs", {})
+            job = jobs.get(action)
+            if job is None or not getattr(job, "enable_serve", True):
+                raise ValueError(f"Unknown or unavailable ReMe action: {action}")
+            _validate_reme_job_kwargs(
+                action,
+                dict(getattr(job, "parameters", {}) or {}),
+                kwargs,
+            )
+
+        # Reindex owns a stronger lifecycle transaction than an ordinary job.
+        if action == "reindex":
+            return await self.rebuild_index(str(kwargs.get("scope", "all")))
+
+        return await self._run_reme_job(
+            action,
+            needs_llm=action in _REME_LLM_ACTIONS,
+            raise_on_error=True,
+            **kwargs,
+        )
 
     async def graph_snapshot(self) -> "Response | None":
         """Return the complete indexed wikilink graph for the console."""
