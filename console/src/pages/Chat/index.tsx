@@ -1155,6 +1155,23 @@ const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
 const isLocalTimestampId = (id: string | null | undefined): boolean =>
   !!id && /^\d+-[a-z0-9]+$/.test(id);
 
+/**
+ * AgentScopeRuntimeWebUI 1.2 merges the supplied session API with its defaults
+ * via object spread. SessionApi is a class singleton, so its prototype methods
+ * are not enumerable and would otherwise be replaced by the SDK defaults.
+ * Keep an own-property adapter at the integration boundary.
+ */
+const runtimeSessionApi = {
+  getSessionList: () => sessionApi.getSessionList(),
+  getSession: (sessionId: string) => sessionApi.getSession(sessionId),
+  updateSession: (session: Parameters<typeof sessionApi.updateSession>[0]) =>
+    sessionApi.updateSession(session),
+  createSession: (session: Parameters<typeof sessionApi.createSession>[0]) =>
+    sessionApi.createSession(session),
+  removeSession: (session: Parameters<typeof sessionApi.removeSession>[0]) =>
+    sessionApi.removeSession(session),
+};
+
 export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -3354,7 +3371,7 @@ export default function ChatPage() {
       session: {
         multiple: true,
         hideBuiltInSessionList: true,
-        api: sessionApi,
+        api: runtimeSessionApi,
       },
       api: {
         ...defaultConfig.api,

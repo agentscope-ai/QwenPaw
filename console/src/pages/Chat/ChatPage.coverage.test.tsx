@@ -1382,6 +1382,15 @@ describe("ChatPage coverage", () => {
     expect(capturedOptions?.session?.multiple).toBe(true);
     expect(capturedOptions?.session?.hideBuiltInSessionList).toBe(true);
     expect(capturedOptions?.session?.api).toBeTruthy();
+    expect(Object.keys(capturedOptions.session.api)).toEqual(
+      expect.arrayContaining([
+        "getSessionList",
+        "getSession",
+        "updateSession",
+        "createSession",
+        "removeSession",
+      ]),
+    );
   });
 
   // ── welcome config ─────────────────────────────────────────────────────

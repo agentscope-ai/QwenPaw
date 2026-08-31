@@ -3,7 +3,7 @@
 ## 1. 测试对象
 
 - 宿主：CoPaw / QwenPaw Console Chat
-- SDK：`@agentscope-ai/chat@1.2.0-beta.1787827278109`
+- SDK：`@agentscope-ai/chat@1.2.0-beta.1788158364708`
 - 重点变更：会话级消息与 Loading 隔离、受控会话加载、异步取消协议、响应卡 `messageId`、函数/组件调用渲染和新版请求数据结构
 - 队列边界：不启用 AgentScopeRuntimeWebUI 延迟队列；继续使用 CoPaw 既有输入队列、后台发送和多标签页 ownership
 - 执行原则：自动化、真实浏览器、真实后端/模型三层证据分开记录；未执行项不得标记为通过
@@ -29,6 +29,7 @@
 | SDK-CON-006 | P1     | 运行 Console 全量 Vitest           | 无新增失败；若有既有失败需单列               | 自动化   |
 | SDK-CON-007 | P0     | 运行生产构建                       | Vite、Monaco CSS、预压缩、首包检查均通过     | 构建     |
 | SDK-CON-008 | P1     | 检查 peer dependency / audit 输出  | 既有告警与本次新增风险分开记录，不做越界升级 | 静态     |
+| SDK-CON-009 | P0     | 检查传给 SDK 的 `session.api` 自有属性 | 五个会话方法均可被 SDK 对象展开保留，不能退回默认 API | 自动化 |
 
 ## 4. 基础会话与流式响应
 
@@ -77,6 +78,7 @@
 | SDK-SES-010 | P0     | Agent A→B→A 切换               | 会话列表、草稿、身份、消息按 Agent 隔离           | 自动化/浏览器 |
 | SDK-SES-011 | P0     | 切换不同 user/channel 来源会话 | 请求沿用目标会话身份，不继承旧 window 全局值      | 自动化/API    |
 | SDK-SES-012 | P1     | 删除当前/非当前会话            | 列表、缓存、队列、审批级别与文件工作区同步清理    | 自动化/浏览器 |
+| SDK-SES-013 | P0     | A、B 使用不同 `id` 但共享 `sessionId`，先打开 A 再点击 B | URL 切到 B，调用 B 的详情接口，只显示 B 消息，不能把共享别名当作同一 Chat | 浏览器/API |
 
 ## 7. CoPaw 既有输入队列、后台发送与多标签页
 
@@ -139,8 +141,8 @@
 
 - 自动化、浏览器、真实后端/模型三类证据分别记录；未执行项保持 Pending。
 - 本分支不启用 AgentScopeRuntimeWebUI 内置延迟队列，继续运行 CoPaw 既有输入队列；自动化必须断言 `sender.queue` 未配置。
-- 已通过：TypeScript、Chat/API 与 CoPaw 队列兼容定向测试（5 文件 / 97 用例）、Console 全量 Vitest（296 文件 / 2462 用例）。
-- 已通过：生产构建（19345 modules）、Monaco CSS、369 个静态资源预压缩及首包门禁（9.49 MiB raw / 2.39 MiB Brotli）。
-- 已通过：隔离后端 Chromium E2E `MULTITAB-001`，第二标签页显示 CoPaw 队列提示，持锁标签页不显示。
-- 待重新验证：隔离后端浏览器发送冒烟。
+- 已通过：TypeScript、Chat/API 与 CoPaw 队列兼容定向测试（9 文件 / 188 用例）、Console 全量 Vitest（296 文件 / 2462 用例）。
+- 已通过：生产构建（19345 modules）、Monaco CSS、369 个静态资源预压缩及首包门禁（9.50 MiB raw / 2.39 MiB Brotli）。
+- 已通过：隔离后端 Chromium E2E `SDK-SES-013`；A、B 的 UUID 不同但共享 `console:shared-session`，A→B 后 URL、标题和消息均切到 B，页面不存在 A 的专属消息。
+- 已确认：`sender.queue` 未配置，AgentScopeRuntimeWebUI 延迟队列保持关闭；页面继续使用 CoPaw 既有队列与多标签页 ownership。
 - Pending：真实模型流式发送、Stop/重连、三条 FIFO、失败重试、附件队列、Agent/会话切换、Safari/WebKit 和全量 Python E2E。上述项目完成前，不能宣称使用场景已全覆盖。
