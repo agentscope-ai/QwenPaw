@@ -465,7 +465,7 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 | `/history`          | 📋 消息列表 + Token 统计 |
 | `/message`          | 📄 指定消息详情          |
 | `/compact_str`      | 📝 压缩摘要内容          |
-| `/summarize_status` | 📊 摘要任务状态          |
+| `/summarize_status` | 📊 Auto-Memory 任务状态 |
 | `/dump_history`     | 📁 历史导出文件路径      |
 | `/load_history`     | ✅ 历史加载结果          |
 
@@ -583,9 +583,9 @@ Status: in_progress
 
 ---
 
-### /summarize_status - 查看摘要任务状态
+### /summarize_status - 查看 Auto-Memory 任务状态
 
-显示所有后台摘要任务的运行状态，包括任务 ID、开始时间和执行结果。
+显示所有后台 Auto-Memory 任务的运行状态，包括任务 ID、开始时间和执行结果。命令名为兼容旧版本而保留。
 
 ```
 /summarize_status
@@ -594,7 +594,7 @@ Status: in_progress
 **返回示例：**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
@@ -606,7 +606,7 @@ Status: in_progress
   - Error: Summary generation timeout
 ```
 
-> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动摘要任务，可通过此命令查看其执行情况。
+> 💡 使用 `/compact` 或 `/new` 时会在后台提交 Auto-Memory 任务，可通过此命令查看其执行情况。
 
 ---
 

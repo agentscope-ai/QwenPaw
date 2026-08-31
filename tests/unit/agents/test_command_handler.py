@@ -103,7 +103,7 @@ async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
     auto_memory_turn_state(agent.state)["pending"] = ["turn-1"]
     memory_manager = MagicMock()
     memory_manager.enabled = True
-    memory_manager.add_summarize_task = MagicMock()
+    memory_manager.add_auto_memory_task = MagicMock()
 
     await CommandHandler(
         agent_name="QwenPaw",
@@ -111,7 +111,7 @@ async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
         memory_manager=memory_manager,
     ).handle_command("/new")
 
-    memory_manager.add_summarize_task.assert_called_once()
+    memory_manager.add_auto_memory_task.assert_called_once()
     assert not agent.state.context
     assert auto_memory_turn_state(agent.state)["pending"] == []
 
@@ -270,7 +270,7 @@ def _mock_reme_manager(*actions: str):
         },
     )
     manager.run_action = AsyncMock()
-    manager.auto_memory = AsyncMock()
+    manager.add_auto_memory_task = MagicMock()
     return manager
 
 
@@ -414,10 +414,10 @@ async def test_reme_auto_memory_defaults_to_latest_reply_group() -> None:
 
     msg = await handler.handle_command("/reme auto_memory")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.add_auto_memory_task.assert_called_once()
+    call_args = memory_manager.add_auto_memory_task.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs == {
         "session_id": "session-1",
@@ -450,10 +450,10 @@ async def test_reme_auto_memory_count_and_hint_select_reply_groups() -> None:
         '/reme auto_memory count=2 memory_hint="project decisions"',
     )
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.add_auto_memory_task.assert_called_once()
+    call_args = memory_manager.add_auto_memory_task.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == [
         "u2",
         "a2",
@@ -484,10 +484,10 @@ async def test_reme_auto_memory_falls_back_to_assistant_role() -> None:
 
     msg = await handler.handle_command("/reme auto_memory")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.add_auto_memory_task.assert_called_once()
+    call_args = memory_manager.add_auto_memory_task.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs["reply_id"] == "r2"
     assert kwargs["reply_ids"] == ["r2"]
@@ -506,7 +506,7 @@ async def test_reme_auto_memory_rejects_invalid_count() -> None:
 
     msg = await handler.handle_command("/reme auto_memory count=two")
 
-    memory_manager.auto_memory.assert_not_awaited()
+    memory_manager.add_auto_memory_task.assert_not_called()
     assert "Invalid Count" in msg.get_text_content()
 
 

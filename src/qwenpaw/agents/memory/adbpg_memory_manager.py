@@ -9,7 +9,6 @@ memory storage and retrieval.
 """
 import asyncio
 import logging
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -149,76 +148,30 @@ class ADBPGMemoryManager(BaseMemoryManager):
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
 
-    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
-        """Return memory tools exposed to the agent."""
-        return [self.memory_search]
-
     def get_auto_memory_interval(self) -> int:
         """Persist ADBPG user messages every turn."""
         return 1
 
-    # ------------------------------------------------------------------
-    # Optional methods (override)
-    # ------------------------------------------------------------------
-
-    async def summarize(self, messages: list[Msg], **_kwargs) -> str:
-        """Persist user messages to ADBPG via fire-and-forget."""
-        if self._client is None:
-            return ""
-        user_messages = self._filter_user_messages(messages)
-        if not user_messages:
-            return ""
-        for single in user_messages:
-            self._schedule_add([single])
-        return (
-            f"Persisted {len(user_messages)} user message(s) "
-            f"to ADBPG for agent '{self.agent_id}'."
-        )
-
-    async def auto_memory_search(
+    async def _get_auto_memory_search_options(
         self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        """Auto-search ADBPG memory before the model call."""
-        del agent_name
-        del kwargs
+    ) -> tuple[bool, int, float]:
+        """Return ADBPG automatic-search settings."""
         if self._client is None:
-            return None
+            return False, 3, self._get_token_estimate_divisor()
 
         memory_cfg, estimate_divisor = await run_sync_io(
             self._load_auto_search_config,
         )
         search_cfg = getattr(memory_cfg, "auto_memory_search_config", None)
-        if not getattr(search_cfg, "enabled", False):
-            return None
-
-        msgs = [messages] if isinstance(messages, Msg) else list(messages)
-        query = self._build_query(msgs)
-        if not query:
-            return None
-
-        max_results = max(1, int(getattr(search_cfg, "max_results", 3)))
-        result = await self.memory_search(
-            query=query,
-            max_results=max_results,
+        return (
+            bool(getattr(search_cfg, "enabled", False)),
+            int(getattr(search_cfg, "max_results", 3)),
+            estimate_divisor,
         )
-        text = self._tool_chunk_text(result).strip()
-        if not text or text == "No relevant memories found.":
-            return None
 
-        assistant_msg = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=max_results,
-            text=text,
-            estimate_divisor=estimate_divisor,
-        )
-        return {
-            "query": query,
-            "text": text,
-            "msg": msgs + [assistant_msg],
-        }
+    def _is_empty_memory_search_result(self, text: str) -> bool:
+        """Recognize ADBPG's successful empty-search response."""
+        return not text or text == "No relevant memories found."
 
     def _load_auto_search_config(self) -> tuple[Any, float]:
         """Load ADBPG search settings and token estimate configuration."""
@@ -230,27 +183,28 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def auto_memory(
         self,
-        all_messages: list[Msg],
-        **kwargs,
-    ) -> None:
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
         """Persist new user messages to ADBPG every turn.
 
         ADBPG server-side handles fact extraction, so we persist on every
         turn (interval=1) without filtering by interval config.
         """
+        del kwargs
         if self._client is None:
-            return
+            return ""
 
-        all_messages = self._messages_without_auto_memory_search(all_messages)
+        messages = self._messages_without_auto_memory_search(messages)
 
         # Only persist messages not already sent
         new_messages = [
             msg
-            for msg in all_messages
+            for msg in messages
             if msg.role == "user" and msg.id not in self._persisted_msg_ids
         ]
         if not new_messages:
-            return
+            return ""
 
         user_messages = self._filter_user_messages(new_messages)
         for single in user_messages:
@@ -259,6 +213,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
         # Track persisted message IDs
         for msg in new_messages:
             self._persisted_msg_ids.add(msg.id)
+        return (
+            f"Persisted {len(user_messages)} user message(s) "
+            f"to ADBPG for agent '{self.agent_id}'."
+        )
 
     # ------------------------------------------------------------------
     # Tool function
@@ -347,15 +305,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _tool_chunk_text(chunk: ToolChunk) -> str:
-        parts = []
-        for block in chunk.content or []:
-            text = getattr(block, "text", "")
-            if text:
-                parts.append(str(text))
-        return "\n".join(parts)
 
     @staticmethod
     def _filter_user_messages(messages: list[Msg]) -> list[dict]:

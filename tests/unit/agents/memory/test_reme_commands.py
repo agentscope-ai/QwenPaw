@@ -4,7 +4,7 @@
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -137,3 +137,41 @@ async def test_run_action_delegates_reindex_lifecycle() -> None:
     assert response == "reindexed"
     manager._rebuild_index.assert_awaited_once_with("embedding")
     manager._run_reme_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_memory_uses_the_action_provider() -> None:
+    manager = _manager_with_jobs(
+        {
+            "auto_memory": _job(
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "messages": {"type": "array"},
+                        "session_id": {"type": "string"},
+                        "memory_hint": {"type": "string"},
+                    },
+                    "required": ["messages"],
+                },
+            ),
+        },
+    )
+    message = MagicMock(metadata={})
+    message.model_dump.return_value = {"role": "user", "content": "hello"}
+
+    result = await manager.auto_memory(
+        [message],
+        session_id="session-1",
+        memory_hint="remember this",
+    )
+
+    assert result == "ok"
+    call = manager._run_reme_job.await_args
+    assert call.args == ("auto_memory",)
+    assert call.kwargs["needs_llm"] is True
+    assert call.kwargs["raise_on_error"] is True
+    assert call.kwargs["messages"] == [
+        {"role": "user", "content": "hello"},
+    ]
+    assert call.kwargs["session_id"].startswith("qpsid_sha256_")
+    assert call.kwargs["memory_hint"] == "remember this"

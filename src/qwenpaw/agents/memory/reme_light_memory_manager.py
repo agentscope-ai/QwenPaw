@@ -278,7 +278,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             return
 
     async def close(self) -> bool:
-        """Close ReMe and clean up background summary worker state."""
+        """Close ReMe and clean up the background auto-memory worker."""
         async with self._exclusive_reme_lifecycle("close"):
             return await self._close_reme_unlocked()
 
@@ -289,7 +289,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             self.agent_id,
         )
 
-        worker_stopped = await self._shutdown_summarize_worker()
+        worker_stopped = await self._shutdown_auto_memory_worker()
 
         if self._reme is not None:
             try:
@@ -379,11 +379,9 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             )
         return jobs
 
-    def list_memory_tools(self):
-        """Return memory tool functions to register with the agent toolkit."""
-        if not self.get_memory_config().memory_search_enabled:
-            return []
-        return [self.memory_search]
+    def is_memory_search_enabled(self) -> bool:
+        """Return whether ReMe search is exposed to the agent."""
+        return bool(self.get_memory_config().memory_search_enabled)
 
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
@@ -425,7 +423,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _reload_embedding_config_unlocked(self) -> bool:
         """Recreate embedded ReMe while the caller owns the lifecycle lock."""
         await self._close_reme_unlocked()
-        self._worker_stopping = False
+        self._auto_memory_worker_stopping = False
         await run_sync_io(self._initialize_reme)
         await self.start()
         self._tested_embedding = None
@@ -715,7 +713,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     ) -> list[int] | None:
         return await call_reranker_api(query, documents, config)
 
-    async def summarize(
+    async def auto_memory(
         self,
         messages: list[Msg],
         **kwargs: Any,
@@ -723,20 +721,22 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         """Persist conversation messages through ReMe auto-memory."""
         if not messages:
             return ""
+        messages = self._messages_without_auto_memory_search(messages)
+        if not messages:
+            return ""
 
         session_id = str(kwargs.get("session_id") or "")
         if not session_id:
             logger.warning(
-                "ReMe summarize skipped; session_id is empty: "
+                "ReMe auto-memory skipped; session_id is empty: "
                 "agent_id=%s messages=%s",
                 self.agent_id,
                 len(messages),
             )
             return ""
 
-        response = await self._run_reme_job(
+        response = await self.run_action(
             "auto_memory",
-            needs_llm=True,
             messages=[message.model_dump(mode="json") for message in messages],
             session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
@@ -745,96 +745,22 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             return ""
         return str(response.answer or "")
 
-    async def auto_memory_search(
+    async def _get_auto_memory_search_options(
         self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        """Auto-search memory and expose it as a completed tool interaction."""
-        del agent_name
-        del kwargs
+    ) -> tuple[bool, int, float]:
+        """Return ReMe automatic-search settings."""
         agent_config = await load_agent_config_async(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
-        if not memory_cfg.auto_memory_search_config.enabled:
-            return None
-
-        msgs = [messages] if isinstance(messages, Msg) else list(messages)
-        query = self._build_query(msgs)
-        if not query:
-            return None
-
         search_cfg = memory_cfg.auto_memory_search_config
-
-        cap = max(1, search_cfg.max_results)
-        reranker_config = await self._get_reranker_config()
-        # Over-fetch when reranker is enabled: take N * multiplier
-        # candidates, rerank, then return top-N.
-        effective_limit = (
-            cap * reranker_config.candidate_multiplier
-            if reranker_config
-            else cap
-        )
-        response = await self._run_reme_job(
-            "search",
-            query=query,
-            limit=effective_limit,
-            min_score=0,
-        )
-        if response is None or not response.success:
-            return None
-
-        await self._rerank_and_cap_response(
-            query,
-            response,
-            cap,
-            reranker_config,
+        return (
+            bool(search_cfg.enabled),
+            int(search_cfg.max_results),
+            self._resolve_token_estimate_divisor(agent_config),
         )
 
-        text = str(response.answer or "").strip()
-        if not text:
-            return None
-
-        assistant_msg = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=cap,
-            text=text,
-            estimate_divisor=self._resolve_token_estimate_divisor(
-                agent_config,
-            ),
-        )
-        return {
-            "query": query,
-            "text": text,
-            "msg": msgs + [assistant_msg],
-        }
-
-    async def auto_memory(
-        self,
-        all_messages: list[Msg],
-        **kwargs: Any,
-    ) -> None:
-        """Auto-extract memory for a prepared reply batch."""
-        if not all_messages:
-            return
-        all_messages = self._messages_without_auto_memory_search(all_messages)
-        if not all_messages:
-            return
-        session_id = str(kwargs.get("session_id") or "")
-        if not session_id:
-            logger.warning(
-                "ReMe auto_memory skipped; session_id is empty: "
-                "agent_id=%s messages=%s",
-                self.agent_id,
-                len(all_messages),
-            )
-            return
-
-        self.add_summarize_task(
-            messages=all_messages,
-            session_id=session_id,
-            memory_hint=str(kwargs.get("memory_hint") or ""),
-        )
+    def _is_empty_memory_search_result(self, text: str) -> bool:
+        """Recognize ReMe's successful empty-search response."""
+        return not text or text == NO_MEMORY_RESULTS
 
     async def _dream(self) -> None:
         """Run the scheduled ReMe auto-dream action."""

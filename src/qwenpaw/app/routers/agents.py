@@ -189,7 +189,7 @@ class MemoryWorkerRuntimeStatus(BaseModel):
 class MemoryCaptureTaskStatus(BaseModel):
     """One bounded memory-capture record, newest records returned first.
 
-    Records share the summarize queue used by periodic auto-memory and the
+    Records share the auto-memory queue used by periodic capture and the
     user-triggered ``/new`` and ``/compact`` commands.
     """
 

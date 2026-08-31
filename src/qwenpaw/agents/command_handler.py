@@ -437,7 +437,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             compress_stats.get("evicted", inferred_evicted) or 0,
         )
         if self._has_memory_manager():
-            self.memory_manager.add_summarize_task(
+            self.memory_manager.add_auto_memory_task(
                 messages=messages,
                 session_id=self._current_session_id(),
             )
@@ -637,7 +637,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             self._set_summary("")
             reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
-                "**No messages to summarize.**\n\n"
+                "**No messages to save to memory.**\n\n"
                 "- Current memory is empty\n"
                 "- Compressed summary is clear\n"
                 "- Plan state cleared\n"
@@ -651,7 +651,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(
+        self.memory_manager.add_auto_memory_task(
             messages=messages,
             session_id=self._current_session_id(),
         )
@@ -661,7 +661,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         reset_auto_memory_turn_state(self._state)
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
-            "- Summary task started in background\n"
+            "- Auto-memory task started in background\n"
             "- Plan state cleared\n"
             "- Ready for new conversation",
             metadata={"clear_plan": True},
@@ -821,22 +821,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /summarize_status command to show all status."""
+        """Process the legacy /summarize_status task-status command."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
-                "- Cannot list summary task status\n"
+                "- Cannot list auto-memory task status\n"
                 "- Enable memory manager to use this feature",
             )
 
-        task_list = self.memory_manager.list_summarize_status()
+        task_list = self.memory_manager.list_auto_memory_status()
         if not task_list:
             return await self._make_system_msg(
-                "**No Summary Tasks**\n\n"
-                "- No summary tasks have been started",
+                "**No Auto-memory Tasks**\n\n"
+                "- No auto-memory tasks have been started",
             )
 
-        status_lines = ["**Summary Task Status**\n\n"]
+        status_lines = ["**Auto-memory Task Status**\n\n"]
         for info in task_list:
             status_lines.append(
                 f"- **{info['task_id']}**\n"
@@ -1015,7 +1015,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            await self.memory_manager.auto_memory(
+            self.memory_manager.add_auto_memory_task(
                 memory_messages,
                 session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],

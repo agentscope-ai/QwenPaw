@@ -330,7 +330,7 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            await self._memory_manager.auto_memory(
+            self._memory_manager.add_auto_memory_task(
                 messages,
                 session_id=self._agent_session_id(agent),
             )

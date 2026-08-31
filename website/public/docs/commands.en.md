@@ -465,7 +465,7 @@ Commands for viewing and managing conversation history.
 | `/history`          | 📋 Message list + Token stats |
 | `/message`          | 📄 Specified message details  |
 | `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
+| `/summarize_status` | 📊 Auto-memory task status    |
 | `/dump_history`     | 📁 Exported history file path |
 | `/load_history`     | ✅ History load result        |
 
@@ -583,9 +583,9 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /summarize_status - View Auto-Memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display all background auto-memory tasks, including task ID, start time, and execution results. The command name is retained for compatibility.
 
 ```
 /summarize_status
@@ -594,7 +594,7 @@ Display the running status of all background summary tasks, including task ID, s
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
@@ -606,7 +606,7 @@ Display the running status of all background summary tasks, including task ID, s
   - Error: Summary generation timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` submits an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 
