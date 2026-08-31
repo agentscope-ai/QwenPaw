@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.agents.memory.action_provider import MemoryActionProvider
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
@@ -37,6 +39,14 @@ def _job(*, parameters=None, enable_serve=True):
         parameters=parameters or {"type": "object", "properties": {}},
         enable_serve=enable_serve,
     )
+
+
+def test_only_action_backends_expose_action_provider(tmp_path) -> None:
+    manager = _manager_with_jobs({})
+    noop = NoopMemoryManager(str(tmp_path), "test-agent")
+
+    assert isinstance(manager, MemoryActionProvider)
+    assert not isinstance(noop, MemoryActionProvider)
 
 
 @pytest.mark.asyncio
@@ -105,4 +115,25 @@ async def test_run_action_rejects_unknown_and_invalid_arguments() -> None:
     with pytest.raises(ValueError, match="Unknown or unavailable"):
         await manager.run_action("delete", path="x")
 
+    manager._run_reme_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_action_delegates_reindex_lifecycle() -> None:
+    manager = _manager_with_jobs(
+        {
+            "reindex": _job(
+                parameters={
+                    "type": "object",
+                    "properties": {"scope": {"type": "string"}},
+                },
+            ),
+        },
+    )
+    manager._rebuild_index = AsyncMock(return_value="reindexed")
+
+    response = await manager.run_action("reindex", scope="embedding")
+
+    assert response == "reindexed"
+    manager._rebuild_index.assert_awaited_once_with("embedding")
     manager._run_reme_job.assert_not_awaited()

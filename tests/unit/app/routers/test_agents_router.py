@@ -591,7 +591,8 @@ def test_rebuild_memory_index_runs_reme_job(
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     reindex_response = MagicMock(success=True, answer="done")
     memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(return_value=reindex_response)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=reindex_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -615,7 +616,10 @@ def test_rebuild_memory_index_runs_reme_job(
         "status": "completed",
         "scope": "embedding",
     }
-    memory_manager.rebuild_index.assert_awaited_once_with("embedding")
+    memory_manager.run_action.assert_awaited_once_with(
+        "reindex",
+        scope="embedding",
+    )
 
 
 def test_rebuild_memory_index_rejects_concurrent_run(
@@ -625,7 +629,8 @@ def test_rebuild_memory_index_rejects_concurrent_run(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(
         side_effect=RuntimeError("Memory index rebuild is already running"),
     )
     manager_mock.get_agent = AsyncMock(
@@ -654,7 +659,8 @@ def test_rebuild_memory_index_rejects_disabled_embedding(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(
         side_effect=EmbeddingReindexUnavailableError(
             "Embedding index rebuild requires an enabled embedding "
             "configuration",
@@ -689,7 +695,8 @@ def test_rebuild_all_rejects_disabled_embedding(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(
         side_effect=EmbeddingReindexUnavailableError(
             "An all-scope index rebuild requires an enabled embedding "
             "configuration",
@@ -782,7 +789,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
     }
     memory_manager = MagicMock()
     memory_manager.get_runtime_status.return_value = runtime_status
-    memory_manager.status = AsyncMock()
+    memory_manager.run_action = AsyncMock()
     manager_mock.get_loaded_agent.return_value = MagicMock(
         memory_manager=memory_manager,
     )
@@ -801,7 +808,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
 
     assert response.status_code == 200
     assert response.json() == runtime_status
-    memory_manager.status.assert_not_awaited()
+    memory_manager.run_action.assert_not_awaited()
 
 
 def test_get_memory_status_returns_structured_reme_metrics(
@@ -827,7 +834,8 @@ def test_get_memory_status_returns_structured_reme_metrics(
         },
     )
     memory_manager = MagicMock()
-    memory_manager.status = AsyncMock(return_value=status_response)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=status_response)
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -868,7 +876,7 @@ def test_get_memory_status_returns_structured_reme_metrics(
         **status_response.metadata["status"]["memory"],
         "runtime": runtime_status,
     }
-    memory_manager.status.assert_awaited_once_with()
+    memory_manager.run_action.assert_awaited_once_with("status")
     memory_manager.get_runtime_status.assert_called_once_with(
         auto_memory_interval=5,
     )
@@ -881,7 +889,8 @@ def test_get_memory_status_rejects_invalid_payload(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.status = AsyncMock(
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(
         return_value=MagicMock(success=True, metadata={}),
     )
     manager_mock.get_loaded_agent.return_value = MagicMock(
@@ -968,7 +977,8 @@ def test_get_memory_graph_returns_reme_snapshot(
         },
     )
     memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -1005,7 +1015,7 @@ def test_get_memory_graph_returns_reme_snapshot(
             },
         ],
     }
-    memory_manager.graph_snapshot.assert_awaited_once_with()
+    memory_manager.run_action.assert_awaited_once_with("graph_snapshot")
 
 
 @pytest.mark.asyncio
@@ -1025,7 +1035,8 @@ async def test_get_memory_graph_config_io_does_not_block_loop(
         answer={"version": 1, "nodes": [], "edges": []},
     )
     memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager = MagicMock()
     manager.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
@@ -1088,7 +1099,8 @@ def test_get_memory_graph_maps_nested_memory_roots(
         },
     )
     memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -1120,7 +1132,8 @@ def test_get_memory_graph_reports_unavailable_reme(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=None)
+    memory_manager.list_actions = AsyncMock()
+    memory_manager.run_action = AsyncMock(return_value=None)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )

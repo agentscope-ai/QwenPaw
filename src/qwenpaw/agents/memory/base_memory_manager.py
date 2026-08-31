@@ -260,40 +260,6 @@ class BaseMemoryManager(ABC):
         """
         return ""
 
-    # pylint: disable=unused-argument
-    async def dream(self, **kwargs) -> None:
-        """Optimize memory files via a background agent pass.
-
-        NOTE: This method is optional. Subclasses may override this method
-        to implement actual memory optimization. Base implementation does
-        nothing, indicating no dream support.
-
-        Runs a lightweight ReAct agent with file-editing tools to
-        consolidate redundant or outdated memory entries.
-        """
-        return None
-
-    async def status(self) -> Any | None:
-        """Return runtime status when supported by the backend."""
-        return None
-
-    async def list_actions(self) -> dict[str, dict[str, Any]]:
-        """Return user-callable actions when supported by the backend."""
-        return {}
-
-    async def run_action(self, action: str, **kwargs: Any) -> Any | None:
-        """Run one user-callable action when supported by the backend."""
-        del action, kwargs
-        return None
-
-    async def graph_snapshot(self) -> Any | None:
-        """Return a frontend-ready memory graph when supported."""
-        return None
-
-    async def rebuild_index(self, scope: str = "all") -> Any | None:
-        """Rebuild the memory search index when supported by the backend."""
-        return None
-
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,

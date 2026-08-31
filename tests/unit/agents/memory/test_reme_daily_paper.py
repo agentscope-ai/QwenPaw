@@ -229,7 +229,7 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
 
     assert [job.key for job in jobs] == ["dream", "daily-paper"]
     assert jobs[0].callback.__self__ is manager
-    assert jobs[0].callback.__func__ is ReMeLightMemoryManager.dream
+    assert jobs[0].callback.__func__ is ReMeLightMemoryManager._dream
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.__self__ is manager
     assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper

@@ -362,6 +362,20 @@ async def test_reme_requires_memory_manager() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reme_requires_action_provider_capability() -> None:
+    agent = _make_agent()
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=SimpleNamespace(enabled=True),
+    )
+
+    msg = await handler.handle_command("/reme status")
+
+    assert "does not expose callable actions" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
 async def test_reme_reports_unavailable_for_noop_manager(tmp_path) -> None:
     agent = _make_agent()
     memory_manager = NoopMemoryManager(

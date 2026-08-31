@@ -17,6 +17,7 @@ from typing import Any, TYPE_CHECKING
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
+from .action_provider import MemoryActionProvider, MemoryActionSpec
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .embedding_model import EmbeddingTestResult
 from .prompts import build_memory_guidance_prompt
@@ -203,7 +204,7 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
 
 @memory_registry.register("remelight")
 # pylint: disable-next=too-many-public-methods
-class ReMeLightMemoryManager(BaseMemoryManager):
+class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     """Memory manager backed by ReMe.
 
     ReMe uses the QwenPaw workspace root as its vault.  Daily memory,
@@ -361,7 +362,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ServiceCronJob(
                     key="dream",
                     cron=cfg.dream_cron,
-                    callback=self.dream,
+                    callback=self._dream,
                     misfire_grace_seconds=600,
                     jitter_seconds=60,
                 ),
@@ -835,14 +836,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
 
-    async def dream(self, **kwargs: Any) -> None:
-        """Run one ReMe auto-dream pass."""
-        response = await self._run_reme_job(
-            "auto_dream",
-            needs_llm=True,
-            date=str(kwargs.get("date") or ""),
-            hint=str(kwargs.get("hint") or ""),
-        )
+    async def _dream(self) -> None:
+        """Run the scheduled ReMe auto-dream action."""
+        response = await self.run_action("auto_dream")
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
 
@@ -868,11 +864,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not response.success:
             raise RuntimeError(str(response.answer))
 
-    async def status(self) -> "Response | None":
-        """Return embedded ReMe component memory estimates and process RSS."""
-        return await self._run_reme_job("status")
-
-    async def list_actions(self) -> dict[str, dict[str, Any]]:
+    async def list_actions(self) -> dict[str, MemoryActionSpec]:
         """Describe the servable jobs in this Agent's embedded ReMe app."""
         async with self._reme_job_lease():
             reme = self._reme
@@ -912,7 +904,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         # Reindex owns a stronger lifecycle transaction than an ordinary job.
         if action == "reindex":
-            return await self.rebuild_index(str(kwargs.get("scope", "all")))
+            return await self._rebuild_index(str(kwargs.get("scope", "all")))
 
         return await self._run_reme_job(
             action,
@@ -921,11 +913,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             **kwargs,
         )
 
-    async def graph_snapshot(self) -> "Response | None":
-        """Return the complete indexed wikilink graph for the console."""
-        return await self._run_reme_job("graph_snapshot")
-
-    async def rebuild_index(self, scope: str = "all") -> "Response | None":
+    async def _rebuild_index(self, scope: str = "all") -> "Response | None":
+        """Rebuild indexes under ReMe's stronger lifecycle transaction."""
         return await self._embedding_service().rebuild_index(scope)
 
     async def undo_embedding_reindex(self) -> EmbeddingModelConfig:

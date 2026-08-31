@@ -22,6 +22,7 @@ from .middlewares import (
     manual_compact_memory_by_handler,
     reset_auto_memory_turn_state,
 )
+from .memory.action_provider import MemoryActionProvider
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -863,6 +864,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "QwenPaw to enable this feature",
             )
 
+        if not isinstance(self.memory_manager, MemoryActionProvider):
+            return await self._make_system_msg(
+                "**ReMe Unavailable**\n\n"
+                "- This memory backend does not expose callable actions",
+            )
+
+        action_provider = self.memory_manager
+
         try:
             tokens = shlex.split(args)
         except ValueError as exc:
@@ -871,7 +880,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            actions = await self.memory_manager.list_actions()
+            actions = await action_provider.list_actions()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Could not list ReMe actions: %s", exc)
             return await self._make_system_msg(
@@ -918,7 +927,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            response = await self.memory_manager.run_action(
+            response = await action_provider.run_action(
                 action,
                 **kwargs,
             )
