@@ -535,8 +535,10 @@ def test_qq_access_control_dm_gates_unknown_sender(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    qq_channel_up.reset_identified()
     provider_id = register_mock_provider(app_server, mock_url)
+    # Clear after the provider writes: they reload the agent as well, so
+    # their IDENTIFY would satisfy the wait below before this PUT lands.
+    qq_channel_up.reset_identified()
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/qq",
@@ -667,8 +669,10 @@ def test_qq_bot_prefix_message_is_skipped(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    qq_channel_up.reset_identified()
     provider_id = register_mock_provider(app_server, mock_url)
+    # Clear after the provider writes: they reload the agent as well, so
+    # their IDENTIFY would satisfy the wait below before this PUT lands.
+    qq_channel_up.reset_identified()
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/qq",

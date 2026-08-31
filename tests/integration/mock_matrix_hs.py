@@ -42,6 +42,8 @@ class MockMatrixHomeserver:
         self._pending: list[tuple[str, dict[str, Any]]] = []
         self._batch = 0
         self._sync_request_count = 0
+        # Sequence numbers of /sync calls still waiting for events.
+        self._sync_inflight: set[int] = set()
         self._delivered_at_sync_request: dict[str, int] = {}
         self._event_counter = 0
         # Recorded room sends.
@@ -178,6 +180,15 @@ class MockMatrixHomeserver:
         with self._lock:
             self._sync_request_count += 1
             sync_request = self._sync_request_count
+            self._sync_inflight.add(sync_request)
+        try:
+            return self._collect_sync(sync_request)
+        finally:
+            with self._lock:
+                self._sync_inflight.discard(sync_request)
+
+    def _collect_sync(self, sync_request: int) -> dict:
+        """Body of one /sync call, without the in-flight bookkeeping."""
         deadline = time.time() + 2.0
         drained: list[tuple[str, dict[str, Any]]] = []
         while time.time() < deadline:
@@ -307,6 +318,58 @@ class MockMatrixHomeserver:
                     return text
             time.sleep(0.2)
         return None
+
+    def wait_for_live_sync(self, *, timeout: float = 60.0) -> bool:
+        """Wait until pushed events will actually reach the agent.
+
+        On its first start the channel has no sync token, so it clears
+        its event callbacks, runs one catch-up sync to skip history and
+        only then enters the steady-state loop (see the
+        ``messages suppressed`` branch in the Matrix channel). That
+        catch-up sync drains ``_pending`` with callbacks detached, so an
+        event pushed before it completes is consumed and never handled.
+
+        Waiting for a second sync request proves the catch-up one
+        returned and callbacks are back in place. Without this barrier
+        the first pushing test in a module silently loses its event and
+        only passes on a retry, one full ``wait_for_sent_text`` timeout
+        later.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                if self._sync_request_count >= 2:
+                    return True
+            time.sleep(0.1)
+        return False
+
+    def wait_for_fresh_pollers(self, *, timeout: float = 15.0) -> bool:
+        """Wait until every waiting /sync belongs to the current channel.
+
+        A config write reloads the agent, and the retiring channel's
+        long poll can still be parked here while its replacement takes
+        over. ``_pending`` is drained by whichever poll wakes first, so
+        an event pushed during that overlap can leave on the instance
+        that is going away: it is handled by a channel whose queue is
+        already stopped and never answered. The caller then waits out
+        its whole poll timeout before a retry finally works.
+
+        Sequence numbers are handed out when a /sync arrives, so once
+        every in-flight number is above the one observed here, no
+        pre-reload poll can steal the next push. Requiring at least one
+        in-flight poll also means the push is picked up right away
+        instead of waiting for the next round trip.
+        """
+        with self._lock:
+            mark = self._sync_request_count
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                inflight = set(self._sync_inflight)
+            if inflight and min(inflight) > mark:
+                return True
+            time.sleep(0.05)
+        return False
 
     def wait_for_followup_sync_after(
         self,

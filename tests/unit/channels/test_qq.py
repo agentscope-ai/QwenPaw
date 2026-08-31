@@ -1456,16 +1456,27 @@ class TestDownloadAttachmentSync:
         qq_channel._loop = MagicMock()
         qq_channel._loop.is_running.return_value = True
 
-        # Mock run_coroutine_threadsafe to raise exception
         future = Future()
         future.set_exception(RuntimeError("Download failed"))
-        qq_channel._loop.run_coroutine_threadsafe.return_value = future
 
-        result = qq_channel._download_attachment_sync(
-            "https://example.com/file.jpg",
-            "file.jpg",
-        )
+        def fake_submit(coro, loop):
+            # Close the coroutine so it does not warn about never
+            # being awaited.
+            coro.close()
+            return future
 
+        # The channel calls the module-level asyncio.run_coroutine_threadsafe,
+        # not a method on the loop, so that is what has to be patched.
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=fake_submit,
+        ) as submit:
+            result = qq_channel._download_attachment_sync(
+                "https://example.com/file.jpg",
+                "file.jpg",
+            )
+
+        assert submit.called
         assert result is None
 
 

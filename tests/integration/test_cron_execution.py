@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer
 
 import pytest
@@ -54,6 +55,25 @@ def mock_llm():
 # ------------------------------------------------------------------ #
 # helpers
 # ------------------------------------------------------------------ #
+
+
+def _once_schedule(*, delay_seconds: float):
+    """Build a one-shot schedule that fires ``delay_seconds`` from now.
+
+    ``* * * * *`` is the finest cron granularity the model allows
+    (``normalize_cron_5_fields`` rejects a seconds field), so a test that
+    waits for a cron tick pays a uniformly random 0-60s. A ``once``
+    schedule reaches the very same firing path -- APScheduler ->
+    ``_scheduled_callback`` -> ``_execute_once(trigger="scheduled")`` --
+    at a moment we choose, so use it wherever the assertion is about
+    *whether* the scheduler fires rather than about cron parsing.
+    """
+    run_at = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+    return {
+        "type": "once",
+        "run_at": run_at.isoformat(),
+        "timezone": "UTC",
+    }
 
 
 def _text_spec(name, *, text="Hello from cron", channel="console"):
@@ -485,7 +505,7 @@ def test_cron_delivery_error_creates_error_record(
 
 
 # ------------------------------------------------------------------ #
-# A7: scheduler fires on schedule (P2 — nightly only, ~70s wait)
+# A7: scheduler fires on schedule
 # ------------------------------------------------------------------ #
 
 
@@ -493,40 +513,81 @@ def test_cron_delivery_error_creates_error_record(
 @pytest.mark.p2
 def test_cron_scheduler_fires_on_schedule(app_server) -> None:
     """Test purpose:
-    - Verify a cron job with ``* * * * *`` schedule fires
-      automatically via the APScheduler within ~70 seconds.
+    - Verify a ``* * * * *`` cron string reaches the APScheduler with a
+      next fire time inside the coming minute, and that the scheduler
+      really does fire a due job on its own.
 
     Test flow:
-    1. POST create text-type job with ``* * * * *``.
-    2. Wait up to 80s.
-    3. Poll history → at least 1 record with trigger=scheduled.
+    1. POST create a text job with ``* * * * *`` plus one ``once`` job
+       due a few seconds out.
+    2. GET state of the cron job → next_run_at is within the next minute.
+    3. Poll the once job's history → ≥1 record with trigger=scheduled.
     4. Cleanup.
 
     API endpoints:
     - POST /api/cron/jobs
+    - GET /api/cron/jobs/{job_id}/state
     - GET /api/cron/jobs/{job_id}/history
     - DELETE /api/cron/jobs/{job_id}
     """
+    # ``* * * * *`` cannot fire before the next minute boundary, so
+    # waiting for its tick costs a uniformly random 0-60s (measured
+    # 21.9s / 37.3s / 52.1s across runs -- the slowest single item in the
+    # suite and the main source of its run-to-run variance). What only a
+    # cron schedule can prove is that the string is parsed and
+    # registered, which the next fire time the scheduler computes shows
+    # directly; that the scheduler then fires is trigger-agnostic, so a
+    # ``once`` job due seconds from now proves it over the identical
+    # ``_scheduled_callback`` -> ``_execute_once(trigger="scheduled")``
+    # path without waiting for a minute boundary.
     spec = _text_spec("integ_sched_fire")
     spec["schedule"]["cron"] = "* * * * *"
     job_id = _create_job(app_server, spec)
+    due_spec = _text_spec("integ_sched_fire_due")
+    due_spec["schedule"] = _once_schedule(delay_seconds=5.0)
+    due_id = _create_job(app_server, due_spec)
     try:
+        state_resp = app_server.api_request(
+            "GET",
+            f"/api/cron/jobs/{job_id}/state",
+            timeout=_CRON_HTTP_TIMEOUT,
+        )
+        assert state_resp.status_code == 200, app_server.logs_tail()
+        raw_next = state_resp.json().get("next_run_at")
+        assert raw_next, (
+            "'* * * * *' job has no next_run_at, so the cron string never "
+            f"reached the scheduler: {app_server.logs_tail()}"
+        )
+        next_run = datetime.fromisoformat(raw_next)
+        now = datetime.now(timezone.utc)
+        # Every-minute means the fire time sits on a minute boundary; a
+        # misparsed field (hourly, daily, the never-fire default) lands
+        # hours or months out instead.
+        assert next_run.second == 0, f"not a minute boundary: {raw_next}"
+        # Read after the fact, so the boundary may have just gone by --
+        # allow a little slack rather than racing the tick.
+        earliest = now - timedelta(seconds=5)
+        assert (
+            earliest < next_run <= now + timedelta(seconds=60)
+        ), f"next_run_at {raw_next} is not within a minute of {now}"
+
         records = wait_cron_executed(
             app_server,
-            job_id,
-            time.time() + 80.0,
+            due_id,
+            time.time() + 60.0,
         )
-        assert len(records) >= 1, (
-            f"No scheduled record after 80s: " f"{app_server.logs_tail()}"
-        )
+        assert (
+            len(records) >= 1
+        ), f"scheduler never fired the due job: {app_server.logs_tail()}"
         scheduled = [r for r in records if r.get("trigger") == "scheduled"]
         assert len(scheduled) >= 1, f"No trigger=scheduled record: {records}"
     finally:
         _delete_job(app_server, job_id)
+        _delete_job(app_server, due_id)
 
 
 # ------------------------------------------------------------------ #
-# A8: paused job not fired by scheduler (P2 — nightly only, ~70s)
+# A8: paused job not fired by scheduler (P2 — nightly only)
 # ------------------------------------------------------------------ #
 
 
@@ -537,12 +598,13 @@ def test_cron_paused_job_not_fired_by_scheduler(
 ) -> None:
     """Test purpose:
     - Verify a paused cron job with ``* * * * *`` does NOT fire
-      automatically even after waiting past its schedule.
+      automatically even after the scheduler has crossed its schedule.
 
     Test flow:
-    1. POST create text-type job with ``* * * * *``.
-    2. POST pause the job.
-    3. Wait 70s.
+    1. POST create text-type job due in a few seconds, plus an
+       identical control job that stays enabled.
+    2. POST pause the first job.
+    3. Wait for the control job to fire (proves a tick happened).
     4. GET history → should be empty (no scheduled runs).
     5. Cleanup.
 
@@ -553,8 +615,11 @@ def test_cron_paused_job_not_fired_by_scheduler(
     - DELETE /api/cron/jobs/{job_id}
     """
     spec = _text_spec("integ_paused_no_fire")
-    spec["schedule"]["cron"] = "* * * * *"
+    spec["schedule"] = _once_schedule(delay_seconds=6.0)
     job_id = _create_job(app_server, spec)
+    control_spec = _text_spec("integ_paused_control")
+    control_spec["schedule"] = _once_schedule(delay_seconds=6.0)
+    control_id = _create_job(app_server, control_spec)
     try:
         pause_resp = app_server.api_request(
             "POST",
@@ -563,7 +628,20 @@ def test_cron_paused_job_not_fired_by_scheduler(
         )
         assert pause_resp.status_code == 200
 
-        time.sleep(70.0)
+        # The control job shares the due time, so its run marks the
+        # moment the paused job would have fired too. Waiting for it is
+        # what a fixed sleep can only assume, and it returns as soon as
+        # the scheduler has actually ticked.
+        control_records = wait_cron_executed(
+            app_server,
+            control_id,
+            time.time() + 60.0,
+        )
+        assert len(control_records) >= 1, (
+            "control job never fired, cannot tell the paused job was "
+            f"skipped rather than the scheduler being idle: "
+            f"{app_server.logs_tail()}"
+        )
 
         hist_resp = app_server.api_request(
             "GET",
@@ -576,6 +654,7 @@ def test_cron_paused_job_not_fired_by_scheduler(
         assert len(records) == 0, f"paused job should not fire, got: {records}"
     finally:
         _delete_job(app_server, job_id)
+        _delete_job(app_server, control_id)
 
 
 # ------------------------------------------------------------------ #

@@ -15,6 +15,13 @@ import httpx
 import pytest
 
 _HUB_READY_TIMEOUT_SECONDS = 120.0
+# Windows spends ~75s per AppContainer on first-run ACL setup, once for the Hub
+# and again for the runtime it provisions, so readiness needs room for both.
+_RUNTIME_READY_TIMEOUT_SECONDS = 240.0
+# Each probe must expire well inside the deadlines above. The Hub accepts the
+# connection and then blocks while the runtime cold-starts, so a probe left on
+# the client's timeout would burn the whole budget on a single attempt.
+_READY_PROBE_TIMEOUT_SECONDS = 10.0
 
 
 def _allocate_port() -> int:
@@ -35,7 +42,10 @@ def _wait_for_hub(
                 f"Hub exited before readiness with code {process.returncode}",
             )
         try:
-            response = client.get("/api/version")
+            response = client.get(
+                "/api/version",
+                timeout=_READY_PROBE_TIMEOUT_SECONDS,
+            )
             if response.status_code == 200:
                 return
             last_error = f"Hub readiness returned HTTP {response.status_code}"
@@ -79,7 +89,7 @@ def _wait_for_runtime(
     process: subprocess.Popen[Any],
     headers: dict[str, str],
 ) -> None:
-    deadline = time.monotonic() + 90
+    deadline = time.monotonic() + _RUNTIME_READY_TIMEOUT_SECONDS
     last_error = "Runtime did not become ready"
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -88,7 +98,11 @@ def _wait_for_runtime(
                 f"{process.returncode}",
             )
         try:
-            response = client.get("/api/healthz", headers=headers)
+            response = client.get(
+                "/api/healthz",
+                headers=headers,
+                timeout=_READY_PROBE_TIMEOUT_SECONDS,
+            )
             if response.status_code == 200:
                 return
             last_error = (

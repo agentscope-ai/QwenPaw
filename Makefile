@@ -6,21 +6,29 @@
 PYTHON ?= python
 PYTEST := $(PYTHON) -m pytest
 
+# Worker count for the bulk lanes. pytest-xdist is already a dev
+# dependency, and these suites are worker-safe (each integration module
+# gets its own app process on a random port), so the default is parallel;
+# 8 is the value the suite is verified at. Use PYTEST_JOBS=0 for a serial
+# run when a traceback needs to be read without interleaving.
+PYTEST_JOBS ?= 8
+PARALLEL := $(if $(filter-out 0,$(PYTEST_JOBS)),-n $(PYTEST_JOBS),)
+
 # Default: run all tests
 test:
-	$(PYTEST) tests/ -v --tb=short -q
+	$(PYTEST) tests/ $(PARALLEL) --tb=short -q
 
 # Unit tests only
 test-unit:
-	$(PYTEST) tests/unit/ -v --tb=short
+	$(PYTEST) tests/unit/ $(PARALLEL) --tb=short -q
 
 # Contract tests (interface compliance)
 test-contract:
-	$(PYTEST) tests/contract/ -v --tb=short
+	$(PYTEST) tests/contract/ $(PARALLEL) --tb=short -q
 
 # Integration tests
 test-integration:
-	$(PYTEST) tests/integration/ -v --tb=short
+	$(PYTEST) tests/integration/ $(PARALLEL) --tb=short -q
 
 # Full coverage (all modules)
 coverage-full:

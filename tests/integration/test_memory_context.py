@@ -889,12 +889,12 @@ def test_heartbeat_auto_schedule_fires(
     mock_llm,  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test purpose:
-    - Verify that a heartbeat configured with every=60s fires
+    - Verify that a heartbeat configured with a short interval fires
       automatically via the scheduler without a manual POST run.
 
     Test flow:
-    1. Setup heartbeat with every=60s.
-    2. Wait ~70s for the scheduler to fire.
+    1. Setup heartbeat with a few-seconds interval.
+    2. Wait for the scheduler to fire.
     3. Poll inbox for heartbeat_result event.
     4. Assert event was created by the scheduler.
 
@@ -934,7 +934,12 @@ def test_heartbeat_auto_schedule_fires(
         json={
             "enabled": True,
             "target": "inbox",
-            "every": "60s",
+            # An interval heartbeat first fires one whole interval after
+            # it is scheduled, so the value here is paid as wall clock.
+            # What this test proves is that the scheduler fires at all;
+            # that "60s" parses to 60 is a pure string concern already
+            # covered by tests/unit/app/crons/test_heartbeat.py.
+            "every": "5s",
         },
         timeout=_HTTP_TIMEOUT,
     )
@@ -942,11 +947,11 @@ def test_heartbeat_auto_schedule_fires(
     try:
         events = _poll_inbox_heartbeat(
             app_server,
-            time.time() + 80.0,
+            time.time() + 40.0,
             event_type="heartbeat_result",
         )
         assert len(events) >= 1, (
-            "No auto-scheduled heartbeat event after 80s: "
+            "No auto-scheduled heartbeat event after 40s: "
             f"{app_server.logs_tail()}"
         )
         event = events[0]

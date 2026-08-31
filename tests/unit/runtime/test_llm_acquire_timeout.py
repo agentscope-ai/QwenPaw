@@ -16,6 +16,7 @@ the agent until the 300s default ``acquire_timeout`` elapsed.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -48,16 +49,41 @@ class _HungInnerModel:
         raise AssertionError("inner model __call__ should not be reached")
 
 
+# The tests below drive acquire into a hang, so this deadline is paid as
+# real wall clock. Nothing asserts on it -- what is under test is that
+# the timeout raises the typed error, takes no semaphore slot and leaves
+# no pending task -- and asyncio.wait_for cancels at whatever deadline it
+# is given, so a short one exercises exactly the same path.
+_ACQUIRE_TIMEOUT = 0.2
+
+
+def _shorten_acquire_timeout(model: RetryChatModel) -> RetryChatModel:
+    """Drop the acquire deadline below the constructor's 10s floor.
+
+    ``_normalize_rate_limit_config`` clamps any externally supplied
+    ``acquire_timeout`` up to 10s, so passing a smaller one to the
+    constructor has no effect. The field is read per call, so replacing
+    the config on the instance is enough.
+    """
+    model._rate_limit_config = replace(
+        model._rate_limit_config,
+        acquire_timeout=_ACQUIRE_TIMEOUT,
+    )
+    return model
+
+
 def _build_model() -> RetryChatModel:
-    return RetryChatModel(
-        _HungInnerModel(),  # type: ignore[arg-type]
-        retry_config=RetryConfig(enabled=True, max_retries=3),
-        rate_limit_config=RateLimitConfig(
-            max_concurrent=1,
-            max_qpm=0,
-            pause_seconds=1.0,
-            jitter_range=0.0,
-            acquire_timeout=10.0,
+    return _shorten_acquire_timeout(
+        RetryChatModel(
+            _HungInnerModel(),  # type: ignore[arg-type]
+            retry_config=RetryConfig(enabled=True, max_retries=3),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=_ACQUIRE_TIMEOUT,
+            ),
         ),
     )
 
@@ -171,15 +197,17 @@ async def test_normal_call_after_timeout_succeeds() -> None:
             return _OKResponse()
 
     # Swap the inner model to a succeeding one for the second call.
-    model2 = RetryChatModel(
-        _RecoveringInner(),  # type: ignore[arg-type]
-        retry_config=RetryConfig(enabled=False),
-        rate_limit_config=RateLimitConfig(
-            max_concurrent=1,
-            max_qpm=0,
-            pause_seconds=1.0,
-            jitter_range=0.0,
-            acquire_timeout=10.0,
+    model2 = _shorten_acquire_timeout(
+        RetryChatModel(
+            _RecoveringInner(),  # type: ignore[arg-type]
+            retry_config=RetryConfig(enabled=False),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=_ACQUIRE_TIMEOUT,
+            ),
         ),
     )
 

@@ -209,6 +209,11 @@ _SENSITIVE_ENV_VARS = (
 )
 
 
+# uvicorn's last lifespan line: everything the app was asked to shut
+# down has run by the time this is printed.
+_APP_SHUTDOWN_DONE = "Application shutdown complete"
+
+
 def _find_free_port(host: str = "127.0.0.1") -> int:
     """Bind to port 0 and return the assigned free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -389,6 +394,36 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     if sys.platform == "win32" and _integration_coverage_requested():
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
+    def _wait_app_exit(proc) -> None:
+        """Wait for a signalled app process without paying for stragglers.
+
+        uvicorn logs ``Application shutdown complete`` once every
+        lifespan hook has run, so everything these tests care about is
+        over by then. A process can still sit there afterwards when a
+        library thread it started is not a daemon, and waiting the whole
+        timeout for that burns a module's teardown for nothing (measured
+        on the feishu module: shutdown finished in ~1s, then 15s of
+        silence before the wait expired). Once the marker is seen, allow
+        only a short landing time and fall through to ``terminate()``.
+
+        The full wait is kept when the marker never appears -- that is a
+        real deadlock and must not be papered over -- and under
+        coverage, whose data is written at interpreter exit.
+        """
+        grace = 15.0 if _integration_coverage_requested() else 1.5
+        deadline = time.time() + 15.0
+        marked_at: float | None = None
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                return
+            if marked_at is None:
+                if any(_APP_SHUTDOWN_DONE in line for line in logs):
+                    marked_at = time.time()
+            elif time.time() - marked_at > grace:
+                break
+            time.sleep(0.05)
+        raise subprocess.TimeoutExpired(proc.args, 15.0)
+
     def _shutdown_app(proc, tee_thread) -> None:
         """Stop a launched app process; SIGINT on POSIX flushes coverage."""
         if proc.poll() is None:
@@ -408,7 +443,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                         proc.terminate()
                 else:
                     proc.send_signal(signal.SIGINT)
-                proc.wait(timeout=15)
+                _wait_app_exit(proc)
             except subprocess.TimeoutExpired:
                 proc.terminate()
                 try:

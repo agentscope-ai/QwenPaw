@@ -65,6 +65,12 @@ def matrix_channel_up(app_server):
         timeout=_HTTP_TIMEOUT,
     )
     assert put.status_code == 200, app_server.logs_tail()
+    # The channel's first start suppresses history, so hold the module
+    # here until it reaches its steady-state sync loop. Pushing before
+    # that silently loses the event and costs the first test a full
+    # wait_for_sent_text timeout. Giving up is left to the tests, which
+    # retry and report the channel logs themselves.
+    _MOCK_HS.wait_for_live_sync()
     yield _MOCK_HS
     app_server.api_request(
         "PUT",
@@ -72,6 +78,23 @@ def matrix_channel_up(app_server):
         json={"enabled": False},
         timeout=_HTTP_TIMEOUT,
     )
+
+
+def _register_provider_ready(app_server, mock_url: str) -> str:
+    """Register the mock LLM and wait until pushes cannot be stolen.
+
+    Registering reloads the agent, which replaces the Matrix channel.
+    Pushing right after the reload can hand the event to the instance
+    on its way out, whose queue is already stopped, so the reply never
+    comes and the caller pays a full ``wait_for_sent_text`` timeout
+    before its retry succeeds.
+
+    Not reaching that state is not an error: the callers retry anyway,
+    so this only trades a likely timeout for a short wait.
+    """
+    provider_id = register_mock_provider(app_server, mock_url)
+    _MOCK_HS.wait_for_fresh_pollers()
+    return provider_id
 
 
 @pytest.mark.integration
@@ -123,7 +146,7 @@ def test_matrix_room_message_roundtrip(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         replied = None
         for _ in range(4):
@@ -166,7 +189,7 @@ def test_matrix_group_mention_roundtrip(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         replied = None
         for _ in range(4):
@@ -212,7 +235,7 @@ def test_matrix_markdown_reply_has_formatted_body(
     marker = "MDFMT"
     srv.response_text = f"**{marker}** bold\n\n- item1\n- item2"
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         captured = None
         for _ in range(4):
@@ -263,7 +286,7 @@ def test_matrix_notice_and_emote_messages(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         matrix_channel_up.push_typed_event(
             msgtype="m.notice",
@@ -312,7 +335,7 @@ def test_matrix_bot_own_message_ignored(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         before = len(matrix_channel_up.sent_events)
         matrix_channel_up.push_text_event(
@@ -375,7 +398,7 @@ def test_matrix_dm_disabled_drops_message(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/matrix",
