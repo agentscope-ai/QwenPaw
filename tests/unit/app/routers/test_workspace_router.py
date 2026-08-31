@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Focused unit tests for workspace running-config update ordering."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -253,6 +254,71 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
         old_running.reme_light_memory_config.embedding_model_config.model_name
     )
     schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_save_cancel_after_persist_completes_runtime() -> (None):
+    old_running, new_running = _embedding_update_configs()
+    old_embedding = old_running.reme_light_memory_config.embedding_model_config
+    new_embedding = new_running.reme_light_memory_config.embedding_model_config
+    live_gate = AsyncMock()
+
+    async def apply_embedding(_config):
+        await live_gate()
+        return True
+
+    memory_manager = MagicMock()
+    memory_manager._active_embedding_config = old_embedding.model_copy(
+        deep=True,
+    )
+    memory_manager._reme = SimpleNamespace(is_started=True)
+    memory_manager.apply_tested_embedding = AsyncMock(
+        side_effect=apply_embedding,
+    )
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    caller = asyncio.current_task()
+    assert caller is not None
+    request = MagicMock()
+
+    async def update_config(_agent_id, updater):
+        updater(agent_config)
+        caller.cancel()
+        return agent_config
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            side_effect=update_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await put_agents_running_config(new_running, request)
+
+    assert agent_config.running == new_running
+    memory_config = agent_config.running.reme_light_memory_config
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == old_embedding
+    # The active config still describes the indexed vector space until the
+    # rebuild completes; the live gate prevents reads from that old space.
+    assert memory_manager._active_embedding_config == old_embedding
+    assert memory_manager._reme.is_started is True
+    live_gate.assert_awaited_once_with()
+    memory_manager.apply_tested_embedding.assert_awaited_once_with(
+        new_embedding,
+    )
+    schedule_reload.assert_called_once_with(request, "bot")
 
 
 @pytest.mark.asyncio

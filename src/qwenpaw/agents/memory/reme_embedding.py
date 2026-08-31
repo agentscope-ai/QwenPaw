@@ -15,6 +15,7 @@ from ...config.config import (
     load_agent_config_async,
     update_agent_config_async,
 )
+from ...utils.io_utils import run_async_to_completion
 from .embedding_model import (
     EmbeddingTestResult,
     embedding_config_fingerprint,
@@ -132,21 +133,16 @@ class ReMeEmbedding:
                             "Embedding index rebuild requires an enabled "
                             "embedding configuration",
                         )
-                    return await self.runtime._run_reme_job(
-                        "reindex",
-                        raise_on_error=True,
-                        lifecycle_locked=True,
-                        scope="bm25",
+                    raise EmbeddingReindexUnavailableError(
+                        "An all-scope index rebuild requires an enabled "
+                        "embedding configuration",
                     )
                 fingerprint = embedding_vector_space_fingerprint(target)
-                await self._persist_reindex_requirement(fingerprint)
-                reload_config = self.runtime._reload_embedding_config_unlocked
-                if (
-                    self.runtime._active_embedding_config != target
-                    and not await reload_config()
-                ):
+                prepared = await run_async_to_completion(
+                    self._prepare_embedding_reindex(target, fingerprint),
+                )
+                if not prepared:
                     return None
-                await self.runtime._require_embedding_rebuild()
 
             response = await self.runtime._run_reme_job(
                 "reindex",
@@ -188,6 +184,22 @@ class ReMeEmbedding:
                 await self.runtime._require_embedding_rebuild()
             return response
 
+    async def _prepare_embedding_reindex(
+        self,
+        target: EmbeddingModelConfig,
+        fingerprint: tuple[Any, ...],
+    ) -> bool:
+        """Persist and enforce the live vector gate as one cancel-safe step."""
+        await self._persist_reindex_requirement(fingerprint)
+        reload_config = self.runtime._reload_embedding_config_unlocked
+        if (
+            self.runtime._active_embedding_config != target
+            and not await reload_config()
+        ):
+            return False
+        await self.runtime._require_embedding_rebuild()
+        return True
+
     async def _persist_reindex_requirement(
         self,
         fingerprint: tuple[Any, ...],
@@ -220,63 +232,65 @@ class ReMeEmbedding:
                 "embedding-undo",
             ),
         ):
-            restored: EmbeddingModelConfig | None = None
-            pending: EmbeddingModelConfig | None = None
+            return await run_async_to_completion(self._undo_reindex_unlocked())
 
-            def restore_previous(config: AgentProfileConfig) -> None:
-                nonlocal restored, pending
+    async def _undo_reindex_unlocked(self) -> EmbeddingModelConfig:
+        """Complete persistence and runtime recovery before cancellation."""
+        restored: EmbeddingModelConfig | None = None
+        pending: EmbeddingModelConfig | None = None
+
+        def restore_previous(config: AgentProfileConfig) -> None:
+            nonlocal restored, pending
+            memory = config.running.reme_light_memory_config
+            previous = memory.pending_reindex_embedding_config
+            if not memory.needs_reindex or previous is None:
+                raise ValueError(
+                    "No pending embedding index change can be undone",
+                )
+            pending = memory.embedding_model_config.model_copy(deep=True)
+            restored = previous.model_copy(deep=True)
+            memory.embedding_model_config = restored.model_copy(deep=True)
+            memory.needs_reindex = False
+            memory.pending_reindex_embedding_config = None
+
+        await self.update_agent_config(
+            self.runtime.agent_id,
+            restore_previous,
+        )
+        indexed_loaded, indexed_error = await self._try_reload(
+            "Failed to load indexed embedding configuration",
+        )
+        if not indexed_loaded:
+            assert pending is not None and restored is not None
+
+            def restore_pending(config: AgentProfileConfig) -> None:
                 memory = config.running.reme_light_memory_config
-                previous = memory.pending_reindex_embedding_config
-                if not memory.needs_reindex or previous is None:
-                    raise ValueError(
-                        "No pending embedding index change can be undone",
-                    )
-                pending = memory.embedding_model_config.model_copy(deep=True)
-                restored = previous.model_copy(deep=True)
-                memory.embedding_model_config = restored.model_copy(deep=True)
-                memory.needs_reindex = False
-                memory.pending_reindex_embedding_config = None
+                memory.embedding_model_config = pending.model_copy(
+                    deep=True,
+                )
+                memory.needs_reindex = True
+                memory.pending_reindex_embedding_config = restored.model_copy(
+                    deep=True,
+                )
 
             await self.update_agent_config(
                 self.runtime.agent_id,
-                restore_previous,
+                restore_pending,
             )
-            indexed_loaded, indexed_error = await self._try_reload(
-                "Failed to load indexed embedding configuration",
+            pending_loaded, pending_error = await self._try_reload(
+                "Failed to restore pending embedding runtime",
             )
-            if not indexed_loaded:
-                assert pending is not None and restored is not None
-
-                def restore_pending(config: AgentProfileConfig) -> None:
-                    memory = config.running.reme_light_memory_config
-                    memory.embedding_model_config = pending.model_copy(
-                        deep=True,
-                    )
-                    memory.needs_reindex = True
-                    memory.pending_reindex_embedding_config = (
-                        restored.model_copy(
-                            deep=True,
-                        )
-                    )
-
-                await self.update_agent_config(
-                    self.runtime.agent_id,
-                    restore_pending,
-                )
-                pending_loaded, pending_error = await self._try_reload(
-                    "Failed to restore pending embedding runtime",
-                )
-                message = (
-                    "Previous embedding configuration could not be loaded; "
-                    "pending embedding runtime was restored"
-                    if pending_loaded
-                    else "Previous embedding configuration and pending "
-                    "embedding runtime could not be loaded"
-                )
-                cause = pending_error or indexed_error
-                if cause is not None:
-                    raise RuntimeError(message) from cause
-                raise RuntimeError(message)
+            message = (
+                "Previous embedding configuration could not be loaded; "
+                "pending embedding runtime was restored"
+                if pending_loaded
+                else "Previous embedding configuration and pending "
+                "embedding runtime could not be loaded"
+            )
+            cause = pending_error or indexed_error
+            if cause is not None:
+                raise RuntimeError(message) from cause
+            raise RuntimeError(message)
         assert restored is not None
         return restored
 

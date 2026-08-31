@@ -44,6 +44,7 @@ from ...config import (
 )
 from ...config.utils import mutate_config
 from ...config.config import (
+    AgentProfileConfig,
     EmbeddingModelConfig,
     load_agent_config,
     save_agent_config,
@@ -72,7 +73,11 @@ from ...services.workspace_files import (
     resolve_workspace_path,
     save_text_file,
 )
-from ...utils.io_utils import get_path_lock, run_sync_io
+from ...utils.io_utils import (
+    get_path_lock,
+    run_async_to_completion,
+    run_sync_io,
+)
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
@@ -1840,33 +1845,39 @@ async def put_agents_running_config(
             running_config.approval_level = None
             agent_config.running = running_config
 
-        agent_config = await update_agent_config_async(
-            workspace.agent_id,
-            persist_running_config,
-        )
-
-        if (
-            embedding_changed
-            and not memory_manager_backend_changed
-            and new_memory_manager_backend == "remelight"
-            and memory_manager is not None
-        ):
-            embedding_updated = await _apply_embedding_runtime(
-                memory_manager,
-                new_embedding_config,
+        async def persist_apply_and_schedule() -> AgentProfileConfig:
+            agent_config = await update_agent_config_async(
                 workspace.agent_id,
-                force_reload=restores_indexed_space,
+                persist_running_config,
             )
-            if not embedding_updated:
-                assert old_agent_config is not None
-                await _rollback_embedding_update(
-                    workspace.agent_id,
-                    memory_manager,
-                    old_agent_config,
-                    agent_config,
-                )
 
-    schedule_agent_reload(request, workspace.agent_id)
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+            ):
+                embedding_updated = await _apply_embedding_runtime(
+                    memory_manager,
+                    new_embedding_config,
+                    workspace.agent_id,
+                    force_reload=restores_indexed_space,
+                )
+                if not embedding_updated:
+                    assert old_agent_config is not None
+                    await _rollback_embedding_update(
+                        workspace.agent_id,
+                        memory_manager,
+                        old_agent_config,
+                        agent_config,
+                    )
+
+            schedule_agent_reload(request, workspace.agent_id)
+            return agent_config
+
+        agent_config = await run_async_to_completion(
+            persist_apply_and_schedule(),
+        )
 
     running_config.approval_level = agent_config.approval_level
     return running_config
