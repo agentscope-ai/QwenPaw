@@ -33,6 +33,10 @@ jobs:
       # re-runs everything once the PR is marked ready.
       - name: Detect draft PR
         id: draft
+        # Override the job-level working-directory: the website/console
+        # subdirectories only exist after checkout, and this step must run
+        # before checkout to decide whether the real steps run at all.
+        working-directory: .
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ] && \
@@ -69,6 +73,9 @@ jobs:
 
       - name: Report draft placeholder
         if: steps.draft.outputs.value == 'true'
+        # Same override as the draft-detection step: the subdirectory does
+        # not exist before checkout, which never runs on draft PRs.
+        working-directory: .
         shell: bash
         run: echo "✅ Draft PR — website format check deferred until the PR is marked ready for review"
 
@@ -85,6 +92,10 @@ jobs:
     steps:
       - name: Detect draft PR
         id: draft
+        # Override the job-level working-directory: the website/console
+        # subdirectories only exist after checkout, and this step must run
+        # before checkout to decide whether the real steps run at all.
+        working-directory: .
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ] && \
@@ -115,5 +126,8 @@ jobs:
 
       - name: Report draft placeholder
         if: steps.draft.outputs.value == 'true'
+        # Same override as the draft-detection step: the subdirectory does
+        # not exist before checkout, which never runs on draft PRs.
+        working-directory: .
         shell: bash
         run: echo "✅ Draft PR — console format check deferred until the PR is marked ready for review"
