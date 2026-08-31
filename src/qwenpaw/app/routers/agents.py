@@ -20,6 +20,9 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -1335,6 +1338,8 @@ async def rebuild_agent_memory_index(
 
     try:
         response = await memory_manager.rebuild_index(scope)
+    except EmbeddingReindexUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc

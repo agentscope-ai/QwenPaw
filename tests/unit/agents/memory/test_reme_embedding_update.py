@@ -12,6 +12,7 @@ from qwenpaw.agents.memory.embedding_model import (
     embedding_config_fingerprint,
 )
 from qwenpaw.agents.memory.reme_light_memory_manager import (
+    EmbeddingReindexUnavailableError,
     ReMeLightMemoryManager,
     _to_reme_session_id,
 )
@@ -180,6 +181,78 @@ async def test_manual_reindex_clears_persisted_requirement() -> None:
         scope="all",
     )
     assert update_config_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_reindex_rejects_disabled_target_without_mutation() -> None:
+    disabled = _config(model_name="")
+    indexed = _config(model_name="indexed-model")
+    manager, _wrapper, _store = _manager(disabled)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = disabled
+    memory_config.needs_reindex = True
+    memory_config.pending_reindex_embedding_config = indexed
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+        ) as update_config,
+        pytest.raises(
+            EmbeddingReindexUnavailableError,
+            match="requires an enabled embedding configuration",
+        ),
+    ):
+        await manager.rebuild_index("embedding")
+
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == indexed
+    update_config.assert_not_awaited()
+    manager._run_reme_job.assert_not_awaited()
+    manager._reme.file_store.require_embedding_rebuild.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_all_reindex_skips_embedding_when_target_is_disabled() -> None:
+    disabled = _config(model_name="")
+    manager, _wrapper, _store = _manager(disabled)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = disabled
+    memory_config.needs_reindex = True
+    indexed = _config(model_name="indexed-model")
+    memory_config.pending_reindex_embedding_config = indexed
+
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+        ) as update_config,
+    ):
+        response = await manager.rebuild_index("all")
+
+    assert response.success is True
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == indexed
+    update_config.assert_not_awaited()
+    manager._run_reme_job.assert_awaited_once_with(
+        "reindex",
+        raise_on_error=True,
+        lifecycle_locked=True,
+        scope="bm25",
+    )
+    manager._reme.file_store.require_embedding_rebuild.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -360,6 +433,91 @@ async def test_undo_restores_indexed_config_under_reindex_lock() -> None:
     assert memory_config.needs_reindex is False
     assert memory_config.pending_reindex_embedding_config is None
     manager._reload_embedding_config_unlocked.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_failed_undo_restores_pending_config_and_runtime() -> None:
+    indexed = _config(model_name="indexed-model")
+    pending = _config(model_name="pending-model")
+    manager, _wrapper, _store = _manager(pending)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = pending
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+    reload_count = 0
+
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
+
+    async def reload_runtime():
+        nonlocal reload_count
+        reload_count += 1
+        active = memory_config.embedding_model_config.model_copy(deep=True)
+        manager._active_embedding_config = active
+        manager._reme = SimpleNamespace(is_started=reload_count == 2)
+        return manager._reme.is_started
+
+    manager._reload_embedding_config_unlocked = AsyncMock(
+        side_effect=reload_runtime,
+    )
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
+        pytest.raises(
+            RuntimeError,
+            match="pending embedding runtime was restored",
+        ),
+    ):
+        await manager.undo_embedding_reindex()
+
+    assert memory_config.embedding_model_config == pending
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == indexed
+    assert manager._active_embedding_config == pending
+    assert manager._reme.is_started is True
+    assert manager._reload_embedding_config_unlocked.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_undo_reports_pending_runtime_recovery_failure() -> None:
+    indexed = _config(model_name="indexed-model")
+    pending = _config(model_name="pending-model")
+    manager, _wrapper, _store = _manager(pending)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = pending
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+
+    async def update_config(_agent_id, updater):
+        updater(profile)
+        return profile
+
+    manager._reload_embedding_config_unlocked = AsyncMock(
+        side_effect=[RuntimeError("indexed reload failed"), False],
+    )
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
+        pytest.raises(
+            RuntimeError,
+            match="pending embedding runtime could not be loaded",
+        ),
+    ):
+        await manager.undo_embedding_reindex()
+
+    assert memory_config.embedding_model_config == pending
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == indexed
+    assert manager._reload_embedding_config_unlocked.await_count == 2
 
 
 @pytest.mark.asyncio

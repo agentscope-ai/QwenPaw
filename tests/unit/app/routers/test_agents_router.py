@@ -22,7 +22,9 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from qwenpaw.exceptions import AppBaseException
+from qwenpaw.agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
@@ -38,6 +40,7 @@ from qwenpaw.app.routers.agents import (
     update_backend_settings,
     BackendSettingsRequest,
 )
+from qwenpaw.exceptions import AppBaseException
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -642,6 +645,41 @@ def test_rebuild_memory_index_rejects_concurrent_run(
         response = client.post("/api/agents/bot/memory/reindex")
 
     assert response.status_code == 409
+
+
+def test_rebuild_memory_index_rejects_disabled_embedding(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.rebuild_index = AsyncMock(
+        side_effect=EmbeddingReindexUnavailableError(
+            "Embedding index rebuild requires an enabled embedding "
+            "configuration",
+        ),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
+
+    assert response.status_code == 409
+    assert "requires an enabled" in response.json()["detail"]
 
 
 def test_undo_pending_embedding_reindex_restores_indexed_config(
