@@ -40,7 +40,7 @@ def _job(*, parameters=None, enable_serve=True):
 
 
 @pytest.mark.asyncio
-async def test_list_reme_actions_only_returns_servable_jobs() -> None:
+async def test_list_actions_only_returns_servable_jobs() -> None:
     manager = _manager_with_jobs(
         {
             "status": _job(),
@@ -48,14 +48,14 @@ async def test_list_reme_actions_only_returns_servable_jobs() -> None:
         },
     )
 
-    actions = await manager.list_reme_actions()
+    actions = await manager.list_actions()
 
     assert set(actions) == {"status"}
     assert actions["status"]["description"] == "test job"
 
 
 @pytest.mark.asyncio
-async def test_run_reme_action_validates_and_refreshes_llm_jobs() -> None:
+async def test_run_action_validates_and_refreshes_llm_jobs() -> None:
     manager = _manager_with_jobs(
         {
             "auto_dream": _job(
@@ -67,7 +67,7 @@ async def test_run_reme_action_validates_and_refreshes_llm_jobs() -> None:
         },
     )
 
-    await manager.run_reme_action("auto_dream", hint="recent topics")
+    await manager.run_action("auto_dream", hint="recent topics")
 
     manager._run_reme_job.assert_awaited_once_with(
         "auto_dream",
@@ -78,7 +78,7 @@ async def test_run_reme_action_validates_and_refreshes_llm_jobs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_reme_action_rejects_unknown_and_invalid_arguments() -> None:
+async def test_run_action_rejects_unknown_and_invalid_arguments() -> None:
     manager = _manager_with_jobs(
         {
             "search": _job(
@@ -95,14 +95,14 @@ async def test_run_reme_action_rejects_unknown_and_invalid_arguments() -> None:
     )
 
     with pytest.raises(ValueError, match="Missing required"):
-        await manager.run_reme_action("search")
+        await manager.run_action("search")
     with pytest.raises(ValueError, match="Unknown argument"):
-        await manager.run_reme_action("search", query="x", extra=True)
+        await manager.run_action("search", query="x", extra=True)
     with pytest.raises(ValueError, match="must be integer"):
-        await manager.run_reme_action("search", query="x", limit="2")
+        await manager.run_action("search", query="x", limit="2")
     with pytest.raises(ValueError, match="must be one of"):
-        await manager.run_reme_action("search", query="x", limit=3)
+        await manager.run_action("search", query="x", limit=3)
     with pytest.raises(ValueError, match="Unknown or unavailable"):
-        await manager.run_reme_action("delete", path="x")
+        await manager.run_action("delete", path="x")
 
     manager._run_reme_job.assert_not_awaited()

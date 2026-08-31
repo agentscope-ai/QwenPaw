@@ -66,33 +66,6 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
 _FORCE_TRIGGER_RATIO = 1e-6
 _MAX_COMPACT_HINT_CHARS = 2000
 _MAX_REME_OUTPUT_CHARS = 20000
-_REME_NO_CONFIRM_ACTIONS = frozenset(
-    {
-        "auto_dream",
-        "auto_fin",
-        "auto_memory",
-        "daily_list",
-        "daily_paper",
-        "daily_reindex",
-        "frontmatter_read",
-        "graph_snapshot",
-        "list",
-        "node_search",
-        "proactive",
-        "read",
-        "read_image",
-        "reindex",
-        "search",
-        "stat",
-        "status",
-        "version",
-    },
-)
-
-
-def _reme_action_requires_confirmation(action: str) -> bool:
-    """Require opt-in for direct mutations and unknown plugin actions."""
-    return action not in _REME_NO_CONFIRM_ACTIONS
 
 
 def _fmt_tokens(n: int) -> str:
@@ -898,7 +871,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            actions = await self.memory_manager.list_reme_actions()
+            actions = await self.memory_manager.list_actions()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Could not list ReMe actions: %s", exc)
             return await self._make_system_msg(
@@ -938,24 +911,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         show_metadata = kwargs.pop("show_metadata", False)
-        confirmed = kwargs.pop("confirm", False)
-        if not isinstance(show_metadata, bool) or not isinstance(
-            confirmed,
-            bool,
-        ):
+        if not isinstance(show_metadata, bool):
             return await self._make_system_msg(
                 "**Invalid ReMe Command**\n\n"
-                "- `show_metadata` and `confirm` must be boolean values",
-            )
-        if _reme_action_requires_confirmation(action) and not confirmed:
-            return await self._make_system_msg(
-                f"**Confirmation Required: `{action}`**\n\n"
-                "- This action modifies or deletes memory files\n"
-                "- Re-run it with `confirm=true` after checking the target",
+                "- `show_metadata` must be a boolean value",
             )
 
         try:
-            response = await self.memory_manager.run_reme_action(
+            response = await self.memory_manager.run_action(
                 action,
                 **kwargs,
             )
@@ -1082,8 +1045,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 rendered.append(f"{key}={schema.get('type', 'value')}{suffix}")
             if name == "auto_memory":
                 rendered = ["count=integer", "memory_hint=string"]
-            if _reme_action_requires_confirmation(name):
-                rendered.append("confirm=true")
             signature = " ".join(rendered)
             description = str(spec.get("description") or "").strip()
             line = f"- `/reme {name}"

@@ -247,7 +247,7 @@ ReMe 相关操作统一使用 `/reme <action> key=value`。运行 `/reme help` �
 当前 Agent 实际可用的 Job。例如，`/reme status` 查看运行状态，
 `/reme search query="项目决策" limit=5` 检索记忆，
 `/reme auto_memory count=2` 将当前会话最近两组回复提交给 Auto-Memory。
-直接修改或删除记忆文件的操作还需要显式传入 `confirm=true`。
+操作是否可执行、接受哪些参数，由 ReMe 的实时任务目录决定。
 
 `/proactive` 管理 QwenPaw 的空闲主动提醒；`/reme proactive` 只读取 ReMe
 生成的兴趣主题，两者不是同一个功能。

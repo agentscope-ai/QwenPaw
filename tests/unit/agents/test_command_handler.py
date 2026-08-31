@@ -260,7 +260,7 @@ async def test_system_prompt_command_returns_current_prompt() -> None:
 def _mock_reme_manager(*actions: str):
     manager = MagicMock()
     manager.enabled = True
-    manager.list_reme_actions = AsyncMock(
+    manager.list_actions = AsyncMock(
         return_value={
             action: {
                 "description": f"Run {action}",
@@ -269,7 +269,7 @@ def _mock_reme_manager(*actions: str):
             for action in actions
         },
     )
-    manager.run_reme_action = AsyncMock()
+    manager.run_action = AsyncMock()
     manager.auto_memory = AsyncMock()
     return manager
 
@@ -278,7 +278,7 @@ def _mock_reme_manager(*actions: str):
 async def test_reme_auto_dream_uses_cli_style_quoted_hint() -> None:
     agent = _make_agent()
     memory_manager = _mock_reme_manager("auto_dream")
-    memory_manager.run_reme_action.return_value = SimpleNamespace(
+    memory_manager.run_action.return_value = SimpleNamespace(
         success=True,
         answer="dream complete",
         metadata={"changed": 2},
@@ -295,7 +295,7 @@ async def test_reme_auto_dream_uses_cli_style_quoted_hint() -> None:
 
     assert handler.is_command("/reme auto_dream")
     assert not handler.is_command("/dream")
-    memory_manager.run_reme_action.assert_awaited_once_with(
+    memory_manager.run_action.assert_awaited_once_with(
         "auto_dream",
         hint="consolidate recent topics",
     )
@@ -318,14 +318,14 @@ async def test_reme_help_lists_live_actions_and_auto_memory_adapter() -> None:
 
     assert "/reme status" in text
     assert "/reme auto_memory count=integer memory_hint=string" in text
-    memory_manager.run_reme_action.assert_not_awaited()
+    memory_manager.run_action.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_reme_status_reports_memory_and_count_warning() -> None:
     agent = _make_agent()
     memory_manager = _mock_reme_manager("status")
-    memory_manager.run_reme_action.return_value = SimpleNamespace(
+    memory_manager.run_action.return_value = SimpleNamespace(
         success=True,
         answer=(
             "Memory (estimated component object size)\n"
@@ -343,7 +343,7 @@ async def test_reme_status_reports_memory_and_count_warning() -> None:
     msg = await handler.handle_command("/reme status")
     text = msg.get_text_content()
 
-    memory_manager.run_reme_action.assert_awaited_once_with("status")
+    memory_manager.run_action.assert_awaited_once_with("status")
     assert "Process RSS       80.00 MiB" in text
     assert "counted more than once" in text
     assert msg.metadata == {
@@ -497,29 +497,25 @@ async def test_reme_auto_memory_rejects_invalid_count() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reme_file_mutation_requires_confirmation() -> None:
+async def test_reme_file_mutation_delegates_to_memory_manager() -> None:
     agent = _make_agent()
     memory_manager = _mock_reme_manager("delete")
-    memory_manager.run_reme_action.return_value = None
+    memory_manager.run_action.return_value = None
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    denied = await handler.handle_command(
+    msg = await handler.handle_command(
         "/reme delete path=digest/old.md",
     )
-    allowed = await handler.handle_command(
-        "/reme delete path=digest/old.md confirm=true",
-    )
 
-    assert "Confirmation Required" in denied.get_text_content()
-    memory_manager.run_reme_action.assert_awaited_once_with(
+    memory_manager.run_action.assert_awaited_once_with(
         "delete",
         path="digest/old.md",
     )
-    assert "Unavailable" in allowed.get_text_content()
+    assert "Unavailable" in msg.get_text_content()
 
 
 def _make_config(

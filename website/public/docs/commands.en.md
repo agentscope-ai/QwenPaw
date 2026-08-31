@@ -1106,8 +1106,8 @@ current Agent's ReMe configuration. `auto_memory` is a QwenPaw-managed adapter:
 `count` selects recent reply groups from the current conversation, and QwenPaw
 injects the messages and session ID.
 
-`write`, `edit`, `move`, `delete`, `daily_write`, and frontmatter mutation
-actions directly change memory files and therefore require `confirm=true`.
+Whether an action can run and which arguments it accepts are determined by
+ReMe's live job catalog.
 
 The old `/dream`, `/memorize`, and `/reme_status` commands have been removed;
 use `/reme auto_dream`, `/reme auto_memory`, and `/reme status` respectively.

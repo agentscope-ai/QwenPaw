@@ -782,7 +782,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
     }
     memory_manager = MagicMock()
     memory_manager.get_runtime_status.return_value = runtime_status
-    memory_manager.reme_status = AsyncMock()
+    memory_manager.status = AsyncMock()
     manager_mock.get_loaded_agent.return_value = MagicMock(
         memory_manager=memory_manager,
     )
@@ -801,7 +801,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
 
     assert response.status_code == 200
     assert response.json() == runtime_status
-    memory_manager.reme_status.assert_not_awaited()
+    memory_manager.status.assert_not_awaited()
 
 
 def test_get_memory_status_returns_structured_reme_metrics(
@@ -827,7 +827,7 @@ def test_get_memory_status_returns_structured_reme_metrics(
         },
     )
     memory_manager = MagicMock()
-    memory_manager.reme_status = AsyncMock(return_value=status_response)
+    memory_manager.status = AsyncMock(return_value=status_response)
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -868,7 +868,7 @@ def test_get_memory_status_returns_structured_reme_metrics(
         **status_response.metadata["status"]["memory"],
         "runtime": runtime_status,
     }
-    memory_manager.reme_status.assert_awaited_once_with()
+    memory_manager.status.assert_awaited_once_with()
     memory_manager.get_runtime_status.assert_called_once_with(
         auto_memory_interval=5,
     )
@@ -881,7 +881,7 @@ def test_get_memory_status_rejects_invalid_payload(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     memory_manager = MagicMock()
-    memory_manager.reme_status = AsyncMock(
+    memory_manager.status = AsyncMock(
         return_value=MagicMock(success=True, metadata={}),
     )
     manager_mock.get_loaded_agent.return_value = MagicMock(

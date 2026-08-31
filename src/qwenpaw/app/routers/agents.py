@@ -1477,7 +1477,7 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.reme_status()
+    response = await memory_manager.status()
     if response is None:
         raise HTTPException(
             status_code=503,

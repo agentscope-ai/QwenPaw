@@ -868,11 +868,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not response.success:
             raise RuntimeError(str(response.answer))
 
-    async def reme_status(self) -> "Response | None":
+    async def status(self) -> "Response | None":
         """Return embedded ReMe component memory estimates and process RSS."""
         return await self._run_reme_job("status")
 
-    async def list_reme_actions(self) -> dict[str, dict[str, Any]]:
+    async def list_actions(self) -> dict[str, dict[str, Any]]:
         """Describe the servable jobs in this Agent's embedded ReMe app."""
         async with self._reme_job_lease():
             reme = self._reme
@@ -890,7 +890,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 if getattr(job, "enable_serve", True)
             }
 
-    async def run_reme_action(
+    async def run_action(
         self,
         action: str,
         **kwargs: Any,

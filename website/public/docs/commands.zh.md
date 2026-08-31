@@ -1104,8 +1104,7 @@ qwenpaw daemon version --agent-id abc123
 `auto_memory` 是 QwenPaw 托管适配：`count` 表示从当前会话选择最近几组
 回复，QwenPaw 会自动注入消息和会话 ID。
 
-`write`、`edit`、`move`、`delete`、`daily_write` 以及 Frontmatter 修改类
-操作会直接改变记忆文件，必须额外传入 `confirm=true`。
+操作是否可执行、接受哪些参数，由 ReMe 的实时任务目录决定。
 
 旧的 `/dream`、`/memorize` 和 `/reme_status` 已移除，分别改用
 `/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。

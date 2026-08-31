@@ -273,16 +273,16 @@ class BaseMemoryManager(ABC):
         """
         return None
 
-    async def reme_status(self) -> Any | None:
-        """Return ReMe runtime status when supported by the backend."""
+    async def status(self) -> Any | None:
+        """Return runtime status when supported by the backend."""
         return None
 
-    async def list_reme_actions(self) -> dict[str, dict[str, Any]]:
-        """Return user-callable ReMe jobs when supported by the backend."""
+    async def list_actions(self) -> dict[str, dict[str, Any]]:
+        """Return user-callable actions when supported by the backend."""
         return {}
 
-    async def run_reme_action(self, action: str, **kwargs: Any) -> Any | None:
-        """Run one user-callable ReMe job when supported by the backend."""
+    async def run_action(self, action: str, **kwargs: Any) -> Any | None:
+        """Run one user-callable action when supported by the backend."""
         del action, kwargs
         return None
 
