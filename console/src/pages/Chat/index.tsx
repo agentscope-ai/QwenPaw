@@ -2459,6 +2459,7 @@ export default function ChatPage() {
       // so in-flight results owned by the previous agent are stale by now.
 
       useTurnUsageStore.getState().invalidateTurn();
+      sessionThinkingLevelRef.current = null;
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could
@@ -3261,6 +3262,7 @@ export default function ChatPage() {
                   }}
                 />
                 <ThinkingLevelToggle
+                  agentId={selectedAgent}
                   sessionId={queueSessionId}
                   compact={isMobile || compactSender}
                   supportsThinking={supportsThinking}

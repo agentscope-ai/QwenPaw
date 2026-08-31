@@ -13,6 +13,7 @@ export type SessionThinkingLevel = "off" | "low" | "medium" | "high";
 const LEVELS: SessionThinkingLevel[] = ["off", "low", "medium", "high"];
 
 interface ThinkingLevelToggleProps {
+  agentId?: string;
   sessionId: string;
   compact?: boolean;
   supportsThinking?: boolean;
@@ -20,6 +21,7 @@ interface ThinkingLevelToggleProps {
 }
 
 export default function ThinkingLevelToggle({
+  agentId,
   sessionId,
   compact = false,
   supportsThinking = false,
@@ -29,22 +31,31 @@ export default function ThinkingLevelToggle({
   const { message } = useAppMessage();
   const [level, setLevel] = useState<SessionThinkingLevel>("medium");
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
+  const [loadedAgentId, setLoadedAgentId] = useState<string | undefined>();
   const onChangeRef = useRef(onChange);
   const saveRequestRef = useRef(0);
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    if (loadedSessionId !== sessionId) return;
+    if (loadedAgentId !== agentId || loadedSessionId !== sessionId) return;
     onChangeRef.current?.(supportsThinking ? level : null);
-  }, [level, loadedSessionId, sessionId, supportsThinking]);
+  }, [
+    agentId,
+    level,
+    loadedAgentId,
+    loadedSessionId,
+    sessionId,
+    supportsThinking,
+  ]);
 
   useEffect(() => {
     saveRequestRef.current += 1;
-  }, [sessionId]);
+  }, [agentId, sessionId]);
 
   useEffect(() => {
     let active = true;
     setLoadedSessionId(null);
+    setLoadedAgentId(undefined);
     const load = async () => {
       try {
         await sessionApi.getSessionList();
@@ -58,15 +69,16 @@ export default function ThinkingLevelToggle({
         : "medium";
       setLevel(next);
       setLoadedSessionId(sessionId);
+      setLoadedAgentId(agentId);
     };
     void load();
     return () => {
       active = false;
     };
-  }, [sessionId]);
+  }, [agentId, sessionId]);
 
   const handleSelect = async (next: SessionThinkingLevel) => {
-    if (loadedSessionId !== sessionId) return;
+    if (loadedAgentId !== agentId || loadedSessionId !== sessionId) return;
     const previousLevel = level;
     const requestId = ++saveRequestRef.current;
     setLevel(next);

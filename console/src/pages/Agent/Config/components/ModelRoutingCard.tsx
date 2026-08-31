@@ -17,10 +17,6 @@ interface ModelRoutingCardProps {
   draftResetToken: number;
 }
 
-function modelList(provider: ProviderInfo | undefined) {
-  return [...(provider?.models ?? []), ...(provider?.extra_models ?? [])];
-}
-
 export function ModelRoutingCard({
   modelRouting,
   onModelRoutingChange,
@@ -64,10 +60,10 @@ export function ModelRoutingCard({
     void fetchData();
   }, [fetchData]);
 
-  const selectedProvider = providers.find(
+  const selectedProvider = eligibleProviders.find(
     (provider) => provider.id === selectedProviderId,
   );
-  const modelOptions = modelList(selectedProvider).map((model) => ({
+  const modelOptions = (selectedProvider?.models ?? []).map((model) => ({
     value: model.id,
     label: `${model.name || model.id} (${model.id})`,
   }));

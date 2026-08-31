@@ -139,4 +139,44 @@ describe("ThinkingLevelToggle", () => {
     resolveSessionList?.();
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("low"));
   });
+
+  it("reloads a new session when its agent changes", async () => {
+    let resolveAgentSessionList: (() => void) | undefined;
+    const pendingAgentSessionList = new Promise<void>((resolve) => {
+      resolveAgentSessionList = resolve;
+    });
+    sessionApiMock.getSessionList
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingAgentSessionList);
+    sessionApiMock.getSessionMeta
+      .mockReturnValueOnce({ thinking_level: "high" })
+      .mockReturnValueOnce({ thinking_level: "low" });
+
+    const onChange = vi.fn();
+    const { rerender } = renderWithProviders(
+      <ThinkingLevelToggle
+        agentId="agent-a"
+        sessionId="new"
+        supportsThinking
+        onChange={onChange}
+      />,
+    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("high"));
+    onChange.mockClear();
+
+    rerender(
+      <ThinkingLevelToggle
+        agentId="agent-b"
+        sessionId="new"
+        supportsThinking
+        onChange={onChange}
+      />,
+    );
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("chat.thinkingLevelTitle")).toBeDisabled();
+
+    resolveAgentSessionList?.();
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("low"));
+  });
 });

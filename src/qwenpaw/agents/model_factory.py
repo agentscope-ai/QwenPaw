@@ -2109,6 +2109,8 @@ def create_model_and_formatter(
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 
+    from ..providers.provider import agent_thinking_level
+
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
         # Use agent-specific model
@@ -2119,14 +2121,13 @@ def create_model_and_formatter(
                 message=f"Provider '{model_slot.provider_id}' not found.",
             )
 
-        from ..providers.provider import agent_thinking_level
-
         with agent_thinking_level(thinking_level):
             model = provider.get_chat_model_instance(model_slot.model)
         provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     else:
         # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
+        with agent_thinking_level(thinking_level):
+            model = ProviderManager.get_active_chat_model()
         global_model = ProviderManager.get_instance().get_active_model()
         if not global_model:
             raise ProviderError(
