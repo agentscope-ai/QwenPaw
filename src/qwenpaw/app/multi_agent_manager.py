@@ -23,8 +23,9 @@ from ..constant import (
     CUSTOM_AGENT_STARTUP_CONCURRENCY,
 )
 from ..config.utils import load_config
-from ..utils.startup_display import AgentStartupDisplay
+from ..utils.io_utils import run_async_to_completion
 from ..utils.logging import sanitize_log_value
+from ..utils.startup_display import AgentStartupDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,81 @@ class MultiAgentManager:
         Overridden by WorkspaceRegistry.
         """
         return Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
+
+    @staticmethod
+    async def _cleanup_failed_reload_candidate(
+        candidate: Workspace,
+        agent_id: str,
+        original_error: BaseException,
+    ) -> None:
+        """Stop an uncommitted candidate before propagating its failure."""
+        try:
+            await run_async_to_completion(
+                candidate.stop(final=True, preserve_reused=True),
+            )
+        except asyncio.CancelledError:
+            # A later cancellation was delayed until stop() completed. Keep
+            # the cancellation that originally aborted candidate startup.
+            if not isinstance(original_error, asyncio.CancelledError):
+                raise
+        except BaseException:
+            logger.warning(
+                "Failed to clean up uncommitted workspace candidate "
+                f"for {agent_id}",
+                exc_info=True,
+            )
+
+    async def _prepare_reload_candidate(
+        self,
+        candidate: Workspace,
+        agent_id: str,
+        workspace_dir: str,
+    ) -> dict:
+        """Attach reusable state and fully start a reload candidate."""
+        async with self._lock:
+            old_instance = self.agents.get(agent_id)
+
+        reusable = {}
+        if old_instance:
+            # TaskTracker is agent-scoped rather than workspace-scoped.
+            candidate.set_task_tracker(old_instance.task_tracker)
+
+            # pylint: disable=protected-access
+            reusable = old_instance._service_manager.get_reusable_services()
+            # pylint: enable=protected-access
+            if reusable:
+                await candidate.set_reusable_components(reusable)
+                logger.info(
+                    f"Set reusable components for {agent_id}: "
+                    f"{list(reusable.keys())}",
+                )
+
+        await candidate.start()
+        candidate.set_manager(self)
+        await self._setup_workspace_plugins(candidate, str(workspace_dir))
+        logger.info(f"New workspace instance started: {agent_id}")
+        return reusable
+
+    @staticmethod
+    async def _discard_reload_candidate(
+        candidate: Workspace,
+        agent_id: str,
+        reason: str,
+    ) -> None:
+        """Log and stop a candidate rejected before the atomic swap."""
+        if reason == "removed":
+            logger.warning(
+                f"Agent {agent_id} was removed during reload, "
+                "stopping new instance",
+            )
+        else:
+            logger.info(
+                f"Discarding stale reload for {agent_id}: "
+                "configuration changed during rebuild",
+            )
+        await run_async_to_completion(
+            candidate.stop(final=True, preserve_reused=True),
+        )
 
     def get_loaded_agent(self, agent_id: str) -> Workspace | None:
         """Return an already loaded workspace without starting it."""
@@ -538,78 +614,61 @@ class MultiAgentManager:
             workspace_dir=agent_ref.workspace_dir,
         )
 
-        # Step 3.5: Set reusable components from old instance (if any)
-        async with self._lock:
-            old_instance = self.agents.get(agent_id)
+        # Until the atomic swap commits, this manager exclusively owns the
+        # candidate and must stop it on every exit path.
+        candidate_committed = False
+        try:
+            reusable = await self._prepare_reload_candidate(
+                new_instance,
+                agent_id,
+                agent_ref.workspace_dir,
+            )
 
-        reusable = {}
-        if old_instance:
-            # TaskTracker is agent-scoped rather than workspace-scoped. Reuse
-            # it before startup so reconnect/status/stop requests arriving
-            # after the atomic swap can still reach in-flight runs.
-            new_instance.set_task_tracker(old_instance.task_tracker)
+            # Step 4: Atomic swap (minimal lock time). Do not await candidate
+            # cleanup while holding this lock.
+            discard_reason = None
+            async with self._lock:
+                if agent_id not in self.agents:
+                    discard_reason = "removed"
+                elif self._config_generations.get(agent_id, 0) != generation:
+                    discard_reason = "stale"
+                else:
+                    old_instance = self.agents[agent_id]
+                    self.agents[agent_id] = new_instance
+                    candidate_committed = True
+        except BaseException as error:
+            if candidate_committed:
+                raise
 
-            # Get all reusable services from old instance's ServiceManager
-            # pylint: disable=protected-access
-            reusable = old_instance._service_manager.get_reusable_services()
-            # pylint: enable=protected-access
-
-            if reusable:
-                await new_instance.set_reusable_components(reusable)
-                logger.info(
-                    f"Set reusable components for {agent_id}: "
-                    f"{list(reusable.keys())}",
+            if isinstance(error, Exception):
+                logger.exception(
+                    "Failed to start new workspace instance for "
+                    f"{agent_id}: {error}",
                 )
 
-        try:
-            await new_instance.start()
-            new_instance.set_manager(self)  # Set manager reference
-            await self._setup_workspace_plugins(
+            await self._cleanup_failed_reload_candidate(
                 new_instance,
-                str(agent_ref.workspace_dir),
+                agent_id,
+                error,
             )
-            logger.info(f"New workspace instance started: {agent_id}")
-        except Exception as e:
-            logger.exception(
-                f"Failed to start new workspace instance for {agent_id}: {e}",
+
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            if isinstance(error, Exception):
+                # Old instance is still running and serving requests.
+                return False
+            raise
+
+        if not candidate_committed:
+            assert discard_reason is not None
+            await self._discard_reload_candidate(
+                new_instance,
+                agent_id,
+                discard_reason,
             )
-            # Try to clean up the failed new instance
-            try:
-                await new_instance.stop()
-            except Exception:
-                pass  # Best effort cleanup
-            # Old instance is still running and serving requests
             return False
 
-        # Step 4: Atomic swap (minimal lock time)
-        # From this point, reload is considered successful
-        async with self._lock:
-            # Double-check agent still exists
-            if agent_id not in self.agents:
-                logger.warning(
-                    f"Agent {agent_id} was removed during reload, "
-                    f"stopping new instance",
-                )
-                await new_instance.stop()
-                return False
-
-            if self._config_generations.get(agent_id, 0) != generation:
-                # The configuration changed while this replacement was
-                # being built: installing it would revert the newer
-                # write. The writer's own reload delivers the fresh
-                # state; the current (already patched in memory)
-                # instance keeps serving until then.
-                logger.info(
-                    f"Discarding stale reload for {agent_id}: "
-                    f"configuration changed during rebuild",
-                )
-                await new_instance.stop()
-                return False
-
-            # Swap instances atomically
-            old_instance = self.agents[agent_id]
-            self.agents[agent_id] = new_instance
-            logger.info(f"Workspace instance replaced: {agent_id}")
+        logger.info(f"Workspace instance replaced: {agent_id}")
 
         # A reusable service can be rejected during startup when its class no
         # longer matches the newly loaded configuration (for example, after a

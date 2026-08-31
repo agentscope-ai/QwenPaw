@@ -24,7 +24,14 @@ from services.media_files.local_execution import (
     FfmpegLocalMediaRunner,
     LocalMediaExecutionSpec,
     LocalMediaInput,
+    _motion_document_matches_text,
 )
+
+
+def test_motion_copy_match_uses_browser_visible_html_entities() -> None:
+    html = "<div><b>GitHub</b><i>&nbsp;</i><b>新手</b></div>"
+    assert _motion_document_matches_text(html, "GitHub 新手")
+    assert not _motion_document_matches_text(html, "GitHub 高手")
 
 
 def _candidate(ticks_per_second: int = 1000) -> dict:
@@ -114,6 +121,37 @@ def test_freeze_pads_video_and_references_audio_only_when_present():
     assert "[0:a]" not in silent
 
 
+def test_playback_rate_retimes_picture_and_source_audio() -> None:
+    chain = _filter(playback_rate=0.25, retime_audio=True)
+    assert "setpts=(PTS-STARTPTS)/0.25" in chain
+    assert "[0:a]atempo=0.5,atempo=0.5[a]" in chain
+
+
+@pytest.mark.parametrize(
+    "playback_rate",
+    [0.0, -1.0, float("nan"), float("inf")],
+)
+def test_atempo_filters_reject_invalid_playback_rate(
+    playback_rate: float,
+) -> None:
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        FfmpegLocalMediaRunner._atempo_filters(playback_rate)
+
+
+@pytest.mark.parametrize(
+    "playback_rate",
+    [
+        float.fromhex("0x0.0000000000001p-1022"),
+        float.fromhex("0x1.fffffffffffffp+1023"),
+    ],
+)
+def test_atempo_filters_bound_extreme_finite_rates(
+    playback_rate: float,
+) -> None:
+    with pytest.raises(ValueError, match="supported audio retiming range"):
+        FfmpegLocalMediaRunner._atempo_filters(playback_rate)
+
+
 _FFMPEG = shutil.which("ffmpeg")
 _FFPROBE = shutil.which("ffprobe")
 
@@ -189,6 +227,102 @@ def test_still_image_input_renders_a_timed_segment(tmp_path) -> None:
     )
     duration = float(probe.stdout.strip())
     assert duration == pytest.approx(2.0, abs=0.15)
+
+
+@pytest.mark.skipif(
+    _FFMPEG is None or _FFPROBE is None,
+    reason="ffmpeg is not installed",
+)
+@pytest.mark.parametrize(
+    ("playback_rate", "expected_duration"),
+    ((0.5, 4.0), (2.0, 1.0)),
+)
+def test_video_playback_rate_controls_real_output_duration(
+    tmp_path,
+    playback_rate: float,
+    expected_duration: float,
+) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            _FFMPEG,
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360:rate=30:duration=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=44100:duration=2",
+            "-shortest",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            str(source),
+        ],
+        check=True,
+    )
+    rate_label = str(playback_rate).replace(".", "-")
+    work_dir = tmp_path / f"work-{rate_label}"
+    work_dir.mkdir()
+    output = tmp_path / f"retimed-{rate_label}.mp4"
+    spec = LocalMediaExecutionSpec(
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:main",
+        task_id=f"task-{rate_label}",
+        work_dir=work_dir,
+        output_path=output,
+        inputs=(
+            LocalMediaInput(
+                version_id=f"asset-version-{rate_label}",
+                file_id=f"file-{rate_label}",
+                checksum=f"sha256:rate-{rate_label}-source-v1",
+                media_type="video/mp4",
+                path=source,
+                source_ref=f"element:{rate_label}",
+                start_seconds=0.0,
+                end_seconds=2.0,
+                duration_seconds=2.0,
+                playback_rate=playback_rate,
+            ),
+        ),
+        transitions=(),
+        audio_plan="preserve",
+        expected_duration_seconds=expected_duration,
+        canvas_size=(640, 360),
+    )
+
+    asyncio.run(FfmpegLocalMediaRunner(_FFMPEG).render(spec))
+
+    probe = subprocess.run(
+        [
+            _FFPROBE,
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,duration",
+            "-of",
+            "csv=p=0",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    durations = {
+        kind: float(duration)
+        for kind, duration in (
+            line.split(",") for line in probe.stdout.splitlines()
+        )
+    }
+    assert durations["video"] == pytest.approx(expected_duration, abs=0.15)
+    assert durations["audio"] == pytest.approx(expected_duration, abs=0.15)
 
 
 def _materialize_keyframe(project_root: Path, source: Path, timestamp: float):

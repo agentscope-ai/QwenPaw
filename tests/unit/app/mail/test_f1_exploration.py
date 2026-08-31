@@ -98,6 +98,10 @@ def test_activation_tool_registers_session():
     chunk = asyncio.run(_run())
     assert chunk.is_last is True
     assert is_f1_active_for_session(_SESSION) is True
+    assert chunk.content[0].text.startswith("F1 Exploration Mode is active.")
+    assert "The system automatically intercepts every tool call" in (
+        chunk.content[0].text
+    )
 
 
 def test_activation_tool_without_session_id_is_safe():
@@ -112,7 +116,8 @@ def test_activation_tool_without_session_id_is_safe():
 
     chunk = asyncio.run(_run())
     assert chunk.is_last is True
-    assert "激活失败" in chunk.content[0].text
+    assert "Failed to activate F1 Exploration Mode" in chunk.content[0].text
+    assert "do not perform any action if uncertain" in chunk.content[0].text
     assert not _f1_sessions
 
 

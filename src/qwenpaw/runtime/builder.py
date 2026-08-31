@@ -142,6 +142,7 @@ class AgentBuilder:
 
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
+        tools.sort(key=self._tool_name)
 
         skills = await run_sync_io(
             self._load_runtime_skills,
@@ -153,7 +154,7 @@ class AgentBuilder:
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
-        """Best-effort tool name for whitelist filtering."""
+        """Return the model-facing name used for sorting and filtering."""
         name = getattr(tool, "name", None)
         if isinstance(name, str) and name:
             return name
@@ -953,6 +954,7 @@ class AgentBuilder:
         """Map QwenPaw's ``ContextCompactConfig`` to AS ``ContextConfig``."""
         from agentscope.agent import ContextConfig
 
+        non_binding_limit = 2**63 - 1
         try:
             lcc = agent_config.running.light_context_config
             ccc = lcc.context_compact_config
@@ -965,7 +967,7 @@ class AgentBuilder:
             # non-binding while unified pruning is enabled; when pruning is
             # disabled, retain AgentScope's default safety net.
             tool_result_limit = (
-                2**63 - 1
+                non_binding_limit
                 if trc.enabled
                 else ContextConfig.model_fields["tool_result_limit"].default
             )
@@ -985,9 +987,13 @@ class AgentBuilder:
                 trigger_ratio=trigger_ratio,
                 reserve_ratio=reserve_ratio,
                 tool_result_limit=tool_result_limit,
+                # QwenPaw's visual compression owns the image budget and
+                # preserves native media. AgentScope 2.0.7 otherwise removes
+                # canonical images beyond its default limit of five.
+                max_image_num=non_binding_limit,
             )
         except Exception:
-            return ContextConfig()
+            return ContextConfig(max_image_num=non_binding_limit)
 
     @staticmethod
     async def _build_scroll_components(

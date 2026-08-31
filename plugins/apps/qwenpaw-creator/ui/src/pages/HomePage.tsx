@@ -328,21 +328,36 @@ export default function HomePage() {
         ) {
           copyRetryKeys.current.delete(project.projectId);
         }
+        if (error instanceof CreatorHttpError && error.status === 404) {
+          message.error(t("home.projectGone"));
+          fetchProjects();
+          return;
+        }
         message.error(t("home.copyFailed"));
       }
     },
-    [router],
+    [router, fetchProjects],
   );
 
-  const handleRecreate = useCallback(async (project: ProjectSummary) => {
-    try {
-      const params = await getRecreateParams(project.projectId);
-      useRecreateStore.getState().setParams(params);
-      setView("create");
-    } catch {
-      message.error(t("home.recreateFailed"));
-    }
-  }, []);
+  const handleRecreate = useCallback(
+    async (project: ProjectSummary) => {
+      try {
+        const params = await getRecreateParams(project.projectId);
+        useRecreateStore.getState().setParams(params);
+        setView("create");
+      } catch (error) {
+        // The project disappeared between listing and this click. Name the
+        // real cause and drop the stale row instead of a generic failure.
+        if (error instanceof CreatorHttpError && error.status === 404) {
+          message.error(t("home.projectGone"));
+          fetchProjects();
+          return;
+        }
+        message.error(t("home.recreateFailed"));
+      }
+    },
+    [fetchProjects],
+  );
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {

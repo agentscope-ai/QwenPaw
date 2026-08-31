@@ -97,47 +97,71 @@ Function QWENPAW_CLI_PATH_PAGE_LEAVE
   ${NSD_GetState} $QwenPawCliPathCheckbox $QwenPawCliPathState
 FunctionEnd
 
-!macro QWENPAW_STOP_BACKEND_SIDECAR
-  ; The Python backend is a Tauri sidecar, not a user-facing window. A leftover
-  ; (possibly orphaned, see #5550) backend keeps its PyInstaller ``.pyd`` modules
-  ; memory-mapped, which locks them on Windows. The installer then fails to
-  ; overwrite those files and shows the cryptic native "can't write file"
-  ; abort/retry/ignore dialog.
-  ;
-  ; The helper stops only backend processes whose executable lives under
-  ; $INSTDIR, so a coexisting QwenPaw install is left untouched. It is
-  ; ConstrainedLanguage-safe (WDAC/AppLocker): no ``[System.*]`` static calls,
-  ; which throw in that mode and made the previous helper give up silently. It
-  ; exits non-zero while a scoped backend is still running; if that persists we
-  ; surface a friendly retry prompt rather than the raw OS dialog.
+!macro QWENPAW_DEFINE_INSTALL_FUNCTIONS PREFIX
+Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Push $0
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1 "..\..\..\..\nsis\stop-backend-sidecar.ps1"
-  ${Do}
-    nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1" -InstallDir "$INSTDIR"`
-    Pop $0
-    ${If} $0 == 0
-      ${ExitDo}
-    ${EndIf}
-    ; Still running (or could not be stopped). Ask the user; default to Cancel
-    ; for silent installs.
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopBackendPrompt)" /SD IDCANCEL IDRETRY +2
-    Quit
-  ${Loop}
+  Push $1
+  IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
   Pop $0
+  Pop $1
+  ${If} $0 != 0
+    DetailPrint "$(qwenpawRestoreInstallStateFailed)"
+    DetailPrint "$1"
+  ${EndIf}
+  qwenpaw_restore_done:
+  Pop $1
+  Pop $0
+FunctionEnd
+
+Function ${PREFIX}QWENPAW_PREPARE_INSTALL
+  Push $0
+  Push $1
+  Push $2
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\qwenpaw-manage-install-processes.ps1 "..\..\..\..\nsis\manage-install-processes.ps1"
+  System::Call 'kernel32::GetCurrentProcessId() i .r2'
+
+  qwenpaw_prepare_retry:
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    Goto qwenpaw_prepare_done
+  ${Else}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopProcessesPrompt)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
+  ${EndIf}
+
+  qwenpaw_prepare_cancel:
+  Call ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
+  Quit
+
+  qwenpaw_prepare_done:
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
 !macroend
 
+!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS ""
+!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un."
+
 !macro NSIS_HOOK_PREINSTALL
-  !insertmacro QWENPAW_STOP_BACKEND_SIDECAR
+  Call QWENPAW_PREPARE_INSTALL
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  Call QWENPAW_RESTORE_INSTALL_STATE
   !insertmacro QWENPAW_ADD_CLI_PATH_IF_SELECTED
   !insertmacro QWENPAW_INSTALL_DEBUG_LAUNCHER
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  !insertmacro QWENPAW_STOP_BACKEND_SIDECAR
+  Call un.QWENPAW_PREPARE_INSTALL
   !insertmacro QWENPAW_REMOVE_DEBUG_LAUNCHER
   !insertmacro QWENPAW_REMOVE_CLI_PATH
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  Call un.QWENPAW_RESTORE_INSTALL_STATE
 !macroend

@@ -21,6 +21,7 @@ from pydantic import Field
 from .provider import ModelInfo
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
+from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
 from .openai_provider import (
     CODING_DASHSCOPE_BASE_URL,
     DASHSCOPE_BASE_URLS,
@@ -293,6 +294,11 @@ class _DashScopeChatModelCompat:
     base ``_call_api``, so the ``is not None`` guard in
     ``DashScopeChatModel._call_api`` skips emitting ``enable_thinking``
     and the DashScope API uses its own model-level default.
+
+    ``_format_tools`` applies only nullable / empty-schema normalization
+    so strict models served through DashScope (e.g. kimi-k3) do not
+    reject ``Optional[...]`` unions.  It does not inline ``$ref`` /
+    ``$defs`` or run the rest of the OpenAI-compat schema pipeline.
     """
 
     def __new__(cls, **kwargs: Any) -> Any:
@@ -309,6 +315,11 @@ class _DashScopeChatModelCompat:
             _qp_default_headers = default_headers
             _qp_thinking_explicit = thinking_explicitly_set
             _qp_extra_generate_kwargs = extra_generate_kwargs or {}
+
+            def _format_tools(self, tools, tool_choice):
+                if tools:
+                    tools = _sanitize_nullable_tool_schemas(tools)
+                return super()._format_tools(tools, tool_choice)
 
             async def _call_api(
                 self,

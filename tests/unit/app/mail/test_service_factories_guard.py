@@ -39,15 +39,23 @@ def _fake_workspace(backend: str, tmp_path) -> SimpleNamespace:
     )
 
 
+def _create_monitor(ws):
+    published = []
+    monitor = asyncio.run(
+        create_mail_monitor_service(ws, None, published.append),
+    )
+    return monitor, published
+
+
 def test_third_party_backend_never_starts_monitor(tmp_path):
     ws = _fake_workspace("claude_code", tmp_path)
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, published = _create_monitor(ws)
     assert monitor is None
-    assert "mail_monitor" not in ws._service_manager.services
+    assert not published
 
 
 def test_qwenpaw_backend_still_starts_monitor(tmp_path):
     ws = _fake_workspace("qwenpaw", tmp_path)
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, published = _create_monitor(ws)
     assert monitor is not None
-    assert ws._service_manager.services["mail_monitor"] is monitor
+    assert published == [monitor]

@@ -70,6 +70,15 @@ class UnsafeProjectPath(ProjectStoreError):
     pass
 
 
+class InvalidProjectId(UnsafeProjectPath):
+    """The caller supplied a malformed id, as opposed to a damaged store.
+
+    Kept under UnsafeProjectPath so existing handlers that skip unusable
+    directory names keep working, while routes can single it out as a client
+    input mistake rather than a storage fault.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectSnapshot:
     project: Project
@@ -723,7 +732,7 @@ def _safe_project_id(value: str) -> str:
         or not _SAFE_PROJECT_ID.fullmatch(value)
         or "\x00" in value
     ):
-        raise UnsafeProjectPath(f"Unsafe project id: {value!r}")
+        raise InvalidProjectId(f"Unsafe project id: {value!r}")
     return value
 
 
@@ -750,6 +759,7 @@ def _fsync_directory(directory: Path) -> None:
 
 __all__ = [
     "DEFAULT_MAX_PROJECT_JSON_BYTES",
+    "InvalidProjectId",
     "ProjectAlreadyExists",
     "ProjectConflict",
     "ProjectIntegrityError",

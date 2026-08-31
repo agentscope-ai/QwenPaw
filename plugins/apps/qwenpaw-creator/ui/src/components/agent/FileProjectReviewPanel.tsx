@@ -157,6 +157,7 @@ function describeElementValue(
     parts.push(`${start.toFixed(0)}s–${end.toFixed(0)}s`);
   }
   if (creation.type === "audio") {
+    parts.push(i18n.t(`fileReview.audioRole.${creation.role ?? "narration"}`));
     parts.push(i18n.t("fileReview.audioGain", { gain: creation.gain_db ?? 0 }));
     if (creation.pan)
       parts.push(i18n.t("fileReview.audioPan", { pan: creation.pan }));

@@ -189,23 +189,6 @@ def build_env_context(
     parts.append(
         "- Docs: https://qwenpaw.agentscope.io/",
     )
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    if session_id is not None:
-        parts.append(f"- Session ID: {session_id}")
-    if user_id is not None:
-        parts.append(f"- User ID: {user_id}")
-    if user_name:
-        parts.append(f"- User Name: {user_name}")
-    if channel is not None:
-        parts.append(f"- Channel: {channel}")
-
     parts.append(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
@@ -226,10 +209,6 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
-    parts.append(
-        f"- Current date: {now.strftime('%Y-%m-%d')} "
-        f"{user_tz} ({now.strftime('%A')})",
-    )
 
     if add_hint:
         parts.append(
@@ -245,6 +224,28 @@ def build_env_context(
             "you must generate a tool call or provide useful feedback if "
             "you are blocked.\n",
         )
+
+    # Keep request-specific values after the reusable environment prefix.
+    if channel is not None:
+        parts.append(f"- Channel: {channel}")
+    if user_name:
+        parts.append(f"- User Name: {user_name}")
+    if user_id is not None:
+        parts.append(f"- User ID: {user_id}")
+    if session_id is not None:
+        parts.append(f"- Session ID: {session_id}")
+
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+    parts.append(
+        f"- Current date: {now.strftime('%Y-%m-%d')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
 
     return (
         "====================\n" + "\n".join(parts) + "\n===================="

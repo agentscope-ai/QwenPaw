@@ -88,7 +88,7 @@ def test_creator_owns_timeline_element_planning() -> None:
     for responsibility in (
         "Timeline Element",
         "creation.type=r2v/t2v/i2v/s2v/edit/overlay/transition/audio",
-        "单个 R2V Element 不超过 15 秒",
+        "单个 R2V Element 的时长必须符合本轮注入的当前精确视频模型能力上限",
         "jq_project",
     ):
         assert responsibility in prompt
@@ -228,6 +228,15 @@ def test_video_model_guidance_switches_on_configured_model(
     assert "视频最多 5 个" in prompt
     assert "合计最多 5 个" in prompt
     assert "[Image N]" not in prompt
+    _set_video_model(monkeypatch, "wan3.0-video")
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+    specialist = _specialist_prompt(SpecialistRole.R2V_GENERATION_DIRECTOR)
+    delegator = render_creator_system_prompt(
+        project_id="project-guidance-test",
+    )
+    for rendered in (specialist, delegator):
+        assert "Wan3.0" in rendered
+        assert "2–30 秒" in rendered
 
 
 def _tts(monkeypatch, *, model: str, configured: bool = True) -> None:

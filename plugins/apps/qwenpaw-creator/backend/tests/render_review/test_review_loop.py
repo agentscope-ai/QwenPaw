@@ -247,9 +247,10 @@ def test_revise_verdict_sends_feedback_and_caps_rounds(
     assert chain["status"] == "closed"
     assert chain["rounds_completed"] == MAX_REVIEW_ROUNDS
 
-    # The chain is spent: a fourth compose starts a fresh chain at round 1.
-    report = _run_round(services, "video-revise-4")
-    assert report.round == 1
+    # The target's physical budget is spent: a fourth compose cannot reset
+    # the counter by opening a nominally fresh logical chain.
+    assert _run_round(services, "video-revise-4") is None
+    assert _chain_state(services)["attempts_started"] == MAX_REVIEW_ROUNDS
 
 
 def test_unparsable_vlm_response_fails_closed_and_frees_claim(
@@ -262,11 +263,13 @@ def test_unparsable_vlm_response_fails_closed_and_frees_claim(
     assert report is None
     assert len(calls) == 2
     assert _feedback_messages(services) == []
-    # The failed round released its claim: the passing retry closes it.
+    # The failed round released its claim, but its paid attempt remains
+    # consumed; the passing retry is therefore physical round two.
     assert not _chain_state(services).get("claim")
     _stub_vlm(monkeypatch, [_vlm_response(verdict_major_failure=False)])
     report = _run_round(services, "video-broken-1")
     assert report.verdict == "pass"
+    assert report.round == 2
     assert _chain_state(services)["status"] == "closed"
     assert _feedback_messages(services) == []
 
@@ -298,8 +301,10 @@ def test_superseding_claim_drops_stale_feedback(services) -> None:
     assert outcome_b == "completed"
     assert feedback_b is True
     chain = _chain_state(services)
-    # The superseded round consumed no chain budget.
-    assert chain["rounds_completed"] == 1
+    # The superseded call consumed physical attempt one; the accepted newer
+    # render is round two even though only one report could mutate feedback.
+    assert chain["attempts_started"] == 2
+    assert chain["rounds_completed"] == 2
     assert chain["last_video_id"] == "video-new"
 
 
@@ -412,6 +417,24 @@ def test_claim_from_dead_process_is_reclaimed(services) -> None:
     assert chain["claim"]["owner"] == review_module._PROCESS_TOKEN
 
 
+def test_legacy_review_history_migrates_to_physical_cap(services) -> None:
+    """Old closed-chain resets cannot buy three more reviews after upgrade."""
+
+    reports_root = review_module._reports_root(services, PROJECT_ID)
+    review_module._write_json(
+        review_module._chain_path(reports_root, TARGET_REF),
+        {
+            "chain_id": "chain-legacy-reset",
+            "target_ref": TARGET_REF,
+            "rounds_completed": 0,
+            "status": "open",
+            "reviewed_video_ids": ["legacy-1", "legacy-2", "legacy-3"],
+            "claim": None,
+        },
+    )
+    assert _admit(reports_root, "video-after-upgrade") is None
+
+
 def test_schedule_gate_and_dedup(services, monkeypatch) -> None:
     """The single scheduling point filters switch, command and shape."""
     calls: list[str] = []
@@ -448,3 +471,113 @@ def test_schedule_gate_and_dedup(services, monkeypatch) -> None:
 
     asyncio.run(drive())
     assert calls == ["video-gate-1"]
+
+
+def test_challenge_questions_are_drafted_during_the_main_review(
+    services,
+    stubbed_evidence,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """The plan-only question pass overlaps the frame-reading VLM call.
+
+    Both are model round trips with no data dependency between them, so
+    the challenge pass must not add its own latency to the round.
+    """
+    monkeypatch.setattr(
+        "models.config.is_render_challenge_enabled",
+        lambda: True,
+    )
+    order: list[str] = []
+
+    async def fake_questions(_context):
+        order.append("questions:start")
+        await asyncio.sleep(0.05)
+        order.append("questions:end")
+        return []
+
+    async def fake_chat_completion(content, **kwargs):
+        order.append("review:start")
+        await asyncio.sleep(0.05)
+        order.append("review:end")
+        return _vlm_response(verdict_major_failure=False)
+
+    monkeypatch.setattr(
+        "services.render_review.challenge.generate_challenge_questions",
+        fake_questions,
+    )
+    monkeypatch.setattr(review_module, "chat_completion", fake_chat_completion)
+    video = tmp_path / "render.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    report = asyncio.run(
+        review_module.review_render(
+            services,
+            project_id=PROJECT_ID,
+            video_path=video,
+            video_id="version-parallel",
+            round_number=1,
+            plan_context={"concept": "夜行"},
+        ),
+    )
+    assert report.verdict == "pass"
+    # Interleaved starts prove the two round trips overlapped.
+    assert order.index("questions:start") < order.index("review:end")
+    assert order.index("review:start") < order.index("questions:end")
+
+
+def test_single_shot_render_skips_asr_and_reuses_cut_precheck(
+    services,
+    stubbed_evidence,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    gray_samples = object()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        "services.run_review.operator_registry.is_operator_enabled",
+        lambda key: key == "av_sync",
+    )
+    monkeypatch.setattr(
+        "services.run_review.objective.media_io.sample_gray_frames",
+        lambda _path: gray_samples,
+    )
+    monkeypatch.setattr(
+        "services.run_review.objective.video_index.build_video_index",
+        lambda _samples: {"cut_count": 0},
+    )
+
+    async def unexpected_asr(_path):
+        raise AssertionError("ASR cannot measure sync without a cut")
+
+    monkeypatch.setattr(
+        "services.run_review.objective.asr_bridge.transcript_sentences",
+        unexpected_asr,
+    )
+
+    def fake_collect(_path, **kwargs):
+        observed.update(kwargs)
+        return {"video_index": {"cut_count": 0}}
+
+    monkeypatch.setattr(
+        "services.run_review.objective.collect_video_facts",
+        fake_collect,
+    )
+    monkeypatch.setattr(
+        "models.config.is_render_challenge_enabled",
+        lambda: False,
+    )
+    _stub_vlm(monkeypatch, [_vlm_response(verdict_major_failure=False)])
+    video = tmp_path / "single-shot.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    report = asyncio.run(
+        review_module.review_render(
+            services,
+            project_id=PROJECT_ID,
+            video_path=video,
+            video_id="version-single-shot",
+            round_number=1,
+        ),
+    )
+    assert report.verdict == "pass"
+    assert observed["transcript_sentences"] is None
+    assert observed["predecoded_gray_samples"] is gray_samples

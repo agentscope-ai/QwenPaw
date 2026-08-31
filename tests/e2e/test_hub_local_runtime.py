@@ -14,7 +14,6 @@ from typing import Any
 import httpx
 import pytest
 
-
 _HUB_READY_TIMEOUT_SECONDS = 120.0
 
 

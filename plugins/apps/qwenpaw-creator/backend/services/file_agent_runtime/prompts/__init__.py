@@ -39,7 +39,9 @@ FILE_AGENT_PROMPT_SPECS = {
             "project_id",
             "workspace_schema",
             "tts_guidance",
+            "video_model_guidance",
             "external_skills",
+            "live_operation_guidance",
         ),
         _spec(
             "source_intelligence_agent.system",
@@ -116,6 +118,7 @@ def render_creator_system_prompt(
     project_id: str,
     workspace_schema: str | None = None,
     external_skills: str | None = None,
+    live_operation: str | None = None,
 ) -> str:
     if workspace_schema is None:
         from services.project_files.schema_prompt import (
@@ -129,6 +132,8 @@ def render_creator_system_prompt(
     from services.file_agent_runtime.prompts.tts_guidance import (
         delegator_guidance,
     )
+    from models import config as model_config
+    from models.video_capabilities import video_model_delegator_guidance
 
     if external_skills is None:
         # Isolated by design: the loader never raises, a broken skill only
@@ -136,12 +141,25 @@ def render_creator_system_prompt(
         from services.external_skills import render_external_skills_context
 
         external_skills = render_external_skills_context()
+    if live_operation is None:
+        # Injected exactly when the tool is callable, mirroring how narration
+        # guidance appears only alongside the tools that can produce it.
+        from services.file_agent_runtime.prompts import (
+            live_operation_guidance as _live_operation_module,
+        )
+
+        live_operation = _live_operation_module.live_operation_guidance()
     return render_file_agent_prompt(
         "creator_agent.system",
         project_id=project_id,
         workspace_schema=workspace_schema,
         tts_guidance=delegator_guidance(),
+        video_model_guidance=video_model_delegator_guidance(
+            model_config.get_video_model_name(),
+            model_config.get_video_backend(),
+        ),
         external_skills=external_skills,
+        live_operation_guidance=live_operation,
     )
 
 

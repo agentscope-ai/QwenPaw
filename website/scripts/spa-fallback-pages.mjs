@@ -33,6 +33,7 @@ const DOC_SLUGS = [
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
   const BLOG_SLUGS = [
+    "qwenpaw-mailbox",
     "creator-install-guide",
     "qwenpaw-long-term-memory",
     "qwenpaw-files-workspace",

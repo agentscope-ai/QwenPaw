@@ -19,9 +19,12 @@ export interface ModelInfo {
   source?: "builtin" | "discovered" | "user";
   discovery_origin?: "api" | "catalog" | "both" | null;
   availability_status?: ModelAvailabilityStatus;
-  max_tokens: number;
+  max_output_length?: number | null;
+  max_output_length_source?: "api" | "catalog" | "adapter" | "user" | "unknown";
+  max_output_length_updated_at?: string | null;
   max_input_length: number;
   max_input_length_configured?: boolean;
+  max_input_length_auto_detected?: number | null;
   generate_kwargs: Record<string, unknown>;
   relay_reasoning: boolean;
   thinking_enabled: boolean | null;
@@ -110,6 +113,11 @@ export interface ProviderConfigRequest {
   auth_mode?: "api_key" | "auth_token";
 }
 
+export type CustomChatModelName =
+  | "OpenAIChatModel"
+  | "OpenAIResponseModel"
+  | "AnthropicChatModel";
+
 export interface ModelSlotConfig {
   provider_id: string;
   model: string;
@@ -141,7 +149,7 @@ export interface CreateCustomProviderRequest {
   name: string;
   default_base_url?: string;
   api_key_prefix?: string;
-  chat_model?: string;
+  chat_model?: CustomChatModelName;
   models?: ModelInfo[];
 }
 
@@ -156,7 +164,6 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_tokens?: number;
   max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
   relay_reasoning?: boolean;

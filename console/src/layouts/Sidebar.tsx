@@ -547,6 +547,53 @@ export default function Sidebar({
   // ── Render ────────────────────────────────────────────────────────────────
 
   const isChatActive = selectedKey === "core.chat";
+  const collapsedChatItem = collapsedNavItems.find(
+    (item) => item.key === "core.chat",
+  );
+  const collapsedScrollableItems = collapsedNavItems.filter(
+    (item) => item.key !== "core.chat",
+  );
+
+  const renderCollapsedNavItem = (item: FlatMenuEntry) => {
+    const isActive =
+      item.key === "core.chat" ? isChatActive : selectedKey === item.key;
+    return (
+      <Tooltip
+        key={item.key}
+        title={item.label}
+        placement="right"
+        overlayInnerStyle={{
+          background: "rgba(0,0,0,0.75)",
+          color: "#fff",
+        }}
+      >
+        <button
+          type="button"
+          aria-label={typeof item.label === "string" ? item.label : undefined}
+          className={`${styles.collapsedNavItem} ${
+            isActive ? styles.collapsedNavItemActive : ""
+          }${
+            item.key === "core.inbox" && effectiveShake
+              ? ` ${styles.inboxShake}`
+              : ""
+          }`}
+          onClick={() => {
+            if (item.href) {
+              window.open(item.href, "_blank", "noopener,noreferrer");
+            } else {
+              navigate(item.path);
+            }
+          }}
+          onMouseEnter={
+            item.key === "core.inbox" ? handleInboxHover : undefined
+          }
+        >
+          {item.icon}
+        </button>
+      </Tooltip>
+    );
+  };
+
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
@@ -572,45 +619,14 @@ export default function Sidebar({
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive =
-              item.key === "core.chat"
-                ? isChatActive
-                : selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }${
-                    item.key === "core.inbox" && effectiveShake
-                      ? ` ${styles.inboxShake}`
-                      : ""
-                  }`}
-                  onClick={() => {
-                    if (item.href) {
-                      window.open(item.href, "_blank", "noopener,noreferrer");
-                    } else {
-                      navigate(item.path);
-                    }
-                  }}
-                  onMouseEnter={
-                    item.key === "core.inbox" ? handleInboxHover : undefined
-                  }
-                >
-                  {item.icon}
-                </button>
-              </Tooltip>
-            );
-          })}
+          {collapsedChatItem && (
+            <div className={styles.collapsedNavPinned}>
+              {renderCollapsedNavItem(collapsedChatItem)}
+            </div>
+          )}
+          <div className={styles.collapsedNavScroll}>
+            {collapsedScrollableItems.map(renderCollapsedNavItem)}
+          </div>
         </nav>
       ) : isSimpleExpanded ? (
         <>

@@ -76,19 +76,33 @@ def _clamped(value: object, fallback: float, low: float, high: float) -> float:
     return min(high, max(low, number))
 
 
+def _escape_text(text: str) -> str:
+    """Escape text for HTML, converting newlines to <br> tags."""
+    return "<br>".join(escape(line) for line in text.strip().splitlines())
+
+
 def _chars(text: str) -> str:
     """Wrap every visible character for per-character staggers."""
 
-    pieces: list[str] = []
-    for char in text.strip():
-        if char.isspace():
-            pieces.append("<i class='sp'>&nbsp;</i>")
-        else:
-            pieces.append(f"<b class='ch'>{escape(char)}</b>")
-    return "".join(pieces)
+    lines = text.strip().split("\n")
+    groups: list[str] = []
+    for line in lines:
+        pieces: list[str] = []
+        for char in line:
+            if char.isspace():
+                pieces.append("<i class='sp'>&nbsp;</i>")
+            else:
+                pieces.append(f"<b class='ch'>{escape(char)}</b>")
+        groups.append(f"<div class='line-div'>{''.join(pieces)}</div>")
+    return "".join(groups)
 
 
-def _caption_font_css(text: str, *, box_height: float | None = None) -> str:
+def _caption_font_css(
+    text: str,
+    *,
+    box_width: float | None = None,
+    box_height: float | None = None,
+) -> str:
     """Two-axis font clamp for one caption viewport.
 
     The document only knows its own viewport, so the size is expressed
@@ -102,18 +116,31 @@ def _caption_font_css(text: str, *, box_height: float | None = None) -> str:
     canvas stays consistent across overlays with very different box
     heights — a small box (0.18) gets a larger vh value, a tall box
     (0.85) gets a smaller one.
+
+    When *box_width* is provided, the vw term is scaled proportionally
+    so the font fits the overlay box width rather than the full viewport.
     """
 
-    length = max(1, len(re.sub(r"\s+", "", text)))
-    per_line = length if length <= 12 else math.ceil(length / 2)
-    lines = 1 if length <= 12 else 2
+    raw_lines = text.split("\n")
+    line_char_counts = [
+        len(re.sub(r"\s+", "", line)) for line in raw_lines if line.strip()
+    ]
+    if not line_char_counts:
+        line_char_counts = [1]
+    per_line = max(line_char_counts)
+    lines = len(line_char_counts)
+    if len(raw_lines) <= 1:
+        per_line = per_line if per_line <= 12 else math.ceil(per_line / 2)
+        lines = 1 if per_line <= 12 else 2
     # CJK glyphs are roughly square. Width budget: glyph run plus the
     # widest card chrome (≈1.9em of padding/side accents) inside 80% of
-    # the viewport. Height budget: the tallest card stack (line-height
-    # plus vertical padding, gap and rule ≈2.4em per line) inside 76%,
+    # the box. Height budget: the tallest card stack (line-height plus
+    # vertical padding, gap and rule ≈2.4em per line) inside 76%,
     # leaving the root 8% inset and entrance travel untouched.
     vw = 80.0 / (per_line * 1.08 + 1.9)
     vh = 76.0 / (lines * 2.4)
+    if box_width is not None and box_width > 0:
+        vw *= box_width
     if box_height is not None and box_height > 0:
         vh *= 0.25 / box_height
     return f"min({vh:.1f}vh,{vw:.1f}vw)"
@@ -128,6 +155,7 @@ def _document(
     exit_style: str = "soft_fade",
     full_bleed: bool = False,
     frame_ring: bool = False,
+    frame_window: Mapping[str, float] | None = None,
 ) -> str:
     register = _HF_REGISTER.replace("%DUR%", f"{duration:.3f}")
     # data-motion-exit hands the ending to the renderer-managed exit (an
@@ -142,6 +170,14 @@ def _document(
     # transparent-center rule.
     root_css = "#root{position:absolute;inset:0;}" if full_bleed else ""
     ring_attr = ' data-motion-frame="ring"' if frame_ring else ""
+    if frame_ring and frame_window is not None:
+        ring_attr += (
+            ' data-motion-window="'
+            f'{frame_window["left"]:.6f},'
+            f'{frame_window["top"]:.6f},'
+            f'{frame_window["width"]:.6f},'
+            f'{frame_window["height"]:.6f}"'
+        )
     return (
         '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>\n'
         f"{_BASE_CSS}\n{root_css}\n{css}\n</style></head>"
@@ -161,12 +197,13 @@ def _caption_stagger_pop(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """综艺花字：内容包裹式贴纸胶囊 + 逐字弹入 + 强调下划线。"""
 
     overshoot = 1.3 + intensity * 0.6
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{display:flex;flex-direction:column;align-items:center;gap:.18em;max-width:96%;padding:.34em .85em .3em;font-size:{font};background:{palette.paper}f2;border:.07em solid {palette.ink};border-radius:.55em;box-shadow:.14em .18em 0 {palette.secondary}59}}
@@ -190,6 +227,7 @@ def _caption_static_capsule(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """静态胶囊：全片像素级一致的解说/教学字幕。
@@ -201,13 +239,13 @@ def _caption_static_capsule(
     """
 
     del intensity  # 静态模板没有可调幅度，保持签名一致即可
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{width:max-content;max-width:94%;box-sizing:border-box;font-size:{font};padding:.28em .9em;border-radius:.42em;background:{palette.paper}f2;border:.04em solid {palette.ink}26;box-shadow:0 .08em .3em {palette.ink}33}}
 .text{{font-family:"PingFang SC","Noto Sans SC",sans-serif;font-weight:600;font-size:1em;line-height:1.35;letter-spacing:.02em;text-align:center;color:{palette.ink}}}
 """
-    body = f"<div class='wrap'><div class='card'><div class='text'>{escape(text.strip())}</div></div></div>"
+    body = f"<div class='wrap'><div class='card'><div class='text'>{_escape_text(text)}</div></div></div>"
     script = """
 tl.fromTo('.card',{autoAlpha:.35},{autoAlpha:1,duration:.3,ease:'power1.out'},0);
 tl.to('.card',{autoAlpha:1,duration:.1},.3);
@@ -215,25 +253,125 @@ tl.to('.card',{autoAlpha:1,duration:.1},.3);
     return _document(css, body, script, 0.4, exit_style="none"), 0.4
 
 
+def _caption_precision_subtitle(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_width: float | None = None,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """现代软件教程字幕：轻量玻璃底、状态点与进度线。
+
+    The card deliberately avoids the thick outline, large rounded capsule and
+    bouncing entrance used by entertainment captions. It preserves literal UI
+    pixels behind it while still reading as one designed product system.
+    """
+
+    del intensity
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;display:grid;grid-template-columns:.28em auto;align-items:center;column-gap:.42em;width:max-content;max-width:96%;padding:.30em .78em .34em;font-size:{font};border:1px solid {palette.paper}26;border-radius:.28em;background:{palette.ink}d9;box-shadow:0 .16em .65em #0000004d;backdrop-filter:blur(.28em)}}
+.dot{{width:.24em;height:.24em;border-radius:50%;background:{palette.primary};box-shadow:0 0 .5em {palette.primary}8c}}
+.text{{font-family:"PingFang SC","Noto Sans SC",sans-serif;font-size:1em;font-weight:650;line-height:1.30;letter-spacing:.015em;text-align:left;color:{palette.paper};text-wrap:balance}}
+.rail{{position:absolute;left:.78em;right:.78em;bottom:.12em;height:.045em;border-radius:99px;background:{palette.paper}1f;overflow:hidden}}
+.rail:after{{content:"";position:absolute;inset:0;background:{palette.primary};transform-origin:left center}}
+"""
+    body = (
+        "<div class='wrap'><div class='card'><i class='dot'></i>"
+        f"<div class='text'>{escape(text.strip())}</div><i class='rail'></i>"
+        "</div></div>"
+    )
+    script = """
+tl.fromTo('.card',{autoAlpha:.35,scale:.985,y:'4%'},{autoAlpha:1,scale:1,y:'0%',duration:.38,ease:'power3.out'},0);
+tl.fromTo('.rail',{scaleX:.12},{scaleX:1,duration:.7,ease:'power3.out'},.05);
+tl.fromTo('.dot',{scale:.72,autoAlpha:.5},{scale:1,autoAlpha:1,duration:.45,ease:'back.out(1.4)'},.08);
+tl.to('.card',{autoAlpha:1,duration:.1},.75);
+"""
+    return _document(css, body, script, 0.85, exit_style="none"), 0.85
+
+
+def _caption_editorial_title(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_width: float | None = None,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """产品片编辑式标题：左对齐 waterfall 字组、短标尺与轻量景深。"""
+
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
+    overshoot = 1.02 + intensity * 0.08
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-start}}
+.block{{position:relative;width:96%;padding:.22em .08em .38em;font-size:{font}}}
+.accent{{width:1.4em;height:.08em;border-radius:99px;background:{palette.primary};box-shadow:0 0 .5em {palette.primary}59;transform-origin:left center}}
+.line{{display:flex;flex-wrap:wrap;align-items:baseline;margin-top:.28em;font-family:"PingFang SC","Noto Sans SC",sans-serif;font-size:1em;font-weight:760;line-height:1.03;letter-spacing:-.035em;color:{palette.paper};text-shadow:0 .08em .28em #00000073}}
+.ch,.sp{{display:inline-block;font-style:normal}}
+.meta{{position:absolute;left:.08em;bottom:0;width:62%;height:1px;background:linear-gradient(90deg,{palette.paper}59,transparent)}}
+"""
+    body = f"<div class='wrap'><div class='block'><i class='accent'></i><div class='line'>{_chars(text)}</div><i class='meta'></i></div></div>"
+    script = f"""
+tl.fromTo('.accent',{{scaleX:.18,autoAlpha:.45}},{{scaleX:1,autoAlpha:1,duration:.46,ease:'power4.out'}},0);
+tl.fromTo('.ch',{{autoAlpha:.3,y:'10%',scale:.97}},{{autoAlpha:1,y:'0%',scale:{overshoot:.2f},duration:.52,stagger:.035,ease:'power4.out'}},.06);
+tl.to('.ch',{{scale:1,duration:.24,stagger:.018,ease:'power2.out'}},.52);
+tl.fromTo('.meta',{{scaleX:.1,autoAlpha:.35}},{{scaleX:1,autoAlpha:1,duration:.72,ease:'power3.out'}},.18);
+tl.to('.block',{{y:'-1.2%',duration:1.25,ease:'sine.inOut'}},.9);
+tl.to('.block',{{y:'0%',duration:1.25,ease:'sine.inOut'}},2.15);
+"""
+    return _document(css, body, script, 3.4), 3.4
+
+
+def _caption_chapter_label(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_width: float | None = None,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """软件教程章节元数据：单行左对齐、窄边和方向性推进。"""
+
+    del intensity
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-start}}
+.tag{{position:relative;display:flex;align-items:center;gap:.48em;width:max-content;max-width:96%;padding:.22em .58em .22em .34em;font-size:{font};border-left:.12em solid {palette.primary};border-top:1px solid {palette.paper}26;border-right:1px solid {palette.paper}26;border-bottom:1px solid {palette.paper}26;border-radius:0 .22em .22em 0;background:{palette.ink}d9;box-shadow:0 .12em .45em #00000042}}
+.tick{{width:.24em;height:.24em;border-radius:.04em;background:{palette.primary}}}
+.text{{font-family:"SFMono-Regular","Menlo","PingFang SC",monospace;font-size:1em;font-weight:650;line-height:1.15;letter-spacing:.025em;color:{palette.paper};white-space:nowrap}}
+"""
+    body = f"<div class='wrap'><div class='tag'><i class='tick'></i><div class='text'>{escape(text.strip())}</div></div></div>"
+    script = """
+tl.fromTo('.tag',{autoAlpha:.32,clipPath:'inset(0 72% 0 0)'},{autoAlpha:1,clipPath:'inset(0 0% 0 0)',duration:.48,ease:'power4.out'},0);
+tl.fromTo('.tick',{scale:.6,rotate:-20},{scale:1,rotate:0,duration:.42,ease:'back.out(1.6)'},.16);
+tl.to('.tag',{x:'1.5%',duration:1.0,ease:'sine.inOut'},.72);
+tl.to('.tag',{x:'0%',duration:1.0,ease:'sine.inOut'},1.72);
+"""
+    return _document(css, body, script, 2.72), 2.72
+
+
 def _caption_ink_reveal(
     text: str,
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """电影字幕：大字直压画面 + 细描边投影保可读 + 侧色条 draw-on，
     无满框底板，仅文字底部一条包裹式半透明 scrim 融入画面。"""
 
     reveal = 0.55 + intensity * 0.25
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{display:flex;align-items:center;gap:.42em;max-width:96%;font-size:{font};padding:.22em .6em;border-radius:.3em;background:color-mix(in srgb,{palette.ink} 42%,transparent)}}
 .bar{{width:.14em;height:1.15em;border-radius:99px;background:{palette.primary};transform-origin:top;flex:none}}
 .text{{font-family:"PingFang SC","Songti SC",serif;font-weight:700;font-size:1em;line-height:1.32;letter-spacing:.06em;color:{palette.paper};text-shadow:0 .04em .12em {palette.ink},0 0 .5em {palette.ink}b3}}
 """
-    body = f"<div class='wrap'><div class='card'><div class='bar'></div><div class='text'>{escape(text.strip())}</div></div></div>"
+    body = f"<div class='wrap'><div class='card'><div class='bar'></div><div class='text'>{_escape_text(text)}</div></div></div>"
     script = f"""
 tl.fromTo('.card',{{autoAlpha:.5}},{{autoAlpha:1,duration:.45,ease:'power1.out'}},0);
 tl.fromTo('.bar',{{scaleY:.35,autoAlpha:.5}},{{scaleY:1,autoAlpha:1,duration:{reveal:.2f},ease:'power2.out'}},0);
@@ -249,13 +387,14 @@ def _caption_glow_breath(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """情绪光晕：无底板，文字发光呼吸直压画面，背后一团包裹式柔光晕，
     两侧星芒点缀随字号缩放。"""
 
     glow = 0.12 + intensity * 0.14
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;display:flex;align-items:center;gap:.34em;max-width:96%;font-size:{font};padding:.3em .55em}}
@@ -263,7 +402,7 @@ def _caption_glow_breath(
 .text{{position:relative;text-align:center;font-family:"PingFang SC",sans-serif;font-weight:800;font-size:1em;line-height:1.3;color:{palette.paper};text-shadow:0 0 {glow:.2f}em {palette.primary},0 0 {glow * 2.4:.2f}em {palette.primary}99,0 .05em .14em {palette.ink}}}
 .spark{{position:relative;width:.34em;height:.34em;flex:none;background:{palette.primary};clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%)}}
 """
-    body = f"<div class='wrap'><div class='card'><i class='halo'></i><i class='spark'></i><div class='text'>{escape(text.strip())}</div><i class='spark'></i></div></div>"
+    body = f"<div class='wrap'><div class='card'><i class='halo'></i><i class='spark'></i><div class='text'>{_escape_text(text)}</div><i class='spark'></i></div></div>"
     script = """
 tl.fromTo('.card',{autoAlpha:.42,scale:.965},{autoAlpha:1,scale:1,duration:.7,ease:'power2.out'},0);
 tl.fromTo('.spark',{autoAlpha:.35,scale:.5,rotate:-40},{autoAlpha:1,scale:1,rotate:0,duration:.6,stagger:.18,ease:'back.out(1.6)'},.1);
@@ -279,12 +418,13 @@ def _caption_handwritten_note(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """手写笔记：纸纹底板 + 手写体微倾斜 + 墨水划线动画，适合 Vlog。"""
 
     tilt = -1.5 - intensity * 1.5
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;max-width:96%;font-size:{font};padding:.4em 1.1em .35em;background:{palette.paper}f0;border-radius:.6em;transform:rotate({tilt:.1f}deg);box-shadow:.2em .25em 0 {palette.secondary}40}}
@@ -295,11 +435,11 @@ def _caption_handwritten_note(
 """
     body = f"<div class='wrap'><div class='card'><i class='tex'></i><div class='line'>{_chars(text)}</div><div class='underline'></div></div></div>"
     script = """
-tl.fromTo('.card',{{autoAlpha:.3,scale:.95}},{{autoAlpha:1,scale:1,duration:.45,ease:'power2.out'}},0);
-tl.fromTo('.ch',{{autoAlpha:.3,y:'10%'}},{{autoAlpha:1,y:'0%',duration:.4,stagger:.035,ease:'power2.out'}},.05);
-tl.to('.underline',{{scaleX:1,duration:.6,ease:'power3.inOut'}},.35);
-tl.to('.card',{{y:'-2%',duration:1.0,ease:'sine.inOut'}},1.0);
-tl.to('.card',{{y:'0%',duration:1.0,ease:'sine.inOut'}},2.0);
+tl.fromTo('.card',{autoAlpha:.3,scale:.95},{autoAlpha:1,scale:1,duration:.45,ease:'power2.out'},0);
+tl.fromTo('.ch',{autoAlpha:.3,y:'10%'},{autoAlpha:1,y:'0%',duration:.4,stagger:.035,ease:'power2.out'},.05);
+tl.to('.underline',{scaleX:1,duration:.6,ease:'power3.inOut'},.35);
+tl.to('.card',{y:'-2%',duration:1.0,ease:'sine.inOut'},1.0);
+tl.to('.card',{y:'0%',duration:1.0,ease:'sine.inOut'},2.0);
 """
     return _document(css, body, script, 3.0), 3.0
 
@@ -309,12 +449,13 @@ def _caption_keyword_spotlight(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """关键词聚焦：左对齐，关键词高亮色块滑入，适合教学。"""
 
     highlight = 0.6 + intensity * 0.4
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;display:flex;flex-direction:column;gap:.15em;max-width:96%;font-size:{font};padding:.3em .7em}}
@@ -327,20 +468,20 @@ def _caption_keyword_spotlight(
         keyword = max(words, key=len)
         before, _, after = text.partition(keyword)
         line_html = (
-            f"{escape(before)}"
+            f"{_escape_text(before)}"
             f"<span class='kw' style='position:relative;display:inline-block'>"
             f"<i class='marker'></i>"
             f"<span style='position:relative;z-index:1;font-weight:800;color:{palette.paper}'>"
             f"{escape(keyword)}</span></span>"
-            f"{escape(after)}"
+            f"{_escape_text(after)}"
         )
     else:
-        line_html = f"<span class='kw' style='position:relative;display:inline-block'><i class='marker'></i><span style='position:relative;z-index:1;font-weight:800;color:{palette.paper}'>{escape(text.strip())}</span></span>"
+        line_html = f"<span class='kw' style='position:relative;display:inline-block'><i class='marker'></i><span style='position:relative;z-index:1;font-weight:800;color:{palette.paper}'>{_escape_text(text)}</span></span>"
     body = f"<div class='wrap'><div class='card'><div class='line'>{line_html}</div></div></div>"
     script = """
-tl.fromTo('.card',{{autoAlpha:.35,x:'-3%'}},{{autoAlpha:1,x:'0%',duration:.4,ease:'power2.out'}},0);
-tl.fromTo('.marker',{{scaleX:0,transformOrigin:'left center'}},{{scaleX:1,duration:.5,ease:'power3.out'}},.2);
-tl.fromTo('.kw span',{{autoAlpha:.5}},{{autoAlpha:1,duration:.35,ease:'power1.out'}},.25);
+tl.fromTo('.card',{autoAlpha:.35,x:'-3%'},{autoAlpha:1,x:'0%',duration:.4,ease:'power2.out'},0);
+tl.fromTo('.marker',{scaleX:0,transformOrigin:'left center'},{scaleX:1,duration:.5,ease:'power3.out'},.2);
+tl.fromTo('.kw span',{autoAlpha:.5},{autoAlpha:1,duration:.35,ease:'power1.out'},.25);
 """
     return _document(css, body, script, 2.6), 2.6
 
@@ -350,12 +491,13 @@ def _caption_drama_whisper(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """低语独白：宋体大字宽字距，逐字淡入+垂直模糊，纯文字+横线，适合短剧。"""
 
     blur = 0.08 + intensity * 0.1
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;display:flex;flex-direction:column;align-items:center;gap:.3em;max-width:96%;font-size:{font}}}
@@ -365,10 +507,10 @@ def _caption_drama_whisper(
 """
     body = f"<div class='wrap'><div class='card'><div class='rule'></div><div class='text'>{_chars(text)}</div><div class='rule'></div></div></div>"
     script = """
-tl.fromTo('.rule',{{scaleX:0}},{{scaleX:1,duration:.6,ease:'power2.inOut'}},0);
-tl.fromTo('.ch',{{autoAlpha:0,filter:'blur(4px)',y:'6%'}},{{autoAlpha:1,filter:'blur(0px)',y:'0%',duration:.5,stagger:.06,ease:'power1.out'}},.15);
-tl.to('.text',{{letterSpacing:'.22em',duration:1.2,ease:'sine.inOut'}},1.0);
-tl.to('.text',{{letterSpacing:'.18em',duration:1.2,ease:'sine.inOut'}},2.2);
+tl.fromTo('.rule',{scaleX:0},{scaleX:1,duration:.6,ease:'power2.inOut'},0);
+tl.fromTo('.ch',{autoAlpha:.25,filter:'blur(4px)',y:'6%'},{autoAlpha:1,filter:'blur(0px)',y:'0%',duration:.5,stagger:.06,ease:'power1.out'},.15);
+tl.to('.text',{letterSpacing:'.22em',duration:1.2,ease:'sine.inOut'},1.0);
+tl.to('.text',{letterSpacing:'.18em',duration:1.2,ease:'sine.inOut'},2.2);
 """
     return _document(css, body, script, 3.4), 3.4
 
@@ -378,18 +520,19 @@ def _caption_neon_pulse(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """霓虹脉冲：暗底+亮色文字多层 glow 呼吸+霓虹描边，适合音乐/MV。"""
 
     glow = 0.15 + intensity * 0.2
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;display:flex;align-items:center;justify-content:center;max-width:96%;font-size:{font};padding:.35em .9em;border:.1em solid {palette.primary}8c;border-radius:.5em;background:{palette.ink}cc;box-shadow:0 0 {glow:.2f}em {palette.primary}66,inset 0 0 {glow * 0.5:.2f}em {palette.primary}33}}
 .text{{font-family:"PingFang SC","Arial Black",sans-serif;font-weight:900;font-size:1em;line-height:1.25;color:{palette.primary};text-shadow:0 0 {glow:.2f}em {palette.primary},0 0 {glow * 2:.2f}em {palette.primary}80,0 0 {glow * 4:.2f}em {palette.primary}40}}
 """
-    body = f"<div class='wrap'><div class='card'><div class='text'>{escape(text.strip())}</div></div></div>"
+    body = f"<div class='wrap'><div class='card'><div class='text'>{_escape_text(text)}</div></div></div>"
     script = f"""
 tl.fromTo('.card',{{autoAlpha:.3,scale:.96}},{{autoAlpha:1,scale:1,duration:.4,ease:'power2.out'}},0);
 tl.to('.text',{{textShadow:'0 0 {glow * 1.4:.2f}em {palette.primary},0 0 {glow * 2.8:.2f}em {palette.primary}aa,0 0 {glow * 5:.2f}em {palette.primary}66',duration:.8,ease:'sine.inOut'}},.3);
@@ -405,19 +548,20 @@ def _caption_brush_strike(
     palette: BlueprintPalette,
     intensity: float,
     *,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """墨笔横扫：粗体字 clip-path 横扫揭示+对角线扫过，通用动作型。"""
 
     sweep_dur = 0.4 + intensity * 0.2
-    font = _caption_font_css(text, box_height=box_height)
+    font = _caption_font_css(text, box_width=box_width, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;max-width:96%;font-size:{font};padding:.3em .8em;overflow:hidden}}
 .accent{{position:absolute;left:-10%;top:-20%;width:30%;height:140%;background:{palette.primary}40;transform:rotate(-18deg) translateX(-120%);z-index:0}}
 .text{{position:relative;z-index:1;font-family:"PingFang SC","Arial Black",sans-serif;font-weight:900;font-size:1em;line-height:1.25;color:{palette.paper};text-shadow:0 .06em .15em {palette.ink};clip-path:inset(0 100% 0 0)}}
 """
-    body = f"<div class='wrap'><div class='card'><i class='accent'></i><div class='text'>{escape(text.strip())}</div></div></div>"
+    body = f"<div class='wrap'><div class='card'><i class='accent'></i><div class='text'>{_escape_text(text)}</div></div></div>"
     script = f"""
 tl.to('.text',{{clipPath:'inset(0 0% 0 0)',duration:{sweep_dur:.2f},ease:'power3.inOut'}},.1);
 tl.to('.accent',{{x:'420%',duration:{sweep_dur + 0.3:.2f},ease:'power2.inOut'}},.05);
@@ -514,6 +658,57 @@ tl.to('.core',{{scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
     return _document(css, body, script, 3.2), 3.2
 
 
+def _decor_cursor_ripple(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """软件教程点击反馈：CSS 光标、触点与两段闭环涟漪。"""
+
+    travel = 1.04 + intensity * 0.05
+    css = f"""
+.stage{{position:absolute;inset:5%;display:flex;align-items:center;justify-content:center}}
+.pulse{{position:absolute;width:56%;aspect-ratio:1;border-radius:50%;border:.045em solid {palette.primary};box-shadow:0 0 .32em {palette.primary}73;opacity:.88}}
+.p2{{width:82%;opacity:.42}}
+.point{{position:absolute;width:16%;aspect-ratio:1;border-radius:50%;background:{palette.paper};border:.05em solid {palette.ink};box-shadow:0 0 .28em {palette.primary}}}
+.cursor{{position:absolute;left:54%;top:53%;width:28%;height:38%;background:{palette.paper};clip-path:polygon(0 0,0 88%,26% 66%,44% 100%,58% 92%,41% 60%,76% 60%);filter:drop-shadow(.06em .08em .08em #00000066);transform-origin:16% 14%}}
+"""
+    body = "<div class='stage'><i class='pulse p1'></i><i class='pulse p2'></i><i class='point'></i><i class='cursor'></i></div>"
+    script = f"""
+tl.fromTo('.p1',{{scale:.55,autoAlpha:.82}},{{scale:{travel:.2f},autoAlpha:.22,duration:.72,ease:'power2.out'}},0);
+tl.to('.p1',{{scale:.55,autoAlpha:.82,duration:.72,ease:'power2.in'}},.72);
+tl.fromTo('.p2',{{scale:.72,autoAlpha:.36}},{{scale:1.02,autoAlpha:.12,duration:.72,ease:'power2.out'}},0);
+tl.to('.p2',{{scale:.72,autoAlpha:.36,duration:.72,ease:'power2.in'}},.72);
+tl.to('.cursor',{{scale:.88,duration:.16,ease:'power2.in'}},.08);
+tl.to('.cursor',{{scale:1,duration:.22,ease:'back.out(1.7)'}},.24);
+tl.to('.cursor',{{scale:1,duration:.88,ease:'none'}},.46);
+tl.to('.point',{{scale:1.16,duration:.72,ease:'sine.inOut'}},0);
+tl.to('.point',{{scale:1,duration:.72,ease:'sine.inOut'}},.72);
+"""
+    return _document(css, body, script, 1.44, exit_style="soft_fade"), 1.44
+
+
+def _decor_ambient_halo(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """软件产品镜头的克制景深：径向光晕、网格和扫描线闭环。"""
+
+    alpha = int((0.16 + intensity * 0.10) * 255)
+    css = f"""
+.stage{{position:absolute;inset:4%;border-radius:18%;overflow:hidden;background:radial-gradient(circle at 50% 50%,{palette.primary}{alpha:02x},transparent 68%)}}
+.grid{{position:absolute;inset:8%;background-image:linear-gradient({palette.paper}14 1px,transparent 1px),linear-gradient(90deg,{palette.paper}14 1px,transparent 1px);background-size:12% 12%;mask-image:radial-gradient(circle,#000 12%,transparent 72%)}}
+.scan{{position:absolute;left:14%;right:14%;top:48%;height:.04em;background:linear-gradient(90deg,transparent,{palette.primary}8c,transparent);box-shadow:0 0 .35em {palette.primary}66}}
+"""
+    body = "<div class='stage'><i class='grid'></i><i class='scan'></i></div>"
+    script = """
+tl.to('.stage',{scale:1.035,opacity:.88,duration:1.6,ease:'sine.inOut'},0);
+tl.to('.stage',{scale:1,opacity:1,duration:1.6,ease:'sine.inOut'},1.6);
+tl.to('.scan',{y:'34%',opacity:.42,duration:1.6,ease:'sine.inOut'},0);
+tl.to('.scan',{y:'0%',opacity:1,duration:1.6,ease:'sine.inOut'},1.6);
+"""
+    return _document(css, body, script, 3.2, exit_style="none"), 3.2
+
+
 def _decor_bokeh_float(
     palette: BlueprintPalette,
     intensity: float,
@@ -552,8 +747,8 @@ def _decor_grid_pulse(
 """
     body = "<i class='grid'></i><i class='pulse'></i>"
     script = """
-tl.fromTo('.pulse',{{scale:.3,autoAlpha:.7}},{{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'}},0);
-tl.fromTo('.pulse',{{scale:.3,autoAlpha:.7}},{{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'}},1.5);
+tl.fromTo('.pulse',{scale:.3,autoAlpha:.7},{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'},0);
+tl.fromTo('.pulse',{scale:.3,autoAlpha:.7},{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'},1.5);
 """
     return _document(css, body, script, 3.0), 3.0
 
@@ -776,6 +971,7 @@ tl.to('.c2,.c3',{{rotate:0,scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
             exit_style="none",
             full_bleed=True,
             frame_ring=True,
+            frame_window=window,
         ),
         3.2,
     )
@@ -817,6 +1013,7 @@ tl.to('.ring',{{boxShadow:'0 .5vh 2.2vh {palette.ink}40,0 0 0 .35vh {palette.pri
             exit_style="none",
             full_bleed=True,
             frame_ring=True,
+            frame_window=window,
         ),
         3.2,
     )
@@ -859,6 +1056,7 @@ tl.to('.c2,.c3',{{scale:1,duration:1.6,ease:'sine.inOut'}},2.4);
             exit_style="none",
             full_bleed=True,
             frame_ring=True,
+            frame_window=window,
         ),
         3.2,
     )
@@ -886,11 +1084,11 @@ def _frame_chalk_board(
 """
     )
     script = """
-tl.fromTo('.tex',{{x:'0vh',y:'0vh'}},{{x:'3vh',y:'3vh',duration:3.2,ease:'none'}},0);
-tl.to('.ring',{{opacity:.7,duration:1.6,ease:'sine.inOut'}},0);
-tl.to('.ring',{{opacity:1,duration:1.6,ease:'sine.inOut'}},1.6);
-tl.to('.c1',{{rotate:12,scale:1.1,duration:1.6,ease:'sine.inOut'}},0);
-tl.to('.c1',{{rotate:0,scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
+tl.fromTo('.tex',{x:'0vh',y:'0vh'},{x:'3vh',y:'3vh',duration:3.2,ease:'none'},0);
+tl.to('.ring',{opacity:.7,duration:1.6,ease:'sine.inOut'},0);
+tl.to('.ring',{opacity:1,duration:1.6,ease:'sine.inOut'},1.6);
+tl.to('.c1',{rotate:12,scale:1.1,duration:1.6,ease:'sine.inOut'},0);
+tl.to('.c1',{rotate:0,scale:1,duration:1.6,ease:'sine.inOut'},1.6);
 """
     return (
         _document(
@@ -901,6 +1099,7 @@ tl.to('.c1',{{rotate:0,scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
             exit_style="none",
             full_bleed=True,
             frame_ring=True,
+            frame_window=window,
         ),
         3.2,
     )
@@ -938,6 +1137,49 @@ tl.to('.c',{{scale:1,autoAlpha:1,duration:1.6,ease:'sine.inOut'}},1.6);
             exit_style="none",
             full_bleed=True,
             frame_ring=True,
+            frame_window=window,
+        ),
+        3.2,
+    )
+
+
+def _frame_product_ui(
+    palette: BlueprintPalette,
+    intensity: float,
+    window: Mapping[str, float],
+) -> tuple[str, float]:
+    """高端软件演示框：石墨舞台、浏览器状态点与克制环境光。"""
+
+    glow = 0.12 + intensity * 0.12
+    css = (
+        _frame_geometry(window)
+        + f"""
+.strip,.patch{{background:#0b0f14}}
+.tex{{position:absolute;inset:0;background:radial-gradient(circle at 25% 25%,{palette.primary}24,transparent 42%),radial-gradient(circle at 82% 74%,{palette.secondary}2b,transparent 38%)}}
+.ring{{border:.22vh solid {palette.paper}38;box-shadow:0 1.4vh 5vh #00000073,0 0 {glow:.2f}em {palette.primary}24}}
+.c{{width:1.5vh;height:1.5vh;border-radius:50%;background:{palette.paper}59}}
+.c1{{background:#ff6b6b;transform:translate(-20%,-185%)}}
+.c2{{background:#ffd166;transform:translate(-210%,-185%)}}
+.c3{{background:{palette.primary};transform:translate(170%,-185%)}}
+.c4{{width:7vh;height:.62vh;border-radius:99px;background:linear-gradient(90deg,{palette.primary},transparent);transform:translate(-70%,175%)}}
+"""
+    )
+    script = f"""
+tl.to('.tex',{{opacity:{0.78 + intensity * 0.12:.2f},duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.tex',{{opacity:1,duration:1.6,ease:'sine.inOut'}},1.6);
+tl.to('.c3',{{boxShadow:'0 0 1.4vh {palette.primary}',scale:1.12,duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.c3',{{boxShadow:'0 0 0 {palette.primary}',scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
+"""
+    return (
+        _document(
+            css,
+            _FRAME_BODY,
+            script,
+            3.2,
+            exit_style="none",
+            full_bleed=True,
+            frame_ring=True,
+            frame_window=window,
         ),
         3.2,
     )
@@ -949,6 +1191,7 @@ FRAME_BLUEPRINTS = {
     "kraft_paper": _frame_kraft_paper,
     "chalk_board": _frame_chalk_board,
     "neon_glow": _frame_neon_glow,
+    "product_ui": _frame_product_ui,
 }
 
 
@@ -981,6 +1224,9 @@ CAPTION_BLUEPRINTS = {
     "ink_reveal": _caption_ink_reveal,
     "glow_breath": _caption_glow_breath,
     "static_capsule": _caption_static_capsule,
+    "precision_subtitle": _caption_precision_subtitle,
+    "editorial_title": _caption_editorial_title,
+    "chapter_label": _caption_chapter_label,
     "handwritten_note": _caption_handwritten_note,
     "keyword_spotlight": _caption_keyword_spotlight,
     "drama_whisper": _caption_drama_whisper,
@@ -991,6 +1237,8 @@ DECORATION_BLUEPRINTS = {
     "wave_flow": _decor_wave_flow,
     "particle_drift": _decor_particle_drift,
     "orbit_rings": _decor_orbit_rings,
+    "cursor_ripple": _decor_cursor_ripple,
+    "ambient_halo": _decor_ambient_halo,
     "bokeh_float": _decor_bokeh_float,
     "grid_pulse": _decor_grid_pulse,
     "ink_splash": _decor_ink_splash,
@@ -1005,6 +1253,9 @@ _BLUEPRINT_HINTS = {
     "ink_reveal": "电影字幕：横向揭示+侧色条，适合叙事/沉稳/收尾语气",
     "glow_breath": "情绪光晕：发光呼吸+星芒点缀，适合治愈/夜景/抒情",
     "static_capsule": "静态胶囊：固定字号白底深字零动画，适合解说/教学/纪录片逐句字幕",
+    "precision_subtitle": "精密字幕：玻璃石墨底+状态点+进度线，适合软件教程/产品演示",
+    "editorial_title": "编辑标题：左对齐 waterfall 字组+短标尺，适合产品片开场/收束",
+    "chapter_label": "章节元数据：单行窄边标签+方向性推进，适合软件教程步骤编号",
     "handwritten_note": "手写笔记：纸纹底板+手写体微倾斜+墨水划线，适合Vlog/日常/手账",
     "keyword_spotlight": "关键词聚焦：左对齐+关键词高亮色块滑入，适合教学/知识/重点强调",
     "drama_whisper": "低语独白：宋体大字宽字距+逐字淡入模糊，适合短剧/情感/文艺",
@@ -1013,6 +1264,8 @@ _BLUEPRINT_HINTS = {
     "wave_flow": "波浪流动：多层弧带起伏，适合水面/舒缓/自然场景",
     "particle_drift": "微光粒子：光点漂浮呼吸，适合梦幻/温柔/光斑画面",
     "orbit_rings": "几何圆环：双环旋转+光核脉动，适合科技/聚焦/节奏点",
+    "cursor_ripple": "光标点击：CSS 光标+触点+闭环涟漪，适合软件教程真实动作",
+    "ambient_halo": "环境光晕：径向柔光+细网格+扫描线，适合产品镜头景深",
     "bokeh_float": "光斑漂浮：大柔和径向渐变圆漂移+缩放呼吸，适合Vlog/日常/唯美",
     "grid_pulse": "网格脉动：细线网格+径向脉动遮罩，适合教学/科技/结构化",
     "ink_splash": "墨迹晕染：不规则色块缓慢变形+blur，适合短剧/情感/艺术",
@@ -1023,6 +1276,7 @@ _BLUEPRINT_HINTS = {
     "kraft_paper": "牛皮纸框：棕色纸纹边框+遮盖胶带圆环，适合Vlog/日常/复古",
     "chalk_board": "黑板粉笔框：深炭色条+白色粉笔灰尘虚线环，适合教学/知识/校园",
     "neon_glow": "霓虹灯框：暗底条+霓虹发光环+发光角点，适合音乐/MV/夜间",
+    "product_ui": "产品界面框：石墨舞台+浏览器状态点+克制环境光，适合软件教程",
 }
 
 
@@ -1059,6 +1313,7 @@ def render_caption_blueprint(
     *,
     palette: object = None,
     intensity: object = None,
+    box_width: float | None = None,
     box_height: float | None = None,
 ) -> tuple[str, float]:
     """Render one caption card blueprint; returns ``(html, hf duration)``."""
@@ -1071,6 +1326,7 @@ def render_caption_blueprint(
         text,
         validated_palette(palette),
         _clamped(intensity, 0.55, 0.0, 1.0),
+        box_width=box_width,
         box_height=box_height,
     )
 
@@ -1367,6 +1623,7 @@ def render_decoration_blueprint(
 # ---------------------------------------------------------------------------
 
 CONTENT_TYPES = (
+    "tutorial",
     "short_drama",
     "interview",
     "pets",
@@ -1377,6 +1634,31 @@ CONTENT_TYPES = (
 )
 
 _CONTENT_TYPE_PALETTES: dict[str, dict[str, object]] = {
+    "tutorial": {
+        "caption_order": (
+            "precision_subtitle",
+            "editorial_title",
+            "chapter_label",
+            "keyword_spotlight",
+            "ink_reveal",
+        ),
+        "decoration_catalog": (
+            "cursor_ripple",
+            "ambient_halo",
+            "grid_pulse",
+        ),
+        "frame": "product_ui",
+        "transitions": ("slideleft", "slideright", "zoomin", "fade"),
+        # Literal UI colors must remain exact; polish belongs outside the
+        # captured pixels, not in a global grade.
+        "color_grade": "",
+        "palette": {
+            "primary": "#3fb950",
+            "secondary": "#2f81f7",
+            "ink": "#0b0f14",
+            "paper": "#f0f6fc",
+        },
+    },
     "short_drama": {
         "caption_order": (
             "ink_reveal",

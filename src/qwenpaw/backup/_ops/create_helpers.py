@@ -48,6 +48,8 @@ def add_agent_workspaces(
             file_count = 0
             skipped = 0
             for entry in sorted(ws.rglob("*")):
+                if stop_event and stop_event.is_set():
+                    return False
                 if not entry.is_file():
                     continue
                 rel = entry.relative_to(ws).as_posix()

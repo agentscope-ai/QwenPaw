@@ -39,6 +39,13 @@ HAPPYHORSE_VIDEO_EDIT_MAX_INPUT_SECONDS = 60
 HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS = 15
 HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES = 5
 
+# Wan3.0 All-in-One request and reference-video duration contract.
+WAN_30_RESOLUTIONS = frozenset({"480P", "720P", "1080P"})
+WAN_30_RATIOS = frozenset({"adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"})
+WAN_30_MIN_DURATION_SECONDS = 2
+WAN_30_MAX_DURATION_SECONDS = 30
+WAN_30_MAX_REFERENCE_VIDEO_SECONDS = 15
+
 
 @dataclass(frozen=True, slots=True)
 class VideoReferenceCapability:
@@ -49,6 +56,25 @@ class VideoReferenceCapability:
     max_reference_videos: int
     max_reference_media: int
     documentation_url: str
+    max_reference_video_duration_seconds: int | None = None
+    max_input_output_duration_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VideoModelCapability:
+    """Generation modes documented for one exact provider model ID.
+
+    ``known=False`` is deliberately fail-closed.  A compatible gateway alias
+    may speak the same HTTP protocol, but that does not prove that it exposes
+    the same model siblings or accepts the same media inputs.
+    """
+
+    backend: str
+    model: str
+    supported_modes: frozenset[str]
+    derives_mode_model: bool
+    documentation_url: str
+    known: bool = True
 
 
 _HAPPYHORSE_REFERENCE_DOCUMENTATION = (
@@ -58,11 +84,17 @@ _HAPPYHORSE_REFERENCE_DOCUMENTATION = (
 _WAN_27_REFERENCE_DOCUMENTATION = (
     "https://help.aliyun.com/zh/model-studio/video-to-video-guide"
 )
+_WAN_30_REFERENCE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/"
+    "wan3-video-generation-api-reference"
+)
 _WAN_26_REFERENCE_DOCUMENTATION = (
     "https://help.aliyun.com/zh/model-studio/"
     "legacy-wan-reference-to-video-api-reference"
 )
-_SEEDANCE_20_REFERENCE_DOCUMENTATION = "https://arxiv.org/abs/2604.14148"
+_SEEDANCE_20_REFERENCE_DOCUMENTATION = (
+    "https://www.volcengine.com/docs/82379/1520757"
+)
 _SEEDANCE_ARK_DOCUMENTATION = "https://www.volcengine.com/docs/82379/1520757"
 _VEO_REFERENCE_DOCUMENTATION = "https://ai.google.dev/gemini-api/docs/veo"
 _KLING_REFERENCE_DOCUMENTATION = (
@@ -90,12 +122,16 @@ _WAN_27_REFERENCE_PATTERN = re.compile(
     r"^wan2\.7(?:-r2v)?(?:-20\d{2}-\d{2}-\d{2})?$",
     re.IGNORECASE,
 )
+_WAN_30_REFERENCE_PATTERN = re.compile(
+    r"^wan3\.0-video(?:-prime)?$",
+    re.IGNORECASE,
+)
 _WAN_26_REFERENCE_PATTERN = re.compile(
     r"^wan2\.6(?:-r2v(?:-flash)?)?(?:-20\d{2}-\d{2}-\d{2})?$",
     re.IGNORECASE,
 )
 _SEEDANCE_20_REFERENCE_PATTERN = re.compile(
-    r"^(?:doubao-)?seedance-?2(?:-0)?(?:-(?:pro|lite|fast))?(?:-\d{6})?$",
+    r"^doubao-seedance-2-0(?:-(?:fast|mini))?-\d{6}$",
     re.IGNORECASE,
 )
 # Seedance 2.5 (Ark, e.g. doubao-seedance-2-5-260628) is matched after the
@@ -154,6 +190,17 @@ _WAN_27_REFERENCE_CAPABILITY = VideoReferenceCapability(
     max_reference_videos=5,
     max_reference_media=5,
     documentation_url=_WAN_27_REFERENCE_DOCUMENTATION,
+)
+_WAN_30_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="wan3.0-video",
+    max_reference_images=10,
+    max_reference_videos=5,
+    # The official contract declares independent image/video maxima and no
+    # smaller combined-media cap, so the combined ceiling is their sum.
+    max_reference_media=15,
+    documentation_url=_WAN_30_REFERENCE_DOCUMENTATION,
+    max_reference_video_duration_seconds=WAN_30_MAX_REFERENCE_VIDEO_SECONDS,
+    max_input_output_duration_seconds=WAN_30_MAX_DURATION_SECONDS,
 )
 _WAN_26_REFERENCE_CAPABILITY = VideoReferenceCapability(
     family="wan2.6-r2v",
@@ -268,20 +315,90 @@ _VIDU_DIRECT_Q2_PRO_REFERENCE_CAPABILITY = VideoReferenceCapability(
 # (happyhorse-*-t2v/-i2v/-video-edit, wan*-t2v/-i2v).
 VIDEO_MODES = ("r2v", "t2v", "i2v", "video_edit")
 
-# backend key -> supported generation modes. seedance2 (Volcengine Ark)
-# documents 文生视频 / 首帧 / 全模态参考, so t2v/i2v/r2v are exposed; veo,
-# kling and minimax document text-to-video, image-to-video and their own
-# reference flavours (referenceImages / multi-image2video /
-# subject_reference); the Bailian-hosted Vidu models are
-# reference-to-video only.
-VIDEO_MODE_MATRIX: dict[str, frozenset[str]] = {
-    "happyhorse": frozenset({"r2v", "t2v", "i2v", "video_edit"}),
-    "wan": frozenset({"r2v", "t2v", "i2v"}),
-    "seedance2": frozenset({"r2v", "t2v", "i2v"}),
-    "veo": frozenset({"r2v", "t2v", "i2v"}),
-    "kling": frozenset({"r2v", "t2v", "i2v"}),
-    "minimax": frozenset({"r2v", "t2v", "i2v"}),
-    "vidu": frozenset({"r2v"}),
+_DASHSCOPE_VIDEO_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/video-generation-api-reference"
+)
+_SEEDANCE_VIDEO_DOCUMENTATION = "https://www.volcengine.com/docs/82379/1520757"
+_VEO_VIDEO_DOCUMENTATION = "https://ai.google.dev/gemini-api/docs/veo"
+_KLING_DIRECT_DOCUMENTATION = (
+    "https://kling.ai/document-api/api/video/video-generation"
+)
+_MINIMAX_VIDEO_DOCUMENTATION = (
+    "https://platform.minimax.io/docs/api-reference/video-generation-t2v"
+)
+_VIDU_DIRECT_VIDEO_DOCUMENTATION = "https://platform.vidu.com/docs"
+
+_HAPPYHORSE_11_MODEL_PATTERN = re.compile(
+    r"^happyhorse-1\.1(?:-(?:r2v|t2v|i2v))?$",
+    re.IGNORECASE,
+)
+_HAPPYHORSE_10_MODEL_PATTERN = re.compile(
+    r"^happyhorse-1\.0(?:-(?:r2v|t2v|i2v|video-edit))?$",
+    re.IGNORECASE,
+)
+_WAN_27_MODEL_PATTERN = re.compile(
+    r"^wan2\.7(?:-(?:r2v|t2v|i2v))?(?:-20\d{2}-\d{2}-\d{2})?$",
+    re.IGNORECASE,
+)
+_WAN_26_MODEL_PATTERN = re.compile(
+    r"^wan2\.6(?:-(?:r2v(?:-flash)?|t2v|i2v))?(?:-20\d{2}-\d{2}-\d{2})?$",
+    re.IGNORECASE,
+)
+
+_SEEDANCE_MODELS = frozenset(
+    {
+        "doubao-seedance-2-5-260628",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "doubao-seedance-2-0-mini-260615",
+    },
+)
+_VEO_MODEL_MODES: dict[str, frozenset[str]] = {
+    "veo-3.1-generate-preview": frozenset({"r2v", "t2v", "i2v"}),
+    "veo-3.1-fast-generate-preview": frozenset({"r2v", "t2v", "i2v"}),
+    "veo-3.1-lite-generate-preview": frozenset({"t2v", "i2v"}),
+}
+_KLING_HOSTED_MODEL_MODES: dict[str, frozenset[str]] = {
+    "kling/kling-v3-omni-video-generation": frozenset(
+        {"r2v", "t2v", "i2v"},
+    ),
+    "kling/kling-v3-video-generation": frozenset({"t2v", "i2v"}),
+}
+_KLING_DIRECT_MODEL_MODES: dict[str, frozenset[str]] = {
+    "kling-3.0-omni": frozenset({"r2v", "t2v", "i2v"}),
+    "kling-2.6": frozenset({"t2v", "i2v"}),
+}
+_MINIMAX_MODEL_MODES: dict[str, frozenset[str]] = {
+    "minimax-hailuo-2.3": frozenset({"t2v", "i2v"}),
+    "minimax-hailuo-2.3-fast": frozenset({"i2v"}),
+    "minimax-hailuo-02": frozenset({"t2v", "i2v"}),
+    "t2v-01": frozenset({"t2v"}),
+    "t2v-01-director": frozenset({"t2v"}),
+    "i2v-01": frozenset({"i2v"}),
+    "i2v-01-live": frozenset({"i2v"}),
+    "i2v-01-director": frozenset({"i2v"}),
+    "s2v-01": frozenset({"r2v"}),
+}
+_VIDU_HOSTED_MODEL_MODES: dict[str, frozenset[str]] = {
+    f"vidu/{name}_reference2video": frozenset({"r2v"})
+    for name in (
+        "viduq3-ad",
+        "viduq3-drama",
+        "viduq3-mix",
+        "viduq3",
+        "viduq3-turbo",
+        "viduq2-pro",
+        "viduq2",
+    )
+}
+_VIDU_DIRECT_MODEL_MODES: dict[str, frozenset[str]] = {
+    "viduq3-mix": frozenset({"r2v"}),
+    "viduq3-turbo": frozenset({"r2v", "t2v", "i2v"}),
+    "viduq3": frozenset({"r2v"}),
+    "viduq2-pro": frozenset({"r2v", "i2v"}),
+    "viduq2": frozenset({"r2v", "t2v"}),
+    "viduq1": frozenset({"r2v", "t2v", "i2v"}),
+    "vidu2.0": frozenset({"r2v", "i2v"}),
 }
 
 _MODE_SUFFIXES = {
@@ -336,6 +453,11 @@ def is_kling_omni_model(model_name: str) -> bool:
 
 # MiniMax video generation: resolution -> allowed durations (seconds).
 MINIMAX_HAILUO_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": (6, 10),
+    "1080P": (6,),
+}
+MINIMAX_HAILUO_02_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "512P": (6, 10),
     "768P": (6, 10),
     "1080P": (6,),
 }
@@ -526,6 +648,12 @@ def is_happyhorse_model(model_name: str) -> bool:
     return model_name.strip().casefold().startswith(HAPPYHORSE_MODEL_PREFIX)
 
 
+def is_wan3_video_model(model_name: str) -> bool:
+    """True for Wan3.0 All-in-One video generation model IDs."""
+
+    return _WAN_30_REFERENCE_PATTERN.fullmatch(model_name.strip()) is not None
+
+
 def is_vidu_model(model_name: str) -> bool:
     """True when the configured video model is a Bailian-hosted Vidu model."""
 
@@ -571,6 +699,121 @@ def video_backend_key(
     return "wan"
 
 
+def video_model_capability(
+    model_name: str,
+    protocol_backend: str = "",
+) -> VideoModelCapability:
+    """Resolve generation modes for an exact model ID and provider channel.
+
+    This is the canonical capability lookup used by API, prompts and submit
+    validation.  It intentionally does not inherit a provider-wide mode set.
+    """
+    # Exact model registration is intentionally fail-closed and each provider
+    # has a distinct naming contract, so the branches are the registry itself.
+    # pylint: disable=too-many-branches
+
+    model = model_name.strip()
+    lowered = model.casefold()
+    backend = video_backend_key(model, protocol_backend)
+    modes: frozenset[str] | None = None
+    derives = False
+    documentation_url = ""
+
+    # A model ID can exist on a different channel with a different payload
+    # contract.  Do not infer an official-channel adapter merely from the
+    # name when the selected protocol is DashScope hosting (or vice versa).
+    protocol = protocol_backend.strip().casefold()
+    expected_protocols = {
+        "happyhorse": {"wan", "happyhorse"},
+        "wan": {"wan"},
+        "seedance2": {"seedance2"},
+        "veo": {"veo"},
+        "minimax": {"minimax"},
+        "kling": ({"wan"} if lowered.startswith("kling/") else {"kling"}),
+        "vidu": ({"wan"} if lowered.startswith("vidu/") else {"vidu"}),
+    }.get(backend, {backend})
+    if protocol and protocol not in expected_protocols:
+        return VideoModelCapability(
+            backend=backend,
+            model=model,
+            supported_modes=frozenset(),
+            derives_mode_model=False,
+            documentation_url="",
+            known=False,
+        )
+
+    if backend == "happyhorse":
+        if _HAPPYHORSE_11_MODEL_PATTERN.fullmatch(model):
+            modes = frozenset({"r2v", "t2v", "i2v"})
+        elif _HAPPYHORSE_10_MODEL_PATTERN.fullmatch(model):
+            modes = frozenset({"r2v", "t2v", "i2v", "video_edit"})
+        derives = modes is not None
+        documentation_url = _HAPPYHORSE_REFERENCE_DOCUMENTATION
+    elif backend == "wan":
+        if is_wan3_video_model(model):
+            modes = frozenset({"r2v", "t2v", "i2v"})
+            documentation_url = _WAN_30_REFERENCE_DOCUMENTATION
+        elif _WAN_27_MODEL_PATTERN.fullmatch(
+            model,
+        ) or _WAN_26_MODEL_PATTERN.fullmatch(model):
+            modes = frozenset({"r2v", "t2v", "i2v"})
+            derives = True
+            documentation_url = _DASHSCOPE_VIDEO_DOCUMENTATION
+    elif backend == "seedance2":
+        if lowered in _SEEDANCE_MODELS:
+            modes = frozenset({"r2v", "t2v", "i2v"})
+        documentation_url = _SEEDANCE_VIDEO_DOCUMENTATION
+    elif backend == "veo":
+        modes = _VEO_MODEL_MODES.get(lowered)
+        documentation_url = _VEO_VIDEO_DOCUMENTATION
+    elif backend == "kling":
+        if lowered.startswith("kling/"):
+            modes = _KLING_HOSTED_MODEL_MODES.get(lowered)
+            documentation_url = _KLING_REFERENCE_DOCUMENTATION
+        else:
+            modes = _KLING_DIRECT_MODEL_MODES.get(lowered)
+            documentation_url = _KLING_DIRECT_DOCUMENTATION
+    elif backend == "minimax":
+        modes = _MINIMAX_MODEL_MODES.get(lowered)
+        documentation_url = _MINIMAX_VIDEO_DOCUMENTATION
+    elif backend == "vidu":
+        if lowered.startswith("vidu/"):
+            modes = _VIDU_HOSTED_MODEL_MODES.get(lowered)
+            documentation_url = _VIDU_BAILIAN_DOCUMENTATION
+        else:
+            modes = _VIDU_DIRECT_MODEL_MODES.get(lowered)
+            documentation_url = _VIDU_DIRECT_VIDEO_DOCUMENTATION
+
+    if modes is None:
+        return VideoModelCapability(
+            backend=backend,
+            model=model,
+            supported_modes=frozenset(),
+            derives_mode_model=False,
+            documentation_url=documentation_url,
+            known=False,
+        )
+    return VideoModelCapability(
+        backend=backend,
+        model=model,
+        supported_modes=modes,
+        derives_mode_model=derives,
+        documentation_url=documentation_url,
+    )
+
+
+def video_model_supported_modes(
+    model_name: str,
+    protocol_backend: str = "",
+) -> frozenset[str]:
+    """Documented modes for this exact model/channel pair."""
+
+    return video_model_capability(
+        model_name,
+        protocol_backend,
+    ).supported_modes
+
+
 def video_reference_capability(  # pylint: disable=too-many-return-statements
     model_name: str,
 ) -> VideoReferenceCapability | None:
@@ -581,6 +824,8 @@ def video_reference_capability(  # pylint: disable=too-many-return-statements
         return None
     if _HAPPYHORSE_REFERENCE_PATTERN.fullmatch(normalized):
         return _HAPPYHORSE_REFERENCE_CAPABILITY
+    if _WAN_30_REFERENCE_PATTERN.fullmatch(normalized):
+        return _WAN_30_REFERENCE_CAPABILITY
     if _WAN_27_REFERENCE_PATTERN.fullmatch(normalized):
         return _WAN_27_REFERENCE_CAPABILITY
     if _WAN_26_REFERENCE_PATTERN.fullmatch(normalized):
@@ -664,17 +909,22 @@ def validate_video_mode(
         raise ValueError(
             f"未知的视频生成 mode {mode!r}；支持: {', '.join(VIDEO_MODES)}",
         )
-    supported = VIDEO_MODE_MATRIX.get(backend_key, frozenset({"r2v"}))
+    capability = video_model_capability(model_name, backend_key)
+    supported = capability.supported_modes
     if normalized not in supported:
-        alternatives = " / ".join(
-            key
-            for key, modes in VIDEO_MODE_MATRIX.items()
-            if normalized in modes
+        supported_text = ", ".join(
+            sorted(supported, key=VIDEO_MODES.index),
+        )
+        if not capability.known:
+            supported_text = "无（精确模型 ID 未收录）"
+        unknown_prefix = (
+            "VIDEO_MODEL_CAPABILITY_UNKNOWN: " if not capability.known else ""
         )
         raise ValueError(
-            f"当前视频模型 `{model_name}`（{backend_key}）不支持 "
-            f"mode={normalized}；该模型仅支持 {', '.join(sorted(supported))}。"
-            f"mode={normalized} 需要切换到 {alternatives} 系模型",
+            f"{unknown_prefix}当前视频模型 `{model_name}`（{capability.backend}）不支持 "
+            f"mode={normalized}；该模型仅支持 {supported_text}。"
+            "请切换到明确支持该模式的模型，或先把兼容网关别名映射到"
+            "官方模型能力表",
         )
     return normalized
 
@@ -704,6 +954,8 @@ def derive_video_model_name(model_name: str, mode: str) -> str:
     if suffix is None:
         raise ValueError(f"未知的视频生成 mode {mode!r}")
     base = model_name.strip()
+    if is_wan3_video_model(base):
+        return base
     lowered = base.casefold()
     for segment in _KNOWN_SUFFIX_SEGMENTS:
         index = lowered.find(segment)
@@ -751,40 +1003,40 @@ def effective_video_model_name(
     """The model name a submission will actually carry.
 
     Single source of truth for both the submit path and the execution
-    authorization snapshot: HappyHorse names every mode (so even the default
-    r2v derives ``-r2v``), other Bailian families derive for the non-default
-    modes and whenever the configured name encodes a *different* mode (a
-    configured ``wan2.7-i2v`` cannot serve an r2v request as-is, so it
-    resolves to ``wan2.7-r2v``). A mode-less configured name keeps the
-    historical byte-identical r2v behaviour, and seedance2 always uses the
-    configured name as-is.
+    authorization snapshot: HappyHorse and Wan2.x name every mode, so a bare
+    family name also derives the official sibling for the default r2v mode
+    (``wan2.7`` -> ``wan2.7-r2v``). A configured name encoding another mode is
+    replaced in place (``wan2.7-i2v`` -> ``wan2.7-r2v``). All-in-One Wan3 and
+    backends in ``_CONFIGURED_NAME_BACKENDS`` keep the configured name as-is.
     """
 
     configured = model_name.strip()
     backend = backend_key.strip().casefold()
+    if is_wan3_video_model(configured):
+        return configured
     if backend in _CONFIGURED_NAME_BACKENDS:
         return configured
     normalized_mode = (mode or "r2v").strip().casefold() or "r2v"
-    if backend_key == "happyhorse" or normalized_mode != "r2v":
-        return derive_video_model_name(configured, normalized_mode)
-    encoded = configured_mode_segment(configured)
-    if encoded is not None and encoded != normalized_mode:
+    capability = video_model_capability(configured, backend)
+    if capability.derives_mode_model:
         return derive_video_model_name(configured, normalized_mode)
     return configured
 
 
-def _mode_guidance(model_name: str) -> str:
+def _mode_guidance(model_name: str, protocol_backend: str = "") -> str:
     """One prompt block describing the mode matrix for the active model."""
 
-    backend = video_backend_key(model_name)
+    capability = video_model_capability(model_name, protocol_backend)
     supported = sorted(
-        VIDEO_MODE_MATRIX.get(backend, frozenset({"r2v"})),
+        capability.supported_modes,
         key=VIDEO_MODES.index,
     )
     lines = [
-        "生成模式矩阵（r2v_generation 的 mode 参数）：当前模型支持 " f"{', '.join(supported)}。",
-        "- r2v：storyboard + 参考图生成视频（默认，保持现状）。",
+        "生成模式矩阵（r2v_generation 的 mode 参数）：当前精确模型支持 "
+        f"{', '.join(supported) if supported else '无（模型 ID 未收录）'}。",
     ]
+    if "r2v" in supported:
+        lines.append("- r2v：storyboard + 参考图生成视频（默认）。")
     if "t2v" in supported:
         lines.append("- t2v：纯文本生视频，不得携带任何参考素材。")
     if "i2v" in supported:
@@ -806,9 +1058,23 @@ def _mode_guidance(model_name: str) -> str:
     return "\n".join(lines)
 
 
-def _reference_guidance(model_name: str) -> str:
+def _reference_guidance(
+    model_name: str,
+    protocol_backend: str = "",
+) -> str:
     """One prompt block rendered from the official R2V media budget."""
 
+    model_capability = video_model_capability(
+        model_name,
+        protocol_backend,
+    )
+    if not model_capability.known:
+        return (
+            "- 当前协议与精确模型 ID 没有匹配到 Creator 内置的官方视频"
+            "能力表；不得创建或提交 r2v/t2v/i2v Element。"
+        )
+    if "r2v" not in model_capability.supported_modes:
+        return "- 当前精确模型官方不支持 r2v，不得提交任何参考素材。"
     capability = video_reference_capability(model_name)
     if capability is None:
         return (
@@ -837,6 +1103,7 @@ def _reference_guidance(model_name: str) -> str:
 
 def _family_constraint_guidance(
     model_name: str,
+    protocol_backend: str = "",
 ) -> str:
     """Official duration/resolution/ratio constraints for the active family.
 
@@ -844,9 +1111,20 @@ def _family_constraint_guidance(
     documented request contract instead of discovering violations as
     provider rejections.
     """
-    # pylint: disable=too-many-return-statements
-    backend = video_backend_key(model_name)
+    # Provider guidance mirrors each official request contract explicitly.
+    # pylint: disable=too-many-branches,too-many-return-statements
+    backend = video_backend_key(model_name, protocol_backend)
     lowered = model_name.strip().casefold()
+    if is_wan3_video_model(model_name):
+        return "\n".join(
+            [
+                "- Wan3.0 是 All-in-One 模型，t2v/i2v/r2v 均提交同一个模型名，不派生模式后缀。",
+                "- 时长 duration 为 2–30 秒的整数；分辨率仅支持 "
+                "480P/720P/1080P；画幅支持 "
+                "adaptive/16:9/4:3/1:1/3:4/9:16。",
+                "- 默认生成有声视频；仅在内容不需要声音时设置 generateAudio=false。",
+            ],
+        )
     if backend == "veo":
         lines = [
             "- 时长 duration 仅支持 4/6/8 秒；使用参考图（r2v）或 1080p/4k 分辨率时必须为 8 秒。",
@@ -899,7 +1177,9 @@ def _family_constraint_guidance(
         return "\n".join(
             [
                 f"- prompt 不超过 {MINIMAX_MAX_PROMPT_CHARS} 字符。",
-                "- Hailuo 系列：768P 支持 6 或 10 秒，1080P 仅支持 6 秒；T2V-01/I2V-01 系列仅支持 720P 6 秒。",
+                "- Hailuo 2.3/Fast：768P 支持 6 或 10 秒，1080P 仅支持 "
+                "6 秒；Hailuo-02 还支持 512P 6/10 秒；T2V-01/I2V-01 "
+                "系列仅支持 720P 6 秒。",
                 "- r2v（主体参考）仅 S2V-01 支持，且只接受 1 张角色参考图；其他 MiniMax 模型不支持 r2v。",
             ],
         )
@@ -939,7 +1219,10 @@ def _family_constraint_guidance(
     return ""
 
 
-def video_model_prompt_guidance(model_name: str) -> str:
+def video_model_prompt_guidance(
+    model_name: str,
+    protocol_backend: str = "",
+) -> str:
     """Model-specific prompt-writing rules injected into the R2V director.
 
     The baseline reference-order contract lives in the static prompt; this
@@ -948,6 +1231,19 @@ def video_model_prompt_guidance(model_name: str) -> str:
     """
 
     normalized = model_name.strip() or "未配置"
+    if is_wan3_video_model(normalized):
+        return (
+            f"当前视频生成模型是 `{normalized}`（Wan3.0 All-in-One）。"
+            "video prompt 必须按官方多模态引用协议书写：\n"
+            "- 参考图与参考视频分别编号：按 media 中同类素材的顺序使用“图1、图2”"
+            "与“视频1、视频2”；storyboard 是第一张参考图，即“图1”。\n"
+            "- 引用时同时说明素材中的具体主体及其动作或用途，避免只写编号。\n"
+            + _reference_guidance(normalized, protocol_backend)
+            + "\n"
+            + _family_constraint_guidance(normalized, protocol_backend)
+            + "\n"
+            + _mode_guidance(normalized, protocol_backend)
+        )
     if is_happyhorse_model(normalized):
         return (
             f"当前视频生成模型是 `{normalized}`（HappyHorse 参考生视频），"
@@ -955,24 +1251,93 @@ def video_model_prompt_guidance(model_name: str) -> str:
             "- 用 `[Image N]` 指代第 N 个参考素材，顺序与 Element creation 的"
             " exact reference version 列表一致；storyboard 是第一参考，即 `[Image 1]`。\n"
             "- 每次指代都要说明该参考图中的具体对象，例如“[Image 1] 分镜图中的角色”。\n"
-            + _reference_guidance(normalized)
+            + _reference_guidance(normalized, protocol_backend)
             + "\n"
             "- 视频时长必须是 3–15 秒的整数；分辨率仅支持 720P 或 1080P。\n"
-            + _mode_guidance(normalized)
+            + _mode_guidance(normalized, protocol_backend)
         )
+    family_guidance = _family_constraint_guidance(
+        normalized,
+        protocol_backend,
+    )
     return (
         f"当前视频生成模型是 `{normalized}`。video prompt 用自然语言直接描述"
         "参考素材中的主体、场景与动作；参考素材顺序与 Element creation 的"
         " exact reference version 列表一致，storyboard 是第一参考。\n"
-        + _reference_guidance(normalized)
+        + _reference_guidance(normalized, protocol_backend)
         + "\n"
-        + (
-            _family_constraint_guidance(normalized) + "\n"
-            if _family_constraint_guidance(normalized)
-            else ""
-        )
-        + _mode_guidance(normalized)
+        + (family_guidance + "\n" if family_guidance else "")
+        + _mode_guidance(normalized, protocol_backend)
     )
+
+
+def video_model_delegator_guidance(
+    model_name: str,
+    protocol_backend: str = "",
+) -> str:
+    """Concise exact-mode guard injected into the main Creator agent."""
+
+    normalized = model_name.strip() or "未配置"
+    capability = video_model_capability(normalized, protocol_backend)
+    supported = sorted(capability.supported_modes, key=VIDEO_MODES.index)
+    if not capability.known:
+        return (
+            f"当前视频模型 `{normalized}` 的精确能力未收录。不要创建 "
+            "creation.type=r2v/t2v/i2v；执行层也会在上传素材和创建上游"
+            "任务前拒绝。请先让用户选择已收录的官方模型 ID。"
+        )
+    effective = {
+        mode: effective_video_model_name(
+            normalized,
+            mode,
+            capability.backend,
+        )
+        for mode in supported
+    }
+    mapping = "、".join(f"{mode}→`{effective[mode]}`" for mode in supported)
+    rejected = [mode for mode in VIDEO_MODES if mode not in supported]
+    suffix_note = (
+        "该家族会在提交时派生模式后缀。"
+        if capability.derives_mode_model
+        else "该模型是单模型能力声明，提交时保持原模型 ID。"
+    )
+    rejected_note = (
+        " 不得创建这些视频类型：" + "、".join(rejected) + "。" if rejected else ""
+    )
+    constraints = _family_constraint_guidance(normalized, protocol_backend)
+    guidance = (
+        f"当前精确视频模型 `{normalized}` 仅允许 creation.type="
+        f"{','.join(supported)}（{mapping}）。{suffix_note}{rejected_note}"
+        " r2v 可由工作图在依赖就绪后自动生成；t2v/i2v 并不因此自动"
+        "调度，只有用户目标确实需要且模型支持时才创建对应 Element。"
+    )
+    return f"{guidance}\n{constraints}" if constraints else guidance
+
+
+def video_model_capability_payload(
+    model_name: str,
+    protocol_backend: str = "",
+) -> dict[str, object]:
+    """JSON-ready canonical capability description for the settings UI."""
+
+    capability = video_model_capability(model_name, protocol_backend)
+    modes = sorted(capability.supported_modes, key=VIDEO_MODES.index)
+    return {
+        "provider": capability.backend,
+        "model": capability.model,
+        "known": capability.known,
+        "supportedModes": modes,
+        "effectiveModels": {
+            mode: effective_video_model_name(
+                capability.model,
+                mode,
+                capability.backend,
+            )
+            for mode in modes
+        },
+        "derivesModeModel": capability.derives_mode_model,
+        "documentationUrl": capability.documentation_url,
+    }
 
 
 __all__ = [
@@ -999,6 +1364,7 @@ __all__ = [
     "KLING_V26_DURATIONS",
     "KLING_V26_RESOLUTIONS",
     "MINIMAX_HAILUO_RESOLUTIONS",
+    "MINIMAX_HAILUO_02_RESOLUTIONS",
     "MINIMAX_LEGACY_RESOLUTIONS",
     "MINIMAX_MAX_PROMPT_CHARS",
     "MINIMAX_SUBJECT_REFERENCE_MODEL",
@@ -1011,9 +1377,14 @@ __all__ = [
     "VIDU_MAX_PROMPT_CHARS",
     "VIDU_MODEL_SPECS",
     "VIDU_SIZE_MAP",
+    "VideoModelCapability",
     "VideoReferenceCapability",
     "VIDEO_MODES",
-    "VIDEO_MODE_MATRIX",
+    "WAN_30_MAX_DURATION_SECONDS",
+    "WAN_30_MAX_REFERENCE_VIDEO_SECONDS",
+    "WAN_30_MIN_DURATION_SECONDS",
+    "WAN_30_RATIOS",
+    "WAN_30_RESOLUTIONS",
     "configured_mode_segment",
     "derive_video_model_name",
     "effective_video_model_name",
@@ -1021,10 +1392,15 @@ __all__ = [
     "is_kling_omni_model",
     "is_minimax_video_model",
     "is_vidu_model",
+    "is_wan3_video_model",
     "seedance_video_generation",
     "validate_video_mode",
     "video_backend_key",
+    "video_model_capability",
+    "video_model_capability_payload",
+    "video_model_delegator_guidance",
     "video_model_prompt_guidance",
+    "video_model_supported_modes",
     "video_reference_capability",
     "video_reference_violation",
 ]
