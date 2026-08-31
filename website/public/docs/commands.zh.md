@@ -465,7 +465,7 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 | `/history`          | 📋 消息列表 + Token 统计 |
 | `/message`          | 📄 指定消息详情          |
 | `/compact_str`      | 📝 压缩摘要内容          |
-| `/summarize_status` | 📊 Auto-Memory 任务状态 |
+| `/summarize_status` | 📊 Auto-Memory 任务状态  |
 | `/dump_history`     | 📁 历史导出文件路径      |
 | `/load_history`     | ✅ 历史加载结果          |
 
