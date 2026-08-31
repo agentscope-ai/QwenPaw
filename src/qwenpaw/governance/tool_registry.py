@@ -39,6 +39,10 @@ class ToolRegistry:
         # supplied — as opposed to shell tools like Bash that execute directly
         # when unsandboxed. See ``requires_sandbox`` for why this matters.
         self._sandbox_required: Dict[str, bool] = {}
+        # Control-plane tools whose process isolation was determined when an
+        # existing session was created. These calls must not receive a fresh
+        # sandbox_config, but they still keep their normal governance type.
+        self._sandbox_inherited: Dict[str, bool] = {}
         # python_name → owner id (``"builtin"`` or plugin_id). Used to revoke
         # plugin identities on unload / hot-reload.
         self._owners: Dict[str, str] = {}
@@ -50,6 +54,7 @@ class ToolRegistry:
         target_param: str,
         pattern_param: str = "",
         sandbox_required: bool = False,
+        inherits_sandbox: bool = False,
     ) -> None:
         """Register a tool.
 
@@ -68,6 +73,10 @@ class ToolRegistry:
                 Consumed by the approval_level=OFF path, which must still
                 compile a sandbox for these tools instead of letting them dead
                 -end in a sandbox-violation → approval loop.
+            inherits_sandbox: ``True`` for tools that operate on an existing
+                process and inherit its isolation state (for example
+                ``TerminalInput``). Such tools still undergo shell policy
+                checks but do not launch a new sandbox.
         """
         self._types[tool_name] = tool_type
         self._target_params[tool_name] = target_param or ""
@@ -79,6 +88,10 @@ class ToolRegistry:
             self._sandbox_required[tool_name] = True
         else:
             self._sandbox_required.pop(tool_name, None)
+        if inherits_sandbox:
+            self._sandbox_inherited[tool_name] = True
+        else:
+            self._sandbox_inherited.pop(tool_name, None)
 
     def register_python_name(self, python_name: str, policy_name: str) -> None:
         """Register a python function name → policy tool name mapping."""
@@ -107,6 +120,7 @@ class ToolRegistry:
             self._target_params.pop(pname, None)
             self._pattern_params.pop(pname, None)
             self._sandbox_required.pop(pname, None)
+            self._sandbox_inherited.pop(pname, None)
         return True
 
     def unregister_owner(self, owner: str) -> List[str]:
@@ -150,6 +164,10 @@ class ToolRegistry:
         tools like ``Bash`` that execute directly when no sandbox is given.
         """
         return self._sandbox_required.get(tool_name, False)
+
+    def inherits_sandbox(self, tool_name: str) -> bool:
+        """Whether the tool inherits isolation from an existing process."""
+        return self._sandbox_inherited.get(tool_name, False)
 
     def python_to_policy_name(self, python_name: str) -> str:
         """Map a python function name to a policy tool name.
@@ -231,13 +249,14 @@ class ToolRegistry:
     def get_identity(
         self,
         tool_name: str,
-    ) -> Tuple[str, str, str, bool]:
-        """Return (type, target, pattern, sandbox_required) for comparisons."""
+    ) -> Tuple[str, str, str, bool, bool]:
+        """Return immutable governance identity fields for comparisons."""
         return (
             self.get_type(tool_name),
             self.get_target_param(tool_name),
             self.get_pattern_param(tool_name),
             self.requires_sandbox(tool_name),
+            self.inherits_sandbox(tool_name),
         )
 
 
@@ -289,6 +308,7 @@ def register_tool_governance(
     policy_name: str = "",
     pattern_param: str = "",
     sandbox_required: bool = False,
+    inherits_sandbox: bool = False,
     owner: str = "",
 ) -> str:
     """Register one tool into the governance registry.
@@ -313,6 +333,7 @@ def register_tool_governance(
         target_param or "",
         pattern_param or "",
         bool(sandbox_required),
+        bool(inherits_sandbox),
     )
     existing_type = registry.get_type(pname)
     existing_map = registry.get_mapped_policy_name(python_name)
@@ -342,6 +363,7 @@ def register_tool_governance(
             target_param,
             pattern_param=pattern_param,
             sandbox_required=sandbox_required,
+            inherits_sandbox=inherits_sandbox,
         )
         registry.register_python_name(python_name, pname)
         registry.set_owner(python_name, owner)
@@ -362,13 +384,14 @@ def register_tool_governance(
             target_param,
             pattern_param=pattern_param,
             sandbox_required=sandbox_required,
+            inherits_sandbox=inherits_sandbox,
         )
         return pname
 
     if existing_identity != new_identity:
         raise GovernanceRegistrationConflict(
             f"Governance policy identity conflict for {pname!r}: "
-            f"existing type/target/pattern/sandbox="
+            f"existing type/target/pattern/sandbox/inherits="
             f"{existing_identity!r}, requested {new_identity!r}",
         )
 
@@ -418,6 +441,7 @@ def _register_from_descriptors(registry: ToolRegistry) -> None:
             policy_name=gov.policy_name,
             pattern_param=gov.pattern_param,
             sandbox_required=gov.fail_without_sandbox,
+            inherits_sandbox=gov.inherits_sandbox,
             owner="builtin",
         )
 

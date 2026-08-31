@@ -617,12 +617,15 @@ def _shared_safety_findings(
     auto-deny).  ``system_power`` → ``SAFETY_CHECKS_SYSTEM_POWER``
     (approval only; avoids ``npm run reboot`` hard DENY).
     """
-    if tool_name != "execute_shell_command":
+    if tool_name not in {"execute_shell_command", "write_stdin"}:
         return []
 
+    command_param = (
+        "command" if tool_name == "execute_shell_command" else "chars"
+    )
     findings: list[GuardFinding] = []
     for param_name, param_value in params.items():
-        if param_name != "command" and "command" not in param_name:
+        if param_name != command_param:
             continue
         value_str = str(param_value) if param_value is not None else ""
         if not value_str:
@@ -767,8 +770,13 @@ class RuleBasedToolGuardian(BaseToolGuardian):
         """Scan all string-like parameter values against loaded rules."""
         findings: list[GuardFinding] = []
 
+        rule_tool_name = (
+            "execute_shell_command"
+            if tool_name == "write_stdin"
+            else tool_name
+        )
         applicable_rules = [
-            r for r in self._rules if r.applies_to_tool(tool_name)
+            r for r in self._rules if r.applies_to_tool(rule_tool_name)
         ]
 
         if not applicable_rules:
@@ -781,7 +789,12 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                 continue
 
             for rule in applicable_rules:
-                if not rule.applies_to_param(param_name):
+                rule_param_name = (
+                    "command"
+                    if tool_name == "write_stdin" and param_name == "chars"
+                    else param_name
+                )
+                if not rule.applies_to_param(rule_param_name):
                     continue
                 m, pattern_str = rule.match(value_str)
                 if m:
@@ -801,8 +814,8 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                     metadata = {}
                     if (
                         rule.id == "TOOL_CMD_DANGEROUS_RM"
-                        and tool_name == "execute_shell_command"
-                        and param_name == "command"
+                        and rule_tool_name == "execute_shell_command"
+                        and rule_param_name == "command"
                     ):
                         (
                             has_outside,

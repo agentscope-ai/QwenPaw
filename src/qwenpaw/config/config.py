@@ -2680,8 +2680,8 @@ class ToolsConfig(BaseModel):
 def build_qa_agent_tools_config() -> ToolsConfig:
     """Tools preset for builtin ``default_qa_agent`` (first workspace init).
 
-    Only these are enabled: execute_shell_command, read_file, edit_file,
-    write_file, view_image. All other built-ins are disabled.
+    Only the core shell, patch, file and image tools are enabled. All other
+    built-ins are disabled.
     """
     allow = frozenset(
         {
@@ -2689,6 +2689,8 @@ def build_qa_agent_tools_config() -> ToolsConfig:
             "read_file",
             "write_file",
             "edit_file",
+            "apply_patch",
+            "write_stdin",
             "view_image",
         },
     )
@@ -2717,6 +2719,8 @@ def build_local_agent_tools_config() -> ToolsConfig:
             "read_file",
             "write_file",
             "edit_file",
+            "apply_patch",
+            "write_stdin",
         },
     )
     builtin_tools = {

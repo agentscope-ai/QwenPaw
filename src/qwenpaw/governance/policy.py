@@ -59,6 +59,7 @@ class GovernanceDecision:
     #   "shell_evasion_checks"  — Phase 1 finding (shell_evasion_detector)
     #   "shell_danger_keywords" — Phase 1.5 hardcoded shell-danger regex
     #   "sandbox"               — Phase 3 shell sandbox fallback
+    #   "sandbox_inherited"     — existing process retains its isolation state
     #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
     source: str = "No rule hit"
 
@@ -843,6 +844,18 @@ class GovernancePolicy:
                 fb = self._apply_execution_level_fallback(tc_spec, findings)
                 if fb.action is not GovernanceAction.ALLOW:
                     return fb
+            # Control-plane shell tools such as TerminalInput do not launch a
+            # process. Their isolation state is fixed when the managed session
+            # is created, so attaching a new sandbox_config here is both
+            # ineffective and incompatible with their call signature. Deep
+            # scans and explicit policy rules above still apply.
+            if self._registry.inherits_sandbox(tc_spec.tool_name):
+                return GovernanceDecision(
+                    action=GovernanceAction.ALLOW,
+                    reason="sandbox state inherited from existing session",
+                    findings=findings or None,
+                    source="sandbox_inherited",
+                )
             # No findings (or only INFO/LOW): route to sandbox. When the
             # sandbox is unusable, ResourceGovernor downgrades this to ALLOW.
             return GovernanceDecision(

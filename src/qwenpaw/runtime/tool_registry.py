@@ -31,6 +31,9 @@ class ToolGovernanceSpec:
     * ``fail_without_sandbox`` — governance fail-closed flag: when True,
       the tool is denied unless a ``sandbox_config`` is supplied (e.g.
       model-authored REPL).
+    * ``inherits_sandbox`` — the tool controls a process created elsewhere
+      and therefore inherits that process's isolation state. It remains
+      subject to policy checks but must not receive a new ``sandbox_config``.
     """
 
     tool_type: str = ""
@@ -38,6 +41,7 @@ class ToolGovernanceSpec:
     pattern_param: str = ""
     policy_name: str = ""
     fail_without_sandbox: bool = False
+    inherits_sandbox: bool = False
     default_policy: str = ""  # allow | ask | deny; empty = no auto rule
     policy_reason: str = ""
 
@@ -229,6 +233,7 @@ def tool_descriptor(
     pattern_param: str = "",
     policy_name: str = "",
     fail_without_sandbox: bool = False,
+    inherits_sandbox: bool = False,
     default_policy: str = "",
     policy_reason: str = "",
     # UI (packed into ToolUISpec)
@@ -294,6 +299,7 @@ def tool_descriptor(
                 pattern_param=pattern_param,
                 policy_name=policy_name,
                 fail_without_sandbox=fail_without_sandbox,
+                inherits_sandbox=inherits_sandbox,
                 default_policy=resolved_default_policy,
                 policy_reason=policy_reason,
             ),

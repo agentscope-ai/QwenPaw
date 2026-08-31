@@ -9,6 +9,7 @@ Replaces the GuardedFunctionTool. Each tool call goes through two layers:
 
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
 from typing import Any, Optional
@@ -417,15 +418,49 @@ async def _policy_tool_call(
     request user approval.
     If the user approves, retry without sandbox.
     """
+    from agentscope.message import ToolResultState
+
     sandbox_mode = getattr(self, "_qp_sandbox_mode", False)
     if sandbox_mode:
         sandbox_config = getattr(self, "_qp_sandbox_config", None)
         if sandbox_config is not None:
+            func = getattr(self, "_func", None)
+            if not callable(func):
+                accepts_config = False
+            else:
+                try:
+                    parameters = inspect.signature(func).parameters
+                    accepts_config = "sandbox_config" in parameters or any(
+                        param.kind is inspect.Parameter.VAR_KEYWORD
+                        for param in parameters.values()
+                    )
+                except (TypeError, ValueError):
+                    accepts_config = False
+            if not accepts_config:
+                tool_name = getattr(self, "name", "Unknown")
+                logger.error(
+                    "PolicyGuardedTool: sandbox fallback selected for '%s', "
+                    "but the tool cannot accept sandbox_config; denying.",
+                    tool_name,
+                )
+                return ToolChunk(
+                    is_last=True,
+                    state=ToolResultState.DENIED,
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "Sandbox configuration error: the tool does "
+                                "not support sandboxed execution."
+                            ),
+                        ),
+                    ],
+                    metadata={"error_code": "sandbox_config_unsupported"},
+                )
             kwargs["sandbox_config"] = sandbox_config
 
     # Call the original function
     from agentscope.tool import FunctionTool
-    from agentscope.message import ToolResultState
 
     result = await FunctionTool.__call__(self, *args, **kwargs)
 

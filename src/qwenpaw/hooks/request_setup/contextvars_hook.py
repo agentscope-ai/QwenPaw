@@ -64,6 +64,7 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_recent_max_bytes,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
+            set_current_terminal_manager,
         )
         from ...app.agent_context import (
             set_current_agent_id,
@@ -198,6 +199,13 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_project_dirs(resolved.dirs)
             set_current_project_dir(resolved.primary_path)
             set_current_project_dir_source(resolved.source)
+        service_manager = getattr(ctx.workspace, "_service_manager", None)
+        terminal_manager = (
+            service_manager.services.get("terminal_manager")
+            if service_manager is not None
+            else None
+        )
+        set_current_terminal_manager(terminal_manager)
         return HookResult()
 
 

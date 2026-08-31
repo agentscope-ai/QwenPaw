@@ -132,6 +132,11 @@ class Workspace:
         """Get mail push monitor instance from ServiceManager."""
         return self._service_manager.services.get("mail_monitor")
 
+    @property
+    def terminal_manager(self):
+        """Get the managed terminal service for this workspace."""
+        return self._service_manager.services.get("terminal_manager")
+
     # Non-service state
     @property
     def task_tracker(self) -> TaskTracker:
@@ -374,6 +379,20 @@ class Workspace:
         )
 
         sm = self._service_manager
+
+        from ...terminal import TerminalSessionManager
+
+        sm.register(
+            ServiceDescriptor(
+                name="terminal_manager",
+                service_class=TerminalSessionManager,
+                init_args=lambda ws: {"workspace_dir": ws.workspace_dir},
+                stop_method="shutdown",
+                reusable=False,
+                priority=20,
+                concurrent_init=True,
+            ),
+        )
 
         # Priority 5: LocalWorkspace (tool routing)
         def _init_local_workspace(

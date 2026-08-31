@@ -541,7 +541,7 @@ class ShellEvasionGuardian(BaseToolGuardian):
 
     Detects command substitution, flag obfuscation, backslash-escaped
     whitespace/operators, hidden newlines, comment-quote desync, and
-    quoted-newline attacks.  Only fires for ``execute_shell_command``.
+    quoted-newline attacks in shell execution and interactive terminal input.
     """
 
     def __init__(self) -> None:
@@ -557,10 +557,13 @@ class ShellEvasionGuardian(BaseToolGuardian):
         tool_name: str,
         params: dict[str, Any],
     ) -> list[GuardFinding]:
-        if tool_name != "execute_shell_command":
+        if tool_name not in {"execute_shell_command", "write_stdin"}:
             return []
 
-        command = params.get("command")
+        param_name = (
+            "command" if tool_name == "execute_shell_command" else "chars"
+        )
+        command = params.get(param_name)
         if not isinstance(command, str) or not command.strip():
             return []
 
@@ -587,6 +590,8 @@ class ShellEvasionGuardian(BaseToolGuardian):
                 )
                 continue
             if result is not None:
+                result.tool_name = tool_name
+                result.param_name = param_name
                 findings.append(result)
 
         return findings

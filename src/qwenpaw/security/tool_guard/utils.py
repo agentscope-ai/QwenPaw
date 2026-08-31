@@ -22,6 +22,8 @@ _DEFAULT_GUARDED_TOOLS = frozenset(
         "read_file",
         "write_file",
         "edit_file",
+        "apply_patch",
+        "write_stdin",
         "append_file",
         "send_file_to_user",
         "view_text_file",
