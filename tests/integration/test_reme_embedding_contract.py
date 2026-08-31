@@ -29,6 +29,7 @@ def _embedding_config(model_name: str) -> EmbeddingModelConfig:
 
 
 @pytest.mark.integration
+@pytest.mark.p2
 @pytest.mark.asyncio
 async def test_vector_space_gate_uses_real_reme_without_blocking_loop(
     tmp_path,
