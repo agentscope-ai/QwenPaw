@@ -7,6 +7,10 @@ on:
       - "plugins/apps/qwenpaw-creator/**"
       - ".github/workflows/creator-app-tests.yml"
   pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the checks really run
+    # right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop, "dev/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
@@ -25,7 +29,8 @@ jobs:
     needs: [spam-gate]
     if: |
       always() &&
-      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +60,8 @@ jobs:
     needs: [spam-gate]
     if: |
       always() &&
-      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
