@@ -159,6 +159,35 @@ def _validate_running_config_model(
         )
 
 
+def _validate_changed_model_routing(
+    request: Request | None,
+    agent_config: Any,
+    running_config: AgentRunningConfigUpdate,
+    fields: set[str],
+) -> None:
+    """Validate only model routes changed by the current request."""
+    for field_name in (
+        "active_model",
+        "fallback_models",
+        "subagent_model",
+    ):
+        if field_name not in fields:
+            continue
+        submitted = getattr(running_config, field_name)
+        current = getattr(agent_config, field_name, None)
+        if field_name == "fallback_models":
+            submitted_models = submitted or []
+            current_models = current or []
+            if submitted_models == current_models:
+                continue
+            for model in submitted_models:
+                _validate_running_config_model(request, model)
+            continue
+        if submitted == current or submitted is None:
+            continue
+        _validate_running_config_model(request, submitted)
+
+
 def _apply_model_routing_fields(
     agent_config: Any,
     running_config: AgentRunningConfigUpdate,
@@ -1834,8 +1863,6 @@ async def put_agents_running_config(
     workspace_dir = getattr(workspace, "workspace_dir", ".")
     config_path = Path(workspace_dir) / "agent.json"
     model_fields_set = running_config.model_fields_set & _MODEL_ROUTING_FIELDS
-    if "active_model" in model_fields_set and running_config.active_model:
-        _validate_running_config_model(request, running_config.active_model)
     async with get_path_lock(config_path):
         old_agent_config = None
         embedding_changed = False
@@ -1849,6 +1876,13 @@ async def put_agents_running_config(
             nonlocal old_agent_config, embedding_changed
             nonlocal memory_manager_backend_changed
             old_agent_config = agent_config.model_copy(deep=True)
+            if isinstance(running_config, AgentRunningConfigUpdate):
+                _validate_changed_model_routing(
+                    request,
+                    agent_config,
+                    running_config,
+                    model_fields_set,
+                )
             old_running_config = agent_config.running or AgentsRunningConfig()
             memory_manager_backend_changed = (
                 old_running_config.memory_manager_backend
