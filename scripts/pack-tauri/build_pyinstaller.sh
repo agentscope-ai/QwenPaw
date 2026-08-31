@@ -58,32 +58,19 @@ fi
 echo "== Creating PyInstaller build environment =="
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
 
-CANONICAL_VERSION=$("$NATIVE_HOST_PYTHON" -c 'import sys; print(sys.version)')
-BUILD_VERSION=$("$PYTHON_BIN" -c 'import sys; print(sys.version)')
-CANONICAL_OPENSSL=$("$NATIVE_HOST_PYTHON" -c 'import ssl; print(ssl.OPENSSL_VERSION)')
-BUILD_OPENSSL=$("$PYTHON_BIN" -c 'import ssl; print(ssl.OPENSSL_VERSION)')
-CANONICAL_BASE_PREFIX=$("$NATIVE_HOST_PYTHON" -c 'import os, sys; print(os.path.realpath(sys.base_prefix))')
+BUILD_IDENTITY=$("$PYTHON_BIN" -c \
+    'import ssl, sys; print(f"{sys.version} | {ssl.OPENSSL_VERSION}")')
 BUILD_BASE_PREFIX=$("$PYTHON_BIN" -c 'import os, sys; print(os.path.realpath(sys.base_prefix))')
 EXPECTED_BASE_PREFIX=$("$NATIVE_HOST_PYTHON" -c \
     'import os, sys; print(os.path.realpath(sys.argv[1]))' \
     "$RUNTIME_PYTHON_DIR")
 
-if [ "$CANONICAL_VERSION" != "$BUILD_VERSION" ]; then
-    echo "ERROR: Python version mismatch between bundled runtime and PyInstaller environment"
-    exit 1
-fi
-if [ "$CANONICAL_OPENSSL" != "$BUILD_OPENSSL" ]; then
-    echo "ERROR: OpenSSL mismatch between bundled runtime and PyInstaller environment"
-    exit 1
-fi
-if [ "$CANONICAL_BASE_PREFIX" != "$EXPECTED_BASE_PREFIX" ] || \
-    [ "$BUILD_BASE_PREFIX" != "$EXPECTED_BASE_PREFIX" ]; then
+if [ "$BUILD_BASE_PREFIX" != "$EXPECTED_BASE_PREFIX" ]; then
     echo "ERROR: PyInstaller environment was not created from ${RUNTIME_PYTHON_DIR}"
     exit 1
 fi
 
-echo "Python: ${CANONICAL_VERSION}"
-echo "OpenSSL: ${CANONICAL_OPENSSL}"
+echo "Runtime: ${BUILD_IDENTITY}"
 echo "Canonical interpreter: ${NATIVE_HOST_PYTHON}"
 echo "Build interpreter: ${PYTHON_BIN}"
 echo "Build base prefix: ${BUILD_BASE_PREFIX}"

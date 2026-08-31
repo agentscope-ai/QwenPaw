@@ -77,41 +77,21 @@ Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yello
 & $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
 Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
 
-$canonicalVersion = & $NATIVE_HOST_PYTHON -c "import sys; print(sys.version)"
-Assert-LastExit "Failed to inspect bundled Python version"
-$buildVersion = & $PYTHON_BIN -c "import sys; print(sys.version)"
-Assert-LastExit "Failed to inspect PyInstaller environment version"
-$canonicalOpenSSL = & $NATIVE_HOST_PYTHON -c "import ssl; print(ssl.OPENSSL_VERSION)"
-Assert-LastExit "Failed to inspect bundled Python OpenSSL"
-$buildOpenSSL = & $PYTHON_BIN -c "import ssl; print(ssl.OPENSSL_VERSION)"
-Assert-LastExit "Failed to inspect PyInstaller environment OpenSSL"
-$canonicalBasePrefix = & $NATIVE_HOST_PYTHON -c "import os, sys; print(os.path.realpath(sys.base_prefix))"
-Assert-LastExit "Failed to inspect bundled Python base prefix"
+$buildIdentity = & $PYTHON_BIN -c `
+    "import ssl, sys; print(f'{sys.version} | {ssl.OPENSSL_VERSION}')"
+Assert-LastExit "Failed to inspect PyInstaller environment"
 $buildBasePrefix = & $PYTHON_BIN -c "import os, sys; print(os.path.realpath(sys.base_prefix))"
 Assert-LastExit "Failed to inspect PyInstaller environment base prefix"
 $expectedBasePrefix = (Resolve-Path -LiteralPath $RUNTIME_PYTHON_DIR).Path
 
-if ($canonicalVersion -ne $buildVersion) {
-    throw "Python version mismatch between bundled runtime and PyInstaller environment"
-}
-if ($canonicalOpenSSL -ne $buildOpenSSL) {
-    throw "OpenSSL mismatch between bundled runtime and PyInstaller environment"
-}
-if (
-    -not $canonicalBasePrefix.Equals(
-        $expectedBasePrefix,
-        [System.StringComparison]::OrdinalIgnoreCase
-    ) -or
-    -not $buildBasePrefix.Equals(
-        $expectedBasePrefix,
-        [System.StringComparison]::OrdinalIgnoreCase
-    )
-) {
+if (-not $buildBasePrefix.Equals(
+    $expectedBasePrefix,
+    [System.StringComparison]::OrdinalIgnoreCase
+)) {
     throw "PyInstaller environment was not created from $RUNTIME_PYTHON_DIR"
 }
 
-Write-Host "Python: $canonicalVersion" -ForegroundColor Green
-Write-Host "OpenSSL: $canonicalOpenSSL" -ForegroundColor Green
+Write-Host "Runtime: $buildIdentity" -ForegroundColor Green
 Write-Host "Canonical interpreter: $NATIVE_HOST_PYTHON" -ForegroundColor Green
 Write-Host "Build interpreter: $PYTHON_BIN" -ForegroundColor Green
 Write-Host "Build base prefix: $buildBasePrefix" -ForegroundColor Green
