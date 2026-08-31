@@ -355,8 +355,10 @@ describe("LocalModelManageModal", () => {
       });
 
       // model names must be shown
-      expect(screen.getByText("Llama 2 7B")).toBeInTheDocument();
-      expect(screen.getByText("Mistral 7B")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Llama 2 7B")).toBeInTheDocument();
+        expect(screen.getByText("Mistral 7B")).toBeInTheDocument();
+      });
     });
 
     it("当没有推荐模型时显示提示", async () => {
