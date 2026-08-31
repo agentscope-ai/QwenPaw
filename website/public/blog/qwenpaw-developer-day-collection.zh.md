@@ -1,15 +1,23 @@
 ---
 title: "QwenPaw 开发者日会合集"
-date: 2026-08-18
+date: 2026-08-25
 author: QwenPaw Team
 tags: [开发者日会, 会议纪要, 会议录屏]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "QwenPaw团队召开开发者日会，为每一位 QwenPaw 开发者与爱好者提供一份兼具理论深度与落地价值的完整技术交流档案。"
 ---
 
-最近更新 2026 年 8 月 18 日
+最近更新 2026 年 8 月 25 日
 
 ---
+
+**08-25 QwenPaw 社区交流会：检查点功能详解和演示**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643431393733353733385f323034353035363233375f30
+
+**08-20 QwenPaw 社区交流会：QwenPaw 跨Harness Agent 集成详解**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643431333735393339335f323034353035363233375f30
 
 **08-18 QwenPaw 社区交流会：QwenPaw 新版长期记忆详解**
 

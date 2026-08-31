@@ -5,6 +5,7 @@
     "explore": "Explore",
     "more": "More",
     "releaseNotes": "Release Notes",
+    "discussion": "QwenPaw Discussion",
     "qwenpaw": "Qwenpaw",
     "download": "Download",
     "github": "GitHub",
@@ -30,7 +31,7 @@
     "slogan": "Works for you, grows with you",
     "sub": "v2.1.0 expands agent capabilities across the board:",
     "sub1": "Introducing QwenPaw OS Shell, a unified Files workspace, QwenPaw Creator, Codex/Qoder integration, Browser/Computer Use, checkpoint recovery, and long-task continuation.",
-    "releaseNote": "QwenPaw v2.0.0 is released",
+    "releaseNote": "QwenPaw v2.1.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
     "quickTry": "Try Now"

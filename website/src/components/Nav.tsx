@@ -11,6 +11,7 @@ import {
   NoteIcon,
   AgentScopePlatformIcon,
   LuckyBagIcon,
+  SparkChatAnywhereLineIcon,
 } from "./Icon";
 import {
   COMMUNITY_BENEFITS_URL,
@@ -18,6 +19,7 @@ import {
 } from "./NavCommunityBenefits";
 
 const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
+const COMMUNITY_URL = "https://platform.agentscope.io/community";
 
 const AGENTSCOPE_LOGO_SIZE = 22;
 
@@ -223,6 +225,17 @@ export function Nav() {
                     <NoteIcon />
                     <span>{t("nav.releaseNotes")}</span>
                   </Link>
+                  <a
+                    href={COMMUNITY_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={exploreMenuItemClass}
+                    title={t("nav.discussion")}
+                    onClick={() => setExploreOpen(false)}
+                  >
+                    <SparkChatAnywhereLineIcon size={18} />
+                    <span>{t("nav.discussion")}</span>
+                  </a>
                 </div>
               </div>
             )}
@@ -355,6 +368,16 @@ export function Nav() {
           <NoteIcon />
           {t("nav.releaseNotes")}
         </Link>
+        <a
+          href={COMMUNITY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+        >
+          <SparkChatAnywhereLineIcon size={18} />
+          {t("nav.discussion")}
+        </a>
         <Link
           to="/downloads"
           className={navLinkOrangeClass}
