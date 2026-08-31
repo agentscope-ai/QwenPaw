@@ -1,5 +1,5 @@
 import { Button, Checkbox, Tag } from "antd";
-import { CheckCheck, Repeat2, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -69,11 +69,6 @@ export default function NavigationSettings() {
     itemId.startsWith("core.")
       ? focusItemIds.includes(itemId)
       : !hiddenPluginItemIds.includes(itemId);
-  const configurableItemIds = configurableGroups.flatMap((group) =>
-    group.entries.map((entry) => entry.key),
-  );
-  const allItemsSelected = configurableItemIds.every(isItemVisible);
-
   return (
     <div className={styles.preferencePage}>
       <div className={styles.pageTitle}>
@@ -97,25 +92,9 @@ export default function NavigationSettings() {
               )}
             </p>
           </div>
-          <div className={styles.bulkActions}>
-            <Button
-              icon={<CheckCheck size={15} />}
-              disabled={configurableItemIds.length === 0 || allItemsSelected}
-              onClick={() => setSidebarItemsVisible(configurableItemIds, true)}
-            >
-              {t("settingsCenter.selectAll", "Select all")}
-            </Button>
-            <Button
-              icon={<Repeat2 size={15} />}
-              disabled={configurableItemIds.length === 0}
-              onClick={() => invertSidebarItems(configurableItemIds)}
-            >
-              {t("settingsCenter.invertSelection", "Invert")}
-            </Button>
-            <Button icon={<RotateCcw size={15} />} onClick={resetFocusItemIds}>
-              {t("common.reset")}
-            </Button>
-          </div>
+          <Button icon={<RotateCcw size={15} />} onClick={resetFocusItemIds}>
+            {t("common.reset")}
+          </Button>
         </div>
 
         <div className={styles.fixedItem}>
@@ -124,25 +103,48 @@ export default function NavigationSettings() {
           </Checkbox>
           <Tag>{t("settingsCenter.alwaysVisible", "Always visible")}</Tag>
         </div>
-        {configurableGroups.map((group) => (
-          <section key={group.key} className={styles.itemSection}>
-            <h4>{group.label}</h4>
-            <div className={styles.itemGrid}>
-              {group.entries.map((entry) => (
-                <label key={entry.key} className={styles.itemOption}>
-                  <Checkbox
-                    checked={isItemVisible(entry.key)}
-                    onChange={(event) =>
-                      setSidebarItemVisible(entry.key, event.target.checked)
-                    }
-                  />
-                  <span className={styles.itemIcon}>{entry.icon}</span>
-                  <span>{entry.label}</span>
-                </label>
-              ))}
-            </div>
-          </section>
-        ))}
+        {configurableGroups.map((group) => {
+          const groupItemIds = group.entries.map((entry) => entry.key);
+          const allGroupItemsSelected = groupItemIds.every(isItemVisible);
+          return (
+            <section key={group.key} className={styles.itemSection}>
+              <div className={styles.itemSectionHeading}>
+                <h4>{group.label}</h4>
+                <div className={styles.sectionActions}>
+                  <Button
+                    type="text"
+                    size="small"
+                    disabled={allGroupItemsSelected}
+                    onClick={() => setSidebarItemsVisible(groupItemIds, true)}
+                  >
+                    {t("settingsCenter.selectAll", "Select all")}
+                  </Button>
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={() => invertSidebarItems(groupItemIds)}
+                  >
+                    {t("settingsCenter.invertSelection", "Invert")}
+                  </Button>
+                </div>
+              </div>
+              <div className={styles.itemGrid}>
+                {group.entries.map((entry) => (
+                  <label key={entry.key} className={styles.itemOption}>
+                    <Checkbox
+                      checked={isItemVisible(entry.key)}
+                      onChange={(event) =>
+                        setSidebarItemVisible(entry.key, event.target.checked)
+                      }
+                    />
+                    <span className={styles.itemIcon}>{entry.icon}</span>
+                    <span>{entry.label}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </section>
     </div>
   );

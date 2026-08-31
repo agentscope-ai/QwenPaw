@@ -323,14 +323,6 @@
   }
 }
 
-.bulkActions {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .fixedItem {
   display: flex;
   align-items: center;
@@ -354,7 +346,7 @@
   }
 
   h4 {
-    margin: 0 4px 10px;
+    margin: 0;
     color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
     font-size: 12px;
     font-weight: 600;
@@ -363,6 +355,22 @@
   .itemGrid {
     padding: 0;
   }
+}
+
+.itemSectionHeading {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 4px 10px;
+}
+
+.sectionActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
 }
 
 .itemOption {
@@ -431,11 +439,6 @@
 
   .cardHeading {
     flex-direction: column;
-  }
-
-  .bulkActions {
-    width: 100%;
-    justify-content: flex-start;
   }
 
   .itemGrid {

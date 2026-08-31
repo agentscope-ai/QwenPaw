@@ -261,7 +261,7 @@ describe("SettingsCenter", () => {
     );
   });
 
-  it("selects all and inverts mixed built-in and plugin shortcuts", async () => {
+  it("controls built-in and plugin shortcuts independently by section", async () => {
     registry.routes = [
       { id: "core.security", path: "/security", Component: () => null },
       {
@@ -296,12 +296,25 @@ describe("SettingsCenter", () => {
     expect(security).not.toBeChecked();
     expect(plugin).toBeChecked();
 
-    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    const globalSection = screen
+      .getByRole("heading", { name: "Global settings" })
+      .closest("section");
+    const pluginSection = screen
+      .getByRole("heading", { name: "Plugin shortcuts" })
+      .closest("section");
+    expect(globalSection).not.toBeNull();
+    expect(pluginSection).not.toBeNull();
+
+    await userEvent.click(
+      within(globalSection!).getByRole("button", { name: "Select all" }),
+    );
     expect(security).toBeChecked();
     expect(plugin).toBeChecked();
 
-    await userEvent.click(screen.getByRole("button", { name: "Invert" }));
-    expect(security).not.toBeChecked();
+    await userEvent.click(
+      within(pluginSection!).getByRole("button", { name: "Invert" }),
+    );
+    expect(security).toBeChecked();
     expect(plugin).not.toBeChecked();
   });
 });
