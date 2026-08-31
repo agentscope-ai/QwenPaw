@@ -287,7 +287,11 @@ function DefaultHostResponseCard({
       {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
         <ResponseArtifactList messages={messages} />
       ) : null}
-      <ResponseActions data={data} messageId={data.id} isLast={isLast} />
+      <ResponseActions
+        {...({ data, messageId: data.id, isLast } as React.ComponentProps<
+          typeof ResponseActions
+        >)}
+      />
     </>
   );
 }
