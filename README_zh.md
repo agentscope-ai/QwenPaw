@@ -386,7 +386,7 @@ QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练�
 
 ## 安全特性
 
-QwenPaw 内置四层核心安全防护：
+QwenPaw 内置五层核心安全防护：
 
 - **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock，Windows 使用 AppContainer。Shell 命令在受限文件系统视图中运行。
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。

@@ -5,25 +5,29 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Drawer, Empty, Input, Spin, Tooltip } from "antd";
+import { Drawer, Empty, Input, Modal, Spin, Tooltip } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
-import { IconButton } from "@agentscope-ai/design";
-import {
-  SparkOperateRightLine,
-  SparkLockFill,
-  SparkLockLine,
-  SparkDownArrowLine,
-} from "@agentscope-ai/icons";
+import { FolderPlus, PanelRightClose, Pin, PinOff } from "lucide-react";
 import {
   useChatAnywhereSessionsState,
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
-import { useCollapsedSessionGroups } from "../../../../hooks/useCollapsedSessionGroups";
+import { useCollapsedChatGroups } from "../../../../hooks/useCollapsedChatGroups";
+import { useRevealActiveChatGroup } from "../../../../hooks/useRevealActiveChatGroup";
+import { useChatGroups } from "../../../../hooks/useChatGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
+import { formatSessionTime, pickSessionDisplayTime } from "./sessionTime";
+import SessionGroupHeader from "../../../../components/SessionGroupHeader";
+import SessionDateHeader from "../../../../components/SessionDateHeader";
+import {
+  DraggableSession,
+  SessionDropZone,
+  SessionGroupDndProvider,
+} from "../../../../components/SessionGroupDnd";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
@@ -37,34 +41,46 @@ import {
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
 import { useAgentStore } from "../../../../stores/agentStore";
+import { findSessionRowIndex } from "../../../../utils/sessionGrouping";
 import {
-  type DateGroup,
-  groupSessions,
-  findSessionRowIndex,
-} from "../../../../utils/sessionGrouping";
+  groupChats,
+  groupChatsByDate,
+  findStickyGroupHeaderIndex,
+  localizeSystemGroups,
+  resolveChatGroupId,
+  type ChatDateGroup,
+} from "../../../../utils/chatGroups";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { useSessionAttention } from "../../../../hooks/useSessionAttention";
 import styles from "./index.module.less";
-import type { ChatStatus } from "../../../../api/types/chat";
+import type { ChatGroup, ChatStatus } from "../../../../api/types/chat";
 
 /** Fixed height of each session item row */
 const SESSION_ROW_HEIGHT = 77;
 /** Fixed height of each group header row */
-const GROUP_HEADER_HEIGHT = 36;
+const GROUP_HEADER_HEIGHT = 42;
+const DATE_HEADER_HEIGHT = 24;
 
 /** A flattened row: either a group header or a session item */
 type FlatRow =
   | {
       kind: "groupHeader";
-      groupKey: DateGroup;
-      label: string;
+      group: ChatGroup;
       count: number;
       collapsed: boolean;
     }
-  | { kind: "session"; session: ExtendedChatSession };
+  | {
+      kind: "dateHeader";
+      groupId: string;
+      dateGroup: ChatDateGroup;
+      label: string;
+    }
+  | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   switchingSessionId: string | null;
   editingSessionId: string | null;
@@ -73,12 +89,53 @@ interface VirtualRowData {
   handleSessionClick: (sessionId: string) => void;
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
-  handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string, pinned: boolean) => void;
+  handleMove: (sessionId: string, groupId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  toggleGroup: (key: DateGroup) => void;
+  groups: ChatGroup[];
+  toggleGroup: (key: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  pinGroup: (groupId: string, pinned: boolean) => void;
+  deleteGroup: (groupId: string) => void;
+  moveGroup: (groupId: string, offset: number) => void;
+}
+
+type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
+
+function GroupHeaderContent({
+  row,
+  data,
+}: {
+  row: GroupHeaderRow;
+  data: VirtualRowData;
+}) {
+  const movableGroups = data.groups.filter(
+    (group) =>
+      group.kind !== "cron" &&
+      group.kind !== "subagents" &&
+      group.pinned === row.group.pinned,
+  );
+  const groupIndex = movableGroups.findIndex(
+    (group) => group.id === row.group.id,
+  );
+  return (
+    <SessionGroupHeader
+      group={row.group}
+      count={row.count}
+      collapsed={row.collapsed}
+      canMoveUp={groupIndex > 0}
+      canMoveDown={groupIndex >= 0 && groupIndex < movableGroups.length - 1}
+      onToggle={() => data.toggleGroup(row.group.id)}
+      onRename={(name) => data.renameGroup(row.group.id, name)}
+      onPin={(pinned) => data.pinGroup(row.group.id, pinned)}
+      onDelete={() => data.deleteGroup(row.group.id)}
+      onMoveUp={() => data.moveGroup(row.group.id, -1)}
+      onMoveDown={() => data.moveGroup(row.group.id, 1)}
+    />
+  );
 }
 
 /** Virtual list row renderer — handles both group headers and session items */
@@ -92,24 +149,25 @@ const VirtualRow = React.memo(function VirtualRow({
 
   if (row.kind === "groupHeader") {
     return (
-      <div style={style}>
-        <button
-          className={styles.groupLabel}
-          onClick={() => data.toggleGroup(row.groupKey)}
-        >
-          <span>
-            {row.label} ({row.count})
-          </span>
-          <span
-            className={styles.groupChevron}
-            style={{
-              transform: row.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
-          >
-            <SparkDownArrowLine size={10} />
-          </span>
-        </button>
-      </div>
+      <SessionDropZone
+        id={`group:${row.group.id}`}
+        groupId={row.group.id}
+        style={style}
+      >
+        <GroupHeaderContent row={row} data={data} />
+      </SessionDropZone>
+    );
+  }
+
+  if (row.kind === "dateHeader") {
+    return (
+      <SessionDropZone
+        id={`date:${row.groupId}:${row.dateGroup}`}
+        groupId={row.groupId}
+        style={style}
+      >
+        <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
+      </SessionDropZone>
     );
   }
 
@@ -121,38 +179,52 @@ const VirtualRow = React.memo(function VirtualRow({
   const isEditing = data.editingSessionId === session.id;
 
   return (
-    <div style={style}>
-      <SessionItem
-        variant="drawer"
+    <SessionDropZone
+      id={`session-target:${session.id}`}
+      groupId={row.groupId}
+      style={style}
+    >
+      <DraggableSession
         sessionId={session.id!}
-        name={session.name || "New Chat"}
-        time={formatCreatedAtCached(
-          session.updatedAt ?? session.createdAt ?? null,
-        )}
-        channelKey={channelKey || undefined}
-        channelLabel={channelLabel}
-        chatStatus={session.status}
-        generating={session.generating}
-        pinned={session.pinned}
-        archived={session.archived}
-        active={
-          session.id === data.currentSessionId ||
-          session.id === data.switchingSessionId ||
-          (!!data.currentSessionId && session.realId === data.currentSessionId)
-        }
-        disabled={false}
-        editing={isEditing}
-        editValue={isEditing ? data.editValue : undefined}
-        onClick={data.handleSessionClick}
-        onEdit={data.handleEditStart}
-        onDelete={data.handleDelete}
-        onPin={data.handlePinToggle}
-        onArchive={data.handleArchiveToggle}
-        onEditChange={data.handleEditChange}
-        onEditSubmit={data.handleEditSubmit}
-        onEditCancel={data.handleEditCancel}
-      />
-    </div>
+        groupId={row.groupId}
+        label={session.name || "New Chat"}
+      >
+        <SessionItem
+          variant="drawer"
+          sessionId={session.id!}
+          name={session.name || "New Chat"}
+          time={formatCreatedAtCached(pickSessionDisplayTime(session))}
+          channelKey={channelKey || undefined}
+          channelLabel={channelLabel}
+          chatStatus={session.status}
+          generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
+          archived={session.archived}
+          pinned={session.pinned}
+          source={session.source}
+          groupId={row.groupId}
+          groups={data.groups}
+          active={
+            session.id === data.currentSessionId ||
+            session.id === data.switchingSessionId ||
+            (!!data.currentSessionId &&
+              session.realId === data.currentSessionId)
+          }
+          disabled={false}
+          editing={isEditing}
+          editValue={isEditing ? data.editValue : undefined}
+          onClick={data.handleSessionClick}
+          onEdit={data.handleEditStart}
+          onDelete={data.handleDelete}
+          onArchive={data.handleArchiveToggle}
+          onPin={data.handlePinToggle}
+          onMove={data.handleMove}
+          onEditChange={data.handleEditChange}
+          onEditSubmit={data.handleEditSubmit}
+          onEditCancel={data.handleEditCancel}
+        />
+      </DraggableSession>
+    </SessionDropZone>
   );
 });
 
@@ -164,12 +236,17 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
   pinned?: boolean;
   archivedAt?: string | null;
   archived?: boolean;
+  source?: "chat" | "cron" | "subagent";
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 interface ChatSessionDrawerProps {
@@ -188,20 +265,9 @@ interface ChatSessionDrawerProps {
   embedded?: boolean;
 }
 
-/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
-const formatCreatedAt = (raw: string | null | undefined): string => {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
-    date.getSeconds(),
-  )}`;
-};
+/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss (sessionTime module) */
 
-/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+/** Simple cache for formatSessionTime to avoid re-parsing the same timestamp */
 const formatCache = new Map<string, string>();
 const FORMAT_CACHE_MAX = 200;
 
@@ -209,7 +275,7 @@ const formatCreatedAtCached = (raw: string | null | undefined): string => {
   if (!raw) return "";
   const cached = formatCache.get(raw);
   if (cached !== undefined) return cached;
-  const result = formatCreatedAt(raw);
+  const result = formatSessionTime(raw);
   if (formatCache.size >= FORMAT_CACHE_MAX) {
     // Evict oldest entry
     const firstKey = formatCache.keys().next().value;
@@ -283,9 +349,28 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Cache last polled sessions to skip no-op state updates */
   const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
 
-  /** Collapsed date groups — persisted so remounts keep the user's state */
-  const { collapsedGroups, toggleGroup, expandGroupForSession } =
-    useCollapsedSessionGroups();
+  const { collapsedGroups, toggleGroup, expandGroup } =
+    useCollapsedChatGroups();
+  const {
+    groups: chatGroups,
+    createGroup,
+    renameGroup,
+    pinGroup,
+    deleteGroup,
+    reorderGroups,
+  } = useChatGroups(props.open);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [isSessionDragging, setIsSessionDragging] = useState(false);
+  const visibleChatGroups = useMemo(
+    () =>
+      localizeSystemGroups(chatGroups, {
+        default: t("chat.groups.uncategorized", "Uncategorized"),
+        cron: t("chat.groups.cron", "Scheduled tasks"),
+        subagents: t("chat.groups.subagents", "Subagents"),
+      }),
+    [chatGroups, t],
+  );
 
   /** Immediate search input value (bound to Input, updates on every keystroke) */
   const [searchInput, setSearchInput] = useState("");
@@ -298,7 +383,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending.
+  /** Sessions sorted by updatedAt/createdAt descending.
    *  Filter out local temporary sessions (created by clicking "New Chat" but
    *  not yet persisted to backend). These sessions have local timestamp IDs
    *  (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
@@ -320,17 +405,20 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         const extA = a as ExtendedChatSession;
         const extB = b as ExtendedChatSession;
 
-        if (extA.pinned && !extB.pinned) return -1;
-        if (!extA.pinned && extB.pinned) return 1;
-
-        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        const aTime = pickSessionDisplayTime(extA) ?? "";
+        const bTime = pickSessionDisplayTime(extB) ?? "";
         if (!aTime && !bTime) return 0;
         if (!aTime) return 1;
         if (!bTime) return -1;
         return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
   }, [resolvedSessions]);
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions as ExtendedChatSession[],
+    currentSessionId,
+  );
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -545,31 +633,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditValue("");
   }, []);
 
-  /** Toggle pin status for a session */
-  const handlePinToggle = useCallback(
-    async (sessionId: string) => {
-      const owner = sessionApi.getActiveOwner();
-      const session = sessions.find((s) => s.id === sessionId) as
-        | ExtendedChatSession
-        | undefined;
-      const backendId = session ? getBackendId(session) : null;
-
-      if (backendId && session) {
-        try {
-          const newPinnedState = !session.pinned;
-          await chatApi.updateChat(backendId, {
-            pinned: newPinnedState,
-          });
-          if (!sessionApi.isActiveOwner(owner)) return;
-          await refreshSessions();
-        } catch (error) {
-          console.error("Failed to toggle pin status:", error);
-        }
-      }
-    },
-    [sessions, refreshSessions],
-  );
-
   /** Toggle archive status for a session */
   const handleArchiveToggle = useCallback(
     async (sessionId: string) => {
@@ -613,6 +676,117 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sessions, refreshSessions, location.pathname, message, t],
   );
 
+  const handlePinToggle = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      const owner = sessionApi.getActiveOwner();
+      const session = sessions.find((item) => item.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      try {
+        await chatApi.updateChat(backendId, { pinned });
+        if (!sessionApi.isActiveOwner(owner)) return;
+        await refreshSessions();
+      } catch (error) {
+        console.error("Failed to update conversation pin:", error);
+        message.error(
+          t("chat.contextMenu.pinFailed", "Could not update pinned state"),
+        );
+      }
+    },
+    [message, refreshSessions, sessions, t],
+  );
+
+  const handleMove = useCallback(
+    async (sessionId: string, groupId: string, expandTarget = true) => {
+      const session = sessions.find((item) => item.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      try {
+        await chatApi.updateChat(backendId, { group_id: groupId });
+        await refreshSessions();
+        if (expandTarget) expandGroup(groupId);
+        const target = visibleChatGroups.find((group) => group.id === groupId);
+        message.success(
+          t("chat.groups.moveSuccess", "Moved to {{name}}", {
+            name: target?.name ?? "",
+          }),
+        );
+      } catch (error) {
+        console.error("Failed to move conversation:", error);
+        message.error(
+          t("chat.groups.moveFailed", "Could not move the conversation"),
+        );
+      }
+    },
+    [expandGroup, message, refreshSessions, sessions, t, visibleChatGroups],
+  );
+
+  const handleDragMove = useCallback(
+    (sessionId: string, groupId: string) => {
+      void handleMove(sessionId, groupId, false);
+    },
+    [handleMove],
+  );
+
+  const handleCreateGroup = useCallback(async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    await createGroup(name);
+    setCreatingGroup(false);
+    setNewGroupName("");
+  }, [createGroup, newGroupName]);
+
+  const handleDeleteGroup = useCallback(
+    (groupId: string) => {
+      Modal.confirm({
+        title: t("chat.groups.deleteTitle", "Delete this group?"),
+        content: t(
+          "chat.groups.deleteHint",
+          "Conversations will return to their built-in group.",
+        ),
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          await deleteGroup(groupId);
+          await refreshSessions();
+        },
+      });
+    },
+    [deleteGroup, refreshSessions, t],
+  );
+
+  const handleMoveGroup = useCallback(
+    async (groupId: string, offset: number) => {
+      const source = chatGroups.find((group) => group.id === groupId);
+      if (!source || source.kind === "cron" || source.kind === "subagents") {
+        return;
+      }
+      const movable = chatGroups.filter(
+        (group) =>
+          group.kind !== "cron" &&
+          group.kind !== "subagents" &&
+          group.pinned === source.pinned,
+      );
+      const index = movable.findIndex((group) => group.id === groupId);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= movable.length) return;
+      const next = [...chatGroups];
+      const sourceIndex = next.findIndex((group) => group.id === groupId);
+      const targetIndex = next.findIndex(
+        (group) => group.id === movable[target].id,
+      );
+      [next[sourceIndex], next[targetIndex]] = [
+        next[targetIndex],
+        next[sourceIndex],
+      ];
+      await reorderGroups(next.map((group) => group.id));
+    },
+    [chatGroups, reorderGroups],
+  );
+
   /** Filter sessions by search query */
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -624,26 +798,22 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     );
   }, [sortedSessions, searchQuery]);
 
-  /** Group sessions by date (null when searching — show flat list) */
   const groups = useMemo(
     () =>
       searchQuery.trim()
         ? null
-        : groupSessions(sortedSessions as ExtendedChatSession[], t),
-    [sortedSessions, searchQuery, t],
+        : groupChats(
+            sortedSessions as ExtendedChatSession[],
+            visibleChatGroups,
+          ),
+    [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  // Keep the active conversation reachable: expand the (possibly
-  // collapsed) date group that contains it whenever it changes.
-  useEffect(() => {
-    if (!currentSessionId) return;
-    const active = sortedSessions.find(
-      (s) =>
-        s.id === currentSessionId ||
-        (s as ExtendedChatSession).realId === currentSessionId,
-    );
-    if (active) expandGroupForSession(active as ExtendedChatSession);
-  }, [currentSessionId, sortedSessions, expandGroupForSession]);
+  useRevealActiveChatGroup(
+    currentSessionId,
+    sortedSessions as ExtendedChatSession[],
+    expandGroup,
+  );
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -651,27 +821,47 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       return filteredSessions.map((s) => ({
         kind: "session",
         session: s as ExtendedChatSession,
+        groupId: resolveChatGroupId(s as ExtendedChatSession),
       }));
     }
     if (!groups) return [];
     const rows: FlatRow[] = [];
     for (const group of groups) {
-      const collapsed = collapsedGroups.has(group.key);
+      const collapsed =
+        isSessionDragging || collapsedGroups.has(group.group.id);
       rows.push({
         kind: "groupHeader",
-        groupKey: group.key,
-        label: group.label,
+        group: group.group,
         count: group.sessions.length,
         collapsed,
       });
       if (!collapsed) {
-        for (const session of group.sessions) {
-          rows.push({ kind: "session", session });
+        for (const dateGroup of groupChatsByDate(group.sessions)) {
+          rows.push({
+            kind: "dateHeader",
+            groupId: group.group.id,
+            dateGroup: dateGroup.key,
+            label: t(`chat.group.${dateGroup.key}`),
+          });
+          for (const session of dateGroup.sessions) {
+            rows.push({
+              kind: "session",
+              session,
+              groupId: group.group.id,
+            });
+          }
         }
       }
     }
     return rows;
-  }, [groups, collapsedGroups, searchQuery, filteredSessions]);
+  }, [
+    groups,
+    collapsedGroups,
+    isSessionDragging,
+    searchQuery,
+    filteredSessions,
+    t,
+  ]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -680,6 +870,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (!row) return SESSION_ROW_HEIGHT;
       return row.kind === "groupHeader"
         ? GROUP_HEADER_HEIGHT
+        : row.kind === "dateHeader"
+        ? DATE_HEADER_HEIGHT
         : SESSION_ROW_HEIGHT;
     },
     [flatRows],
@@ -687,8 +879,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Height of the virtual list container, measured via ResizeObserver */
   const [listHeight, setListHeight] = useState(0);
+  const [visibleStartIndex, setVisibleStartIndex] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
+
+  useEffect(() => {
+    if (isSessionDragging) listRef.current?.scrollTo(0);
+  }, [isSessionDragging]);
 
   /** Reset virtual list cache when flatRows change (group collapse/expand) */
   useEffect(() => {
@@ -731,6 +928,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -739,15 +937,22 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleSessionClick,
       handleEditStart,
       handleDelete,
-      handlePinToggle,
       handleArchiveToggle,
+      handlePinToggle,
+      handleMove,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      groups: visibleChatGroups,
+      renameGroup,
+      pinGroup,
+      deleteGroup: handleDeleteGroup,
+      moveGroup: handleMoveGroup,
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -756,14 +961,26 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleSessionClick,
       handleEditStart,
       handleDelete,
-      handlePinToggle,
       handleArchiveToggle,
+      handlePinToggle,
+      handleMove,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      visibleChatGroups,
+      renameGroup,
+      pinGroup,
+      handleDeleteGroup,
+      handleMoveGroup,
     ],
   );
+
+  const stickyGroupRow = useMemo<GroupHeaderRow | null>(() => {
+    if (searchQuery.trim() || isSessionDragging) return null;
+    const index = findStickyGroupHeaderIndex(flatRows, visibleStartIndex);
+    return index === null ? null : (flatRows[index] as GroupHeaderRow);
+  }, [flatRows, isSessionDragging, searchQuery, visibleStartIndex]);
 
   const panelContent = (
     <>
@@ -782,19 +999,30 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
               }
               mouseEnterDelay={0.5}
             >
-              <IconButton
-                bordered={false}
-                icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
-                className={props.pinned ? styles.pinActive : undefined}
+              <button
+                type="button"
+                className={`${styles.headerIconButton} ${
+                  props.pinned ? styles.pinActive : ""
+                }`}
+                aria-label={
+                  props.pinned
+                    ? t("chat.unpinDrawer", "Unpin")
+                    : t("chat.pinDrawer", "Pin")
+                }
                 onClick={() => props.onPinChange?.(!props.pinned)}
-              />
+              >
+                {props.pinned ? <PinOff size={16} /> : <Pin size={16} />}
+              </button>
             </Tooltip>
           )}
-          <IconButton
-            bordered={false}
-            icon={<SparkOperateRightLine />}
+          <button
+            type="button"
+            className={styles.headerIconButton}
+            aria-label={t("common.close", "Close")}
             onClick={props.onClose}
-          />
+          >
+            <PanelRightClose size={16} />
+          </button>
         </div>
       </div>
 
@@ -815,6 +1043,29 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           onChange={(e) => setSearchInput(e.target.value)}
           className={styles.searchInput}
         />
+        {creatingGroup ? (
+          <Input
+            autoFocus
+            size="small"
+            className={styles.groupInput}
+            placeholder={t("chat.groups.namePlaceholder", "Group name")}
+            value={newGroupName}
+            onChange={(event) => setNewGroupName(event.target.value)}
+            onPressEnter={() => void handleCreateGroup()}
+            onBlur={() => {
+              if (!newGroupName.trim()) setCreatingGroup(false);
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            className={styles.createGroupButton}
+            onClick={() => setCreatingGroup(true)}
+          >
+            <FolderPlus size={14} />
+            <span>{t("chat.groups.create", "New group")}</span>
+          </button>
+        )}
       </div>
 
       {/* Session list */}
@@ -840,18 +1091,34 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
             {t("chat.sessionPanel.noResults", "No results")}
           </div>
         ) : (
-          <VariableSizeList
-            ref={listRef}
-            height={listHeight}
-            width="100%"
-            itemCount={flatRows.length}
-            itemSize={getRowHeight}
-            itemData={virtualListData}
-            className={styles.list}
-            overscanCount={10}
+          <SessionGroupDndProvider
+            onMove={handleDragMove}
+            onDragStateChange={setIsSessionDragging}
           >
-            {VirtualRow}
-          </VariableSizeList>
+            {stickyGroupRow && (
+              <div className={styles.stickyGroupHeader}>
+                <GroupHeaderContent
+                  row={stickyGroupRow}
+                  data={virtualListData}
+                />
+              </div>
+            )}
+            <VariableSizeList
+              ref={listRef}
+              height={listHeight}
+              width="100%"
+              itemCount={flatRows.length}
+              itemSize={getRowHeight}
+              itemData={virtualListData}
+              className={styles.list}
+              overscanCount={10}
+              onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                setVisibleStartIndex(nextIndex)
+              }
+            >
+              {VirtualRow}
+            </VariableSizeList>
+          </SessionGroupDndProvider>
         )}
         <div className={styles.bottomGradient} />
       </div>

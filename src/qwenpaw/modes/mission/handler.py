@@ -37,6 +37,21 @@ _MIN_MAX_ITERATIONS = 1
 _MAX_MAX_ITERATIONS = 100
 
 
+def _snapshot_project_dirs() -> list[dict[str, Any]]:
+    """Snapshot the effective project-dir list for the Mission pin.
+
+    Reads the per-turn contextvars populated by PRE_DISPATCH so the
+    frozen list matches what the tools see. Falls back to ``[]`` when
+    nothing is bound (workspace-fallback turns).
+    """
+    from ...config.context import get_current_project_dirs
+
+    dirs = get_current_project_dirs()
+    if not dirs:
+        return []
+    return [{"path": str(entry.path), "label": entry.label} for entry in dirs]
+
+
 def parse_mission_args(
     raw_args: str,
     default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
@@ -243,6 +258,10 @@ async def start_mission(
         "repo_root": git_ctx.get("repo_root", ""),
         "workspace_dir": str(agent_workspace_dir),
         "source_project_dir": str(project_dir),
+        # Snapshot of the full bound list at Mission start: the pin in
+        # the loop config must survive a mid-run session switch, so the
+        # whole list — not just the primary — is frozen here.
+        "source_project_dirs": _snapshot_project_dirs(),
         "mission_state_dir": str(loop_dir.relative_to(project_dir)),
         "mission_run_dir": str(project_dir),
         "git_exclude_ready": git_exclude_ready,

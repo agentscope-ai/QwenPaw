@@ -1,10 +1,17 @@
 import { Form } from "@agentscope-ai/design";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
+import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
 import {
   isValidDreamCronShape,
@@ -42,13 +49,9 @@ const memoryStatus = {
     auto_memory: {
       enabled: true,
       interval: 5,
-      active_sessions: 1,
-      sessions_with_pending: 1,
-      pending_turns: 3,
     },
+    tasks: [],
     recent: {
-      last_completed_at: "2026-08-10T10:18:00",
-      last_failed_at: null,
       last_error: null,
     },
     reindexing: false,
@@ -56,13 +59,15 @@ const memoryStatus = {
 };
 
 const unknownRuntime = { type: "unknown" as const };
+const unknownDiagnostics = { type: "unknown" as const };
 const noopStatusCheck = async () => {};
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
-  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
   const remoteReindexing =
-    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   return (
     <MemoryMaintenanceContext.Provider
       value={{
@@ -72,8 +77,8 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
         setReindexing: setLocalReindexing,
         openMemorySettings: vi.fn(),
         runtimeStatus,
+        diagnosticsStatus,
         checkMemoryStatus,
-        configRevision: 0,
       }}
     >
       {children}
@@ -91,8 +96,8 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
         setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       {children}
@@ -140,7 +145,11 @@ function EmbeddingForm() {
   );
 }
 
-function ConfiguredEmbeddingForm() {
+function ConfiguredEmbeddingForm({
+  modelName = "text-embedding-v4",
+}: {
+  modelName?: string;
+}) {
   const [form] = Form.useForm();
   return (
     <Form
@@ -149,7 +158,7 @@ function ConfiguredEmbeddingForm() {
         reme_light_memory_config: {
           embedding_model_config: {
             backend: "openai",
-            model_name: "text-embedding-v4",
+            model_name: modelName,
             api_key: "secret",
             dimensions: 1024,
             enable_cache: true,
@@ -172,8 +181,8 @@ function ReindexingEmbeddingForm() {
         setReindexing: vi.fn(),
         openMemorySettings: vi.fn(),
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -192,8 +201,8 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         setReindexing: vi.fn(),
         openMemorySettings: onOpen,
         runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -205,9 +214,10 @@ function MemoryAndEmbeddingForm() {
   const [form] = Form.useForm();
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setReindexing] = useState(false);
-  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(true);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
   const remoteReindexing =
-    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   return (
     <MemoryMaintenanceContext.Provider
       value={{
@@ -217,8 +227,8 @@ function MemoryAndEmbeddingForm() {
         setReindexing,
         openMemorySettings: vi.fn(),
         runtimeStatus,
+        diagnosticsStatus,
         checkMemoryStatus,
-        configRevision: 0,
       }}
     >
       <Form
@@ -245,13 +255,43 @@ function MemoryAndEmbeddingForm() {
 afterEach(() => {
   vi.restoreAllMocks();
   useAgentStore.setState({ selectedAgent: "default" });
+  useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
 });
 
 describe("ReMe runtime status", () => {
-  it("checks the selected agent automatically and only then shows healthy", async () => {
+  it("groups the ReMe attribution and documentation with service status", () => {
+    renderWithProviders(<MemoryForm />);
+
+    const serviceStatus = screen
+      .getByText("agentConfig.memoryRuntimeStatus")
+      .closest("div");
+    const statusLabel = screen.getByText("agentConfig.memoryStatusUnknown");
+    const poweredBy = screen.getByText("agentConfig.memoryPoweredBy");
+
+    expect(serviceStatus).not.toBeNull();
+    expect(statusLabel.parentElement).toContainElement(poweredBy);
+    expect(
+      within(serviceStatus as HTMLElement).getByText(
+        "agentConfig.memoryPoweredBy",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(serviceStatus as HTMLElement).getByRole("link", { name: "ReMe" }),
+    ).toHaveAttribute("href", "https://github.com/agentscope-ai/ReMe");
+    expect(
+      within(serviceStatus as HTMLElement).getByRole("link", {
+        name: "agentConfig.memoryDocumentation",
+      }),
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
+  });
+
+  it("loads the selected agent's complete status on entry", async () => {
     const getMemoryRuntimeStatus = vi
       .spyOn(agentsApi, "getMemoryRuntimeStatus")
       .mockResolvedValue(memoryStatus.runtime);
+    const getMemoryStatus = vi
+      .spyOn(agentsApi, "getMemoryStatus")
+      .mockResolvedValue(memoryStatus);
     useAgentStore.setState({ selectedAgent: "bot" });
 
     renderWithProviders(<MemoryForm withRuntimeStatus />);
@@ -266,6 +306,41 @@ describe("ReMe runtime status", () => {
       "bot",
       expect.any(AbortSignal),
     );
+    expect(getMemoryStatus).toHaveBeenCalledTimes(1);
+    expect(getMemoryStatus).toHaveBeenCalledWith(
+      "bot",
+      expect.any(AbortSignal),
+    );
+    const diagnosticsButton = screen.getByRole("button", {
+      name: /agentConfig\.memoryDiagnostics/,
+    });
+    expect(diagnosticsButton).toHaveTextContent("0 B");
+    expect(diagnosticsButton).toHaveTextContent("1.00 KiB");
+  });
+
+  it("shows the checking state while manually refreshing", async () => {
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValueOnce(memoryStatus.runtime)
+      .mockImplementationOnce(() => pendingStatus);
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    await screen.findByText("agentConfig.memoryStatusRunning");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusChecking"),
+    ).toBeInTheDocument();
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
   });
 
   it("shows a failed check instead of a healthy badge", async () => {
@@ -283,15 +358,44 @@ describe("ReMe runtime status", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps runtime healthy when diagnostics fail", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockRejectedValue(
+      new Error("Diagnostics unavailable"),
+    );
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryDiagnostics/,
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.remeStatusFailed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+  });
+
   it("cancels the stale check when the selected agent changes", async () => {
-    const pendingStatus = new Promise<typeof memoryStatus>(() => undefined);
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
     const getMemoryRuntimeStatus = vi
       .spyOn(agentsApi, "getMemoryRuntimeStatus")
       .mockImplementation((agentId) =>
         agentId === "default"
-          ? pendingStatus.then((status) => status.runtime)
+          ? pendingStatus
           : Promise.resolve(memoryStatus.runtime),
       );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
     renderWithProviders(<MemoryForm withRuntimeStatus />);
     await waitFor(() =>
       expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1),
@@ -312,85 +416,58 @@ describe("ReMe runtime status", () => {
     ).toBeInTheDocument();
   });
 
-  it("polls remote reindex state and keeps embedding fields in sync", async () => {
+  it("uses runtime reindex state while full diagnostics are blocked", async () => {
     vi.useFakeTimers();
     try {
-      const rebuildingStatus = {
-        ...memoryStatus,
-        runtime: { ...memoryStatus.runtime, reindexing: true },
+      const rebuildingRuntime = {
+        ...memoryStatus.runtime,
+        reindexing: true,
       };
       const getMemoryRuntimeStatus = vi
         .spyOn(agentsApi, "getMemoryRuntimeStatus")
-        .mockResolvedValueOnce(rebuildingStatus.runtime)
-        .mockResolvedValue(memoryStatus.runtime);
+        .mockResolvedValue(rebuildingRuntime);
+      vi.spyOn(agentsApi, "getMemoryStatus").mockImplementation(
+        () => new Promise(() => undefined),
+      );
       const { container } = renderWithProviders(<MemoryAndEmbeddingForm />);
 
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
       const modelInput = container.querySelector(
         'input[placeholder="agentConfig.embeddingModelNamePlaceholder"]',
       );
       expect(modelInput).toBeDisabled();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000);
-      });
-
-      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
-      expect(modelInput).toBeEnabled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("waits for the current runtime poll before scheduling the next one", async () => {
-    vi.useFakeTimers();
-    try {
-      let resolveFirstPoll: (value: typeof memoryStatus.runtime) => void = () =>
-        undefined;
-      const firstPoll = new Promise<typeof memoryStatus.runtime>((resolve) => {
-        resolveFirstPoll = resolve;
-      });
-      const getMemoryRuntimeStatus = vi
-        .spyOn(agentsApi, "getMemoryRuntimeStatus")
-        .mockReturnValueOnce(firstPoll)
-        .mockResolvedValue(memoryStatus.runtime);
-
-      renderWithProviders(<MemoryForm withRuntimeStatus />);
-      await act(async () => Promise.resolve());
-      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000);
       });
-      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
 
-      await act(async () => {
-        resolveFirstPoll(memoryStatus.runtime);
-        await firstPoll;
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000);
-      });
-      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
+      expect(modelInput).toBeDisabled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("shows aggregated worker and pending-turn status", async () => {
-    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue({
-      ...memoryStatus.runtime,
-      worker: {
-        ...memoryStatus.runtime.worker,
-        status: "busy",
-        queue_pending: 2,
-        tasks_running: 1,
+  it("shows worker and auto-memory history status", async () => {
+    const busyStatus = {
+      ...memoryStatus,
+      runtime: {
+        ...memoryStatus.runtime,
+        worker: {
+          ...memoryStatus.runtime.worker,
+          status: "busy" as const,
+          queue_pending: 2,
+          tasks_running: 1,
+        },
       },
-    });
+    };
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      busyStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(busyStatus);
 
     renderWithProviders(<MemoryForm withRuntimeStatus />);
 
@@ -400,7 +477,52 @@ describe("ReMe runtime status", () => {
     expect(
       screen.getByText("agentConfig.memoryWorkerStatus.busy"),
     ).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens task history and diagnostics from separate overview actions", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    const diagnosticsButton = await screen.findByRole("button", {
+      name: /agentConfig\.memoryDiagnostics/,
+    });
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryQueueIdleSummary"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryAutoMemoryEnabledSummary"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryRecentTasksEmpty"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(diagnosticsButton);
+
+    await waitFor(() => {
+      expect(diagnosticsButton).toHaveTextContent("0 B");
+      expect(diagnosticsButton).toHaveTextContent("1.00 KiB");
+    });
+
+    expect(
+      await screen.findByText("agentConfig.remeStatusComponentsTotal"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.remeStatusProcessRss"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -510,7 +632,78 @@ describe("embedding card separation", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears verification when the selected agent changes", async () => {
+  it("keeps a successful verification after the embedding card remounts", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    expect(api.testEmbedding).toHaveBeenCalledOnce();
+  });
+
+  it("does not reuse verification for different service settings", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(
+      <ConfiguredEmbeddingForm modelName="text-embedding-v5" />,
+    );
+
+    expect(
+      screen.getByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+  });
+
+  it("isolates verification by selected agent", async () => {
     vi.spyOn(api, "testEmbedding").mockResolvedValue({
       success: true,
       configured_dimensions: 1024,
@@ -532,6 +725,12 @@ describe("embedding card separation", () => {
 
     expect(
       await screen.findByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "default" }));
+
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
     ).toBeInTheDocument();
   });
 
@@ -556,7 +755,9 @@ describe("embedding card separation", () => {
     expect(configFields.length).toBeGreaterThan(1);
     configFields.forEach((control) => expect(control).toBeDisabled());
     expect(
-      screen.getByText("agentConfig.embeddingTestConnection").closest("button"),
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
     ).toBeEnabled();
   });
 });

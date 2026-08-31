@@ -31,6 +31,12 @@ $QWENPAW_WORKING_DIR/                      # Default ~/.qwenpaw
 │   │   ├── PROFILE.md                   # Persona file
 │   │   ├── BOOTSTRAP.md                 # Initial setup guide (auto-deleted after completion)
 │   │   ├── MEMORY.md                    # Long-term memory
+│   │   ├── MAIL_TRIAGE.md               # Automatic mail triage rules (created with mail config)
+│   │   ├── CONTACTS.md                  # Mail contacts (created with mail config)
+│   │   ├── credentials.yaml             # Encrypted credential store (including mail credentials)
+│   │   ├── mail_access_control.json     # Mail allow/block/pending senders
+│   │   ├── mail_state/                  # Mail monitor, thread, and label state
+│   │   ├── drivers/mcp/qwenpawmail.yaml # Generated mail MCP driver card
 │   │   ├── skills/                      # Workspace-local skills
 │   │   ├── skill.json                   # Skill enabled state and config
 │   │   ├── memory/                      # Daily memory files
@@ -60,22 +66,27 @@ $QWENPAW_SECRET_DIR/                       # Default ~/.qwenpaw.secret
 
 **Agent Workspace (`~/.qwenpaw/workspaces/{agent_id}/`)**
 
-| File / Directory    | Purpose                                                      |
-| ------------------- | ------------------------------------------------------------ |
-| `agent.json`        | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`        | Conversation history                                         |
-| `jobs.json`         | Cron job list                                                |
-| `token_usage.json`  | Token usage records                                          |
-| `AGENTS.md`         | Persona file (see [Agent Persona](./persona))                |
-| `SOUL.md`           | Persona file (see [Agent Persona](./persona))                |
-| `PROFILE.md`        | Persona file (see [Agent Persona](./persona))                |
-| `BOOTSTRAP.md`      | Initial setup guide (auto-deleted after completion)          |
-| `MEMORY.md`         | Long-term memory (see [Memory](./memory))                    |
-| `skills/`           | Skills available in this workspace                           |
-| `skill.json`        | Skill enabled state, channel routing, and config             |
-| `memory/`           | Daily memory files (see [Memory](./memory))                  |
-| `.browser-profile/` | Browser persistent profile (see [Browser](./browser))        |
-| `browser/`          | Browser user data of the legacy implementation               |
+| File / Directory           | Purpose                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `agent.json`               | Agent config (channels, heartbeat, tools, skills, MCP, etc.)                  |
+| `chats.json`               | Conversation history                                                          |
+| `jobs.json`                | Cron job list                                                                 |
+| `token_usage.json`         | Token usage records                                                           |
+| `AGENTS.md`                | Persona file (see [Agent Persona](./persona))                                 |
+| `SOUL.md`                  | Persona file (see [Agent Persona](./persona))                                 |
+| `PROFILE.md`               | Persona file (see [Agent Persona](./persona))                                 |
+| `BOOTSTRAP.md`             | Initial setup guide (auto-deleted after completion)                           |
+| `MEMORY.md`                | Long-term memory (see [Memory](./memory))                                     |
+| `MAIL_TRIAGE.md`           | Automatic mail triage and safety rules                                        |
+| `CONTACTS.md`              | Known mail contacts and relationship context                                  |
+| `credentials.yaml`         | Encrypted workspace credential store, including mail secrets                  |
+| `mail_access_control.json` | Mail allowlist, blocklist, pending senders, and approved-message replay queue |
+| `mail_state/`              | Mail monitor, thread index, and custom label state                            |
+| `skills/`                  | Skills available in this workspace                                            |
+| `skill.json`               | Skill enabled state, channel routing, and config                              |
+| `memory/`                  | Daily memory files (see [Memory](./memory))                                   |
+| `.browser-profile/`        | Browser persistent profile (see [Browser](./browser))                         |
+| `browser/`                 | Browser user data of the legacy implementation                                |
 
 > **Persona files:** Agent behavior and personality are defined by persona files. Running `qwenpaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`). For detailed explanation and management, see [Agent Persona](./persona).
 
@@ -102,15 +113,28 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                  |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
+| Variable                               | Default         | Description                                                                                                                                                                                                     |
+| -------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                    | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)                                                                                                                                                 |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB`                                                                                                                                    |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`             | Number of rotated log backups to retain; `0` disables backups                                                                                                                                                   |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`        | Character threshold to trigger memory compaction                                                                                                                                                                |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`             | Number of recent messages to keep after compaction                                                                                                                                                              |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)                                                                                                                                     |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`            | Remote image download limit for `view_image` in MiB. Any positive integer is accepted; invalid/nonpositive values use the default                                                                               |
+| `QWENPAW_MAX_IMAGE_PIXELS`             | unset           | Maximum inline-image pixel count (`width * height`) used for request-time proportional resizing. Unset, empty, or `0` disables resizing; invalid or negative values fail the request with a configuration error |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                                                                                              |
+
+When resizing is enabled, an image that requires resizing but cannot be processed fails the request with an explicit error. The original image is not sent as a fallback.
+
+**LLM streaming timeouts:**
+
+| Variable                                   | Default | Description                                                                                                                     |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
@@ -140,6 +164,13 @@ Starting from **v0.1.0**, configuration is split into two layers:
 
 1. **Global config** - `~/.qwenpaw/config.json` (providers, environment variables, agent list)
 2. **Agent config** - `~/.qwenpaw/workspaces/{agent_id}/agent.json` (per-agent settings)
+
+QwenPaw serializes agent configuration writes within its single server
+process and rejects saves based on an older on-disk snapshot. Atomic file
+replacement prevents partial JSON. External editors do not participate in
+this lock, so changes made during the final validation-and-replace interval
+are outside the strict consistency guarantee; reload before retrying a 409
+conflict.
 
 ### Global config.json
 
@@ -174,15 +205,14 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -244,6 +274,20 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "timeoutSeconds": 300,
     "activeHours": null
   },
+  "mail": {
+    "is_new_account": false,
+    "credential": {
+      "name": "alex",
+      "domain": "163.com",
+      "provider": ""
+    },
+    "push": {
+      "mode": "agent_all",
+      "rules": [],
+      "poll_interval_seconds": 120,
+      "access_control_enabled": true
+    }
+  },
   "running": {
     "max_iters": 50,
     "llm_retry_enabled": true,
@@ -278,8 +322,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -327,6 +370,45 @@ Each MCP client includes name, enabled state, transport method (stdio/HTTP/SSE),
 > **Complete configuration:** Full field descriptions, config formats, examples, and usage for MCP clients are documented in [MCP](./mcp).
 
 Management: Console (Agent → MCP) or directly edit `agent.json`.
+
+---
+
+#### `mail` — Mailbox configuration
+
+Mailbox configuration is available only for the native QwenPaw backend. Prefer
+**Settings → Agent management → Email Management** in the Console so QwenPaw
+also creates the qwenpawmail MCP driver card and workspace files.
+
+| Field                         | Type           | Default     | Description                                                                                                                |
+| ----------------------------- | -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `is_new_account`              | bool           | `false`     | `false` connects an existing account; `true` describes a dedicated agent mailbox awaiting registration                     |
+| `credential.name`             | string         | `""`        | Mailbox local part before `@`                                                                                              |
+| `credential.domain`           | string         | `"163.com"` | Mail domain                                                                                                                |
+| `credential.auth_code`        | string         | `""`        | Write-only authorization code, app password, or mailbox login password; encrypted and excluded from reads and `agent.json` |
+| `credential.password`         | string         | `""`        | Legacy dedicated-mailbox registration field retained for migration only; the current flow does not store it                |
+| `credential.phone_number`     | string         | `""`        | Legacy dedicated-mailbox registration field retained for migration only; the current flow does not store it                |
+| `credential.provider`         | string         | `""`        | Legacy enterprise custom-domain compatibility field; the current managed UI does not offer enterprise mail setup           |
+| `push`                        | object \| null | `null`      | New-mail monitor config; omit or set to `null` to keep the monitor stopped                                                 |
+| `push.mode`                   | string         | `"off"`     | `off` or `agent_all`; `rules_only` and `rules_then_agent` are compatibility modes for older configs                        |
+| `push.rules`                  | array          | `[]`        | Deterministic new-mail rules retained for older configs                                                                    |
+| `push.poll_interval_seconds`  | int            | `120`       | Polling interval after IMAP IDLE failure; runtime minimum is 10 seconds                                                    |
+| `push.access_control_enabled` | bool           | `false`     | Check sender allowlist, blocklist, and pending state before automatic processing                                           |
+
+Each `push.rules` entry has `field` (`from` / `content` / `keyword`, with
+`subject` as a legacy alias), `contains`, `action` (`mark_read` / `move` /
+`notify` / `wake_agent`), and `param`. The current Console focuses on **Off** and
+**Wake the agent for every email**. Existing rule modes continue to load but are
+not the recommended setup path for new configurations.
+
+The public mailbox identity and automatic-processing settings are stored in
+`agent.json`. `auth_code`, `password`, and `phone_number` are write-only secrets:
+QwenPaw excludes them from public configuration and encrypts them in the
+workspace's `credentials.yaml`. `drivers/mcp/qwenpawmail.yaml` stores only a
+credential reference, which is resolved when the MCP subprocess starts. Do not
+assume that a missing `auth_code` in the API or `agent.json` means no credential
+is configured, and do not write credentials directly into these public files.
+See [Mailbox Management and Automation](./mailbox) for setup, automation, and
+provider details.
 
 ---
 
@@ -426,8 +508,8 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
 | `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
 | `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
@@ -593,9 +675,11 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
 Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+This runtime state lives in the agent workspace and is not part of
+`agent.json` configuration.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
@@ -603,7 +687,7 @@ Records the last user message source, used for sending messages when heartbeat `
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
 
-Auto-updated; no manual configuration needed.
+It is updated atomically by the system; no manual configuration is needed.
 
 ---
 
@@ -790,3 +874,5 @@ Configure embeddings in `agent.json` under `running.reme_light_memory_config.emb
 - [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
 - [Memory](./memory) — Memory system details
 - [Skills](./skills) — Skills system details
+- [MCP](./mcp) — MCP client configuration
+- [Mailbox Management and Automation](./mailbox) — Mail config, tools, automation, and access control

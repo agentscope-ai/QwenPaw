@@ -33,6 +33,7 @@ from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -111,7 +112,9 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        prompt = self._memory_manager.get_memory_prompt()
+        prompt = await run_sync_io(
+            self._memory_manager.get_memory_prompt,
+        )
         if not prompt or prompt in current_prompt:
             return current_prompt
         if current_prompt.strip():
@@ -196,7 +199,7 @@ class MemoryMiddleware(MiddlewareBase):
             seen_markers.pop(oldest_key)
         pending_markers.append(turn_marker)
 
-        interval = self._auto_memory_interval()
+        interval = await self._auto_memory_interval()
         if interval <= 0:
             pending_markers.clear()
             turn_state["snapshots"].clear()
@@ -590,8 +593,11 @@ class MemoryMiddleware(MiddlewareBase):
             )
         ]
 
-    def _auto_memory_interval(self) -> int:
-        return int(self._memory_manager.get_auto_memory_interval())
+    async def _auto_memory_interval(self) -> int:
+        interval = await run_sync_io(
+            self._memory_manager.get_auto_memory_interval,
+        )
+        return int(interval)
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         return auto_memory_turn_state(agent.state)

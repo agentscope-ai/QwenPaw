@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { App, Button, Input, Pagination, Spin, Tag, Tooltip } from "antd";
 import {
   Download,
+  BadgeCheck,
   Trash2,
   RotateCcw,
   Package,
@@ -25,14 +26,17 @@ import { openExternalLink } from "../utils/openExternalLink";
 import {
   fetchPlugins,
   uninstallPlugin,
+  type InstallPluginResult,
   type PluginInfo,
 } from "../api/modules/plugin";
+import { loadPawApp } from "../plugins/usePluginLoader";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
-import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { purgeAppState, removePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
+import { getMarketAppState } from "../utils/marketAppState";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -75,6 +79,15 @@ export default function AppStore() {
       .finally(() => setAppsLoading(false));
   };
 
+  const syncInstalledApp = async (result: InstallPluginResult) => {
+    if (installedApps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    refreshInstalledApps();
+  };
+
   const {
     loading,
     error,
@@ -89,10 +102,8 @@ export default function AppStore() {
     handlePageChange,
     handleRefresh,
     handleInstall,
-    // onInstalled: refresh the installed-apps section after a market
-    // install/update so the new PawApp shows up without a full page reload.
   } = useOsAppMarket({
-    onInstalled: refreshInstalledApps,
+    onInstalled: syncInstalledApp,
   });
 
   const [searchInput, setSearchInput] = useState("");
@@ -115,16 +126,14 @@ export default function AppStore() {
       onOk: async () => {
         try {
           await uninstallPlugin(p.id);
-          // Confirmed uninstall: purge persisted desktop state before the
-          // reload drops the plugin's routes from the registry.
-          purgePluginAppState(p.id);
+          removePluginAppState(p.id);
+          refreshInstalledApps();
           message.success(
             t("os.uninstalledApp", {
               name: p.name,
               defaultValue: "Uninstalled",
             }),
           );
-          setTimeout(() => window.location.reload(), 600);
         } catch (err) {
           message.error(
             err instanceof Error
@@ -145,6 +154,10 @@ export default function AppStore() {
     [availableIds],
   );
   const installedSet = useMemo(() => new Set(installed), [installed]);
+  const installedAppVersions = useMemo(
+    () => new Map(installedApps.map((app) => [app.id, app.version])),
+    [installedApps],
+  );
 
   const installMarketPlugin = (entry: MarketPluginEntry) => {
     if (isCompatible(entry)) {
@@ -372,6 +385,12 @@ export default function AppStore() {
               const compat =
                 entry.qwenpaw_compat_labels &&
                 entry.qwenpaw_compat_labels.length > 0;
+              const marketState = getMarketAppState(
+                entry,
+                installedAppVersions,
+              );
+              const isInstalled = marketState === "installed";
+              const canUpdate = marketState === "update";
               return (
                 <div key={entry.id} className={styles.storeCard}>
                   <div className={styles.storeCardTop}>
@@ -449,16 +468,29 @@ export default function AppStore() {
                       }
                     >
                       <Button
-                        type="primary"
+                        type={isInstalled ? "default" : "primary"}
                         size="small"
-                        icon={<Download size={14} />}
-                        loading={installingId === entry.id}
+                        icon={
+                          isInstalled ? (
+                            <BadgeCheck size={14} />
+                          ) : canUpdate ? (
+                            <RefreshCw size={14} />
+                          ) : (
+                            <Download size={14} />
+                          )
+                        }
+                        loading={!isInstalled && installingId === entry.id}
                         disabled={
-                          installingId !== null && installingId !== entry.id
+                          isInstalled ||
+                          (installingId !== null && installingId !== entry.id)
                         }
                         onClick={() => installMarketPlugin(entry)}
                       >
-                        {t("os.appMarketInstall", "Install")}
+                        {isInstalled
+                          ? t("os.installedApp", "Installed")
+                          : canUpdate
+                          ? t("os.update", "Update")
+                          : t("os.appMarketInstall", "Install")}
                       </Button>
                     </Tooltip>
                   </div>

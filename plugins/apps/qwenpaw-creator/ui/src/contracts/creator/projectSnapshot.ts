@@ -309,6 +309,11 @@ export interface MotionClipCreationDocument extends ProjectJsonRecord {
 export interface AudioCreationDocument extends ProjectJsonRecord {
   type: "audio";
   source_asset_version_id: string;
+  /** Mixing role: narration ducks footage audio; bgm is a continuous low bed. */
+  role: "bgm" | "narration" | "sfx";
+  /** Edge fades in seconds; null selects the adaptive role default. */
+  fade_in_seconds?: number | null;
+  fade_out_seconds?: number | null;
   /** TTS narration keeps its script here; uploaded audio leaves it empty. */
   script?: string;
   /** Synthesis speed multiplier (0.5–2.0); CosyVoice family only. */
@@ -485,6 +490,20 @@ export interface ProjectPatchRequest {
   baseEtag: string;
   blockToken?: string;
   operations: ProjectPatchOperation[];
+}
+
+/** One entry of the authoritative [Image N] reference order (backend view). */
+export interface R2VReferenceOrderItem {
+  index: number;
+  versionId: string;
+  kind: "storyboard" | "source" | "artifact";
+  name: string;
+}
+
+export interface R2VReferenceOrderResponse {
+  elementId: string;
+  storyboardSelected: boolean;
+  references: R2VReferenceOrderItem[];
 }
 
 export interface ProjectPatchResponse {

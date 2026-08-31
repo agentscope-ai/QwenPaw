@@ -9,6 +9,7 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { BadgeCheck, ChevronRight, Cpu, Power, Ruler } from "lucide-react";
 
 import { api } from "@/api";
 import type { EmbeddingModelConfig } from "@/api/types/agent";
@@ -30,7 +31,7 @@ export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
-  const { needsReindex, reindexing, openMemorySettings, configRevision } =
+  const { needsReindex, reindexing, openMemorySettings } =
     useMemoryMaintenance();
 
   const embeddingConfig = Form.useWatch(
@@ -56,11 +57,7 @@ export function EmbeddingModelCard() {
     testedEmbeddingIsCurrent,
     markVerified,
     clearVerification,
-  } = useEmbeddingVerification(
-    embeddingConfig,
-    embeddingEnabled,
-    configRevision,
-  );
+  } = useEmbeddingVerification(embeddingConfig, embeddingEnabled);
   const embeddingCacheEnabled = embeddingConfig?.enable_cache ?? true;
 
   const testEmbedding = async () => {
@@ -134,15 +131,15 @@ export function EmbeddingModelCard() {
           <div>
             <h3>{t("agentConfig.embeddingOverviewTitle")}</h3>
             <p>{t("agentConfig.embeddingStatusDescription")}</p>
-            <small className={styles.embeddingOverviewNote}>
-              {t("agentConfig.embeddingRestartWarning")}
-            </small>
           </div>
         </div>
 
         <div className={styles.memoryOverviewGrid}>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingConfigStatus")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Power size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingConfigStatus")}
+            </span>
             <strong
               className={
                 embeddingEnabled
@@ -159,12 +156,18 @@ export function EmbeddingModelCard() {
             </strong>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingCurrentModel")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Cpu size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingCurrentModel")}
+            </span>
             <strong title={modelName}>{modelName || "—"}</strong>
             <small>{normalizedBackend || "—"}</small>
           </div>
           <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.embeddingConfiguredDimensions")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <Ruler size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingConfiguredDimensions")}
+            </span>
             <strong>{embeddingConfig?.dimensions || "—"}</strong>
             <small>
               {embeddingConfig?.dimensions
@@ -172,41 +175,40 @@ export function EmbeddingModelCard() {
                 : "\u00a0"}
             </small>
           </div>
-          <div
-            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewActionItem} ${styles.embeddingVerificationItem}`}
+          <button
+            type="button"
+            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem} ${styles.embeddingVerificationAction}`}
+            onClick={testEmbedding}
+            disabled={!embeddingEnabled || testingEmbedding}
+            aria-busy={testingEmbedding}
+            aria-label={t("agentConfig.embeddingTestConnection")}
           >
-            <div>
-              <span>{t("agentConfig.embeddingVerificationStatus")}</span>
-              {testedEmbeddingIsCurrent && testedEmbedding ? (
-                <>
-                  <strong className={styles.embeddingStatusValueVerified}>
-                    {t("agentConfig.embeddingVerified")}
-                  </strong>
-                  <small>
-                    {t("agentConfig.embeddingVerificationMetrics", {
-                      dimensions: testedEmbedding.dimensions,
-                      latency: testedEmbedding.latency,
-                    })}
-                  </small>
-                </>
-              ) : (
-                <>
-                  <strong className={styles.embeddingStatusValuePending}>
-                    {t("agentConfig.embeddingNotVerified")}
-                  </strong>
-                  <small>{t("agentConfig.embeddingVerificationHint")}</small>
-                </>
-              )}
-            </div>
-            <Button
-              className={styles.memoryStatusButton}
-              onClick={testEmbedding}
-              loading={testingEmbedding}
-              disabled={!embeddingEnabled}
-            >
-              {t("agentConfig.embeddingTestConnection")}
-            </Button>
-          </div>
+            <span className={styles.memoryOverviewLabel}>
+              <BadgeCheck size={14} aria-hidden="true" />
+              {t("agentConfig.embeddingVerificationStatus")}
+            </span>
+            {testedEmbeddingIsCurrent && testedEmbedding ? (
+              <>
+                <strong className={styles.embeddingStatusValueVerified}>
+                  {t("agentConfig.embeddingVerified")}
+                </strong>
+                <small>
+                  {t("agentConfig.embeddingVerificationMetrics", {
+                    dimensions: testedEmbedding.dimensions,
+                    latency: testedEmbedding.latency,
+                  })}
+                </small>
+              </>
+            ) : (
+              <>
+                <strong className={styles.embeddingStatusValuePending}>
+                  {t("agentConfig.embeddingNotVerified")}
+                </strong>
+                <small>{t("agentConfig.embeddingVerificationHint")}</small>
+              </>
+            )}
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </div>
       </section>
 

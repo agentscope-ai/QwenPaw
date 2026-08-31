@@ -12,7 +12,7 @@
 import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
-import { Grid2X2, Image as ImageIcon, RefreshCw, Trash2 } from "lucide-react";
+import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
@@ -26,14 +26,15 @@ import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
-import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
+import { purgeAppState, removePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
 import { baseFromRoutePath } from "./osRouteMap";
 import MenuBar from "./MenuBar";
 import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
-import { useEdgeReveal } from "./useEdgeReveal";
+import { shouldRevealDock, useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
 import { useOsDock } from "./osDockStore";
 import { useIconDrag } from "./useIconDrag";
@@ -160,7 +161,9 @@ export default function DesktopOS() {
       ) {
         e.preventDefault();
         const agentState = useAgentStore.getState();
-        const ids = agentState.agents.map((a) => a.id);
+        const ids = agentState.agents
+          .filter(isAgentAvailableInChat)
+          .map((a) => a.id);
         const current = agentState.selectedAgent;
         if (!ids.includes(current)) ids.unshift(current);
         if (ids.length < 2) return;
@@ -217,9 +220,18 @@ export default function DesktopOS() {
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
 
-  // Desktop keeps the menu bar visible above maximized windows. Mobile uses
-  // full-screen windows and keeps the menu bar hidden.
-  const { topHot } = useEdgeReveal();
+  // Desktop keeps the menu bar visible. A maximized active window hides the
+  // Dock until the pointer reaches the bottom edge; mobile keeps it visible.
+  const { topHot, bottomHot } = useEdgeReveal();
+  const activeWindow = activeId ? windows[activeId] : undefined;
+  const activeWindowMaximized = Boolean(
+    activeWindow?.maximized && !activeWindow.minimized,
+  );
+  const dockRevealed = shouldRevealDock(
+    isMobile,
+    activeWindowMaximized,
+    bottomHot,
+  );
 
   // Persisted desktop icon positions + transient drag handlers. While a
   // drag is in flight the position lives in the DOM only (rAF-coalesced);
@@ -287,13 +299,6 @@ export default function DesktopOS() {
   };
   const desktopMenuItems: MenuProps["items"] = [
     {
-      key: "refresh",
-      icon: <RefreshCw size={15} />,
-      label: t("os.refreshDesktop", "Refresh desktop"),
-      onClick: () => window.location.reload(),
-    },
-    { type: "divider" },
-    {
       key: "arrange",
       icon: <Grid2X2 size={15} />,
       label: t("os.arrangeDesktop", "Clean up"),
@@ -311,21 +316,18 @@ export default function DesktopOS() {
     },
   ];
 
-  // Uninstall an app. Plugin apps (PawApps, carrying `source`) are removed on
-  // the backend (then reload to refresh the registry); built-in catalog apps
-  // are toggled off locally via osPluginStore. System apps aren't uninstallable.
+  // Plugin apps are removed from the backend and live frontend state. Built-in
+  // catalog apps are toggled locally; system apps are not uninstallable.
   const handleUninstall = async (a: OsAppDef) => {
     const name = t(a.labelKey, a.fallback);
     if (a.source) {
+      const source = a.source;
       try {
-        await uninstallPlugin(a.source);
-        // Confirmed uninstall: purge persisted desktop state before the
-        // reload drops the plugin's routes from the registry.
-        purgePluginAppState(a.source);
+        await uninstallPlugin(source);
+        removePluginAppState(source);
         message.success(
           t("os.uninstalledApp", { name, defaultValue: "Uninstalled" }),
         );
-        setTimeout(() => window.location.reload(), 600);
       } catch (err) {
         message.error(
           err instanceof Error
@@ -456,7 +458,9 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
-          if (!isStore && !isSettings && !Component) return null;
+          if (!isStore && !isSettings && !Component) {
+            return null;
+          }
           return (
             <WindowFrame
               key={win.id}
@@ -508,7 +512,7 @@ export default function DesktopOS() {
 
       <SpacesPanel visible={topHot} />
       <MenuBar hidden={isMobile} />
-      <Dock />
+      <Dock revealed={dockRevealed} />
 
       {ctxMenu && (
         <Dropdown

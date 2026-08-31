@@ -12,6 +12,14 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 
 const SCOPE_KEY = "agent:default";
 
+const clipboardMocks = vi.hoisted(() => ({
+  copyText: vi.fn().mockResolvedValue(undefined),
+  error: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock("../../monacoSetup", () => ({}));
+
 vi.mock("@monaco-editor/react", () => ({
   default: ({
     value,
@@ -37,10 +45,25 @@ vi.mock("../../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
 }));
 
+vi.mock("../../utils/clipboard", () => ({
+  copyText: clipboardMocks.copyText,
+}));
+
+vi.mock("../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: {
+      error: clipboardMocks.error,
+      success: clipboardMocks.success,
+    },
+  }),
+}));
+
 function Harness({
   onSaveFile,
+  onDownloadFile,
 }: {
   onSaveFile: (path: string, content: string) => Promise<void>;
+  onDownloadFile?: (path: string) => Promise<void>;
 }) {
   const tabs = useCodingTabsStore(
     (state) => state.tabsByAgent[SCOPE_KEY] ?? [],
@@ -69,6 +92,7 @@ function Harness({
       onTabContentChange={(path, content) =>
         store.setTabContent(SCOPE_KEY, path, content)
       }
+      onDownloadFile={onDownloadFile}
       onSaveFile={onSaveFile}
     />
   );
@@ -112,6 +136,51 @@ describe("TabbedEditor diff resolution", () => {
       expect(onSaveFile).toHaveBeenLastCalledWith("hello.txt", "original");
     });
     expect(onSaveFile).not.toHaveBeenCalledWith("hello.txt", "");
+  });
+});
+
+describe("TabbedEditor clipboard action", () => {
+  beforeEach(() => {
+    clipboardMocks.copyText.mockClear();
+    clipboardMocks.success.mockClear();
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [SCOPE_KEY]: [
+          {
+            path: "hello.txt",
+            content: "unsaved content",
+            dirty: true,
+            previewKind: "text",
+          },
+        ],
+      },
+      activeTabByAgent: { [SCOPE_KEY]: "hello.txt" },
+      diffsByAgent: { [SCOPE_KEY]: {} },
+    });
+  });
+
+  it("copies the current in-memory file content", async () => {
+    render(
+      <Harness
+        onSaveFile={vi.fn(async () => undefined)}
+        onDownloadFile={vi.fn(async () => undefined)}
+      />,
+    );
+    const copyButton = screen.getByRole("button", { name: /copy|复制/i });
+    const downloadButton = screen.getByRole("button", {
+      name: /download|下载/i,
+    });
+
+    expect(
+      copyButton.compareDocumentPosition(downloadButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(copyButton);
+
+    await waitFor(() => {
+      expect(clipboardMocks.copyText).toHaveBeenCalledWith("unsaved content");
+      expect(clipboardMocks.success).toHaveBeenCalled();
+    });
   });
 });
 
@@ -222,5 +291,80 @@ describe("TabbedEditor tab context menu", () => {
     await waitFor(() => {
       expect(useCodingTabsStore.getState().tabsByAgent[SCOPE_KEY]).toEqual([]);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project switch — regression for A#82628675 (open files not following project switch)
+// When the user switches projects/agents, the open file list must update
+// to reflect the new project's tabs (or be empty if the new project has
+// no open tabs). The store's clearAgent/clearProjectTabs handles this.
+// ---------------------------------------------------------------------------
+describe("TabbedEditor project switch (A#82628675)", () => {
+  const AGENT_A = "agent:alpha";
+  const AGENT_B = "agent:beta";
+
+  beforeEach(() => {
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [AGENT_A]: [
+          { path: "a1.txt", content: "a1", dirty: false },
+          { path: "a2.txt", content: "a2", dirty: false },
+        ],
+        [AGENT_B]: [{ path: "b1.txt", content: "b1", dirty: false }],
+      },
+      activeTabByAgent: {
+        [AGENT_A]: "a1.txt",
+        [AGENT_B]: "b1.txt",
+      },
+      diffsByAgent: { [AGENT_A]: {}, [AGENT_B]: {} },
+    });
+  });
+
+  it("preserves each agent's tabs independently", () => {
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[AGENT_A].map((t) => t.path)).toEqual([
+      "a1.txt",
+      "a2.txt",
+    ]);
+    expect(state.tabsByAgent[AGENT_B].map((t) => t.path)).toEqual(["b1.txt"]);
+  });
+
+  it("clears tabs for the switched-away agent when clearAgent is called", () => {
+    useCodingTabsStore.getState().clearAgent(AGENT_A);
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[AGENT_A]).toEqual([]);
+    expect(state.activeTabByAgent[AGENT_A]).toBe("");
+    // Agent B's tabs should be unaffected
+    expect(state.tabsByAgent[AGENT_B].map((t) => t.path)).toEqual(["b1.txt"]);
+  });
+
+  it("clears project-scoped tabs when clearProjectTabs is called", () => {
+    const projectScope = "session:proj-123";
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        ...useCodingTabsStore.getState().tabsByAgent,
+        [projectScope]: [{ path: "proj.txt", content: "proj", dirty: false }],
+      },
+      activeTabByAgent: {
+        ...useCodingTabsStore.getState().activeTabByAgent,
+        [projectScope]: "proj.txt",
+      },
+    });
+
+    useCodingTabsStore.getState().clearProjectTabs(projectScope);
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[projectScope]).toEqual([]);
+    expect(state.activeTabByAgent[projectScope]).toBe("");
+  });
+
+  it("switching to a new agent shows that agent's tabs", () => {
+    // Simulate switching from agent A to agent B
+    const agentBTabs = useCodingTabsStore.getState().tabsByAgent[AGENT_B];
+    expect(agentBTabs).toHaveLength(1);
+    expect(agentBTabs[0].path).toBe("b1.txt");
+    expect(useCodingTabsStore.getState().activeTabByAgent[AGENT_B]).toBe(
+      "b1.txt",
+    );
   });
 });

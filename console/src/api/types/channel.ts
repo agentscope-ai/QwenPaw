@@ -37,6 +37,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   robot_code: string;
   at_sender_on_reply?: boolean;
   streaming_enabled?: boolean;
+  share_session_in_group?: boolean;
   endpoint?: string;
 }
 
@@ -94,6 +95,7 @@ export interface MatrixConfig extends BaseChannelConfig {
   homeserver: string;
   user_id: string;
   access_token: string;
+  share_session_in_group?: boolean;
   streaming_enabled?: boolean;
 }
 
@@ -181,8 +183,10 @@ export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
   ws_port: number;
   access_token: string;
+  media_dir?: string;
   media_base64: boolean;
   media_base64_max_mb: number;
+  media_download_max_mb: number;
   share_session_in_group: boolean;
 }
 

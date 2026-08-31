@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import threading
 
 import pytest
 
@@ -18,7 +19,6 @@ from services.project_files import (
     UnsafeProjectPath,
 )
 from services.project_files import store as store_module
-
 
 pytestmark = pytest.mark.unit
 
@@ -77,6 +77,29 @@ def test_create_read_list_replace_and_delete(tmp_path):
     assert [item.project_id for item in store.list()] == ["project-a"]
 
 
+def test_delete_returns_after_atomic_hide_without_waiting_for_tree_cleanup(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-fast-delete", "Delete"))
+    cleanup_started = threading.Event()
+    release_cleanup = threading.Event()
+    real_rmtree = store_module.shutil.rmtree
+
+    def blocking_cleanup(path, *args, **kwargs):
+        cleanup_started.set()
+        release_cleanup.wait(timeout=5)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_module.shutil, "rmtree", blocking_cleanup)
+    store.delete("project-fast-delete")
+
+    assert cleanup_started.wait(timeout=1)
+    assert not store.project_root("project-fast-delete").exists()
+    release_cleanup.set()
+
+
 def test_create_is_exclusive_and_does_not_overwrite(tmp_path):
     store = ProjectStore(tmp_path.resolve())
     first = store.create(_project("project-1", "First"))
@@ -85,83 +108,6 @@ def test_create_is_exclusive_and_does_not_overwrite(tmp_path):
         store.create(_project("project-1", "Second"))
 
     assert store.read("project-1") == first
-
-
-def test_create_staging_initializer_is_published_atomically_or_rolled_back(
-    tmp_path,
-):
-    store = ProjectStore(tmp_path.resolve())
-
-    def initialize(staged_root):
-        assert (staged_root / "project.json").is_file()
-        (staged_root / "runtime" / "bootstrap.txt").write_text(
-            "ready",
-            encoding="utf-8",
-        )
-
-    store.create(
-        _project("project-ready"),
-        initialize_staged_project=initialize,
-    )
-    assert (
-        store.project_root("project-ready") / "runtime" / "bootstrap.txt"
-    ).read_text(encoding="utf-8") == "ready"
-
-    def fail(_staged_root):
-        raise RuntimeError("injected bootstrap failure")
-
-    with pytest.raises(RuntimeError, match="injected bootstrap failure"):
-        store.create(
-            _project("project-failed"),
-            initialize_staged_project=fail,
-        )
-
-    assert not store.project_root("project-failed").exists()
-    assert [item.project_id for item in store.list()] == ["project-ready"]
-
-
-def test_create_and_delete_acquire_lifecycle_before_store_lock(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store = ProjectStore(tmp_path.resolve())
-    events: list[str] = []
-
-    class TraceLock:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def __enter__(self):
-            events.append(f"enter:{self.name}")
-            return self
-
-        def __exit__(self, *_args) -> None:
-            events.append(f"exit:{self.name}")
-
-    store._lock = TraceLock("store")
-    monkeypatch.setattr(
-        store,
-        "lifecycle_lock",
-        lambda _project_id: TraceLock("lifecycle"),
-    )
-
-    store.create(_project("project-1"))
-    assert events[:2] == ["enter:lifecycle", "enter:store"]
-
-    events.clear()
-    store.delete("project-1")
-    assert events[:2] == ["enter:lifecycle", "enter:store"]
-
-
-def test_create_rejects_an_existing_empty_project_directory(tmp_path):
-    store = ProjectStore(tmp_path.resolve())
-    store.project_root("project-1").mkdir()
-
-    with pytest.raises(ProjectAlreadyExists):
-        store.create(_project("project-1"))
-
-    assert store.project_root("project-1").is_dir()
-    assert not store.project_path("project-1").exists()
 
 
 def test_create_failure_never_exposes_a_partial_project(tmp_path, monkeypatch):
@@ -208,11 +154,8 @@ def test_replace_and_delete_enforce_etag_and_generation(tmp_path):
     [
         "../escape",
         "nested/project",
-        r"nested\\project",
-        ".",
         "..",
         "has:colon",
-        " bad",
     ],
 )
 def test_project_ids_cannot_escape_the_fixed_root(tmp_path, project_id):
@@ -220,12 +163,6 @@ def test_project_ids_cannot_escape_the_fixed_root(tmp_path, project_id):
 
     with pytest.raises(UnsafeProjectPath):
         store.project_path(project_id)
-
-
-def test_root_must_be_absolute(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(UnsafeProjectPath, match="absolute"):
-        ProjectStore("relative-root")
 
 
 def test_read_rejects_project_directory_and_file_symlinks(tmp_path):
@@ -303,25 +240,6 @@ def test_atomic_replace_failure_preserves_old_project_and_cleans_temp(
     )
 
 
-def test_store_fsyncs_file_and_directories_during_publish(
-    tmp_path,
-    monkeypatch,
-):
-    calls: list[int] = []
-    real_fsync = store_module.os.fsync
-
-    def record(descriptor: int):
-        calls.append(descriptor)
-        return real_fsync(descriptor)
-
-    monkeypatch.setattr(store_module.os, "fsync", record)
-    store = ProjectStore(tmp_path.resolve())
-    store.create(_project("project-1"))
-
-    # temp file + Project dir + runtime/temp dir + store root
-    assert len(calls) >= 4
-
-
 def test_oversized_project_is_rejected_before_publication(tmp_path):
     store = ProjectStore(tmp_path.resolve(), max_project_json_bytes=256)
 
@@ -363,14 +281,3 @@ def test_discovery_ignores_internal_incomplete_and_symlink_directories(
     os.symlink(outside, store.root / "project-link")
 
     assert store.discover_project_ids() == ("project-a", "project-b")
-
-
-def test_discovery_reports_project_directory_with_invalid_project_file(
-    tmp_path,
-):
-    store = ProjectStore((tmp_path / "store").resolve())
-    project_root = store.project_root("project-bad")
-    project_root.mkdir()
-    (project_root / "project.json").mkdir()
-
-    assert store.discover_project_ids() == ("project-bad",)

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { PoolSkillSpec } from "../../../../api/types";
 import {
+  getPoolSkillAutomationState,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
@@ -16,32 +17,61 @@ interface PoolSkillCardProps {
   skill: PoolSkillSpec;
   isSelected: boolean;
   batchModeEnabled: boolean;
+  automationPending?: boolean;
   onToggleSelect: (name: string) => void;
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
-  onToggleAutoUpdate: (
-    skill: PoolSkillSpec,
-    enabled: boolean,
-    targets?: string[] | null,
-  ) => void | Promise<void>;
+  onAutomationQuickAction: (skill: PoolSkillSpec) => void | Promise<void>;
 }
 
 export function PoolSkillCard({
   skill,
   isSelected,
   batchModeEnabled,
+  automationPending = false,
   onToggleSelect,
   onEdit,
   onBroadcast,
   onDelete,
-  onToggleAutoUpdate,
+  onAutomationQuickAction,
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const syncTone = getPoolBuiltinStatusTone(skill.sync_status);
   const isBuiltin = isSkillBuiltin(skill.source);
+  const automationState = getPoolSkillAutomationState(skill);
+  let automationTag = "";
+  let automationTagHint = "";
+  let automationActionKey = "skillPool.autoSyncEnableHint";
+
+  if (!isBuiltin) {
+    if (skill.auto_sync) {
+      automationTag = t("skillPool.autoSync");
+      automationTagHint = t("skillPool.autoSyncFlow");
+      automationActionKey = "skillPool.autoSyncDisableHint";
+    }
+  } else if (automationState === "mixed") {
+    automationTag = t(
+      skill.auto_update ? "skillPool.builtinAutoUpdate" : "skillPool.autoSync",
+    );
+    automationTagHint = t(
+      skill.auto_update
+        ? "skillPool.builtinAutoUpdateFlow"
+        : "skillPool.autoSyncFlow",
+    );
+    automationActionKey = "skillPool.automationMixedHint";
+  } else if (automationState === "on") {
+    automationTag = t("skillPool.automationBoth");
+    automationTagHint = `${t("skillPool.builtinAutoUpdateFlow")}; ${t(
+      "skillPool.autoSyncFlow",
+    )}`;
+    automationActionKey = "skillPool.automationDisableHint";
+  } else {
+    automationActionKey = "skillPool.automationEnableHint";
+  }
+  const automationActionHint = t(automationActionKey);
 
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 768px)");
@@ -110,11 +140,9 @@ export function PoolSkillCard({
             ) : (
               <span className={styles.customTag}>{t("skillPool.custom")}</span>
             )}
-            {skill.auto_update && (
-              <Tooltip title={t("skillPool.autoUpdateOnHint")}>
-                <span className={styles.autoUpdateTag}>
-                  {t("skillPool.autoUpdate")}
-                </span>
+            {automationTag && (
+              <Tooltip title={automationTagHint}>
+                <span className={styles.automationTag}>{automationTag}</span>
               </Tooltip>
             )}
           </h3>
@@ -157,21 +185,23 @@ export function PoolSkillCard({
       {/* Footer - show on hover, batch mode, or mobile (no hover) */}
       {(isHover || batchModeEnabled || isMobile) && (
         <div className={styles.cardFooter}>
-          <Tooltip
-            title={
-              skill.auto_update
-                ? t("skillPool.autoUpdateDisableHint")
-                : t("skillPool.autoUpdateEnableHint")
-            }
-          >
+          <Tooltip title={automationActionHint}>
             <Button
-              className={styles.autoUpdateButton}
-              type={skill.auto_update ? "primary" : "default"}
+              data-testid={`skill-automation-${skill.name}`}
+              aria-label={automationActionHint}
+              aria-pressed={
+                automationState === "mixed" ? "mixed" : automationState === "on"
+              }
+              className={`${styles.automationButton} ${
+                automationState === "mixed" ? styles.automationMixedButton : ""
+              }`}
+              type={automationState === "on" ? "primary" : "default"}
               icon={<SyncOutlined />}
-              disabled={batchModeEnabled}
+              loading={automationPending}
+              disabled={batchModeEnabled || automationPending}
               onClick={(e) => {
                 e.stopPropagation();
-                void onToggleAutoUpdate(skill, !skill.auto_update, null);
+                void onAutomationQuickAction(skill);
               }}
             />
           </Tooltip>

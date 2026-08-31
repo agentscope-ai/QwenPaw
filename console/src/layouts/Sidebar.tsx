@@ -8,12 +8,14 @@ import {
   Tooltip,
   Badge,
   Popover,
-  Tour,
+  Popconfirm,
+  Divider,
 } from "antd";
-import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { ChevronDown, MessageSquareText, RotateCw } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
@@ -55,10 +57,8 @@ import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
-import {
-  dismissDesktopModeHint,
-  shouldShowDesktopModeHint,
-} from "../utils/desktopModeHint";
+import { ShieldCheck } from "lucide-react";
+import { hubApi } from "../api/modules/hub";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ const INBOX_BADGE_POLLING_MS = 6000;
 const SIMPLE_MODE_WHITELIST = new Set([
   "core.files",
   "core.inbox",
-  "core.app-center",
+  "core.marketplace",
   "core.cron-jobs",
   "core.agent-config",
   "core.models",
@@ -113,11 +113,15 @@ function flattenMenuForSimpleMode(items: MenuItem[]): MenuItem[] {
 interface SidebarProps {
   /** Route id of the currently active page (e.g. "core.workspace"). */
   selectedKey: string;
+  hubMode?: boolean;
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────
 
-export default function Sidebar({ selectedKey }: SidebarProps) {
+export default function Sidebar({
+  selectedKey,
+  hubMode = false,
+}: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -126,16 +130,20 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const currentSessionId = getSessionIdFromPath(location.pathname);
   const chatPath = buildChatPath(currentSessionId);
   const [authEnabled, setAuthEnabled] = useState(false);
+  const [hubAdmin, setHubAdmin] = useState(false);
+  const [hubUsername, setHubUsername] = useState("");
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
+  const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
   // the main content on narrow viewports.
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const [desktopModeHintOpen, setDesktopModeHintOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
+  const [simpleAgentFunctionsExpanded, setSimpleAgentFunctionsExpanded] =
+    useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
@@ -192,44 +200,28 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       ...flattenMenu(settingsMenu, routes, 16),
     ];
   }, [agentMenu, settingsMenu, routes, sidebarMode]);
+  const simpleInboxEntry = simpleFlatNav.find(
+    (entry) => entry.key === "core.inbox",
+  );
+  const simpleFoldedNav = simpleFlatNav.filter(
+    (entry) => entry.key !== "core.inbox",
+  );
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     authApi
       .getStatus()
-      .then((res) => setAuthEnabled(res.enabled))
+      .then(async (res) => {
+        setAuthEnabled(res.enabled);
+        if (res.mode === "hub") {
+          const user = await hubApi.me();
+          setHubAdmin(user.role === "admin");
+          setHubUsername(user.username);
+        }
+      })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!isMobile && shouldShowDesktopModeHint(window.localStorage)) {
-      setDesktopModeHintOpen(true);
-    }
-  }, [isMobile]);
-
-  const dismissDesktopHint = useCallback(() => {
-    dismissDesktopModeHint(window.localStorage);
-    setDesktopModeHintOpen(false);
-  }, []);
-
-  const desktopModeHintSteps = useMemo<TourProps["steps"]>(
-    () => [
-      {
-        title: t("sidebar.desktopModeHint.title", "Try Desktop Mode"),
-        description: t(
-          "sidebar.desktopModeHint.description",
-          "Open quick settings here, then choose Desktop Mode for a window-based workspace.",
-        ),
-        target: () => settingsButtonRef.current as HTMLButtonElement,
-        placement: "rightBottom",
-        nextButtonProps: {
-          children: t("sidebar.desktopModeHint.gotIt", "Got it"),
-        },
-      },
-    ],
-    [t],
-  );
 
   useEffect(() => {
     if (
@@ -475,7 +467,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   );
 
   const handleUpdateProfile = async (values: {
-    currentPassword: string;
+    currentPassword?: string;
     newUsername?: string;
     newPassword?: string;
   }) => {
@@ -492,18 +484,26 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       return;
     }
 
-    if (!trimmedUsername && !trimmedPassword) {
+    if (!hubMode && !trimmedUsername && !trimmedPassword) {
       message.warning(t("account.nothingToUpdate"));
       return;
     }
 
     setAccountLoading(true);
     try {
-      await authApi.updateProfile(
-        values.currentPassword,
-        trimmedUsername,
-        trimmedPassword,
-      );
+      if (hubMode) {
+        if (!trimmedPassword) {
+          message.warning(t("account.passwordRequired"));
+          return;
+        }
+        await hubApi.changePassword(trimmedPassword);
+      } else {
+        await authApi.updateProfile(
+          values.currentPassword || "",
+          trimmedUsername,
+          trimmedPassword,
+        );
+      }
       message.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
       accountForm.resetFields();
@@ -527,16 +527,86 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     }
   };
 
+  const handleRestartRuntime = async () => {
+    setRuntimeRestarting(true);
+    try {
+      await hubApi.restartOwnRuntime();
+      message.success(t("account.runtimeRestartSuccess"));
+      window.location.reload();
+    } catch (error: unknown) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("account.runtimeRestartFailed"),
+      );
+    } finally {
+      setRuntimeRestarting(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
   const isChatActive = selectedKey === "core.chat";
+  const collapsedChatItem = collapsedNavItems.find(
+    (item) => item.key === "core.chat",
+  );
+  const collapsedScrollableItems = collapsedNavItems.filter(
+    (item) => item.key !== "core.chat",
+  );
+
+  const renderCollapsedNavItem = (item: FlatMenuEntry) => {
+    const isActive =
+      item.key === "core.chat" ? isChatActive : selectedKey === item.key;
+    return (
+      <Tooltip
+        key={item.key}
+        title={item.label}
+        placement="right"
+        overlayInnerStyle={{
+          background: "rgba(0,0,0,0.75)",
+          color: "#fff",
+        }}
+      >
+        <button
+          type="button"
+          aria-label={typeof item.label === "string" ? item.label : undefined}
+          className={`${styles.collapsedNavItem} ${
+            isActive ? styles.collapsedNavItemActive : ""
+          }${
+            item.key === "core.inbox" && effectiveShake
+              ? ` ${styles.inboxShake}`
+              : ""
+          }`}
+          onClick={() => {
+            if (item.href) {
+              window.open(item.href, "_blank", "noopener,noreferrer");
+            } else {
+              navigate(item.path);
+            }
+          }}
+          onMouseEnter={
+            item.key === "core.inbox" ? handleInboxHover : undefined
+          }
+        >
+          {item.icon}
+        </button>
+      </Tooltip>
+    );
+  };
+
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
   // On mobile, the expanded sidebar shows sessions (like simple mode) instead
   // of the full menu — matching the desktop history panel UX.
   const isSimpleExpanded = (sidebarMode === "simple" || isMobile) && !collapsed;
+  const siderWidth = collapsed
+    ? isMobile
+      ? 56
+      : 72
+    : sidebarMode === "simple" && !isMobile
+    ? 280
+    : 240;
 
   return (
     <Sider
@@ -549,112 +619,146 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive =
-              item.key === "core.chat"
-                ? isChatActive
-                : selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }${
-                    item.key === "core.inbox" && effectiveShake
-                      ? ` ${styles.inboxShake}`
-                      : ""
-                  }`}
-                  onClick={() => {
-                    if (item.href) {
-                      window.open(item.href, "_blank", "noopener,noreferrer");
-                    } else {
-                      navigate(item.path);
-                    }
-                  }}
-                  onMouseEnter={
-                    item.key === "core.inbox" ? handleInboxHover : undefined
-                  }
-                >
-                  {item.icon}
-                </button>
-              </Tooltip>
-            );
-          })}
+          {collapsedChatItem && (
+            <div className={styles.collapsedNavPinned}>
+              {renderCollapsedNavItem(collapsedChatItem)}
+            </div>
+          )}
+          <div className={styles.collapsedNavScroll}>
+            {collapsedScrollableItems.map(renderCollapsedNavItem)}
+          </div>
         </nav>
       ) : isSimpleExpanded ? (
         <>
-          {/* Simple mode: flat nav items + session list */}
-          <div className={styles.agentScopedSection}>
+          {/* Simple mode: agent context and navigation share one panel. */}
+          <div
+            className={`${styles.agentScopedSection} ${styles.simpleAgentPanel}`}
+          >
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
             </div>
-            {/* Flat nav items (no groups) */}
-            <div className={styles.simpleNavItems}>
-              {simpleFlatNav.map((entry) => {
-                const isInbox = entry.key === "core.inbox";
-                const isActive = selectedKey === entry.key;
-                return (
-                  <button
-                    key={entry.key}
-                    className={`${styles.simpleNavItem} ${
-                      isActive ? styles.simpleNavItemActive : ""
-                    }${
-                      isInbox && effectiveShake ? ` ${styles.inboxShake}` : ""
-                    }`}
-                    onMouseEnter={isInbox ? handleInboxHover : undefined}
-                    onClick={() => {
-                      if (entry.href) {
-                        window.open(
-                          entry.href,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                      } else {
-                        navigate(entry.path);
-                      }
-                    }}
-                  >
-                    {isInbox ? (
-                      <span
-                        style={{
-                          position: "relative",
-                          display: "inline-flex",
-                        }}
-                      >
-                        {entry.icon ?? <SparkEmailLine size={16} />}
-                        {hasInboxUnread && (
-                          <span
-                            style={{
-                              position: "absolute",
-                              top: -1,
-                              right: -3,
-                              width: 6,
-                              height: 6,
-                              borderRadius: "50%",
-                              background: inboxDotColor,
-                            }}
-                          />
-                        )}
-                      </span>
-                    ) : (
-                      entry.icon
-                    )}
-                    <span>{entry.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              className={`${styles.simpleNavItem} ${styles.simpleChatItem} ${
+                isChatActive ? styles.simpleNavItemActive : ""
+              }`}
+              onClick={() => navigate(chatPath)}
+            >
+              <MessageSquareText size={16} />
+              <span>{t("nav.chat")}</span>
+            </button>
+            {simpleInboxEntry && (
+              <button
+                type="button"
+                className={`${styles.simpleNavItem} ${styles.simpleInboxItem} ${
+                  selectedKey === simpleInboxEntry.key
+                    ? styles.simpleNavItemActive
+                    : ""
+                }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
+                onMouseEnter={handleInboxHover}
+                onClick={() => {
+                  if (simpleInboxEntry.href) {
+                    window.open(
+                      simpleInboxEntry.href,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                  } else {
+                    navigate(simpleInboxEntry.path);
+                  }
+                }}
+              >
+                <span className={styles.simpleInboxIcon}>
+                  {simpleInboxEntry.icon ?? <SparkEmailLine size={16} />}
+                  {hasInboxUnread && (
+                    <span
+                      className={styles.simpleInboxUnreadDot}
+                      style={{ background: inboxDotColor }}
+                    />
+                  )}
+                </span>
+                <span>{simpleInboxEntry.label}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.simpleAgentDisclosure}
+              aria-expanded={simpleAgentFunctionsExpanded}
+              aria-controls="simple-agent-functions"
+              aria-label={t(
+                "sidebar.toggleAgentNavigation",
+                "Expand or collapse agent navigation",
+              )}
+              onClick={() =>
+                setSimpleAgentFunctionsExpanded((expanded) => !expanded)
+              }
+            >
+              <span className={styles.simpleAgentDisclosureLine} />
+              <motion.span
+                className={styles.simpleAgentDisclosureHandle}
+                animate={{ rotate: simpleAgentFunctionsExpanded ? 180 : 0 }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.22, ease: [0.22, 0.78, 0.24, 1] }
+                }
+              >
+                <ChevronDown size={14} />
+              </motion.span>
+              <span className={styles.simpleAgentDisclosureLine} />
+            </button>
+            <AnimatePresence initial={false}>
+              {simpleAgentFunctionsExpanded && (
+                <motion.div
+                  key="simple-agent-functions"
+                  id="simple-agent-functions"
+                  className={styles.simpleAgentFunctionsMotion}
+                  initial={
+                    prefersReducedMotion
+                      ? false
+                      : { height: 0, opacity: 0, y: -4 }
+                  }
+                  animate={{ height: "auto", opacity: 1, y: 0 }}
+                  exit={{ height: 0, opacity: 0, y: -4 }}
+                  transition={
+                    prefersReducedMotion
+                      ? { duration: 0 }
+                      : { duration: 0.24, ease: [0.22, 0.78, 0.24, 1] }
+                  }
+                >
+                  <div className={styles.simpleNavItems}>
+                    {simpleFoldedNav.map((entry) => {
+                      const isActive = selectedKey === entry.key;
+                      return (
+                        <button
+                          key={entry.key}
+                          className={`${styles.simpleNavItem} ${
+                            isActive ? styles.simpleNavItemActive : ""
+                          }`}
+                          onClick={() => {
+                            if (entry.href) {
+                              window.open(
+                                entry.href,
+                                "_blank",
+                                "noopener,noreferrer",
+                              );
+                            } else {
+                              navigate(entry.path);
+                            }
+                          }}
+                        >
+                          {entry.icon}
+                          <span>{entry.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Session list — fills remaining space */}
+          {/* Session list — fills the primary space. */}
           <SidebarSessionList
             onNewChat={handleNewChat}
             onSessionClick={handleSidebarSessionClick}
@@ -705,6 +809,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>
+          {hubAdmin && (
+            <Button
+              type="text"
+              icon={<ShieldCheck size={16} />}
+              onClick={() => navigate("/hub/admin")}
+              block
+              className={styles.authBtn}
+            >
+              {t("hub.brand.title")}
+            </Button>
+          )}
           <Button
             type="text"
             icon={<SparkSearchUserLine size={16} />}
@@ -750,7 +865,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           }
         >
           <Button
-            ref={settingsButtonRef}
             type="text"
             icon={<SparkSettingLine size={18} />}
             className={styles.collapseToggle}
@@ -770,14 +884,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         />
       </div>
 
-      <Tour
-        open={desktopModeHintOpen}
-        steps={desktopModeHintSteps}
-        onClose={dismissDesktopHint}
-        onFinish={dismissDesktopHint}
-        mask={{ color: "rgba(9, 9, 11, 0.2)" }}
-      />
-
       <Modal
         open={accountModalOpen}
         onCancel={() => setAccountModalOpen(false)}
@@ -791,20 +897,52 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           layout="vertical"
           onFinish={handleUpdateProfile}
         >
+          {hubMode ? (
+            <div className={styles.accountIdentity}>
+              <span>{t("account.username")}</span>
+              <strong>{hubUsername}</strong>
+            </div>
+          ) : (
+            <>
+              <Form.Item
+                name="currentPassword"
+                label={t("account.currentPassword")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("account.currentPasswordRequired"),
+                  },
+                ]}
+              >
+                <Input.Password />
+              </Form.Item>
+              <Form.Item name="newUsername" label={t("account.newUsername")}>
+                <Input placeholder={t("account.newUsernamePlaceholder")} />
+              </Form.Item>
+            </>
+          )}
           <Form.Item
-            name="currentPassword"
-            label={t("account.currentPassword")}
-            rules={[
-              { required: true, message: t("account.currentPasswordRequired") },
-            ]}
+            name="newPassword"
+            label={t("account.newPassword")}
+            rules={
+              hubMode
+                ? [
+                    {
+                      required: true,
+                      message: t("account.passwordRequired"),
+                    },
+                    { min: 8, message: t("hub.validation.passwordMin") },
+                  ]
+                : undefined
+            }
           >
-            <Input.Password />
-          </Form.Item>
-          <Form.Item name="newUsername" label={t("account.newUsername")}>
-            <Input placeholder={t("account.newUsernamePlaceholder")} />
-          </Form.Item>
-          <Form.Item name="newPassword" label={t("account.newPassword")}>
-            <Input.Password placeholder={t("account.newPasswordPlaceholder")} />
+            <Input.Password
+              placeholder={t(
+                hubMode
+                  ? "account.hubPasswordPlaceholder"
+                  : "account.newPasswordPlaceholder",
+              )}
+            />
           </Form.Item>
           <Form.Item
             name="confirmPassword"
@@ -840,6 +978,28 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               {t("account.save")}
             </Button>
           </Form.Item>
+          {hubMode && (
+            <div className={styles.runtimeRecovery}>
+              <Divider />
+              <strong>{t("account.runtimeTitle")}</strong>
+              <p>{t("account.runtimeDescription")}</p>
+              <Popconfirm
+                title={t("account.runtimeRestartConfirmTitle")}
+                description={t("account.runtimeRestartConfirmDescription")}
+                onConfirm={handleRestartRuntime}
+                okText={t("account.runtimeRestart")}
+                cancelText={t("common.cancel")}
+              >
+                <Button
+                  icon={<RotateCw size={16} />}
+                  loading={runtimeRestarting}
+                  block
+                >
+                  {t("account.runtimeRestart")}
+                </Button>
+              </Popconfirm>
+            </div>
+          )}
         </Form>
       </Modal>
     </Sider>

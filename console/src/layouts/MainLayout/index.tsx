@@ -31,7 +31,7 @@ function pickSelectedKey(
   return "core.chat";
 }
 
-export default function MainLayout() {
+export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const { t } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
@@ -60,13 +60,16 @@ export default function MainLayout() {
     <Layout className={styles.mainLayout}>
       <Header />
       <Layout>
-        <Sidebar selectedKey={selectedKey} />
+        <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
         <Content className="page-container">
           <ConsolePollService />
           <AgentStatusPollingController />
           <Slot name="content.statusBar" kind="fill" />
           <div className="page-content">
-            <ChunkErrorBoundary resetKey={currentPath}>
+            <ChunkErrorBoundary
+              resetKey={currentPath}
+              canRestartRuntime={hubMode}
+            >
               <Suspense
                 fallback={
                   <Spin

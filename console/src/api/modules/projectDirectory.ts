@@ -103,6 +103,16 @@ export const projectDirectoryApi = {
       )}${showHidden ? "&show_hidden=true" : ""}`,
     ),
 
+  /** Create a direct child in the directory currently being browsed. */
+  createDirectory: (parent: string, name: string) =>
+    request<{ path: string; name: string }>(
+      "/workspace/project-directory/browse-dirs/create",
+      {
+        method: "POST",
+        body: JSON.stringify({ parent, name }),
+      },
+    ),
+
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
   cloneStream: (url: string, name?: string): Promise<Response> =>
     fetch(getApiUrl("/workspace/project-directory/clone"), {

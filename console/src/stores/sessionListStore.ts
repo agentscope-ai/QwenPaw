@@ -11,6 +11,7 @@
  */
 import { create } from "zustand";
 import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
+import type { ChatSource } from "../api/types/chat";
 import { useAgentStore } from "./agentStore";
 
 export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
@@ -20,12 +21,17 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: string;
   generating?: boolean;
   pinned?: boolean;
   archivedAt?: string | null;
   archived?: boolean;
+  source?: ChatSource;
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 interface SessionListStore {

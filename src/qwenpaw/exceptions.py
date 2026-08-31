@@ -41,6 +41,22 @@ class ConfigurationException(AppBaseException):
         super().__init__(message=message, **kwargs)
 
 
+class AgentConfigConflictError(ConfigurationException):
+    """An agent configuration changed after it was loaded."""
+
+    ERROR_CODE = "AGENT_CONFIG_STALE"
+
+    def __init__(self, agent_id: str) -> None:
+        self.agent_id = agent_id
+        super().__init__(
+            config_key="agent",
+            message=(
+                f"Agent '{agent_id}' changed on disk; reload it and retry"
+            ),
+            error_code=self.ERROR_CODE,
+        )
+
+
 class AgentRuntimeErrorException(AppBaseException):
     """Base for runtime/model errors carrying ``error_code`` + ``details``."""
 
@@ -79,15 +95,13 @@ class ModelTimeoutException(AgentRuntimeErrorException):
     def __init__(
         self,
         model: str,
-        timeout: float | int | None = None,
         details: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         self.model = model
-        self.timeout = timeout
         super().__init__(
             error_code="MODEL_TIMEOUT",
-            message=f"Model '{model}' timed out after {timeout}s",
+            message=f"Model '{model}' timed out",
             details=details,
             **kwargs,
         )
@@ -609,6 +623,11 @@ def _append_error_detail(
     summary = _extract_error_summary(exc)
     if summary:
         converted.message = f"{converted.message}. Reason: {summary}"
+    from .utils.image_resize import image_pixel_limit_hint
+
+    image_hint = image_pixel_limit_hint(exc)
+    if image_hint:
+        converted.message = f"{converted.message}. {image_hint}"
     return converted
 
 
@@ -776,7 +795,6 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
         return _append_error_detail(
             ModelTimeoutException(
                 model,
-                timeout=60,
                 details=details,
             ),
             exc,

@@ -69,6 +69,37 @@ def test_media_base64_config():
         OneBotConfig(media_base64_max_mb=0)
 
 
+def test_media_download_max_mb_config():
+    """Inbound download limit is independent of the base64 limit."""
+
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    config = OneBotConfig(enabled=True, media_download_max_mb=5)
+    ch = OneBotChannel.from_config(_noop_process, config)
+
+    assert OneBotConfig().model_dump()["media_download_max_mb"] == 50
+    assert config.model_dump()["media_download_max_mb"] == 5
+    assert ch._inbound_media._max_download_bytes == 5_000_000
+    assert ch._inbound_media._max_download_bytes != ch._media_base64_max_bytes
+    with pytest.raises(ValidationError):
+        OneBotConfig(media_download_max_mb=0)
+
+
+def test_media_dir_config(tmp_path):
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    explicit = tmp_path / "onebot-media"
+    config = OneBotConfig(enabled=True, media_dir=str(explicit))
+    ch = OneBotChannel.from_config(_noop_process, config)
+    assert ch._media_dir == explicit
+
+    workspace = tmp_path / "workspace"
+    ch = _make_channel(workspace_dir=workspace)
+    assert ch._media_dir == workspace / "media"
+
+
 def _make_message_event(
     message_type: str = "private",
     user_id: int = 12345,
@@ -103,24 +134,25 @@ def _make_message_event(
 class TestParseMessageSegments:
     def test_text_only(self):
         ch = _make_channel()
-        parts, mentioned = ch._parse_message_segments(
+        parts, mentioned, media_segments = ch._parse_message_segments(
             [{"type": "text", "data": {"text": "hello world"}}],
         )
         assert len(parts) == 1
         assert parts[0].type == ContentType.TEXT
         assert parts[0].text == "hello world"
         assert mentioned is False
+        assert not media_segments
 
     def test_empty_text_skipped(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "text", "data": {"text": "  "}}],
         )
         assert len(parts) == 0
 
     def test_image_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, media_segments = ch._parse_message_segments(
             [
                 {
                     "type": "image",
@@ -131,10 +163,11 @@ class TestParseMessageSegments:
         assert len(parts) == 1
         assert parts[0].type == ContentType.IMAGE
         assert parts[0].image_url == "https://img.example.com/1.jpg"
+        assert media_segments[0]["type"] == "image"
 
     def test_image_file_fallback(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "image", "data": {"file": "file:///tmp/1.jpg"}}],
         )
         assert len(parts) == 1
@@ -142,7 +175,7 @@ class TestParseMessageSegments:
 
     def test_record_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "record",
@@ -155,7 +188,7 @@ class TestParseMessageSegments:
 
     def test_video_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "video",
@@ -168,7 +201,7 @@ class TestParseMessageSegments:
 
     def test_file_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "file",
@@ -185,7 +218,7 @@ class TestParseMessageSegments:
     def test_at_bot_detected(self):
         ch = _make_channel()
         ch._self_id = 99999
-        parts, mentioned = ch._parse_message_segments(
+        parts, mentioned, _ = ch._parse_message_segments(
             [
                 {"type": "at", "data": {"qq": "99999"}},
                 {"type": "text", "data": {"text": "hello bot"}},
@@ -198,7 +231,7 @@ class TestParseMessageSegments:
     def test_at_other_user_not_mentioned(self):
         ch = _make_channel()
         ch._self_id = 99999
-        _, mentioned = ch._parse_message_segments(
+        _, mentioned, _ = ch._parse_message_segments(
             [
                 {"type": "at", "data": {"qq": "11111"}},
                 {"type": "text", "data": {"text": "hello"}},
@@ -208,7 +241,7 @@ class TestParseMessageSegments:
 
     def test_mixed_segments(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {"type": "text", "data": {"text": "look at this"}},
                 {
@@ -225,10 +258,28 @@ class TestParseMessageSegments:
 
     def test_unknown_segment_ignored(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "unknown_type", "data": {}}],
         )
         assert len(parts) == 0
+
+    def test_media_segments_only_include_created_parts(self):
+        ch = _make_channel()
+        valid_file = {
+            "type": "file",
+            "data": {"file": "report.pdf", "file_id": "file-id"},
+        }
+
+        parts, _, media_segments = ch._parse_message_segments(
+            [
+                {"type": "image", "data": {}},
+                valid_file,
+            ],
+        )
+
+        assert len(parts) == 1
+        assert parts[0].type == ContentType.FILE
+        assert media_segments == [valid_file]
 
     def test_normalize_cq_code_message(self):
         segments = OneBotChannel._normalize_onebot_segments(
@@ -309,10 +360,11 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
 
         assert len(enqueued) == 1
-        req = enqueued[0]
-        assert req.session_id == "onebot:12345"
-        assert req.channel_meta["message_type"] == "private"
-        assert req.channel_meta["sender_id"] == "12345"
+        native = enqueued[0]
+        assert native["session_id"] == "onebot:12345"
+        assert native["acl_sender_id"] == "12345"
+        assert native["meta"]["message_type"] == "private"
+        assert native["meta"]["sender_id"] == "12345"
 
     async def test_group_message_enqueues(self):
         ch = _make_channel()
@@ -327,10 +379,11 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
 
         assert len(enqueued) == 1
-        req = enqueued[0]
-        assert req.session_id == "onebot:67890:12345"
-        assert req.channel_meta["is_group"] is True
-        assert req.channel_meta["group_id"] == "67890"
+        native = enqueued[0]
+        assert native["session_id"] == "onebot:67890:12345"
+        assert native["acl_sender_id"] == "12345"
+        assert native["meta"]["is_group"] is True
+        assert native["meta"]["group_id"] == "67890"
 
     async def test_empty_message_ignored(self):
         ch = _make_channel()
@@ -386,6 +439,28 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
         assert len(enqueued) == 0
+
+    async def test_require_mention_blocks_before_remote_image_download(self):
+        ch = _make_channel(require_mention=True, media_base64=True)
+        ch._self_id = 99999
+        ch._inbound_media.resolve = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {
+                    "type": "image",
+                    "data": {"url": "https://img.example.com/pic.png"},
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert len(enqueued) == 0
+        ch._inbound_media.resolve.assert_not_awaited()
 
     async def test_require_mention_allows_with_at(self):
         ch = _make_channel(require_mention=True)
@@ -451,7 +526,7 @@ class TestHandleMessageEvent:
 
         ch._call_api.assert_awaited_once_with("get_msg", {"message_id": 321})
         assert len(enqueued) == 1
-        content = enqueued[0].input[0].content
+        content = enqueued[0]["content_parts"]
         assert len(content) == 1
         assert content[0].text == (
             "[Quoted message]\nquoted text\n\n"
@@ -471,6 +546,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-pic.jpg",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -485,11 +563,11 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
 
-        content = enqueued[0].input[0].content
+        content = enqueued[0]["content_parts"]
         assert content[0].text == "[Quoted message]"
         assert content[1].text == "[Quoted image message]"
         assert content[2].type == ContentType.IMAGE
-        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[2].image_url == "C:/media/quoted-pic.jpg"
         assert content[3].text == "[Current message]"
         assert content[4].text == "describe it"
 
@@ -507,6 +585,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-raw-pic.jpg",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -521,11 +602,11 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
 
-        content = enqueued[0].input[0].content
+        content = enqueued[0]["content_parts"]
         assert content[0].text == "[Quoted message]"
         assert content[1].text == "[Quoted image message]"
         assert content[2].type == ContentType.IMAGE
-        assert content[2].image_url == "https://img.example.com/pic.jpg"
+        assert content[2].image_url == "C:/media/quoted-raw-pic.jpg"
         assert content[3].text == "[Current message]"
         assert content[4].text == "describe it"
 
@@ -549,6 +630,9 @@ class TestHandleMessageEvent:
                 },
             },
         )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-voice.amr",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -563,10 +647,10 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
 
-        content = enqueued[0].input[0].content
+        content = enqueued[0]["content_parts"]
         assert content[1].text == "[Quoted voice message]"
         assert content[2].type == ContentType.AUDIO
-        assert content[2].data == ("https://qq.example/download?file=voice")
+        assert content[2].data == "C:/media/quoted-voice.amr"
         assert content[3].text == "[Current message]"
         assert content[4].text == "what is it"
 
@@ -592,6 +676,10 @@ class TestHandleMessageEvent:
                 {"data": {"url": "https://files.example.com/doc.pdf"}},
             ],
         )
+        ch._inbound_media._call_api = ch._call_api
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-doc.pdf",
+        )
         enqueued: list = []
         ch._enqueue = enqueued.append
 
@@ -614,11 +702,10 @@ class TestHandleMessageEvent:
             {"group_id": 67890, "file_id": "quoted-file-id"},
         )
         assert len(enqueued) == 1
-        assert (
-            enqueued[0].input[0].content[2].file_url
-            == "https://files.example.com/doc.pdf"
+        assert enqueued[0]["content_parts"][2].file_url == (
+            "C:/media/quoted-doc.pdf"
         )
-        assert enqueued[0].input[0].content[1].text == (
+        assert enqueued[0]["content_parts"][1].text == (
             "[Quoted file message: doc.pdf]"
         )
 
@@ -643,6 +730,13 @@ class TestHandleMessageEvent:
                 },
                 {"data": {"url": "https://files.example/quoted.pdf"}},
                 {"data": {"url": "https://files.example/current.pdf"}},
+            ],
+        )
+        ch._inbound_media._call_api = ch._call_api
+        ch._inbound_media.download = AsyncMock(
+            side_effect=[
+                "C:/media/quoted.pdf",
+                "C:/media/current.pdf",
             ],
         )
         enqueued: list = []
@@ -674,9 +768,9 @@ class TestHandleMessageEvent:
             "get_group_file_url",
             {"group_id": 67890, "file_id": "current-file-id"},
         )
-        content = enqueued[0].input[0].content
-        assert content[2].file_url == "https://files.example/quoted.pdf"
-        assert content[4].file_url == "https://files.example/current.pdf"
+        content = enqueued[0]["content_parts"]
+        assert content[2].file_url == "C:/media/quoted.pdf"
+        assert content[4].file_url == "C:/media/current.pdf"
 
     async def test_unmentioned_reply_does_not_call_get_msg(self):
         ch = _make_channel(require_mention=True)
@@ -1194,6 +1288,44 @@ class TestHandleEvent:
         assert len(enqueued) == 0
 
 
+class TestSessionMessageOrdering:
+    async def test_worker_preserves_order_and_cleans_up(self):
+        ch = _make_channel()
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        handled: list[int] = []
+
+        async def handle(data):
+            if data["message_id"] == 1:
+                first_started.set()
+                await release_first.wait()
+            handled.append(data["message_id"])
+
+        ch._handle_message_event = handle
+        first = _make_message_event(message_id=1)
+        second = _make_message_event(message_id=2)
+
+        ch._dispatch_message_event(first)
+        worker = next(iter(ch._session_workers.values()))
+        await first_started.wait()
+        ch._dispatch_message_event(second)
+        release_first.set()
+        await worker
+
+        assert handled == [1, 2]
+        assert not ch._session_workers
+        assert not ch._session_queues
+
+    def test_dispatch_drops_events_while_stopping(self):
+        ch = _make_channel()
+        ch._stopping = True
+
+        ch._dispatch_message_event(_make_message_event())
+
+        assert not ch._session_workers
+        assert not ch._session_queues
+
+
 # ===================================================================
 # build_agent_request_from_native
 # ===================================================================
@@ -1214,6 +1346,8 @@ class TestBuildAgentRequest:
         assert req.session_id == "onebot:12345"
         assert req.user_id == "12345"
         assert req.channel == "onebot"
+        assert req.channel_meta == {"is_group": False}
+        assert req.acl_sender_id == "12345"
         assert len(req.input) == 1
         assert req.input[0].content[0].text == "hi"
 

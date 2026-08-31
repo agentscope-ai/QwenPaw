@@ -1,4 +1,4 @@
-import {
+import type {
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
@@ -34,6 +34,7 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
+  useTurnUsageStore.getState().invalidateTurn();
   const snap = extractLatestSnapshotFromCards(messages);
   const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
   if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
@@ -118,10 +119,20 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   createdAt?: string | null;
   /** ISO 8601 last-updated timestamp from backend. */
   updatedAt?: string | null;
+  /** ISO 8601 completion time of the most recent task. */
+  lastFinishedAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
   pinned?: boolean;
+  /** Whether the chat is archived. */
+  archived?: boolean;
+  /** ISO 8601 archive timestamp from backend. */
+  archivedAt?: string | null;
+  source?: ChatSpec["source"];
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,13 +156,28 @@ function generateId(): string {
   return `${Date.now()}-${randomBase36(9)}`;
 }
 
-/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
-const parseTimestamp = (msg: Record<string, unknown>): number => {
-  const ts = (msg.metadata as Record<string, unknown>)?.timestamp;
+/**
+ * Parse a metadata time string (e.g. "2026-05-27 10:44:53.362") to unix
+ * seconds; returns 0 when the value is absent or not parseable.
+ */
+const metadataTimeToSeconds = (ts: unknown): number => {
   if (!ts || typeof ts !== "string") return 0;
   const ms = new Date(ts.replace(" ", "T")).getTime();
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
 };
+
+/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
+const parseTimestamp = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.timestamp);
+
+/**
+ * Parse metadata.finished_at string to unix seconds (0 when absent).
+ * `finished_at` is stamped when the reply actually ended; `timestamp` is
+ * the created_at alias pinned at the first saved segment, which can be far
+ * earlier for turns with long tool calls.
+ */
+const parseFinishedAt = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.finished_at);
 
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
@@ -283,6 +309,13 @@ const buildResponseCard = (
 
   const firstTs = parseTimestamp(outputMessages[0]);
   const lastTs = parseTimestamp(outputMessages[outputMessages.length - 1]);
+  // Prefer the real reply-end time (finished_at) over timestamp so turns
+  // with long tool calls show the true completion time (#6826). Falls
+  // back to timestamp for legacy sessions without the stamp.
+  const finishedAt = outputMessages.reduce(
+    (max, m) => Math.max(max, parseFinishedAt(m)),
+    0,
+  );
 
   const normalizedMessages = outputMessages.map((msg) => ({
     ...msg,
@@ -305,7 +338,7 @@ const buildResponseCard = (
           created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
-          completed_at: lastTs || fallbackNow,
+          completed_at: finishedAt || lastTs || fallbackNow,
           usage: turnUsage?.usage ?? null,
           context_usage: turnUsage?.context_usage ?? null,
         },
@@ -357,7 +390,12 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
+    lastFinishedAt: chat.last_finished_at ?? null,
     pinned: chat.pinned ?? false,
+    source: chat.source ?? "chat",
+    groupId: chat.group_id ?? null,
+    parentSessionId: chat.parent_session_id ?? null,
+    rootSessionId: chat.root_session_id ?? null,
     archived: chat.archived ?? false,
     archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
@@ -1243,9 +1281,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.name !== b.name ||
         a.status !== b.status ||
         a.updatedAt !== b.updatedAt ||
+        a.lastFinishedAt !== b.lastFinishedAt ||
+        a.createdAt !== b.createdAt ||
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||
-        a.realId !== b.realId
+        a.realId !== b.realId ||
+        a.sessionId !== b.sessionId ||
+        a.userId !== b.userId ||
+        a.channel !== b.channel ||
+        a.archivedAt !== b.archivedAt ||
+        a.archived !== b.archived ||
+        a.source !== b.source ||
+        a.groupId !== b.groupId ||
+        a.parentSessionId !== b.parentSessionId ||
+        a.rootSessionId !== b.rootSessionId
       ) {
         return false;
       }
@@ -1270,7 +1319,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     };
     entry.promise = (async () => {
       try {
-        const chats = await api.listChats({ archived: false });
+        const chats = await api.listChats({
+          archived: false,
+          include_app_owned: false,
+        });
         // A result from a stale epoch must not replace the current agent's
         // session list; hand back the current list without mutation.
         if (!this.isActiveOwner(owner)) {
@@ -1368,7 +1420,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, { signal });
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      include_app_owned: false,
+    });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
@@ -1674,6 +1729,7 @@ export const __test__ = {
   contentToRequestParts,
   extractTextFromContent,
   parseTimestamp,
+  parseFinishedAt,
   isLocalTimestamp,
   isGenerating,
   resolveRealId,

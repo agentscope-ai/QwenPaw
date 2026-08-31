@@ -30,11 +30,9 @@ function AgentConfigPage() {
   );
   const [needsReindex, setNeedsReindex] = useState(false);
   const [localReindexing, setLocalReindexing] = useState(false);
-  const [configRevision, setConfigRevision] = useState(0);
   const syncReindexRequirement = useCallback(
     (config: { reme_light_memory_config?: { needs_reindex?: boolean } }) => {
       setNeedsReindex(config.reme_light_memory_config?.needs_reindex === true);
-      setConfigRevision((revision) => revision + 1);
     },
     [],
   );
@@ -61,11 +59,10 @@ function AgentConfigPage() {
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
   const { selectedAgent } = useAgentStore();
-  const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(
-    memoryBackend === "remelight",
-  );
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(memoryBackend === "remelight");
   const remoteReindexing =
-    runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
   const reindexing = localReindexing || remoteReindexing;
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
@@ -312,8 +309,8 @@ function AgentConfigPage() {
             setReindexing: setLocalReindexing,
             openMemorySettings: () => setActiveTab("remeLightMemory"),
             runtimeStatus,
+            diagnosticsStatus,
             checkMemoryStatus,
-            configRevision,
           }}
         >
           <Form form={form} layout="vertical" className={styles.form}>

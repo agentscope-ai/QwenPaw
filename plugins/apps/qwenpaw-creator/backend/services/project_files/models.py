@@ -32,13 +32,21 @@ from pydantic import (
 )
 
 
-CURRENT_PROJECT_SCHEMA_VERSION = 8
+CURRENT_PROJECT_SCHEMA_VERSION = 9
 DEFAULT_TIMELINE_ID = "timeline:main"
 DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
 
 # Unified colour-grade preset names; the ffmpeg filters live in the local
 # media renderer (keys must stay aligned with _COLOR_GRADE_FILTERS there).
-COLOR_GRADE_PRESETS = ("warm_bright", "clean_cool", "cinematic")
+COLOR_GRADE_PRESETS = (
+    "warm_bright",
+    "clean_cool",
+    "cinematic",
+    "vlog_fresh",
+    "ink_wash",
+    "stage_drama",
+    "neon_vivid",
+)
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
 
@@ -789,6 +797,11 @@ class R2VCreation(StrictModel):
     )
     video_prompt: str = ""
     video_reference_version_ids: list[EntityId] = Field(default_factory=list)
+    # Minimum fraction of shots that must carry dialogue when the element
+    # has character appearances. Default 0.3 (≈1 line per 2–3 shots);
+    # the model sets this during planning and the review UI may override
+    # it per element. The work-graph gate enforces it deterministically.
+    min_dialogue_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _validate_shots(self) -> R2VCreation:
@@ -1044,6 +1057,13 @@ class AudioCreation(StrictModel):
 
     type: Literal["audio"] = "audio"
     source_asset_version_id: EntityId
+    # Mixing role — required, an explicit authoring decision: "narration"
+    # ducks the footage audio under it and must not overlap natively voiced
+    # clips; "bgm" plays as one continuous low bed that ducks itself under
+    # any speech; "sfx" mixes verbatim. Pre-role documents are stamped
+    # "narration" by the v8->v9 migration (their historical behaviour:
+    # every audio track ducked the footage audio).
+    role: Literal["bgm", "narration", "sfx"]
     # TTS-produced narration keeps its script here: editing the script and
     # applying the change re-synthesizes the audio. Uploaded/footage audio
     # leaves it empty.
@@ -1053,11 +1073,18 @@ class AudioCreation(StrictModel):
     speech_rate: float = Field(default=1.0, ge=0.5, le=2.0)
     gain_db: float = 0.0
     pan: float = Field(default=0.0, ge=-1, le=1)
+    # Edge fades in seconds — an agent-owned creative choice. None selects
+    # the adaptive role default at render time (bgm: min(2s, span/4) so a
+    # short segment is not swallowed by its ramps; narration/sfx: hard
+    # edges). Segmented BGM crossfades by overlapping adjacent spans: both
+    # edges fade while the mixer sums them.
+    fade_in_seconds: float | None = Field(default=None, ge=0, le=10)
+    fade_out_seconds: float | None = Field(default=None, ge=0, le=10)
 
-    @field_validator("gain_db", "pan")
+    @field_validator("gain_db", "pan", "fade_in_seconds", "fade_out_seconds")
     @classmethod
-    def _validate_finite(cls, value: float) -> float:
-        if not math.isfinite(value):
+    def _validate_finite(cls, value: float | None) -> float | None:
+        if value is not None and not math.isfinite(value):
             raise ValueError("audio values must be finite")
         return value
 
@@ -1273,7 +1300,7 @@ class Timeline(StrictModel):
 
 
 class Project(StrictModel):
-    schema_version: Literal[8] = CURRENT_PROJECT_SCHEMA_VERSION
+    schema_version: Literal[9] = CURRENT_PROJECT_SCHEMA_VERSION
     project_id: EntityId
     generation: int = Field(default=0, ge=0)
     created_at: UtcDateTime
@@ -1745,6 +1772,7 @@ class Project(StrictModel):
                     element_timelines[element_id].ticks_per_second,
                 )
 
+        _validate_narration_voiced_overlap(self.timelines)
         _validate_render_source_cycles(elements)
         return self
 
@@ -1874,6 +1902,88 @@ def _require_key(mapping: dict[str, T], key: str, label: str) -> T:
 def _require_all(mapping: dict[str, Any], keys: list[str], label: str) -> None:
     for key in keys:
         _require_key(mapping, key, label)
+
+
+def _validate_narration_voiced_overlap(
+    timelines: EntityCollection[Timeline],
+) -> None:
+    """A narration track must not overlap a natively voiced interval.
+
+    Generated video speaks its shot dialogue itself and s2v clips are driven
+    by their own voice track; layering narration on the same interval would
+    produce two competing voices. Voiced intervals are shot-granular: only
+    the dialogue-bearing shots of an R2V Element count, so narration may
+    cover the silent shots of the same Element. Shots are placed by
+    scaling their declared durations onto the Element span (the provider
+    renders the shot list into exactly the span, so relative durations
+    are the trustworthy signal); the whole span is the fallback when any
+    duration is unusable.
+    """
+
+    for timeline in timelines.items.values():
+        voiced_spans: list[tuple[str, TimelineSpan]] = []
+        for element_id, element in timeline.elements_by_id.items():
+            if not element.enabled:
+                continue
+            creation = element.creation
+            if isinstance(creation, S2VCreation):
+                voiced_spans.append((element_id, element.span))
+                continue
+            if not isinstance(creation, R2VCreation):
+                continue
+            shots = [
+                creation.shots.items[shot_id]
+                for shot_id in creation.shots.order
+            ]
+            if not any(shot.dialogue.strip() for shot in shots):
+                continue
+            total_seconds = sum(shot.duration_seconds for shot in shots)
+            if (
+                any(shot.duration_seconds <= 0 for shot in shots)
+                or total_seconds <= 0
+            ):
+                voiced_spans.append((element_id, element.span))
+                continue
+            ticks_per_shot_second = element.span.duration_tick / total_seconds
+            cursor = float(element.span.start_tick)
+            for shot in shots:
+                shot_start = cursor
+                cursor = min(
+                    cursor + shot.duration_seconds * ticks_per_shot_second,
+                    float(element.span.end_tick),
+                )
+                start_tick = round(shot_start)
+                end_tick = round(cursor)
+                if shot.dialogue.strip() and end_tick > start_tick:
+                    voiced_spans.append(
+                        (
+                            element_id,
+                            TimelineSpan(
+                                start_tick=start_tick,
+                                duration_tick=end_tick - start_tick,
+                            ),
+                        ),
+                    )
+        if not voiced_spans:
+            continue
+        for element_id, element in timeline.elements_by_id.items():
+            creation = element.creation
+            if (
+                not element.enabled
+                or not isinstance(creation, AudioCreation)
+                or creation.role != "narration"
+            ):
+                continue
+            for voiced_id, voiced_span in voiced_spans:
+                if element.span.overlaps(voiced_span):
+                    raise ValueError(
+                        f"narration audio {element_id} overlaps the voiced "
+                        f"interval [{voiced_span.start_tick}, "
+                        f"{voiced_span.end_tick}) of element {voiced_id}: "
+                        "the generated video natively voices that interval "
+                        "(shot dialogue or s2v speech); move the narration "
+                        "span or clear the dialogue of those shots",
+                    )
 
 
 def _require_all_ids(known: set[str], keys: list[str], label: str) -> None:

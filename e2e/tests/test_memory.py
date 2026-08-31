@@ -103,8 +103,21 @@ class TestWorkspaceMemoryMd:
         assert seed_resp.ok, (
             f"Seed MEMORY.md failed [{seed_resp.status}]: {seed_resp.text()}"
         )
+        # Defensive reset: a prior coding-mode case may have bound a
+        # project directory, which makes the files page show the project
+        # tree instead of the workspace tree.
+        api_context.post(
+            "/api/coding-mode",
+            data={"enabled": False},
+            headers=memory_page._agent_headers(),
+        )
+        api_context.put(
+            "/api/workspace/project-directory",
+            data={"path": None},
+            headers=memory_page._agent_headers(),
+        )
 
-        log_test_step("2. Open /workspace")
+        log_test_step("2. Open /files")
         memory_page.open_workspace()
 
         log_test_step("3. MEMORY.md row is visible")
@@ -162,12 +175,12 @@ class TestMemorySearchRecall:
 
         log_test_step("2. Open chat and ask about the keyword")
         memory_page.page.goto(
-            f"{memory_page.WORKSPACE_URL.replace('/workspace', '/chat')}",
+            f"{memory_page.WORKSPACE_URL.replace('/files', '/chat')}",
             wait_until="commit",
             timeout=memory_page.timeout,
         )
         chat_input = memory_page.page.locator(
-            '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
+            '.qwenpaw-sender textarea:visible, .qwenpaw-sender [role="textbox"]:visible'
         ).first
         expect(chat_input).to_be_visible(timeout=memory_page.timeout)
         chat_input.fill(
@@ -416,15 +429,10 @@ class TestAutoMemorySearchControls:
             page.locator(memory_page.DREAM_CRON_INPUT).first
         ).to_be_visible(timeout=memory_page.timeout)
 
-        log_test_step("2. Expand the 'Auto Memory Search' collapse panel")
-        header = page.locator(
-            memory_page.AUTO_SEARCH_COLLAPSE_HEADER
-        ).first
-        expect(header).to_be_visible(timeout=memory_page.timeout)
+        log_test_step("2. Locate the Auto Memory Search switch")
+        # The redesigned card renders the switch inline (no collapse
+        # panel anymore).
         switch = page.locator(memory_page.AUTO_SEARCH_SWITCH).first
-        if not switch.is_visible():
-            header.click()
-            page.wait_for_timeout(500)
         expect(switch).to_be_visible(timeout=memory_page.timeout)
 
         log_test_step("3. Toggle the switch and assert aria-checked flips")

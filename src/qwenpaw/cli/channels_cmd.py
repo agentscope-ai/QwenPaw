@@ -2,14 +2,18 @@
 """CLI channel: list and interactively configure channels in config.json."""
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Optional
 
 import click
+from fastapi import FastAPI
 from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ..app.channels.registry import get_channel_registry
+from ..config import get_available_channels, load_config
 from ..config.config import (
     Config,
     ConsoleConfig,
@@ -24,10 +28,10 @@ from ..config.config import (
     load_agent_config,
     save_agent_config,
 )
+from ..config.utils import get_plugins_dir
+from ..plugins.loader import PluginLoader
 from .utils import prompt_confirm, prompt_path, prompt_select
 from .http import client, print_json, resolve_base_url
-from ..config import get_available_channels
-from ..app.channels.registry import get_channel_registry
 
 
 # Fields that contain secrets — display masked in ``list``
@@ -624,6 +628,26 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "voice": ("Twilio", configure_voice),
 }
 
+_CLI_CHANNEL_PLUGINS_LOADED = False
+
+
+def _load_channel_plugins_for_cli() -> None:
+    """Load installed channel plugins before building the CLI menu."""
+    global _CLI_CHANNEL_PLUGINS_LOADED
+    if _CLI_CHANNEL_PLUGINS_LOADED:
+        return
+
+    config = load_config()
+    loader = PluginLoader([get_plugins_dir()])
+    loader.registry.set_plugin_http_app(FastAPI())
+    asyncio.run(
+        loader.load_all_plugins(
+            configs=config.plugins,
+            types=["channel"],
+        ),
+    )
+    _CLI_CHANNEL_PLUGINS_LOADED = True
+
 
 def _plugin_configure(
     _key: str,
@@ -730,6 +754,7 @@ def configure_channels_interactive(config: Config) -> None:
 
     Mutates *config.channels* in-place.
     """
+    _load_channel_plugins_for_cli()
     configurators = get_channel_configurators()
     registry = get_channel_registry()
     click.echo("\n=== Channel Configuration ===")

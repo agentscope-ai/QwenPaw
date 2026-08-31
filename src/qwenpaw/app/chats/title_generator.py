@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
 from .models import ChatUpdate
@@ -40,11 +42,25 @@ TITLE_PROMPT = (
 
 MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
+_LEADING_REASONING_BLOCK_RE = re.compile(
+    r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
+    + r".*?</(?P=tag)\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_LEADING_REASONING_TAG_RE = re.compile(
+    r"\A\s*<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _clean_title(raw: str) -> str:
     """Normalize model output into a single-line title."""
-    title = raw.strip().splitlines()[0] if raw.strip() else ""
+    answer = raw.strip()
+    while match := _LEADING_REASONING_BLOCK_RE.match(answer):
+        answer = answer[match.end() :].lstrip()
+    if _LEADING_REASONING_TAG_RE.match(answer):
+        return ""
+    title = answer.splitlines()[0] if answer else ""
     title = title.strip().strip("\"'`“”‘’")
     while title and title[-1] in ".,;:!?":
         title = title[:-1].rstrip()
@@ -80,11 +96,15 @@ async def generate_and_update_title(
     try:
         # Local imports keep this module's import cost low and avoid a
         # circular dependency between routers and the agents package.
-        from ...agents.model_factory import create_model_and_formatter
+        from ...agents.model_factory import create_model_and_formatter_async
         from ...config.config import load_agent_config
 
         try:
-            cfg = load_agent_config(workspace.agent_id).running
+            agent_config = await run_sync_io(
+                load_agent_config,
+                workspace.agent_id,
+            )
+            cfg = agent_config.running
         except (ValueError, AppBaseException) as exc:
             logger.debug(
                 "Title generation skipped: agent config unavailable (%s)",
@@ -103,8 +123,9 @@ async def generate_and_update_title(
             timeout = title_cfg.timeout_seconds
 
             try:
-                model, _ = create_model_and_formatter(
+                model, _ = await create_model_and_formatter_async(
                     agent_id=workspace.agent_id,
+                    agent_config=agent_config,
                 )
             except (ValueError, AppBaseException) as exc:
                 # Same exception shape as ``skills_stream.get_model``: missing

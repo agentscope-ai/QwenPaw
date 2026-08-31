@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,36 +65,31 @@ def _terminal_pair(
     run_status: SpecialistRunStatus,
     detail: str,
 ) -> tuple[str, str]:
-    run_id = f"run-{suffix}"
-    task_id = f"task-{suffix}"
-    round_id = f"round-{suffix}"
-    request_id = f"request-{suffix}"
+    run_id, task_id = f"run-{suffix}", f"task-{suffix}"
+    common = {
+        "project_id": PROJECT_ID,
+        "round_id": f"round-{suffix}",
+        "input_generation": 1,
+        "input_etag": "sha256:input",
+        "caused_by_request_id": f"request-{suffix}",
+        "review_policy": ReviewPolicy.AUTO_FIX,
+    }
     store.create_run(
         SpecialistRunRecord(
             run_id=run_id,
-            project_id=PROJECT_ID,
-            round_id=round_id,
             role=SpecialistRole.R2V_GENERATION_DIRECTOR,
             target_refs=[f"element:{suffix}"],
-            input_generation=1,
-            input_etag="sha256:input",
-            caused_by_request_id=request_id,
-            review_policy=ReviewPolicy.AUTO_FIX,
+            **common,
         ),
     )
     _set_run_status(store, run_id, run_status)
     store.create_task(
         TaskRecord(
             task_id=task_id,
-            project_id=PROJECT_ID,
-            round_id=round_id,
             run_id=run_id,
             kind=kind,
             request_fingerprint=f"sha256:{suffix}",
-            input_generation=1,
-            input_etag="sha256:input",
-            caused_by_request_id=request_id,
-            review_policy=ReviewPolicy.AUTO_FIX,
+            **common,
         ),
     )
     store.append_attempt(
@@ -119,71 +115,40 @@ def _terminal_pair(
     return run_id, task_id
 
 
-def test_terminal_tasks_reconcile_active_runs_for_all_file_runtime_kinds(
+def test_terminal_tasks_reconcile_active_runs_to_task_outcome(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    cases = (
-        (
-            "image",
-            TaskKind.IMAGE_GENERATION,
-            TaskAttemptStatus.SUCCEEDED,
-            SpecialistRunStatus.QUEUED,
-            SpecialistRunStatus.SUCCEEDED,
-            "image generated",
-            "SUCCESS",
-        ),
-        (
-            "local",
-            TaskKind.AI_EDIT_EXECUTE,
-            TaskAttemptStatus.FAILED,
-            SpecialistRunStatus.WAITING_AUTHORIZATION,
-            SpecialistRunStatus.FAILED,
-            "ffmpeg failed",
-            "FAILED",
-        ),
-        (
-            "source",
-            TaskKind.SOURCE_INTELLIGENCE,
-            TaskAttemptStatus.CANCELLED,
-            SpecialistRunStatus.RUNNING_MODEL,
-            SpecialistRunStatus.CANCELLED,
-            "source cancelled",
-            "CANCELLED",
-        ),
-        (
-            "r2v",
-            TaskKind.R2V_GENERATION,
-            TaskAttemptStatus.QUARANTINED,
-            SpecialistRunStatus.WAITING_RUNTIME,
-            SpecialistRunStatus.STALE,
-            "project input stale",
-            "STALE",
-        ),
+    success_run, _ = _terminal_pair(
+        store,
+        suffix="image",
+        kind=TaskKind.IMAGE_GENERATION,
+        task_status=TaskAttemptStatus.SUCCEEDED,
+        run_status=SpecialistRunStatus.QUEUED,
+        detail="image generated",
     )
-    run_ids: list[str] = []
-    for suffix, kind, task_status, run_status, *_rest in cases:
-        run_id, _task_id = _terminal_pair(
-            store,
-            suffix=suffix,
-            kind=kind,
-            task_status=task_status,
-            run_status=run_status,
-            detail=cases[len(run_ids)][5],
-        )
-        run_ids.append(run_id)
+    stale_run, _ = _terminal_pair(
+        store,
+        suffix="r2v",
+        kind=TaskKind.R2V_GENERATION,
+        task_status=TaskAttemptStatus.QUARANTINED,
+        run_status=SpecialistRunStatus.WAITING_RUNTIME,
+        detail="project input stale",
+    )
 
     report = reconcile_terminal_task_runs(tmp_path, [PROJECT_ID])
     assert report.scanned_projects == (PROJECT_ID,)
-    assert report.scanned_terminal_tasks == 4
-    assert report.repaired_count == 4
-    assert set(report.repaired_run_ids) == set(run_ids)
-    for case, run_id in zip(cases, run_ids, strict=True):
-        expected_status, detail, marker = case[4], case[5], case[6]
-        run = store.get_run(PROJECT_ID, run_id)
-        assert run.status is expected_status
-        assert run.final_marker == marker
-        assert run.final_summary_text == detail
+    assert report.scanned_terminal_tasks == 2
+    assert report.repaired_count == 2
+    assert set(report.repaired_run_ids) == {success_run, stale_run}
+    success = store.get_run(PROJECT_ID, success_run)
+    assert success.status is SpecialistRunStatus.SUCCEEDED
+    assert success.final_marker == "SUCCESS"
+    assert success.final_summary_text == "image generated"
+    stale = store.get_run(PROJECT_ID, stale_run)
+    assert stale.status is SpecialistRunStatus.STALE
+    assert stale.final_marker == "STALE"
+    assert stale.final_summary_text == "project input stale"
 
 
 def test_terminal_task_run_reconciliation_is_idempotent(

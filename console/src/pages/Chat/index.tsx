@@ -16,6 +16,18 @@ import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import {
+  getDraftStorageKey,
+  parseDraft,
+  serializeDraft,
+  type DraftState,
+} from "./chatInputDraft";
+import {
+  stopBackgroundQueue,
+  setBackgroundAbort,
+  clearBackgroundAbortIfCurrent,
+  hasBackgroundQueue,
+} from "./backgroundQueueRegistry";
+import {
   attachClientMessageId,
   createClientMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
@@ -56,6 +68,12 @@ import {
 import { wrapReplayFastForward } from "./replayFastForward";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import {
+  buildFallbackSystemMessage,
+  modelFallbackEventKey,
+  parseModelFallbackEvents,
+  type ModelFallbackEvent,
+} from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
@@ -72,6 +90,7 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 import {
@@ -112,6 +131,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import { scrollReverseMessageList } from "./messageScroll";
+import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -126,6 +146,8 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  // One-line rationale the agent emitted before requesting this tool call.
+  reasoning?: string;
   // Approval-scope choice (console-only). When isGeneralized is true the
   // card offers Approve Pattern (similar) vs Approve Exact (exact).
   isGeneralized?: boolean;
@@ -202,25 +224,8 @@ import {
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
 // Supports multiple concurrent sessions: each session has its own controller.
+// The controller registry lives in backgroundQueueRegistry (unit-tested).
 // ---------------------------------------------------------------------------
-
-const _bgAborts = new Map<string, AbortController>();
-
-function stopBackgroundQueue(queueKey?: string) {
-  if (queueKey) {
-    const ctrl = _bgAborts.get(queueKey);
-    if (ctrl) {
-      ctrl.abort();
-      _bgAborts.delete(queueKey);
-    }
-  } else {
-    // Stop all (used during full cleanup if needed)
-    for (const ctrl of _bgAborts.values()) {
-      ctrl.abort();
-    }
-    _bgAborts.clear();
-  }
-}
 
 /**
  * Wait until the backend reports the chat is no longer generating
@@ -328,7 +333,7 @@ async function startBackgroundQueue(
   if (useMessageQueueStore.getState().getQueue(queueKey).length === 0) return;
 
   const ctrl = new AbortController();
-  _bgAborts.set(queueKey, ctrl);
+  setBackgroundAbort(queueKey, ctrl);
 
   // Acquire the per-session send lock so only one tab keeps draining the queue
   // after the page unmounts. If the lock is taken, skip background sending.
@@ -495,7 +500,7 @@ async function startBackgroundQueue(
     useMessageQueueStore.getState().setCurrentSendingId(null);
   });
 
-  if (_bgAborts.get(queueKey) === ctrl) _bgAborts.delete(queueKey);
+  clearBackgroundAbortIfCurrent(queueKey, ctrl);
 }
 
 /**
@@ -510,7 +515,7 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     const sessionId = key.slice(STORAGE_PREFIX.length);
     if (sessionId === excludeSessionId) continue;
     // Skip sessions already running a background sender
-    if (_bgAborts.has(sessionId)) continue;
+    if (hasBackgroundQueue(sessionId)) continue;
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
@@ -995,20 +1000,7 @@ function useMessageHistoryNavigation(
 // Chat input draft persistence
 // ---------------------------------------------------------------------------
 
-const DRAFT_STORAGE_KEY_PREFIX = "qwenpaw_chat_input_draft";
 let draftSuppressed = false;
-
-function getDraftStorageKey(agentId?: string): string {
-  return agentId
-    ? `${DRAFT_STORAGE_KEY_PREFIX}_${agentId}`
-    : DRAFT_STORAGE_KEY_PREFIX;
-}
-
-interface DraftState {
-  value: string;
-  selectionStart: number;
-  selectionEnd: number;
-}
 
 function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
   const storageKey = getDraftStorageKey(agentId);
@@ -1029,8 +1021,9 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
         selectionStart: textarea.selectionStart,
         selectionEnd: textarea.selectionEnd,
       };
-      if (draft.value) {
-        localStorage.setItem(storageKey, JSON.stringify(draft));
+      const serialized = serializeDraft(draft);
+      if (serialized) {
+        localStorage.setItem(storageKey, serialized);
       } else {
         localStorage.removeItem(storageKey);
       }
@@ -1066,20 +1059,14 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
       const textarea = getTextarea();
       if (textarea) {
         clearInterval(restoreInterval);
-        const raw = localStorage.getItem(storageKey);
-        if (raw) {
-          try {
-            const draft: DraftState = JSON.parse(raw);
-            if (draft.value) {
-              setTextareaValue(textarea, draft.value);
-              requestAnimationFrame(() => {
-                textarea.selectionStart = draft.selectionStart;
-                textarea.selectionEnd = draft.selectionEnd;
-              });
-            }
-          } catch {
-            // Ignore malformed data
-          }
+        // parseDraft fails soft on missing/malformed/empty stored data
+        const draft = parseDraft(localStorage.getItem(storageKey));
+        if (draft) {
+          setTextareaValue(textarea, draft.value);
+          requestAnimationFrame(() => {
+            textarea.selectionStart = draft.selectionStart;
+            textarea.selectionEnd = draft.selectionEnd;
+          });
         }
       } else if (restoreAttempts >= maxRestoreAttempts) {
         clearInterval(restoreInterval);
@@ -1309,6 +1296,8 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
+  const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
+  const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -1711,6 +1700,7 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        reasoning: approval.reasoning,
         isGeneralized: approval.is_generalized,
         exactTarget: approval.exact_target,
         similarTarget: approval.similar_target,
@@ -2463,6 +2453,7 @@ export default function ChatPage() {
       // agent store and claims the new epoch synchronously with the change,
       // so in-flight results owned by the previous agent are stale by now.
 
+      useTurnUsageStore.getState().invalidateTurn();
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could
@@ -2530,6 +2521,8 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      pendingFallbackEventsRef.current = [];
+      pendingFallbackEventKeysRef.current.clear();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
@@ -2587,6 +2580,12 @@ export default function ChatPage() {
           : [];
 
       const identity = sessionApi.getSessionIdentity();
+      const usageTurn = useTurnUsageStore
+        .getState()
+        .beginTurn(
+          selectedAgent,
+          identity.sessionId || session?.session_id || "",
+        );
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: identity.sessionId || session?.session_id || "",
@@ -2707,7 +2706,7 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef);
+      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -3089,7 +3088,7 @@ export default function ChatPage() {
     }));
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
-      variant: "navigator" as const,
+      ...LONG_CHAT_USER_MESSAGE_ANCHORS,
     };
 
     // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
@@ -3128,7 +3127,7 @@ export default function ChatPage() {
               onLoadingChange={setChatLoading}
             />
             <ChatHeaderTitle />
-            <span style={{ flex: 1 }} />
+            <span className={styles.headerSpacer} />
             {usesQwenPawBackend ? (
               <ModelSelector />
             ) : backendCapabilities?.model_selection ? (
@@ -3196,7 +3195,12 @@ export default function ChatPage() {
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            {usesQwenPawBackend && <LoopModeSelector />}
+            {usesQwenPawBackend && (
+              <LoopModeSelector
+                className={isMobile ? styles.mobileComposerControl : undefined}
+                compact={isMobile}
+              />
+            )}
             {pluginSenderPrefix}
           </>
         ),
@@ -3207,22 +3211,34 @@ export default function ChatPage() {
             }`}
           >
             {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <ContextUsageIndicator
-                onCompact={handleCompactCommand}
-                onNew={handleNewCommand}
-              />
+              <span className={styles.senderContextAffix}>
+                <ContextUsageIndicator
+                  onCompact={handleCompactCommand}
+                  onNew={handleNewCommand}
+                />
+              </span>
             )}
             {usesQwenPawBackend && (
               <SessionProjectDirectory
                 scope={sessionScope}
-                compact={compactSender}
+                compact={isMobile || compactSender}
+                className={
+                  isMobile || compactSender
+                    ? styles.mobileComposerControl
+                    : undefined
+                }
               />
             )}
             {usesQwenPawBackend ? (
               <ApprovalLevelToggle
                 sessionId={queueSessionId}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
-                compact={compactSender}
+                compact={isMobile || compactSender}
+                className={
+                  isMobile || compactSender
+                    ? styles.mobileComposerControl
+                    : undefined
+                }
                 onChange={(sessionOverride) => {
                   sessionApprovalLevelRef.current = sessionOverride;
                 }}
@@ -3232,6 +3248,8 @@ export default function ChatPage() {
                 backend={selectedAgentBackend}
                 sessionId={queueSessionId}
                 presets={approvalPresets}
+                className={isMobile ? styles.mobileComposerControl : undefined}
+                compact={isMobile}
                 onChange={(settings) => {
                   backendControlsRef.current = settings;
                 }}
@@ -3301,6 +3319,13 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          for (const event of parseModelFallbackEvents(payload)) {
+            const key = modelFallbackEventKey(event);
+            if (pendingFallbackEventKeysRef.current.has(key)) continue;
+            pendingFallbackEventKeysRef.current.add(key);
+            pendingFallbackEventsRef.current.push(event);
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -3321,6 +3346,27 @@ export default function ChatPage() {
                   content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
+            }
+            if (pendingFallbackEventsRef.current.length > 0) {
+              const fallbackMessage = buildFallbackSystemMessage(
+                pendingFallbackEventsRef.current,
+                (event) =>
+                  t("chat.modelFallbackNotice", {
+                    from: `${event.from_provider_id || ""}:${
+                      event.from_model_id || ""
+                    }`.replace(/^:/, ""),
+                    to: `${event.to_provider_id || ""}:${
+                      event.to_model_id || ""
+                    }`.replace(/^:/, ""),
+                    reason: event.reason_kind || "unknown",
+                  }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [fallbackMessage, ...output];
+              pendingFallbackEventsRef.current = [];
+              pendingFallbackEventKeysRef.current.clear();
             }
           }
 
@@ -3374,6 +3420,12 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          const usageTurn = useTurnUsageStore
+            .getState()
+            .beginTurn(
+              selectedAgent,
+              reconnectIdentity.sessionId || data.session_id,
+            );
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
@@ -3392,6 +3444,7 @@ export default function ChatPage() {
           return wrapChatResponseUsageStream(
             wrapReplayFastForward(response),
             chatRef,
+            usageTurn,
           );
         },
       },
@@ -3402,6 +3455,7 @@ export default function ChatPage() {
         // compose plugin slots otherwise.
         AgentScopeRuntimeRequestCard: HostRequestCard,
         AgentScopeRuntimeResponseCard: HostResponseCard,
+        Audios: DownloadableAudios,
         ...pluginCards,
       },
       actions: {
@@ -3510,6 +3564,7 @@ export default function ChatPage() {
     toggleHistoryPanel,
     handleCompactCommand,
     handleNewCommand,
+    isMobile,
     compactSender,
     sessionScope,
     filesWorkspaceOpen,
@@ -3638,6 +3693,7 @@ export default function ChatPage() {
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}
               toolParams={request.toolParams}
+              reasoning={request.reasoning}
               createdAt={request.createdAt}
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}

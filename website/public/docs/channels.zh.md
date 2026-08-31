@@ -72,6 +72,7 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
+  "share_session_in_group": false,
   "show_tool_calls": true,
   "show_tool_results": true,
   "show_thinking": true,
@@ -82,15 +83,16 @@
 
 **钉钉专属字段说明：**
 
-| 字段                | 类型   | 默认值       | 说明                                                           |
-| ------------------- | ------ | ------------ | -------------------------------------------------------------- |
-| `client_id`         | string | `""`（必填） | 钉钉应用 Client ID（即 AppKey）                                |
-| `client_secret`     | string | `""`（必填） | 钉钉应用 Client Secret（即 AppSecret）                         |
-| `message_type`      | string | `"markdown"` | 消息类型：`"markdown"` 或 `"card"`（AI 卡片）                  |
-| `card_template_id`  | string | `""`         | AI 卡片模板 ID（当 `message_type` 为 `"card"` 时必填）         |
-| `card_template_key` | string | `"content"`  | AI 卡片模板变量名（必须与钉钉模板中的变量名完全一致）          |
-| `robot_code`        | string | `""`         | 机器人编码（群聊卡片场景建议配置，留空时回退使用 `client_id`） |
-| `media_dir`         | string | `null`       | 媒体文件下载目录（留空则不保存）                               |
+| 字段                     | 类型   | 默认值       | 说明                                                                                   |
+| ------------------------ | ------ | ------------ | -------------------------------------------------------------------------------------- |
+| `client_id`              | string | `""`（必填） | 钉钉应用 Client ID（即 AppKey）                                                        |
+| `client_secret`          | string | `""`（必填） | 钉钉应用 Client Secret（即 AppSecret）                                                 |
+| `message_type`           | string | `"markdown"` | 消息类型：`"markdown"` 或 `"card"`（AI 卡片）                                          |
+| `card_template_id`       | string | `""`         | AI 卡片模板 ID（当 `message_type` 为 `"card"` 时必填）                                 |
+| `card_template_key`      | string | `"content"`  | AI 卡片模板变量名（必须与钉钉模板中的变量名完全一致）                                  |
+| `robot_code`             | string | `""`         | 机器人编码（群聊卡片场景建议配置，留空时回退使用 `client_id`）                         |
+| `share_session_in_group` | bool   | `false`      | 为 `true` 时群内所有成员共享同一会话上下文；为 `false`（默认）时每位成员拥有独立上下文 |
+| `media_dir`              | string | `null`       | 媒体文件下载目录（留空则不保存）                                                       |
 
 > **提示：**
 >
@@ -226,20 +228,22 @@
   "bot_prefix": "[BOT]",
   "app_id": "cli_xxxxx",
   "app_secret": "你的 App Secret",
-  "domain": "feishu"
+  "domain": "feishu",
+  "share_session_in_group": false
 }
 ```
 
 **飞书专属字段说明：**
 
-| 字段                 | 类型   | 默认值       | 说明                                       |
-| -------------------- | ------ | ------------ | ------------------------------------------ |
-| `app_id`             | string | `""`（必填） | 飞书应用 App ID                            |
-| `app_secret`         | string | `""`（必填） | 飞书应用 App Secret                        |
-| `domain`             | string | `"feishu"`   | `"feishu"`（国内）或 `"lark"`（国际版）    |
-| `encrypt_key`        | string | `""`         | 消息加密密钥（可选，WebSocket 模式可不填） |
-| `verification_token` | string | `""`         | 验证 Token（可选，WebSocket 模式可不填）   |
-| `media_dir`          | string | `null`       | 媒体文件下载目录（留空则不保存）           |
+| 字段                     | 类型   | 默认值       | 说明                                                          |
+| ------------------------ | ------ | ------------ | ------------------------------------------------------------- |
+| `app_id`                 | string | `""`（必填） | 飞书应用 App ID                                               |
+| `app_secret`             | string | `""`（必填） | 飞书应用 App Secret                                           |
+| `domain`                 | string | `"feishu"`   | `"feishu"`（国内）或 `"lark"`（国际版）                       |
+| `encrypt_key`            | string | `""`         | 消息加密密钥（可选，WebSocket 模式可不填）                    |
+| `verification_token`     | string | `""`         | 验证 Token（可选，WebSocket 模式可不填）                      |
+| `share_session_in_group` | bool   | `false`      | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话 |
+| `media_dir`              | string | `null`       | 媒体文件下载目录（留空则不保存）                              |
 
 > **提示：** 其他字段（encrypt_key、verification_token、media_dir）可选，WebSocket 模式可不填，有默认值。
 
@@ -540,6 +544,9 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | `ws_host`                | string | `127.0.0.1` | WebSocket 服务器监听地址。默认仅监听回环地址，端口不对网络开放  |
 | `ws_port`                | int    | `6199`      | WebSocket 服务器监听端口                                        |
 | `access_token`           | string | `""`        | OneBot 客户端携带的共享 Token。**`ws_host` 不是回环地址时必填** |
+| `media_base64`           | bool   | `false`     | 发送本地媒体前，将其编码为 Base64 后再交给 OneBot 客户端        |
+| `media_base64_max_mb`    | int    | `10`        | 出站媒体使用 Base64 编码的大小上限（MB）；超限时使用原始路径    |
+| `media_download_max_mb`  | int    | `50`        | 从 OneBot 客户端下载单个远程入站媒体文件的大小上限（MB）        |
 | `share_session_in_group` | bool   | `false`     | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话   |
 
 ### 安全说明
@@ -552,18 +559,6 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 - **优先使用内网或反向代理**，而不是直接把端口暴露到公网：`ws://` 是明文传输，在公网链路上传递的 Token 可被中途窃取。
 
 > **Docker Compose 提示：** QwenPaw 和 NapCat 一起用 Docker Compose 部署时，两个容器不在同一个回环网口上，因此需将 `ws_host` 设为 `0.0.0.0` 并**同时设置 `access_token`**，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。不要将 6199 端口 publish 到宿主机，或按 `127.0.0.1:6199:6199` 的形式 publish 以保持仅本机可访问。
-
-**多模态支持：**
-
-| 类型 | 接收 | 发送 |
-| ---- | ---- | ---- |
-| 文本 | ✓    | ✓    |
-| 图片 | ✓    | ✓    |
-| 语音 | 🚧   | ✓    |
-| 视频 | 🚧   | ✓    |
-| 文件 | ✓    | ✓    |
-
-> **提示：** 语音和视频在渠道层已正确接收，但需要配置 QwenPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。
 
 ---
 
@@ -618,18 +613,20 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
   "bot_id": "your bot_id",
   "secret": "your secret",
   "media_dir": "~/.qwenpaw/media",
-  "max_reconnect_attempts": -1
+  "max_reconnect_attempts": -1,
+  "share_session_in_group": true
 }
 ```
 
 **企业微信专属字段说明：**
 
-| 字段                     | 类型   | 默认值             | 说明                                      |
-| ------------------------ | ------ | ------------------ | ----------------------------------------- |
-| `bot_id`                 | string | `""`（必填）       | 企业微信机器人 Bot ID                     |
-| `secret`                 | string | `""`（必填）       | 企业微信机器人 Secret                     |
-| `media_dir`              | string | `~/.qwenpaw/media` | 媒体文件（图片、文件等）下载目录          |
-| `max_reconnect_attempts` | int    | `-1`               | WebSocket 最大重连次数（`-1` = 无限重连） |
+| 字段                     | 类型   | 默认值             | 说明                                                                    |
+| ------------------------ | ------ | ------------------ | ----------------------------------------------------------------------- |
+| `bot_id`                 | string | `""`（必填）       | 企业微信机器人 Bot ID                                                   |
+| `secret`                 | string | `""`（必填）       | 企业微信机器人 Secret                                                   |
+| `media_dir`              | string | `~/.qwenpaw/media` | 媒体文件（图片、文件等）下载目录                                        |
+| `max_reconnect_attempts` | int    | `-1`               | WebSocket 最大重连次数（`-1` = 无限重连）                               |
+| `share_session_in_group` | bool   | `true`             | 为 `true` 时群聊所有成员共享一个会话；为 `false` 时每位成员拥有独立会话 |
 
 ### 在企业微信开始与机器人聊天
 
@@ -905,17 +902,19 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
   "bot_prefix": "[BOT]",
   "homeserver": "https://matrix.org",
   "user_id": "@mybot:matrix.org",
-  "access_token": "syt_..."
+  "access_token": "syt_...",
+  "share_session_in_group": true
 }
 ```
 
 **Matrix 专属字段说明：**
 
-| 字段           | 类型   | 默认值       | 说明                                         |
-| -------------- | ------ | ------------ | -------------------------------------------- |
-| `homeserver`   | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`） |
-| `user_id`      | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）     |
-| `access_token` | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）      |
+| 字段                     | 类型   | 默认值       | 说明                                                                    |
+| ------------------------ | ------ | ------------ | ----------------------------------------------------------------------- |
+| `homeserver`             | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`）                            |
+| `user_id`                | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）                                |
+| `access_token`           | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）                                 |
+| `share_session_in_group` | bool   | `true`       | 为 `true` 时群聊所有成员共享一个会话；为 `false` 时每个成员拥有独立会话 |
 
 保存后，若 QwenPaw 已在运行，频道会自动重载。
 
@@ -928,6 +927,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 - Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
 - 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
 - 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+- 群聊默认共享会话，以保持旧版本行为。将 `share_session_in_group` 设为 `false` 后，每位群成员拥有独立的对话上下文。私聊继续沿用原有的房间会话标识。
 
 ---
 
@@ -1655,22 +1655,22 @@ https://xxxx.ngrok-free.app/api/messages
 
 ### 配置总览
 
-| 频道       | 配置键     | 必填/主要字段                                                                                          |
-| ---------- | ---------- | ------------------------------------------------------------------------------------------------------ |
-| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code                |
-| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir                                    |
-| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                                          |
-| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                                            |
-| QQ         | qq         | app_id, client_secret                                                                                  |
-| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                                            |
-| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                                |
-| Matrix     | matrix     | homeserver, user_id, access_token                                                                      |
-| 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                                         |
-| 微信个人   | wechat     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                      |
-| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                          |
-| 元宝       | yuanbao    | app_id, app_secret；可选 api_domain, media_dir                                                         |
-| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider |
-| Azure Bot  | azure_bot  | app_id, app_password, tenant_id；可选 http_port, media_dir, share_session_in_group                     |
+| 频道       | 配置键     | 必填/主要字段                                                                                                        |
+| ---------- | ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| 钉钉       | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code；可选 share_session_in_group |
+| 飞书       | feishu     | app_id, app_secret；可选 encrypt_key, verification_token, media_dir, share_session_in_group                          |
+| iMessage   | imessage   | db_path, poll_sec（仅 macOS）                                                                                        |
+| Discord    | discord    | bot_token；可选 http_proxy, http_proxy_auth                                                                          |
+| QQ         | qq         | app_id, client_secret                                                                                                |
+| Telegram   | telegram   | bot_token；可选 http_proxy, http_proxy_auth                                                                          |
+| Mattermost | mattermost | url, bot_token; 可选 show_typing, dm_policy, allow_from                                                              |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                                                    |
+| 企业微信   | wecom      | bot_id, secret；可选 media_dir, share_session_in_group                                                               |
+| 微信个人   | wechat     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                                    |
+| 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                                        |
+| 元宝       | yuanbao    | app_id, app_secret；可选 api_domain, media_dir                                                                       |
+| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider               |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id；可选 http_port, media_dir, share_session_in_group                                   |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
 
@@ -1708,6 +1708,7 @@ https://xxxx.ngrok-free.app/api/messages
 | Slack      | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| OneBot     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 微信个人   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -1726,6 +1727,7 @@ https://xxxx.ngrok-free.app/api/messages
 - **Slack**：原生支持所有文件类型 — 图片、音频、视频、PDF 及任意文件。用户上传的文件会自动下载并作为多模态输入处理；发送侧通过 `files.uploadV2` 支持所有媒体类型。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+- **OneBot**：接收图片、视频、音频和文件并下载到本地；发送时使用 OneBot 原生媒体消息段，本地出站媒体可选择编码为 Base64。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
 - **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。

@@ -33,6 +33,14 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         self._tool_registry = tool_registry
         self._governor: Any = None
 
+    async def initialize(self) -> None:
+        """Mark the tool adapter ready without managing workspace state.
+
+        QwenPaw owns MCP and skill persistence. AgentScope 2.0.7 otherwise
+        repartitions QwenPaw's ``skills`` directory during initialization.
+        """
+        self.is_alive = True
+
     def set_governor(self, governor: Any) -> None:
         """Inject the ResourceGovernor for policy-governed tool wrapping.
 

@@ -44,7 +44,7 @@ class CodingPage(BasePage):
 
     PAGE_TITLE = "QwenPaw Console"
     PAGE_URL = f"{config.base_url}/chat"
-    CODING_URL = f"{config.base_url}/coding"
+    CODING_URL = f"{config.base_url}/files"
 
     # ========== Selectors ==========
 
@@ -184,8 +184,19 @@ class CodingPage(BasePage):
     # ========== Toggle ==========
 
     def is_in_coding_mode(self) -> bool:
-        """Return True iff the URL is currently on /coding."""
-        return "/coding" in self.page.url
+        """Return True iff the Coding Mode IDE surface is active.
+
+        Upstream #6504 removed the standalone /coding route; the IDE now
+        renders on the /files page as an activity rail when Coding Mode is
+        enabled, so presence of the rail buttons is the mode signal.
+        """
+        return (
+            self.page.locator(
+                'button[aria-label*="navigator"], '
+                'button[aria-label*="Source control"]'
+            ).count()
+            > 0
+        )
 
     def click_enter_toggle(self) -> None:
         """Click the "Code" button to start entering Coding Mode."""
@@ -302,15 +313,20 @@ class CodingPage(BasePage):
     # ========== Assertions ==========
 
     def verify_ide_layout_visible(self) -> bool:
-        """Soft-check that the IDE three-column layout has rendered.
+        """Soft-check that the Coding Mode IDE surface has rendered.
 
-        We look for the always-on "Chat" panel header. Returns True on
-        match within ~5s, False otherwise.
+        Upstream #6504 removed the standalone /coding route; the IDE now
+        lives on the /files page as an activity rail (Files navigator +
+        Source control buttons) once Coding Mode is enabled. Returns True
+        on match within ~5s, False otherwise.
         """
         try:
-            expect(self.page.locator(self.IDE_CHAT_HEADER_TEXT).first).to_be_visible(
-                timeout=5000,
-            )
+            expect(
+                self.page.locator(
+                    'button[aria-label*="navigator"], '
+                    'button[aria-label*="Source control"]'
+                ).first
+            ).to_be_visible(timeout=5000)
             return True
         except (TimeoutError, AssertionError):
             return False
@@ -324,9 +340,9 @@ class CodingPage(BasePage):
         return {"X-Agent-Id": self.AGENT_ID_DEFAULT}
 
     def api_create_project(self, api_context, name: str) -> dict:
-        """POST /api/workspace/coding-project/create."""
+        """POST /api/workspace/project-directory/create."""
         resp = api_context.post(
-            "/api/workspace/coding-project/create",
+            "/api/workspace/project-directory/create",
             data={"name": name},
             headers=self._agent_headers(),
         )
@@ -338,9 +354,9 @@ class CodingPage(BasePage):
         return body
 
     def api_activate_project(self, api_context, path: str) -> dict:
-        """PUT /api/workspace/coding-project — set the active project."""
+        """PUT /api/workspace/project-directory — set the active project."""
         resp = api_context.put(
-            "/api/workspace/coding-project",
+            "/api/workspace/project-directory",
             data={"path": path},
             headers=self._agent_headers(),
         )
@@ -362,9 +378,9 @@ class CodingPage(BasePage):
         return resp.json()
 
     def api_get_coding_project(self, api_context) -> dict:
-        """GET /api/workspace/coding-project — current bound project."""
+        """GET /api/workspace/project-directory — current bound project."""
         resp = api_context.get(
-            "/api/workspace/coding-project",
+            "/api/workspace/project-directory",
             headers=self._agent_headers(),
         )
         assert resp.ok, (
