@@ -58,6 +58,24 @@ function Harness({ mailMode }: { mailMode: "personal" | "dedicated" }) {
   );
 }
 
+function CreateHarness() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({ backend: "qwenpaw", mail_mode: "none" });
+  }, [form]);
+
+  return (
+    <AgentModal
+      open
+      editingAgent={null}
+      form={form}
+      selectedSkills={[]}
+      {...stableCallbacks}
+    />
+  );
+}
+
 describe.each(["personal", "dedicated"] as const)(
   "AgentModal %s mail domains",
   (mailMode) => {
@@ -126,5 +144,18 @@ describe("AgentModal dedicated mailbox credential", () => {
     expect(
       await screen.findByLabelText("agent.mailCredentialOptional"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("AgentModal creation model routing", () => {
+  it("keeps fallback settings available when creating an agent", () => {
+    render(<CreateHarness />);
+
+    expect(
+      screen.getByText("modelSelector.enableFallback"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("modelSelector.chooseFallback").length,
+    ).toBeGreaterThan(0);
   });
 });

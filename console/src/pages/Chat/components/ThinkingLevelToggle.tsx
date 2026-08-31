@@ -28,16 +28,23 @@ export default function ThinkingLevelToggle({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [level, setLevel] = useState<SessionThinkingLevel>("medium");
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const onChangeRef = useRef(onChange);
   const saveRequestRef = useRef(0);
   onChangeRef.current = onChange;
 
   useEffect(() => {
+    if (loadedSessionId !== sessionId) return;
     onChangeRef.current?.(supportsThinking ? level : null);
-  }, [level, supportsThinking]);
+  }, [level, loadedSessionId, sessionId, supportsThinking]);
+
+  useEffect(() => {
+    saveRequestRef.current += 1;
+  }, [sessionId]);
 
   useEffect(() => {
     let active = true;
+    setLoadedSessionId(null);
     const load = async () => {
       try {
         await sessionApi.getSessionList();
@@ -50,6 +57,7 @@ export default function ThinkingLevelToggle({
         ? (saved as SessionThinkingLevel)
         : "medium";
       setLevel(next);
+      setLoadedSessionId(sessionId);
     };
     void load();
     return () => {
@@ -58,6 +66,7 @@ export default function ThinkingLevelToggle({
   }, [sessionId]);
 
   const handleSelect = async (next: SessionThinkingLevel) => {
+    if (loadedSessionId !== sessionId) return;
     const previousLevel = level;
     const requestId = ++saveRequestRef.current;
     setLevel(next);
@@ -105,6 +114,7 @@ export default function ThinkingLevelToggle({
             paddingInline: compact ? 0 : undefined,
             width: compact ? 30 : undefined,
           }}
+          disabled={loadedSessionId !== sessionId}
         >
           <Brain size={13} />
           {!compact && (

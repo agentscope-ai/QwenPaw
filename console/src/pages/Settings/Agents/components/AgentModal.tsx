@@ -15,6 +15,7 @@ import {
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
+import type { AgentProfileConfig } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
@@ -85,6 +86,17 @@ interface AgentModalProps {
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
+  modelSettings?: Pick<
+    AgentProfileConfig,
+    "fallback_models" | "fallback_policy" | "subagent_model"
+  >;
+  onModelSettingsChange?: (
+    settings: Pick<
+      AgentProfileConfig,
+      "fallback_models" | "fallback_policy" | "subagent_model"
+    >,
+  ) => void;
+  modelSettingsResetToken?: number;
   onSave: () => Promise<void>;
   onCancel: () => void;
 }
@@ -96,6 +108,9 @@ export function AgentModal({
   selectedSkills,
   onSelectedSkillsChange,
   onInstalledSkillsLoaded,
+  modelSettings,
+  onModelSettingsChange,
+  modelSettingsResetToken,
   onSave,
   onCancel,
 }: AgentModalProps) {
@@ -375,13 +390,16 @@ export function AgentModal({
             />
           </Space.Compact>
         </Form.Item>
-        {editingAgent && selectedBackend === "qwenpaw" && (
+        {selectedBackend === "qwenpaw" && (
           <Form.Item className={styles.agentRoutingFormItem}>
             <AgentModelSettings
-              agentId={editingAgent.id}
+              agentId={editingAgent?.id}
               providers={eligibleProviders}
               activeProviderId={selectedProviderId}
               activeModelId={selectedModelId}
+              initialConfig={modelSettings}
+              draftResetToken={modelSettingsResetToken}
+              onDraftChange={onModelSettingsChange}
             />
           </Form.Item>
         )}

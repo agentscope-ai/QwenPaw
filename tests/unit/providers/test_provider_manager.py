@@ -2199,11 +2199,11 @@ async def test_removed_builtin_model_stays_removed_after_restart(
     assert reloaded.get_model_info(model_id) is None
 
 
-async def test_removed_discovery_model_does_not_return_on_refresh(
+async def test_removed_discovery_model_returns_on_refresh_for_recovery(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
-    """API discovery continues to respect an explicit removal."""
+    """API discovery keeps removed models available for explicit recovery."""
     manager = ProviderManager()
     provider = manager.get_provider("openai")
     assert provider is not None
@@ -2221,8 +2221,9 @@ async def test_removed_discovery_model_does_not_return_on_refresh(
     result = await manager.discover_provider_models("openai")
 
     assert result.success is True
-    assert all(model.id != "remote-removed" for model in result.models)
-    assert provider.get_discovered_model_info("remote-removed") is None
+    assert any(model.id == "remote-removed" for model in result.models)
+    assert provider.get_discovered_model_info("remote-removed") is not None
+    assert provider.get_model_info("remote-removed") is None
 
 
 async def test_stale_snapshot_cannot_clear_new_tombstone(

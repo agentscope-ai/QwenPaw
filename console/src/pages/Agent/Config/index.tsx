@@ -10,6 +10,7 @@ import {
   ToolExecutionLevelCard,
   AgentLoopCard,
   EmbeddingModelCard,
+  ModelRoutingCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -150,6 +151,20 @@ function AgentConfigPage() {
         ),
       },
       {
+        key: "model",
+        label: (
+          <span className={styles.tabLabel}>{t("agentConfig.modelTitle")}</span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <ModelRoutingCard
+              agentId={selectedAgent || "default"}
+              onModelSaved={refreshEffectiveContextWindow}
+            />
+          </div>
+        ),
+      },
+      {
         key: "llmRetry",
         label: (
           <span className={styles.tabLabel}>
@@ -264,6 +279,8 @@ function AgentConfigPage() {
     approvalLevel,
     setApprovalLevel,
     saving,
+    selectedAgent,
+    refreshEffectiveContextWindow,
   ]);
 
   useEffect(() => {

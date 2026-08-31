@@ -14,12 +14,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import {
-  EditOutlined,
-  DeleteOutlined,
-  RobotOutlined,
-  CopyOutlined,
-} from "@ant-design/icons";
+import { DeleteOutlined, RobotOutlined, CopyOutlined } from "@ant-design/icons";
 import {
   EyeOff,
   Eye,
@@ -142,9 +137,20 @@ export function AgentTable({
               opacity: record.enabled ? 1 : 0.5,
             }}
           />
-          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
-            {getAgentDisplayName(record, t)}
-          </span>
+          {record.id === "default" ? (
+            <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
+              {getAgentDisplayName(record, t)}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.agentNameButton}
+              onClick={() => onEdit(record)}
+              style={{ opacity: record.enabled ? 1 : 0.5 }}
+            >
+              {getAgentDisplayName(record, t)}
+            </button>
+          )}
           {(record.id === "default" || record.pinned) && (
             <Pin size={13} aria-label={t("agent.pinned")} />
           )}
@@ -277,19 +283,6 @@ export function AgentTable({
                 style={record.id === "default" ? disabledStyle : iconStyle}
               />
             </Tooltip>
-            <Button
-              type="text"
-              size="middle"
-              icon={<EditOutlined />}
-              onClick={() => onEdit(record)}
-              disabled={record.id === "default"}
-              style={record.id === "default" ? disabledStyle : iconStyle}
-              title={
-                record.id === "default"
-                  ? t("agent.defaultNotEditable")
-                  : undefined
-              }
-            />
             <Button
               type="text"
               size="middle"

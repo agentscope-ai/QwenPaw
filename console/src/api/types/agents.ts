@@ -144,6 +144,12 @@ export interface CreateAgentRequest {
   language?: string;
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
   mail?: AgentMailConfig | null;
   backend?: AgentBackend;
   backend_settings?: {

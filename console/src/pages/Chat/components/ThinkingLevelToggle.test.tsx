@@ -101,4 +101,42 @@ describe("ThinkingLevelToggle", () => {
     );
     expect(trigger).toHaveTextContent("modelSelector.thinking.high");
   });
+
+  it("does not publish the old level while a new session is loading", async () => {
+    let resolveSessionList: (() => void) | undefined;
+    const pendingSessionList = new Promise<void>((resolve) => {
+      resolveSessionList = resolve;
+    });
+    sessionApiMock.getSessionList
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingSessionList);
+    sessionApiMock.getSessionMeta.mockImplementation((sessionId: string) => ({
+      thinking_level: sessionId === "chat-1" ? "high" : "low",
+    }));
+
+    const onChange = vi.fn();
+    const { rerender } = renderWithProviders(
+      <ThinkingLevelToggle
+        sessionId="chat-1"
+        supportsThinking
+        onChange={onChange}
+      />,
+    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("high"));
+    onChange.mockClear();
+
+    rerender(
+      <ThinkingLevelToggle
+        sessionId="chat-2"
+        supportsThinking
+        onChange={onChange}
+      />,
+    );
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("chat.thinkingLevelTitle")).toBeDisabled();
+
+    resolveSessionList?.();
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("low"));
+  });
 });

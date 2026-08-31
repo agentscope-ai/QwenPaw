@@ -28,10 +28,21 @@ interface SettingsProvider {
 }
 
 interface AgentModelSettingsProps {
-  agentId: string;
+  agentId?: string;
   providers: SettingsProvider[];
   activeProviderId?: string;
   activeModelId?: string;
+  initialConfig?: Pick<
+    AgentProfileConfig,
+    "fallback_models" | "fallback_policy" | "subagent_model"
+  >;
+  draftResetToken?: number;
+  onDraftChange?: (
+    settings: Pick<
+      AgentProfileConfig,
+      "fallback_models" | "fallback_policy" | "subagent_model"
+    >,
+  ) => void;
 }
 
 interface ModelOption {
@@ -52,10 +63,13 @@ export function AgentModelSettings({
   providers,
   activeProviderId,
   activeModelId,
+  initialConfig,
+  draftResetToken,
+  onDraftChange,
 }: AgentModelSettingsProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!agentId);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -75,6 +89,7 @@ export function AgentModelSettings({
   const bodyId = useId();
   const subagentSelectId = `${bodyId}-subagent-model`;
   const fallbackSelectId = `${bodyId}-fallback-model`;
+  const draftTokenRef = useRef<number | undefined>();
 
   const options = useMemo<ModelOption[]>(
     () =>
@@ -150,6 +165,46 @@ export function AgentModelSettings({
   );
 
   useEffect(() => {
+    if (agentId) return;
+    const fallbackModels = fallbackKeys.flatMap((key) => {
+      const slot = slotByKey.get(key);
+      return slot ? [slot] : [];
+    });
+    onDraftChange?.({
+      fallback_models: fallbackModels,
+      fallback_policy: {
+        enabled: fallbackEnabled,
+        target_scope: fallbackScope,
+      },
+      subagent_model: slotByKey.get(subagentKey) ?? null,
+    });
+  }, [
+    agentId,
+    fallbackEnabled,
+    fallbackKeys,
+    fallbackScope,
+    onDraftChange,
+    slotByKey,
+    subagentKey,
+  ]);
+
+  useEffect(() => {
+    if (agentId) return;
+    if (draftTokenRef.current === draftResetToken && config) return;
+    draftTokenRef.current = draftResetToken;
+    applyConfig(
+      {
+        id: "draft",
+        name: "",
+        ...initialConfig,
+      } as AgentProfileConfig,
+      "draft",
+    );
+    setOpen(true);
+  }, [agentId, config, draftResetToken, initialConfig]);
+
+  useEffect(() => {
+    if (!agentId) return;
     loadRevision.current += 1;
     saveRevision.current += 1;
     configAgentId.current = null;
@@ -160,7 +215,7 @@ export function AgentModelSettings({
     setOpen(false);
   }, [agentId]);
 
-  const applyConfig = (next: AgentProfileConfig, targetAgentId: string) => {
+  function applyConfig(next: AgentProfileConfig, targetAgentId: string) {
     configAgentId.current = targetAgentId;
     setConfig(next);
     setFallbackEnabled(next.fallback_policy?.enabled ?? true);
@@ -175,9 +230,10 @@ export function AgentModelSettings({
         ? slotKey(next.subagent_model.provider_id, next.subagent_model.model)
         : EMPTY_KEY,
     );
-  };
+  }
 
   const loadConfig = async (force = false) => {
+    if (!agentId) return;
     if ((!force && config) || loading) return;
     const targetAgentId = agentId;
     const revision = ++loadRevision.current;
@@ -229,7 +285,9 @@ export function AgentModelSettings({
   };
 
   const save = async () => {
-    if (!config || saving || configAgentId.current !== agentId) return;
+    if (!agentId || !config || saving || configAgentId.current !== agentId) {
+      return;
+    }
     const targetAgentId = agentId;
     const revision = ++saveRevision.current;
     setSaving(true);
@@ -454,20 +512,22 @@ export function AgentModelSettings({
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className={styles.saveAgentSettings}
-                aria-label={t("modelSelector.saveAgentSettings")}
-                disabled={saving}
-                onClick={save}
-              >
-                {saving ? (
-                  <LoaderCircle size={14} className={styles.spinning} />
-                ) : (
-                  <Save size={14} />
-                )}
-                {t("modelSelector.saveAgentSettings")}
-              </button>
+              {agentId && (
+                <button
+                  type="button"
+                  className={styles.saveAgentSettings}
+                  aria-label={t("modelSelector.saveAgentSettings")}
+                  disabled={saving}
+                  onClick={save}
+                >
+                  {saving ? (
+                    <LoaderCircle size={14} className={styles.spinning} />
+                  ) : (
+                    <Save size={14} />
+                  )}
+                  {t("modelSelector.saveAgentSettings")}
+                </button>
+              )}
             </>
           )}
         </div>

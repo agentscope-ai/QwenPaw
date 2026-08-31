@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSummary } from "@/api/types/agents";
 import { renderWithProviders } from "@/test/common_setup";
@@ -108,5 +109,32 @@ describe("AgentTable", () => {
     expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
     expect(screen.getByText(/Codex/)).toBeInTheDocument();
     expect(screen.getByText(/Qoder/)).toBeInTheDocument();
+  });
+
+  it("uses the agent name as the edit entry point", async () => {
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("custom", false)]}
+        loading={false}
+        reordering={false}
+        onEdit={onEdit}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "custom" }));
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "custom",
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /edit/i }),
+    ).not.toBeInTheDocument();
   });
 });

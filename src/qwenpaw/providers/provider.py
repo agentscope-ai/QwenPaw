@@ -618,11 +618,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             for model in self.extra_models
             if model.id.strip() != model_id
         ]
-        self.discovered_models = [
-            model
-            for model in self.discovered_models
-            if model.id.strip() != model_id
-        ]
         return True, ""
 
     @staticmethod
