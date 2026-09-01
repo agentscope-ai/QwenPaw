@@ -18,8 +18,9 @@ export default function SettingsAgentSelector() {
       agents.filter((agent) => agent.enabled && isAgentAvailableInChat(agent)),
     [agents],
   );
-  const currentAgent = availableAgents.find(
-    (agent) => agent.id === selectedAgent,
+  const agentById = useMemo(
+    () => new Map(availableAgents.map((agent) => [agent.id, agent])),
+    [availableAgents],
   );
 
   useEffect(() => {
@@ -28,9 +29,6 @@ export default function SettingsAgentSelector() {
 
   return (
     <div className={styles.settingsAgentSelector}>
-      <span className={styles.settingsAgentSelectorLabel}>
-        {t("agent.currentWorkspace")}
-      </span>
       <Select
         aria-label={t("agent.selectAgent")}
         className={styles.settingsAgentSelect}
@@ -38,21 +36,42 @@ export default function SettingsAgentSelector() {
         onChange={(agentId) => setSelectedAgent(agentId)}
         options={availableAgents.map((agent) => ({
           value: agent.id,
-          label: (
-            <span className={styles.settingsAgentOption}>
+          label: getAgentDisplayName(agent, t),
+        }))}
+        labelRender={({ value, label }) => {
+          const agent = agentById.get(String(value));
+          return (
+            <span className={styles.settingsAgentOptionIdentity}>
               <AgentStatusIndicator
-                status={agent.startup_status}
-                enabled={agent.enabled}
+                status={agent?.startup_status}
+                enabled={agent?.enabled}
               />
               <Bot size={15} />
-              <span>{getAgentDisplayName(agent, t)}</span>
+              <span>{label}</span>
             </span>
-          ),
-        }))}
+          );
+        }}
+        optionRender={({ value, label }) => {
+          const agent = agentById.get(String(value));
+          return (
+            <span className={styles.settingsAgentOption}>
+              <span className={styles.settingsAgentOptionIdentity}>
+                <AgentStatusIndicator
+                  status={agent?.startup_status}
+                  enabled={agent?.enabled}
+                />
+                <Bot size={15} />
+                <span>{label}</span>
+              </span>
+              {agent?.backend && (
+                <small className={styles.settingsAgentOptionBackend}>
+                  {agent.backend}
+                </small>
+              )}
+            </span>
+          );
+        }}
       />
-      <span className={styles.settingsAgentBackend}>
-        {currentAgent?.backend || selectedAgent}
-      </span>
     </div>
   );
 }

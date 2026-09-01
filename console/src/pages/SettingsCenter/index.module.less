@@ -44,9 +44,20 @@
     background: #1f1f1f;
   }
 
-  .settingsAgentSelector {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
+  .backButton {
+    color: rgba(255, 255, 255, 0.72);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.92) !important;
+      background: rgba(255, 255, 255, 0.06) !important;
+    }
+  }
+
+  .settingsAgentSelect {
+    :global(.ant-select-selector) {
+      border-color: rgba(255, 255, 255, 0.12) !important;
+      background: rgba(255, 255, 255, 0.04) !important;
+    }
   }
 
   .settingRow + .settingRow,
@@ -119,43 +130,40 @@
 }
 
 .settingsAgentSelector {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 8px;
   margin: 0 4px 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08));
-  border-radius: 10px;
-  background: var(--colorBgContainer, #fff);
-}
-
-.settingsAgentSelectorLabel {
-  grid-column: 1 / -1;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
-  font-size: 10px;
-  font-weight: 600;
 }
 
 .settingsAgentSelect {
+  width: 100%;
   min-width: 0;
 
   :global(.ant-select-selector) {
-    height: 28px !important;
-    padding: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
+    height: 36px !important;
+    padding: 0 10px !important;
+    border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08)) !important;
+    border-radius: 8px !important;
+    background: var(--colorBgContainer, #fff) !important;
     box-shadow: none !important;
   }
 
   :global(.ant-select-selection-item) {
-    line-height: 28px !important;
+    line-height: 34px !important;
   }
 }
 
 .settingsAgentOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.settingsAgentOptionIdentity {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   max-width: 100%;
 
   > span:last-child {
@@ -165,14 +173,10 @@
   }
 }
 
-.settingsAgentBackend {
-  align-self: center;
-  max-width: 72px;
-  overflow: hidden;
+.settingsAgentOptionBackend {
+  flex: none;
   color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .navItem {
@@ -394,13 +398,36 @@
   color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
 }
 
+@media (min-width: 769px) and (max-width: 900px) {
+  .settingRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .settingCopy {
+    min-width: calc(100% - 52px);
+  }
+
+  .settingControl,
+  .segmentedControl,
+  .messageDisplayControl,
+  .inlineControls {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+
+  .inlineControls {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 768px) {
   .body {
     grid-template-columns: 1fr;
   }
 
   .sidebar {
-    max-height: 42vh;
+    max-height: 48vh;
     border-right: 0;
     border-bottom: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
   }

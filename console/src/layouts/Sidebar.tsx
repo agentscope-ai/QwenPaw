@@ -730,20 +730,18 @@ export default function Sidebar({
       )}
 
       <div className={styles.collapseToggleContainer}>
-        {collapsed && (
-          <Tooltip
-            title={t("nav.moreSettings", "More settings")}
-            placement="right"
-          >
-            <Button
-              type="text"
-              aria-label={t("nav.moreSettings", "More settings")}
-              icon={<Settings size={18} />}
-              className={styles.collapseToggle}
-              onClick={handleOpenSettings}
-            />
-          </Tooltip>
-        )}
+        <Tooltip
+          title={t("nav.moreSettings", "More settings")}
+          placement="right"
+        >
+          <Button
+            type="text"
+            aria-label={t("nav.moreSettings", "More settings")}
+            icon={<Settings size={18} />}
+            className={styles.collapseToggle}
+            onClick={handleOpenSettings}
+          />
+        </Tooltip>
         <Button
           type="text"
           icon={

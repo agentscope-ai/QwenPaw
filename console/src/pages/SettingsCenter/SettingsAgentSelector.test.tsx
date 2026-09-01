@@ -61,12 +61,15 @@ describe("SettingsAgentSelector", () => {
   it("shows and switches the shared current agent", async () => {
     renderWithProviders(<SettingsAgentSelector />);
 
-    expect(screen.getByText("Current Agent")).toBeVisible();
-    expect(screen.getByText("qwenpaw")).toBeVisible();
+    expect(screen.getByText("Default")).toBeVisible();
+    expect(screen.queryByText("Current Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("qwenpaw")).not.toBeInTheDocument();
 
     await userEvent.click(
       screen.getByRole("combobox", { name: "Select Agent" }),
     );
+    expect(screen.getByText("qwenpaw")).toBeInTheDocument();
+    expect(screen.getByText("codex")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Agent One"));
 
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");

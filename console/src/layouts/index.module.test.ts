@@ -101,6 +101,21 @@ describe("Sidebar overflow layout", () => {
     expect(stylesSource).toContain(".simpleMoreSettings");
   });
 
+  it("retains the bottom settings icon in expanded and collapsed modes", () => {
+    const bottomControlsStart = sidebarSource.indexOf(
+      "className={styles.collapseToggleContainer}",
+    );
+    const bottomControls = sidebarSource.slice(
+      bottomControlsStart,
+      sidebarSource.indexOf("<Modal", bottomControlsStart),
+    );
+
+    expect(bottomControlsStart).toBeGreaterThanOrEqual(0);
+    expect(bottomControls).toContain("<Settings size={18} />");
+    expect(bottomControls).toContain("onClick={handleOpenSettings}");
+    expect(bottomControls).not.toContain("{collapsed && (");
+  });
+
   it("pins new task and history outside the shortcut scroller", () => {
     const pinnedStart = sidebarSource.indexOf(
       "className={styles.collapsedNavPinned}",

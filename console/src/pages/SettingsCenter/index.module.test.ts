@@ -26,7 +26,35 @@ describe("SettingsCenter responsive layout", () => {
     const mobileRule = stylesSource.slice(mobileStart);
 
     expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileRule).toContain("max-height: 48vh;");
     expect(mobileRule).toContain("padding: 18px 20px;");
     expect(mobileRule).toContain("width: calc(100% - 48px);");
+  });
+
+  it("stacks wide controls before the navigation becomes mobile", () => {
+    const compactDesktopStart = stylesSource.indexOf(
+      "@media (min-width: 769px) and (max-width: 900px)",
+    );
+    const compactDesktopRule = stylesSource.slice(
+      compactDesktopStart,
+      stylesSource.indexOf("@media (max-width: 768px)", compactDesktopStart),
+    );
+
+    expect(compactDesktopStart).toBeGreaterThanOrEqual(0);
+    expect(compactDesktopRule).toContain("flex-wrap: wrap;");
+    expect(compactDesktopRule).toContain("width: calc(100% - 48px);");
+  });
+
+  it("keeps navigation helpers legible in dark mode", () => {
+    const darkStart = stylesSource.indexOf(".rootDark {");
+    const darkRule = stylesSource.slice(
+      darkStart,
+      stylesSource.indexOf("\n}", darkStart) + 2,
+    );
+
+    expect(darkStart).toBeGreaterThanOrEqual(0);
+    expect(darkRule).toContain(".backButton");
+    expect(darkRule).toContain(".settingsAgentSelect");
+    expect(darkRule).toContain("rgba(255, 255, 255, 0.12)");
   });
 });

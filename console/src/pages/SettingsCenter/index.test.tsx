@@ -136,7 +136,7 @@ describe("SettingsCenter", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/files");
   });
 
-  it("keeps agent-scoped automation out of global settings", () => {
+  it("keeps operational workspaces out of settings navigation", () => {
     const EmptyPage = () => null;
     registry.routes = [
       { id: "core.security", path: "/security", Component: EmptyPage },
@@ -162,7 +162,7 @@ describe("SettingsCenter", () => {
     expect(within(globalGroup!).queryByText("Cron Jobs")).toBeNull();
     expect(within(globalGroup!).queryByText("Heartbeat")).toBeNull();
     expect(within(agentGroup!).getByText("Channels")).toBeVisible();
-    expect(within(agentGroup!).getByText("Cron Jobs")).toBeVisible();
+    expect(within(agentGroup!).queryByText("Cron Jobs")).toBeNull();
     expect(within(agentGroup!).getByText("Heartbeat")).toBeVisible();
   });
 
@@ -193,21 +193,28 @@ describe("SettingsCenter", () => {
     const EmptyPage = () => null;
     const agentPages = [
       ["core.channels", "/channels", "Channels"],
-      ["core.sessions", "/sessions", "Sessions"],
-      ["core.cron-jobs", "/cron-jobs", "Cron Jobs"],
       ["core.heartbeat", "/heartbeat", "Heartbeat"],
-      ["core.files", "/files", "Files"],
       ["core.skills", "/skills", "Skills"],
       ["core.tools", "/tools", "Tools"],
       ["core.mcp", "/mcp", "MCP"],
       ["core.acp", "/acp", "ACP"],
       ["core.agent-config", "/agent-config", "Configuration"],
-      ["core.agent-stats", "/agent-stats", "Agent Statistics"],
-      ["core.checkpoints", "/checkpoints", "Checkpoints"],
+    ] as const;
+    const operationalPages = [
+      ["core.sessions", "/sessions"],
+      ["core.cron-jobs", "/cron-jobs"],
+      ["core.files", "/files"],
+      ["core.agent-stats", "/agent-stats"],
+      ["core.checkpoints", "/checkpoints"],
     ] as const;
     registry.routes = [
       { id: "core.marketplace", path: "/market", Component: EmptyPage },
       ...agentPages.map(([id, path]) => ({
+        id,
+        path,
+        Component: EmptyPage,
+      })),
+      ...operationalPages.map(([id, path]) => ({
         id,
         path,
         Component: EmptyPage,
@@ -254,13 +261,22 @@ describe("SettingsCenter", () => {
     expect(
       screen.queryByRole("button", { name: "Marketplace" }),
     ).not.toBeInTheDocument();
+    for (const label of [
+      "Sessions",
+      "Cron Jobs",
+      "Files",
+      "Agent Statistics",
+      "Checkpoints",
+    ]) {
+      expect(
+        within(agentGroup!).queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
 
     await userEvent.click(
-      within(agentGroup!).getByRole("button", { name: "Sessions" }),
+      within(agentGroup!).getByRole("button", { name: "Tools" }),
     );
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/settings/sessions",
-    );
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/tools");
 
     await userEvent.click(screen.getByRole("button", { name: "Sidebar" }));
 
