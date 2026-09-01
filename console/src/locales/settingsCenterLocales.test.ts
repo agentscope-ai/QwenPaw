@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import en from "./en.json";
+import id from "./id.json";
+import ja from "./ja.json";
+import ptBR from "./pt-BR.json";
+import ru from "./ru.json";
+import vi from "./vi.json";
 import zh from "./zh.json";
+
+const localeEntries = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
+
+function getKeyPaths(value: object, prefix = ""): string[] {
+  return Object.entries(value).flatMap(([key, child]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      return getKeyPaths(child, path);
+    }
+    return path;
+  });
+}
 
 describe("Settings Center copy", () => {
   it("uses feature-oriented sidebar group names", () => {
@@ -22,4 +39,16 @@ describe("Settings Center copy", () => {
       plugins: "Plugin features",
     });
   });
+
+  it.each(Object.entries(localeEntries))(
+    "%s includes every Settings Center key",
+    (_locale, messages) => {
+      expect(getKeyPaths(messages.settingsCenter).sort()).toEqual(
+        getKeyPaths(en.settingsCenter).sort(),
+      );
+      expect(messages.nav.moreSettings).toBeTruthy();
+      expect(messages.sidebar.more).toBeTruthy();
+      expect(messages.chat.newTask).toBeTruthy();
+    },
+  );
 });

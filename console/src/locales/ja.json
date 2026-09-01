@@ -144,7 +144,8 @@
     "plugins": "プラグイン",
     "acp": "ACP",
     "backups": "バックアップ",
-    "pluginManager": "プラグインマネージャー"
+    "pluginManager": "プラグインマネージャー",
+    "moreSettings": "その他の設定"
   },
   "os": {
     "console": "コンソール",
@@ -2599,9 +2600,76 @@
     },
     "simpleMode": "シンプルモード",
     "fullMode": "フルモード",
+    "more": "その他",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
+  "settingsCenter": {
+    "backToApp": "アプリに戻る",
+    "searchPlaceholder": "設定を検索",
+    "noResults": "一致する設定はありません",
+    "groups": {
+      "application": "アプリ設定",
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "extensions": "拡張機能"
+    },
+    "pages": { "general": "一般", "navigation": "サイドバー" },
+    "descriptions": {
+      "general": "言語、テーマ、アプリの動作",
+      "navigation": "サイドバーの表示項目",
+      "agents": "QwenPaw、Codex、Qoder のプロファイル",
+      "models": "プロバイダー、認証情報、モデルカタログ",
+      "skillPool": "再利用可能なスキルと拡張機能",
+      "channels": "IM とメッセージチャンネルを接続",
+      "skills": "エージェントのスキルを管理",
+      "tools": "利用可能なツールを設定",
+      "mcp": "MCP サービスを設定",
+      "acp": "ACP エージェントを設定",
+      "agentConfig": "エージェントの実行動作を設定",
+      "voice": "音声入力と文字起こし",
+      "heartbeat": "エージェントの稼働状況と定期起動",
+      "environments": "実行時変数とシークレット",
+      "security": "実行ポリシーと保護ルール",
+      "offloadPolicy": "バックグラウンド実行ポリシー",
+      "tokenUsage": "使用状況の統計と推移",
+      "backups": "データのエクスポート、復元、移行",
+      "debug": "ログと診断",
+      "extension": "拡張機能が提供する設定"
+    },
+    "appearanceAndLanguage": "外観と言語",
+    "contentLayout": "コンテンツレイアウト",
+    "desktopApplication": "デスクトップアプリ",
+    "languageHint": "このデバイスの表示言語を変更します。",
+    "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
+    "contentWidth": "コンテンツ幅",
+    "contentWidthHint": "標準幅を使用するか、会話を利用可能な幅まで広げます。",
+    "contentWidthStandard": "標準",
+    "contentWidthWide": "ワイド",
+    "chatDisplay": "会話表示",
+    "toolDisplay": "ツール表示",
+    "toolDisplayHint": "ツールカードを開いたときに表示する内容を選択します。",
+    "toolDisplayCurrent": "カード表示",
+    "toolDisplayRaw": "生のパラメータ",
+    "assistantDisplay": "アシスタントメッセージの折りたたみ",
+    "assistantDisplayHint": "中間テキスト、推論、ツールの折りたたみ方を設定します。",
+    "displayExpanded": "すべて展開",
+    "displayProcessCollapsed": "プロセスを折りたたむ",
+    "displayResultCollapsed": "結果を折りたたむ",
+    "closeBehaviorHint": "デスクトップウィンドウを閉じたときの動作を選択します。",
+    "desktopModeHint": "マルチウィンドウのデスクトップワークスペースを開きます。",
+    "open": "開く",
+    "fixedEntries": "固定項目",
+    "selectAll": "すべて選択",
+    "invertSelection": "選択を反転",
+    "sidebarGroups": {
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "plugins": "プラグイン機能"
+    },
+    "alwaysVisible": "常に表示"
+  },
   "chat": {
+    "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント"
