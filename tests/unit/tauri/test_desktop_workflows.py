@@ -20,7 +20,7 @@ def test_fork_desktop_build_uses_supported_python() -> None:
     supported = SpecifierSet(project["project"]["requires-python"])
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github/workflows/fork-verify-desktop.yml").read_text(
-            encoding="utf-8"
+            encoding="utf-8",
         ),
     )
 
