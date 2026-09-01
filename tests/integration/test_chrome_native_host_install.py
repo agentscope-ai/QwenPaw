@@ -100,6 +100,30 @@ def test_successful_install_records_a_passing_probe(
     assert result["installed"] is True
 
 
+@pytest.mark.integration
+@pytest.mark.p1
+def test_install_status_detects_stale_unpacked_extension(
+    isolated_home: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", sys.executable)
+    extension_setup.setup_extension_files(home=isolated_home)
+
+    extension_dir = (
+        isolated_home / ".qwenpaw" / "chrome-extension" / "qwenpaw-chrome"
+    )
+    manifest_path = extension_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = "0.1.1"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    status = extension_setup.extension_install_status(home=isolated_home)
+
+    assert status["extension_version"] == "0.1.1"
+    assert status["extension_asset_version"] == "0.1.2"
+    assert status["extension_update_required"] is True
+
+
 @pytest.mark.p2
 def test_non_reset_repair_preserves_existing_bridge_token(
     isolated_home: Path,
