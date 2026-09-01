@@ -32,6 +32,11 @@ _CREDENTIAL_TYPES = {
 _TEST_TEXT = "QwenPaw embedding connection test"
 
 
+def _effective_use_dimensions(config: EmbeddingModelConfig) -> bool:
+    """Return whether dimensions are sent to the selected provider."""
+    return config.backend == "openai" and config.use_dimensions
+
+
 @dataclass(frozen=True)
 class EmbeddingTestResult:
     """Result of one real embedding provider request."""
@@ -138,7 +143,7 @@ def embedding_config_fingerprint(
         config.base_url.strip().rstrip("/"),
         config.model_name.strip(),
         config.dimensions,
-        config.use_dimensions,
+        _effective_use_dimensions(config),
     )
 
 
@@ -151,5 +156,5 @@ def embedding_vector_space_fingerprint(
         config.base_url.strip().rstrip("/"),
         config.model_name.strip(),
         config.dimensions,
-        config.use_dimensions,
+        _effective_use_dimensions(config),
     )
