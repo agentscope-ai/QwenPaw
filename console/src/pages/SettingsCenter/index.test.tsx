@@ -82,9 +82,24 @@ describe("SettingsCenter", () => {
     expect(contentLayout).not.toBeNull();
     expect(conversationDisplay).not.toBeNull();
     expect(within(contentLayout!).getByText("Content width")).toBeVisible();
+    expect(within(contentLayout!).getByText("Desktop Mode")).toBeVisible();
+    expect(
+      within(contentLayout!).getByRole("button", { name: "Open" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Desktop app" }),
+    ).not.toBeInTheDocument();
     expect(
       within(conversationDisplay!).queryByText("Content width"),
     ).not.toBeInTheDocument();
+    const thinkingDisplay = within(conversationDisplay!).getByText(
+      "Show thinking",
+    );
+    const toolDisplay = within(conversationDisplay!).getByText("Tool display");
+    expect(
+      thinkingDisplay.compareDocumentPosition(toolDisplay) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const standard = within(contentLayout!).getByText("Standard");
     const wide = within(contentLayout!).getByText("Wide");
 

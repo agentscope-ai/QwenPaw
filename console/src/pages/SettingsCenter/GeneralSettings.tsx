@@ -201,6 +201,27 @@ export default function GeneralSettings() {
               onChange={changeContentWidth}
             />
           </div>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Monitor size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>{t("sidebar.settings.desktopMode")}</strong>
+              <small>
+                {t(
+                  "settingsCenter.desktopModeHint",
+                  "Open the multi-window desktop workspace.",
+                )}
+              </small>
+            </span>
+            <Button
+              onClick={() =>
+                window.location.assign(getOsRootHref(window.location.pathname))
+              }
+            >
+              {t("settingsCenter.open", "Open")}
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -209,6 +230,23 @@ export default function GeneralSettings() {
           {t("settingsCenter.chatDisplay", "Conversation display")}
         </h3>
         <div className={styles.settingsCard}>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <BrainCircuit size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.thinkingDisplay", "Show thinking")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.thinkingDisplayHint",
+                  "Show model reasoning in conversations without changing model behavior.",
+                )}
+              </small>
+            </span>
+            <Switch checked={showThinking} onChange={changeShowThinking} />
+          </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
               <Wrench size={18} />
@@ -237,23 +275,6 @@ export default function GeneralSettings() {
               ]}
               onChange={changeToolDisplayMode}
             />
-          </div>
-          <div className={styles.settingRow}>
-            <span className={styles.settingIcon}>
-              <BrainCircuit size={18} />
-            </span>
-            <span className={styles.settingCopy}>
-              <strong>
-                {t("settingsCenter.thinkingDisplay", "Show thinking")}
-              </strong>
-              <small>
-                {t(
-                  "settingsCenter.thinkingDisplayHint",
-                  "Show model reasoning in conversations without changing model behavior.",
-                )}
-              </small>
-            </span>
-            <Switch checked={showThinking} onChange={changeShowThinking} />
           </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
@@ -337,29 +358,6 @@ export default function GeneralSettings() {
                   },
                 ]}
               />
-            </div>
-            <div className={styles.settingRow}>
-              <span className={styles.settingIcon}>
-                <Monitor size={18} />
-              </span>
-              <span className={styles.settingCopy}>
-                <strong>{t("sidebar.settings.desktopMode")}</strong>
-                <small>
-                  {t(
-                    "settingsCenter.desktopModeHint",
-                    "Open the multi-window desktop workspace.",
-                  )}
-                </small>
-              </span>
-              <Button
-                onClick={() =>
-                  window.location.assign(
-                    getOsRootHref(window.location.pathname),
-                  )
-                }
-              >
-                {t("settingsCenter.open", "Open")}
-              </Button>
             </div>
           </div>
         </section>
