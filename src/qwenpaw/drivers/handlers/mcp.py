@@ -35,6 +35,7 @@ from .mcp_stateful_client import (
     HttpStatefulClient,
     StdIOStatefulClient,
 )
+from .mcp_streamable_http import HttpAutoClient
 from ..credentials.types import ResolvedCredential
 from ..errors import (
     ApprovalRequiredError,
@@ -61,7 +62,7 @@ class MCPDriverHandler(DriverHandler):
         ) = None
 
     async def _setup(self) -> None:
-        """Create and connect StdIOStatefulClient or HttpStatefulClient."""
+        """Create and connect StdIO / Auto / HttpStateful MCP clients."""
         endpoint = self._card.endpoint
         transport = str(endpoint.get("transport") or "stdio")
         credentials = await self._resolve_credentials()
@@ -83,7 +84,13 @@ class MCPDriverHandler(DriverHandler):
                 credentials,
             )
             headers.update(implicit_auth_headers(credentials, headers))
-            self._client = HttpStatefulClient(
+            # streamable_http → HttpAutoClient; sse → HttpStatefulClient.
+            client_cls = (
+                HttpAutoClient
+                if transport == "streamable_http"
+                else HttpStatefulClient
+            )
+            self._client = client_cls(
                 name=self._card.name,
                 transport=transport,
                 url=str(endpoint.get("url") or ""),

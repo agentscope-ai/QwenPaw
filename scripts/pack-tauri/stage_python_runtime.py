@@ -9,8 +9,10 @@ at runtime we ship a standalone CPython (python-build-standalone) whose
 with it (see ``qwenpaw.plugins.loader``).
 
 This script downloads the matching ``install_only`` build and extracts it to
-``<dest>/python``. Run it with the SAME interpreter used for the PyInstaller
-build so the bundled runtime version matches automatically.
+``<dest>/python``. The desktop build scripts use their bootstrap interpreter
+only to select the requested ``X.Y``; they then create the PyInstaller build
+environment from this staged interpreter. This makes python-build-standalone
+the shared binary source for both the frozen backend and the helper runtime.
 """
 from __future__ import annotations
 

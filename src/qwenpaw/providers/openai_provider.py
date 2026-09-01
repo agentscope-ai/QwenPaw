@@ -241,9 +241,9 @@ class OpenAIProvider(Provider):
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
             return models
-        except APIError:
-            return []
         except Exception:
+            if self.is_custom:
+                raise
             return []
         finally:
             await self._close_client(client)
