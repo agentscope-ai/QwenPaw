@@ -4,27 +4,23 @@ QwenPaw Mobile 基于 React Native + Expo 构建，一套代码支持 iOS 与
 Android。本项目仅负责 Mobile Client，通过公开 API 接入外部 QwenPaw
 Server 与 AgentScope Platform。
 
-```mermaid
-flowchart TB
-    subgraph Mobile[QwenPaw Mobile · This Project]
-        IOS[iOS Native App] --> UI
-        Android[Android Native App] --> UI
-        UI[Chats · Agents · Community · Workbench]
-        UI --> State[Zustand State + Domain Models]
-        State --> API[Shared API Layer + SSE Streaming]
-        Adapter[Client-side Platform Adapter] --> API
-        Secure[Keychain / Keystore] --> State
-    end
-
-    subgraph External[External Services · API Integration Only]
-        Private[Local / Private QwenPaw Server]
-        Platform[AgentScope Platform API]
-        Cloud[Platform-hosted QwenPaw Server]
-        Platform --> Cloud
-    end
-
-    API --> Private
-    Adapter --> Platform
+```text
+QwenPaw Mobile · This Project
+├── Native Shells
+│   ├── iOS App
+│   └── Android App
+├── Product UI
+│   └── Chats · Agents · Community · Workbench
+├── State & Domain
+│   └── Zustand · Connection · Session Lifecycle
+├── Security
+│   └── Keychain · Keystore · Secure Pairing
+└── Shared API Layer
+    ├── QwenPaw API + SSE
+    │   └──→ Local / Private QwenPaw Server  [External]
+    └── Platform Client Adapter
+        └──→ AgentScope Platform API           [External]
+             └──→ Platform-hosted QwenPaw      [External]
 ```
 
 ## 架构亮点
