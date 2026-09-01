@@ -5,22 +5,30 @@ Android。本项目仅负责 Mobile Client，通过公开 API 接入外部 QwenP
 Server 与 AgentScope Platform。
 
 ```text
-QwenPaw Mobile · This Project
-├── Native Shells
-│   ├── iOS App
-│   └── Android App
-├── Product UI
-│   └── Chats · Agents · Community · Workbench
-├── State & Domain
-│   └── Zustand · Connection · Session Lifecycle
-├── Security
-│   └── Keychain · Keystore · Secure Pairing
-└── Shared API Layer
-    ├── QwenPaw API + SSE
-    │   └──→ Local / Private QwenPaw Server  [External]
-    └── Platform Client Adapter
-        └──→ AgentScope Platform API           [External]
-             └──→ Platform-hosted QwenPaw      [External]
+┌─────────────────────────────────────────────────────────────────┐
+│ QWENPAW MOBILE · THIS PROJECT                                   │
+├─────────────────────────────────────────────────────────────────┤
+│ NATIVE EXPERIENCE                                               │
+│ iOS Navigation · Android Back · Light / Dark                    │
+├─────────────────────────────────────────────────────────────────┤
+│ PRODUCT CAPABILITIES                                            │
+│ Chats · Agents · Community · Workbench · Pairing                │
+├─────────────────────────────────────────────────────────────────┤
+│ SHARED STATE & DOMAIN                                           │
+│ Connection · Session Lifecycle · Secure Identity                │
+├─────────────────────────────────────────────────────────────────┤
+│ SHARED API LAYER                                                │
+│ Typed Contracts · SSE Streaming · Gateway Renewal               │
+├────────────────────────────────┬────────────────────────────────┤
+│ DIRECT QWENPAW CLIENT          │ PLATFORM CLIENT ADAPTER        │
+│ Local / Private / LAN          │ Auth / Access / Deploy         │
+└────────────────────────────────┴────────────────────────────────┘
+                 │                                │
+                 ▼                                ▼
+       QwenPaw Server [External]       AgentScope Platform [External]
+                                                │
+                                                ▼
+                              Platform-hosted QwenPaw [External]
 ```
 
 ## 架构亮点
@@ -31,8 +39,7 @@ QwenPaw Mobile · This Project
   会话体验。
 - **共享 API 层**：Mobile 侧将 QwenPaw API、Platform 公开 API 适配与 SSE
   流式消息统一收敛，页面不感知底层协议。
-- **模块化**：`app / features / store / api / storage / theme` 分层，各业务模块
-  可独立演进。
+- **模块化**：业务能力、状态、传输、存储和主题边界清晰，可独立演进。
 - **生产级保障**：single-flight 刷新、有界重试、显式状态机、Keychain /
   Keystore 安全存储，并支持无公网 tunnel 的局域网直连。
 
