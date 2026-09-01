@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_PORTUGUESEBR} "Bootstrapper do WebView
 LangString webview2Downloading ${LANG_PORTUGUESEBR} "Baixando o Bootstrapper do WebView2..."
 LangString webview2InstallError ${LANG_PORTUGUESEBR} "Erro: Instalação do Webview2 falhou com código $1"
 LangString webview2InstallSuccess ${LANG_PORTUGUESEBR} "WebView2 instalado com sucesso"
-LangString deleteAppData ${LANG_PORTUGUESEBR} "Remover cache local do aplicativo"
+LangString deleteAppData ${LANG_PORTUGUESEBR} "Limpar dados do app (ajustes etc.; mantém agentes/chats)"
 LangString qwenpawCliPathPageTitle ${LANG_PORTUGUESEBR} "Command line"
 LangString qwenpawCliPathPageSubtitle ${LANG_PORTUGUESEBR} "Choose whether qwenpaw is available in terminals."
 LangString qwenpawCliPathPageDescription ${LANG_PORTUGUESEBR} "This adds the bundled qwenpaw command to your user PATH. You can change it later by reinstalling or uninstalling QwenPaw Desktop."

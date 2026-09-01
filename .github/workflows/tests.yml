@@ -6,11 +6,18 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'scripts/check-channels.sh'
+      - 'scripts/check_channel_contracts.py'
+      - '.gitattributes'
       - 'pyproject.toml'
       - 'setup.py'
       - 'deploy/Dockerfile'
       - '.github/workflows/tests.yml'
   pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the real tiers run on the
+    # current head right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop]
   workflow_dispatch:
     inputs:
@@ -58,6 +65,9 @@ jobs:
             code:
               - 'src/**'
               - 'tests/**'
+              - 'scripts/check-channels.sh'
+              - 'scripts/check_channel_contracts.py'
+              - '.gitattributes'
               - 'pyproject.toml'
               - 'setup.py'
               - '.github/workflows/tests.yml'
@@ -68,7 +78,8 @@ jobs:
     if: |
       always() &&
       needs.changes.outputs.code == 'true' &&
-      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     environment: maintainer-approved
     steps:
@@ -235,6 +246,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
+      - name: Check channel contract coverage
+        run: python scripts/check_channel_contracts.py
+
+      - name: Validate channel check script
+        shell: bash
+        run: bash -n scripts/check-channels.sh
+
       - name: Run contract tests
         shell: bash
         env:
@@ -266,18 +284,30 @@ jobs:
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }} - ${{ matrix.shard }}
-    needs: approval-gate
+    # Wait for the unit tier: when unit tests are red the 13 integration
+    # jobs used to burn ~30 minutes of runners for nothing. Sequencing
+    # them also cuts the per-PR concurrent-job peak (org limit is 60).
+    needs: [approval-gate, unit-tests]
     if: |
       always() &&
-      needs.approval-gate.result == 'success'
+      needs.approval-gate.result == 'success' &&
+      needs.unit-tests.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
-        shard: [p0, p1, p2, fallback]
+        shard: [p0, p1, p2]
         include:
+          # The fallback shard is the unclassified-test alarm: it only
+          # fails when some integration test lacks a p0/p1/p2 marker.
+          # One platform is enough for the alarm to ring, so it runs on
+          # ubuntu 3.11 only — the other platforms would just duplicate
+          # it and waste concurrency.
+          - os: ubuntu-latest
+            python-version: "3.11"
+            shard: fallback
           - os: macos-latest
             python-version: "3.11"
             shard: p0
@@ -287,9 +317,6 @@ jobs:
           - os: macos-latest
             python-version: "3.11"
             shard: p2
-          - os: macos-latest
-            python-version: "3.11"
-            shard: fallback
           - os: windows-latest
             python-version: "3.11"
             shard: p0
@@ -299,9 +326,6 @@ jobs:
           - os: windows-latest
             python-version: "3.11"
             shard: p2
-          - os: windows-latest
-            python-version: "3.11"
-            shard: fallback
 
     steps:
       - uses: actions/checkout@v4
@@ -544,8 +568,18 @@ jobs:
           fi
 
           # Then, combine all three tiers: unit, contract, and integration.
-          coverage combine \
-            .coverage.unit .coverage.contract .coverage.integration
+          # Integrated tests are sequenced after the unit tier, so when
+          # unit tests fail the integration data files are absent — combine
+          # whatever exists instead of going red on the missing tier.
+          DATA_FILES=""
+          for f in .coverage.unit .coverage.contract .coverage.integration; do
+            [ -f "$f" ] && DATA_FILES="$DATA_FILES $f"
+          done
+          if [ -n "$DATA_FILES" ]; then
+            coverage combine $DATA_FILES
+          else
+            echo "No coverage data files present (all tiers failed or skipped)"
+          fi
           # Tolerate fail-under (exit 2): combined number is what matters
           # and reflected in the summary regardless.
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
@@ -648,14 +682,19 @@ jobs:
     needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
-    # Three-state decision:
+    # Four-state decision:
     #   1. change detection did not succeed -> red (its `code` output is
     #      unreliable when the detection job fails/is cancelled, so the
     #      gate must close rather than open);
     #   2. detection succeeded and reported a docs-only PR -> explicit
     #      green (instead of skipping, which a ruleset cannot distinguish
     #      from a bypass);
-    #   3. code change -> approval plus EVERY test tier must be strictly
+    #   3. draft PR with code changes -> explicit green placeholder: the
+    #      real tiers are deferred while the PR is a draft (GitHub forbids
+    #      merging drafts, so the placeholder cannot smuggle anything in),
+    #      and the `ready_for_review` trigger re-runs the whole workflow
+    #      the moment the author marks the PR ready;
+    #   4. code change -> approval plus EVERY test tier must be strictly
     #      `success`; failure/cancelled/skipped are all rejected.
     # coverage-report is intentionally observed, not enforced: a coverage
     # tooling outage must not block an otherwise green PR.
@@ -679,6 +718,12 @@ jobs:
 
           if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
             echo "✅ Docs-only change — no test tiers required"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "✅ Draft PR — test tiers deferred until the PR is marked ready for review"
             exit 0
           fi
 

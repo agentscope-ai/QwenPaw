@@ -59,6 +59,7 @@ def _manager() -> ReMeLightMemoryManager:
                 success=True,
                 answer="No files found",
                 metadata={
+                    "modified": False,
                     "dream": {
                         "changed_paths": [],
                         "deleted_paths": [],
@@ -74,8 +75,9 @@ def _manager() -> ReMeLightMemoryManager:
                 success=True,
                 answer="All files unchanged",
                 metadata={
+                    "modified": False,
                     "dream": {
-                        "changed_paths": [],
+                        "changed_paths": ["memory/2026-08-18.md"],
                         "deleted_paths": [],
                         "files_scanned": 2,
                         "files_unchanged": 2,
@@ -90,6 +92,7 @@ def _manager() -> ReMeLightMemoryManager:
                 success=True,
                 answer="Memory organized",
                 metadata={
+                    "modified": True,
                     "dream": {
                         "changed_paths": ["memory/2026-08-18.md"],
                         "deleted_paths": [],
@@ -104,6 +107,7 @@ def _manager() -> ReMeLightMemoryManager:
                 success=True,
                 answer="Memory catalog updated",
                 metadata={
+                    "modified": False,
                     "dream": {
                         "changed_paths": [],
                         "deleted_paths": ["memory/2026-08-17.md"],
@@ -118,6 +122,7 @@ def _manager() -> ReMeLightMemoryManager:
                 success=False,
                 answer="Memory organization failed",
                 metadata={
+                    "modified": False,
                     "dream": {
                         "changed_paths": [],
                         "deleted_paths": [],

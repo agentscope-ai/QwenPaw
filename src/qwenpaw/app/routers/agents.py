@@ -20,6 +20,9 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -33,6 +36,7 @@ from ...config.config import (
     AgentMailConfig,
     AgentProfileConfig,
     AgentProfileRef,
+    EmbeddingModelConfig,
     FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
@@ -218,6 +222,8 @@ class MemoryRuntimeStatus(BaseModel):
     tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
+    embedding_reindex_required: bool = False
+    embedding_reindex_undo_available: bool = False
 
 
 class ReMeMemoryStatusResponse(BaseModel):
@@ -1303,6 +1309,7 @@ async def update_agent_model_settings(
 )
 async def rebuild_agent_memory_index(
     agentId: str = PathParam(...),
+    scope: Literal["all", "bm25", "embedding"] = "all",
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
@@ -1330,7 +1337,9 @@ async def rebuild_agent_memory_index(
         )
 
     try:
-        response = await memory_manager.rebuild_index()
+        response = await memory_manager.rebuild_index(scope)
+    except EmbeddingReindexUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1344,7 +1353,44 @@ async def rebuild_agent_memory_index(
     if not response.success:
         raise HTTPException(status_code=500, detail=str(response.answer))
 
-    return {"status": "completed"}
+    return {"status": "completed", "scope": scope}
+
+
+@router.post(
+    "/{agentId}/memory/reindex/undo",
+    response_model=EmbeddingModelConfig,
+    summary="Undo a pending embedding index rebuild",
+    description="Restore the last indexed embedding configuration",
+)
+async def undo_agent_memory_reindex(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> EmbeddingModelConfig:
+    """Restore the provider configuration matching the still-valid vectors."""
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Embedding index undo is only supported by ReMe Light",
+        )
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    try:
+        restored = await memory_manager.undo_embedding_reindex()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        if str(exc) == "Memory index rebuild is already running":
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return restored
 
 
 @router.get(
@@ -1377,10 +1423,18 @@ async def get_agent_memory_runtime_status(
     if workspace is None or workspace.memory_manager is None:
         raise HTTPException(status_code=503, detail="Agent is not running")
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = workspace.memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     return MemoryRuntimeStatus.model_validate(
-        workspace.memory_manager.get_runtime_status(
-            auto_memory_interval=memory_config.auto_memory_interval,
-        ),
+        runtime_status,
     )
 
 
@@ -1440,13 +1494,21 @@ async def get_agent_memory_status(
             detail="ReMe returned an invalid memory status payload",
         )
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     try:
         return ReMeMemoryStatusResponse.model_validate(
             {
                 **memory,
-                "runtime": memory_manager.get_runtime_status(
-                    auto_memory_interval=memory_config.auto_memory_interval,
-                ),
+                "runtime": runtime_status,
             },
         )
     except ValueError as exc:

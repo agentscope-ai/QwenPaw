@@ -198,8 +198,10 @@ volumes):
 
 QwenPaw-Data keeps all runtime settings in one place: open the app and go to
 **Configure**. From there you can set the language model, embedding model,
-Neo4j graph store, and optional SQL warehouse. Each section has a **Test
-connection** button so you can verify values before saving.
+and Neo4j graph store. Each section has a **Test connection** button so you
+can verify values before saving. SQL datasources (PostgreSQL / MySQL / ...)
+are registered through the embedded Context console's Data Sources page,
+not through `.env`.
 
 When you save, the app writes:
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EmbeddingModelConfig } from "@/api/types/agent";
 import { useAgentStore } from "@/stores/agentStore";
@@ -21,6 +21,7 @@ export function useEmbeddingVerification(
   const clearStoredVerification = useEmbeddingVerificationStore(
     (state) => state.clearVerification,
   );
+  const previousAgentIdRef = useRef(agentId);
 
   const clearVerification = useCallback(
     () => clearStoredVerification(agentId),
@@ -39,8 +40,14 @@ export function useEmbeddingVerification(
   );
 
   useEffect(() => {
-    if (config !== undefined && !enabled) clearVerification();
-  }, [clearVerification, config, enabled]);
+    const agentChanged = previousAgentIdRef.current !== agentId;
+    previousAgentIdRef.current = agentId;
+
+    // The selected agent updates before the shared form is repopulated. On
+    // that transition frame, `config` still belongs to the previous agent and
+    // must not clear the newly selected agent's stored verification.
+    if (!agentChanged && config !== undefined && !enabled) clearVerification();
+  }, [agentId, clearVerification, config, enabled]);
 
   const testedEmbeddingIsCurrent =
     testedEmbedding?.fingerprint === getEmbeddingServiceFingerprint(config);
