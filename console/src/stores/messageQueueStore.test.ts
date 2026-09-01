@@ -7,6 +7,8 @@ import {
   nextQueueId,
   MAX_QUEUE_SIZE,
   withSendLock,
+  withAvailableOwnershipLock,
+  withBackgroundSendLock,
   holdOwnershipLock,
 } from "./messageQueueStore";
 
@@ -531,6 +533,87 @@ describe("messageQueueStore", () => {
   it("withSendLock propagates async results through the fallback path", async () => {
     const result = await withSendLock(SESSION_ID, async () => 42);
     expect(result).toBe(42);
+  });
+
+  it("withAvailableOwnershipLock runs directly when Web Locks is unavailable", async () => {
+    const result = await withAvailableOwnershipLock(
+      SESSION_ID,
+      async () => "background",
+    );
+    expect(result).toBe("background");
+  });
+
+  it("withBackgroundSendLock skips background work when another tab owns the conversation", async () => {
+    const originalLocks = (navigator as Navigator & { locks?: unknown }).locks;
+    const request = vi.fn(
+      async (
+        _name: string,
+        _options: unknown,
+        callback: (lock: unknown) => Promise<unknown>,
+      ) => callback(null),
+    );
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+    const callback = vi.fn(() => "should-not-run");
+
+    try {
+      const result = await withBackgroundSendLock(SESSION_ID, callback);
+
+      expect(result).toBeNull();
+      expect(callback).not.toHaveBeenCalled();
+      expect(request).toHaveBeenCalledWith(
+        `qwenpaw:queue-owner:${SESSION_ID}`,
+        { mode: "exclusive", ifAvailable: true },
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: originalLocks,
+      });
+    }
+  });
+
+  it("withBackgroundSendLock drains when no foreground owner exists", async () => {
+    const originalLocks = (navigator as Navigator & { locks?: unknown }).locks;
+    const request = vi.fn(
+      async (
+        _name: string,
+        _options: unknown,
+        callback: (lock: unknown) => Promise<unknown>,
+      ) => callback({ name: `qwenpaw:queue-owner:${SESSION_ID}` }),
+    );
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+    const callback = vi.fn(() => "drained");
+
+    try {
+      await expect(withBackgroundSendLock(SESSION_ID, callback)).resolves.toBe(
+        "drained",
+      );
+      expect(callback).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenNthCalledWith(
+        1,
+        `qwenpaw:queue-owner:${SESSION_ID}`,
+        { mode: "exclusive", ifAvailable: true },
+        expect.any(Function),
+      );
+      expect(request).toHaveBeenNthCalledWith(
+        2,
+        `qwenpaw:queue-send:${SESSION_ID}`,
+        { ifAvailable: true },
+        expect.any(Function),
+      );
+    } finally {
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: originalLocks,
+      });
+    }
   });
 
   // ---------------------------------------------------------------------------

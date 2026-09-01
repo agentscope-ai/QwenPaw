@@ -220,6 +220,7 @@ import {
   MAX_QUEUE_SIZE,
   STORAGE_PREFIX,
   withSendLock,
+  withBackgroundSendLock,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
 import {
@@ -341,9 +342,13 @@ async function startBackgroundQueue(
   const ctrl = new AbortController();
   setBackgroundAbort(queueKey, ctrl);
 
-  // Acquire the per-session send lock so only one tab keeps draining the queue
-  // after the page unmounts. If the lock is taken, skip background sending.
-  await withSendLock(queueKey, async () => {
+  // Let React finish releasing the foreground ownership lock when this sender
+  // was started by an unmount/session-switch cleanup. A different mounted tab
+  // that still owns this conversation keeps the lock and must render the
+  // queued response itself; background consumers must not silently drain its
+  // SSE stream.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await withBackgroundSendLock(queueKey, async () => {
     while (!ctrl.signal.aborted) {
       // Always read the latest queue from the store: items may have been
       // added / removed / reordered by the user, by other tabs, or by the

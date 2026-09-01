@@ -239,6 +239,45 @@ export async function withSendLock<T>(
 }
 
 /**
+ * Run a background queue sender only when no mounted foreground tab owns the
+ * conversation. Unlike `holdOwnershipLock`, this never waits: a missing lock
+ * means the foreground owner is responsible for consuming the queue and
+ * rendering its stream.
+ */
+export async function withAvailableOwnershipLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  const locks = getLockManager();
+  if (!locks) {
+    return await fn();
+  }
+  try {
+    const result = (await locks.request(
+      `qwenpaw:queue-owner:${sessionId}`,
+      { mode: "exclusive", ifAvailable: true },
+      async (lock: unknown) => {
+        if (!lock) return null;
+        return await fn();
+      },
+    )) as T | null;
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/** Acquire both the foreground ownership gate and the short-lived send lock. */
+export function withBackgroundSendLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  return withAvailableOwnershipLock(sessionId, () =>
+    withSendLock(sessionId, fn),
+  );
+}
+
+/**
  * Hold a persistent exclusive ownership lock for a conversation. Only one
  * tab in the entire browser holds this lock at any time per session id.
  *
