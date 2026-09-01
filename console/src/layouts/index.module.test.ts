@@ -101,6 +101,18 @@ describe("Sidebar overflow layout", () => {
     expect(stylesSource).toContain(".simpleMoreSettings");
   });
 
+  it("separates conversation history from the shortcut panel", () => {
+    const historyAreaStart = stylesSource.indexOf(".simpleSessionArea {");
+    const historyAreaRule = stylesSource.slice(
+      historyAreaStart,
+      stylesSource.indexOf("\n}", historyAreaStart) + 2,
+    );
+
+    expect(historyAreaStart).toBeGreaterThanOrEqual(0);
+    expect(historyAreaRule).toContain("margin-top: 10px;");
+    expect(sidebarSource).toContain("className={styles.simpleSessionArea}");
+  });
+
   it("retains the bottom settings icon in expanded and collapsed modes", () => {
     const bottomControlsStart = sidebarSource.indexOf(
       "className={styles.collapseToggleContainer}",

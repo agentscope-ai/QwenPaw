@@ -677,10 +677,12 @@ export default function Sidebar({
           </div>
 
           {/* Session list — fills the primary space. */}
-          <SidebarSessionList
-            onNewChat={handleNewChat}
-            onSessionClick={handleSidebarSessionClick}
-          />
+          <div className={styles.simpleSessionArea}>
+            <SidebarSessionList
+              onNewChat={handleNewChat}
+              onSessionClick={handleSidebarSessionClick}
+            />
+          </div>
           <Slot name="sider.bottom" kind="fill" />
         </>
       )}
