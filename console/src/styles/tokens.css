@@ -1,0 +1,244 @@
+/**
+ * tokens.css — project-level semantic colour tokens (single source of truth).
+ *
+ * Layering:
+ *   1. ThemeContext  → owns light / dark / system state, toggles `.dark-mode`
+ *                      on <html>.
+ *   2. ConfigProvider → owns antd component tokens (App.tsx).
+ *   3. this file      → owns the `--app-*` tokens consumed by *.module.less.
+ *
+ * Rules:
+ *   - Light values live in `:root`, dark values in `html.dark-mode`.
+ *   - Modules consume `var(--app-*)` and MUST NOT re-declare colours inside a
+ *     `.dark-mode` block; only structural or third-party-specific exceptions
+ *     (Monaco, login backdrop, vendor overrides) stay in modules.
+ *   - The legacy alias block at the bottom keeps the four historical naming
+ *     families alive. Those variables were never defined anywhere, so every
+ *     `var(--colorText, <light fallback>)` used to resolve to its light
+ *     fallback even in dark mode. Aliasing them fixes that; the aliases are
+ *     removed once all modules are migrated to `--app-*`.
+ *
+ * Values are the palette already in effect (antd default algorithm surfaces
+ * plus the brand orange), not a redesign.
+ */
+
+:root {
+  /* Surfaces */
+  --app-bg: #f9f8f4;
+  --app-surface: #ffffff;
+  --app-surface-subtle: #faf9f7;
+  --app-surface-raised: #ffffff;
+
+  /* Fills (hover / selected / inline chips) */
+  --app-fill-strong: rgba(0, 0, 0, 0.09);
+  --app-fill: rgba(0, 0, 0, 0.06);
+  --app-fill-subtle: rgba(0, 0, 0, 0.04);
+  --app-fill-faint: rgba(0, 0, 0, 0.02);
+
+  /* Borders */
+  --app-border: #eae8e7;
+  --app-border-strong: #d8d4cf;
+  --app-border-subtle: #f0eeeb;
+
+  /* Text */
+  --app-text: rgba(20, 20, 19, 0.88);
+  --app-text-secondary: rgba(20, 20, 19, 0.58);
+  --app-text-tertiary: rgba(20, 20, 19, 0.45);
+  --app-text-quaternary: rgba(20, 20, 19, 0.25);
+  --app-text-inverse: #ffffff;
+
+  /* Brand accent — identical in both themes (matches OS shell ACCENT) */
+  --app-accent: #ff7f16;
+  --app-accent-hover: #ff9d4d;
+  --app-accent-active: #d96806;
+  --app-accent-soft: rgba(255, 127, 22, 0.1);
+  --app-accent-border: rgba(255, 127, 22, 0.28);
+  --app-accent-ring: rgba(255, 127, 22, 0.2);
+
+  /* Selected row / active item. Still antd blue: kept as-is so the token
+   * extraction stays visually neutral. Switching selection to the brand
+   * orange is a design decision and only needs an edit here. */
+  --app-selected-bg: #e6f4ff;
+  --app-selected-bg-hover: #d6eaff;
+  --app-selected-border: #1677ff;
+
+  /* Status */
+  --app-success: #52c41a;
+  --app-success-bg: #f6ffed;
+  --app-success-border: #b7eb8f;
+  --app-warning: #faad14;
+  --app-warning-bg: #fffbe6;
+  --app-warning-border: #ffe58f;
+  --app-error: #ff4d4f;
+  --app-error-bg: #fff2f0;
+  --app-error-border: #ffccc7;
+  --app-error-ring: rgba(255, 77, 79, 0.2);
+
+  /* Search-hit highlight */
+  --app-highlight-bg: rgba(255, 214, 102, 0.65);
+
+  /* Idle status dot — neutral in both themes, unrelated to the status colours */
+  --app-status-idle: #94a3b8;
+
+  /* Elevation */
+  --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+html.dark-mode {
+  /* Surfaces */
+  --app-bg: #141414;
+  --app-surface: #1f1f1f;
+  --app-surface-subtle: #1a1a1a;
+  --app-surface-raised: #262626;
+
+  /* Fills */
+  --app-fill-strong: rgba(255, 255, 255, 0.16);
+  --app-fill: rgba(255, 255, 255, 0.12);
+  --app-fill-subtle: rgba(255, 255, 255, 0.08);
+  --app-fill-faint: rgba(255, 255, 255, 0.04);
+
+  /* Borders */
+  --app-border: rgba(255, 255, 255, 0.12);
+  --app-border-strong: rgba(255, 255, 255, 0.15);
+  --app-border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --app-text: rgba(255, 255, 255, 0.85);
+  --app-text-secondary: rgba(255, 255, 255, 0.65);
+  --app-text-tertiary: rgba(255, 255, 255, 0.45);
+  --app-text-quaternary: rgba(255, 255, 255, 0.35);
+
+  /* Accent softs need more opacity to read on dark surfaces */
+  --app-accent-soft: rgba(255, 127, 22, 0.16);
+  --app-accent-border: rgba(255, 127, 22, 0.35);
+
+  /* Selection */
+  --app-selected-bg: rgba(22, 119, 255, 0.12);
+  --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
+  --app-selected-border: #4096ff;
+
+  /* Status */
+  --app-success: #49aa19;
+  --app-success-bg: #162312;
+  --app-success-border: #274916;
+  --app-warning: #d89614;
+  --app-warning-bg: #2b2111;
+  --app-warning-border: #594214;
+  --app-error: #dc4446;
+  --app-error-bg: #2c1618;
+  --app-error-border: #58191c;
+  --app-error-ring: rgba(220, 68, 70, 0.25);
+
+  /* Search-hit highlight */
+  --app-highlight-bg: rgba(255, 214, 102, 0.35);
+
+  /* Idle status dot */
+  --app-status-idle: rgba(255, 255, 255, 0.35);
+
+  /* Elevation */
+  --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ─── Legacy aliases ──────────────────────────────────────────────────────────
+ * Declared once: they resolve through `--app-*`, so they follow the theme
+ * automatically. Delete a group as soon as its last consumer is migrated.
+ * ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Page / layout background */
+  --color-bg-layout: var(--app-bg);
+
+  /* Container surfaces. Historic `*-bg-base` usages are all card, panel or
+   * drawer backgrounds, hence they map to the container surface. */
+  --colorBgBase: var(--app-surface);
+  --color-bg-base: var(--app-surface);
+  --ant-color-bg-base: var(--app-surface);
+  --colorBgContainer: var(--app-surface);
+  --color-bg-container: var(--app-surface);
+  --ant-color-bg-container: var(--app-surface);
+  --qwenpaw-color-bg-container: var(--app-surface);
+  --colorBgElevated: var(--app-surface-raised);
+  --ant-color-bg-elevated: var(--app-surface-raised);
+  --qwenpaw-color-bg-elevated: var(--app-surface-raised);
+
+  /* Fills */
+  --color-fill-secondary: var(--app-fill);
+  --ant-color-fill-secondary: var(--app-fill);
+  --qwenpaw-color-fill-secondary: var(--app-fill);
+  --colorFillTertiary: var(--app-fill-subtle);
+  --color-fill-tertiary: var(--app-fill-subtle);
+  --ant-color-fill-tertiary: var(--app-fill-subtle);
+  --colorFillQuaternary: var(--app-fill-faint);
+  --color-fill-quaternary: var(--app-fill-faint);
+  --ant-color-fill-quaternary: var(--app-fill-faint);
+  --qwenpaw-color-fill-quaternary: var(--app-fill-faint);
+  --colorBgTextHover: var(--app-fill-subtle);
+  --color-bg-container-disabled: var(--app-fill-subtle);
+  --ant-color-bg-container-disabled: var(--app-fill-subtle);
+  --color-mauve-bg: var(--app-fill-subtle);
+
+  /* Borders */
+  --colorBorder: var(--app-border-strong);
+  --color-border: var(--app-border-strong);
+  --ant-color-border: var(--app-border-strong);
+  --qwenpaw-color-border: var(--app-border-strong);
+  --colorBorderSecondary: var(--app-border);
+  --color-border-secondary: var(--app-border);
+  --ant-color-border-secondary: var(--app-border);
+  --qwenpaw-color-border-secondary: var(--app-border);
+  --ant-color-split: var(--app-border-subtle);
+
+  /* Text */
+  --colorText: var(--app-text);
+  --color-text: var(--app-text);
+  --ant-color-text: var(--app-text);
+  --qwenpaw-color-text: var(--app-text);
+  --colorTextSecondary: var(--app-text-secondary);
+  --color-text-secondary: var(--app-text-secondary);
+  --ant-color-text-secondary: var(--app-text-secondary);
+  --qwenpaw-color-text-secondary: var(--app-text-secondary);
+  --colorTextTertiary: var(--app-text-tertiary);
+  --color-text-tertiary: var(--app-text-tertiary);
+  --ant-color-text-tertiary: var(--app-text-tertiary);
+  --qwenpaw-color-text-tertiary: var(--app-text-tertiary);
+  --colorTextQuaternary: var(--app-text-quaternary);
+  --ant-color-text-quaternary: var(--app-text-quaternary);
+  --qwenpaw-color-text-quaternary: var(--app-text-quaternary);
+  --ant-color-text-light-solid: var(--app-text-inverse);
+  --qwenpaw-color-text-light-solid: var(--app-text-inverse);
+
+  /* Accent */
+  --colorPrimary: var(--app-accent);
+  --color-primary: var(--app-accent);
+  --ant-color-primary: var(--app-accent);
+  --qwenpaw-color-primary: var(--app-accent);
+  --ant-color-primary-text: var(--app-accent);
+  --ant-color-link: var(--app-accent);
+  --ant-color-primary-hover: var(--app-accent-hover);
+  --qwenpaw-color-primary-hover: var(--app-accent-hover);
+  --ant-color-link-hover: var(--app-accent-hover);
+  --ant-color-primary-active: var(--app-accent-active);
+  --qwenpaw-color-primary-active: var(--app-accent-active);
+  --colorPrimaryBg: var(--app-accent-soft);
+  --ant-color-primary-bg: var(--app-accent-soft);
+  --qwenpaw-color-primary-bg: var(--app-accent-soft);
+  --ant-color-primary-border: var(--app-accent-border);
+  --qwenpaw-color-primary-border: var(--app-accent-border);
+
+  /* Status */
+  --ant-color-success: var(--app-success);
+  --ant-color-success-text: var(--app-success);
+  --qwenpaw-color-success-text: var(--app-success);
+  --ant-color-success-bg: var(--app-success-bg);
+  --qwenpaw-color-success-bg: var(--app-success-bg);
+  --ant-color-warning: var(--app-warning);
+  --ant-color-warning-text: var(--app-warning);
+  --qwenpaw-color-warning-text: var(--app-warning);
+  --ant-color-warning-bg: var(--app-warning-bg);
+  --qwenpaw-color-warning-bg: var(--app-warning-bg);
+  --ant-color-warning-border: var(--app-warning-border);
+  --ant-color-error: var(--app-error);
+  --ant-color-error-bg: var(--app-error-bg);
+  --ant-color-error-border: var(--app-error-border);
+}

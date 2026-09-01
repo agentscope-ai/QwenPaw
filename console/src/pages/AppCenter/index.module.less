@@ -7,15 +7,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-
-  // Local design tokens: prefer theme variables, warm-neutral fallbacks.
-  --app-surface: var(--color-bg-container, #ffffff);
-  --app-surface-subtle: var(--color-bg-layout, #faf9f7);
-  --app-border: var(--color-border-secondary, #eae8e7);
-  --app-border-strong: var(--color-border, #d8d4cf);
-  --app-text: var(--color-text, rgba(20, 20, 19, 0.88));
-  --app-text-secondary: var(--color-text-secondary, rgba(20, 20, 19, 0.58));
-  --app-accent: var(--color-primary, #ff7a00);
 }
 
 .pageBody {
@@ -80,7 +71,7 @@
   min-width: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--color-fill-quaternary, #f2f0ee);
+  background: var(--app-fill);
   font-size: 11px;
   line-height: 18px;
   font-weight: 500;
@@ -149,8 +140,8 @@
 }
 
 .marketFilterActive {
-  border-color: var(--color-fill-secondary, #e8e6e3);
-  background: var(--color-fill-secondary, #e8e6e3);
+  border-color: var(--app-fill-strong);
+  background: var(--app-fill-strong);
   color: var(--app-text);
   font-weight: 500;
 }
@@ -300,7 +291,7 @@
   flex-shrink: 0;
   border-radius: 8px;
   color: var(--app-accent);
-  background: var(--color-fill-quaternary, #f5f3f1);
+  background: var(--app-fill-subtle);
 }
 
 /* Image icons carry their own artwork; keep the slot neutral. */
@@ -352,7 +343,7 @@
   flex-shrink: 0;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--color-mauve-bg, rgba(239, 240, 243, 0.8));
+  background: var(--app-fill);
   color: var(--app-text-secondary);
   font-size: 10px;
   line-height: 16px;
@@ -409,7 +400,7 @@
   line-height: 18px;
   font-weight: 500;
   color: var(--app-accent);
-  background: var(--color-fill-quaternary, #f5f3f1);
+  background: var(--app-fill-subtle);
 }
 
 .emptyActions {
@@ -573,7 +564,7 @@
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-container, #fff);
+  background: var(--app-surface);
   animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   // Safe area CSS variables for PawApp developers
@@ -745,7 +736,7 @@
   width: 100%;
   height: 100%;
   overflow: auto;
-  background: var(--color-bg-layout, #fafafa);
+  background: var(--app-surface-subtle);
   position: relative;
 
   // ═══ 框架自动处理安全区域 ═══

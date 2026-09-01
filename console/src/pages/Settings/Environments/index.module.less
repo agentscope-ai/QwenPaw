@@ -25,17 +25,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -60,7 +60,7 @@
 
 .sectionDesc {
   margin: 0;
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
 }
 
@@ -78,12 +78,12 @@
 
 .stateText {
   font-size: 14px;
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .stateTextError {
   font-size: 14px;
-  color: #ff4d4f;
+  color: var(--app-error);
   margin-bottom: 4px;
 }
 
@@ -93,11 +93,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  background: #fff;
+  background: var(--app-surface);
 
   &:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    border-color: #d9d9d9;
+    box-shadow: var(--app-shadow-md);
+    border-color: var(--app-border-strong);
   }
 }
 
@@ -108,11 +108,11 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  background: #fafafa;
-  border-bottom: 1px solid #f0f0f0;
+  background: var(--app-fill-faint);
+  border-bottom: 1px solid var(--app-border-subtle);
 
   &:hover {
-    background: #f5f5f5;
+    background: var(--app-fill-subtle);
   }
 }
 
@@ -124,7 +124,7 @@
 
 .toolbarCount {
   font-size: 13px;
-  color: #999;
+  color: var(--app-text-tertiary);
   user-select: none;
 }
 
@@ -148,7 +148,7 @@
   align-items: center;
   gap: 16px;
   padding: 12px 24px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border-subtle);
   flex-wrap: wrap;
 
   &:last-child {
@@ -156,24 +156,24 @@
   }
 
   &:hover {
-    background: #fafbfc;
+    background: var(--app-fill-faint);
   }
 }
 
 .envRowSelected {
-  background: #e6f4ff;
-  border-left: 3px solid #1677ff;
+  background: var(--app-selected-bg);
+  border-left: 3px solid var(--app-selected-border);
 
   &:hover {
-    background: #d6eaff;
+    background: var(--app-selected-bg-hover);
   }
 }
 
 .envRowSelected {
-  background: #e6f4ff;
+  background: var(--app-selected-bg);
 
   &:hover {
-    background: #d6eaff;
+    background: var(--app-selected-bg-hover);
   }
 }
 
@@ -196,24 +196,24 @@
   flex: 1 1 0;
   min-width: 180px;
   height: 42px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--app-border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-surface-raised);
   overflow: hidden;
 
   &:focus-within {
-    border-color: #ff7f16;
-    box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2);
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 2px var(--app-accent-ring);
     transform: translateY(-1px);
   }
 }
 
 .inputGroupError {
-  border-color: #ff4d4f;
+  border-color: var(--app-error);
 
   &:focus-within {
-    border-color: #ff4d4f;
-    box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.2);
+    border-color: var(--app-error);
+    box-shadow: 0 0 0 2px var(--app-error-ring);
   }
 }
 
@@ -222,18 +222,18 @@
   padding: 0 14px;
   font-size: 14px;
   font-weight: 500;
-  color: #666;
+  color: var(--app-text-secondary);
   white-space: nowrap;
   user-select: none;
   line-height: 42px;
-  border-right: 1px solid #f0f0f0;
-  background: #fafafa;
+  border-right: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
   min-width: 60px;
   text-align: center;
 
   .inputGroup:focus-within & {
-    color: #ff7f16;
-    background: #f0f0ff;
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 }
 
@@ -247,24 +247,29 @@
   font-family: "SF Mono", "Menlo", "Consolas", monospace;
   font-size: 14px;
   background: transparent;
+  color: var(--app-text);
   padding-left: 12px;
 
   &::placeholder {
-    color: #bfbfbf;
+    color: var(--app-text-quaternary);
   }
 }
 
 .inputField {
-  :global(.ant-input) {
+  :global(.ant-input),
+  :global(.qwenpaw-input) {
     height: 40px !important;
     border: none !important;
     box-shadow: none !important;
+    /* antd paints its own input surface; the group already provides one. */
+    background: transparent !important;
+    color: var(--app-text);
     font-family: "SF Mono", "Menlo", "Consolas", monospace;
     font-size: 14px;
     padding-left: 12px;
 
     &::placeholder {
-      color: #bfbfbf;
+      color: var(--app-text-quaternary);
     }
   }
 }
@@ -279,12 +284,12 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: #999;
+  color: var(--app-text-tertiary);
   border-radius: 4px;
 
   &:hover {
-    color: #ff7f16;
-    background: #f0f0ff;
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 }
 
@@ -308,22 +313,22 @@
   background: transparent;
   cursor: pointer;
   font-size: 16px;
-  color: #c0c0c0;
+  color: var(--app-text-quaternary);
 
   &:hover {
-    color: #ff7f16;
-    background: #f0f0ff;
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.15);
+    box-shadow: var(--app-shadow-sm);
   }
 }
 
 .rowIconBtnDanger {
   &:hover {
-    color: #ff4d4f;
-    background: #fff1f0;
+    color: var(--app-error);
+    background: var(--app-error-bg);
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.15);
+    box-shadow: 0 2px 8px var(--app-error-ring);
   }
 }
 
@@ -332,7 +337,7 @@
 .rowError {
   flex-basis: 100%;
   font-size: 12px;
-  color: #ff4d4f;
+  color: var(--app-error);
   padding-left: 36px;
   /* align with fields after checkbox */
   margin-top: -2px;
@@ -343,11 +348,11 @@
 .addBar {
   display: flex;
   padding: 16px 24px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
 
   &:hover {
-    background: #f5f5f5;
+    background: var(--app-fill-subtle);
   }
 }
 
@@ -356,19 +361,19 @@
   align-items: center;
   gap: 8px;
   padding: 8px 20px;
-  border: 1px dashed #d9d9d9;
+  border: 1px dashed var(--app-border-strong);
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  color: #999;
+  color: var(--app-text-tertiary);
 
   &:hover {
-    color: #ff7f16;
-    border-color: #ff7f16;
-    background: #f0f0ff;
+    color: var(--app-accent);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.15);
+    box-shadow: var(--app-shadow-sm);
   }
 
   svg {
@@ -384,197 +389,13 @@
   align-items: center;
   gap: 8px;
   padding: 48px 24px;
-  color: #bbb;
+  color: var(--app-text-quaternary);
   font-size: 14px;
 }
 
 .emptyIcon {
   font-size: 32px;
   opacity: 0.6;
-}
-
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .sectionDesc {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .stateText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Main card */
-  .tableCard {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-
-    &:hover {
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-      border-color: rgba(255, 255, 255, 0.15);
-    }
-  }
-
-  /* Toolbar */
-  .toolbar {
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.05);
-    }
-  }
-
-  .toolbarCount {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Env row */
-  .envRow {
-    border-bottom-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-  }
-
-  .envRowSelected {
-    background: rgba(22, 119, 255, 0.12);
-    border-left-color: #4096ff;
-
-    &:hover {
-      background: rgba(22, 119, 255, 0.18);
-    }
-  }
-
-  /* Input group (Key / Value 外框) */
-  .inputGroup {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: #2a2a2a;
-
-    &:focus-within {
-      border-color: #ff7f16;
-      box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2);
-    }
-  }
-
-  /* Key / Value 标签 */
-  .inputLabel {
-    color: rgba(255, 255, 255, 0.4);
-    border-right-color: rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-
-    .inputGroup:focus-within & {
-      color: #ff7f16;
-      background: rgba(97, 92, 237, 0.1);
-    }
-  }
-
-  /* Input field inside group */
-  .inputField {
-    color: rgba(255, 255, 255, 0.85);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.2);
-    }
-
-    :global(.ant-input),
-    :global(.qwenpaw-input) {
-      color: rgba(255, 255, 255, 0.85) !important;
-      background: transparent !important;
-
-      &::placeholder {
-        color: rgba(255, 255, 255, 0.2) !important;
-      }
-    }
-  }
-
-  /* Password toggle */
-  .passwordToggle {
-    color: rgba(255, 255, 255, 0.3);
-
-    &:hover {
-      color: #ff7f16;
-      background: rgba(97, 92, 237, 0.12);
-    }
-  }
-
-  /* Row action icons */
-  .rowIconBtn {
-    color: rgba(255, 255, 255, 0.2);
-
-    &:hover {
-      color: #ff7f16;
-      background: rgba(97, 92, 237, 0.12);
-    }
-  }
-
-  .rowIconBtnDanger {
-    &:hover {
-      color: #ff7875;
-      background: rgba(255, 77, 79, 0.12);
-    }
-  }
-
-  /* Add bar */
-  .addBar {
-    background: rgba(255, 255, 255, 0.02);
-    border-top-color: rgba(255, 255, 255, 0.08);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-  }
-
-  .addBtn {
-    border-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.35);
-
-    &:hover {
-      color: #ff7f16;
-      border-color: #ff7f16;
-      background: rgba(97, 92, 237, 0.1);
-    }
-  }
-
-  /* Empty state */
-  .emptyState {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  /* Mobile overrides must beat the non-dark media-query rules */
-  @media (max-width: 768px) {
-    .rowIconBtn {
-      color: rgba(255, 255, 255, 0.2);
-      background: transparent;
-
-      &:hover {
-        color: #ff7f16;
-        background: rgba(97, 92, 237, 0.12);
-      }
-    }
-
-    .rowIconBtnDanger:hover {
-      color: #ff7875;
-      background: rgba(255, 77, 79, 0.12);
-    }
-  }
 }
 
 @media (max-width: 768px) {
@@ -668,15 +489,15 @@
     width: 40px;
     height: 40px;
     font-size: 18px;
-    color: #8c8c8c;
-    background: #f5f5f5;
+    color: var(--app-text-tertiary);
+    background: var(--app-fill-subtle);
 
     &:hover {
-      background: #e8e8e8;
+      background: var(--app-fill);
     }
   }
 
   .rowIconBtnDanger:hover {
-    background: #fff1f0;
+    background: var(--app-error-bg);
   }
 }
