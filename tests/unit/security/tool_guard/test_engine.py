@@ -395,6 +395,23 @@ class TestToolGuardEngineGuard:
             {"path": "/etc/passwd"},
         )
 
+    def test_shell_guardians_receive_normalized_posix_command(
+        self,
+        engine_with_defaults,
+    ):
+        params = {"command": "r\\\nm -rf /tmp/test", "timeout": 10}
+
+        result = engine_with_defaults.guard("execute_shell_command", params)
+
+        normalized = {"command": "rm -rf /tmp/test", "timeout": 10}
+        for guardian in engine_with_defaults._guardians:
+            guardian.guard.assert_called_once_with(
+                "execute_shell_command",
+                normalized,
+            )
+        # Audit data retains exactly what the caller submitted.
+        assert result.params == params
+
     def test_guard_skips_non_always_run_guardians_when_only_always_run(
         self,
         engine_with_defaults,
