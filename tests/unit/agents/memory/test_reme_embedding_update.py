@@ -254,6 +254,26 @@ async def test_all_reindex_rejects_disabled_embedding() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reme", [None, SimpleNamespace(is_started=False)])
+async def test_reindex_returns_unavailable_when_reme_is_not_started(
+    reme,
+) -> None:
+    config = _config()
+    manager, _wrapper, _store = _manager(config)
+    manager._reme = reme
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "load_agent_config_async",
+    ) as load_config:
+        response = await manager.rebuild_index("embedding")
+
+    assert response is None
+    load_config.assert_not_awaited()
+    manager._run_reme_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_reindex_cancellation_after_persist_still_closes_live_gate() -> (
     None
 ):
