@@ -72,12 +72,54 @@ export function ReMeLightMemoryCard() {
     | undefined;
   const rerankerEnabled = remeConfig?.reranker_config?.enabled ?? false;
 
+  // Reset to the default expansion state whenever the enable/disable signal
+  // or the selected Agent changes. This keeps the details collapsed after
+  // disabling reranking and prevents the page-level rerankerExpanded state
+  // from leaking across Agent switches or Reset.
   useEffect(() => {
-    if (rerankerEnabled && !rerankerExpanded) {
-      setRerankerExpanded(true);
-    }
+    setRerankerExpanded(rerankerEnabled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rerankerEnabled]);
+  }, [rerankerEnabled, selectedAgent]);
+
+  const rerankerPath = (field: string): string[] => [
+    "reme_light_memory_config",
+    "reranker_config",
+    field,
+  ];
+
+  const normalizeRerankerNumbersOnDisable = () => {
+    const multiplier = form.getFieldValue(rerankerPath("candidate_multiplier"));
+    const timeout = form.getFieldValue(rerankerPath("timeout"));
+
+    const validMultiplier =
+      typeof multiplier === "number" &&
+      Number.isFinite(multiplier) &&
+      multiplier >= 1 &&
+      Number.isInteger(multiplier);
+    const validTimeout =
+      typeof timeout === "number" && Number.isFinite(timeout) && timeout >= 1;
+
+    form.setFields([
+      {
+        name: rerankerPath("base_url"),
+        errors: [],
+      },
+      {
+        name: rerankerPath("model_name"),
+        errors: [],
+      },
+      {
+        name: rerankerPath("candidate_multiplier"),
+        value: validMultiplier ? multiplier : 3,
+        errors: [],
+      },
+      {
+        name: rerankerPath("timeout"),
+        value: validTimeout ? timeout : 10,
+        errors: [],
+      },
+    ]);
+  };
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
@@ -727,24 +769,11 @@ export function ReMeLightMemoryCard() {
                       ],
                     ]);
                   } else {
-                    form.setFields([
-                      {
-                        name: [
-                          "reme_light_memory_config",
-                          "reranker_config",
-                          "base_url",
-                        ],
-                        errors: [],
-                      },
-                      {
-                        name: [
-                          "reme_light_memory_config",
-                          "reranker_config",
-                          "model_name",
-                        ],
-                        errors: [],
-                      },
-                    ]);
+                    // Normalize invalid/empty numeric values back to valid
+                    // defaults and clear their errors. The backend schema
+                    // validates candidate_multiplier/timeout even when
+                    // reranking is disabled, so null must never be submitted.
+                    normalizeRerankerNumbersOnDisable();
                   }
                 }}
               />

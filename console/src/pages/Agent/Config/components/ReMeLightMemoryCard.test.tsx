@@ -982,6 +982,9 @@ describe("reranker validation", () => {
           form={form}
           initialValues={{
             reme_light_memory_config: {
+              auto_memory_interval: 0,
+              dream_cron_enabled: false,
+              auto_memory_search_config: { enabled: false, max_results: 5 },
               reranker_config: {
                 enabled,
                 base_url,
@@ -1200,7 +1203,39 @@ describe("reranker validation", () => {
     });
     expect(rerankerDetailsVisible(container)).toBe(true);
 
-    // Manual collapse via toggle button
+    // Toggle off (real disable path): details should collapse again
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(
+      switchInRow(screen.getByText("agentConfig.rerankerEnabled")),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Re-enable: details expand again
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(true);
+  });
+
+  it("resets reranker expansion state when switching agents", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+
+    // Enabled by default: details expanded
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Manual collapse
     const toggleBtn = container.querySelector(
       '[aria-controls="reranker-details"]',
     )!;
@@ -1209,11 +1244,77 @@ describe("reranker validation", () => {
     });
     expect(rerankerDetailsVisible(container)).toBe(false);
 
-    // Re-expand via toggle button
+    // Switch to another agent: expansion state resets to the default
+    // (expanded, because the newly selected agent also has reranking enabled)
+    act(() => useAgentStore.setState({ selectedAgent: "another-agent" }));
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+
+    act(() => useAgentStore.setState({ selectedAgent: "default" }));
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+  });
+
+  it("normalizes invalid numeric values when reranking is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    // Clear both numeric fields to invalid (null) values
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      null,
+    );
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "timeout"],
+      null,
+    );
+
+    // Full-form validation fails while reranking is enabled
+    const firstErrors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(firstErrors.length).toBeGreaterThan(0);
+
+    // Disable reranking: numeric fields plus base_url/model_name errors clear
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
     await act(async () => {
-      fireEvent.click(toggleBtn);
+      fireEvent.click(enableSwitch);
     });
-    expect(rerankerDetailsVisible(container)).toBe(true);
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    // Full-form validation must now succeed
+    const secondErrors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(secondErrors).toHaveLength(0);
+
+    // Invalid numeric values were normalized to valid defaults
+    expect(
+      form.getFieldValue([
+        "reme_light_memory_config",
+        "reranker_config",
+        "candidate_multiplier",
+      ]),
+    ).toBe(3);
+    expect(
+      form.getFieldValue([
+        "reme_light_memory_config",
+        "reranker_config",
+        "timeout",
+      ]),
+    ).toBe(10);
   });
 
   it("full-form validation still fails after collapsing with a cleared required value", async () => {
