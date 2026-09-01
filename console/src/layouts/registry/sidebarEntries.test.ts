@@ -4,8 +4,8 @@ import type { FlatMenuEntry } from "./adapter";
 import type { MenuItem } from "../../plugins/registry/types";
 import {
   filterSidebarMenuItems,
+  orderSidebarEntries,
   partitionSidebarEntries,
-  splitSidebarEntriesForDisplay,
 } from "./sidebarEntries";
 
 type TreeMenuItem = MenuItem & { __children?: TreeMenuItem[] };
@@ -20,7 +20,12 @@ const entry = (key: string): FlatMenuEntry => ({
 describe("partitionSidebarEntries", () => {
   it("separates work, global, and plugin shortcuts", () => {
     const result = partitionSidebarEntries(
-      [entry("core.inbox"), entry("core.files"), entry("plugin.work")],
+      [
+        entry("core.inbox"),
+        entry("core.marketplace"),
+        entry("core.files"),
+        entry("plugin.work"),
+      ],
       [entry("core.security"), entry("plugin.settings")],
     );
 
@@ -30,6 +35,27 @@ describe("partitionSidebarEntries", () => {
       "plugin.work",
       "plugin.settings",
     ]);
+  });
+
+  it("keeps inbox and marketplace visible without preferences", () => {
+    const items: TreeMenuItem[] = [
+      {
+        id: "core.inbox",
+        location: "primary.agentScoped",
+        label: "Inbox",
+      },
+      {
+        id: "core.marketplace",
+        location: "primary.agentScoped",
+        label: "Marketplace",
+      },
+    ];
+
+    expect(
+      filterSidebarMenuItems(items, new Set(), new Set()).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["core.inbox", "core.marketplace"]);
   });
 
   it("deduplicates a plugin while preserving first-seen order", () => {
@@ -86,35 +112,27 @@ describe("partitionSidebarEntries", () => {
       ).map((item) => item.id),
     ).toEqual(["plugin.before", "core.security", "plugin.after"]);
   });
+});
 
-  it("shows five custom entries directly and puts the rest in overflow", () => {
-    const entries = Array.from({ length: 7 }, (_, index) =>
-      entry(`plugin.${index + 1}`),
+describe("orderSidebarEntries", () => {
+  it("uses preference order without changing the remaining registry order", () => {
+    const result = orderSidebarEntries(
+      [
+        entry("core.files"),
+        entry("plugin.first"),
+        entry("core.models"),
+        entry("core.environments"),
+        entry("plugin.last"),
+      ],
+      ["core.files", "core.environments", "core.models"],
     );
 
-    const result = splitSidebarEntriesForDisplay(entries);
-
-    expect(result.direct.map((item) => item.key)).toEqual([
-      "plugin.1",
-      "plugin.2",
-      "plugin.3",
-      "plugin.4",
-      "plugin.5",
+    expect(result.map((item) => item.key)).toEqual([
+      "core.files",
+      "core.environments",
+      "core.models",
+      "plugin.first",
+      "plugin.last",
     ]);
-    expect(result.overflow.map((item) => item.key)).toEqual([
-      "plugin.6",
-      "plugin.7",
-    ]);
-  });
-
-  it("does not create overflow when custom entries do not exceed five", () => {
-    const entries = Array.from({ length: 5 }, (_, index) =>
-      entry(`core.${index + 1}`),
-    );
-
-    const result = splitSidebarEntriesForDisplay(entries);
-
-    expect(result.direct).toHaveLength(5);
-    expect(result.overflow).toHaveLength(0);
   });
 });

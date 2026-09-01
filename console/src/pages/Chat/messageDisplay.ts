@@ -3,12 +3,16 @@ import {
   AgentScopeRuntimeRunStatus,
   type IAgentScopeRuntimeMessage,
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+import type { AssistantMessageDisplayPreference } from "../../utils/chatDisplayPreference";
 
-export type ResponseMessageDisplayMode = "text-only" | "result-only";
+export type ResponseMessageDisplayMode = "all" | "text-only" | "result-only";
 
 export function getResponseMessageDisplayMode(
   responseStatus: AgentScopeRuntimeRunStatus,
+  preference: AssistantMessageDisplayPreference = "result-collapsed",
 ): ResponseMessageDisplayMode {
+  if (preference === "expanded") return "all";
+  if (preference === "process-collapsed") return "text-only";
   if (
     responseStatus === AgentScopeRuntimeRunStatus.Created ||
     responseStatus === AgentScopeRuntimeRunStatus.InProgress
@@ -123,6 +127,14 @@ export function groupResponseMessages(
   messages: IAgentScopeRuntimeMessage[],
   mode: ResponseMessageDisplayMode,
 ): ResponseMessageBlock[] {
+  if (mode === "all") {
+    return messages
+      .filter(
+        (message) => message.type !== AgentScopeRuntimeMessageType.HEARTBEAT,
+      )
+      .map((message) => ({ kind: "message", message }));
+  }
+
   let lastMessageIndex = -1;
   if (mode === "result-only") {
     for (let index = messages.length - 1; index >= 0; index -= 1) {

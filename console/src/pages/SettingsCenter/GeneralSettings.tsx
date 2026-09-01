@@ -1,5 +1,12 @@
-import { Button, Segmented, Select, Switch } from "antd";
-import { Expand, Monitor, Palette, Languages } from "lucide-react";
+import { Button, Segmented, Select } from "antd";
+import {
+  Expand,
+  Languages,
+  MessageSquareText,
+  Monitor,
+  Palette,
+  Wrench,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -17,9 +24,18 @@ import {
   getChatWideModePreference,
   setChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
+import {
+  getAssistantMessageDisplayPreference,
+  getToolDisplayPreference,
+  setAssistantMessageDisplayPreference,
+  setToolDisplayPreference,
+  type AssistantMessageDisplayPreference,
+  type ToolDisplayPreference,
+} from "@/utils/chatDisplayPreference";
 import styles from "./index.module.less";
 
 type CloseBehavior = "ask" | CloseAction;
+type ContentWidth = "standard" | "wide";
 
 const LANGUAGES = [
   { value: "zh", label: "简体中文" },
@@ -35,6 +51,12 @@ export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
+  const [toolDisplayMode, setToolDisplayMode] = useState(
+    getToolDisplayPreference,
+  );
+  const [assistantDisplayMode, setAssistantDisplayMode] = useState(
+    getAssistantMessageDisplayPreference,
+  );
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
   const currentLanguage = LANGUAGES.some(
     (language) => language.value === rawLanguage,
@@ -56,146 +78,263 @@ export default function GeneralSettings() {
     else setRememberedCloseAction(value);
   };
 
-  const changeWideMode = (enabled: boolean) => {
+  const changeContentWidth = (width: ContentWidth) => {
+    const enabled = width === "wide";
     setChatWideModePreference(enabled);
     setWideMode(enabled);
+  };
+
+  const changeToolDisplayMode = (mode: ToolDisplayPreference) => {
+    setToolDisplayPreference(mode);
+    setToolDisplayMode(mode);
+  };
+
+  const changeAssistantDisplayMode = (
+    mode: AssistantMessageDisplayPreference,
+  ) => {
+    setAssistantMessageDisplayPreference(mode);
+    setAssistantDisplayMode(mode);
   };
 
   return (
     <div className={styles.preferencePage}>
       <div className={styles.pageTitle}>
         <h2>{t("settingsCenter.pages.general", "General")}</h2>
-        <p>
-          {t(
-            "settingsCenter.generalDescription",
-            "Language, appearance and application behavior apply immediately.",
-          )}
-        </p>
       </div>
 
-      <section className={styles.settingsCard}>
-        <div className={styles.settingRow}>
-          <span className={styles.settingIcon}>
-            <Languages size={18} />
-          </span>
-          <span className={styles.settingCopy}>
-            <strong>{t("sidebar.settings.language")}</strong>
-            <small>
-              {t(
-                "settingsCenter.languageHint",
-                "Changes the interface language on this device.",
-              )}
-            </small>
-          </span>
-          <Select
-            className={styles.settingControl}
-            value={currentLanguage}
-            options={LANGUAGES}
-            onChange={changeLanguage}
-          />
-        </div>
-
-        <div className={styles.settingRow}>
-          <span className={styles.settingIcon}>
-            <Palette size={18} />
-          </span>
-          <span className={styles.settingCopy}>
-            <strong>{t("sidebar.settings.theme")}</strong>
-            <small>
-              {t(
-                "settingsCenter.themeHint",
-                "Use a light, dark or system-matched appearance.",
-              )}
-            </small>
-          </span>
-          <Segmented<ThemeMode>
-            className={styles.settingControl}
-            value={themeMode}
-            options={[
-              { value: "light", label: t("theme.light") },
-              { value: "dark", label: t("theme.dark") },
-              { value: "system", label: t("theme.system") },
-            ]}
-            onChange={setThemeMode}
-          />
-        </div>
-
-        <div className={styles.settingRow}>
-          <span className={styles.settingIcon}>
-            <Expand size={18} />
-          </span>
-          <span className={styles.settingCopy}>
-            <strong>{t("settingsCenter.wideMode", "Wide mode")}</strong>
-            <small>
-              {t(
-                "settingsCenter.wideModeHint",
-                "Use the available page width for conversations.",
-              )}
-            </small>
-          </span>
-          <Switch
-            aria-label={t("settingsCenter.wideMode", "Wide mode")}
-            checked={wideMode}
-            onChange={changeWideMode}
-          />
-        </div>
-      </section>
-
-      {isTauriRuntime() && (
-        <section className={styles.settingsCard}>
+      <section className={styles.settingsSection}>
+        <h3 className={styles.sectionTitle}>
+          {t("settingsCenter.appearanceAndLanguage", "Appearance & language")}
+        </h3>
+        <div className={styles.settingsCard}>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
-              <Monitor size={18} />
+              <Languages size={18} />
             </span>
             <span className={styles.settingCopy}>
-              <strong>{t("desktop.closeWindow.preference")}</strong>
+              <strong>{t("sidebar.settings.language")}</strong>
               <small>
                 {t(
-                  "settingsCenter.closeBehaviorHint",
-                  "Choose what happens when the desktop window closes.",
+                  "settingsCenter.languageHint",
+                  "Changes the interface language on this device.",
                 )}
               </small>
             </span>
-            <Select<CloseBehavior>
+            <Select
               className={styles.settingControl}
-              defaultValue={closeBehavior}
-              onChange={changeCloseBehavior}
+              value={currentLanguage}
+              options={LANGUAGES}
+              onChange={changeLanguage}
+            />
+          </div>
+
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Palette size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>{t("sidebar.settings.theme")}</strong>
+              <small>
+                {t(
+                  "settingsCenter.themeHint",
+                  "Use a light, dark or system-matched appearance.",
+                )}
+              </small>
+            </span>
+            <Segmented<ThemeMode>
+              className={styles.segmentedControl}
+              value={themeMode}
+              options={[
+                { value: "light", label: t("theme.light") },
+                { value: "dark", label: t("theme.dark") },
+                { value: "system", label: t("theme.system") },
+              ]}
+              onChange={setThemeMode}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.settingsSection}>
+        <h3 className={styles.sectionTitle}>
+          {t("settingsCenter.contentLayout", "Content layout")}
+        </h3>
+        <div className={styles.settingsCard}>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Expand size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.contentWidth", "Content width")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.contentWidthHint",
+                  "Choose the standard or wide conversation width.",
+                )}
+              </small>
+            </span>
+            <Segmented<ContentWidth>
+              className={styles.segmentedControl}
+              aria-label={t("settingsCenter.contentWidth", "Content width")}
+              value={wideMode ? "wide" : "standard"}
               options={[
                 {
-                  value: "ask",
-                  label: t("desktop.closeWindow.askEveryTime"),
+                  value: "standard",
+                  label: t("settingsCenter.contentWidthStandard", "Standard"),
                 },
                 {
-                  value: "minimize-to-tray",
-                  label: t("desktop.closeWindow.minimizeToTray"),
-                },
-                {
-                  value: "quit",
-                  label: t("desktop.closeWindow.quitApp"),
+                  value: "wide",
+                  label: t("settingsCenter.contentWidthWide", "Wide"),
                 },
               ]}
+              onChange={changeContentWidth}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.settingsSection}>
+        <h3 className={styles.sectionTitle}>
+          {t("settingsCenter.chatDisplay", "Conversation display")}
+        </h3>
+        <div className={styles.settingsCard}>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Wrench size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>{t("settingsCenter.toolDisplay", "Tool display")}</strong>
+              <small>
+                {t(
+                  "settingsCenter.toolDisplayHint",
+                  "Choose what appears after opening a tool card.",
+                )}
+              </small>
+            </span>
+            <Segmented<ToolDisplayPreference>
+              className={styles.segmentedControl}
+              value={toolDisplayMode}
+              options={[
+                {
+                  value: "current",
+                  label: t("settingsCenter.toolDisplayCurrent", "Card view"),
+                },
+                {
+                  value: "raw-input-output",
+                  label: t("settingsCenter.toolDisplayRaw", "Raw parameters"),
+                },
+              ]}
+              onChange={changeToolDisplayMode}
             />
           </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
-              <Monitor size={18} />
+              <MessageSquareText size={18} />
             </span>
             <span className={styles.settingCopy}>
-              <strong>{t("sidebar.settings.desktopMode")}</strong>
+              <strong>
+                {t("settingsCenter.assistantDisplay", "Assistant messages")}
+              </strong>
               <small>
                 {t(
-                  "settingsCenter.desktopModeHint",
-                  "Open the multi-window desktop workspace.",
+                  "settingsCenter.assistantDisplayHint",
+                  "Control how intermediate text, reasoning and tools collapse.",
                 )}
               </small>
             </span>
-            <Button
-              onClick={() =>
-                window.location.assign(getOsRootHref(window.location.pathname))
-              }
-            >
-              {t("settingsCenter.open", "Open")}
-            </Button>
+            <Segmented<AssistantMessageDisplayPreference>
+              className={styles.messageDisplayControl}
+              value={assistantDisplayMode}
+              options={[
+                {
+                  value: "expanded",
+                  label: t("settingsCenter.displayExpanded", "Expanded"),
+                },
+                {
+                  value: "process-collapsed",
+                  label: t(
+                    "settingsCenter.displayProcessCollapsed",
+                    "Collapse process",
+                  ),
+                },
+                {
+                  value: "result-collapsed",
+                  label: t(
+                    "settingsCenter.displayResultCollapsed",
+                    "Collapse results",
+                  ),
+                },
+              ]}
+              onChange={changeAssistantDisplayMode}
+            />
+          </div>
+        </div>
+      </section>
+
+      {isTauriRuntime() && (
+        <section className={styles.settingsSection}>
+          <h3 className={styles.sectionTitle}>
+            {t("settingsCenter.desktopApplication", "Desktop app")}
+          </h3>
+          <div className={styles.settingsCard}>
+            <div className={styles.settingRow}>
+              <span className={styles.settingIcon}>
+                <Monitor size={18} />
+              </span>
+              <span className={styles.settingCopy}>
+                <strong>{t("desktop.closeWindow.preference")}</strong>
+                <small>
+                  {t(
+                    "settingsCenter.closeBehaviorHint",
+                    "Choose what happens when the desktop window closes.",
+                  )}
+                </small>
+              </span>
+              <Select<CloseBehavior>
+                className={styles.settingControl}
+                defaultValue={closeBehavior}
+                onChange={changeCloseBehavior}
+                options={[
+                  {
+                    value: "ask",
+                    label: t("desktop.closeWindow.askEveryTime"),
+                  },
+                  {
+                    value: "minimize-to-tray",
+                    label: t("desktop.closeWindow.minimizeToTray"),
+                  },
+                  {
+                    value: "quit",
+                    label: t("desktop.closeWindow.quitApp"),
+                  },
+                ]}
+              />
+            </div>
+            <div className={styles.settingRow}>
+              <span className={styles.settingIcon}>
+                <Monitor size={18} />
+              </span>
+              <span className={styles.settingCopy}>
+                <strong>{t("sidebar.settings.desktopMode")}</strong>
+                <small>
+                  {t(
+                    "settingsCenter.desktopModeHint",
+                    "Open the multi-window desktop workspace.",
+                  )}
+                </small>
+              </span>
+              <Button
+                onClick={() =>
+                  window.location.assign(
+                    getOsRootHref(window.location.pathname),
+                  )
+                }
+              >
+                {t("settingsCenter.open", "Open")}
+              </Button>
+            </div>
           </div>
         </section>
       )}

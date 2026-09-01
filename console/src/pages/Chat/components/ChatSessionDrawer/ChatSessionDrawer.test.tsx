@@ -1,125 +1,78 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { renderWithProviders } from "@/test/common_setup";
-import ChatSessionDrawer from "./index";
-import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
-import { useAgentStore } from "../../../../stores/agentStore";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock react-window's VariableSizeList to render all items directly
-// (jsdom has no layout, so the virtual list never renders rows).
-// Must use forwardRef because the component uses ref={listRef} for resetAfterIndex.
-const { MockVariableSizeList } = vi.hoisted(() => {
-  const React = require("react");
-  const MockVariableSizeList = React.forwardRef((props: any, ref: any) => {
-    React.useImperativeHandle(ref, () => ({
-      resetAfterIndex: () => {},
-    }));
-    const Row = props.children;
-    return (
-      <>
-        {Array.from({ length: props.itemCount }, (_: any, i: number) => (
-          <Row key={i} index={i} style={{}} data={props.itemData} />
-        ))}
-      </>
-    );
-  });
-  return { MockVariableSizeList };
-});
-vi.mock("react-window", () => ({
-  VariableSizeList: MockVariableSizeList,
-}));
+import ChatSessionDrawer from "./index";
 
 const {
   mockCreateSession,
-  mockSetCurrentSessionId,
-  mockSetSessions,
-  mockDeleteChat,
-  mockUpdateChat,
-  mockGetSessionList,
-  mockListGroups,
-  mockNavigate,
   mockGetEffectiveSessionId,
+  mockNavigate,
+  mockUseIsMobile,
 } = vi.hoisted(() => ({
-  mockCreateSession: vi.fn().mockResolvedValue(undefined),
-  mockSetCurrentSessionId: vi.fn(),
-  mockSetSessions: vi.fn(),
-  mockDeleteChat: vi.fn().mockResolvedValue(undefined),
-  mockUpdateChat: vi.fn().mockResolvedValue(undefined),
-  mockGetSessionList: vi.fn().mockResolvedValue([]),
-  mockListGroups: vi.fn().mockResolvedValue([
-    {
-      id: "default",
-      name: "Uncategorized",
-      order: 0,
-      kind: "default",
-      source: "chat",
-      pinned: false,
-    },
-    {
-      id: "cron",
-      name: "Scheduled tasks",
-      order: 1,
-      kind: "cron",
-      source: "cron",
-      pinned: false,
-    },
-    {
-      id: "subagents",
-      name: "Subagents",
-      order: 2,
-      kind: "subagents",
-      source: "subagent",
-      pinned: false,
-    },
-  ]),
+  mockCreateSession: vi.fn<() => Promise<void>>(),
+  mockGetEffectiveSessionId: vi.fn((sessionId: string) => sessionId),
   mockNavigate: vi.fn(),
-  mockGetEffectiveSessionId: vi.fn((id: string) => id),
+  mockUseIsMobile: vi.fn(() => true),
 }));
 
-vi.mock("@agentscope-ai/chat", () => ({
-  useChatAnywhereSessionsState: vi.fn(() => ({
-    sessions: [],
-    currentSessionId: null,
-    setCurrentSessionId: mockSetCurrentSessionId,
-    setSessions: mockSetSessions,
-  })),
-  useChatAnywhereSessions: vi.fn(() => ({ createSession: mockCreateSession })),
+vi.mock("antd", () => ({
+  Drawer: ({
+    children,
+    onClose,
+    open,
+    width,
+  }: {
+    children: React.ReactNode;
+    onClose: () => void;
+    open: boolean;
+    width: string | number;
+  }) =>
+    open ? (
+      <div data-testid="drawer" data-width={width}>
+        <button type="button" onClick={onClose}>
+          drawer-close
+        </button>
+        {children}
+      </div>
+    ) : null,
 }));
 
-vi.mock("@/api/modules/chat", () => ({
-  chatApi: {
-    deleteChat: mockDeleteChat,
-    updateChat: mockUpdateChat,
-    listGroups: mockListGroups,
-    createGroup: vi.fn(),
-    updateGroup: vi.fn(),
-    reorderGroups: vi.fn(),
-    deleteGroup: vi.fn(),
-  },
-  sessionApi: {
-    listChats: vi.fn(),
-    createChat: vi.fn(),
-    getChat: vi.fn(),
-    updateChat: mockUpdateChat,
-    deleteChat: mockDeleteChat,
-    batchDeleteChats: vi.fn(),
-    stopChat: vi.fn(),
-  },
+vi.mock("../../../../layouts/SidebarSessionList", () => ({
+  default: ({
+    onClose,
+    onNewChat,
+    onSessionClick,
+  }: {
+    onClose: () => void;
+    onNewChat: () => void;
+    onSessionClick: (sessionId: string) => void;
+  }) => (
+    <div data-testid="shared-history-list">
+      <button type="button" onClick={onClose}>
+        list-close
+      </button>
+      <button type="button" onClick={onNewChat}>
+        new-chat
+      </button>
+      <button type="button" onClick={() => onSessionClick("session-1")}>
+        open-session
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("../../../../hooks/useIsMobile", () => ({
+  useIsMobile: mockUseIsMobile,
+}));
+
+vi.mock("../../hooks/useCreateNewSession", () => ({
+  useCreateNewSession: () => mockCreateSession,
 }));
 
 vi.mock("../../sessionApi", () => ({
   default: {
-    getSessionList: mockGetSessionList,
-    isSessionSwitching: false,
-    startNewSwitch: vi.fn(() => ({ signal: { aborted: false } })),
-    preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),
-    finishSessionSwitch: vi.fn(),
-    lastNavigatedChatId: null,
     getEffectiveSessionId: mockGetEffectiveSessionId,
-    // Ownership epoch helpers: tests run under a single stable owner.
-    getActiveOwner: vi.fn(() => ({ agentId: "default", generation: 0 })),
-    isActiveOwner: vi.fn(() => true),
   },
 }));
 
@@ -128,309 +81,75 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
-}));
-
-vi.mock("@agentscope-ai/design", () => ({
-  IconButton: ({
-    onClick,
-    icon,
-  }: {
-    onClick?: () => void;
-    icon: React.ReactNode;
-  }) => <button onClick={onClick}>{icon}</button>,
-}));
-
-// Mock ResizeObserver so FixedSizeList gets a non-zero height and renders rows.
-const mockResizeObserver = vi.fn().mockImplementation(function (
-  this: unknown,
-  callback: (entries: ResizeObserverEntry[]) => void,
-) {
-  return {
-    observe: vi.fn((el: HTMLElement) => {
-      callback([
-        {
-          target: el,
-          contentRect: { height: 600 },
-        } as unknown as ResizeObserverEntry,
-      ]);
-    }),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  };
-});
-(globalThis as any).ResizeObserver = mockResizeObserver;
-
-// jsdom returns 0 for clientHeight; the drawer uses it as a fallback to
-// set listHeight when ResizeObserver hasn't fired yet.
-Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-  configurable: true,
-  get(this: HTMLElement) {
-    return 600;
-  },
-});
-
-vi.mock("../../../../components/SessionItem", () => ({
-  default: ({
-    sessionId,
-    name,
-    onClick,
-    onEdit,
-    onDelete,
-    onEditSubmit,
-    onEditCancel,
-  }: any) => (
-    <div data-testid="session-item">
-      <span onClick={() => onClick?.(sessionId)}>{name}</span>
-      <button data-testid="edit-btn" onClick={() => onEdit?.(sessionId, name)}>
-        edit
-      </button>
-      <button data-testid="delete-btn" onClick={() => onDelete?.(sessionId)}>
-        delete
-      </button>
-      <button data-testid="edit-submit-btn" onClick={onEditSubmit}>
-        submit
-      </button>
-      <button data-testid="edit-cancel-btn" onClick={onEditCancel}>
-        cancel
-      </button>
-    </div>
-  ),
-}));
-
-vi.mock("../../../../Control/Channels/components", () => ({
-  getChannelLabel: () => undefined,
-  ChannelIcon: ({ channelKey }: { channelKey: string }) => (
-    <span data-testid="channel-icon">{channelKey}</span>
-  ),
-}));
-
-vi.mock("@agentscope-ai/icons", () => ({
-  SparkOperateRightLine: () => (
-    <span data-icon="SparkOperateRightLine">icon</span>
-  ),
-  SparkLockLine: () => <span data-testid="icon">lock</span>,
-  SparkLockFill: () => <span data-testid="icon">lock-fill</span>,
-  SparkDownArrowLine: ({ size }: { size?: number }) => (
-    <span data-testid="icon">chevron-{size}</span>
-  ),
-}));
-
-vi.mock("../../../../components/ContextMenu", () => ({
-  ContextMenu: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  useContextMenu: () => ({ show: vi.fn(), hide: vi.fn() }),
-}));
-
-const defaultProps = { open: true, onClose: vi.fn() };
-
-function withSession(overrides: Record<string, unknown> = {}) {
-  const session = {
-    id: "s1",
-    name: "Session One",
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  } as any;
-  mockGetSessionList.mockResolvedValue([session]);
-  vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-    sessions: [session],
-    currentSessionId: null,
-    setCurrentSessionId: mockSetCurrentSessionId,
-    setSessions: mockSetSessions,
-  } as any);
-}
-
 describe("ChatSessionDrawer", () => {
   beforeEach(() => {
-    useAgentStore.setState({ selectedAgent: "default" });
+    vi.clearAllMocks();
+    mockCreateSession.mockResolvedValue(undefined);
+    mockGetEffectiveSessionId.mockImplementation((sessionId) => sessionId);
+    mockUseIsMobile.mockReturnValue(true);
   });
 
-  afterEach(() => vi.clearAllMocks());
+  it("renders the shared history list only while open", () => {
+    const { rerender } = render(
+      <ChatSessionDrawer open={false} onClose={vi.fn()} />,
+      { wrapper: MemoryRouter },
+    );
+    expect(screen.queryByTestId("shared-history-list")).toBeNull();
 
-  it("renders nothing when open=false", () => {
-    renderWithProviders(<ChatSessionDrawer open={false} onClose={vi.fn()} />);
-    expect(screen.queryByText("chat.allChats")).not.toBeInTheDocument();
-  });
-
-  it("renders title chat.allChats when open=true", () => {
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    expect(screen.getByText("chat.allChats")).toBeInTheDocument();
-  });
-
-  it("clicking new chat calls createSession", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
-    await user.click(screen.getByText("chat.createNewChat"));
-    expect(mockCreateSession).toHaveBeenCalledOnce();
-  });
-
-  it("renders SessionItem for each session", async () => {
-    withSession();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByText("Session One")).toBeInTheDocument(),
+    rerender(<ChatSessionDrawer open onClose={vi.fn()} />);
+    expect(screen.getByTestId("shared-history-list")).toBeVisible();
+    expect(screen.getByTestId("drawer")).toHaveAttribute(
+      "data-width",
+      "calc(100vw - 56px)",
     );
   });
 
-  it("clicking a session item navigates to the session path", async () => {
-    withSession();
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByText("Session One")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByText("Session One"));
-    expect(mockNavigate).toHaveBeenCalledWith("/chat/s1");
+  it("forwards close actions from the drawer and shared list", () => {
+    const onClose = vi.fn();
+    render(<ChatSessionDrawer open onClose={onClose} />, {
+      wrapper: MemoryRouter,
+    });
+
+    fireEvent.click(screen.getByText("drawer-close"));
+    fireEvent.click(screen.getByText("list-close"));
+
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("clicking the close button calls onClose", async () => {
-    const user = userEvent.setup();
+  it("navigates to a selected session and closes", () => {
     const onClose = vi.fn();
-    renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
-    await user.click(screen.getByRole("button", { name: "common.close" }));
+    mockGetEffectiveSessionId.mockReturnValue("resolved-session");
+    render(<ChatSessionDrawer open onClose={onClose} />, {
+      wrapper: MemoryRouter,
+    });
+
+    fireEvent.click(screen.getByText("open-session"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/chat/resolved-session");
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("delete calls deleteChat with backend id and refreshes", async () => {
-    withSession({ realId: "uuid-1" });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("delete-btn"));
-    expect(mockDeleteChat).toHaveBeenCalledWith("uuid-1");
-    expect(mockGetSessionList).toHaveBeenCalled();
-  });
-
-  it("delete with numeric id skips deleteChat API", async () => {
-    withSession({ id: "12345" });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("delete-btn"));
-    expect(mockDeleteChat).not.toHaveBeenCalled();
-  });
-
-  it("delete clears the message queue for both local id and backend id", async () => {
-    const { useMessageQueueStore } = await import("@/stores/messageQueueStore");
-    useMessageQueueStore.getState().enqueue("s1", { text: "local" });
-    useMessageQueueStore.getState().enqueue("uuid-1", { text: "backend" });
-    expect(useMessageQueueStore.getState().getQueue("s1")).toHaveLength(1);
-    expect(useMessageQueueStore.getState().getQueue("uuid-1")).toHaveLength(1);
-
-    withSession({ realId: "uuid-1" });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("delete-btn"));
-
-    await waitFor(() => {
-      expect(useMessageQueueStore.getState().getQueue("s1")).toEqual([]);
-      expect(useMessageQueueStore.getState().getQueue("uuid-1")).toEqual([]);
-    });
-  });
-
-  it("edit start sets editing state and edit submit calls updateChat", async () => {
-    withSession({ realId: "uuid-1" });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("edit-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("edit-btn"));
-    await user.click(screen.getByTestId("edit-submit-btn"));
-    expect(mockUpdateChat).toHaveBeenCalledWith("uuid-1", {
-      name: "Session One",
-    });
-  });
-
-  it("edit cancel resets editing state without API call", async () => {
-    withSession({ realId: "uuid-1" });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("edit-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("edit-btn"));
-    await user.click(screen.getByTestId("edit-cancel-btn"));
-    expect(mockUpdateChat).not.toHaveBeenCalled();
-  });
-
-  it("on open=true triggers session list refresh", async () => {
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await vi.waitFor(() => expect(mockGetSessionList).toHaveBeenCalled());
-  });
-
-  it("clears stale sessions and reloads when the selected agent changes", async () => {
-    let resolveAgentB!: (sessions: Array<Record<string, unknown>>) => void;
-    const agentBList = new Promise<Array<Record<string, unknown>>>(
-      (resolve) => {
-        resolveAgentB = resolve;
-      },
-    );
-
-    mockGetSessionList
-      .mockResolvedValueOnce([
-        {
-          id: "agent-a-chat",
-          name: "Agent A Chat",
-          updatedAt: new Date().toISOString(),
-        },
-      ])
-      .mockReturnValueOnce(agentBList);
-
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await screen.findByText("Agent A Chat");
-
-    act(() => {
-      useAgentStore.setState({ selectedAgent: "agent-b" });
+  it("creates a session and closes after completion", async () => {
+    const onClose = vi.fn();
+    render(<ChatSessionDrawer open onClose={onClose} />, {
+      wrapper: MemoryRouter,
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText("Agent A Chat")).not.toBeInTheDocument();
-      expect(mockGetSessionList).toHaveBeenCalledTimes(2);
-    });
+    fireEvent.click(screen.getByText("new-chat"));
 
-    await act(async () => {
-      resolveAgentB([
-        {
-          id: "agent-b-chat",
-          name: "Agent B Chat",
-          updatedAt: new Date().toISOString(),
-        },
-      ]);
-      await agentBList;
-    });
-
-    expect(await screen.findByText("Agent B Chat")).toBeInTheDocument();
+    expect(mockCreateSession).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
-  it("places pinned sessions at the top of their group", async () => {
-    mockGetSessionList.mockResolvedValue([
-      {
-        id: "s1",
-        name: "Recent unpinned",
-        pinned: false,
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: "s2",
-        name: "Old pinned",
-        pinned: true,
-        updatedAt: "2000-01-01T00:00:00.000Z",
-      },
-    ]);
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    const items = await screen.findAllByTestId("session-item");
-    expect(items[0]).toHaveTextContent("Old pinned");
-    expect(items[1]).toHaveTextContent("Recent unpinned");
+  it("closes even when session creation fails", async () => {
+    const onClose = vi.fn();
+    mockCreateSession.mockRejectedValue(new Error("create failed"));
+    render(<ChatSessionDrawer open onClose={onClose} />, {
+      wrapper: MemoryRouter,
+    });
+
+    fireEvent.click(screen.getByText("new-chat"));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 });

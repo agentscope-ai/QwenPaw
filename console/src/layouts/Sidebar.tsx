@@ -11,17 +11,21 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, MessageSquareText, RotateCw } from "lucide-react";
+import {
+  History,
+  RotateCw,
+  Settings,
+  ShieldCheck,
+  SquarePen,
+} from "lucide-react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  SparkChatTabFill,
   SparkExitFullscreenLine,
   SparkSearchUserLine,
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkEmailLine,
-  SparkSettingLine,
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
 import { clearAuthToken } from "../api/config";
@@ -33,6 +37,7 @@ import {
 } from "../stores/sessionListStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
+import { requestSessionHistoryDrawerOpen } from "../utils/sessionHistoryDrawer";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
@@ -45,10 +50,9 @@ import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import {
   filterSidebarMenuItems,
-  splitSidebarEntriesForDisplay,
+  orderSidebarEntries,
 } from "./registry/sidebarEntries";
 import type { ReactNode } from "react";
-import { ShieldCheck } from "lucide-react";
 import { hubApi } from "../api/modules/hub";
 
 // ── Layout ────────────────────────────────────────────────────────────────
@@ -96,7 +100,7 @@ export default function Sidebar({
   // the main content on narrow viewports.
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
-  const [navOverflowExpanded, setNavOverflowExpanded] = useState(false);
+  const navScrollRef = useRef<HTMLDivElement>(null);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
@@ -163,21 +167,33 @@ export default function Sidebar({
       ...flattenMenu(agentMenu, routes, 16),
       ...flattenMenu(selectedSettingsMenu, routes, 16),
     ];
-    return [...new Map(entries.map((entry) => [entry.key, entry])).values()];
-  }, [agentMenu, routes, selectedSettingsMenu]);
+    const uniqueEntries = [
+      ...new Map(entries.map((entry) => [entry.key, entry])).values(),
+    ];
+    return orderSidebarEntries(uniqueEntries, focusItemIds);
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
   const simpleInboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
+  const simpleMarketplaceEntry = selectedFlatNav.find(
+    (entry) => entry.key === "core.marketplace",
+  );
   const visibleSidebarNav = useMemo(
-    () => selectedFlatNav.filter((entry) => entry.key !== "core.inbox"),
+    () =>
+      selectedFlatNav.filter(
+        (entry) =>
+          entry.key !== "core.inbox" && entry.key !== "core.marketplace",
+      ),
     [selectedFlatNav],
   );
-  const { direct: directSidebarNav, overflow: overflowSidebarNav } = useMemo(
-    () => splitSidebarEntriesForDisplay(visibleSidebarNav),
-    [visibleSidebarNav],
-  );
-
   // ── Effects ──────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const activeEntry = navScrollRef.current?.querySelector<HTMLElement>(
+      '[aria-current="page"]',
+    );
+    activeEntry?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedKey, visibleSidebarNav]);
 
   useEffect(() => {
     authApi
@@ -192,14 +208,6 @@ export default function Sidebar({
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (overflowSidebarNav.some((entry) => entry.key === selectedKey)) {
-      setNavOverflowExpanded(true);
-    } else if (overflowSidebarNav.length === 0) {
-      setNavOverflowExpanded(false);
-    }
-  }, [overflowSidebarNav, selectedKey]);
 
   useEffect(() => {
     if (
@@ -266,7 +274,7 @@ export default function Sidebar({
   // sidebar mode (the default "full" mode also benefits from this).
   // Uses sessionApi.getSessionList() instead of raw api.listChats() to ensure
   // the same data processing pipeline (dedup, realId, generating state) as
-  // the desktop ChatSessionDrawer.
+  // the shared conversation-history list.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -300,13 +308,6 @@ export default function Sidebar({
   }, []);
 
   const collapsedNavItems = useMemo(() => {
-    // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
-    const stickyChat: FlatMenuEntry = {
-      key: "core.chat",
-      icon: <SparkChatTabFill size={18} />,
-      path: chatPath,
-      label: t("nav.chat"),
-    };
     // Inbox in collapsed mode shows a dot overlay on its icon (kept Sidebar-local
     // for the same reason as decorateLabel: live state isn't menu data).
     const decorateInboxIcon = (icon: ReactNode): ReactNode => (
@@ -327,10 +328,27 @@ export default function Sidebar({
         )}
       </span>
     );
-    const flat = [
-      stickyChat,
+    const scrollableEntries = [
       ...flattenMenu(agentMenu, routes, 18),
       ...flattenMenu(selectedSettingsMenu, routes, 18),
+    ];
+    const inboxEntry = scrollableEntries.find(
+      (entry) => entry.key === "core.inbox",
+    );
+    const marketplaceEntry = scrollableEntries.find(
+      (entry) => entry.key === "core.marketplace",
+    );
+    const orderedEntries = orderSidebarEntries(
+      scrollableEntries.filter(
+        (entry) =>
+          entry.key !== "core.inbox" && entry.key !== "core.marketplace",
+      ),
+      focusItemIds,
+    );
+    const flat = [
+      ...(inboxEntry ? [inboxEntry] : []),
+      ...(marketplaceEntry ? [marketplaceEntry] : []),
+      ...orderedEntries,
     ];
     return flat.map((entry) =>
       entry.key === "core.inbox"
@@ -339,10 +357,9 @@ export default function Sidebar({
     );
   }, [
     agentMenu,
+    focusItemIds,
     selectedSettingsMenu,
     routes,
-    chatPath,
-    t,
     hasInboxUnread,
     inboxDotColor,
   ]);
@@ -364,6 +381,14 @@ export default function Sidebar({
       navigate("/chat");
     }
   }, [location.pathname, navigate]);
+
+  const handleOpenSettings = useCallback(() => {
+    navigate("/settings/general", {
+      state: {
+        settingsReturnTo: `${location.pathname}${location.search}${location.hash}`,
+      },
+    });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   /**
    * Session click: navigate directly without relying on ChatSessionInitializer.
@@ -459,12 +484,6 @@ export default function Sidebar({
   // ── Render ────────────────────────────────────────────────────────────────
 
   const isChatActive = selectedKey === "core.chat";
-  const collapsedChatItem = collapsedNavItems.find(
-    (item) => item.key === "core.chat",
-  );
-  const collapsedScrollableItems = collapsedNavItems.filter(
-    (item) => item.key !== "core.chat",
-  );
 
   const renderCollapsedNavItem = (item: FlatMenuEntry) => {
     const isActive =
@@ -512,6 +531,7 @@ export default function Sidebar({
       <button
         key={entry.key}
         type="button"
+        aria-current={isActive ? "page" : undefined}
         className={`${styles.simpleNavItem} ${
           isActive ? styles.simpleNavItemActive : ""
         }`}
@@ -543,13 +563,43 @@ export default function Sidebar({
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
-          {collapsedChatItem && (
-            <div className={styles.collapsedNavPinned}>
-              {renderCollapsedNavItem(collapsedChatItem)}
-            </div>
-          )}
+          <div className={styles.collapsedNavPinned}>
+            <Tooltip
+              title={t("chat.newTask", "New task")}
+              placement="right"
+              mouseEnterDelay={0.5}
+            >
+              <button
+                type="button"
+                className={styles.collapsedNavItem}
+                aria-label={t("chat.newTask", "New task")}
+                onClick={handleNewChat}
+              >
+                <SquarePen size={18} />
+              </button>
+            </Tooltip>
+            <Tooltip
+              title={t("chat.chatHistoryTooltip")}
+              placement="right"
+              mouseEnterDelay={0.5}
+            >
+              <button
+                type="button"
+                className={styles.collapsedNavItem}
+                aria-label={t("chat.chatHistoryTooltip")}
+                onClick={() => {
+                  requestSessionHistoryDrawerOpen();
+                  if (!isChatActive) {
+                    navigate(chatPath);
+                  }
+                }}
+              >
+                <History size={18} />
+              </button>
+            </Tooltip>
+          </div>
           <div className={styles.collapsedNavScroll}>
-            {collapsedScrollableItems.map(renderCollapsedNavItem)}
+            {collapsedNavItems.map(renderCollapsedNavItem)}
           </div>
         </nav>
       ) : (
@@ -564,88 +614,66 @@ export default function Sidebar({
             <Slot name="sider.top" kind="fill" />
             <button
               type="button"
-              className={`${styles.simpleNavItem} ${styles.simpleChatItem} ${
-                isChatActive ? styles.simpleNavItemActive : ""
-              }`}
-              onClick={() => navigate(chatPath)}
+              className={styles.simpleNewTask}
+              onClick={handleNewChat}
             >
-              <MessageSquareText size={16} />
-              <span>{t("nav.chat")}</span>
+              <SquarePen size={16} />
+              <span>{t("chat.newTask", "New task")}</span>
             </button>
-            {simpleInboxEntry && (
-              <button
-                type="button"
-                className={`${styles.simpleNavItem} ${styles.simpleInboxItem} ${
-                  selectedKey === simpleInboxEntry.key
-                    ? styles.simpleNavItemActive
-                    : ""
-                }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
-                onMouseEnter={handleInboxHover}
-                onClick={() => {
-                  if (simpleInboxEntry.href) {
-                    window.open(
-                      simpleInboxEntry.href,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                  } else {
-                    navigate(simpleInboxEntry.path);
-                  }
-                }}
-              >
-                <span className={styles.simpleInboxIcon}>
-                  {simpleInboxEntry.icon ?? <SparkEmailLine size={16} />}
-                  {hasInboxUnread && (
-                    <span
-                      className={styles.simpleInboxUnreadDot}
-                      style={{ background: inboxDotColor }}
-                    />
-                  )}
-                </span>
-                <span>{simpleInboxEntry.label}</span>
-              </button>
-            )}
-            {directSidebarNav.map(renderSimpleNavItem)}
-            {overflowSidebarNav.length > 0 && (
-              <>
+            <div
+              ref={navScrollRef}
+              className={`${styles.simpleNavItems} ${styles.simpleNavScroll}`}
+            >
+              {simpleInboxEntry && (
                 <button
                   type="button"
-                  className={styles.simpleAgentDisclosure}
-                  aria-expanded={navOverflowExpanded}
-                  aria-controls="sidebar-overflow-shortcuts"
-                  onClick={() =>
-                    setNavOverflowExpanded((expanded) => !expanded)
+                  aria-current={
+                    selectedKey === simpleInboxEntry.key ? "page" : undefined
                   }
+                  className={`${styles.simpleNavItem} ${
+                    styles.simpleInboxItem
+                  } ${
+                    selectedKey === simpleInboxEntry.key
+                      ? styles.simpleNavItemActive
+                      : ""
+                  }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
+                  onMouseEnter={handleInboxHover}
+                  onClick={() => {
+                    if (simpleInboxEntry.href) {
+                      window.open(
+                        simpleInboxEntry.href,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    } else {
+                      navigate(simpleInboxEntry.path);
+                    }
+                  }}
                 >
-                  <span className={styles.simpleAgentDisclosureLine} />
-                  <span className={styles.simpleAgentDisclosureHandle}>
-                    {navOverflowExpanded
-                      ? t("sidebar.collapseShortcuts", "Collapse")
-                      : t("sidebar.expandShortcuts", {
-                          count: overflowSidebarNav.length,
-                          defaultValue: "Show {{count}} more",
-                        })}
-                    <ChevronDown
-                      size={13}
-                      className={`${styles.simpleAgentDisclosureChevron} ${
-                        navOverflowExpanded
-                          ? styles.simpleAgentDisclosureChevronExpanded
-                          : ""
-                      }`}
-                    />
+                  <span className={styles.simpleInboxIcon}>
+                    {simpleInboxEntry.icon ?? <SparkEmailLine size={16} />}
+                    {hasInboxUnread && (
+                      <span
+                        className={styles.simpleInboxUnreadDot}
+                        style={{ background: inboxDotColor }}
+                      />
+                    )}
                   </span>
-                  <span className={styles.simpleAgentDisclosureLine} />
+                  <span>{simpleInboxEntry.label}</span>
                 </button>
-                {navOverflowExpanded && (
-                  <div
-                    id="sidebar-overflow-shortcuts"
-                    className={styles.simpleNavItems}
-                  >
-                    {overflowSidebarNav.map(renderSimpleNavItem)}
-                  </div>
-                )}
-              </>
-            )}
+              )}
+              {simpleMarketplaceEntry &&
+                renderSimpleNavItem(simpleMarketplaceEntry)}
+              {visibleSidebarNav.map(renderSimpleNavItem)}
+            </div>
+            <button
+              type="button"
+              className={styles.simpleMoreSettings}
+              onClick={handleOpenSettings}
+            >
+              <Settings size={16} />
+              <span>{t("nav.moreSettings", "More settings")}</span>
+            </button>
           </div>
 
           {/* Session list — fills the primary space. */}
@@ -702,19 +730,20 @@ export default function Sidebar({
       )}
 
       <div className={styles.collapseToggleContainer}>
-        <Tooltip title={t("nav.settings")} placement="right">
-          <Button
-            type="text"
-            aria-label={t("nav.settings")}
-            icon={<SparkSettingLine size={18} />}
-            className={styles.collapseToggle}
-            onClick={() =>
-              navigate("/settings/general", {
-                state: { settingsReturnTo: location.pathname },
-              })
-            }
-          />
-        </Tooltip>
+        {collapsed && (
+          <Tooltip
+            title={t("nav.moreSettings", "More settings")}
+            placement="right"
+          >
+            <Button
+              type="text"
+              aria-label={t("nav.moreSettings", "More settings")}
+              icon={<Settings size={18} />}
+              className={styles.collapseToggle}
+              onClick={handleOpenSettings}
+            />
+          </Tooltip>
+        )}
         <Button
           type="text"
           icon={

@@ -125,12 +125,10 @@ export interface SessionListData {
 }
 
 /**
- * Shared session-list logic extracted from ChatSessionDrawer.
- * Both ChatSessionDrawer and SidebarSessionList use this hook.
+ * Shared session-list logic used by SidebarSessionList in both hosts.
  *
  * The `onSessionClick` callback is injected by the caller so that:
- * - ChatSessionDrawer can call setCurrentSessionId directly (inside context).
- * - SidebarSessionList can dispatch a DOM event (outside context).
+ * The `onSessionClick` callback lets each host select its navigation behavior.
  */
 export function useSessionListData(
   sessions: ExtendedChatSession[],
@@ -259,7 +257,7 @@ export function useSessionListData(
   }, [currentSessionId]);
 
   // Also clear switchingSessionId when the switch completes (or fails).
-  // This is needed for SidebarSessionList (simple mode) which communicates
+  // This is needed for SidebarSessionList, which may communicate
   // via DOM events and may not see currentSessionId change on errors.
   useEffect(() => {
     const onDone = () => setSwitchingSessionId(null);

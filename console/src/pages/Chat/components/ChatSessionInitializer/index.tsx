@@ -44,7 +44,7 @@ const ChatSessionInitializer: React.FC = () => {
 
   // Sync library sessions → shared Zustand store whenever they change.
   // This makes the session list available to components outside the context tree
-  // (e.g. SidebarSessionList in simple-mode sidebar).
+  // (e.g. the shared SidebarSessionList).
   useEffect(() => {
     syncFromLibrary(
       sessions as ExtendedSession[],

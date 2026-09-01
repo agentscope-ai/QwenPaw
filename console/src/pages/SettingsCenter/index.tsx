@@ -9,18 +9,27 @@ import { Button, Input, Spin } from "antd";
 import {
   Archive,
   ArrowLeft,
+  BarChart3,
   Bot,
   Bug,
+  CalendarClock,
   Cpu,
+  FileText,
   Gauge,
+  GitBranch,
   Globe,
+  HeartPulse,
+  MessageCircle,
   Mic,
   PanelLeft,
+  Plug,
+  Radio,
+  ScanLine,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Wrench,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -32,6 +41,7 @@ import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
 import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
 import GeneralSettings from "./GeneralSettings";
 import NavigationSettings from "./NavigationSettings";
+import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
 
 interface SettingsPageDefinition {
@@ -83,9 +93,124 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
     ],
   },
   {
-    key: "agents",
-    labelKey: "settingsCenter.groups.agents",
-    fallback: "Agents",
+    key: "agent-configuration",
+    labelKey: "settingsCenter.groups.agentConfiguration",
+    fallback: "Agent configuration",
+    pages: [
+      {
+        key: "channels",
+        labelKey: "nav.channels",
+        fallback: "Channels",
+        descriptionKey: "settingsCenter.descriptions.channels",
+        descriptionFallback: "Connect IM and message channels",
+        routeId: "core.channels",
+        Icon: Radio,
+      },
+      {
+        key: "sessions",
+        labelKey: "nav.sessions",
+        fallback: "Sessions",
+        descriptionKey: "settingsCenter.descriptions.sessions",
+        descriptionFallback: "Inspect agent sessions",
+        routeId: "core.sessions",
+        Icon: MessageCircle,
+      },
+      {
+        key: "cron-jobs",
+        labelKey: "nav.cronJobs",
+        fallback: "Cron Jobs",
+        descriptionKey: "settingsCenter.descriptions.cronJobs",
+        descriptionFallback: "Create and manage recurring tasks",
+        routeId: "core.cron-jobs",
+        Icon: CalendarClock,
+      },
+      {
+        key: "heartbeat",
+        labelKey: "nav.heartbeat",
+        fallback: "Heartbeat",
+        descriptionKey: "settingsCenter.descriptions.heartbeat",
+        descriptionFallback: "Agent availability and periodic wake-up",
+        routeId: "core.heartbeat",
+        Icon: HeartPulse,
+      },
+      {
+        key: "files",
+        labelKey: "nav.files",
+        fallback: "Files",
+        descriptionKey: "settingsCenter.descriptions.files",
+        descriptionFallback: "Browse agent workspace files",
+        routeId: "core.files",
+        Icon: FileText,
+      },
+      {
+        key: "agent-skills",
+        labelKey: "nav.skills",
+        fallback: "Skills",
+        descriptionKey: "settingsCenter.descriptions.skills",
+        descriptionFallback: "Manage agent skills",
+        routeId: "core.skills",
+        Icon: Sparkles,
+      },
+      {
+        key: "tools",
+        labelKey: "nav.tools",
+        fallback: "Tools",
+        descriptionKey: "settingsCenter.descriptions.tools",
+        descriptionFallback: "Configure available tools",
+        routeId: "core.tools",
+        Icon: Wrench,
+      },
+      {
+        key: "mcp",
+        labelKey: "nav.mcp",
+        fallback: "MCP",
+        descriptionKey: "settingsCenter.descriptions.mcp",
+        descriptionFallback: "Configure MCP services",
+        routeId: "core.mcp",
+        Icon: Plug,
+      },
+      {
+        key: "acp",
+        labelKey: "nav.acp",
+        fallback: "ACP",
+        descriptionKey: "settingsCenter.descriptions.acp",
+        descriptionFallback: "Configure ACP agents",
+        routeId: "core.acp",
+        Icon: ScanLine,
+      },
+      {
+        key: "agent-config",
+        labelKey: "nav.agentConfig",
+        fallback: "Configuration",
+        descriptionKey: "settingsCenter.descriptions.agentConfig",
+        descriptionFallback: "Configure agent runtime behavior",
+        routeId: "core.agent-config",
+        Icon: SlidersHorizontal,
+      },
+      {
+        key: "agent-stats",
+        labelKey: "nav.agentStats",
+        fallback: "Agent Statistics",
+        descriptionKey: "settingsCenter.descriptions.agentStats",
+        descriptionFallback: "Review agent activity statistics",
+        routeId: "core.agent-stats",
+        Icon: BarChart3,
+      },
+      {
+        key: "checkpoints",
+        labelKey: "checkpoints.nav",
+        fallback: "Checkpoints",
+        descriptionKey: "settingsCenter.descriptions.checkpoints",
+        descriptionFallback: "Inspect and restore checkpoints",
+        routeId: "core.checkpoints",
+        Icon: GitBranch,
+      },
+    ],
+  },
+  {
+    key: "global",
+    labelKey: "settingsCenter.groups.global",
+    fallback: "Global settings",
     pages: [
       {
         key: "agents",
@@ -106,21 +231,14 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         Icon: Cpu,
       },
       {
-        key: "skills",
+        key: "skill-pool",
         labelKey: "nav.skillPool",
         fallback: "Skill Pool",
-        descriptionKey: "settingsCenter.descriptions.skills",
+        descriptionKey: "settingsCenter.descriptions.skillPool",
         descriptionFallback: "Reusable skills and extensions",
         routeId: "core.skill-pool",
         Icon: Sparkles,
       },
-    ],
-  },
-  {
-    key: "data",
-    labelKey: "settingsCenter.groups.data",
-    fallback: "Data & security",
-    pages: [
       {
         key: "environments",
         labelKey: "nav.environments",
@@ -311,36 +429,18 @@ export default function SettingsCenter() {
       className={`${styles.root} ${isDark ? styles.rootDark : ""}`}
       data-theme={isDark ? "dark" : "light"}
     >
-      <header className={styles.header}>
-        <div className={styles.headerLead}>
+      <div className={styles.body}>
+        <aside className={styles.sidebar}>
           <Button
             type="text"
+            className={styles.backButton}
             icon={<ArrowLeft size={18} />}
             onClick={() => navigate(returnTo)}
           >
-            {t("common.back", "Back")}
+            {t("settingsCenter.backToApp", "Back to app")}
           </Button>
-          <div>
-            <h1>{t("settingsCenter.title", "Settings")}</h1>
-            <p>
-              {t(
-                "settingsCenter.subtitle",
-                "Configure the application and each agent in one place.",
-              )}
-            </p>
-          </div>
-        </div>
-        <Button
-          type="text"
-          icon={<X size={20} />}
-          aria-label={t("common.close")}
-          onClick={() => navigate(returnTo)}
-        />
-      </header>
-
-      <div className={styles.body}>
-        <aside className={styles.sidebar}>
           <Input
+            className={styles.searchInput}
             allowClear
             value={query}
             prefix={<Search size={15} />}
@@ -354,6 +454,9 @@ export default function SettingsCenter() {
             {visibleGroups.map((group) => (
               <section key={group.key} className={styles.navGroup}>
                 <h2>{t(group.labelKey, group.fallback)}</h2>
+                {group.key === "agent-configuration" && (
+                  <SettingsAgentSelector />
+                )}
                 {group.pages.map((page) => {
                   const Icon = page.Icon;
                   return (
@@ -366,12 +469,7 @@ export default function SettingsCenter() {
                       onClick={() => openPage(page)}
                     >
                       {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                      <span>
-                        <strong>{pageLabel(page)}</strong>
-                        <small>
-                          {t(page.descriptionKey, page.descriptionFallback)}
-                        </small>
-                      </span>
+                      <strong>{pageLabel(page)}</strong>
                     </button>
                   );
                 })}

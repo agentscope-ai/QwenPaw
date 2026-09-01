@@ -1,14 +1,17 @@
 import { create } from "zustand";
 
+import { isFixedSidebarItemId } from "@/constants/sidebarItems";
+
 const STORAGE_KEY = "qwenpaw_sidebar_mode";
 const FOCUS_ITEMS_STORAGE_KEY = "qwenpaw_sidebar_focus_items_v1";
 const HIDDEN_PLUGIN_ITEMS_STORAGE_KEY =
   "qwenpaw_sidebar_hidden_plugin_items_v1";
 
 export const DEFAULT_FOCUS_ITEM_IDS = [
-  "core.files",
   "core.cron-jobs",
-  "core.marketplace",
+  "core.files",
+  "core.agent-config",
+  "core.models",
 ];
 
 export type SidebarMode = "simple" | "full";
@@ -39,7 +42,7 @@ function loadFocusItemIds(): string[] {
     if (!Array.isArray(parsed)) return DEFAULT_FOCUS_ITEM_IDS;
     return parsed.filter(
       (itemId): itemId is string =>
-        typeof itemId === "string" && itemId !== "core.inbox",
+        typeof itemId === "string" && !isFixedSidebarItemId(itemId),
     );
   } catch {
     return DEFAULT_FOCUS_ITEM_IDS;
@@ -88,7 +91,7 @@ function updateSidebarItemsVisibility(
   const focusItemIds = new Set(state.focusItemIds);
   const hiddenPluginItemIds = new Set(state.hiddenPluginItemIds);
   const configurableItemIds = [...new Set(itemIds)].filter(
-    (itemId) => itemId !== "core.inbox",
+    (itemId) => !isFixedSidebarItemId(itemId),
   );
 
   for (const itemId of configurableItemIds) {
@@ -155,7 +158,7 @@ export const useSidebarModeStore = create<SidebarModeState>((set) => ({
 
   setFocusItemIds: (itemIds: string[]) => {
     const next = [...new Set(itemIds)].filter(
-      (itemId) => itemId !== "core.inbox",
+      (itemId) => !isFixedSidebarItemId(itemId),
     );
     persistFocusItemIds(next);
     set({ focusItemIds: next });
@@ -163,6 +166,8 @@ export const useSidebarModeStore = create<SidebarModeState>((set) => ({
 
   setSidebarItemVisible: (itemId, visible) =>
     set((state) => {
+      if (isFixedSidebarItemId(itemId)) return state;
+
       if (itemId.startsWith("core.")) {
         const next = visible
           ? [...new Set([...state.focusItemIds, itemId])]

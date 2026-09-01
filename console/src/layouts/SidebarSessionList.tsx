@@ -5,11 +5,19 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Input, Modal, Spin } from "antd";
+import { Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { ChevronDown, FolderPlus, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  Ellipsis,
+  FolderPlus,
+  PanelRightClose,
+  Search,
+  SquarePen,
+} from "lucide-react";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
   getBackendId,
@@ -226,11 +234,14 @@ export interface SidebarSessionListProps {
   onNewChat?: () => void;
   /** Called when user clicks a session. Provided by parent for direct navigation. */
   onSessionClick?: (sessionId: string) => void;
+  /** Optional close action when the list is hosted in a mobile drawer. */
+  onClose?: () => void;
 }
 
 export default function SidebarSessionList({
   onNewChat,
   onSessionClick: onSessionClickProp,
+  onClose,
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -239,6 +250,7 @@ export default function SidebarSessionList({
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
   /** Collapsed chat groups — persisted so remounts keep the user's state */
@@ -254,6 +266,8 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const searchInputRef = useRef<InputRef>(null);
+  const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
     () =>
       localizeSystemGroups(chatGroups, {
@@ -417,6 +431,21 @@ export default function SidebarSessionList({
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
     }
   }, [onNewChat]);
+
+  const handleOpenSearch = useCallback(() => {
+    setHistoryCollapsed(false);
+    setCreatingGroup(false);
+    setSearchOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, []);
+
+  const handleOpenCreateGroup = useCallback(() => {
+    setHistoryCollapsed(false);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setCreatingGroup(true);
+    window.setTimeout(() => groupInputRef.current?.focus(), 0);
+  }, []);
 
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
@@ -602,49 +631,101 @@ export default function SidebarSessionList({
 
   return (
     <div className={styles.sessionList}>
-      {/* Sticky header: new chat + history title + search */}
+      {/* Sticky history header and compact actions. */}
       <div className={styles.sessionListHeader}>
-        {/* New Chat button */}
-        <button className={styles.newChatBtn} onClick={handleNewChat}>
-          <Plus size={14} />
-          <span>{t("chat.newChatTooltip")}</span>
-        </button>
-
-        {/* Conversation history header (collapsible) */}
-        <button
-          className={styles.historyHeader}
-          onClick={() => setHistoryCollapsed((c) => !c)}
-        >
-          <span className={styles.historyLabel}>
-            {t("chat.conversationHistory", "Conversation History")}
-          </span>
-          <span
-            className={styles.historyChevron}
-            style={{
-              transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
+        <div className={styles.historyHeaderRow}>
+          <button
+            className={styles.historyHeader}
+            type="button"
+            aria-expanded={!historyCollapsed}
+            onClick={() => setHistoryCollapsed((c) => !c)}
           >
-            <ChevronDown size={12} />
-          </span>
-        </button>
+            <span className={styles.historyLabel}>
+              {t("chat.conversationHistory", "Conversation History")}
+            </span>
+            <span
+              className={styles.historyChevron}
+              style={{
+                transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+              }}
+            >
+              <ChevronDown size={12} />
+            </span>
+          </button>
+          <div className={styles.historyActions}>
+            <Tooltip title={t("chat.newTask", "New task")}>
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("chat.newTask", "New task")}
+                onClick={handleNewChat}
+              >
+                <SquarePen size={15} />
+              </button>
+            </Tooltip>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomRight"
+              menu={{
+                items: [
+                  {
+                    key: "search",
+                    icon: <Search size={15} />,
+                    label: t(
+                      "chat.sessionPanel.searchConversations",
+                      "Search conversations",
+                    ),
+                    onClick: handleOpenSearch,
+                  },
+                  {
+                    key: "create-group",
+                    icon: <FolderPlus size={15} />,
+                    label: t("chat.groups.create", "New group"),
+                    onClick: handleOpenCreateGroup,
+                  },
+                ],
+              }}
+            >
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("sidebar.more", "More")}
+              >
+                <Ellipsis size={16} />
+              </button>
+            </Dropdown>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              className={styles.closeButton}
+              aria-label={t("common.close", "Close")}
+              onClick={onClose}
+            >
+              <PanelRightClose size={16} />
+            </button>
+          )}
+        </div>
 
-        {/* Search bar */}
-        {!historyCollapsed && (
+        {!historyCollapsed && (searchOpen || creatingGroup) && (
           <div className={styles.searchContainer}>
-            <Input
-              size="small"
-              allowClear
-              placeholder={t(
-                "chat.sessionPanel.searchConversations",
-                "Search…",
-              )}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-            />
-            {creatingGroup ? (
+            {searchOpen && (
               <Input
-                autoFocus
+                ref={searchInputRef}
+                size="small"
+                allowClear
+                placeholder={t(
+                  "chat.sessionPanel.searchConversations",
+                  "Search…",
+                )}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            )}
+            {creatingGroup && (
+              <Input
+                ref={groupInputRef}
                 size="small"
                 className={styles.groupInput}
                 placeholder={t("chat.groups.namePlaceholder", "Group name")}
@@ -655,14 +736,6 @@ export default function SidebarSessionList({
                   if (!newGroupName.trim()) setCreatingGroup(false);
                 }}
               />
-            ) : (
-              <button
-                className={styles.createGroupBtn}
-                onClick={() => setCreatingGroup(true)}
-              >
-                <FolderPlus size={13} />
-                <span>{t("chat.groups.create", "New group")}</span>
-              </button>
             )}
           </div>
         )}

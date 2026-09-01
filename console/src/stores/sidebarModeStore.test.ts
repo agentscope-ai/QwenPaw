@@ -34,6 +34,15 @@ describe("sidebarModeStore", () => {
   // Initial state — tri-state-ish (persisted "simple" / persisted other / no value)
   // ---------------------------------------------------------------------------
 
+  it("uses the requested default sidebar shortcuts in display order", () => {
+    expect(DEFAULT_FOCUS_ITEM_IDS).toEqual([
+      "core.cron-jobs",
+      "core.files",
+      "core.agent-config",
+      "core.models",
+    ]);
+  });
+
   it("defaults to 'full' when localStorage has no entry (via setstate we can't test create-time)", () => {
     // After our reset, the store has the value we set.
     useSidebarModeStore.setState({ mode: "full" });
@@ -109,10 +118,15 @@ describe("sidebarModeStore", () => {
     expect(useSidebarModeStore.getState().mode).toBe("full");
   });
 
-  it("persists focus-navigation item visibility without the fixed inbox", () => {
+  it("persists preferences without fixed sidebar entries", () => {
     useSidebarModeStore
       .getState()
-      .setFocusItemIds(["core.files", "core.inbox", "plugin.example"]);
+      .setFocusItemIds([
+        "core.files",
+        "core.inbox",
+        "core.marketplace",
+        "plugin.example",
+      ]);
 
     expect(useSidebarModeStore.getState().focusItemIds).toEqual([
       "core.files",
@@ -176,7 +190,7 @@ describe("sidebarModeStore", () => {
     expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
-  it("inverts built-in and plugin shortcuts while ignoring the fixed inbox", () => {
+  it("inverts shortcuts while ignoring fixed sidebar entries", () => {
     useSidebarModeStore.setState({
       focusItemIds: ["core.files", "core.security"],
       hiddenPluginItemIds: ["plugin.hidden"],
@@ -186,6 +200,7 @@ describe("sidebarModeStore", () => {
       .getState()
       .invertSidebarItems([
         "core.inbox",
+        "core.marketplace",
         "core.security",
         "core.debug",
         "plugin.visible",

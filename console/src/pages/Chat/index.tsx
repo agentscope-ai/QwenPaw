@@ -193,6 +193,10 @@ import {
   buildChatPath,
   getSessionIdFromPath,
 } from "../../utils/sessionRoute";
+import {
+  OPEN_SESSION_HISTORY_DRAWER_EVENT,
+  SESSION_HISTORY_DRAWER_STORAGE_KEY,
+} from "../../utils/sessionHistoryDrawer";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
 import {
@@ -1138,8 +1142,6 @@ const timestampStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
-
 /**
  * Temporary local session ids (created before the first message is sent) are
  * not real backend sessions and must never be used for URL restore, session
@@ -1532,30 +1534,37 @@ export default function ChatPage() {
   // right-side history panel because the left sidebar starts collapsed.
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
-  const historyPanelAvailable = isMobile;
 
-  // Right-side history panel state
+  // Mobile history drawer state, opened from the collapsed left sidebar.
   const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
     try {
-      return localStorage.getItem(HISTORY_PANEL_STORAGE_KEY) === "true";
+      return (
+        localStorage.getItem(SESSION_HISTORY_DRAWER_STORAGE_KEY) === "true"
+      );
     } catch {
       return false;
     }
   });
-  const toggleHistoryPanel = useCallback(() => {
-    setHistoryPanelOpen((prev) => {
-      const next = !prev;
-      try {
-        if (next) {
-          localStorage.setItem(HISTORY_PANEL_STORAGE_KEY, "true");
-        } else {
-          localStorage.removeItem(HISTORY_PANEL_STORAGE_KEY);
-        }
-      } catch {
-        // storage unavailable
-      }
-      return next;
-    });
+  const closeHistoryPanel = useCallback(() => {
+    setHistoryPanelOpen(false);
+    try {
+      localStorage.removeItem(SESSION_HISTORY_DRAWER_STORAGE_KEY);
+    } catch {
+      // Storage can be unavailable in restricted browser contexts.
+    }
+  }, []);
+  useEffect(() => {
+    const openHistoryPanel = () => setHistoryPanelOpen(true);
+    window.addEventListener(
+      OPEN_SESSION_HISTORY_DRAWER_EVENT,
+      openHistoryPanel,
+    );
+    return () => {
+      window.removeEventListener(
+        OPEN_SESSION_HISTORY_DRAWER_EVENT,
+        openHistoryPanel,
+      );
+    };
   }, []);
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
@@ -3111,10 +3120,6 @@ export default function ChatPage() {
             <ChatActionGroup
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
-              onToggleHistory={
-                historyPanelAvailable ? toggleHistoryPanel : undefined
-              }
-              historyOpen={historyPanelAvailable ? historyPanelOpen : false}
             />
             {pluginRightHeader}
           </>
@@ -3531,9 +3536,6 @@ export default function ChatPage() {
     handleQueuePauseResume,
     handleQueueRetry,
     handleQueueSkip,
-    historyPanelAvailable,
-    historyPanelOpen,
-    toggleHistoryPanel,
     handleCompactCommand,
     handleNewCommand,
     isMobile,
@@ -3790,31 +3792,12 @@ export default function ChatPage() {
       </motion.div>
       {/* End of main chat area */}
 
-      {/* Mobile history panel; desktop sessions live in the left sidebar. */}
-      {historyPanelAvailable && historyPanelOpen && (
-        <>
-          {isMobile ? (
-            <ChatSessionDrawer
-              open={historyPanelOpen}
-              onClose={toggleHistoryPanel}
-              embedded={false}
-            />
-          ) : (
-            <>
-              <div
-                className={styles.historyPanelMask}
-                onClick={toggleHistoryPanel}
-              />
-              <div className={styles.historyPanel}>
-                <ChatSessionDrawer
-                  open={historyPanelOpen}
-                  onClose={toggleHistoryPanel}
-                  embedded
-                />
-              </div>
-            </>
-          )}
-        </>
+      {/* History drawer opens from the collapsed left sidebar. */}
+      {historyPanelOpen && (
+        <ChatSessionDrawer
+          open={historyPanelOpen}
+          onClose={closeHistoryPanel}
+        />
       )}
     </div>
   );

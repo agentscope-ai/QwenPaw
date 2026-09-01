@@ -596,108 +596,52 @@
   > .agentSelectorContainer > :first-child {
     margin-bottom: 4px;
   }
+}
 
-  .simpleNavItems {
-    max-height: min(216px, 34vh);
-    overflow-y: auto;
-    padding: 2px 0 4px;
-    scrollbar-width: none;
+.simpleNavScroll {
+  max-height: min(198px, 30vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px 0;
+  scrollbar-color: rgba(43, 18, 0, 0.18) transparent;
+  scrollbar-width: thin;
 
-    &::-webkit-scrollbar {
-      display: none;
-    }
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(43, 18, 0, 0.18);
+  }
+
+  > .simpleNavItem {
+    flex: 0 0 36px;
   }
 }
 
-.simpleAgentDisclosure {
-  display: grid;
-  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
-  width: 100%;
-  height: 30px;
+.simpleMoreSettings {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  margin-top: 4px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-top: 1px solid rgba(26, 23, 22, 0.07);
+  border-radius: 0 0 8px 8px;
+  color: rgba(0, 0, 0, 0.52);
+  font-size: 13px;
+  text-align: left;
   background: transparent;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
   cursor: pointer;
 
-  &:hover,
-  &:focus-visible,
-  &[aria-expanded="true"] {
-    color: var(--colorPrimary, #ff7f16);
-
-    .simpleAgentDisclosureLine {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in srgb, var(--colorPrimary, #ff7f16) 44%, transparent)
-      );
-    }
-
-    .simpleAgentDisclosureHandle {
-      border-color: color-mix(
-        in srgb,
-        var(--colorPrimary, #ff7f16) 34%,
-        transparent
-      );
-      background: color-mix(
-        in srgb,
-        var(--colorPrimary, #ff7f16) 9%,
-        transparent
-      );
-      box-shadow: 0 3px 10px rgba(255, 127, 22, 0.12);
-    }
+  &:hover {
+    color: rgba(0, 0, 0, 0.82);
+    background: rgba(0, 0, 0, 0.045);
   }
-
-  &:focus-visible {
-    outline: 2px solid
-      color-mix(in srgb, var(--colorPrimary, #ff7f16) 30%, transparent);
-    outline-offset: 1px;
-  }
-}
-
-.simpleAgentDisclosureLine {
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--colorBorderSecondary, rgba(43, 18, 0, 0.1))
-  );
-  transition: background 0.16s ease;
-
-  &:last-child {
-    transform: scaleX(-1);
-  }
-}
-
-.simpleAgentDisclosureHandle {
-  display: inline-flex;
-  min-width: 58px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 0 8px;
-  border: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.08));
-  border-radius: 999px;
-  background: color-mix(in srgb, white 48%, transparent);
-  font-size: 11px;
-  box-shadow: 0 2px 8px rgba(43, 18, 0, 0.055);
-  transition:
-    border-color 0.16s ease,
-    background 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.simpleAgentDisclosureChevron {
-  display: inline-flex;
-  transition: transform 0.16s ease;
-}
-
-.simpleAgentDisclosureChevronExpanded {
-  transform: rotate(180deg);
 }
 
 .simpleAgentFunctionsMotion {
@@ -706,10 +650,6 @@
 
 .simpleInboxItem {
   margin-bottom: 1px;
-}
-
-.simpleChatItem {
-  margin-top: 1px;
 }
 
 .simpleInboxIcon {
@@ -727,14 +667,14 @@
   border-radius: 50%;
 }
 
-.simpleNewChat {
+.simpleNewTask {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 38px;
+  height: 36px;
   padding: 0 12px;
-  margin: 4px 0;
+  margin: 4px 0 2px;
   border: none;
   border-radius: 8px;
   background: rgba(255, 127, 22, 0.08);
@@ -914,6 +854,9 @@
   width: 100%;
   display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   justify-content: center;
 }
 
@@ -1292,30 +1235,6 @@
   }
 }
 
-// ─── Simple mode: flat nav + session list ─────────────────────────────────────
-
-.simpleNewChat {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 38px;
-  padding: 0 12px;
-  margin: 4px 0;
-  border: none;
-  border-radius: 8px;
-  background: rgba(255, 127, 22, 0.08);
-  color: #ff7f16;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-
-  &:hover {
-    background: rgba(255, 127, 22, 0.14);
-  }
-}
-
 .simpleNavItems {
   display: flex;
   flex-direction: column;
@@ -1469,36 +1388,30 @@
 
 .siderSimple {
   :global(.dark-mode) & {
-    .simpleAgentDisclosure {
-      color: rgba(255, 255, 255, 0.48);
+    .simpleNavScroll {
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 
-      &:hover,
-      &:focus-visible,
-      &[aria-expanded="true"] {
-        color: #ff8f32;
+      &::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
       }
     }
 
-    .simpleAgentDisclosureLine {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.13)
-      );
-    }
-
-    .simpleAgentDisclosureHandle {
-      border-color: rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.045);
-      box-shadow: none;
-    }
-
-    .simpleNewChat {
+    .simpleNewTask {
       background: rgba(255, 127, 22, 0.12);
       color: #ff7f16;
 
       &:hover {
         background: rgba(255, 127, 22, 0.2);
+      }
+    }
+
+    .simpleMoreSettings {
+      border-top-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.52);
+
+      &:hover {
+        color: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.08);
       }
     }
 

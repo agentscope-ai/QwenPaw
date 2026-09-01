@@ -80,6 +80,43 @@ describe("message display mode", () => {
     ).toBe("result-only");
   });
 
+  it("keeps the selected expanded and process modes across statuses", () => {
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "expanded",
+      ),
+    ).toBe("all");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "process-collapsed",
+      ),
+    ).toBe("text-only");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.InProgress,
+        "result-collapsed",
+      ),
+    ).toBe("text-only");
+  });
+
+  it("shows every non-heartbeat message in expanded mode", () => {
+    const messages = [
+      message("reasoning", AgentScopeRuntimeMessageType.REASONING),
+      message("first", AgentScopeRuntimeMessageType.MESSAGE),
+      message("tool", AgentScopeRuntimeMessageType.TOOL_CALL),
+      message("heartbeat", AgentScopeRuntimeMessageType.HEARTBEAT),
+      message("last", AgentScopeRuntimeMessageType.MESSAGE),
+    ];
+
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["reasoning", "first", "tool", "last"]);
+  });
+
   it("remounts collapsed steps when streaming enters the result phase", () => {
     const streamingKey = getCollapsedStepRenderKey(
       "reasoning",

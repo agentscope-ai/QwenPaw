@@ -63,6 +63,7 @@ import {
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
 import LazyAccordion from "./LazyAccordion";
+import { getAssistantMessageDisplayPreference } from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -217,7 +218,11 @@ function DefaultHostResponseCard({
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
-  const messageDisplayMode = getResponseMessageDisplayMode(data.status);
+  const assistantDisplayPreference = getAssistantMessageDisplayPreference();
+  const messageDisplayMode = getResponseMessageDisplayMode(
+    data.status,
+    assistantDisplayPreference,
+  );
   const messageBlocks = useMemo(
     () => groupResponseMessages(messages, messageDisplayMode),
     [messageDisplayMode, messages],

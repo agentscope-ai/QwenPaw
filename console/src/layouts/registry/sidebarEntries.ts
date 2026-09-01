@@ -1,17 +1,11 @@
 import type { FlatMenuEntry } from "./adapter";
 import type { MenuItem } from "../../plugins/registry/types";
+import { isFixedSidebarItemId } from "../../constants/sidebarItems";
 
 export interface SidebarEntryGroups {
   work: FlatMenuEntry[];
   global: FlatMenuEntry[];
   plugins: FlatMenuEntry[];
-}
-
-export const SIDEBAR_DIRECT_ENTRY_LIMIT = 5;
-
-export interface SidebarEntryDisplayGroups {
-  direct: FlatMenuEntry[];
-  overflow: FlatMenuEntry[];
 }
 
 function unique(entries: FlatMenuEntry[]): FlatMenuEntry[] {
@@ -32,7 +26,7 @@ export function filterSidebarMenuItems(
   const result: MenuItem[] = [];
   const isVisible = (item: MenuItem) =>
     item.id.startsWith("core.")
-      ? item.id === "core.inbox" || focusItemIds.has(item.id)
+      ? isFixedSidebarItemId(item.id) || focusItemIds.has(item.id)
       : !hiddenPluginItemIds.has(item.id);
 
   const walk = (candidates: MenuItem[]) => {
@@ -57,7 +51,8 @@ export function partitionSidebarEntries(
   return {
     work: unique(
       agentEntries.filter(
-        (entry) => entry.key.startsWith("core.") && entry.key !== "core.inbox",
+        (entry) =>
+          entry.key.startsWith("core.") && !isFixedSidebarItemId(entry.key),
       ),
     ),
     global: unique(
@@ -71,13 +66,24 @@ export function partitionSidebarEntries(
   };
 }
 
-export function splitSidebarEntriesForDisplay(
+/**
+ * Put configured shortcuts first and preserve registry order for the rest.
+ */
+export function orderSidebarEntries(
   entries: FlatMenuEntry[],
-  limit = SIDEBAR_DIRECT_ENTRY_LIMIT,
-): SidebarEntryDisplayGroups {
-  const safeLimit = Math.max(0, limit);
-  return {
-    direct: entries.slice(0, safeLimit),
-    overflow: entries.slice(safeLimit),
-  };
+  preferredItemIds: readonly string[],
+): FlatMenuEntry[] {
+  const preferredOrder = new Map(
+    preferredItemIds.map((itemId, index) => [itemId, index]),
+  );
+
+  return [...entries].sort((left, right) => {
+    const leftOrder = preferredOrder.get(left.key);
+    const rightOrder = preferredOrder.get(right.key);
+
+    if (leftOrder === undefined && rightOrder === undefined) return 0;
+    if (leftOrder === undefined) return 1;
+    if (rightOrder === undefined) return -1;
+    return leftOrder - rightOrder;
+  });
 }

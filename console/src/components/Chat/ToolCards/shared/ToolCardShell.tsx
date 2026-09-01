@@ -17,9 +17,11 @@ import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import type { ToolCallContent } from "./types";
 import DefaultBlock from "./DefaultBlock";
+import { formatRawToolValue } from "./rawToolDisplay";
 import { stringifyResult } from "./utils";
 import { useToolCallSessionId } from "./ToolCallSessionContext";
 import { useToolCallControl } from "../../../../hooks/useToolCallControl";
+import { getToolDisplayPreference } from "@/utils/chatDisplayPreference";
 import { OffloadBanner } from "./ToolCallControlPopover";
 import styles from "./toolCards.module.less";
 import bannerStyles from "./offloadBanner.module.less";
@@ -60,11 +62,13 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
 }) => {
   const { t } = useTranslation();
   const sessionId = useToolCallSessionId();
+  const showRawInputOutput = getToolDisplayPreference() === "raw-input-output";
+  const initiallyExpanded = showRawInputOutput ? false : defaultExpanded;
   // Lazy-mount the expandable body: children stay unmounted until the
   // <details> is first opened, so collapsed cards never pay the render
   // cost of heavy result blocks.
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [bodyMounted, setBodyMounted] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [bodyMounted, setBodyMounted] = useState(initiallyExpanded);
   const handleToggle = useCallback(
     (e: React.SyntheticEvent<HTMLDetailsElement>) => {
       setExpanded(e.currentTarget.open);
@@ -79,11 +83,11 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
     : "";
   useEffect(() => {
-    if (defaultExpanded) {
+    if (initiallyExpanded) {
       setExpanded(true);
       setBodyMounted(true);
     }
-  }, [defaultExpanded]);
+  }, [initiallyExpanded]);
 
   const isExecuting = content.status === "calling" && !inputProgress;
   const showGear = isExecuting && !!sessionId;
@@ -100,6 +104,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     return `${bannerStyles.show}`;
   }, [control.bannerVisible]);
 
+  const hasKillCountdown = control.killRemaining !== null;
   const staticMetadata = useMemo(() => {
     if (!content.params || Object.keys(content.params).length === 0)
       return null;
@@ -107,20 +112,14 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     if (content.id) lines.push(`tool_call_id: ${content.id}`);
     if (content.name) lines.push(`tool: ${content.name}`);
     for (const [k, v] of Object.entries(content.params)) {
-      if (k === "timeout" && control.killRemaining !== null) continue;
+      if (k === "timeout" && hasKillCountdown) continue;
       const val = typeof v === "string" ? v : JSON.stringify(v, null, 2);
       lines.push(`${k}: ${val}`);
     }
     return lines.join("\n");
     // control.killRemaining only gates whether to hide static "timeout" param;
     // coerce to boolean so the memo doesn't rerun every second.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    content.id,
-    content.name,
-    content.params,
-    control.killRemaining !== null,
-  ]);
+  }, [content.id, content.name, content.params, hasKillCountdown]);
 
   const dynamicMetadata = useMemo(() => {
     const lines: string[] = [];
@@ -186,7 +185,20 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
         </summary>
 
         {bodyMounted &&
-          (isError ? (
+          (showRawInputOutput ? (
+            <>
+              <DefaultBlock
+                title="Input"
+                content={formatRawToolValue(content.rawInput ?? content.params)}
+              />
+              {content.result !== undefined && (
+                <DefaultBlock
+                  title="Output"
+                  content={formatRawToolValue(content.result)}
+                />
+              )}
+            </>
+          ) : isError ? (
             <>
               <DefaultBlock
                 title="Input"

@@ -18,13 +18,17 @@ const registry = vi.hoisted(() => ({
     path: string;
     Component: ComponentType;
   }>,
+  agentMenu: [] as MenuItem[],
   settingsMenu: [] as MenuItem[],
 }));
 
 vi.mock("@/plugins/registry/hooks", () => ({
   useRoutes: () => registry.routes,
-  useMenuItems: (location: string) =>
-    location === "primary.settings" ? registry.settingsMenu : [],
+  useMenuItems: (location: string) => {
+    if (location === "primary.agentScoped") return registry.agentMenu;
+    if (location === "primary.settings") return registry.settingsMenu;
+    return [];
+  },
 }));
 
 import SettingsCenter from ".";
@@ -37,8 +41,12 @@ describe("SettingsCenter", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     registry.routes = [];
+    registry.agentMenu = [];
     registry.settingsMenu = [];
     localStorage.removeItem("qwenpaw_chat_wide_mode");
+    localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
+    localStorage.removeItem("qwenpaw_tool_display_mode");
+    localStorage.removeItem("qwenpaw_assistant_message_display_mode");
     localStorage.removeItem("qwenpaw-theme");
     useSidebarModeStore.setState({
       focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
@@ -59,18 +67,52 @@ describe("SettingsCenter", () => {
     expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
   });
 
-  it("persists wide mode from General settings", async () => {
+  it("persists the standard and wide content widths", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
     });
 
-    const wideMode = screen.getByRole("switch", { name: "Wide mode" });
-    expect(wideMode).not.toBeChecked();
+    const contentLayout = screen
+      .getByRole("heading", { name: "Content layout" })
+      .closest("section");
+    const conversationDisplay = screen
+      .getByRole("heading", { name: "Conversation display" })
+      .closest("section");
+    expect(contentLayout).not.toBeNull();
+    expect(conversationDisplay).not.toBeNull();
+    expect(within(contentLayout!).getByText("Content width")).toBeVisible();
+    expect(
+      within(conversationDisplay!).queryByText("Content width"),
+    ).not.toBeInTheDocument();
+    const standard = within(contentLayout!).getByText("Standard");
+    const wide = within(contentLayout!).getByText("Wide");
 
-    await userEvent.click(wideMode);
+    await userEvent.click(wide);
 
-    expect(wideMode).toBeChecked();
     expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBe("true");
+
+    await userEvent.click(standard);
+
+    expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBeNull();
+  });
+
+  it("persists conversation display preferences", async () => {
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+
+    expect(screen.getByText("Card view")).toBeVisible();
+    await userEvent.click(screen.getByText("Raw parameters"));
+
+    await userEvent.click(screen.getByText("Collapse process"));
+
+    expect(localStorage.getItem("qwenpaw_tool_display_mode")).toBe(
+      "raw-input-output",
+    );
+    const storedMode = localStorage.getItem(
+      "qwenpaw_assistant_message_display_mode",
+    );
+    expect(storedMode).toBe("process-collapsed");
   });
 
   it("returns to the page that opened settings", async () => {
@@ -89,7 +131,7 @@ describe("SettingsCenter", () => {
       },
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back to app" }));
 
     expect(screen.getByTestId("location")).toHaveTextContent("/files");
   });
@@ -107,14 +149,21 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
 
-    const dataGroup = screen
-      .getByRole("heading", { name: "Data & security" })
+    const globalGroup = screen
+      .getByRole("heading", { name: "Global settings" })
       .closest("section");
-    expect(dataGroup).not.toBeNull();
-    expect(within(dataGroup!).getByText("Security")).toBeVisible();
-    expect(screen.queryByText("Channels")).toBeNull();
-    expect(screen.queryByText("Cron Jobs")).toBeNull();
-    expect(screen.queryByText("Heartbeat")).toBeNull();
+    const agentGroup = screen
+      .getByRole("heading", { name: "Agent configuration" })
+      .closest("section");
+    expect(globalGroup).not.toBeNull();
+    expect(agentGroup).not.toBeNull();
+    expect(within(globalGroup!).getByText("Security")).toBeVisible();
+    expect(within(globalGroup!).queryByText("Channels")).toBeNull();
+    expect(within(globalGroup!).queryByText("Cron Jobs")).toBeNull();
+    expect(within(globalGroup!).queryByText("Heartbeat")).toBeNull();
+    expect(within(agentGroup!).getByText("Channels")).toBeVisible();
+    expect(within(agentGroup!).getByText("Cron Jobs")).toBeVisible();
+    expect(within(agentGroup!).getByText("Heartbeat")).toBeVisible();
   });
 
   it("keeps sidebar customization out of General settings", () => {
@@ -122,12 +171,139 @@ describe("SettingsCenter", () => {
       initialEntries: ["/settings/general"],
     });
 
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Settings" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to app" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "General" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Appearance & language" }),
+    ).toBeVisible();
     expect(screen.getByText("Language")).toBeVisible();
     expect(screen.getByText("Theme")).toBeVisible();
-    expect(screen.getByText("Wide mode")).toBeVisible();
+    expect(screen.getByText("Content width")).toBeVisible();
     expect(screen.queryByText("Sidebar content")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sidebar/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sidebar" })).toBeVisible();
+    expect(
+      screen.queryByText("Language, theme and application behavior"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("expands agent pages and keeps their sidebar controls", async () => {
+    const EmptyPage = () => null;
+    const agentPages = [
+      ["core.channels", "/channels", "Channels"],
+      ["core.sessions", "/sessions", "Sessions"],
+      ["core.cron-jobs", "/cron-jobs", "Cron Jobs"],
+      ["core.heartbeat", "/heartbeat", "Heartbeat"],
+      ["core.files", "/files", "Files"],
+      ["core.skills", "/skills", "Skills"],
+      ["core.tools", "/tools", "Tools"],
+      ["core.mcp", "/mcp", "MCP"],
+      ["core.acp", "/acp", "ACP"],
+      ["core.agent-config", "/agent-config", "Configuration"],
+      ["core.agent-stats", "/agent-stats", "Agent Statistics"],
+      ["core.checkpoints", "/checkpoints", "Checkpoints"],
+    ] as const;
+    registry.routes = [
+      { id: "core.marketplace", path: "/market", Component: EmptyPage },
+      ...agentPages.map(([id, path]) => ({
+        id,
+        path,
+        Component: EmptyPage,
+      })),
+    ];
+    registry.agentMenu = [
+      {
+        id: "core.marketplace",
+        location: "primary.agentScoped",
+        label: "Marketplace",
+        route: "core.marketplace",
+      },
+      {
+        id: "core.sessions",
+        location: "primary.agentScoped",
+        label: "Sessions",
+        route: "core.sessions",
+      },
+      {
+        id: "core.cron-jobs",
+        location: "primary.agentScoped",
+        label: "Cron Jobs",
+        route: "core.cron-jobs",
+      },
+    ];
+
+    renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/settings/general"] },
+    );
+
+    const agentGroup = screen
+      .getByRole("heading", { name: "Agent configuration" })
+      .closest("section");
+    expect(agentGroup).not.toBeNull();
+    for (const [, , label] of agentPages) {
+      expect(
+        within(agentGroup!).getByRole("button", { name: label }),
+      ).toBeVisible();
+    }
+    expect(
+      screen.queryByRole("button", { name: "Marketplace" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      within(agentGroup!).getByRole("button", { name: "Sessions" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/sessions",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Sidebar" }));
+
+    expect(
+      screen.getByRole("heading", {
+        level: 3,
+        name: "Agent configuration",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("checkbox", { name: "Sessions" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Cron Jobs" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Marketplace" })).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Marketplace" }),
+    ).toBeDisabled();
+  });
+
+  it("moves resource management pages into Global settings", () => {
+    const EmptyPage = () => null;
+    registry.routes = [
+      { id: "core.agents", path: "/agents", Component: EmptyPage },
+      { id: "core.models", path: "/models", Component: EmptyPage },
+      { id: "core.skill-pool", path: "/skill-pool", Component: EmptyPage },
+    ];
+
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+
+    expect(
+      screen.queryByRole("heading", { name: "Resource management" }),
+    ).not.toBeInTheDocument();
+    const globalGroup = screen
+      .getByRole("heading", { name: "Global settings" })
+      .closest("section");
+    expect(globalGroup).not.toBeNull();
+    expect(within(globalGroup!).getByText("Agent Management")).toBeVisible();
+    expect(within(globalGroup!).getByText("Models")).toBeVisible();
+    expect(within(globalGroup!).getByText("Skill Pool")).toBeVisible();
   });
 
   it("opens plugin settings at the original registered path", async () => {
@@ -249,7 +425,7 @@ describe("SettingsCenter", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Global settings" }),
+      screen.getByRole("heading", { level: 3, name: "Global settings" }),
     ).toBeVisible();
     const checkbox = screen.getByRole("checkbox", { name: "Security" });
     expect(checkbox).not.toBeChecked();
@@ -298,10 +474,10 @@ describe("SettingsCenter", () => {
     expect(plugin).toBeChecked();
 
     const globalSection = screen
-      .getByRole("heading", { name: "Global settings" })
+      .getByRole("heading", { level: 3, name: "Global settings" })
       .closest("section");
     const pluginSection = screen
-      .getByRole("heading", { name: "Plugin shortcuts" })
+      .getByRole("heading", { name: "Plugin features" })
       .closest("section");
     expect(globalSection).not.toBeNull();
     expect(pluginSection).not.toBeNull();
