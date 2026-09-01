@@ -508,6 +508,8 @@ class TestGetAgentDirs:
         tilde_ws.mkdir(parents=True)
         (tilde_ws / "agent.json").write_text("{}", encoding="utf-8")
         monkeypatch.setenv("HOME", str(home))
+        # expanduser() prefers USERPROFILE over HOME on Windows (py<3.12)
+        monkeypatch.setenv("USERPROFILE", str(home))
 
         fake_config = SimpleNamespace(
             agents=SimpleNamespace(
