@@ -313,6 +313,8 @@
     "contentWidthStandard": "Standard",
     "contentWidthWide": "Wide",
     "chatDisplay": "Conversation display",
+    "thinkingDisplay": "Show thinking",
+    "thinkingDisplayHint": "Show model reasoning in conversations without changing model behavior.",
     "toolDisplay": "Tool display",
     "toolDisplayHint": "Choose what appears after opening a tool card.",
     "toolDisplayCurrent": "Card view",

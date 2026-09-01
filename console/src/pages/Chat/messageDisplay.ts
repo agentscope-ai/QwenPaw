@@ -39,6 +39,16 @@ export interface CollapsedStepPresentation {
   defaultOpen: boolean;
 }
 
+export function filterThinkingMessages(
+  messages: IAgentScopeRuntimeMessage[],
+  showThinking: boolean,
+): IAgentScopeRuntimeMessage[] {
+  if (showThinking) return messages;
+  return messages.filter(
+    (message) => message.type !== AgentScopeRuntimeMessageType.REASONING,
+  );
+}
+
 export function getCollapsedStepRenderKey(
   firstId: string | number,
   mode: ResponseMessageDisplayMode,

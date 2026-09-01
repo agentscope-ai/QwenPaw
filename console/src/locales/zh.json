@@ -313,6 +313,8 @@
     "contentWidthStandard": "标准",
     "contentWidthWide": "宽",
     "chatDisplay": "对话显示",
+    "thinkingDisplay": "思考过程展示",
+    "thinkingDisplayHint": "在对话中展示模型思考过程，不影响模型实际推理。",
     "toolDisplay": "工具展示",
     "toolDisplayHint": "选择点击工具卡片后展示的内容。",
     "toolDisplayCurrent": "卡片视图",

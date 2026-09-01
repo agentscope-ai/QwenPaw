@@ -2661,6 +2661,8 @@
     "contentWidthStandard": "Стандартная",
     "contentWidthWide": "Широкая",
     "chatDisplay": "Отображение диалога",
+    "thinkingDisplay": "Показывать ход рассуждений",
+    "thinkingDisplayHint": "Показывать рассуждения модели в диалогах, не меняя её поведение.",
     "toolDisplay": "Отображение инструментов",
     "toolDisplayHint": "Выберите содержимое, показываемое после открытия карточки инструмента.",
     "toolDisplayCurrent": "Карточка",

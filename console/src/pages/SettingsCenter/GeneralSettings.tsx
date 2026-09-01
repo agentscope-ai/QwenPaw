@@ -1,5 +1,6 @@
-import { Button, Segmented, Select } from "antd";
+import { Button, Segmented, Select, Switch } from "antd";
 import {
+  BrainCircuit,
   Expand,
   Languages,
   MessageSquareText,
@@ -26,8 +27,10 @@ import {
 } from "@/utils/chatLayoutPreference";
 import {
   getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
   getToolDisplayPreference,
   setAssistantMessageDisplayPreference,
+  setShowThinkingPreference,
   setToolDisplayPreference,
   type AssistantMessageDisplayPreference,
   type ToolDisplayPreference,
@@ -57,6 +60,7 @@ export default function GeneralSettings() {
   const [assistantDisplayMode, setAssistantDisplayMode] = useState(
     getAssistantMessageDisplayPreference,
   );
+  const [showThinking, setShowThinking] = useState(getShowThinkingPreference);
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
   const currentLanguage = LANGUAGES.some(
     (language) => language.value === rawLanguage,
@@ -94,6 +98,11 @@ export default function GeneralSettings() {
   ) => {
     setAssistantMessageDisplayPreference(mode);
     setAssistantDisplayMode(mode);
+  };
+
+  const changeShowThinking = (show: boolean) => {
+    setShowThinkingPreference(show);
+    setShowThinking(show);
   };
 
   return (
@@ -228,6 +237,23 @@ export default function GeneralSettings() {
               ]}
               onChange={changeToolDisplayMode}
             />
+          </div>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <BrainCircuit size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.thinkingDisplay", "Show thinking")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.thinkingDisplayHint",
+                  "Show model reasoning in conversations without changing model behavior.",
+                )}
+              </small>
+            </span>
+            <Switch checked={showThinking} onChange={changeShowThinking} />
           </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>

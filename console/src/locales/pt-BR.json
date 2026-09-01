@@ -2890,6 +2890,8 @@
     "contentWidthStandard": "Padrão",
     "contentWidthWide": "Ampla",
     "chatDisplay": "Exibição da conversa",
+    "thinkingDisplay": "Mostrar raciocínio",
+    "thinkingDisplayHint": "Mostra o raciocínio do modelo nas conversas sem alterar seu comportamento.",
     "toolDisplay": "Exibição de ferramentas",
     "toolDisplayHint": "Escolha o que será exibido ao abrir um cartão de ferramenta.",
     "toolDisplayCurrent": "Visualização em cartão",

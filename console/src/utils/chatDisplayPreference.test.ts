@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
   getToolDisplayPreference,
   setAssistantMessageDisplayPreference,
+  setShowThinkingPreference,
   setToolDisplayPreference,
 } from "./chatDisplayPreference";
 
@@ -12,12 +14,24 @@ describe("chatDisplayPreference", () => {
     localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
     localStorage.removeItem("qwenpaw_tool_display_mode");
     localStorage.removeItem("qwenpaw_assistant_message_display_mode");
+    localStorage.removeItem("qwenpaw_show_thinking");
     vi.restoreAllMocks();
   });
 
   it("preserves the current display behavior by default", () => {
     expect(getToolDisplayPreference()).toBe("current");
     expect(getAssistantMessageDisplayPreference()).toBe("result-collapsed");
+    expect(getShowThinkingPreference()).toBe(true);
+  });
+
+  it("persists hidden thinking and clears the preference when shown", () => {
+    setShowThinkingPreference(false);
+    expect(getShowThinkingPreference()).toBe(false);
+    expect(localStorage.getItem("qwenpaw_show_thinking")).toBe("false");
+
+    setShowThinkingPreference(true);
+    expect(getShowThinkingPreference()).toBe(true);
+    expect(localStorage.getItem("qwenpaw_show_thinking")).toBeNull();
   });
 
   it("persists and clears the tool display preference", () => {
@@ -69,6 +83,7 @@ describe("chatDisplayPreference", () => {
     });
 
     expect(() => setToolDisplayPreference("raw-input-output")).not.toThrow();
+    expect(() => setShowThinkingPreference(false)).not.toThrow();
     expect(() =>
       setAssistantMessageDisplayPreference("expanded"),
     ).not.toThrow();

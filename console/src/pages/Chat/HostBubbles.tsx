@@ -53,6 +53,7 @@ import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 import {
   countCollapsedSteps,
+  filterThinkingMessages,
   findActiveStepBlockIndex,
   findLastStepBlockIndex,
   getCollapsedGroupStatus,
@@ -63,7 +64,10 @@ import {
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
 import LazyAccordion from "./LazyAccordion";
-import { getAssistantMessageDisplayPreference } from "../../utils/chatDisplayPreference";
+import {
+  getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
+} from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -214,9 +218,14 @@ function DefaultHostResponseCard({
   const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
-  const messages = useMemo(
+  const mergedMessages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
+  );
+  const showThinking = getShowThinkingPreference();
+  const messages = useMemo(
+    () => filterThinkingMessages(mergedMessages, showThinking),
+    [mergedMessages, showThinking],
   );
   const assistantDisplayPreference = getAssistantMessageDisplayPreference();
   const messageDisplayMode = getResponseMessageDisplayMode(

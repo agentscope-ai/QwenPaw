@@ -324,6 +324,8 @@
     "contentWidthStandard": "Standar",
     "contentWidthWide": "Lebar",
     "chatDisplay": "Tampilan percakapan",
+    "thinkingDisplay": "Tampilkan proses berpikir",
+    "thinkingDisplayHint": "Tampilkan penalaran model dalam percakapan tanpa mengubah perilaku model.",
     "toolDisplay": "Tampilan alat",
     "toolDisplayHint": "Pilih konten yang ditampilkan setelah membuka kartu alat.",
     "toolDisplayCurrent": "Tampilan kartu",

@@ -2,6 +2,7 @@ const TOOL_DISPLAY_MODE_STORAGE_KEY = "qwenpaw_tool_display_mode";
 const LEGACY_TOOL_EXPANDED_STORAGE_KEY = "qwenpaw_tool_calls_default_expanded";
 const ASSISTANT_DISPLAY_MODE_STORAGE_KEY =
   "qwenpaw_assistant_message_display_mode";
+const SHOW_THINKING_STORAGE_KEY = "qwenpaw_show_thinking";
 
 export type AssistantMessageDisplayPreference =
   | "expanded"
@@ -9,6 +10,26 @@ export type AssistantMessageDisplayPreference =
   | "result-collapsed";
 
 export type ToolDisplayPreference = "current" | "raw-input-output";
+
+export function getShowThinkingPreference(): boolean {
+  try {
+    return localStorage.getItem(SHOW_THINKING_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function setShowThinkingPreference(show: boolean): void {
+  try {
+    if (show) {
+      localStorage.removeItem(SHOW_THINKING_STORAGE_KEY);
+    } else {
+      localStorage.setItem(SHOW_THINKING_STORAGE_KEY, "false");
+    }
+  } catch {
+    // storage unavailable
+  }
+}
 
 export function getToolDisplayPreference(): ToolDisplayPreference {
   try {

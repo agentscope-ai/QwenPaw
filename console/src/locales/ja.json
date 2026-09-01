@@ -2646,6 +2646,8 @@
     "contentWidthStandard": "標準",
     "contentWidthWide": "ワイド",
     "chatDisplay": "会話表示",
+    "thinkingDisplay": "思考過程を表示",
+    "thinkingDisplayHint": "モデルの動作を変えずに、会話内の推論過程を表示します。",
     "toolDisplay": "ツール表示",
     "toolDisplayHint": "ツールカードを開いたときに表示する内容を選択します。",
     "toolDisplayCurrent": "カード表示",

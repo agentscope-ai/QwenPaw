@@ -47,6 +47,7 @@ describe("SettingsCenter", () => {
     localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
     localStorage.removeItem("qwenpaw_tool_display_mode");
     localStorage.removeItem("qwenpaw_assistant_message_display_mode");
+    localStorage.removeItem("qwenpaw_show_thinking");
     localStorage.removeItem("qwenpaw-theme");
     useSidebarModeStore.setState({
       focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
@@ -102,6 +103,9 @@ describe("SettingsCenter", () => {
     });
 
     expect(screen.getByText("Card view")).toBeVisible();
+    const thinkingSwitch = screen.getByRole("switch");
+    expect(thinkingSwitch).toBeChecked();
+    await userEvent.click(thinkingSwitch);
     await userEvent.click(screen.getByText("Raw parameters"));
 
     await userEvent.click(screen.getByText("Collapse process"));
@@ -109,6 +113,7 @@ describe("SettingsCenter", () => {
     expect(localStorage.getItem("qwenpaw_tool_display_mode")).toBe(
       "raw-input-output",
     );
+    expect(localStorage.getItem("qwenpaw_show_thinking")).toBe("false");
     const storedMode = localStorage.getItem(
       "qwenpaw_assistant_message_display_mode",
     );

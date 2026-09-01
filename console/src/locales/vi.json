@@ -292,6 +292,8 @@
     "contentWidthStandard": "Tiêu chuẩn",
     "contentWidthWide": "Rộng",
     "chatDisplay": "Hiển thị cuộc trò chuyện",
+    "thinkingDisplay": "Hiển thị quá trình suy nghĩ",
+    "thinkingDisplayHint": "Hiển thị suy luận của mô hình trong cuộc trò chuyện mà không thay đổi hành vi của mô hình.",
     "toolDisplay": "Hiển thị công cụ",
     "toolDisplayHint": "Chọn nội dung hiển thị sau khi mở thẻ công cụ.",
     "toolDisplayCurrent": "Chế độ thẻ",
