@@ -23,6 +23,7 @@ const {
   mockSelectedAgent,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
+  mockCopyText,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -32,6 +33,7 @@ const {
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
+  mockCopyText: vi.fn().mockResolvedValue(undefined),
 }));
 
 let capturedOptions: any = null;
@@ -504,6 +506,7 @@ vi.mock("./utils", async () => {
   const actual = await vi.importActual("./utils");
   return {
     ...actual,
+    copyText: mockCopyText,
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
@@ -520,6 +523,7 @@ describe("ChatPage coverage", () => {
     capturedOptions = null;
     selectedAgentForTest = "default";
     mockSelectedAgent.mockImplementation(() => selectedAgentForTest);
+    mockCopyText.mockClear();
     mockListProviders.mockResolvedValue([
       {
         id: "openai",
@@ -1011,24 +1015,34 @@ describe("ChatPage coverage", () => {
   });
 
   // ── actions list: copy onClick ─────────────────────────────────────────
-  it("actions list copy onClick invokes copyText", async () => {
+  it("actions list copies only the assistant text message", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
-    const actionsList = capturedOptions?.actions?.list;
-    if (actionsList && actionsList.length > 0 && actionsList[0].onClick) {
-      // The first action is copy — invoke it with mock data
-      await actionsList[0].onClick({
-        data: {
-          content: [{ type: "text", text: "copyable text" }],
-          role: "assistant",
-        },
-      });
-      // Should not throw
-      expect(true).toBe(true);
-    }
+    const copyAction = capturedOptions?.actions?.list?.[0];
+    expect(copyAction?.onClick).toBeTypeOf("function");
+
+    await copyAction.onClick({
+      data: {
+        output: [
+          {
+            type: "reasoning",
+            role: "assistant",
+            content: [{ type: "text", text: "private reasoning" }],
+          },
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "copyable text" }],
+          },
+        ],
+      },
+    });
+    await waitFor(() => {
+      expect(mockCopyText).toHaveBeenCalledWith("copyable text");
+    });
   });
 
   // ── actions list: timestamp render ─────────────────────────────────────

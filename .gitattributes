@@ -1,1 +1,3 @@
 *.bat text eol=crlf
+scripts/check-channels.sh text eol=lf
+.github/workflows/tests.yml text eol=lf

@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from qwenpaw.exceptions import AppBaseException
+from qwenpaw.agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
@@ -38,6 +41,7 @@ from qwenpaw.app.routers.agents import (
     update_backend_settings,
     BackendSettingsRequest,
 )
+from qwenpaw.exceptions import AppBaseException
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -604,11 +608,16 @@ def test_rebuild_memory_index_runs_reme_job(
             return_value=agent_config,
         ),
     ):
-        response = client.post("/api/agents/bot/memory/reindex")
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "completed"}
-    memory_manager.rebuild_index.assert_awaited_once_with()
+    assert response.json() == {
+        "status": "completed",
+        "scope": "embedding",
+    }
+    memory_manager.rebuild_index.assert_awaited_once_with("embedding")
 
 
 def test_rebuild_memory_index_rejects_concurrent_run(
@@ -640,6 +649,105 @@ def test_rebuild_memory_index_rejects_concurrent_run(
     assert response.status_code == 409
 
 
+def test_rebuild_memory_index_rejects_disabled_embedding(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.rebuild_index = AsyncMock(
+        side_effect=EmbeddingReindexUnavailableError(
+            "Embedding index rebuild requires an enabled embedding "
+            "configuration",
+        ),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
+
+    assert response.status_code == 409
+    assert "requires an enabled" in response.json()["detail"]
+
+
+def test_rebuild_all_rejects_disabled_embedding(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.rebuild_index = AsyncMock(
+        side_effect=EmbeddingReindexUnavailableError(
+            "An all-scope index rebuild requires an enabled embedding "
+            "configuration",
+        ),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex")
+
+    assert response.status_code == 409
+    assert "all-scope" in response.json()["detail"]
+
+
+def test_undo_pending_embedding_reindex_restores_indexed_config(
+    client,
+    manager_mock,
+):
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    indexed = memory_config.embedding_model_config.model_copy(deep=True)
+    indexed.model_name = "indexed-model"
+    memory_config.embedding_model_config.model_name = "pending-model"
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+    memory_manager = MagicMock(is_reindexing=False)
+    memory_manager.undo_embedding_reindex = AsyncMock(return_value=indexed)
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=profile,
+        ),
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload"),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex/undo")
+
+    assert response.status_code == 200
+    assert response.json()["model_name"] == "indexed-model"
+    memory_manager.undo_embedding_reindex.assert_awaited_once_with()
+
+
 # ---------------------------------------------------------------------------
 # GET /agents/{id}/memory/status
 # ---------------------------------------------------------------------------
@@ -651,6 +759,11 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = agent_config.running.reme_light_memory_config
+    memory_config.needs_reindex = True
+    memory_config.pending_reindex_embedding_config = (
+        memory_config.embedding_model_config.model_copy(deep=True)
+    )
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -666,6 +779,8 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
             "last_error": None,
         },
         "reindexing": True,
+        "embedding_reindex_required": True,
+        "embedding_reindex_undo_available": True,
     }
     memory_manager = MagicMock()
     memory_manager.get_runtime_status.return_value = runtime_status
@@ -730,6 +845,8 @@ def test_get_memory_status_returns_structured_reme_metrics(
             "last_error": None,
         },
         "reindexing": False,
+        "embedding_reindex_required": False,
+        "embedding_reindex_undo_available": False,
     }
     memory_manager.get_runtime_status.return_value = runtime_status
     manager_mock.get_loaded_agent.return_value = MagicMock(
@@ -1235,6 +1352,81 @@ async def test_create_agent_persists_model_fallback_settings(
         provider_id="openai",
         model="subagent",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ("active_model", "fallback_models"))
+async def test_create_agent_rejects_unknown_model_provider(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+    field,
+):
+    """Creation rejects model routes that reference a missing provider."""
+    _make_create_stubs(fake_config, monkeypatch)
+    provider_manager = MagicMock()
+    provider_manager.get_provider.return_value = None
+    http_request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(provider_manager=provider_manager),
+        ),
+    )
+    slot = ModelSlotConfig(
+        provider_id="missing-provider",
+        model="model",
+    )
+    model_fields = {
+        field: [slot] if field == "fallback_models" else slot,
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(
+            request=CreateAgentRequest(
+                id="created",
+                name="Created",
+                workspace_dir=str(tmp_path / "created"),
+                **model_fields,
+            ),
+            http_request=http_request,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "missing-provider" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_unknown_model_id(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Creation rejects model routes with an unavailable model ID."""
+    _make_create_stubs(fake_config, monkeypatch)
+    provider = SimpleNamespace(has_model=MagicMock(return_value=False))
+    provider_manager = MagicMock()
+    provider_manager.get_provider.return_value = provider
+    http_request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(provider_manager=provider_manager),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(
+            request=CreateAgentRequest(
+                id="created",
+                name="Created",
+                workspace_dir=str(tmp_path / "created"),
+                subagent_model=ModelSlotConfig(
+                    provider_id="known-provider",
+                    model="missing-model",
+                ),
+            ),
+            http_request=http_request,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "missing-model" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

@@ -35,3 +35,22 @@ export function getEmbeddingServiceFingerprint(
     !!config.use_dimensions,
   ]);
 }
+
+export function getEmbeddingConfigFingerprint(
+  config?: Partial<EmbeddingModelConfig>,
+) {
+  if (!config) return "";
+  return JSON.stringify([
+    config.backend || "",
+    config.api_key || "",
+    config.base_url?.trim().replace(/\/+$/, "") || "",
+    config.model_name?.trim() || "",
+    config.dimensions || 0,
+    !!config.enable_cache,
+    !!config.use_dimensions,
+    config.max_cache_size || 0,
+    config.max_input_length || 0,
+    config.max_batch_size || 0,
+    config.health_check_timeout || 0,
+  ]);
+}

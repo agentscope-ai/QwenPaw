@@ -71,10 +71,6 @@ export function ModelRoutingCard({
   const handleProviderChange = (providerId: string) => {
     setSelectedProviderId(providerId);
     setSelectedModel(undefined);
-    onModelRoutingChange({
-      ...modelRouting,
-      active_model: null,
-    });
   };
 
   const handleModelChange = (model: string) => {

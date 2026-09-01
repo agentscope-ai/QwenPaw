@@ -393,7 +393,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         )
         thinking_level = updates.pop("thinking_level", None)
         if thinking_level is not None:
-            meta = dict(existing.meta)
+            meta = dict(existing.meta or {})
             meta["thinking_level"] = thinking_level
             updates["meta"] = meta
         merged = existing.model_copy(update=updates)

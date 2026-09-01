@@ -81,6 +81,23 @@ describe("ThinkingLevelToggle", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("inherits the agent level when the session has no override", async () => {
+    sessionApiMock.getSessionMeta.mockReturnValue({});
+    const onChange = vi.fn();
+    renderWithProviders(
+      <ThinkingLevelToggle
+        sessionId="chat-1"
+        supportsThinking
+        onChange={onChange}
+      />,
+    );
+
+    const trigger = await screen.findByLabelText("chat.thinkingLevelTitle");
+    expect(trigger).toHaveTextContent("modelSelector.thinking.inherit");
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect(sessionApiMock.updateSessionMeta).not.toHaveBeenCalled();
+  });
+
   it("restores the previous level and reports a persistence failure", async () => {
     sessionApiMock.updateSessionMeta.mockRejectedValueOnce(
       new Error("保存失败"),

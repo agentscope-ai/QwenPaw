@@ -29,7 +29,7 @@ export default function ThinkingLevelToggle({
 }: ThinkingLevelToggleProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const [level, setLevel] = useState<SessionThinkingLevel>("medium");
+  const [level, setLevel] = useState<SessionThinkingLevel | null>(null);
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const [loadedAgentId, setLoadedAgentId] = useState<string | undefined>();
   const onChangeRef = useRef(onChange);
@@ -66,7 +66,7 @@ export default function ThinkingLevelToggle({
       const saved = sessionApi.getSessionMeta(sessionId).thinking_level;
       const next = LEVELS.includes(saved as SessionThinkingLevel)
         ? (saved as SessionThinkingLevel)
-        : "medium";
+        : null;
       setLevel(next);
       setLoadedSessionId(sessionId);
       setLoadedAgentId(agentId);
@@ -115,7 +115,7 @@ export default function ThinkingLevelToggle({
   return (
     <Tooltip title={t("chat.thinkingLevelTitle")}>
       <Dropdown
-        menu={{ items: menuItems, selectedKeys: [level] }}
+        menu={{ items: menuItems, selectedKeys: level ? [level] : [] }}
         trigger={["click"]}
       >
         <Button
@@ -126,12 +126,16 @@ export default function ThinkingLevelToggle({
             paddingInline: compact ? 0 : undefined,
             width: compact ? 30 : undefined,
           }}
-          disabled={loadedSessionId !== sessionId}
+          disabled={loadedAgentId !== agentId || loadedSessionId !== sessionId}
         >
           <Brain size={13} />
           {!compact && (
             <>
-              {t(`modelSelector.thinking.${level}`)}
+              {t(
+                level
+                  ? `modelSelector.thinking.${level}`
+                  : "modelSelector.thinking.inherit",
+              )}
               <ChevronDown size={11} />
             </>
           )}

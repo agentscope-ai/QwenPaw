@@ -69,7 +69,7 @@ export const agentApi = {
     request<EmbeddingTestResponse>("/workspace/embedding/test", {
       method: "POST",
       body: JSON.stringify(config),
-      timeout: 30 * 1000,
+      timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
     }),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import type { AgentModelRoutingDraft, ProviderInfo } from "@/api/types";
@@ -115,6 +116,20 @@ const modelRouting: AgentModelRoutingDraft = {
   subagent_model: null,
 };
 
+const alternateProvider: ProviderInfo = {
+  ...provider,
+  id: "anthropic",
+  name: "Anthropic",
+  models: [
+    {
+      ...provider.models[0],
+      id: "claude-model",
+      name: "Claude Model",
+    },
+  ],
+  hidden_model_ids: [],
+};
+
 describe("ModelRoutingCard", () => {
   it("does not show hidden models in the primary model selector", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([provider]);
@@ -134,5 +149,27 @@ describe("ModelRoutingCard", () => {
     );
     expect(optionLabels).toContain("Visible Model (visible-model)");
     expect(optionLabels).not.toContain("Hidden Model (hidden-model)");
+  });
+
+  it("preserves the active model until a replacement is selected", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      provider,
+      alternateProvider,
+    ]);
+    const onModelRoutingChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelRoutingCard
+        modelRouting={modelRouting}
+        onModelRoutingChange={onModelRoutingChange}
+        draftResetToken={0}
+      />,
+    );
+
+    await waitFor(() => expect(providerApi.listProviders).toHaveBeenCalled());
+    const providerSelect = await screen.findByLabelText("models.provider");
+    await user.selectOptions(providerSelect, "anthropic");
+
+    expect(onModelRoutingChange).not.toHaveBeenCalled();
   });
 });

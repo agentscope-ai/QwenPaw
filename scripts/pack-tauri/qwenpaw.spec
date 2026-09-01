@@ -71,8 +71,13 @@ datas.append(
     ),
 )
 
-# Include reme package data files (configs, tool yamls, etc.)
+# Include ReMe package data files (configs, tool yamls, plugin manifests, etc.).
+# The plugin packages are discovered through importlib.metadata entry points,
+# so PyInstaller cannot infer either their modules or their data files from
+# QwenPaw's static imports.
 datas += collect_data_files("reme")
+datas += collect_data_files("reme_auto_fin")
+datas += collect_data_files("reme_daily_paper")
 datas += collect_data_files("whisper")
 datas += collect_data_files("agentscope")
 datas += collect_data_files(
@@ -148,6 +153,9 @@ _metadata_pkgs = [
     "tiktoken",
     "agentscope",
     "agentscope-runtime",
+    "reme-ai",
+    "reme-auto-fin",
+    "reme-daily-paper",
     "huggingface_hub",
     "modelscope",
     "openai-whisper",
@@ -201,6 +209,10 @@ a = Analysis(
         # Backup modules are exposed through qwenpaw.backup.__getattr__, which
         # PyInstaller cannot discover from static imports.
         *collect_submodules("qwenpaw.backup"),
+        # ReMe loads these plugin backends from plugin.yaml targets exposed by
+        # distribution entry points, which are invisible to static analysis.
+        *collect_submodules("reme_auto_fin"),
+        *collect_submodules("reme_daily_paper"),
         # Third-party packages that use dynamic imports. Use
         # collect_submodules() for packages that load many submodules by name;
         # keep the bare package string when runtime code imports only the

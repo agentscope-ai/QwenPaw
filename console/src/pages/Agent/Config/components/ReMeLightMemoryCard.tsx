@@ -54,7 +54,6 @@ export function ReMeLightMemoryCard() {
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
   const {
-    setNeedsReindex,
     reindexing,
     setReindexing,
     runtimeStatus,
@@ -68,16 +67,18 @@ export function ReMeLightMemoryCard() {
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
-      title: t("agentConfig.rebuildMemoryIndexConfirmTitle"),
-      content: t("agentConfig.rebuildMemoryIndexConfirm"),
-      okText: t("agentConfig.rebuildMemoryIndex"),
+      title: t("agentConfig.rebuildBm25IndexConfirmTitle"),
+      content: t("agentConfig.rebuildBm25IndexConfirm"),
+      okText: t("agentConfig.rebuildBm25Index"),
       cancelText: t("common.cancel"),
       onOk: async () => {
         setReindexing(true);
         try {
-          await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
-          setNeedsReindex(false);
-          message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
+          await agentsApi.rebuildMemoryIndex(
+            selectedAgent || "default",
+            "bm25",
+          );
+          message.success(t("agentConfig.rebuildBm25IndexSuccess"));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           message.error(
@@ -265,8 +266,8 @@ export function ReMeLightMemoryCard() {
                 <AlertTriangle size={14} aria-hidden="true" />
                 {t("agentConfig.memoryMaintenanceEyebrow")}
               </span>
-              <strong>{t("agentConfig.memoryMaintenanceTitle")}</strong>
-              <small>{t("agentConfig.memoryMaintenanceDescription")}</small>
+              <strong>{t("agentConfig.rebuildBm25Index")}</strong>
+              <small>{t("agentConfig.rebuildBm25IndexDescription")}</small>
             </div>
             <ChevronRight size={16} aria-hidden="true" />
           </button>

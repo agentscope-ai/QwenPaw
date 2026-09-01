@@ -43,7 +43,7 @@ export function MarketplaceHeader({
 
   return (
     <PageHeader
-      current={t("nav.marketplace", "Marketplace")}
+      current={t("nav.marketplace", "Extension")}
       center={
         <Tabs
           className={styles.sectionSwitch}
