@@ -74,7 +74,9 @@ async function loadModule() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
-  mocks.resolveBackendSessionId.mockImplementation((s?: string) => s ?? "sess-1");
+  mocks.resolveBackendSessionId.mockImplementation(
+    (s?: string) => s ?? "sess-1",
+  );
   mocks.getOutput.mockResolvedValue({ final_state: "completed" });
   mocks.extractOutputText.mockReturnValue("");
 });
@@ -85,13 +87,15 @@ afterEach(() => {
 
 describe("registerBackgroundTask", () => {
   it("ignores empty tool call ids", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     registerBackgroundTask({ sessionId: "s", toolCallId: "", toolName: "t" });
     expect(useBackgroundTasksStore.getState().tasks).toHaveLength(0);
   });
 
   it("enqueues the task with resolved session id", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     registerBackgroundTask({
       sessionId: "local-1",
       toolCallId: "tc1",
@@ -106,7 +110,8 @@ describe("registerBackgroundTask", () => {
   });
 
   it("falls back to the tool call id when the name is empty", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     registerBackgroundTask({ sessionId: "s", toolCallId: "tc9", toolName: "" });
     expect(useBackgroundTasksStore.getState().tasks[0].toolName).toBe("tc9");
   });
@@ -116,7 +121,8 @@ describe("registerBackgroundTask", () => {
     mocks.resolveBackendSessionId
       .mockReturnValueOnce("")
       .mockReturnValue("late-sess");
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     registerBackgroundTask({ sessionId: "", toolCallId: "tc1", toolName: "t" });
     expect(mocks.subscribe).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(300);
@@ -125,14 +131,15 @@ describe("registerBackgroundTask", () => {
       "tc1",
       expect.anything(),
     );
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.sessionId).toBe("late-sess");
   });
 
   it("hydrates already-completed tasks immediately", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     registerBackgroundTask({
       sessionId: "s",
       toolCallId: "tc1",
@@ -141,9 +148,9 @@ describe("registerBackgroundTask", () => {
     });
     await Promise.resolve();
     await Promise.resolve();
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("done");
     expect(mocks.subscribe).not.toHaveBeenCalled();
   });
@@ -151,45 +158,60 @@ describe("registerBackgroundTask", () => {
 
 describe("startBackgroundTaskWatcher", () => {
   it("appends streamed chunks to live output", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onChunk({ data: "hello " });
     sub.handlers!.onChunk({ data: { text: "world" } });
     sub.handlers!.onChunk({ data: { content: [{ text: "!" }] } });
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.liveOutput).toBe("hello world!");
   });
 
   it("finalizes as done with a toast when the stream completes", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
     mocks.extractOutputText.mockReturnValue("final output");
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "shell" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "shell",
+    });
     sub.handlers!.onDone();
     await Promise.resolve();
     await Promise.resolve();
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("done");
     expect(task?.result).toBe("final output");
     expect(mocks.message.success).toHaveBeenCalledTimes(1);
   });
 
   it("marks the task cancelled when final state is interrupted", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
     mocks.getOutput.mockResolvedValue({ final_state: "interrupted" });
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onDone();
     await Promise.resolve();
     await Promise.resolve();
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("cancelled");
     expect(mocks.message.info).toHaveBeenCalledTimes(1);
     expect(mocks.message.success).not.toHaveBeenCalled();
@@ -198,7 +220,11 @@ describe("startBackgroundTaskWatcher", () => {
   it("does not double-finalize or double-toast", async () => {
     const { registerBackgroundTask } = await loadModule();
     const sub = makeSubscribe();
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onDone();
     sub.handlers!.onDone();
     await Promise.resolve();
@@ -208,69 +234,96 @@ describe("startBackgroundTaskWatcher", () => {
   });
 
   it("is idempotent per tool call id", async () => {
-    const { registerBackgroundTask, startBackgroundTaskWatcher } = await loadModule();
+    const { registerBackgroundTask, startBackgroundTaskWatcher } =
+      await loadModule();
     makeSubscribe();
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     startBackgroundTaskWatcher("s", "tc1");
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to polling when the stream errors", async () => {
     vi.useFakeTimers();
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
     mocks.getInfo.mockResolvedValue({ status: "running" });
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
     expect(mocks.getInfo).toHaveBeenCalledTimes(1);
 
     mocks.getInfo.mockResolvedValue({ status: "done", end_state: "completed" });
     await vi.advanceTimersByTimeAsync(3000);
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("done");
   });
 
   it("treats poll errors as completion (404 after finalize)", async () => {
     vi.useFakeTimers();
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
     mocks.getInfo.mockRejectedValue(new Error("404"));
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("done");
   });
 
   it("marks the poll result cancelled for interrupted end state", async () => {
     vi.useFakeTimers();
-    const { registerBackgroundTask, useBackgroundTasksStore } = await loadModule();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
     const sub = makeSubscribe();
     mocks.getInfo.mockResolvedValue({
       status: "done",
       end_state: "interrupted",
     });
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("cancelled");
   });
 });
 
 describe("stopBackgroundTaskWatcher", () => {
   it("aborts the stream without changing task status", async () => {
-    const { registerBackgroundTask, stopBackgroundTaskWatcher, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      stopBackgroundTaskWatcher,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     stopBackgroundTaskWatcher("tc1");
     expect(sub.abort).toHaveBeenCalledTimes(1);
     expect(useBackgroundTasksStore.getState().tasks[0].status).toBe("running");
@@ -287,16 +340,23 @@ describe("cancelBackgroundTask", () => {
   });
 
   it("cancels the task and records live output as the result", async () => {
-    const { registerBackgroundTask, cancelBackgroundTask, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      cancelBackgroundTask,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     sub.handlers!.onChunk({ data: "partial" });
     await cancelBackgroundTask("s", "tc1");
     expect(mocks.cancel).toHaveBeenCalledWith("s", "tc1");
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.status).toBe("cancelled");
     expect(task?.result).toBe("partial");
   });
@@ -305,7 +365,11 @@ describe("cancelBackgroundTask", () => {
     const { registerBackgroundTask, cancelBackgroundTask } = await loadModule();
     const sub = makeSubscribe();
     mocks.cancel.mockRejectedValue(new Error("backend down"));
-    registerBackgroundTask({ sessionId: "s", toolCallId: "tc1", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
     await expect(cancelBackgroundTask("s", "tc1")).rejects.toThrow(
       "backend down",
     );
@@ -317,11 +381,22 @@ describe("cancelBackgroundTask", () => {
 
 describe("stopBackgroundWatchersNotInSession", () => {
   it("drops tasks and watchers from other sessions", async () => {
-    const { registerBackgroundTask, stopBackgroundWatchersNotInSession, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      stopBackgroundWatchersNotInSession,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
-    registerBackgroundTask({ sessionId: "s1", toolCallId: "tc1", toolName: "t" });
-    registerBackgroundTask({ sessionId: "s2", toolCallId: "tc2", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s1",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
+    registerBackgroundTask({
+      sessionId: "s2",
+      toolCallId: "tc2",
+      toolName: "t",
+    });
     stopBackgroundWatchersNotInSession("s1");
     const ids = useBackgroundTasksStore
       .getState()
@@ -331,11 +406,22 @@ describe("stopBackgroundWatchersNotInSession", () => {
   });
 
   it("tears down everything for an empty session id", async () => {
-    const { registerBackgroundTask, stopBackgroundWatchersNotInSession, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      stopBackgroundWatchersNotInSession,
+      useBackgroundTasksStore,
+    } = await loadModule();
     makeSubscribe();
-    registerBackgroundTask({ sessionId: "s1", toolCallId: "tc1", toolName: "t" });
-    registerBackgroundTask({ sessionId: "s2", toolCallId: "tc2", toolName: "t" });
+    registerBackgroundTask({
+      sessionId: "s1",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
+    registerBackgroundTask({
+      sessionId: "s2",
+      toolCallId: "tc2",
+      toolName: "t",
+    });
     stopBackgroundWatchersNotInSession("");
     expect(useBackgroundTasksStore.getState().tasks).toHaveLength(0);
   });
@@ -375,7 +461,9 @@ describe("hydrateBackgroundTasksForSession", () => {
     const { hydrateBackgroundTasksForSession } = await loadModule();
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.list.mockRejectedValue(new Error("backend down"));
-    await expect(hydrateBackgroundTasksForSession("s1")).resolves.toBeUndefined();
+    await expect(
+      hydrateBackgroundTasksForSession("s1"),
+    ).resolves.toBeUndefined();
     errSpy.mockRestore();
   });
 
@@ -396,9 +484,9 @@ describe("hydrateBackgroundTasksForSession", () => {
     });
     const before = Date.now();
     await hydrateBackgroundTasksForSession("s1");
-    const task = useBackgroundTasksStore.getState().tasks.find(
-      (t) => t.toolCallId === "tc1",
-    );
+    const task = useBackgroundTasksStore
+      .getState()
+      .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.startTime).toBeLessThanOrEqual(before - 9_900);
   });
 });

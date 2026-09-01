@@ -109,7 +109,9 @@ function renderModal(open = true) {
   return { onConfirm, onClose };
 }
 
-function sseResponse(events: Array<{ type: string; [key: string]: unknown }>): Response {
+function sseResponse(
+  events: Array<{ type: string; [key: string]: unknown }>,
+): Response {
   // Trailing "\n\n" is required: the parser splits on blank-line delimiters
   // and drops any remainder left in the buffer when the stream ends.
   const body =
@@ -137,14 +139,13 @@ beforeEach(() => {
   if (!window.HTMLElement.prototype.scrollIntoView) {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
   } else {
-    vi.spyOn(
-      window.HTMLElement.prototype,
-      "scrollIntoView",
-    ).mockImplementation(() => undefined);
+    vi.spyOn(window.HTMLElement.prototype, "scrollIntoView").mockImplementation(
+      () => undefined,
+    );
   }
-  mocks.cloneStream.mockReset().mockResolvedValue(
-    sseResponse([{ type: "done", path: "/cloned/repo" }]),
-  );
+  mocks.cloneStream
+    .mockReset()
+    .mockResolvedValue(sseResponse([{ type: "done", path: "/cloned/repo" }]));
   mocks.uploadZip.mockReset().mockResolvedValue({ path: "/uploaded" });
   mocks.browseDirs.mockReset().mockResolvedValue({
     current: "/home/user",
@@ -208,8 +209,12 @@ describe("ProjectSelectModal", () => {
       expect(screen.getByText("codingMode.tabClone")).toBeTruthy();
     });
     fireEvent.click(screen.getByText("codingMode.tabClone"));
-    const urlInput = screen.getByPlaceholderText("codingMode.cloneUrlPlaceholder");
-    fireEvent.change(urlInput, { target: { value: "https://github.com/org/repo.git" } });
+    const urlInput = screen.getByPlaceholderText(
+      "codingMode.cloneUrlPlaceholder",
+    );
+    fireEvent.change(urlInput, {
+      target: { value: "https://github.com/org/repo.git" },
+    });
     fireEvent.click(screen.getByText("codingMode.cloneBtn"));
     await waitFor(() => {
       expect(mocks.cloneStream).toHaveBeenCalledWith(
@@ -230,7 +235,9 @@ describe("ProjectSelectModal", () => {
     );
     renderModal();
     fireEvent.click(screen.getByText("codingMode.tabClone"));
-    const urlInput = screen.getByPlaceholderText("codingMode.cloneUrlPlaceholder");
+    const urlInput = screen.getByPlaceholderText(
+      "codingMode.cloneUrlPlaceholder",
+    );
     fireEvent.change(urlInput, { target: { value: "https://x.com/a.git" } });
     fireEvent.click(screen.getByText("codingMode.cloneBtn"));
     await waitFor(() => {
@@ -245,9 +252,12 @@ describe("ProjectSelectModal", () => {
     );
     renderModal();
     fireEvent.click(screen.getByText("codingMode.tabClone"));
-    fireEvent.change(screen.getByPlaceholderText("codingMode.cloneUrlPlaceholder"), {
-      target: { value: "https://x.com/a.git" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("codingMode.cloneUrlPlaceholder"),
+      {
+        target: { value: "https://x.com/a.git" },
+      },
+    );
     fireEvent.click(screen.getByText("codingMode.cloneBtn"));
     await waitFor(() => {
       expect(screen.getByText("auth required")).toBeTruthy();
@@ -304,9 +314,7 @@ describe("ProjectSelectModal", () => {
     await waitFor(() => {
       // The toggle re-fetches the current directory with showHidden=true
       expect(
-        mocks.browseDirs.mock.calls.some(
-          (call: unknown[]) => call[1] === true,
-        ),
+        mocks.browseDirs.mock.calls.some((call: unknown[]) => call[1] === true),
       ).toBe(true);
     });
   });
@@ -336,9 +344,12 @@ describe("ProjectSelectModal", () => {
     mocks.create.mockRejectedValue(new Error("name already exists"));
     renderModal();
     fireEvent.click(screen.getByText("codingMode.tabNew"));
-    fireEvent.change(screen.getByPlaceholderText("codingMode.newNamePlaceholder"), {
-      target: { value: "dup" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("codingMode.newNamePlaceholder"),
+      {
+        target: { value: "dup" },
+      },
+    );
     fireEvent.click(screen.getByText("codingMode.createBtn"));
     await waitFor(() => {
       expect(screen.getByText("name already exists")).toBeTruthy();

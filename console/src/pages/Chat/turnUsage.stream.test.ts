@@ -22,9 +22,10 @@ const snapshot = { usage, context_usage: ctx };
 function makeRef(messages: unknown[]) {
   const updateMessage = vi.fn();
   return {
+    // Mock ref shape; cast to the SDK ref type expected by the API.
     ref: {
       current: { messages: { getMessages: () => messages, updateMessage } },
-    },
+    } as never,
     updateMessage,
   };
 }
@@ -124,7 +125,11 @@ describe("wrapChatResponseUsageStream", () => {
     const { ref } = makeRef([assistantCard({})]);
     const body =
       'data: {"type": "message", "text": "hi"}\n\n' +
-      `data: ${JSON.stringify({ type: "turn_usage", usage, context_usage: ctx })}\n\n`;
+      `data: ${JSON.stringify({
+        type: "turn_usage",
+        usage,
+        context_usage: ctx,
+      })}\n\n`;
     const wrapped = wrapChatResponseUsageStream(sseResponse(body), ref, turn);
     await wrapped.text(); // drain the stream to trigger flush
     expect(useTurnUsageStore.getState().snapshot).toEqual(snapshot);
@@ -155,7 +160,11 @@ describe("wrapChatResponseUsageStream", () => {
   it("handles payloads split across chunk boundaries", async () => {
     const turn = useTurnUsageStore.getState().beginTurn("a", "s");
     const { ref } = makeRef([assistantCard({})]);
-    const payload = JSON.stringify({ type: "turn_usage", usage, context_usage: ctx });
+    const payload = JSON.stringify({
+      type: "turn_usage",
+      usage,
+      context_usage: ctx,
+    });
     const full = `data: ${payload}\n\n`;
     const half = Math.floor(full.length / 2);
     const enc = new TextEncoder();
@@ -197,7 +206,7 @@ describe("wrapChatResponseUsageStream", () => {
     const turn = useTurnUsageStore.getState().beginTurn("a", "s");
     const { ref } = makeRef([]);
     const body =
-      'data: {broken json with turn_usage keyword\n\n' +
+      "data: {broken json with turn_usage keyword\n\n" +
       `data: ${JSON.stringify({ type: "turn_usage", usage })}\n\n`;
     const wrapped = wrapChatResponseUsageStream(sseResponse(body), ref, turn);
     await wrapped.text();

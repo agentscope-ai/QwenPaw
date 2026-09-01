@@ -25,8 +25,10 @@ const ctx = {
 };
 const fullSnapshot = { usage, context_usage: ctx };
 
+let messageIdCounter = 0;
 function cardMessage(data: Record<string, unknown>) {
   return {
+    id: `msg-${++messageIdCounter}`,
     role: "assistant" as const,
     cards: [{ code: "AgentScopeRuntimeResponseCard", data }],
   };
@@ -124,9 +126,9 @@ describe("readTurnUsageFromResponseCardData", () => {
   });
 
   it("reads usage and context from card data", () => {
-    expect(readTurnUsageFromResponseCardData({ usage, context_usage: ctx })).toEqual(
-      fullSnapshot,
-    );
+    expect(
+      readTurnUsageFromResponseCardData({ usage, context_usage: ctx }),
+    ).toEqual(fullSnapshot);
   });
 });
 
@@ -134,21 +136,25 @@ describe("extractLatestSnapshotFromCards", () => {
   it("returns null when no assistant message carries a response card", () => {
     expect(
       extractLatestSnapshotFromCards([
-        { role: "user" as const, cards: [] },
-        { role: "assistant" as const, cards: [] },
+        { id: "m-user", role: "user" as const, cards: [] },
+        { id: "m-asst", role: "assistant" as const, cards: [] },
       ]),
     ).toBeNull();
   });
 
   it("returns the newest assistant card snapshot", () => {
     const oldMsg = cardMessage({ usage: { total_tokens: 1 } });
-    const newMsg = cardMessage({ usage: { total_tokens: 2 }, context_usage: ctx });
+    const newMsg = cardMessage({
+      usage: { total_tokens: 2 },
+      context_usage: ctx,
+    });
     const snap = extractLatestSnapshotFromCards([oldMsg, newMsg]);
     expect(snap?.usage?.total_tokens).toBe(2);
   });
 
   it("skips assistant messages without the response card code", () => {
     const withOtherCard = {
+      id: "m-other",
       role: "assistant" as const,
       cards: [{ code: "SomeOtherCard", data: { usage: { total_tokens: 3 } } }],
     };
@@ -164,7 +170,10 @@ describe("patchLastResponseCardUsage", () => {
   function makeRef(messages: unknown[]) {
     const updateMessage = vi.fn();
     return {
-      ref: { current: { messages: { getMessages: () => messages, updateMessage } } },
+      // Mock ref shape; cast to the SDK ref type expected by the API.
+      ref: {
+        current: { messages: { getMessages: () => messages, updateMessage } },
+      } as never,
       updateMessage,
     };
   }
@@ -209,7 +218,10 @@ describe("patchContextMaxInputLength", () => {
   function makeRef(messages: unknown[]) {
     const updateMessage = vi.fn();
     return {
-      ref: { current: { messages: { getMessages: () => messages, updateMessage } } },
+      // Mock ref shape; cast to the SDK ref type expected by the API.
+      ref: {
+        current: { messages: { getMessages: () => messages, updateMessage } },
+      } as never,
       updateMessage,
     };
   }
@@ -232,7 +244,9 @@ describe("patchContextMaxInputLength", () => {
     const writtenCtx = written.cards[0].data.context_usage;
     expect(writtenCtx.max_input_length).toBe(2000);
     expect(writtenCtx.context_usage_ratio).toBe(25);
-    expect(useTurnUsageStore.getState().snapshot?.context_usage).toEqual(writtenCtx);
+    expect(useTurnUsageStore.getState().snapshot?.context_usage).toEqual(
+      writtenCtx,
+    );
   });
 
   it("caps the ratio at 100 percent", () => {
@@ -240,7 +254,8 @@ describe("patchContextMaxInputLength", () => {
       cardMessage({ usage, context_usage: ctx }),
     ]);
     patchContextMaxInputLength(ref, 100);
-    const writtenCtx = updateMessage.mock.calls[0][0].cards[0].data.context_usage;
+    const writtenCtx =
+      updateMessage.mock.calls[0][0].cards[0].data.context_usage;
     expect(writtenCtx.context_usage_ratio).toBe(100);
   });
 
@@ -256,7 +271,11 @@ describe("patchContextMaxInputLength", () => {
     const { ref, updateMessage } = makeRef([]);
     useTurnUsageStore.getState().setSnapshot({
       usage,
-      context_usage: { estimated_tokens: 100, max_input_length: 500, context_usage_ratio: 20 },
+      context_usage: {
+        estimated_tokens: 100,
+        max_input_length: 500,
+        context_usage_ratio: 20,
+      },
     });
     patchContextMaxInputLength(ref, 1000);
     expect(updateMessage).not.toHaveBeenCalled();
@@ -282,12 +301,16 @@ describe("turnUsageStore", () => {
   it("setSnapshotForTurn rejects stale turns", () => {
     const t1 = useTurnUsageStore.getState().beginTurn("a1", "s1");
     useTurnUsageStore.getState().beginTurn("a1", "s1");
-    expect(useTurnUsageStore.getState().setSnapshotForTurn(fullSnapshot, t1)).toBe(false);
+    expect(
+      useTurnUsageStore.getState().setSnapshotForTurn(fullSnapshot, t1),
+    ).toBe(false);
   });
 
   it("setSnapshotForTurn accepts the active turn", () => {
     const t = useTurnUsageStore.getState().beginTurn("a1", "s1");
-    expect(useTurnUsageStore.getState().setSnapshotForTurn(fullSnapshot, t)).toBe(true);
+    expect(
+      useTurnUsageStore.getState().setSnapshotForTurn(fullSnapshot, t),
+    ).toBe(true);
     expect(useTurnUsageStore.getState().snapshot).toEqual(fullSnapshot);
   });
 

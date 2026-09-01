@@ -37,7 +37,12 @@ const mocks = vi.hoisted(() => ({
   showConflictRenameModal: vi.fn(),
   // design surface
   modalConfirm: vi.fn(),
-  message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
   invalidateSkillCache: vi.fn(),
   showScanErrorModal: vi.fn(),
   checkScanWarnings: vi.fn(),
@@ -46,7 +51,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agentscope-ai/design", () => ({
   Form: {
     useForm: () => [
-      { resetFields: vi.fn(), setFieldsValue: vi.fn(), getFieldsValue: vi.fn() },
+      {
+        resetFields: vi.fn(),
+        setFieldsValue: vi.fn(),
+        getFieldsValue: vi.fn(),
+      },
     ],
   },
   Modal: {
@@ -227,12 +236,13 @@ describe("drawer lifecycle", () => {
     mocks.getSkill.mockResolvedValue({ name: "alpha", content: "x" });
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
-      await result.current.handleEdit(
-        result.current.skills[0] as never,
-      );
+      await result.current.handleEdit(result.current.skills[0] as never);
     });
     expect(result.current.editingSkillName).toBe("alpha");
-    expect(result.current.editingSkill).toEqual({ name: "alpha", content: "x" });
+    expect(result.current.editingSkill).toEqual({
+      name: "alpha",
+      content: "x",
+    });
     expect(result.current.drawerLoading).toBe(false);
   });
 
@@ -258,9 +268,12 @@ describe("drawer lifecycle", () => {
     const { result } = renderHook(() => useSkillsPage());
     const stopPropagation = vi.fn();
     await act(async () => {
-      await result.current.handleToggleEnabled(result.current.skills[0] as never, {
-        stopPropagation,
-      } as never);
+      await result.current.handleToggleEnabled(
+        result.current.skills[0] as never,
+        {
+          stopPropagation,
+        } as never,
+      );
     });
     expect(stopPropagation).toHaveBeenCalled();
     expect(mocks.toggleEnabled).toHaveBeenCalled();
@@ -288,11 +301,20 @@ describe("submit — create path", () => {
         tags: ["t1"],
       } as never);
     });
-    expect(mocks.createSkill).toHaveBeenCalledWith("new-skill", "c", undefined, true);
-    expect(mocks.updateSkillChannels).toHaveBeenCalledWith("new-skill", ["web"]);
+    expect(mocks.createSkill).toHaveBeenCalledWith(
+      "new-skill",
+      "c",
+      undefined,
+      true,
+    );
+    expect(mocks.updateSkillChannels).toHaveBeenCalledWith("new-skill", [
+      "web",
+    ]);
     expect(mocks.updateSkillTags).toHaveBeenCalledWith("new-skill", ["t1"]);
     expect(result.current.drawerOpen).toBe(false);
-    expect(mocks.invalidateSkillCache).toHaveBeenCalledWith({ agentId: "agent-1" });
+    expect(mocks.invalidateSkillCache).toHaveBeenCalledWith({
+      agentId: "agent-1",
+    });
   });
 
   it("offers a rename modal on create conflict and retries", async () => {
@@ -305,7 +327,10 @@ describe("submit — create path", () => {
     mocks.showConflictRenameModal.mockResolvedValue({ "new-skill": "renamed" });
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
-      await result.current.handleSubmit({ name: "new-skill", content: "c" } as never);
+      await result.current.handleSubmit({
+        name: "new-skill",
+        content: "c",
+      } as never);
     });
     expect(mocks.showConflictRenameModal).toHaveBeenCalled();
     expect(mocks.createSkill).toHaveBeenCalledTimes(2);
@@ -338,7 +363,11 @@ describe("submit — edit path", () => {
       } as never);
     });
     expect(mocks.saveSkill).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "alpha", content: "new", overwrite: false }),
+      expect.objectContaining({
+        name: "alpha",
+        content: "new",
+        overwrite: false,
+      }),
     );
     expect(mocks.updateSkillChannels).toHaveBeenCalledWith("alpha", ["web"]);
     expect(mocks.updateSkillTags).toHaveBeenCalledWith("alpha", ["x"]);
@@ -346,7 +375,12 @@ describe("submit — edit path", () => {
   });
 
   it("passes source_name on rename", async () => {
-    mocks.getSkill.mockResolvedValue({ name: "alpha", content: "old", channels: ["all"], tags: [] });
+    mocks.getSkill.mockResolvedValue({
+      name: "alpha",
+      content: "old",
+      channels: ["all"],
+      tags: [],
+    });
     mocks.saveSkill.mockResolvedValue({ name: "renamed", mode: "rename" });
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
@@ -367,11 +401,14 @@ describe("submit — edit path", () => {
   });
 
   it("confirms overwrite on conflict and retries", async () => {
-    mocks.getSkill.mockResolvedValue({ name: "alpha", content: "old", channels: ["all"], tags: [] });
+    mocks.getSkill.mockResolvedValue({
+      name: "alpha",
+      content: "old",
+      channels: ["all"],
+      tags: [],
+    });
     mocks.saveSkill
-      .mockRejectedValueOnce(
-        new Error('fail - {"reason": "conflict"}'),
-      )
+      .mockRejectedValueOnce(new Error('fail - {"reason": "conflict"}'))
       .mockResolvedValueOnce({ name: "alpha", mode: "edit" });
     autoConfirm();
     const { result } = renderHook(() => useSkillsPage());
@@ -393,8 +430,15 @@ describe("submit — edit path", () => {
   });
 
   it("aborts when the overwrite is declined", async () => {
-    mocks.getSkill.mockResolvedValue({ name: "alpha", content: "old", channels: ["all"], tags: [] });
-    mocks.saveSkill.mockRejectedValue(new Error('fail - {"reason": "conflict"}'));
+    mocks.getSkill.mockResolvedValue({
+      name: "alpha",
+      content: "old",
+      channels: ["all"],
+      tags: [],
+    });
+    mocks.saveSkill.mockRejectedValue(
+      new Error('fail - {"reason": "conflict"}'),
+    );
     autoCancel();
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
@@ -412,7 +456,12 @@ describe("submit — edit path", () => {
   });
 
   it("shows an error toast for non-conflict save failures", async () => {
-    mocks.getSkill.mockResolvedValue({ name: "alpha", content: "old", channels: ["all"], tags: [] });
+    mocks.getSkill.mockResolvedValue({
+      name: "alpha",
+      content: "old",
+      channels: ["all"],
+      tags: [],
+    });
     mocks.saveSkill.mockRejectedValue(new Error("disk full"));
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
@@ -437,7 +486,9 @@ describe("file upload", () => {
   it("rejects non-zip files with a warning", async () => {
     const { result } = renderHook(() => useSkillsPage());
     await act(async () => {
-      await result.current.handleFileChange(makeEvent({ name: "a.tar", size: 10 }));
+      await result.current.handleFileChange(
+        makeEvent({ name: "a.tar", size: 10 }),
+      );
     });
     expect(mocks.message.warning).toHaveBeenCalledWith("skills.zipOnly");
     expect(mocks.uploadSkill).not.toHaveBeenCalled();
@@ -531,7 +582,10 @@ describe("hub import", () => {
     await act(async () => {
       await result.current.handleConfirmImport("https://hub/x");
     });
-    expect(mocks.importFromHub).toHaveBeenLastCalledWith("https://hub/x", "s-2");
+    expect(mocks.importFromHub).toHaveBeenLastCalledWith(
+      "https://hub/x",
+      "s-2",
+    );
     expect(result.current.importModalOpen).toBe(false);
   });
 
@@ -786,7 +840,8 @@ describe("batch enable/disable/delete", () => {
       await result.current.handleBatchDisable();
     });
     expect(mocks.message.warning).toHaveBeenCalledWith(
-      "skills.batchDisablePartial:" + JSON.stringify({ disabled: 0, failed: 1 }),
+      "skills.batchDisablePartial:" +
+        JSON.stringify({ disabled: 0, failed: 1 }),
     );
   });
 

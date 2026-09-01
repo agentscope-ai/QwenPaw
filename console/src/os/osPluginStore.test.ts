@@ -2,7 +2,7 @@
  * osPluginStore — install/uninstall/reset lifecycle and the persist migrate
  * hook that merges catalog apps into legacy persisted state.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
 
@@ -47,10 +47,9 @@ describe("osPluginStore", () => {
       persistedState: unknown,
       version: number,
     ) => unknown;
-    const migrated = migrate(
-      { installed: ["legacy.app"] },
-      1,
-    ) as { installed: string[] };
+    const migrated = migrate({ installed: ["legacy.app"] }, 1) as {
+      installed: string[];
+    };
     expect(migrated.installed).toContain("legacy.app");
     for (const id of DEFAULT_IDS) {
       expect(migrated.installed).toContain(id);

@@ -58,8 +58,9 @@ vi.mock("../stores/agentStore", () => ({
 vi.mock("../plugins/registry/hooks", () => ({
   useMenuItems: (location: string) =>
     mocks.menuItems.filter(
-      (item: { location?: string }) =>
-        (item.location ?? "primary.settings") === location,
+      (item) =>
+        ((item as { location?: string }).location ?? "primary.settings") ===
+        location,
     ),
   useRoutes: () => mocks.routes,
 }));
@@ -161,12 +162,7 @@ vi.mock("motion/react", () => ({
           ...rest
         }: {
           children?: React.ReactNode;
-        }) =>
-          React.createElement(
-            tag,
-            { ...rest },
-            children,
-          );
+        }) => React.createElement(tag, { ...rest }, children);
         return MotionEl;
       },
     },
@@ -214,10 +210,15 @@ function LocationProbe() {
   return <div data-testid="probe-path">{location.pathname}</div>;
 }
 
-function renderSidebar(props: { selectedKey?: string; hubMode?: boolean } = {}) {
+function renderSidebar(
+  props: { selectedKey?: string; hubMode?: boolean } = {},
+) {
   return renderWithProviders(
     <>
-      <Sidebar selectedKey={props.selectedKey ?? "core.workspace"} hubMode={props.hubMode} />
+      <Sidebar
+        selectedKey={props.selectedKey ?? "core.workspace"}
+        hubMode={props.hubMode}
+      />
       <LocationProbe />
     </>,
   );

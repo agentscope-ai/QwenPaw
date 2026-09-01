@@ -132,7 +132,7 @@ vi.mock("@agentscope-ai/design", async () => {
           ) : null}
           <select
             value={value ?? ""}
-            placeholder={placeholder}
+            data-placeholder={placeholder}
             onChange={(e) => onChange?.(e.target.value)}
             onBlur={onBlur}
           >
@@ -232,9 +232,7 @@ describe("JobDrawer open lifecycle", () => {
     expect(await screen.findByText("cronJobs.createJob")).toBeInTheDocument();
     expect(screen.getByText("cronJobs.name")).toBeInTheDocument();
     expect(screen.getByText("cronJobs.enabled")).toBeInTheDocument();
-    expect(
-      screen.getByText("cronJobs.saveResultToInbox"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("cronJobs.saveResultToInbox")).toBeInTheDocument();
     await waitFor(() => expect(onReloadTargets).toHaveBeenCalledTimes(1));
   });
 
@@ -325,9 +323,7 @@ describe("JobDrawer schedule blocks", () => {
       getForm().setFieldsValue({ onceRepeatEnabled: true });
     });
     await waitFor(() =>
-      expect(
-        screen.getByText("cronJobs.repeatFrequency"),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("cronJobs.repeatFrequency")).toBeInTheDocument(),
     );
     expect(screen.getByText("cronJobs.repeatEndType")).toBeInTheDocument();
 
@@ -425,18 +421,14 @@ describe("JobDrawer dispatch target options", () => {
   it("lists backend channels in the channel select", async () => {
     renderDrawer();
     await screen.findByText("cronJobs.createJob");
-    await waitFor(() =>
-      expect(optionLabels("console")).toContain("console"),
-    );
+    await waitFor(() => expect(optionLabels("console")).toContain("console"));
   });
 
   it("filters user options by the selected channel", async () => {
     renderDrawer();
     await screen.findByText("cronJobs.createJob");
     await waitFor(() => expect(capturedSelects.get("admin")).toBeDefined());
-    expect(optionLabels("admin")).toEqual(
-      expect.arrayContaining(["u1", "u2"]),
-    );
+    expect(optionLabels("admin")).toEqual(expect.arrayContaining(["u1", "u2"]));
     expect(optionLabels("admin")).not.toContain("u3");
   });
 
@@ -521,9 +513,9 @@ describe("JobDrawer task type effects", () => {
       getForm().setFieldsValue({ task_type: "text" });
     });
     await waitFor(() =>
-      expect(
-        getForm().getFieldValue(["dispatch", "silent"] as never),
-      ).toBe(false),
+      expect(getForm().getFieldValue(["dispatch", "silent"] as never)).toBe(
+        false,
+      ),
     );
   });
 });

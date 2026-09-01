@@ -155,8 +155,8 @@ describe("useInboxData", () => {
     const byId = Object.fromEntries(
       result.current.pushMessages.map((m) => [m.id, m]),
     );
-    expect(byId.sev.metadata.priority).toBe("high");
-    expect(byId.body.metadata.priority).toBe("high");
+    expect(byId.sev.metadata!.priority).toBe("high");
+    expect(byId.body.metadata!.priority).toBe("high");
   });
 
   it("maps skill auto-sync events with a sync summary", async () => {
@@ -193,9 +193,7 @@ describe("useInboxData", () => {
           source_type: "skill_autoupdate",
           event_type: "auto_update",
           payload: {
-            pool_updated: [
-              { skill: "s1", from_version: "1", to_version: "2" },
-            ],
+            pool_updated: [{ skill: "s1", from_version: "1", to_version: "2" }],
           },
         }),
       ],
@@ -345,7 +343,10 @@ describe("useInboxData", () => {
     await act(async () => {
       vi.advanceTimersByTime(6000);
     });
-    expect(result.current.summary.pushMessages).toEqual({ total: 1, unread: 0 });
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 1,
+      unread: 0,
+    });
     expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
     vi.useRealTimers();
   });

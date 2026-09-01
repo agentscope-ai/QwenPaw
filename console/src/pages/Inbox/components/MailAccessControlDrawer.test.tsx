@@ -68,7 +68,12 @@ vi.mock("lucide-react", () => {
     function Icon() {
       return React.createElement("span", { "data-testid": "icon-" + n });
     };
-  return { Check: make("check"), Plus: make("plus"), Trash2: make("trash"), X: make("x") };
+  return {
+    Check: make("check"),
+    Plus: make("plus"),
+    Trash2: make("trash"),
+    X: make("x"),
+  };
 });
 
 // antd stubs: Drawer renders inline; Table renders rows via column render
@@ -221,7 +226,10 @@ vi.mock("antd", async () => {
       children,
     );
   const Select = ({ placeholder }: { placeholder?: string }) =>
-    React.createElement("select", { "data-testid": "acl-select", title: placeholder });
+    React.createElement("select", {
+      "data-testid": "acl-select",
+      title: placeholder,
+    });
   const Typography = {
     Text: ({
       children,
@@ -230,7 +238,11 @@ vi.mock("antd", async () => {
       children?: React.ReactNode;
       copyable?: unknown;
     }) =>
-      React.createElement("span", { "data-copyable": copyable ? "1" : undefined }, children),
+      React.createElement(
+        "span",
+        { "data-copyable": copyable ? "1" : undefined },
+        children,
+      ),
   };
   return {
     ...actual,
@@ -287,7 +299,9 @@ beforeEach(() => {
 
 function renderDrawer(open = true) {
   const onClose = vi.fn();
-  renderWithProviders(<MailAccessControlDrawer open={open} onClose={onClose} />);
+  renderWithProviders(
+    <MailAccessControlDrawer open={open} onClose={onClose} />,
+  );
   return { onClose };
 }
 
@@ -377,9 +391,7 @@ describe("MailAccessControlDrawer", () => {
     });
     fireEvent.click(screen.getByText("inbox.approveSender"));
     await waitFor(() => {
-      expect(mocks.messageError).toHaveBeenCalledWith(
-        "common.operationFailed",
-      );
+      expect(mocks.messageError).toHaveBeenCalledWith("common.operationFailed");
     });
   });
 
@@ -390,7 +402,9 @@ describe("MailAccessControlDrawer", () => {
     ]);
     renderDrawer();
     await waitFor(() => {
-      expect(screen.getByTestId("row-select-agent-a:news@blog.com")).toBeTruthy();
+      expect(
+        screen.getByTestId("row-select-agent-a:news@blog.com"),
+      ).toBeTruthy();
     });
     fireEvent.click(screen.getByTestId("row-select-agent-a:news@blog.com"));
     fireEvent.click(screen.getByTestId("row-select-agent-a:two@blog.com"));
@@ -440,9 +454,7 @@ describe("MailAccessControlDrawer", () => {
     expect(
       (screen.getByTestId("acl-modal-ok") as HTMLButtonElement).disabled,
     ).toBe(true);
-    const inputs = screen
-      .getByTestId("acl-modal")
-      .querySelectorAll("input");
+    const inputs = screen.getByTestId("acl-modal").querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "not-an-email" } });
     fireEvent.click(screen.getByTestId("acl-modal-ok"));
     await waitFor(() => {

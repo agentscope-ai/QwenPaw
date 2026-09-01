@@ -145,10 +145,7 @@ describe("groupSessions", () => {
       seen.push(key);
       return fallback;
     };
-    groupSessions(
-      [{ id: "a", updatedAt: "2026-01-15T09:00:00" }],
-      trackingT,
-    );
+    groupSessions([{ id: "a", updatedAt: "2026-01-15T09:00:00" }], trackingT);
     expect(seen).toContain("chat.group.today");
   });
 });

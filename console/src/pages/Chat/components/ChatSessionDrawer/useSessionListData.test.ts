@@ -122,7 +122,7 @@ describe("useSessionListData cross-agent ownership", () => {
     vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
       {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
     );
-    vi.spyOn(api, "listChats").mockResolvedValue([] as ChatSpec[]);
+    vi.spyOn(api, "listChats").mockResolvedValue([] as unknown as ChatSpec[]);
 
     const { hook, setSessions } = renderListData([makeSession(A_CHAT)]);
 
@@ -142,7 +142,7 @@ describe("useSessionListData cross-agent ownership", () => {
       .mockResolvedValue({} as Awaited<ReturnType<typeof chatApi.updateChat>>);
     const listSpy = vi
       .spyOn(api, "listChats")
-      .mockResolvedValue([] as ChatSpec[]);
+      .mockResolvedValue([] as unknown as ChatSpec[]);
     const { hook } = renderListData([makeSession(A_CHAT)]);
 
     await act(async () => {
@@ -717,7 +717,7 @@ describe("useSessionListData polling", () => {
     vi.useRealTimers();
   });
 
-  function renderActive(setSessions: ReturnType<typeof vi.fn>) {
+  function renderActive(setSessions: (s: unknown[]) => void) {
     return renderHook(
       () =>
         useSessionListData([], setSessions, {
@@ -732,7 +732,7 @@ describe("useSessionListData polling", () => {
   it("fetches on activation, skips identical updates, applies changed lists", async () => {
     const listSpy = vi
       .spyOn(api, "listChats")
-      .mockResolvedValue([makeSession("s1")] as ChatSpec[]);
+      .mockResolvedValue([makeSession("s1")] as unknown as ChatSpec[]);
     const setSessions = vi.fn();
     renderActive(setSessions);
 
@@ -753,7 +753,7 @@ describe("useSessionListData polling", () => {
     expect(setSessions).toHaveBeenCalledTimes(1);
 
     // A changed list is applied
-    listSpy.mockResolvedValue([makeSession("s2")] as ChatSpec[]);
+    listSpy.mockResolvedValue([makeSession("s2")] as unknown as ChatSpec[]);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -803,7 +803,7 @@ describe("useSessionListData polling", () => {
     expect(consoleSpy).not.toHaveBeenCalled();
 
     // Recovery: next poll succeeds and updates the list
-    listSpy.mockResolvedValue([makeSession("s1")] as ChatSpec[]);
+    listSpy.mockResolvedValue([makeSession("s1")] as unknown as ChatSpec[]);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -870,12 +870,12 @@ describe("useSessionListData owner guards and misc edges", () => {
     const listSpy = vi.spyOn(api, "listChats").mockReturnValue(dList.promise);
     const { hook, setSessions } = renderListData([]);
 
-    let pending!: Promise<void>;
+    let pending!: unknown;
     act(() => {
       pending = hook.result.current.refreshSessions();
     });
     sessionApi.setActiveAgent("agent-b");
-    dList.resolve([makeSession("late")] as ChatSpec[]);
+    dList.resolve([makeSession("late")] as unknown as ChatSpec[]);
     await act(async () => {
       await pending;
     });
@@ -931,7 +931,7 @@ describe("useSessionListData owner guards and misc edges", () => {
     const listSpy = vi.spyOn(api, "listChats").mockReturnValue(dList.promise);
     const { hook, setSessions } = renderListData([makeSession(A_CHAT)]);
 
-    let pending!: Promise<void>;
+    let pending!: unknown;
     act(() => {
       pending = hook.result.current.handleDelete(A_CHAT);
     });
@@ -942,7 +942,7 @@ describe("useSessionListData owner guards and misc edges", () => {
     expect(onSessionRemoved).toHaveBeenCalled();
 
     sessionApi.setActiveAgent("agent-b");
-    dList.resolve([makeSession("leftover")] as ChatSpec[]);
+    dList.resolve([makeSession("leftover")] as unknown as ChatSpec[]);
     await act(async () => {
       await pending;
     });
@@ -957,7 +957,7 @@ describe("useSessionListData owner guards and misc edges", () => {
     );
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeSession(A_CHAT),
-    ] as ChatSpec[]);
+    ] as unknown as ChatSpec[]);
     const newChatListener = vi.fn();
     window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
 
@@ -1015,7 +1015,7 @@ describe("useSessionListData owner guards and misc edges", () => {
       hook.result.current.handleEditChange("New");
     });
 
-    let pending!: Promise<void>;
+    let pending!: unknown;
     act(() => {
       pending = hook.result.current.handleEditSubmit();
     });
@@ -1036,7 +1036,7 @@ describe("useSessionListData owner guards and misc edges", () => {
     const listSpy = vi.spyOn(api, "listChats");
     const { hook } = renderListData([makeSession(A_CHAT)]);
 
-    let pending!: Promise<void>;
+    let pending!: unknown;
     act(() => {
       pending = hook.result.current.handleArchiveToggle(A_CHAT);
     });
@@ -1067,7 +1067,7 @@ describe("useSessionListData owner guards and misc edges", () => {
     const listSpy = vi.spyOn(api, "listChats");
     const { hook } = renderListData([makeSession(A_CHAT)]);
 
-    let pending!: Promise<void>;
+    let pending!: unknown;
     act(() => {
       pending = hook.result.current.handlePinToggle(A_CHAT, true);
     });

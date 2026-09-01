@@ -108,7 +108,9 @@ describe("useTraceViewer", () => {
       useTraceViewer(mocks.markMessageAsRead),
     );
     await act(async () => {
-      result.current.openMessageDetail(pushMessage({ content: "fallback text" }));
+      result.current.openMessageDetail(
+        pushMessage({ content: "fallback text" }),
+      );
     });
     expect(mocks.getInboxTrace).not.toHaveBeenCalled();
     expect(result.current.traceLoading).toBe(false);
@@ -176,9 +178,9 @@ describe("useTraceViewer", () => {
   });
 
   it("reports failure when the clipboard rejects", async () => {
-    (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error("denied"),
-    );
+    (
+      navigator.clipboard.writeText as ReturnType<typeof vi.fn>
+    ).mockRejectedValueOnce(new Error("denied"));
     const { result } = renderHook(() =>
       useTraceViewer(mocks.markMessageAsRead),
     );

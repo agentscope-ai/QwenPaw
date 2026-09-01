@@ -80,7 +80,9 @@ describe("openHtmlFile", () => {
 
   it("uses the pywebview bridge when workspace backed and available", async () => {
     const openWorkspaceHtml = vi.fn(() => Promise.resolve());
-    mockGetPyWebViewApi.mockReturnValue({ open_workspace_html: openWorkspaceHtml } as any);
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
     openHtmlFile({ ...baseOptions, workspaceBacked: true, chatId: "chat-1" });
     expect(openWorkspaceHtml).toHaveBeenCalledWith(
       "/api/html?path=report.html&root=project",
@@ -94,13 +96,16 @@ describe("openHtmlFile", () => {
 
   it("passes the project dir header instead of chat id when there is no chat", async () => {
     const openWorkspaceHtml = vi.fn(() => Promise.resolve());
-    mockGetPyWebViewApi.mockReturnValue({ open_workspace_html: openWorkspaceHtml } as any);
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
     openHtmlFile({
       ...baseOptions,
       workspaceBacked: true,
       projectDirOverride: "/data/proj",
     });
-    const headers = openWorkspaceHtml.mock.calls[0][1];
+    const call = openWorkspaceHtml.mock.calls[0] as unknown[];
+    const headers = call[1] as Record<string, string>;
     expect(headers["X-Session-Project-Dir"]).toBe("/data/proj");
     expect(headers).not.toHaveProperty("X-Chat-Id");
   });
@@ -116,17 +121,19 @@ describe("openHtmlFile", () => {
   });
 
   it("honors the workspace root option", () => {
-    openHtmlFile({ ...baseOptions, root: "chat" });
+    openHtmlFile({ ...baseOptions, root: "workspace" });
     expect(workspaceApi.getHtmlFileUriUrl).toHaveBeenCalledWith(
       "report.html",
-      "chat",
+      "workspace",
     );
   });
 
   it("does not crash when the native opener rejects", async () => {
     const openWorkspaceHtml = vi.fn(() => Promise.reject(new Error("nope")));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockGetPyWebViewApi.mockReturnValue({ open_workspace_html: openWorkspaceHtml } as any);
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
     openHtmlFile({ ...baseOptions, workspaceBacked: true });
     // Let the rejection settle
     await Promise.resolve();

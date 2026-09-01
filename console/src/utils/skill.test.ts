@@ -106,9 +106,7 @@ describe("getPoolSkillAutomationState", () => {
   });
 
   it("treats missing flags as false", () => {
-    expect(
-      getPoolSkillAutomationState({ source: "builtin" }),
-    ).toBe("off");
+    expect(getPoolSkillAutomationState({ source: "builtin" })).toBe("off");
   });
 });
 

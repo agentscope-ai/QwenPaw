@@ -3,7 +3,7 @@
  * chat message a client-side id stored under metadata, used to correlate
  * optimistic UI entries with server-assigned ids after streaming starts.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
   createClientMessageId,
@@ -74,10 +74,9 @@ describe("attachClientMessageId", () => {
   });
 
   it("preserves existing metadata fields", () => {
-    const out = attachClientMessageId(
-      { metadata: { foo: "bar" } },
-      "id-2",
-    ) as { metadata: Record<string, unknown> };
+    const out = attachClientMessageId({ metadata: { foo: "bar" } }, "id-2") as {
+      metadata: Record<string, unknown>;
+    };
     expect(out.metadata.foo).toBe("bar");
     expect(out.metadata[QWENPAW_CLIENT_MESSAGE_ID_KEY]).toBe("id-2");
   });

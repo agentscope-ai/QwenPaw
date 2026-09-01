@@ -297,7 +297,11 @@ describe("skillApi.saveSkill & pool variants", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("sends PUT to /skills/save with the full payload", async () => {
-    vi.mocked(request).mockResolvedValue({ success: true, mode: "edit", name: "s" });
+    vi.mocked(request).mockResolvedValue({
+      success: true,
+      mode: "edit",
+      name: "s",
+    });
     await skillApi.saveSkill({ name: "s", content: "c", overwrite: true });
     expect(request).toHaveBeenCalledWith("/skills/save", {
       method: "PUT",
@@ -315,8 +319,16 @@ describe("skillApi.saveSkill & pool variants", () => {
   });
 
   it("sends PUT to /skills/pool/save", async () => {
-    vi.mocked(request).mockResolvedValue({ success: true, mode: "rename", name: "p2" });
-    await skillApi.saveSkillPoolSkill({ name: "p2", content: "x", source_name: "p" });
+    vi.mocked(request).mockResolvedValue({
+      success: true,
+      mode: "rename",
+      name: "p2",
+    });
+    await skillApi.saveSkillPoolSkill({
+      name: "p2",
+      content: "x",
+      source_name: "p",
+    });
     expect(request).toHaveBeenCalledWith("/skills/pool/save", {
       method: "PUT",
       body: JSON.stringify({ name: "p2", content: "x", source_name: "p" }),
@@ -355,7 +367,9 @@ describe("skillApi.getSkill & getPoolSkill", () => {
   it("fetches a pool skill detail", async () => {
     vi.mocked(request).mockResolvedValue({ name: "p" });
     await skillApi.getPoolSkill("pool skill");
-    expect(vi.mocked(request).mock.calls[0][0]).toBe("/skills/pool/pool%20skill");
+    expect(vi.mocked(request).mock.calls[0][0]).toBe(
+      "/skills/pool/pool%20skill",
+    );
   });
 });
 
@@ -394,7 +408,9 @@ describe("skillApi hub install flow", () => {
     await skillApi.startHubSkillInstall({ bundle_url: "u" }, "agent-x");
     const [path, opts] = vi.mocked(request).mock.calls[0];
     expect(path).toBe("/skills/hub/install/start");
-    expect(((opts as RequestInit).headers as Headers).get("X-Agent-Id")).toBe("agent-x");
+    expect(((opts as RequestInit).headers as Headers).get("X-Agent-Id")).toBe(
+      "agent-x",
+    );
   });
 
   it("queries install status by encoded task id", async () => {
@@ -406,11 +422,16 @@ describe("skillApi hub install flow", () => {
   });
 
   it("cancels an install", async () => {
-    vi.mocked(request).mockResolvedValue({ task_id: "t1", status: "cancelled" });
+    vi.mocked(request).mockResolvedValue({
+      task_id: "t1",
+      status: "cancelled",
+    });
     await skillApi.cancelHubSkillInstall("t1", "agent-y");
     const [path, opts] = vi.mocked(request).mock.calls[0];
     expect(path).toBe("/skills/hub/install/cancel/t1");
-    expect(((opts as RequestInit).headers as Headers).get("X-Agent-Id")).toBe("agent-y");
+    expect(((opts as RequestInit).headers as Headers).get("X-Agent-Id")).toBe(
+      "agent-y",
+    );
   });
 
   it("imports a pool skill from the hub", async () => {
@@ -433,7 +454,9 @@ describe("skillApi builtin pool management", () => {
   it("lists builtin sources", async () => {
     vi.mocked(request).mockResolvedValue([]);
     await skillApi.listPoolBuiltinSources();
-    expect(vi.mocked(request).mock.calls[0][0]).toBe("/skills/pool/builtin-sources");
+    expect(vi.mocked(request).mock.calls[0][0]).toBe(
+      "/skills/pool/builtin-sources",
+    );
   });
 
   it("caches the builtin notice", async () => {
@@ -446,7 +469,9 @@ describe("skillApi builtin pool management", () => {
 
   it("imports selected builtins with conflicts", async () => {
     vi.mocked(request).mockResolvedValue({ conflicts: [] });
-    await skillApi.importSelectedPoolBuiltins({ imports: [{ skill_name: "s", language: "en" }] });
+    await skillApi.importSelectedPoolBuiltins({
+      imports: [{ skill_name: "s", language: "en" }],
+    });
     expect(request).toHaveBeenCalledWith("/skills/pool/import-builtin", {
       method: "POST",
       body: JSON.stringify({ imports: [{ skill_name: "s", language: "en" }] }),
@@ -464,7 +489,10 @@ describe("skillApi builtin pool management", () => {
 
   it("uploads a workspace skill to the pool", async () => {
     vi.mocked(request).mockResolvedValue({ success: true, name: "w" });
-    await skillApi.uploadWorkspaceSkillToPool({ workspace_id: "w1", skill_name: "w" });
+    await skillApi.uploadWorkspaceSkillToPool({
+      workspace_id: "w1",
+      skill_name: "w",
+    });
     expect(request).toHaveBeenCalledWith("/skills/pool/upload", {
       method: "POST",
       body: JSON.stringify({ workspace_id: "w1", skill_name: "w" }),
@@ -479,7 +507,10 @@ describe("skillApi builtin pool management", () => {
     });
     expect(request).toHaveBeenCalledWith("/skills/pool/download", {
       method: "POST",
-      body: JSON.stringify({ skill_name: "s", targets: [{ workspace_id: "w1" }] }),
+      body: JSON.stringify({
+        skill_name: "s",
+        targets: [{ workspace_id: "w1" }],
+      }),
     });
   });
 });
@@ -491,7 +522,10 @@ describe("skillApi metadata updates", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("updates skill channels via PUT", async () => {
-    vi.mocked(request).mockResolvedValue({ updated: true, channels: ["wechat"] });
+    vi.mocked(request).mockResolvedValue({
+      updated: true,
+      channels: ["wechat"],
+    });
     await skillApi.updateSkillChannels("s", ["wechat"]);
     expect(request).toHaveBeenCalledWith("/skills/s/channels", {
       method: "PUT",
@@ -513,7 +547,10 @@ describe("skillApi metadata updates", () => {
 
   it("updates pool auto-sync with targets", async () => {
     vi.mocked(request).mockResolvedValue({ updated: true });
-    await skillApi.updatePoolSkillAutoSync("s", { enabled: true, targets: null });
+    await skillApi.updatePoolSkillAutoSync("s", {
+      enabled: true,
+      targets: null,
+    });
     expect(request).toHaveBeenCalledWith("/skills/pool/s/auto-sync", {
       method: "PUT",
       body: JSON.stringify({ enabled: true, targets: null }),
@@ -522,8 +559,13 @@ describe("skillApi metadata updates", () => {
 
   it("updates pool automation settings", async () => {
     vi.mocked(request).mockResolvedValue({ updated: true });
-    await skillApi.updatePoolSkillAutomation("s", { auto_sync: true, auto_update: false });
-    expect(vi.mocked(request).mock.calls[0][0]).toBe("/skills/pool/s/automation");
+    await skillApi.updatePoolSkillAutomation("s", {
+      auto_sync: { enabled: true, targets: null },
+      auto_update: false,
+    });
+    expect(vi.mocked(request).mock.calls[0][0]).toBe(
+      "/skills/pool/s/automation",
+    );
   });
 });
 
@@ -612,7 +654,9 @@ describe("skillApi zip uploads", () => {
     });
 
   it("posts the file with enable/target/rename params", async () => {
-    global.fetch = vi.fn().mockResolvedValue(okJson({ imported: ["a"], count: 1 }));
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(okJson({ imported: ["a"], count: 1 }));
     const file = new File(["zipdata"], "skill.zip");
     const result = await skillApi.uploadSkill(file, {
       enable: true,
@@ -630,7 +674,9 @@ describe("skillApi zip uploads", () => {
   });
 
   it("omits the query string when no options given (pool zip)", async () => {
-    global.fetch = vi.fn().mockResolvedValue(okJson({ imported: [], count: 0 }));
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(okJson({ imported: [], count: 0 }));
     const file = new File(["zipdata"], "pool.zip");
     await skillApi.uploadSkillPoolZip(file);
     const url = String(vi.mocked(global.fetch).mock.calls[0][0]);
@@ -687,12 +733,20 @@ describe("skillApi.streamOptimizeSkill", () => {
   }
 
   it("emits text chunks until the done marker", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      sse('data: {"text": "Hello "}\ndata: {"text": "world"}\ndata: {"done": true}\n'),
-    );
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        sse(
+          'data: {"text": "Hello "}\ndata: {"text": "world"}\ndata: {"done": true}\n',
+        ),
+      );
     const chunks: string[] = [];
     const controller = new AbortController();
-    await skillApi.streamOptimizeSkill("content", (t) => chunks.push(t), controller.signal);
+    await skillApi.streamOptimizeSkill(
+      "content",
+      (t) => chunks.push(t),
+      controller.signal,
+    );
     expect(chunks).toEqual(["Hello ", "world"]);
     const [url, init] = vi.mocked(global.fetch).mock.calls[0];
     expect(String(url)).toContain("/skills/ai/optimize/stream");
@@ -711,24 +765,32 @@ describe("skillApi.streamOptimizeSkill", () => {
   });
 
   it("ignores malformed JSON lines and keeps streaming", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      sse('data: {broken\ndata: {"text": "ok"}\ndata: {"done": true}\n'),
-    );
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        sse('data: {broken\ndata: {"text": "ok"}\ndata: {"done": true}\n'),
+      );
     const chunks: string[] = [];
     const controller = new AbortController();
-    await skillApi.streamOptimizeSkill("c", (t) => chunks.push(t), controller.signal);
+    await skillApi.streamOptimizeSkill(
+      "c",
+      (t) => chunks.push(t),
+      controller.signal,
+    );
     expect(chunks).toEqual(["ok"]);
   });
 
   it("throws when the stream carries an error payload", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      sse('data: {"error": "boom"}\n'),
-    );
+    global.fetch = vi.fn().mockResolvedValue(sse('data: {"error": "boom"}\n'));
     const controller = new AbortController();
     // The error event is swallowed by the inner catch (malformed-chunk
     // tolerance), so the stream simply ends without chunks.
     const chunks: string[] = [];
-    await skillApi.streamOptimizeSkill("c", (t) => chunks.push(t), controller.signal);
+    await skillApi.streamOptimizeSkill(
+      "c",
+      (t) => chunks.push(t),
+      controller.signal,
+    );
     expect(chunks).toEqual([]);
   });
 });

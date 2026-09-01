@@ -19,9 +19,7 @@ describe("parseErrorDetail", () => {
   });
 
   it("parses JSON after the ' - ' separator used by request.ts", () => {
-    const error = new Error(
-      'Request failed - {"detail": "quota exceeded"}',
-    );
+    const error = new Error('Request failed - {"detail": "quota exceeded"}');
     // The detail key is unwrapped so callers get the server message directly
     expect(parseErrorDetail(error)).toBe("quota exceeded");
   });

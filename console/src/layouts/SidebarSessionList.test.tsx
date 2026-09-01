@@ -11,7 +11,7 @@
  * executes under test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 
@@ -74,11 +74,14 @@ vi.mock("../components/SessionGroupDnd", () => ({
   ),
 }));
 
-vi.mock("../pages/Chat/components/ChatSessionDrawer/useSessionListData", () => ({
-  useSessionListData: (...args: unknown[]) => mockSessionListData(...args),
-  getBackendId: (s: { realId?: string; id?: string }) =>
-    s?.realId ?? s?.id ?? null,
-}));
+vi.mock(
+  "../pages/Chat/components/ChatSessionDrawer/useSessionListData",
+  () => ({
+    useSessionListData: (...args: unknown[]) => mockSessionListData(...args),
+    getBackendId: (s: { realId?: string; id?: string }) =>
+      s?.realId ?? s?.id ?? null,
+  }),
+);
 
 vi.mock("../hooks/useChatGroups", () => ({
   useChatGroups: () => mockChatGroups(),
@@ -106,7 +109,10 @@ vi.mock("../components/SessionItem", () => ({
     sessionId: string;
     onClick: (id: string) => void;
   }) => (
-    <button data-testid={`session-item-${sessionId}`} onClick={() => onClick(sessionId)}>
+    <button
+      data-testid={`session-item-${sessionId}`}
+      onClick={() => onClick(sessionId)}
+    >
       {name}
     </button>
   ),
@@ -132,13 +138,20 @@ vi.mock("../api/modules/chat", () => ({
 
 vi.mock("../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+    message: {
+      success: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warning: vi.fn(),
+    },
   }),
 }));
 
 vi.mock("../stores/agentStore", () => ({
   useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
-    selector ? selector({ selectedAgent: "agent-1" }) : { selectedAgent: "agent-1" },
+    selector
+      ? selector({ selectedAgent: "agent-1" })
+      : { selectedAgent: "agent-1" },
 }));
 
 vi.mock("../stores/sessionListStore", () => ({
@@ -173,11 +186,18 @@ const sessionB = {
   channel: "wechat",
 };
 
-function mockData(sessions: unknown[], overrides: Record<string, unknown> = {}) {
+function mockData(
+  sessions: unknown[],
+  overrides: Record<string, unknown> = {},
+) {
   // Forward the injected onSessionClick through the mocked hook so click
   // routing tests observe it.
   mockSessionListData.mockImplementation(
-    (_store: unknown, _set: unknown, options?: { onSessionClick?: (id: string) => void }) => ({
+    (
+      _store: unknown,
+      _set: unknown,
+      options?: { onSessionClick?: (id: string) => void },
+    ) => ({
       sortedSessions: sessions,
       loading: false,
       editingSessionId: null,
@@ -198,7 +218,13 @@ function mockData(sessions: unknown[], overrides: Record<string, unknown> = {}) 
     // groupChats only emits rows for groups that exist — provide the
     // default "Uncategorized" group so unassigned sessions render.
     groups: [
-      { id: "default", name: "Uncategorized", order: 0, kind: "default", pinned: false },
+      {
+        id: "default",
+        name: "Uncategorized",
+        order: 0,
+        kind: "default",
+        pinned: false,
+      },
     ],
     createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
     renameGroup: vi.fn(),
@@ -279,9 +305,9 @@ describe("SidebarSessionList", () => {
     const onNewChat = vi.fn();
     mockData([]);
     renderWithProviders(<SidebarSessionList onNewChat={onNewChat} />);
-    const btn = screen.getAllByRole("button").find((b) =>
-      b.textContent?.includes("chat.newChatTooltip"),
-    );
+    const btn = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("chat.newChatTooltip"));
     expect(btn).toBeTruthy();
     fireEvent.click(btn!);
     expect(onNewChat).toHaveBeenCalled();
@@ -295,9 +321,9 @@ describe("SidebarSessionList", () => {
     window.addEventListener("qwenpaw:sidebar-new-chat", listener);
     mockData([]);
     renderWithProviders(<SidebarSessionList />);
-    const btn = screen.getAllByRole("button").find((b) =>
-      b.textContent?.includes("chat.newChatTooltip"),
-    );
+    const btn = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("chat.newChatTooltip"));
     fireEvent.click(btn!);
     expect(fired).toBe(true);
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
@@ -306,9 +332,9 @@ describe("SidebarSessionList", () => {
   it("collapses and expands the conversation history section", async () => {
     mockData([sessionA]);
     renderWithProviders(<SidebarSessionList />);
-    const historyBtn = screen.getAllByRole("button").find((b) =>
-      b.textContent?.includes("Conversation History"),
-    );
+    const historyBtn = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("Conversation History"));
     expect(historyBtn).toBeTruthy();
     fireEvent.click(historyBtn!);
     // Collapsed: search input disappears
@@ -341,7 +367,13 @@ describe("SidebarSessionList", () => {
     mockData([sessionA]);
     mockChatGroups.mockReturnValue({
       groups: [
-        { id: "default", name: "Uncategorized", order: 0, kind: "default", pinned: false },
+        {
+          id: "default",
+          name: "Uncategorized",
+          order: 0,
+          kind: "default",
+          pinned: false,
+        },
       ],
       createGroup,
       renameGroup: vi.fn(),
@@ -350,9 +382,9 @@ describe("SidebarSessionList", () => {
       reorderGroups: vi.fn(),
     });
     renderWithProviders(<SidebarSessionList />);
-    const newGroupBtn = screen.getAllByRole("button").find((b) =>
-      b.textContent?.includes("New group"),
-    );
+    const newGroupBtn = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("New group"));
     expect(newGroupBtn).toBeTruthy();
     fireEvent.click(newGroupBtn!);
     const input = screen.getByPlaceholderText("Group name");

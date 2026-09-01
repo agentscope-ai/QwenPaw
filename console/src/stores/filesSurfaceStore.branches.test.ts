@@ -37,12 +37,12 @@ describe("filesSurfaceStore branches", () => {
     store.dispatchSession("s", {
       type: "OPEN_PREVIEW",
       target: otherTarget,
-      trigger: "click",
+      trigger: null,
     });
     expect(useFilesSurfaceStore.getState().sessionDrawers["s"]).toMatchObject({
       kind: "preview",
       target: otherTarget,
-      trigger: "click",
+      trigger: null,
     });
   });
 

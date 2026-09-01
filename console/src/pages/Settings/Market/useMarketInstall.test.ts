@@ -19,8 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../api", () => ({
   default: {
-    startHubSkillInstall: (...a: unknown[]) =>
-      mocks.startHubSkillInstall(...a),
+    startHubSkillInstall: (...a: unknown[]) => mocks.startHubSkillInstall(...a),
     getHubSkillInstallStatus: (...a: unknown[]) =>
       mocks.getHubSkillInstallStatus(...a),
     cancelHubSkillInstall: (...a: unknown[]) =>
@@ -46,6 +45,10 @@ const skillResult = {
   source_url: "https://example.com/cool-skill.zip",
   version: "1.2.0",
   name: "Cool Skill",
+  description: null,
+  author: null,
+  icon_url: null,
+  stats: null,
 };
 
 async function flush() {
@@ -61,9 +64,16 @@ async function advance(ms: number) {
   await flush();
 }
 
-function mount(hooks?: { onSuccess?: ReturnType<typeof vi.fn>; onError?: ReturnType<typeof vi.fn> }) {
+function mount(hooks?: {
+  onSuccess?: (item: unknown) => void;
+  onError?: (item: unknown) => void;
+}) {
   return renderHook(() =>
-    useMarketInstall({ selectedAgent: "agent-1", ...hooks }),
+    useMarketInstall({
+      selectedAgent: "agent-1",
+      onSuccess: hooks?.onSuccess,
+      onError: hooks?.onError,
+    } as never),
   );
 }
 
@@ -148,7 +158,10 @@ describe("useMarketInstall — pool installs", () => {
     let secondId = "";
     act(() => {
       const items = result.current.enqueue(
-        [{ ...skillResult, slug: "one" }, { ...skillResult, slug: "two" }],
+        [
+          { ...skillResult, slug: "one" },
+          { ...skillResult, slug: "two" },
+        ],
         "pool",
       );
       secondId = items[1].id;
@@ -180,7 +193,10 @@ describe("useMarketInstall — pool installs", () => {
 
     act(() => {
       result.current.enqueue(
-        [{ ...skillResult, slug: "one" }, { ...skillResult, slug: "two" }],
+        [
+          { ...skillResult, slug: "one" },
+          { ...skillResult, slug: "two" },
+        ],
         "pool",
       );
     });

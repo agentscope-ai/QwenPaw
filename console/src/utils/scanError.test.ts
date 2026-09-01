@@ -84,8 +84,7 @@ describe("checkScanWarnings", () => {
   };
 
   const noAlerts = () => Promise.resolve([]);
-  const defaultCfg = () =>
-    Promise.resolve({ whitelist: [] } as any);
+  const defaultCfg = () => Promise.resolve({ whitelist: [] } as any);
 
   it("does nothing when there are no alerts", async () => {
     await checkScanWarnings("my-skill", noAlerts, defaultCfg, t);

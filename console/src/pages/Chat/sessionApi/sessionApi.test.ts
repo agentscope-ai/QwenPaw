@@ -4,7 +4,7 @@
  * UUIDs — 404 loops) and message-to-card conversion (history replay must
  * preserve roles/timestamps/attachments).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@agentscope-ai/chat", () => ({}));
 
@@ -30,7 +30,9 @@ describe("parseTimestamp / parseFinishedAt", () => {
   it("parses a metadata timestamp to unix seconds", () => {
     const m = msg({ metadata: { timestamp: "2026-05-27 10:44:53.362" } });
     const sec = T.parseTimestamp(m as never);
-    expect(sec).toBe(Math.floor(new Date("2026-05-27T10:44:53.362").getTime() / 1000));
+    expect(sec).toBe(
+      Math.floor(new Date("2026-05-27T10:44:53.362").getTime() / 1000),
+    );
   });
 
   it("returns 0 for missing metadata", () => {
@@ -46,7 +48,10 @@ describe("parseTimestamp / parseFinishedAt", () => {
 
   it("reads finished_at independently of timestamp", () => {
     const m = msg({
-      metadata: { timestamp: "2026-01-01 00:00:00", finished_at: "2026-01-02 00:00:00" },
+      metadata: {
+        timestamp: "2026-01-01 00:00:00",
+        finished_at: "2026-01-02 00:00:00",
+      },
     });
     const ts = T.parseTimestamp(m as never);
     const fa = T.parseFinishedAt(m as never);
@@ -104,7 +109,9 @@ describe("toOutputMessage", () => {
   });
 
   it("keeps other roles untouched and nulls missing metadata", () => {
-    const out = T.toOutputMessage(msg({ role: "assistant", metadata: undefined }) as never);
+    const out = T.toOutputMessage(
+      msg({ role: "assistant", metadata: undefined }) as never,
+    );
     expect(out.role).toBe("assistant");
     expect(out.metadata).toBeNull();
   });
@@ -113,13 +120,16 @@ describe("toOutputMessage", () => {
 describe("buildUserCard", () => {
   it("uses the message id and parses the created timestamp", () => {
     const card = T.buildUserCard(
-      msg({ id: "fixed-id", metadata: { timestamp: "2026-01-01 00:00:00" } }) as never,
+      msg({
+        id: "fixed-id",
+        metadata: { timestamp: "2026-01-01 00:00:00" },
+      }) as never,
     );
     expect(card.id).toBe("fixed-id");
     expect(card.role).toBe("user");
-    expect(card.cards[0].code).toBe("AgentScopeRuntimeRequestCard");
-    expect(card.cards[0].data.created_at).toBeGreaterThan(0);
-    expect(card.cards[0].data.input[0].content).toEqual([
+    expect(card.cards![0].code).toBe("AgentScopeRuntimeRequestCard");
+    expect(card.cards![0].data.created_at).toBeGreaterThan(0);
+    expect(card.cards![0].data.input[0].content).toEqual([
       { type: "text", text: "hello", status: "created" },
     ]);
   });
@@ -136,7 +146,9 @@ describe("isLocalTimestamp", () => {
   });
 
   it("rejects backend UUIDs", () => {
-    expect(T.isLocalTimestamp("550e8400-e29b-41d4-a716-446655440000")).toBe(false);
+    expect(T.isLocalTimestamp("550e8400-e29b-41d4-a716-446655440000")).toBe(
+      false,
+    );
     expect(T.isLocalTimestamp("")).toBe(false);
   });
 });
@@ -155,7 +167,13 @@ describe("isGenerating", () => {
 
 describe("resolveRealId", () => {
   const local = (id: string, over: Partial<SessionLike> = {}) =>
-    ({ id, name: id, sessionId: undefined, realId: undefined, ...over }) as SessionLike;
+    ({
+      id,
+      name: id,
+      sessionId: undefined,
+      realId: undefined,
+      ...over,
+    }) as SessionLike;
 
   const LOCAL_ID = "1735689600000-abc12"; // local timestamp-random id
 
@@ -186,7 +204,10 @@ describe("resolveRealId", () => {
   });
 
   it("returns null when nothing matches", () => {
-    const { realId } = T.resolveRealId([local("other-uuid")] as never, LOCAL_ID);
+    const { realId } = T.resolveRealId(
+      [local("other-uuid")] as never,
+      LOCAL_ID,
+    );
     expect(realId).toBeNull();
   });
 

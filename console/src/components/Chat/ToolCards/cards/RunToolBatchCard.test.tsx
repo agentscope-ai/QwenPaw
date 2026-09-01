@@ -87,7 +87,7 @@ const content = (
   id: "batch-1",
   name: "run_tool_batch",
   status: (overrides.status ?? "done") as "done",
-  params: overrides.params,
+  params: overrides.params ?? {},
   result: overrides.result,
 });
 

@@ -6,7 +6,7 @@
  * double-submit protection while installing.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import React from "react";
 
 const mocks = vi.hoisted(() => ({
@@ -28,7 +28,11 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: mocks.success, error: mocks.error, warning: mocks.warning },
+    message: {
+      success: mocks.success,
+      error: mocks.error,
+      warning: mocks.warning,
+    },
   }),
 }));
 
@@ -319,7 +323,9 @@ describe("useInstallModal", () => {
         stopPropagation: vi.fn(),
         dataTransfer: {
           items: [
-            { webkitGetAsEntry: () => ({ isDirectory: true, name: "folder1" }) },
+            {
+              webkitGetAsEntry: () => ({ isDirectory: true, name: "folder1" }),
+            },
           ],
           files: [],
         },

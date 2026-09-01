@@ -6,7 +6,7 @@
  * calendar expansion (timezone repeat logic) and execution history.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import dayjs from "dayjs";
 
@@ -279,8 +279,12 @@ describe("CronJobsPage", () => {
     renderWithProviders(<CronJobsPage />);
     fireEvent.click(screen.getByTitle("cronJobs.calendarView"));
     const [left, right] = [
-      screen.getAllByRole("button").find((b) => b.querySelector('[data-testid="icon-left"]')),
-      screen.getAllByRole("button").find((b) => b.querySelector('[data-testid="icon-right"]')),
+      screen
+        .getAllByRole("button")
+        .find((b) => b.querySelector('[data-testid="icon-left"]')),
+      screen
+        .getAllByRole("button")
+        .find((b) => b.querySelector('[data-testid="icon-right"]')),
     ];
     if (left) fireEvent.click(left);
     if (right) fireEvent.click(right);
@@ -326,10 +330,21 @@ describe("CronJobsPage", () => {
   });
 
   it("loads and displays execution history with error expansion", async () => {
-    const longError = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
+    const longError = Array.from({ length: 10 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
     mockApi.getCronJobHistory.mockResolvedValue([
-      { run_at: "2026-08-27T09:00:00Z", status: "success", trigger: "scheduled" },
-      { run_at: "2026-08-27T10:00:00Z", status: "failed", trigger: "manual", error: longError },
+      {
+        run_at: "2026-08-27T09:00:00Z",
+        status: "success",
+        trigger: "scheduled",
+      },
+      {
+        run_at: "2026-08-27T10:00:00Z",
+        status: "failed",
+        trigger: "manual",
+        error: longError,
+      },
     ]);
     mockHookReturn({ jobs: [recurringJob] });
     renderWithProviders(<CronJobsPage />);
@@ -372,8 +387,17 @@ describe("CronJobsPage", () => {
 
   it("renders running/cancelled statuses without error blocks", async () => {
     mockApi.getCronJobHistory.mockResolvedValue([
-      { run_at: "2026-08-27T11:00:00Z", status: "running", trigger: "scheduled" },
-      { run_at: "2026-08-27T12:00:00Z", status: "cancelled", trigger: "manual", error: "short" },
+      {
+        run_at: "2026-08-27T11:00:00Z",
+        status: "running",
+        trigger: "scheduled",
+      },
+      {
+        run_at: "2026-08-27T12:00:00Z",
+        status: "cancelled",
+        trigger: "manual",
+        error: "short",
+      },
     ]);
     mockHookReturn({ jobs: [recurringJob] });
     renderWithProviders(<CronJobsPage />);
@@ -442,7 +466,10 @@ describe("CronJobsPage column handlers", () => {
     });
 
     expect(capturedDrawer.props.open).toBe(true);
-    const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    const values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.scheduleType).toBe("cron");
     expect(values.cronType).toBe("daily");
     expect(values.request.input).toBe("");
@@ -466,7 +493,10 @@ describe("CronJobsPage column handlers", () => {
     act(() => {
       handlers.onEdit(weeklyJob);
     });
-    let values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    let values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.cronType).toBe("weekly");
     expect(values.cronDaysOfWeek).toEqual(["mon", "wed"]);
     expect(values.cronTime.hour()).toBe(8);
@@ -475,7 +505,10 @@ describe("CronJobsPage column handlers", () => {
     act(() => {
       handlers.onEdit(customJob);
     });
-    values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.cronType).toBe("custom");
     expect(values.cronCustom).toBe("*/15 * * * *");
   });
@@ -486,7 +519,10 @@ describe("CronJobsPage column handlers", () => {
       handlers.onEdit(repeatingJob);
     });
 
-    const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    const values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.scheduleType).toBe("once");
     expect(values.onceRepeatEnabled).toBe(true);
     expect(values.onceRepeatEveryDays).toBe(3);
@@ -503,8 +539,13 @@ describe("CronJobsPage column handlers", () => {
     act(() => {
       handlers.onEdit(withInput);
     });
-    const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
-    expect(values.request.input).toBe(JSON.stringify({ key: "value" }, null, 2));
+    const values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
+    expect(values.request.input).toBe(
+      JSON.stringify({ key: "value" }, null, 2),
+    );
   });
 });
 
@@ -553,9 +594,7 @@ describe("CronJobsPage drawer submit", () => {
     expect(submitted.scheduleType).toBeUndefined();
     expect(submitted.cronType).toBeUndefined();
     // success closes the drawer
-    await waitFor(() =>
-      expect(screen.queryByTestId("job-drawer")).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByTestId("job-drawer")).toBeNull());
   });
 
   it("builds a one-time schedule with count-based repeat and updates when editing", async () => {
@@ -731,7 +770,10 @@ describe("CronJobsPage template flow", () => {
     await waitFor(() => {
       expect(screen.getByTestId("job-drawer")).toBeTruthy();
     });
-    const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    const values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.schedule.timezone).toBe("Asia/Shanghai");
     expect(capturedDrawer.props.editingJob).toBeNull();
   });
@@ -746,14 +788,19 @@ describe("CronJobsPage template flow", () => {
       .getAllByRole("button")
       .find((b) => b.textContent?.includes("cronJobs.createFromTemplate"));
     fireEvent.click(templateBtn!);
-    await waitFor(() => expect(screen.getByTestId("template-modal")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("template-modal")).toBeTruthy(),
+    );
 
     act(() => {
       capturedTemplate.props.onUseTemplate({ name: "From Template" });
     });
 
     expect(mockForm.resetFields).toHaveBeenCalled();
-    const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+    const values =
+      mockForm.setFieldsValue.mock.calls[
+        mockForm.setFieldsValue.mock.calls.length - 1
+      ]?.[0];
     expect(values.name).toBe("From Template");
     expect(values.schedule.timezone).toBe("UTC");
     await waitFor(() => expect(capturedDrawer.props.open).toBe(true));
@@ -790,17 +837,42 @@ describe("CronJobsPage mobile schedule formatting", () => {
     const onceAt = dayjs().add(2, "day");
     mockHookReturn({
       jobs: [
-        { ...recurringJob, id: "j-h", schedule: { type: "cron", cron: "0 * * * *" } },
-        { ...recurringJob, id: "j-d", schedule: { type: "cron", cron: "0 9 * * *" } },
-        { ...recurringJob, id: "j-w", schedule: { type: "cron", cron: "0 9 * * mon,wed" } },
-        { ...recurringJob, id: "j-c", schedule: { type: "cron", cron: "*/15 * * * *" } },
-        { ...oneTimeJob, id: "j-o", schedule: { type: "once", run_at: onceAt.format("YYYY-MM-DDTHH:mm:ss") } },
+        {
+          ...recurringJob,
+          id: "j-h",
+          schedule: { type: "cron", cron: "0 * * * *" },
+        },
+        {
+          ...recurringJob,
+          id: "j-d",
+          schedule: { type: "cron", cron: "0 9 * * *" },
+        },
+        {
+          ...recurringJob,
+          id: "j-w",
+          schedule: { type: "cron", cron: "0 9 * * mon,wed" },
+        },
+        {
+          ...recurringJob,
+          id: "j-c",
+          schedule: { type: "cron", cron: "*/15 * * * *" },
+        },
+        {
+          ...oneTimeJob,
+          id: "j-o",
+          schedule: {
+            type: "once",
+            run_at: onceAt.format("YYYY-MM-DDTHH:mm:ss"),
+          },
+        },
         { ...oneTimeJob, id: "j-n", schedule: { type: "once" } },
       ],
     });
     renderWithProviders(<CronJobsPage />);
 
-    await waitFor(() => expect(screen.getByText("cronJobs.cronTypeHourly")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("cronJobs.cronTypeHourly")).toBeTruthy(),
+    );
     expect(screen.getByText("cronJobs.cronTypeDaily 09:00")).toBeTruthy();
     expect(
       screen.getByText(
@@ -888,7 +960,10 @@ describe("CronJobsPage bootstrap edge cases", () => {
       .find((b) => b.textContent?.includes("cronJobs.createJob"));
     fireEvent.click(createBtn!);
     await waitFor(() => {
-      const values = mockForm.setFieldsValue.mock.calls.at(-1)?.[0];
+      const values =
+        mockForm.setFieldsValue.mock.calls[
+          mockForm.setFieldsValue.mock.calls.length - 1
+        ]?.[0];
       expect(values?.schedule?.timezone).toBe("UTC");
     });
     expect(consoleSpy).toHaveBeenCalled();

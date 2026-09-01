@@ -85,10 +85,16 @@ vi.mock("./components", () => ({
   }) => (
     <div data-testid={`push-card-${message.id}`}>
       <span>{message.title}</span>
-      <button data-testid={`view-${message.id}`} onClick={() => onView(message.id)}>
+      <button
+        data-testid={`view-${message.id}`}
+        onClick={() => onView(message.id)}
+      >
         view
       </button>
-      <button data-testid={`del-${message.id}`} onClick={() => onDelete(message.id)}>
+      <button
+        data-testid={`del-${message.id}`}
+        onClick={() => onDelete(message.id)}
+      >
         del
       </button>
       <button
@@ -128,8 +134,7 @@ vi.mock("../../hooks/useInboxWobble", () => ({
 
 vi.mock("../../api/modules/commands", () => ({
   commandsApi: {
-    sendApprovalCommand: (...a: unknown[]) =>
-      mocks.sendApprovalCommand(...a),
+    sendApprovalCommand: (...a: unknown[]) => mocks.sendApprovalCommand(...a),
   },
 }));
 
@@ -163,7 +168,11 @@ vi.mock("lucide-react", () => {
     function Icon() {
       return <span data-testid={`icon-${n}`} />;
     };
-  return { PackageOpen: make("pkg"), Bell: make("bell"), BellRing: make("bellring") };
+  return {
+    PackageOpen: make("pkg"),
+    Bell: make("bell"),
+    BellRing: make("bellring"),
+  };
 });
 
 vi.mock("@ant-design/icons", () => ({
@@ -184,7 +193,11 @@ vi.mock("antd", async () => {
   }: {
     activeKey?: string;
     onChange?: (k: string) => void;
-    items?: Array<{ key: string; label: React.ReactNode; children?: React.ReactNode }>;
+    items?: Array<{
+      key: string;
+      label: React.ReactNode;
+      children?: React.ReactNode;
+    }>;
   }) => (
     <div>
       {items.map((item) => (
@@ -203,14 +216,27 @@ vi.mock("antd", async () => {
   const Empty = ({ description }: { description?: React.ReactNode }) => (
     <div data-testid="inbox-empty">{description}</div>
   );
-  const Pagination = ({ current, onChange }: { current?: number; onChange?: (p: number) => void }) => (
-    <button data-testid="inbox-next-page" onClick={() => onChange?.((current ?? 1) + 1)}>
+  const Pagination = ({
+    current,
+    onChange,
+  }: {
+    current?: number;
+    onChange?: (p: number) => void;
+  }) => (
+    <button
+      data-testid="inbox-next-page"
+      onClick={() => onChange?.((current ?? 1) + 1)}
+    >
       next
     </button>
   );
-  const Popconfirm = ({ children, onConfirm }: { children?: React.ReactNode; onConfirm?: () => void }) => (
-    <span onClick={onConfirm}>{children}</span>
-  );
+  const Popconfirm = ({
+    children,
+    onConfirm,
+  }: {
+    children?: React.ReactNode;
+    onConfirm?: () => void;
+  }) => <span onClick={onConfirm}>{children}</span>;
   return { ...actual, Tabs, Empty, Pagination, Popconfirm };
 });
 
@@ -219,7 +245,10 @@ import type { PushMessage } from "./types";
 
 // ---- Fixtures --------------------------------------------------------------
 
-function pushMsg(id: string, overrides: Partial<PushMessage> = {}): PushMessage {
+function pushMsg(
+  id: string,
+  overrides: Partial<PushMessage> = {},
+): PushMessage {
   return {
     id,
     channelType: "email",
@@ -381,9 +410,9 @@ describe("InboxPage", () => {
     mocks.pendingCount = 3;
     renderWithProviders(<InboxPage />);
     // The drawer entry is a button in the page header area
-    const entry = screen.getAllByRole("button").find(
-      (b) => b.textContent?.includes("inbox.mailAccessControl"),
-    );
+    const entry = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("inbox.mailAccessControl"));
     expect(entry).toBeTruthy();
     fireEvent.click(entry!);
     await waitFor(() => {

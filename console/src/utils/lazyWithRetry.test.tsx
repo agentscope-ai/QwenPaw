@@ -55,15 +55,18 @@ describe("lazyWithRetry", () => {
     const Comp = lazyWithRetry(factory);
     const { findByText } = renderLazy(Comp);
     // Two failures => two 1s retry delays; generous timeout for CI
-    await expect(findByText("loaded-page", {}, { timeout: 6000 })).resolves.toBeTruthy();
+    await expect(
+      findByText("loaded-page", {}, { timeout: 6000 }),
+    ).resolves.toBeTruthy();
     expect(factory).toHaveBeenCalledTimes(3);
   }, 15000);
 
   it("uses the registry override when present (relative path key)", async () => {
-    const Patched = () =>
-      React.createElement("div", null, "patched-by-plugin");
+    const Patched = () => React.createElement("div", null, "patched-by-plugin");
     registryMock.get.mockImplementation((key: string, name: string) =>
-      key === "Settings/Debug/index" && name === "default" ? Patched : undefined,
+      key === "Settings/Debug/index" && name === "default"
+        ? Patched
+        : undefined,
     );
     const factory = vi.fn(() => Promise.resolve({ default: Dummy }));
     const Comp = lazyWithRetry(factory, "../../pages/Settings/Debug");
@@ -125,11 +128,13 @@ describe("lazyImportWithRetry", () => {
     // Use a lightweight real page module path so the glob lookup succeeds,
     // but the registry override wins without executing the heavy chunk.
     const Patched = () => React.createElement("div", null, "glob-patched");
-    registryMock.get.mockImplementation((key: string, name: string) =>
+    registryMock.get.mockImplementation((_key: string, name: string) =>
       name === "default" ? Patched : undefined,
     );
     const Comp = lazyImportWithRetry("../../pages/Settings/Debug");
     const { findByText } = renderLazy(Comp);
-    await expect(findByText("glob-patched", {}, { timeout: 6000 })).resolves.toBeTruthy();
+    await expect(
+      findByText("glob-patched", {}, { timeout: 6000 }),
+    ).resolves.toBeTruthy();
   }, 15000);
 });
