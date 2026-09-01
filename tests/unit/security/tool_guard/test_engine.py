@@ -3,6 +3,7 @@
 """Tests for qwenpaw.security.tool_guard.engine."""
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -395,6 +396,10 @@ class TestToolGuardEngineGuard:
             {"path": "/etc/passwd"},
         )
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
     def test_shell_guardians_receive_normalized_posix_command(
         self,
         engine_with_defaults,

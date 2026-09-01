@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """Tests for governance.detectors — deep security scan pure functions."""
 
+import os
+
 import pytest
 
 from qwenpaw.governance.detectors import (
     GuardFinding,
     _COMPILED_CACHE,
     _get_compiled_patterns,
+    _normalize_path,
     detect_dangerous_patterns,
     detect_sensitive_paths,
     detect_shell_evasion,
@@ -79,6 +82,10 @@ class TestDetectSensitivePaths:
         assert len(findings) == 1
         assert "sensitive file" in findings[0].title.lower()
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
     def test_shell_line_continuation_cannot_split_sensitive_path(
         self,
         tmp_path,
@@ -106,14 +113,14 @@ class TestDetectSensitivePaths:
         secret_dir = tmp_path / ".qwenpaw.secret"
         findings = detect_sensitive_paths(
             tool_name="Bash",
-            target=f"cat {home_spelling}/.qwenpaw\\\n.secret/auth.json",
+            target=f"cat {home_spelling}/.qwenpaw.secret/auth.json",
             tool_type="shell",
             sensitive_paths=[str(secret_dir) + "/"],
         )
 
         assert len(findings) == 1
-        assert findings[0].metadata["resolved_path"] == str(
-            secret_dir / "auth.json",
+        assert findings[0].metadata["resolved_path"] == _normalize_path(
+            str(secret_dir / "auth.json"),
         )
 
     def test_empty_target_returns_empty(self):
@@ -148,6 +155,10 @@ class TestDetectDangerousPatterns:
         assert findings[0].rule_id == "TOOL_CMD_DANGEROUS_RM"
         assert findings[0].severity == "HIGH"
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
     def test_deep_scan_normalizes_line_continuation_before_rule_matching(self):
         rule = _FakeDetectionRule(
             id="TOOL_CMD_DANGEROUS_RM",

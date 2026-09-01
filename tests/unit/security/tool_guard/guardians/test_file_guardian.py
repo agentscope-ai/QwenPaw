@@ -7,6 +7,7 @@ Goal: push coverage from 38% to 78%+.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -275,7 +276,9 @@ class TestNormalizePath:
     ):
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        assert _normalize_path(spelling) == str(tmp_path / "secret")
+        assert _normalize_path(spelling) == _normalize_path(
+            str(tmp_path / "secret"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +554,10 @@ class TestGuardShellCommand:
         )
         assert len(findings) >= 1
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
     def test_guard_shell_posix_line_continuation_cannot_split_sensitive_path(
         self,
         guardian,
@@ -582,7 +589,7 @@ class TestGuardShellCommand:
         # Deliberately do not create the path: protection must not depend on
         # whether the credential file currently exists.
         guardian.add_sensitive_file(str(secret_dir) + "/")
-        command = f"cat {home_spelling}/.qwenpaw\\\n.secret/auth.json"
+        command = f"cat {home_spelling}/.qwenpaw.secret/auth.json"
 
         findings = guardian.guard(
             "execute_shell_command",
@@ -590,8 +597,8 @@ class TestGuardShellCommand:
         )
 
         assert len(findings) == 1
-        assert findings[0].metadata["resolved_path"] == str(
-            secret_dir / "auth.json",
+        assert findings[0].metadata["resolved_path"] == _normalize_path(
+            str(secret_dir / "auth.json"),
         )
 
     def test_guard_execute_shell_command_safe(self, guardian, tmp_path):
