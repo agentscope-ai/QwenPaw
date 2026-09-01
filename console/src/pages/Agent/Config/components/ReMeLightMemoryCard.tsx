@@ -49,7 +49,7 @@ export function isValidDreamCronShape(value?: string) {
 }
 
 export function ReMeLightMemoryCard() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
@@ -159,12 +159,6 @@ export function ReMeLightMemoryCard() {
   const dailyPaperCronEnabled = remeConfig?.daily_paper_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
-  const dailyPaperDocsUrl = (i18n?.resolvedLanguage || i18n?.language || "en")
-    .toLowerCase()
-    .startsWith("zh")
-    ? "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md"
-    : "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README.md";
-
   const toggleAutoMemory = (enabled: boolean) => {
     form.setFieldValue(
       ["reme_light_memory_config", "auto_memory_interval"],
@@ -375,7 +369,11 @@ export function ReMeLightMemoryCard() {
                 </span>
               </button>
               <div className={styles.memorySourceActions}>
-                <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
+                <a
+                  href="https://qwenpaw.agentscope.io/docs/memory"
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {t("agentConfig.dailyPaperDocumentation")}
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
