@@ -14,6 +14,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -40,7 +42,6 @@ import {
   resetPlatformQwenPawAuth,
   restartPlatformDeployment,
   startPlatformDeployment,
-  wakePlatformDeployment,
 } from "../../features/platform/deployment";
 import {
   deploymentStatusPresentation,
@@ -72,6 +73,7 @@ export default function PlatformDeployScreen() {
   const [checking, setChecking] = useState(true);
   const [creating, setCreating] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [resettingAuth, setResettingAuth] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [pollRevision, setPollRevision] = useState(0);
@@ -91,6 +93,25 @@ export default function PlatformDeployScreen() {
     setNeedsPlatformSettings(!limited && isGitHubBindingError(caught));
     setError(limited ? null : platformDeploymentErrorMessage(caught));
   }, []);
+
+  const goBack = useCallback(() => {
+    router.replace({
+      pathname: "/",
+      params: { add: add === "1" ? "1" : "0" },
+    });
+  }, [add]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return undefined;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        goBack();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [goBack]);
 
   const checkDeployments = useCallback(async (): Promise<unknown | null> => {
     setChecking(true);
@@ -257,10 +278,7 @@ export default function PlatformDeployScreen() {
     const actionKey = `${id}:${status}`;
     if (actionRef.current === actionKey) return;
     actionRef.current = actionKey;
-    const action = status === "sleeping"
-      ? wakePlatformDeployment(id)
-      : startPlatformDeployment(id);
-    void action
+    void startPlatformDeployment(id)
       .then(() => setDeployment((current) => current?.appId === id
         ? { ...current, status: "waking_up" }
         : current))
@@ -344,22 +362,66 @@ export default function PlatformDeployScreen() {
     }
   };
 
-  const status = useMemo(
-    () => deploymentStatusPresentation(
+  const confirmRestartDeployment = () => {
+    if (!appId || recovering) return;
+    MobileAlert.alert(
+      "重新启动 QwenPaw？",
+      "Platform 会重建运行服务，但保留这只 QwenPaw 的会话、配置和 Agent workspace。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "重新启动",
+          onPress: () => void restartFailedDeployment(appId),
+        },
+      ],
+    );
+  };
+
+  const restartFailedDeployment = async (id: string) => {
+    setRecovering(true);
+    setError(null);
+    setConnectionError(null);
+    try {
+      await restartPlatformDeployment(id);
+      actionRef.current = "";
+      pairingRef.current = "";
+      setDeployment((current) => current?.appId === id
+        ? {
+          ...current,
+          status: "restarting",
+          message: "正在重新启动 QwenPaw",
+          errorMessage: undefined,
+        }
+        : current);
+      setPollRevision((current) => current + 1);
+    } catch (caught) {
+      setConnectionError(errorMessage(
+        caught,
+        "无法重新启动 QwenPaw，请稍后重试。",
+      ));
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  const status = useMemo(() => {
+    const presentation = deploymentStatusPresentation(
       rateLimited
         ? "rate_limited"
         : creating
           ? "creating"
           : deployment?.status ?? "idle",
-    ),
-    [creating, deployment?.status, rateLimited],
-  );
+    );
+    return deployment?.message && !deployment.errorMessage
+      ? { ...presentation, detail: deployment.message }
+      : presentation;
+  }, [creating, deployment, rateLimited]);
   const hasDeployment = Boolean(appId);
   const progress = deploymentProgress(deployment?.status, hasDeployment);
-
-  const goBack = () => {
-    router.replace({ pathname: "/", params: { add: add === "1" ? "1" : "0" } });
-  };
+  const deploymentFailure = deployment?.status === "failed" &&
+      deployment.errorMessage
+    ? platformDeploymentErrorMessage(new Error(deployment.errorMessage))
+    : null;
 
   const switchPlatformAccount = async () => {
     await logoutPlatform();
@@ -374,18 +436,24 @@ export default function PlatformDeployScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
+      <View style={styles.fixedHeader}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="返回" onPress={goBack} style={styles.back}>
+          <Pressable
+            accessibilityLabel="返回"
+            accessibilityRole="button"
+            onPress={goBack}
+            style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+          >
             <ArrowLeft color={colors.ink} size={22} />
           </Pressable>
           <Text style={styles.headerTitle}>云端 QwenPaw</Text>
           <View style={styles.headerSpacer} />
         </View>
-
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
             <Cloud color={colors.white} size={25} />
@@ -467,26 +535,51 @@ export default function PlatformDeployScreen() {
                       {line}
                     </Text>
                   )) : (
-                    <Text style={styles.logEmpty}>等待 Platform 返回部署日志…</Text>
+                    <Text style={styles.logEmpty}>
+                      {deployment?.message || "等待 Platform 返回部署日志…"}
+                    </Text>
                   )}
                 </View>
               </View>
             ) : null}
 
-            {error || connectionError ? (
-              <Text style={styles.error}>{error || connectionError}</Text>
+            {error || connectionError || deploymentFailure ? (
+              <Text accessibilityRole="alert" style={styles.error}>
+                {error || connectionError || deploymentFailure}
+              </Text>
             ) : null}
 
             <View style={styles.actions}>
-              {!rateLimited && (!hasDeployment || status.failed) ? (
+              {!rateLimited && !hasDeployment ? (
                 <PrimaryButton
                   icon={Rocket}
-                  label={hasDeployment
-                    ? "重新部署 QwenPaw"
-                    : "部署我的 QwenPaw"}
+                  label="部署我的 QwenPaw"
                   loading={creating}
                   onPress={() => void createDeployment()}
                 />
+              ) : null}
+
+              {status.failed && appId ? (
+                <>
+                  <PrimaryButton
+                    icon={RefreshCw}
+                    label="重新启动 QwenPaw"
+                    loading={recovering}
+                    onPress={confirmRestartDeployment}
+                  />
+                  <PrimaryButton
+                    icon={RefreshCw}
+                    label="重新检查状态"
+                    onPress={() => void refreshDeployment(appId)}
+                    tone="light"
+                  />
+                  <PrimaryButton
+                    icon={ArrowLeft}
+                    label="返回选择其他 QwenPaw"
+                    onPress={goBack}
+                    tone="light"
+                  />
+                </>
               ) : null}
 
               {error && hasDeployment && !status.failed ? (
@@ -562,7 +655,13 @@ function ProgressStep({
 function deploymentProgress(status: string | undefined, exists: boolean): number {
   if (!exists) return 1;
   if (status === "running") return 3;
-  if (["starting", "sleeping", "waking_up", "stopped"].includes(status ?? "")) {
+  if ([
+    "restarting",
+    "starting",
+    "sleeping",
+    "waking_up",
+    "stopped",
+  ].includes(status ?? "")) {
     return 2;
   }
   return 1;
@@ -581,6 +680,13 @@ function errorMessage(error: unknown, fallback: string): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
+  fixedHeader: {
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.canvas,
+  },
   content: {
     width: "100%",
     maxWidth: 560,
@@ -590,12 +696,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   header: {
-    height: 62,
+    height: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  back: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  back: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { color: colors.ink, fontSize: 17, fontWeight: "700" },
   headerSpacer: { width: 40 },
   hero: { gap: spacing.sm, paddingTop: spacing.lg, paddingBottom: spacing.lg },
@@ -733,4 +839,5 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     textAlign: "center",
   },
+  pressed: { opacity: 0.6 },
 });

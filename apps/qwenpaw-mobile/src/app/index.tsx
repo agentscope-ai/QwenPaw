@@ -9,6 +9,8 @@ import {
   QrCode,
   RefreshCw,
   Server,
+  Trash2,
+  WifiOff,
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -47,9 +49,13 @@ import {
 import { normalizeBaseUrl } from "../api/pairing";
 import type { Connection } from "../api/types";
 import { Field } from "../components/Field";
+import { IosGroup, IosRow } from "../components/IosList";
+import { MobileAlert } from "../components/MobileAlert";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { PlatformAuthForm } from "../features/platform/PlatformAuthForm";
+import { workspaceName } from "../features/workspaces/WorkspaceSwitcher";
 import { useAppStore } from "../store/app";
+import { connectionKey } from "../storage/connection";
 import { qwenPawBrandAssets } from "../theme/brandAssets";
 import { colors, radius, spacing } from "../theme/tokens";
 
@@ -64,7 +70,6 @@ export default function ConnectScreen() {
   const status = useAppStore((state) => state.status);
   const connection = useAppStore((state) => state.connection);
   const connect = useAppStore((state) => state.connect);
-  const disconnect = useAppStore((state) => state.disconnect);
   const [mode, setMode] = useState<Mode>(
     platformLogin === "1" ? "platform" : "choice",
   );
@@ -76,6 +81,7 @@ export default function ConnectScreen() {
   const [busy, setBusy] = useState(false);
   const [platformChecking, setPlatformChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [choosingAnother, setChoosingAnother] = useState(false);
   const directAttempt = useRef<ConnectionAttempt | null>(null);
 
   const goBack = useCallback(() => {
@@ -114,23 +120,15 @@ export default function ConnectScreen() {
     return <View style={styles.loading}><ActivityIndicator color={colors.accent} /></View>;
   }
 
-  if (!adding && connection && status !== "ready") {
+  if (!adding && !choosingAnother && connection && status !== "ready") {
     return (
-      <SafeAreaView style={styles.reconnectRoot}>
-        <View style={styles.reconnectCard}>
-          <Image
-            accessible={false}
-            resizeMode="contain"
-            source={qwenPawBrandAssets.wave}
-            style={styles.reconnectMascot}
-          />
-          <Text maxFontSizeMultiplier={1.4} style={styles.reconnectTitle}>正在连接 QwenPaw</Text>
-          <Text maxFontSizeMultiplier={1.3} style={styles.sourceLabel}>{connection.source === "platform" ? "AgentScope Platform" : "私人部署"}</Text>
-          <Text maxFontSizeMultiplier={1.35} numberOfLines={2} style={styles.reconnectCopy}>{connection.baseUrl}</Text>
-          <PrimaryButton icon={RefreshCw} label="立即重连" loading={status === "connecting"} onPress={() => void connect(connection).catch(() => undefined)} />
-          <Pressable onPress={() => void disconnect()} style={styles.textButton}><Text style={styles.textButtonLabel}>移除这只 QwenPaw</Text></Pressable>
-        </View>
-      </SafeAreaView>
+      <DisconnectedHome
+        connection={connection}
+        onChooseAnother={() => {
+          setError(null);
+          setChoosingAnother(true);
+        }}
+      />
     );
   }
 
@@ -281,6 +279,179 @@ export default function ConnectScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function DisconnectedHome({
+  connection,
+  onChooseAnother,
+}: {
+  connection: Connection;
+  onChooseAnother: () => void;
+}) {
+  const status = useAppStore((state) => state.status);
+  const connections = useAppStore((state) => state.connections);
+  const connect = useAppStore((state) => state.connect);
+  const disconnect = useAppStore((state) => state.disconnect);
+  const switchConnection = useAppStore((state) => state.switchConnection);
+  const storeError = useAppStore((state) => state.error);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [switchingKey, setSwitchingKey] = useState<string | null>(null);
+  const currentKey = connectionKey(connection);
+  const alternatives = connections.filter(
+    (item) => connectionKey(item) !== currentKey,
+  );
+  const displayedError = actionError || storeError;
+
+  const retry = async () => {
+    setActionError(null);
+    try {
+      await connect(connection);
+      router.replace("/chats");
+    } catch (caught) {
+      setActionError(errorMessage(caught, "暂时无法连接，请稍后重试。"));
+    }
+  };
+
+  const switchTo = async (next: Connection) => {
+    const key = connectionKey(next);
+    setSwitchingKey(key);
+    setActionError(null);
+    try {
+      await switchConnection(key);
+      router.replace("/chats");
+    } catch (caught) {
+      setActionError(errorMessage(caught, "无法连接这只 QwenPaw。"));
+    } finally {
+      setSwitchingKey(null);
+    }
+  };
+
+  const confirmRemove = () => {
+    MobileAlert.alert(
+      `移除${workspaceName(connection)}？`,
+      "只会取消这台设备与该 QwenPaw 的配对，不会删除会话或服务数据。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "移除",
+          style: "destructive",
+          onPress: () => void disconnect().catch((caught) => {
+            setActionError(errorMessage(caught, "暂时无法移除，请稍后重试。"));
+          }),
+        },
+      ],
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.reconnectRoot}>
+      <ScrollView
+        contentContainerStyle={styles.reconnectContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.reconnectIntro}>
+          <Image
+            accessible={false}
+            resizeMode="contain"
+            source={qwenPawBrandAssets.wave}
+            style={styles.reconnectMascot}
+          />
+          <View style={styles.reconnectHeading}>
+            <Text maxFontSizeMultiplier={1.35} style={styles.reconnectEyebrow}>
+              QWENPAW
+            </Text>
+            <Text maxFontSizeMultiplier={1.4} style={styles.reconnectTitle}>
+              连接已中断
+            </Text>
+            <Text maxFontSizeMultiplier={1.4} style={styles.reconnectSubtitle}>
+              重试当前连接，或切换到另一只已配对的 QwenPaw。
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.currentConnectionCard}>
+          <View style={styles.currentConnectionTop}>
+            <View style={styles.connectionIcon}>
+              {connection.source === "platform"
+                ? <Cloud color={colors.accentDark} size={22} strokeWidth={1.9} />
+                : <Server color={colors.accentDark} size={22} strokeWidth={1.9} />}
+            </View>
+            <View style={styles.currentConnectionBody}>
+              <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={styles.currentConnectionTitle}>
+                {workspaceName(connection)}
+              </Text>
+              <Text maxFontSizeMultiplier={1.3} style={styles.currentConnectionSource}>
+                {connection.source === "platform"
+                  ? "AgentScope Platform"
+                  : "私人部署"}
+              </Text>
+            </View>
+            <View style={styles.offlineStatus}>
+              <WifiOff color={colors.danger} size={13} strokeWidth={2} />
+              <Text style={styles.offlineStatusText}>未连接</Text>
+            </View>
+          </View>
+          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={styles.connectionHost}>
+            {connectionHost(connection.baseUrl)}
+          </Text>
+          {displayedError ? (
+            <View accessibilityRole="alert" style={styles.connectionError}>
+              <Text maxFontSizeMultiplier={1.3} numberOfLines={3} style={styles.connectionErrorText}>
+                {displayedError}
+              </Text>
+            </View>
+          ) : null}
+          <PrimaryButton
+            icon={RefreshCw}
+            label="重新连接"
+            loading={status === "connecting"}
+            onPress={() => void retry()}
+          />
+        </View>
+
+        {alternatives.length ? (
+          <IosGroup title="其他已配对的 QwenPaw">
+            {alternatives.map((item) => (
+              <IosRow
+                key={connectionKey(item)}
+                icon={item.source === "platform" ? Cloud : Server}
+                label={workspaceName(item)}
+                onPress={() => void switchTo(item)}
+                subtitle={item.source === "platform" ? "AgentScope Platform" : "私人部署"}
+                trailing={switchingKey === connectionKey(item) ? "连接中" : "切换"}
+              />
+            ))}
+          </IosGroup>
+        ) : null}
+
+        <IosGroup title="连接管理">
+          <IosRow
+            icon={Link2}
+            label="配对另一只 QwenPaw"
+            onPress={onChooseAnother}
+            subtitle="扫码、局域网或 AgentScope Platform"
+          />
+        </IosGroup>
+
+        <IosGroup>
+          <IosRow
+            destructive
+            icon={Trash2}
+            label="移除当前 QwenPaw"
+            onPress={confirmRemove}
+          />
+        </IosGroup>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function connectionHost(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
 }
 
 function BrandHeader({ adding, mode, onBack }: { adding: boolean; mode: Mode; onBack: () => void }) {
@@ -486,12 +657,84 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   pressed: { opacity: 0.72 },
-  reconnectRoot: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: colors.canvas },
-  reconnectCard: { width: "100%", maxWidth: 430, alignSelf: "center", gap: spacing.md, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface },
-  reconnectMascot: { width: 88, height: 88 },
-  reconnectTitle: { color: colors.ink, fontSize: 25, fontWeight: "700" },
-  sourceLabel: { color: colors.accentDark, fontSize: 12, fontWeight: "600" },
-  reconnectCopy: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  reconnectRoot: { flex: 1, backgroundColor: colors.groupedBackground },
+  reconnectContent: {
+    width: "100%",
+    maxWidth: 520,
+    minHeight: "100%",
+    alignSelf: "center",
+    gap: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  reconnectIntro: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  reconnectMascot: { width: 72, height: 72 },
+  reconnectHeading: { flex: 1, minWidth: 0, gap: 3 },
+  reconnectEyebrow: {
+    color: colors.accentDark,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+  },
+  reconnectTitle: {
+    color: colors.ink,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.7,
+  },
+  reconnectSubtitle: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  currentConnectionCard: {
+    gap: spacing.md,
+    padding: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  currentConnectionTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  connectionIcon: {
+    width: 46,
+    height: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: colors.accentSoft,
+  },
+  currentConnectionBody: { flex: 1, minWidth: 0, gap: 3 },
+  currentConnectionTitle: { color: colors.ink, fontSize: 17, fontWeight: "700" },
+  currentConnectionSource: { color: colors.muted, fontSize: 12 },
+  offlineStatus: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+  },
+  offlineStatusText: { color: colors.danger, fontSize: 12, fontWeight: "600" },
+  connectionHost: {
+    color: colors.faint,
+    fontSize: 12,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  connectionError: {
+    paddingHorizontal: 12,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentSoft,
+  },
+  connectionErrorText: { color: colors.danger, fontSize: 12, lineHeight: 18 },
   textButton: { minHeight: 42, alignItems: "center", justifyContent: "center" },
   textButtonLabel: { color: colors.muted, fontSize: 14, fontWeight: "600" },
 });

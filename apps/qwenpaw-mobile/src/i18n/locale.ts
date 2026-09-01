@@ -1,15 +1,8 @@
 export type MobileLanguage = "en" | "zh";
 
-function resolveLanguage(): MobileLanguage {
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale;
-    return locale.toLowerCase().startsWith("zh") ? "zh" : "en";
-  } catch {
-    return "en";
-  }
-}
-
-export const mobileLanguage = resolveLanguage();
+// The current catalog is Chinese-first. Keep one language across every screen
+// until the remaining hard-coded copy has been moved into the catalog.
+export const mobileLanguage: MobileLanguage = "zh";
 
 export function mobileText(zh: string, en: string): string {
   return mobileLanguage === "zh" ? zh : en;

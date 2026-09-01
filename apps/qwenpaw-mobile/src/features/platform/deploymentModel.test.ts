@@ -34,6 +34,9 @@ test("normalizes Platform deployment status and access URL", () => {
       appId: "paw-1",
       status: "running",
       accessUrl: "https://paw.example.com",
+      errorMessage: undefined,
+      message: undefined,
+      progress: undefined,
       versionType: "stable",
     },
   );
@@ -57,6 +60,7 @@ test("maps deployment status to native progress presentation", () => {
     failed: false,
   });
   assert.equal(deploymentStatusPresentation("running").label, "QwenPaw 已就绪");
+  assert.equal(deploymentStatusPresentation("restarting").active, true);
   assert.equal(deploymentStatusPresentation("failed").failed, true);
 });
 
@@ -68,4 +72,28 @@ test("provides actionable Platform deployment errors", () => {
     platformDeploymentErrorMessage(new Error("QWENPAW_QUALIFICATION_DENIED")),
     /部署资格/,
   );
+  assert.match(
+    platformDeploymentErrorMessage(new Error(
+      "Error while extracting response for application/octet-stream",
+    )),
+    /不会重复部署/,
+  );
+});
+
+test("preserves Platform deployment progress and failure details", () => {
+  assert.deepEqual(parsePlatformDeployment({
+    appId: "paw-failed",
+    status: "FAILED",
+    progress: 100,
+    message: "唤醒失败",
+    errorMessage: "wake up failed",
+  }, "fallback"), {
+    appId: "paw-failed",
+    status: "failed",
+    accessUrl: "",
+    errorMessage: "wake up failed",
+    message: "唤醒失败",
+    progress: 100,
+    versionType: undefined,
+  });
 });

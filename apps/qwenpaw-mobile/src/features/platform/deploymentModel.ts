@@ -8,6 +8,9 @@ export interface PlatformDeployment {
   appId: string;
   status: string;
   accessUrl: string;
+  errorMessage?: string;
+  message?: string;
+  progress?: number;
   versionType?: string;
 }
 
@@ -48,6 +51,9 @@ export function parsePlatformDeployment(
     status: String(value.status ?? "pending").toLowerCase(),
     accessUrl: String(value.accessUrl ?? value.access_url ?? "")
       .replace(/\/$/, ""),
+    errorMessage: stringValue(value.errorMessage ?? value.error_message),
+    message: stringValue(value.message),
+    progress: numberValue(value.progress),
     versionType: stringValue(value.versionType ?? value.version_type),
   };
 }
@@ -95,6 +101,12 @@ export function deploymentStatusPresentation(
       );
     case "starting":
       return statusValue("正在启动", "QwenPaw 服务即将就绪。", true);
+    case "restarting":
+      return statusValue(
+        "正在重新启动",
+        "正在恢复这只 QwenPaw，工作数据会保留。",
+        true,
+      );
     case "waking_up":
     case "sleeping":
       return statusValue("正在唤醒", "正在恢复你的云端 QwenPaw。", true);
@@ -103,7 +115,12 @@ export function deploymentStatusPresentation(
     case "running":
       return statusValue("QwenPaw 已就绪", "正在完成安全配对。", false);
     case "failed":
-      return statusValue("部署失败", "可以保留登录态并重新部署。", false, true);
+      return statusValue(
+        "云端服务未就绪",
+        "App 已停止自动操作，不会重复部署或重启。",
+        false,
+        true,
+      );
     case "deleted":
       return statusValue("部署已移除", "可以重新创建你的 QwenPaw。", false, true);
     default:
@@ -135,6 +152,10 @@ export function platformDeploymentErrorMessage(error: unknown): string {
   if (normalized.includes("application_pending") ||
       normalized.includes("appeal_pending")) {
     return "Platform 正在审核你的申请，审核完成后可直接在这里继续部署。";
+  }
+  if (normalized.includes("extracting response") ||
+      normalized.includes("application/octet-stream")) {
+    return "Platform 暂时未能打开这只 QwenPaw。登录态已保留，App 不会重复部署；可稍后重新检查。";
   }
   return message || "Platform 部署请求失败，请稍后重试。";
 }
@@ -168,6 +189,11 @@ function stringValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized || undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function errorText(error: unknown): string {

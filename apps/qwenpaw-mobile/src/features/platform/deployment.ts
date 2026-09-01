@@ -50,13 +50,6 @@ export async function startPlatformDeployment(appId: string): Promise<void> {
   });
 }
 
-export async function wakePlatformDeployment(appId: string): Promise<void> {
-  await platformRequest("/api/v1/app/heartbeat", {
-    method: "POST",
-    body: JSON.stringify({ appId }),
-  });
-}
-
 export async function resetPlatformQwenPawAuth(appId: string): Promise<void> {
   await platformRequest("/api/v1/app/reset-qwenpaw-auth", {
     method: "POST",

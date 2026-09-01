@@ -1,9 +1,10 @@
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { MobileAlertHost } from "../components/MobileAlert";
+import { MetroConnectionGuard } from "../dev/MetroConnectionGuard";
 import { EmbeddedPlatformOAuthHost } from "../features/platform/EmbeddedPlatformOAuth";
 import { openNotificationTarget } from "../notifications/navigation";
 import { startNotificationNavigation } from "../notifications/runtime";
@@ -24,7 +25,6 @@ function AppNavigator() {
   const bootstrap = useAppStore((state) => state.bootstrap);
   const status = useAppStore((state) => state.status);
   const connection = useAppStore((state) => state.connection);
-  const connect = useAppStore((state) => state.connect);
   const { resolvedTheme } = useAppTheme();
 
   useEffect(() => {
@@ -32,12 +32,8 @@ function AppNavigator() {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (status !== "disconnected" || !connection) return;
-    const timer = setTimeout(() => {
-      void connect(connection).catch(() => undefined);
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [connect, connection, status]);
+    if (status === "disconnected") router.replace("/");
+  }, [status]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -65,6 +61,7 @@ function AppNavigator() {
       />
       <EmbeddedPlatformOAuthHost />
       <MobileAlertHost />
+      {__DEV__ ? <MetroConnectionGuard /> : null}
     </GestureHandlerRootView>
   );
 }
