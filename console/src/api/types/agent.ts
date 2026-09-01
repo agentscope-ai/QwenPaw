@@ -68,6 +68,7 @@ export interface EmbeddingModelConfig {
   max_cache_size: number;
   max_input_length: number;
   max_batch_size: number;
+  health_check_timeout: number;
 }
 
 export interface ReMeLightMemoryConfig {
