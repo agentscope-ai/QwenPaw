@@ -1,108 +1,140 @@
-.panel {
-  width: 224px;
-  padding: 6px;
+.panel,
+.flyoutPanel,
+.choicePanel {
+  width: 208px;
+  padding: 5px;
+  overflow: hidden;
+  border-radius: 13px;
+  background: #faf9f6;
+  box-shadow: 0 10px 28px rgba(24, 20, 18, 0.11);
 }
 
 .menuItem,
-.linkPanel button {
+.choiceItem {
   width: 100%;
-  min-height: 38px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 8px 10px;
+  gap: 10px;
+  padding: 7px 9px;
   border: 0;
   border-radius: 9px;
   background: transparent;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: rgba(26, 23, 22, 0.82);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.25;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
 
-  &:hover {
-    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+  > svg {
+    flex: 0 0 auto;
+    color: rgba(26, 23, 22, 0.62);
+  }
+
+  &:hover,
+  &:focus-visible,
+  &:global(.ant-popover-open) {
+    outline: none;
+    background: rgba(255, 127, 22, 0.08);
+    color: rgba(26, 23, 22, 0.94);
+
+    > svg {
+      color: #e96f0b;
+    }
   }
 }
 
-.chevron {
+.chevron,
+.menuMeta,
+.check {
   margin-left: auto;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+}
+
+.chevron {
+  color: rgba(26, 23, 22, 0.34) !important;
+}
+
+.menuMeta {
+  color: rgba(26, 23, 22, 0.34);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .divider {
   height: 1px;
-  margin: 6px 8px;
-  background: var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  margin: 5px 8px;
+  background: rgba(26, 23, 22, 0.08);
 }
 
-.version {
-  padding: 9px 10px 4px;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.subPanel {
-  width: 248px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 6px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
-  font-size: 12px;
-  font-weight: 600;
-
-  :global(.ant-select),
-  :global(.ant-segmented) {
-    width: 100%;
-  }
-
-  :global(.ant-segmented-group) {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  :global(.ant-segmented-item-label) {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-}
-
-.linkPanel {
+.choicePanel {
   width: 190px;
-  padding: 4px;
+}
+
+.choiceItemSelected {
+  color: rgba(26, 23, 22, 0.94);
+}
+
+.check {
+  color: #e96f0b !important;
 }
 
 .nestedPopover {
-  :global(.ant-popover-inner) {
-    padding: 6px;
-    border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(24, 20, 18, 0.12);
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 0;
+    border-radius: 13px;
+    background: transparent !important;
+    box-shadow: none;
+  }
+
+  :global(.ant-popover-inner-content),
+  :global(.qwenpaw-popover-inner-content) {
+    overflow: hidden;
+    border-radius: inherit;
+  }
+
+  :global(.ant-popover-arrow),
+  :global(.qwenpaw-popover-arrow) {
+    display: none;
   }
 }
 
 :global(.dark-mode) {
-  .menuItem,
-  .linkPanel button {
-    color: rgba(255, 255, 255, 0.88);
+  .panel,
+  .flyoutPanel,
+  .choicePanel {
+    background: #242321;
+  }
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.07);
+  .menuItem,
+  .choiceItem {
+    color: rgba(255, 255, 255, 0.82);
+
+    > svg {
+      color: rgba(255, 255, 255, 0.58);
+    }
+
+    &:hover,
+    &:focus-visible,
+    &:global(.ant-popover-open) {
+      background: rgba(255, 127, 22, 0.13);
+      color: rgba(255, 255, 255, 0.96);
     }
   }
 
   .divider {
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  .chevron,
+  .menuMeta {
+    color: rgba(255, 255, 255, 0.34) !important;
   }
 }

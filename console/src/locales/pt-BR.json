@@ -2844,7 +2844,7 @@
     },
     "quickMenu": {
       "settings": "Configurações",
-      "appearance": "Aparência",
+      "preferences": "Preferências",
       "about": "Sobre o QwenPaw",
       "aboutDescription": "O QwenPaw é um assistente pessoal de IA que funciona localmente ou na nuvem, pode ser ampliado com skills e plugins e se conecta a vários canais de mensagens.",
       "github": "GitHub",

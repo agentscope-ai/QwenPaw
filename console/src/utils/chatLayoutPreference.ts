@@ -1,4 +1,5 @@
 const CHAT_WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
+export const CHAT_WIDE_MODE_CHANGE_EVENT = "qwenpaw:chat-wide-mode-change";
 
 export function getChatWideModePreference(): boolean {
   try {
@@ -17,5 +18,9 @@ export function setChatWideModePreference(enabled: boolean): void {
     }
   } catch {
     // storage unavailable
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CHAT_WIDE_MODE_CHANGE_EVENT));
   }
 }

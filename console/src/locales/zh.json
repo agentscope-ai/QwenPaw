@@ -264,7 +264,7 @@
     },
     "quickMenu": {
       "settings": "设置",
-      "appearance": "外观",
+      "preferences": "偏好设置",
       "about": "关于 QwenPaw",
       "aboutDescription": "QwenPaw 是你的个人 AI 助手，可在本地或云端运行，通过技能与插件扩展能力，并连接多种消息渠道。",
       "github": "GitHub",
@@ -321,7 +321,7 @@
     "contentWidth": "内容宽度",
     "contentWidthHint": "设置对话内容使用标准宽度或扩展到可用宽度。",
     "contentWidthStandard": "标准",
-    "contentWidthWide": "宽",
+    "contentWidthWide": "加宽",
     "chatDisplay": "对话显示",
     "thinkingDisplay": "思考过程展示",
     "thinkingDisplayHint": "在对话中展示模型思考过程，不影响模型实际推理。",

@@ -1,26 +1,43 @@
-import { Popover, Segmented, Select } from "antd";
+import { Popover } from "antd";
 import {
+  BookOpen,
+  Check,
   ChevronRight,
-  CircleDot,
-  GitBranch,
+  CircleHelp,
+  FileText,
   Github,
   Info,
+  Languages,
   Monitor,
   Moon,
   Palette,
+  PlayCircle,
   Settings,
   Sun,
+  UnfoldHorizontal,
 } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { languageApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
+import {
+  getChatWideModePreference,
+  setChatWideModePreference,
+} from "../utils/chatLayoutPreference";
 import { openExternalLink } from "../utils/openExternalLink";
-import { GITHUB_URL } from "./constants";
+import {
+  GITHUB_URL,
+  getDocsUrl,
+  getFaqUrl,
+  getFeatureDemosUrl,
+  getReleaseNotesUrl,
+} from "./constants";
 import styles from "./sidebarSettingsPanel.module.less";
 
-const GITHUB_ISSUES_URL = `${GITHUB_URL}/issues`;
-const GITHUB_RELEASES_URL = `${GITHUB_URL}/releases`;
+type ContentWidth = "standard" | "wide";
+
+const QWENPAW_WEBSITE_URL = "https://qwenpaw.agentscope.io/";
 
 const LANGUAGES = [
   { value: "zh", label: "简体中文" },
@@ -35,18 +52,84 @@ const LANGUAGES = [
 interface SidebarSettingsPanelProps {
   version?: string;
   onClose?: () => void;
+  onOpenDesktopMode: () => void;
   onOpenSettings: () => void;
-  onOpenAbout: () => void;
+}
+
+interface FlyoutItemProps {
+  icon: ReactNode;
+  label: ReactNode;
+  content: ReactNode;
+}
+
+function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
+  return (
+    <Popover
+      placement="rightTop"
+      trigger={["hover", "click"]}
+      content={content}
+      overlayClassName={styles.nestedPopover}
+      destroyOnHidden
+      mouseEnterDelay={0.08}
+      mouseLeaveDelay={0.12}
+    >
+      <button type="button" className={styles.menuItem}>
+        {icon}
+        <span>{label}</span>
+        <ChevronRight className={styles.chevron} size={15} />
+      </button>
+    </Popover>
+  );
+}
+
+interface Choice<T extends string> {
+  value: T;
+  label: ReactNode;
+  icon?: ReactNode;
+}
+
+function ChoicePanel<T extends string>({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: Choice<T>[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className={styles.choicePanel}>
+      {choices.map((choice) => {
+        const selected = choice.value === value;
+        return (
+          <button
+            type="button"
+            key={choice.value}
+            className={`${styles.choiceItem} ${
+              selected ? styles.choiceItemSelected : ""
+            }`}
+            aria-current={selected ? "true" : undefined}
+            onClick={() => onChange(choice.value)}
+          >
+            {choice.icon}
+            <span>{choice.label}</span>
+            {selected && <Check className={styles.check} size={16} />}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function SidebarSettingsPanel({
   version,
   onClose,
+  onOpenDesktopMode,
   onOpenSettings,
-  onOpenAbout,
 }: SidebarSettingsPanelProps) {
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
+  const [wideMode, setWideMode] = useState(getChatWideModePreference);
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
   const currentLanguage = LANGUAGES.some(
     (language) => language.value === rawLanguage,
@@ -54,125 +137,182 @@ export default function SidebarSettingsPanel({
     ? rawLanguage
     : rawLanguage.split("-")[0];
 
+  const finishAction = (action: () => void) => {
+    action();
+    onClose?.();
+  };
+
   const changeLanguage = (language: string) => {
-    void i18n.changeLanguage(language);
-    localStorage.setItem("language", language);
-    void languageApi.updateLanguage(language).catch(() => {});
+    finishAction(() => {
+      void i18n.changeLanguage(language);
+      localStorage.setItem("language", language);
+      void languageApi.updateLanguage(language).catch(() => {});
+    });
+  };
+
+  const changeTheme = (theme: ThemeMode) => {
+    finishAction(() => setThemeMode(theme));
+  };
+
+  const changeContentWidth = (width: ContentWidth) => {
+    const enabled = width === "wide";
+    finishAction(() => {
+      setChatWideModePreference(enabled);
+      setWideMode(enabled);
+    });
   };
 
   const openLink = (url: string) => {
-    onClose?.();
-    openExternalLink(url);
+    finishAction(() => openExternalLink(url));
   };
 
-  const appearanceContent = (
-    <div className={styles.subPanel}>
-      <label className={styles.field}>
-        <span>{t("sidebar.settings.language", "Language")}</span>
-        <Select
-          value={currentLanguage}
-          options={LANGUAGES}
-          onChange={changeLanguage}
-        />
-      </label>
-      <div className={styles.field}>
-        <span>{t("sidebar.settings.theme", "Theme")}</span>
-        <Segmented<ThemeMode>
-          value={themeMode}
-          options={[
-            {
-              value: "light",
-              label: <Sun size={15} aria-label={t("theme.light")} />,
-            },
-            {
-              value: "dark",
-              label: <Moon size={15} aria-label={t("theme.dark")} />,
-            },
-            {
-              value: "system",
-              label: <Monitor size={15} aria-label={t("theme.system")} />,
-            },
-          ]}
-          onChange={setThemeMode}
-        />
-      </div>
-    </div>
+  const languageChoices = (
+    <ChoicePanel
+      choices={LANGUAGES}
+      value={currentLanguage}
+      onChange={changeLanguage}
+    />
   );
 
-  const githubContent = (
-    <div className={styles.linkPanel}>
-      <button type="button" onClick={() => openLink(GITHUB_URL)}>
-        <Github size={16} />
-        {t("sidebar.quickMenu.repository", "Repository")}
-      </button>
-      <button type="button" onClick={() => openLink(GITHUB_ISSUES_URL)}>
-        <CircleDot size={16} />
-        {t("sidebar.quickMenu.issues", "Issues")}
-      </button>
-      <button type="button" onClick={() => openLink(GITHUB_RELEASES_URL)}>
-        <GitBranch size={16} />
-        {t("sidebar.quickMenu.releases", "Releases")}
+  const themeChoices = (
+    <ChoicePanel<ThemeMode>
+      choices={[
+        {
+          value: "light",
+          label: t("theme.light", "Light"),
+          icon: <Sun size={15} />,
+        },
+        {
+          value: "dark",
+          label: t("theme.dark", "Dark"),
+          icon: <Moon size={15} />,
+        },
+        {
+          value: "system",
+          label: t("theme.system", "System"),
+          icon: <Monitor size={15} />,
+        },
+      ]}
+      value={themeMode}
+      onChange={changeTheme}
+    />
+  );
+
+  const widthChoices = (
+    <ChoicePanel<ContentWidth>
+      choices={[
+        {
+          value: "standard",
+          label: t("settingsCenter.contentWidthStandard", "Standard"),
+        },
+        {
+          value: "wide",
+          label: t("settingsCenter.contentWidthWide", "Wide"),
+        },
+      ]}
+      value={wideMode ? "wide" : "standard"}
+      onChange={changeContentWidth}
+    />
+  );
+
+  const preferencesContent = (
+    <div className={styles.flyoutPanel}>
+      <FlyoutItem
+        icon={<Languages size={16} />}
+        label={t("sidebar.settings.language", "Language")}
+        content={languageChoices}
+      />
+      <FlyoutItem
+        icon={<Palette size={16} />}
+        label={t("sidebar.settings.theme", "Theme")}
+        content={themeChoices}
+      />
+      <FlyoutItem
+        icon={<UnfoldHorizontal size={16} />}
+        label={t("settingsCenter.contentWidth", "Content width")}
+        content={widthChoices}
+      />
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => finishAction(onOpenDesktopMode)}
+      >
+        <Monitor size={16} />
+        <span>{t("sidebar.settings.desktopMode", "Desktop mode")}</span>
       </button>
     </div>
   );
 
   return (
     <div className={styles.panel}>
+      <FlyoutItem
+        icon={<Palette size={16} />}
+        label={t("sidebar.quickMenu.preferences", "Preferences")}
+        content={preferencesContent}
+      />
       <button
         type="button"
         className={styles.menuItem}
-        onClick={() => {
-          onClose?.();
-          onOpenSettings();
-        }}
+        onClick={() => finishAction(onOpenSettings)}
       >
-        <Settings size={17} />
+        <Settings size={16} />
         <span>{t("sidebar.quickMenu.settings", "Settings")}</span>
       </button>
-
-      <Popover
-        placement="rightTop"
-        trigger="click"
-        content={appearanceContent}
-        overlayClassName={styles.nestedPopover}
-      >
-        <button type="button" className={styles.menuItem}>
-          <Palette size={17} />
-          <span>{t("sidebar.quickMenu.appearance", "Appearance")}</span>
-          <ChevronRight className={styles.chevron} size={16} />
-        </button>
-      </Popover>
 
       <div className={styles.divider} />
 
       <button
         type="button"
         className={styles.menuItem}
-        onClick={() => {
-          onClose?.();
-          onOpenAbout();
-        }}
+        onClick={() => openLink(getDocsUrl(i18n.language))}
       >
-        <Info size={17} />
-        <span>{t("sidebar.quickMenu.about", "About QwenPaw")}</span>
+        <BookOpen size={16} />
+        <span>{t("header.tutorial", "Tutorial")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(getFeatureDemosUrl(i18n.language))}
+      >
+        <PlayCircle size={16} />
+        <span>{t("header.featureDemos", "Feature demos")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(getReleaseNotesUrl(i18n.language))}
+      >
+        <FileText size={16} />
+        <span>{t("header.changelog", "Changelog")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(getFaqUrl(i18n.language))}
+      >
+        <CircleHelp size={16} />
+        <span>{t("header.faq", "FAQ")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(GITHUB_URL)}
+      >
+        <Github size={16} />
+        <span>{t("sidebar.quickMenu.github", "GitHub")}</span>
       </button>
 
-      <Popover
-        placement="rightBottom"
-        trigger="click"
-        content={githubContent}
-        overlayClassName={styles.nestedPopover}
-      >
-        <button type="button" className={styles.menuItem}>
-          <Github size={17} />
-          <span>{t("sidebar.quickMenu.github", "GitHub")}</span>
-          <ChevronRight className={styles.chevron} size={16} />
-        </button>
-      </Popover>
+      <div className={styles.divider} />
 
-      <div className={styles.version}>
-        QwenPaw {version ? `v${version}` : ""}
-      </div>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(QWENPAW_WEBSITE_URL)}
+      >
+        <Info size={16} />
+        <span>{t("sidebar.quickMenu.about", "About QwenPaw")}</span>
+        {version && <span className={styles.menuMeta}>v{version}</span>}
+      </button>
     </div>
   );
 }

@@ -33,67 +33,105 @@ describe("SidebarSettingsPanel", () => {
   it("keeps Settings as an action and displays the current version", async () => {
     const onClose = vi.fn();
     const onOpenSettings = vi.fn();
-    const onOpenAbout = vi.fn();
-
     renderWithProviders(
       <ThemeProvider>
         <SidebarSettingsPanel
           version="2.2.0b3"
           onClose={onClose}
+          onOpenDesktopMode={vi.fn()}
           onOpenSettings={onOpenSettings}
-          onOpenAbout={onOpenAbout}
         />
       </ThemeProvider>,
     );
 
-    expect(screen.getByText("QwenPaw v2.2.0b3")).toBeVisible();
+    expect(screen.getByText("v2.2.0b3")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
 
     await userEvent.click(
-      screen.getByRole("button", { name: "About QwenPaw" }),
+      screen.getByRole("button", { name: /About QwenPaw/ }),
     );
-    expect(onOpenAbout).toHaveBeenCalledOnce();
+    expect(mocks.openExternalLink).toHaveBeenCalledWith(
+      "https://qwenpaw.agentscope.io/",
+    );
   });
 
-  it("opens appearance and GitHub submenus", async () => {
+  it("uses cascading preferences without dropdown controls", async () => {
     renderWithProviders(
       <ThemeProvider>
         <SidebarSettingsPanel
           version="2.2.0b3"
+          onOpenDesktopMode={vi.fn()}
           onOpenSettings={vi.fn()}
-          onOpenAbout={vi.fn()}
         />
       </ThemeProvider>,
     );
 
-    const appearanceButton = screen.getByRole("button", {
-      name: "Appearance",
+    const preferencesButton = screen.getByRole("button", {
+      name: "Preferences",
     });
-    await userEvent.click(appearanceButton);
-    expect(appearanceButton).toHaveClass("ant-popover-open");
+    await userEvent.click(preferencesButton);
+    expect(preferencesButton).toHaveClass("ant-popover-open");
     const language = last(await screen.findAllByText("Language"));
-    const appearance = within(language.closest(".ant-popover")!);
-    expect(appearance.getByText("Language")).toBeInTheDocument();
-    expect(appearance.getByLabelText("theme.light")).toBeInTheDocument();
-    expect(appearance.getByLabelText("theme.dark")).toBeInTheDocument();
-    expect(appearance.getByLabelText("theme.system")).toBeInTheDocument();
+    const preferences = within(language.closest(".ant-popover")!);
+    expect(preferences.getByText("Language")).toBeInTheDocument();
+    expect(preferences.getByText("Theme")).toBeInTheDocument();
+    expect(preferences.getByText("Content width")).toBeInTheDocument();
+    expect(preferences.getByText("Desktop mode")).toBeInTheDocument();
+    expect(document.querySelector(".ant-select")).not.toBeInTheDocument();
+    expect(document.querySelector(".ant-segmented")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      preferences.getByRole("button", { name: "Language" }),
+    );
+    const english = last(await screen.findAllByText("English"));
+    const languages = within(english.closest(".ant-popover")!);
+    expect(languages.getByText("简体中文")).toBeInTheDocument();
+    expect(languages.getByText("Português")).toBeInTheDocument();
+  });
+
+  it("opens desktop mode from preferences", async () => {
+    const onClose = vi.fn();
+    const onOpenDesktopMode = vi.fn();
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onClose={onClose}
+          onOpenDesktopMode={onOpenDesktopMode}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Preferences" }));
+    await userEvent.click(
+      last(await screen.findAllByRole("button", { name: "Desktop mode" })),
+    );
+
+    expect(onOpenDesktopMode).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("expands documentation links and opens GitHub directly", async () => {
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          version="2.2.0b3"
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Tutorial" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Feature demos" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Changelog" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "FAQ" })).toBeVisible();
 
     const githubButton = screen.getByRole("button", { name: "GitHub" });
     await userEvent.click(githubButton);
-    expect(githubButton).toHaveClass("ant-popover-open");
-    const repository = last(await screen.findAllByText("Repository"));
-    const github = within(repository.closest(".ant-popover")!);
-    const issues = github.getByRole("button", { name: "Issues" });
-    expect(
-      github.getByRole("button", { name: "Repository" }),
-    ).toBeInTheDocument();
-    expect(
-      github.getByRole("button", { name: "Releases" }),
-    ).toBeInTheDocument();
-
-    await userEvent.click(issues);
-    expect(mocks.openExternalLink).toHaveBeenCalledWith(`${GITHUB_URL}/issues`);
+    expect(githubButton).not.toHaveClass("ant-popover-open");
+    expect(mocks.openExternalLink).toHaveBeenCalledWith(GITHUB_URL);
   });
 });

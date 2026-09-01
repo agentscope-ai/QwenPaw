@@ -57,7 +57,10 @@ import { LoopModeSelector } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
-import { getChatWideModePreference } from "@/utils/chatLayoutPreference";
+import {
+  CHAT_WIDE_MODE_CHANGE_EVENT,
+  getChatWideModePreference,
+} from "@/utils/chatLayoutPreference";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
@@ -1246,8 +1249,18 @@ export default function ChatPage() {
     [dispatchFilesDrawer],
   );
 
-  // Wide mode is configured in Settings > General.
-  const [isWideMode] = useState(getChatWideModePreference);
+  const [isWideMode, setIsWideMode] = useState(getChatWideModePreference);
+
+  useEffect(() => {
+    const syncWideMode = () => {
+      setIsWideMode(getChatWideModePreference());
+    };
+
+    window.addEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+    return () => {
+      window.removeEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+    };
+  }, []);
 
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<

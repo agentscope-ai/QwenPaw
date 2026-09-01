@@ -127,7 +127,21 @@ describe("Sidebar overflow layout", () => {
     expect(bottomControls).toContain("<SidebarSettingsPanel");
     expect(bottomControls).toContain("onOpenSettings={handleOpenSettings}");
     expect(bottomControls).toContain("open={settingsOpen}");
+    expect(bottomControls).toContain("destroyOnHidden");
     expect(bottomControls).not.toContain("{collapsed && (");
+  });
+
+  it("removes the prefixed popover shell around quick settings", () => {
+    const popoverStart = stylesSource.indexOf(".quickSettingsPopover {");
+    const popoverRule = stylesSource.slice(
+      popoverStart,
+      stylesSource.indexOf(".modeToggleActive", popoverStart),
+    );
+
+    expect(popoverRule).toContain(":global(.qwenpaw-popover-inner)");
+    expect(popoverRule).toContain("padding: 0 !important;");
+    expect(popoverRule).toContain("background: transparent !important;");
+    expect(popoverRule).toContain("box-shadow: none;");
   });
 
   it("pins new task and history outside the shortcut scroller", () => {

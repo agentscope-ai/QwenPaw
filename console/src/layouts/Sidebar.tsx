@@ -13,8 +13,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  BookOpen,
-  Github,
   History,
   RotateCw,
   Settings,
@@ -41,6 +39,7 @@ import {
 } from "../stores/sessionListStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
+import { getOsRootHref } from "../utils/navigationMode";
 import { requestSessionHistoryDrawerOpen } from "../utils/sessionHistoryDrawer";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
@@ -58,8 +57,6 @@ import {
 } from "./registry/sidebarEntries";
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
-import { GITHUB_URL, getDocsUrl } from "./constants";
-import { openExternalLink } from "../utils/openExternalLink";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -90,7 +87,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const currentSessionId = getSessionIdFromPath(location.pathname);
@@ -102,7 +99,6 @@ export default function Sidebar({
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
@@ -405,6 +401,10 @@ export default function Sidebar({
       },
     });
   }, [location.hash, location.pathname, location.search, navigate]);
+
+  const handleOpenDesktopMode = useCallback(() => {
+    window.location.assign(getOsRootHref(window.location.pathname));
+  }, []);
 
   /**
    * Session click: navigate directly without relying on ChatSessionInitializer.
@@ -754,12 +754,13 @@ export default function Sidebar({
           placement={collapsed ? "rightBottom" : "topRight"}
           trigger="click"
           overlayClassName={styles.quickSettingsPopover}
+          destroyOnHidden
           content={
             <SidebarSettingsPanel
               version={version}
               onClose={() => setSettingsOpen(false)}
+              onOpenDesktopMode={handleOpenDesktopMode}
               onOpenSettings={handleOpenSettings}
-              onOpenAbout={() => setAboutOpen(true)}
             />
           }
         >
@@ -902,40 +903,6 @@ export default function Sidebar({
             </div>
           )}
         </Form>
-      </Modal>
-
-      <Modal
-        open={aboutOpen}
-        onCancel={() => setAboutOpen(false)}
-        title={t("sidebar.quickMenu.about", "About QwenPaw")}
-        footer={null}
-        width={460}
-        centered
-      >
-        <div className={styles.aboutQwenPaw}>
-          <div className={styles.aboutBrand}>
-            <img
-              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-              alt="QwenPaw"
-            />
-            <span>{version ? `v${version}` : "—"}</span>
-          </div>
-          <p>{t("sidebar.quickMenu.aboutDescription")}</p>
-          <div className={styles.aboutLinks}>
-            <Button
-              icon={<BookOpen size={16} />}
-              onClick={() => openExternalLink(getDocsUrl(i18n.language))}
-            >
-              {t("header.docs")}
-            </Button>
-            <Button
-              icon={<Github size={16} />}
-              onClick={() => openExternalLink(GITHUB_URL)}
-            >
-              GitHub
-            </Button>
-          </div>
-        </div>
       </Modal>
     </Sider>
   );

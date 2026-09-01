@@ -246,7 +246,7 @@
     },
     "quickMenu": {
       "settings": "Cài đặt",
-      "appearance": "Giao diện",
+      "preferences": "Tùy chọn",
       "about": "Giới thiệu QwenPaw",
       "aboutDescription": "QwenPaw là trợ lý AI cá nhân chạy cục bộ hoặc trên đám mây, có thể mở rộng bằng kỹ năng và plugin, đồng thời kết nối với nhiều kênh nhắn tin.",
       "github": "GitHub",

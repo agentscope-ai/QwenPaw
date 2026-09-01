@@ -264,7 +264,7 @@
     },
     "quickMenu": {
       "settings": "Settings",
-      "appearance": "Appearance",
+      "preferences": "Preferences",
       "about": "About QwenPaw",
       "aboutDescription": "QwenPaw is a personal AI assistant that runs locally or in the cloud, extends through Skills and Plugins, and connects across messaging channels.",
       "github": "GitHub",

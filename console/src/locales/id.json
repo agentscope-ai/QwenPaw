@@ -275,7 +275,7 @@
     },
     "quickMenu": {
       "settings": "Pengaturan",
-      "appearance": "Tampilan",
+      "preferences": "Preferensi",
       "about": "Tentang QwenPaw",
       "aboutDescription": "QwenPaw adalah asisten AI pribadi yang berjalan secara lokal atau di cloud, dapat diperluas melalui keterampilan dan plugin, serta terhubung ke berbagai kanal pesan.",
       "github": "GitHub",
