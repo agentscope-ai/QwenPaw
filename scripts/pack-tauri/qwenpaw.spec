@@ -215,6 +215,13 @@ a = Analysis(
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
+        # ReMe light-memory core (reme-ai) is lazily imported by
+        # ReMeLightMemoryManager._initialize_reme, so PyInstaller's static
+        # analysis misses it. Without the module tree the bundled backend has
+        # an empty _internal/reme/ (data files only), _reme stays None and
+        # "Rebuild Memory Index" fails (#7446).
+        "reme",
+        *collect_submodules("reme"),
     ],
     hookspath=[],
     hooksconfig={},
