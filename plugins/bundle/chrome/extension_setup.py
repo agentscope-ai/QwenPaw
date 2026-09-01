@@ -762,7 +762,7 @@ def extension_install_status(
     extension_update_required = bool(
         unpacked_installed
         and extension_asset_version
-        and extension_version != extension_asset_version
+        and extension_version != extension_asset_version,
     )
     install_state = _read_install_mode_state_data(qwenpaw_home)
     install_mode = _read_install_mode_state(qwenpaw_home)
