@@ -209,7 +209,9 @@ class OAuth2CCProvider(CredentialProvider):
             record = await self._store.get(self._ref)
             values = record.values
             values["ref"] = self._ref
-            token, expires_in, _ = await self._exchanger.exchange(values)
+            result = await self._exchanger.exchange(values)
+            token = result[0]
+            expires_in = result[1]
             self._cached_token = token
             self._expires_at = time.time() + expires_in
             return ResolvedCredential(
@@ -268,11 +270,12 @@ class OAuth2AuthCodeProvider(CredentialProvider):
             if not values.get("refresh_token"):
                 raise OAuthRequiredError(self._ref)
             values["ref"] = self._ref
-            (
-                token,
-                expires_in,
-                rotated_refresh_token,
-            ) = await self._exchanger.exchange(values)
+            result = await self._exchanger.exchange(values)
+            token = result[0]
+            expires_in = result[1]
+            # Backward-compatible with custom exchangers (e.g. plugins)
+            # that still return the pre-rotation 2-tuple.
+            rotated_refresh_token = result[2] if len(result) > 2 else None
             public = dict(record.public)
             secrets = dict(record.secrets)
             public["expires_at"] = time.time() + expires_in
