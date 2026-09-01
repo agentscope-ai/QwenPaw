@@ -124,7 +124,9 @@ describe("Sidebar overflow layout", () => {
 
     expect(bottomControlsStart).toBeGreaterThanOrEqual(0);
     expect(bottomControls).toContain("<Settings size={18} />");
-    expect(bottomControls).toContain("onClick={handleOpenSettings}");
+    expect(bottomControls).toContain("<SidebarSettingsPanel");
+    expect(bottomControls).toContain("onOpenSettings={handleOpenSettings}");
+    expect(bottomControls).toContain("open={settingsOpen}");
     expect(bottomControls).not.toContain("{collapsed && (");
   });
 

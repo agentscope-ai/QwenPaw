@@ -5,6 +5,7 @@ import {
   Input,
   Form,
   Tooltip,
+  Popover,
   Popconfirm,
   Divider,
 } from "antd";
@@ -12,6 +13,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  BookOpen,
+  Github,
   History,
   RotateCw,
   Settings,
@@ -28,6 +31,7 @@ import {
   SparkEmailLine,
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
+import SidebarSettingsPanel from "./SidebarSettingsPanel";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
@@ -54,6 +58,8 @@ import {
 } from "./registry/sidebarEntries";
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
+import { GITHUB_URL, getDocsUrl } from "./constants";
+import { openExternalLink } from "../utils/openExternalLink";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -84,7 +90,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const currentSessionId = getSessionIdFromPath(location.pathname);
@@ -95,6 +101,9 @@ export default function Sidebar({
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
   // the main content on narrow viewports.
@@ -194,6 +203,13 @@ export default function Sidebar({
     );
     activeEntry?.scrollIntoView?.({ block: "nearest" });
   }, [selectedKey, visibleSidebarNav]);
+
+  useEffect(() => {
+    api
+      .getVersion()
+      .then((response) => setVersion(response?.version ?? ""))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     authApi
@@ -732,18 +748,29 @@ export default function Sidebar({
       )}
 
       <div className={styles.collapseToggleContainer}>
-        <Tooltip
-          title={t("nav.moreSettings", "More settings")}
-          placement="right"
+        <Popover
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          placement={collapsed ? "rightBottom" : "topRight"}
+          trigger="click"
+          overlayClassName={styles.quickSettingsPopover}
+          content={
+            <SidebarSettingsPanel
+              version={version}
+              onClose={() => setSettingsOpen(false)}
+              onOpenSettings={handleOpenSettings}
+              onOpenAbout={() => setAboutOpen(true)}
+            />
+          }
         >
           <Button
             type="text"
+            title={t("nav.moreSettings", "More settings")}
             aria-label={t("nav.moreSettings", "More settings")}
             icon={<Settings size={18} />}
             className={styles.collapseToggle}
-            onClick={handleOpenSettings}
           />
-        </Tooltip>
+        </Popover>
         <Button
           type="text"
           icon={
@@ -875,6 +902,40 @@ export default function Sidebar({
             </div>
           )}
         </Form>
+      </Modal>
+
+      <Modal
+        open={aboutOpen}
+        onCancel={() => setAboutOpen(false)}
+        title={t("sidebar.quickMenu.about", "About QwenPaw")}
+        footer={null}
+        width={460}
+        centered
+      >
+        <div className={styles.aboutQwenPaw}>
+          <div className={styles.aboutBrand}>
+            <img
+              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+              alt="QwenPaw"
+            />
+            <span>{version ? `v${version}` : "—"}</span>
+          </div>
+          <p>{t("sidebar.quickMenu.aboutDescription")}</p>
+          <div className={styles.aboutLinks}>
+            <Button
+              icon={<BookOpen size={16} />}
+              onClick={() => openExternalLink(getDocsUrl(i18n.language))}
+            >
+              {t("header.docs")}
+            </Button>
+            <Button
+              icon={<Github size={16} />}
+              onClick={() => openExternalLink(GITHUB_URL)}
+            >
+              GitHub
+            </Button>
+          </div>
+        </div>
       </Modal>
     </Sider>
   );

@@ -2598,6 +2598,16 @@
       "mode": "モード",
       "desktopMode": "デスクトップモード"
     },
+    "quickMenu": {
+      "settings": "設定",
+      "appearance": "外観",
+      "about": "QwenPaw について",
+      "aboutDescription": "QwenPaw はローカルまたはクラウドで動作し、スキルやプラグインで拡張でき、複数のメッセージチャンネルに接続できるパーソナル AI アシスタントです。",
+      "github": "GitHub",
+      "repository": "リポジトリ",
+      "issues": "問題を報告",
+      "releases": "リリース"
+    },
     "simpleMode": "シンプルモード",
     "fullMode": "フルモード",
     "more": "その他",

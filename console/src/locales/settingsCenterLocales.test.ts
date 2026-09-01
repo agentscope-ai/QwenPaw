@@ -49,6 +49,9 @@ describe("Settings Center copy", () => {
       expect(messages.nav.moreSettings).toBeTruthy();
       expect(messages.sidebar.more).toBeTruthy();
       expect(messages.chat.newTask).toBeTruthy();
+      expect(Object.keys(messages.sidebar.quickMenu).sort()).toEqual(
+        Object.keys(en.sidebar.quickMenu).sort(),
+      );
     },
   );
 });

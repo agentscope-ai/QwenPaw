@@ -262,6 +262,16 @@
       "mode": "模式",
       "desktopMode": "桌面模式"
     },
+    "quickMenu": {
+      "settings": "设置",
+      "appearance": "外观",
+      "about": "关于 QwenPaw",
+      "aboutDescription": "QwenPaw 是你的个人 AI 助手，可在本地或云端运行，通过技能与插件扩展能力，并连接多种消息渠道。",
+      "github": "GitHub",
+      "repository": "项目主页",
+      "issues": "问题反馈",
+      "releases": "发布版本"
+    },
     "simpleMode": "精简模式",
     "fullMode": "完整模式",
     "more": "更多",

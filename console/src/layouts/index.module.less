@@ -578,6 +578,63 @@
   }
 }
 
+.quickSettingsPopover {
+  :global(.ant-popover-inner) {
+    padding: 4px;
+    border: 1px solid rgba(26, 23, 22, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 16px 42px rgba(24, 20, 18, 0.14);
+  }
+}
+
+.aboutQwenPaw {
+  padding: 6px 2px 2px;
+
+  > p {
+    margin: 18px 0;
+    color: rgba(26, 23, 22, 0.58);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+}
+
+.aboutBrand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  img {
+    width: auto;
+    height: 24px;
+  }
+
+  span {
+    color: rgba(26, 23, 22, 0.42);
+    font-size: 12px;
+  }
+}
+
+.aboutLinks {
+  display: flex;
+  gap: 8px;
+}
+
+:global(.dark-mode) {
+  .quickSettingsPopover {
+    :global(.ant-popover-inner) {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .aboutQwenPaw > p {
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .aboutBrand span {
+    color: rgba(255, 255, 255, 0.42);
+  }
+}
+
 .modeToggleActive {
   color: #ff7f16 !important;
   background: rgba(255, 127, 22, 0.08);

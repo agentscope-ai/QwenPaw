@@ -1,125 +1,108 @@
-/* SidebarSettingsPanel — quick-access settings panel */
-
 .panel {
+  width: 224px;
+  padding: 6px;
+}
+
+.menuItem,
+.linkPanel button {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+  }
+}
+
+.chevron {
+  margin-left: auto;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+}
+
+.divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+}
+
+.version {
+  padding: 9px 10px 4px;
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.subPanel {
+  width: 248px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-width: 210px;
-  padding: 2px 0;
+  padding: 6px;
 }
 
-/* ── Section row ────────────────────────────────────────────────────────── */
-
-.row {
+.field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.label {
+  gap: 7px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
-  user-select: none;
-}
 
-/* ── Options group ──────────────────────────────────────────────────────── */
-
-.options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-/* ── Individual option button ───────────────────────────────────────────── */
-
-.optBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
-  border-radius: 6px;
-  background: transparent;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-
-  &:hover {
-    background: var(--color-fill-tertiary, rgba(0, 0, 0, 0.04));
-    border-color: var(--colorBorder, rgba(0, 0, 0, 0.15));
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  :global(.ant-select),
+  :global(.ant-segmented) {
+    width: 100%;
   }
 
-  &Active {
-    background: var(--colorPrimaryBg, #fff7e6);
-    border-color: var(--colorPrimary, #ff9d4d);
-    color: var(--colorPrimary, #ff9d4d);
+  :global(.ant-segmented-group) {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
 
-    &:hover {
-      background: var(--colorPrimaryBg, #fff7e6);
-    }
+  :global(.ant-segmented-item-label) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
-.optLabel {
-  font-size: 13px;
-  line-height: 1;
+.linkPanel {
+  width: 190px;
+  padding: 4px;
 }
 
-.desktopModeBtn {
-  border-color: rgba(255, 127, 22, 0.36);
-  color: #d95f00;
-  background: rgba(255, 127, 22, 0.06);
-
-  &:hover {
-    border-color: #ff7f16;
-    color: #d95f00;
-    background: rgba(255, 127, 22, 0.12);
+.nestedPopover {
+  :global(.ant-popover-inner) {
+    padding: 6px;
+    border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(24, 20, 18, 0.12);
   }
 }
-
-/* ── Dark mode ──────────────────────────────────────────────────────────── */
 
 :global(.dark-mode) {
-  .label {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .optBtn {
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.55);
+  .menuItem,
+  .linkPanel button {
+    color: rgba(255, 255, 255, 0.88);
 
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.2);
-      color: rgba(255, 255, 255, 0.88);
-    }
-
-    &Active {
-      background: rgba(255, 127, 22, 0.12);
-      border-color: #ff7f16;
-      color: #ff7f16;
-
-      &:hover {
-        background: rgba(255, 127, 22, 0.18);
-      }
+      background: rgba(255, 255, 255, 0.07);
     }
   }
 
-  .desktopModeBtn {
-    border-color: rgba(255, 127, 22, 0.38);
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.08);
-
-    &:hover {
-      border-color: #ff7f16;
-      color: #ffad6b;
-      background: rgba(255, 127, 22, 0.15);
-    }
+  .divider {
+    background: rgba(255, 255, 255, 0.1);
   }
 }
