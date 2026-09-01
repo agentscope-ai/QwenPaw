@@ -537,6 +537,7 @@ class PluginLoader:
                 f"Failed to load module spec for {backend_entry_file}",
             )
 
+        modules_before = dict(sys.modules)
         module = importlib.util.module_from_spec(spec)
 
         # Redirect the plugin's bare absolute imports (``import utils``)
@@ -620,7 +621,7 @@ class PluginLoader:
             # or a data-directory fallthrough during load can cache a
             # bare name rooted in this plugin's tree, which would keep
             # serving later plugins even with sys.path clean.
-            sweep_bare_tree_modules(source_path)
+            sweep_bare_tree_modules(source_path, modules_before)
 
         return plugin_def
 

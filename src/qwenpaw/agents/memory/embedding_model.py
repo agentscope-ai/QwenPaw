@@ -21,7 +21,6 @@ from qwenpaw.config.config import EmbeddingModelConfig
 
 from .reme_config import _embedding_credential, _is_embedding_enabled
 
-
 _CREDENTIAL_TYPES = {
     "openai": OpenAICredential,
     "dashscope": DashScopeCredential,
@@ -82,9 +81,10 @@ def create_embedding_model(
 async def test_embedding_model(
     config: EmbeddingModelConfig,
     *,
-    timeout: float = 15.0,
+    timeout: float | None = None,
 ) -> tuple[EmbeddingModelBase[Any] | None, EmbeddingTestResult]:
     """Create and call a model, including strict dimension checks."""
+    timeout = config.health_check_timeout if timeout is None else timeout
     started = time.monotonic()
     actual_dimensions: int | None = None
     try:

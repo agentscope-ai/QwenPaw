@@ -187,8 +187,8 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
     close.assert_awaited_once()
 
 
-async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
-    provider = _make_provider()
+async def test_custom_list_model_error_propagates(monkeypatch) -> None:
+    provider = _make_provider(is_custom=True)
 
     class FakeModels:
         async def list(self, timeout=None):
@@ -197,11 +197,10 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    models = await provider.fetch_models(timeout=3)
+    with pytest.raises(RuntimeError, match="failed"):
+        await provider.fetch_models(timeout=3)
 
-    assert models == []
     close.assert_awaited_once()
 
 

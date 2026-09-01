@@ -57,7 +57,11 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     ):
         return False
 
-    for collection_name in ("models", "extra_models"):
+    for collection_name in (
+        "models",
+        "extra_models",
+        "discovered_models",
+    ):
         models = data.get(collection_name)
         if not isinstance(models, list):
             continue
