@@ -96,6 +96,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 | `card_template_id`       | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                                      |
 | `card_template_key`      | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                                       |
 | `robot_code`             | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty)           |
+| `card_auto_layout`       | bool   | `false`         | If `true`, DingTalk renders AI Cards in widescreen on desktop (only for `card` messages)                                   |
 | `share_session_in_group` | bool   | `false`         | If `true`, all group members share one conversation context; if `false` (default), each member gets an independent context |
 | `media_dir`              | string | `null`          | Media file download directory (leave empty to not save)                                                                    |
 

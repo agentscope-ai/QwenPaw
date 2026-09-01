@@ -21,7 +21,9 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.1.5",
+    "reme-ai==0.4.1.10",
+    "reme-auto-fin==0.1.2",
+    "reme-daily-paper==0.1.2",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -64,7 +66,7 @@ dependencies = [
     "orjson>=3.9",
     # Coding Mode — Python LSP server bundled as a zero-config fallback
     # so the `lsp` tool always works for .py files (see PROPOSAL §3.4).
-    "python-lsp-server[all]>=1.10",
+    "python-lsp-server[autopep8,flake8,mccabe,pycodestyle,pydocstyle,pyflakes,rope,yapf]>=1.10",
     # Coding Mode — multi-language AST pattern matcher used by ast_search.
     # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
     # wheels for all three OSes.

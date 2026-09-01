@@ -73,6 +73,33 @@ async def test_probe_rejects_dimension_mismatch(monkeypatch) -> None:
     assert "expected 3, got 2" in result.message
 
 
+@pytest.mark.asyncio
+async def test_probe_uses_configured_health_check_timeout(monkeypatch) -> None:
+    observed = {}
+
+    class FakeModel:
+        async def __call__(self, _inputs):
+            return SimpleNamespace(embeddings=[[0.1, 0.2, 0.3]])
+
+    async def fake_wait_for(awaitable, timeout):
+        observed["timeout"] = timeout
+        return await awaitable
+
+    monkeypatch.setattr(
+        module,
+        "create_embedding_model",
+        lambda *_args, **_kwargs: FakeModel(),
+    )
+    monkeypatch.setattr(module.asyncio, "wait_for", fake_wait_for)
+
+    _model, result = await module.test_embedding_model(
+        _config(health_check_timeout=42),
+    )
+
+    assert result.success is True
+    assert observed["timeout"] == 42
+
+
 def test_vector_space_fingerprint_ignores_key_and_cache_settings() -> None:
     first = _config(api_key="old", max_cache_size=10)
     second = _config(api_key="new", max_cache_size=20)

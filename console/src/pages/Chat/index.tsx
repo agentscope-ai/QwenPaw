@@ -2505,14 +2505,17 @@ export default function ChatPage() {
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
+      const text = extractCopyableText(response);
+      if (!text) return;
+
       try {
-        await copyText(extractCopyableText(response));
+        await copyText(text);
         message.success(t("common.copied"));
       } catch {
         message.error(t("common.copyFailed"));
       }
     },
-    [t],
+    [message, t],
   );
 
   const customFetch = useCallback(
