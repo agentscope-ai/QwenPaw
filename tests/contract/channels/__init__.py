@@ -40,6 +40,16 @@ class ChannelContractTest(BaseContractTest):
     4. No abstract methods remain unimplemented
     """
 
+    @pytest.fixture(autouse=True)
+    def _isolate_channel_config(self, monkeypatch):
+        """Prevent contract construction from reading user configuration."""
+        from qwenpaw.config.config import Config
+
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.base.load_config",
+            Config,
+        )
+
     @abstractmethod
     def create_instance(self) -> Any:
         """Provide a configured channel instance for testing."""

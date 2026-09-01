@@ -6,6 +6,9 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'scripts/check-channels.sh'
+      - 'scripts/check_channel_contracts.py'
+      - '.gitattributes'
       - 'pyproject.toml'
       - 'setup.py'
       - 'deploy/Dockerfile'
@@ -62,6 +65,9 @@ jobs:
             code:
               - 'src/**'
               - 'tests/**'
+              - 'scripts/check-channels.sh'
+              - 'scripts/check_channel_contracts.py'
+              - '.gitattributes'
               - 'pyproject.toml'
               - 'setup.py'
               - '.github/workflows/tests.yml'
@@ -239,6 +245,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
+
+      - name: Check channel contract coverage
+        run: python scripts/check_channel_contracts.py
+
+      - name: Validate channel check script
+        shell: bash
+        run: bash -n scripts/check-channels.sh
 
       - name: Run contract tests
         shell: bash
