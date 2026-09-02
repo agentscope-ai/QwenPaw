@@ -247,12 +247,7 @@
     "quickMenu": {
       "settings": "Cài đặt",
       "appearance": "Giao diện",
-      "about": "Giới thiệu QwenPaw",
-      "aboutDescription": "QwenPaw là trợ lý AI cá nhân chạy cục bộ hoặc trên đám mây, có thể mở rộng bằng kỹ năng và plugin, đồng thời kết nối với nhiều kênh nhắn tin.",
-      "github": "GitHub",
-      "repository": "Kho mã nguồn",
-      "issues": "Báo cáo vấn đề",
-      "releases": "Bản phát hành"
+      "about": "Giới thiệu QwenPaw"
     },
     "simpleMode": "Chế độ đơn giản",
     "fullMode": "Chế độ đầy đủ",
@@ -293,7 +288,6 @@
       "extension": "Cài đặt do tiện ích mở rộng cung cấp"
     },
     "appearanceAndLanguage": "Giao diện và ngôn ngữ",
-    "contentLayout": "Bố cục nội dung",
     "desktopApplication": "Ứng dụng máy tính",
     "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",
     "themeHint": "Dùng giao diện sáng, tối hoặc theo hệ thống.",
@@ -722,7 +716,6 @@
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
     "modelSelectTooltip": "Chọn mô hình",
-    "newChatTooltip": "Cuộc trò chuyện mới",
     "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
     "messageDisplay": {

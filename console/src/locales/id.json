@@ -276,12 +276,7 @@
     "quickMenu": {
       "settings": "Pengaturan",
       "appearance": "Tampilan",
-      "about": "Tentang QwenPaw",
-      "aboutDescription": "QwenPaw adalah asisten AI pribadi yang berjalan secara lokal atau di cloud, dapat diperluas melalui keterampilan dan plugin, serta terhubung ke berbagai kanal pesan.",
-      "github": "GitHub",
-      "repository": "Repositori",
-      "issues": "Laporan masalah",
-      "releases": "Rilis"
+      "about": "Tentang QwenPaw"
     },
     "simpleMode": "Mode sederhana",
     "fullMode": "Mode lengkap",
@@ -325,7 +320,6 @@
       "extension": "Pengaturan yang disediakan oleh ekstensi"
     },
     "appearanceAndLanguage": "Tampilan & bahasa",
-    "contentLayout": "Tata letak konten",
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
     "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
@@ -709,7 +703,6 @@
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },
     "modelSelectTooltip": "Pilih model",
-    "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
     "wideModeTooltip": "Mode lebar",

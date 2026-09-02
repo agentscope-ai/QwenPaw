@@ -265,12 +265,7 @@
     "quickMenu": {
       "settings": "设置",
       "appearance": "外观",
-      "about": "关于 QwenPaw",
-      "aboutDescription": "QwenPaw 是你的个人 AI 助手，可在本地或云端运行，通过技能与插件扩展能力，并连接多种消息渠道。",
-      "github": "GitHub",
-      "repository": "项目主页",
-      "issues": "问题反馈",
-      "releases": "发布版本"
+      "about": "关于 QwenPaw"
     },
     "simpleMode": "精简模式",
     "fullMode": "完整模式",
@@ -314,7 +309,6 @@
       "extension": "插件提供的设置"
     },
     "appearanceAndLanguage": "外观与语言",
-    "contentLayout": "内容布局",
     "desktopApplication": "桌面应用",
     "languageHint": "更改当前设备上的界面语言。",
     "themeHint": "使用浅色、深色或跟随系统外观。",
@@ -3139,7 +3133,6 @@
       "codeSnippet": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
-    "newChatTooltip": "新建聊天",
     "newTask": "新建任务",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",

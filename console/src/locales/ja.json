@@ -2601,12 +2601,7 @@
     "quickMenu": {
       "settings": "設定",
       "appearance": "外観",
-      "about": "QwenPaw について",
-      "aboutDescription": "QwenPaw はローカルまたはクラウドで動作し、スキルやプラグインで拡張でき、複数のメッセージチャンネルに接続できるパーソナル AI アシスタントです。",
-      "github": "GitHub",
-      "repository": "リポジトリ",
-      "issues": "問題を報告",
-      "releases": "リリース"
+      "about": "QwenPaw について"
     },
     "simpleMode": "シンプルモード",
     "fullMode": "フルモード",
@@ -2647,7 +2642,6 @@
       "extension": "拡張機能が提供する設定"
     },
     "appearanceAndLanguage": "外観と言語",
-    "contentLayout": "コンテンツレイアウト",
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",
     "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
@@ -2690,7 +2684,6 @@
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
-    "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
     "wideModeTooltip": "ワイドモード",

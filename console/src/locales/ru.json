@@ -2616,12 +2616,7 @@
     "quickMenu": {
       "settings": "Настройки",
       "appearance": "Внешний вид",
-      "about": "О QwenPaw",
-      "aboutDescription": "QwenPaw — персональный ИИ-ассистент, который работает локально или в облаке, расширяется навыками и плагинами и подключается к различным каналам сообщений.",
-      "github": "GitHub",
-      "repository": "Репозиторий",
-      "issues": "Сообщить о проблеме",
-      "releases": "Релизы"
+      "about": "О QwenPaw"
     },
     "simpleMode": "Простой режим",
     "fullMode": "Полный режим",
@@ -2662,7 +2657,6 @@
       "extension": "Настройки, предоставленные расширением"
     },
     "appearanceAndLanguage": "Внешний вид и язык",
-    "contentLayout": "Макет содержимого",
     "desktopApplication": "Настольное приложение",
     "languageHint": "Изменяет язык интерфейса на этом устройстве.",
     "themeHint": "Используйте светлую, тёмную или системную тему.",
@@ -2705,7 +2699,6 @@
       "codeSnippet": "Фрагмент кода · {{count}} строк"
     },
     "modelSelectTooltip": "Выбор модели",
-    "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
     "wideModeTooltip": "Широкий режим",

@@ -265,12 +265,7 @@
     "quickMenu": {
       "settings": "Settings",
       "appearance": "Appearance",
-      "about": "About QwenPaw",
-      "aboutDescription": "QwenPaw is a personal AI assistant that runs locally or in the cloud, extends through Skills and Plugins, and connects across messaging channels.",
-      "github": "GitHub",
-      "repository": "Repository",
-      "issues": "Issues",
-      "releases": "Releases"
+      "about": "About QwenPaw"
     },
     "simpleMode": "Simple Mode",
     "fullMode": "Full Mode",
@@ -314,7 +309,6 @@
       "extension": "Settings provided by an extension"
     },
     "appearanceAndLanguage": "Appearance & language",
-    "contentLayout": "Content layout",
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",
     "themeHint": "Use a light, dark or system-matched appearance.",
@@ -3282,7 +3276,6 @@
       "codeSnippet_other": "Code snippet · {{count}} lines"
     },
     "modelSelectTooltip": "Select model",
-    "newChatTooltip": "New chat",
     "newTask": "New task",
     "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
