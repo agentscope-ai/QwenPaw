@@ -133,6 +133,10 @@ export interface AdvisorModeConfig {
   followup_enabled: boolean;
   on_demand_enabled: boolean;
   max_consults: number;
+  /** Advisor model override; null = the agent's main model. */
+  teacher_model?: ModelSlotConfig | null;
+  /** Agent model override while Advisor Mode is on; null = sub-agent model. */
+  student_model?: ModelSlotConfig | null;
 }
 
 export interface AgentModelSettingsPatch {

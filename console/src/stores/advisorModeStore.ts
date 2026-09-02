@@ -10,7 +10,19 @@ export type AdvisorModeSnapshot = Pick<
   | "on_demand_enabled"
   | "teacher_model"
   | "student_model"
->;
+> &
+  Partial<
+    Pick<
+      AdvisorModeApiState,
+      | "max_consults"
+      | "teacher_source"
+      | "student_source"
+      | "teacher_model_override"
+      | "student_model_override"
+      | "main_model"
+      | "subagent_model"
+    >
+  >;
 
 interface AdvisorModeStoreState {
   /**
