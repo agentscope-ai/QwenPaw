@@ -626,9 +626,9 @@
   transition: all 0.15s ease;
 }
 .availableItem:hover {
-  background: #fff;
-  border-color: #6366f1;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  background: var(--models-surface);
+  border-color: var(--models-accent);
+  box-shadow: 0 2px 8px var(--app-accent-ring);
 }
 
 .availableItemName {
@@ -640,7 +640,7 @@
 
 .availableItemAction {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -662,7 +662,7 @@
   transition: all 0.2s;
 
   &:hover {
-    background: #eef2ff;
+    background: var(--models-accent-soft);
     transform: translateX(4px);
   }
 }
@@ -691,7 +691,7 @@
   box-shadow: none;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.15);
+    border-color: var(--app-accent-border);
   }
 
   :global(.ant-card-body) {
@@ -941,7 +941,7 @@
   cursor: default;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.15);
+    border-color: var(--app-accent-border);
   }
 }
 
@@ -1020,8 +1020,8 @@
 }
 
 .groupSegBtnActive {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
+  background: var(--models-accent-soft);
+  color: var(--models-accent-strong);
 }
 
 .groupSegDot {
@@ -1083,7 +1083,7 @@
 
 .groupCardChangeBtn {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   cursor: pointer;
   font-family:
     "Inter",
@@ -1093,7 +1093,7 @@
   margin-left: 8px;
 
   &:hover {
-    color: #4f46e5;
+    color: var(--models-accent-strong);
   }
 }
 
@@ -1122,8 +1122,8 @@
   font-family: inherit;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.3);
-    color: #6366f1;
+    border-color: var(--app-accent-border);
+    color: var(--models-accent);
   }
 }
 
@@ -1351,7 +1351,7 @@
 
 .llmPillEdit {
   font-size: 12px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   font-weight: 500;
   margin-left: 4px;
   white-space: nowrap;
@@ -1445,8 +1445,8 @@
   color: #6b7280;
 }
 .tabItemActive {
-  color: #6366f1;
-  border-bottom-color: #6366f1;
+  color: var(--models-accent-strong);
+  border-bottom-color: var(--models-accent);
 }
 
 /* ---- Model Slot Sections ---- */
@@ -2244,42 +2244,21 @@
       }
     }
   }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
   .loadingText {
     color: rgba(255, 255, 255, 0.35);
   }
-
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
   }
-
   .providerGroupTitle {
     color: rgba(255, 255, 255, 0.4);
   }
-
   .subSectionTitle {
     color: rgba(255, 255, 255, 0.35);
   }
   .subSectionTitle::after {
     background: rgba(255, 255, 255, 0.08);
   }
-
   .localModalTitle,
   .localSectionTitle,
   .localSummaryValue,
@@ -2289,7 +2268,6 @@
   .localLockedPanelTitle {
     color: rgba(255, 255, 255, 0.88);
   }
-
   .localModalDescription,
   .localSectionDescription,
   .localStatusHint,
@@ -2302,7 +2280,6 @@
   .localEngineMetricLabel {
     color: rgba(255, 255, 255, 0.5);
   }
-
   .localSummaryPill,
   .localSectionInfoRow,
   .localSectionNotice,
@@ -2312,416 +2289,195 @@
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.08);
   }
-
   .localStatusBadgeInstalled,
   .localStatusBadgeRunning {
     color: #86efac;
     background: rgba(34, 197, 94, 0.12);
     border-color: rgba(34, 197, 94, 0.28);
   }
-
   .localStatusBadgeMuted {
     color: rgba(255, 255, 255, 0.72);
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.12);
   }
-
   .localStatusBadgeDead {
     color: #fdba74;
     background: rgba(249, 115, 22, 0.12);
     border-color: rgba(249, 115, 22, 0.28);
   }
-
   .localStatusBadgeProgress {
     color: #93c5fd;
     background: rgba(59, 130, 246, 0.12);
     border-color: rgba(59, 130, 246, 0.28);
   }
-
   .localStatusBadgeAction {
     color: #bfdbfe;
     background: rgba(59, 130, 246, 0.18);
     border-color: rgba(96, 165, 250, 0.4);
     box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
   }
-
   .localStatusActionPill {
     color: #93c5fd;
     background: rgba(59, 130, 246, 0.12);
     border-color: rgba(59, 130, 246, 0.28);
   }
-
   .localRuntimeProgress {
     :global(.ant-progress-inner) {
       background: rgba(255, 127, 22, 0.18);
     }
   }
-
   .localRuntimeProgressMeta {
     color: rgba(255, 255, 255, 0.5);
   }
-
   .modelListItemStatusButton {
     color: #5eead4;
     background: rgba(20, 184, 166, 0.14);
   }
-
   /* Provider card */
   .providerCard {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
     box-shadow: none !important;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
   }
-
-  .cardName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
   .builtinTag {
     background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
     border-color: rgba(255, 255, 255, 0.12);
   }
-
   .customTag {
     background-color: rgba(255, 127, 22, 0.15);
-    color: #ff9d4d;
     border-color: rgba(255, 127, 22, 0.25);
   }
-
-  .freeTag {
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: #fff;
-  }
-
   .configuredCount {
     color: #34d399;
   }
-
   .availableHint {
     color: rgba(255, 255, 255, 0.4);
   }
-
-  .emptyConfigured {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  .emptyConfigured p {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .availableItem {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-  .availableItem:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(99, 102, 241, 0.4);
-  }
-
-  .availableItemName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .availableItemAction {
-    color: #818cf8;
-  }
-
-  .variantItem {
-    background: rgba(255, 255, 255, 0.04);
-    &:hover {
-      background: rgba(99, 102, 241, 0.15);
-    }
-  }
-
   .variantItemName {
     color: rgba(255, 255, 255, 0.9);
   }
-
   .localTag {
     background-color: rgba(29, 212, 215, 0.15);
     color: rgba(29, 212, 215, 1);
   }
-
   .infoRow {
     color: rgba(255, 255, 255, 0.5);
   }
-
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  .infoValue {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
   .infoEmpty {
     color: rgba(255, 255, 255, 0.2);
   }
-
   .cardActions {
     border-top-color: rgba(255, 255, 255, 0.08);
     background: #2a2a2a;
   }
-
-  .groupCardGlass {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-  }
-
-  .groupCardName {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .groupSegmented {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .groupSegBtn {
-    color: #666;
-
-    &:hover {
-      color: #999;
-    }
-  }
-
-  .groupSegBtnActive {
-    background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
-  }
-
-  .groupSegDotOff {
-    background: #dc2626;
-  }
-
-  .groupCardFieldLabel {
-    color: #555;
-  }
-
-  .groupCardFieldValue {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .groupCardMono {
-    color: #888;
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .groupCardActions {
-    border-top-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .groupCardActBtn {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.06);
-    color: #888;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.3);
-      color: #a5b4fc;
-    }
-  }
-
   .groupCardActBtnDanger {
     color: #f87171;
     border-color: rgba(248, 113, 113, 0.2);
-
     &:hover {
       border-color: rgba(248, 113, 113, 0.5);
       color: #ef4444;
       background: rgba(248, 113, 113, 0.08);
     }
   }
-
   .configBtn {
     color: rgba(255, 255, 255, 0.65) !important;
-
     &:hover {
       color: #ff7f16 !important;
     }
   }
-
   .statusContainer .statusText.disabled {
     color: rgba(255, 255, 255, 0.3);
   }
-
   .llmPillOn {
-    background: linear-gradient(
-      135deg,
-      rgba(16, 185, 129, 0.1),
-      rgba(16, 185, 129, 0.05),
-      rgba(255, 255, 255, 0.03)
-    );
     border-color: rgba(16, 185, 129, 0.4);
     box-shadow: 0 1px 6px rgba(16, 185, 129, 0.15);
-
     &:hover {
       box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
     }
   }
   .llmPillOff {
-    background: linear-gradient(
-      135deg,
-      rgba(239, 68, 68, 0.1),
-      rgba(239, 68, 68, 0.05),
-      rgba(255, 255, 255, 0.03)
-    );
-    border-color: rgba(239, 68, 68, 0.4);
     box-shadow: 0 1px 6px rgba(239, 68, 68, 0.15);
-
     &:hover {
       box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
     }
   }
-  .llmPillLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .llmPillValue {
-    color: rgba(255, 255, 255, 0.85);
-  }
-  .llmPillEdit {
-    color: #a5b4fc;
-  }
   .llmDescription {
     color: rgba(255, 255, 255, 0.45);
-  }
-  .panelSection {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-  .panelSectionDashed {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  .panelTitle {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .panelDotGreen {
-    background: #34d399;
-  }
-  .panelDotGray {
-    background: rgba(255, 255, 255, 0.2);
-  }
-  .panelCount {
-    color: #34d399;
   }
   .tabsNav {
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
-  .tabItem {
-    color: rgba(255, 255, 255, 0.4);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.6);
-    }
-  }
-  .tabItemActive {
-    color: #a5b4fc;
-    border-bottom-color: #a5b4fc;
-  }
-
   /* Slot section (LLM 顶部选择区) */
   .slotSection {
     background: #2a2a2a;
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-
     &:hover {
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
       border-color: rgba(255, 255, 255, 0.15);
     }
   }
-
   .slotHeader {
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
-
   .slotTitle {
     color: rgba(255, 255, 255, 0.85);
   }
-
   .slotCurrent {
     color: #52c41a;
     background: rgba(82, 196, 26, 0.1);
     border-color: rgba(82, 196, 26, 0.3);
   }
-
   .slotLabel {
     color: rgba(255, 255, 255, 0.5);
   }
-
   .slotActions {
     border-top-color: rgba(255, 255, 255, 0.08);
   }
-
   /* Advanced config */
   .advancedConfigSection {
     border-top-color: rgba(255, 255, 255, 0.08);
   }
-
   .localAdvancedConfigSection {
     border-top-color: rgba(255, 255, 255, 0.08);
   }
-
   .advancedConfigToggle {
     color: rgba(255, 255, 255, 0.65);
   }
-
   .localAdvancedConfigLabel {
     color: rgba(255, 255, 255, 0.88);
   }
-
   /* JSON editor */
   .jsonEditorContainer {
     border-color: rgba(255, 255, 255, 0.15);
     background: #1a1a1a;
-
     &:focus-within {
       border-color: #ff7f16;
     }
   }
-
   .jsonEditorHighlight {
     color: rgba(255, 255, 255, 0.45);
   }
-
   .jsonEditorTextarea {
     caret-color: rgba(255, 255, 255, 0.85);
   }
-
   /* Model list (modal) */
   .modelList {
     border-color: rgba(255, 255, 255, 0.08);
   }
-
   .modelListEmpty {
     color: rgba(255, 255, 255, 0.3);
   }
-
   .modelListLoadMore {
     border-top-color: rgba(255, 255, 255, 0.08);
   }
-
   .modelListCount {
     color: rgba(255, 255, 255, 0.35);
   }
-
   .modelListItem {
     border-bottom-color: rgba(255, 255, 255, 0.06);
-
     &:hover {
       background: rgba(255, 255, 255, 0.04);
     }
   }
-
   .customModelListItem {
     background: linear-gradient(
       180deg,
@@ -2729,7 +2485,6 @@
       rgba(255, 127, 22, 0.04) 100%
     );
     border-left-color: rgba(255, 127, 22, 0.55);
-
     &:hover {
       background: linear-gradient(
         180deg,
@@ -2738,46 +2493,19 @@
       );
     }
   }
-
   .modelListItemName {
     color: rgba(255, 255, 255, 0.85);
   }
-
   .modelListItemId {
     color: rgba(255, 255, 255, 0.3);
   }
-
   .customModelHint {
     color: rgba(255, 255, 255, 0.45);
   }
-
   .modelAddForm {
     background: rgba(255, 255, 255, 0.03);
     border-color: rgba(255, 255, 255, 0.12);
   }
-
-  /* Provider cards */
-  .providerCard {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-  }
-
-  .cardName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .infoValue {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
   .infoEmpty {
     color: rgba(255, 255, 255, 0.3);
   }

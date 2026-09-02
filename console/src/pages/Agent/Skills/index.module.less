@@ -599,8 +599,8 @@
   margin-bottom: 12px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1132,9 +1132,9 @@
   transition: all 0.15s ease;
 
   &:hover {
-    background: #fff;
-    border-color: #6366f1;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+    background: var(--app-surface);
+    border-color: var(--app-accent);
+    box-shadow: 0 2px 8px var(--app-accent-ring);
   }
 }
 
@@ -1164,7 +1164,7 @@
 
 .disabledSkillGridAction {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--app-accent-text);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -1900,7 +1900,7 @@
 
     &:hover {
       background: #333;
-      border-color: rgba(99, 102, 241, 0.4);
+      border-color: var(--app-accent-border);
     }
   }
 

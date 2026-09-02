@@ -122,9 +122,9 @@
 }
 
 .availableItem:hover {
-  background: #fff;
-  border-color: #6366f1;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  background: var(--app-surface);
+  border-color: var(--app-accent);
+  box-shadow: 0 2px 8px var(--app-accent-ring);
 }
 
 .availableItemName {
@@ -140,7 +140,7 @@
 
 .availableItemAction {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--app-accent-text);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -391,7 +391,7 @@
 
     &:hover {
       background: rgba(255, 255, 255, 0.08);
-      border-color: #6366f1;
+      border-color: var(--app-accent);
     }
   }
 
@@ -400,7 +400,7 @@
   }
 
   .availableItemAction {
-    color: #818cf8;
+    color: var(--app-accent-text);
   }
 
   .toggleButton {
