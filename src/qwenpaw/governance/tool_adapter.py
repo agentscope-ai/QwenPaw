@@ -259,6 +259,8 @@ def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
 
 
 # pylint: disable=too-many-return-statements,too-many-branches
+# pylint: disable=too-many-statements
+# pylint: disable=too-many-nested-blocks
 async def _policy_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -314,8 +316,7 @@ async def _policy_tool_check_permissions(
             return PermissionDecision(
                 behavior=PermissionBehavior.ALLOW,
                 message=(
-                    "governance: approval_level=off, "
-                    "governor unavailable."
+                    "governance: approval_level=off, " "governor unavailable."
                 ),
             )
         # Keep the remainder of this function's unified decision flow. The
