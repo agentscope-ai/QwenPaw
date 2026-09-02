@@ -640,6 +640,38 @@ async def test_plan_is_written_once_per_conversation():
     assert fresh.plan_injected is False, "/new starts the advisor over"
 
 
+def test_intervention_thresholds_come_from_the_config():
+    cfg = _config()
+    cfg.advisor_mode.intervention.consecutive_failures = 2
+    cfg.advisor_mode.intervention.max_interventions = 1
+    mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
+    trigger = mw._trigger.config
+    assert trigger.consecutive_failures == 2
+    assert trigger.max_interventions == 1
+    assert trigger.window_size == 10, "defaults for the rest"
+    # Configs without the section (older agent.json) get the defaults.
+    bare = _config()
+    bare.advisor_mode = SimpleNamespace(
+        enabled=True,
+        plan_enabled=True,
+        followup_enabled=True,
+        on_demand_enabled=True,
+        max_consults=3,
+    )
+    assert (
+        AdvisorMode().build_middleware(_ctx(bare), bare)._trigger.config
+        == TriggerConfig()
+    )
+
+
+def test_transcripts_stay_out_of_the_real_working_dir(isolated_advisor_dir):
+    from qwenpaw.modes.advisor.middleware import default_log_dir
+
+    assert default_log_dir("agent-1") == isolated_advisor_dir / "agent-1"
+    mw = AdvisorMode().build_middleware(_ctx(_config()), _config())
+    assert str(mw._log_dir).startswith(str(isolated_advisor_dir))
+
+
 async def test_a_failed_plan_is_retried_on_the_next_turn():
     mode = AdvisorMode()
     cfg = _config()
