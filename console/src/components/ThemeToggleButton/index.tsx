@@ -43,7 +43,13 @@ export default function ThemeToggleButton() {
       placement="bottomRight"
       overlayClassName={styles.themeDropdown}
     >
-      <Button className={styles.toggleBtn} type="text" icon={icon} />
+      <Button
+        aria-label={t("sidebar.settings.theme")}
+        title={t("sidebar.settings.theme")}
+        className={styles.toggleBtn}
+        type="text"
+        icon={icon}
+      />
     </Dropdown>
   );
 }

@@ -36,7 +36,7 @@ interface LanguageSwitcherProps {
 export default function LanguageSwitcher({
   persistRemotely = true,
 }: LanguageSwitcherProps) {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
   const currentLangKey = KNOWN_LANG_KEYS.has(currentLanguage)
@@ -72,7 +72,12 @@ export default function LanguageSwitcher({
       placement="bottomRight"
       overlayClassName={styles.languageDropdown}
     >
-      <Button icon={iconMap[currentLangKey]} type="text" />
+      <Button
+        aria-label={t("sidebar.settings.language")}
+        title={t("sidebar.settings.language")}
+        icon={iconMap[currentLangKey]}
+        type="text"
+      />
     </Dropdown>
   );
 }

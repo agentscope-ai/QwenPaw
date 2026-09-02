@@ -52,7 +52,9 @@ describe("LanguageSwitcher", () => {
 
   it("renders the language switcher button", () => {
     renderWithProviders(<LanguageSwitcher />);
-    expect(screen.getByRole("button")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "sidebar.settings.language" }),
+    ).toHaveAttribute("title", "sidebar.settings.language");
   });
 
   it("shows all supported language options", () => {
