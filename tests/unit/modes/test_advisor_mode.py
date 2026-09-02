@@ -43,6 +43,13 @@ def _config(
     return cfg
 
 
+def _picked() -> AdvisorMode:
+    """A mode that was picked for the test conversation (``/advisor``)."""
+    mode = AdvisorMode()
+    mode.session_state("sess-1").override = True
+    return mode
+
+
 def _ctx(cfg=None, request=None, workspace_dir=None):
     return SimpleNamespace(
         agent_id="agent-1",
@@ -57,9 +64,16 @@ def _ctx(cfg=None, request=None, workspace_dir=None):
 # ── activation ──────────────────────────────────────────────────────────
 
 
-def test_active_follows_config_flag():
+def test_conversations_start_in_the_default_loop():
+    """``enabled`` makes the mode available; a conversation is in Advisor
+    Mode only after it was picked (``/advisor``)."""
     mode = AdvisorMode()
+    assert mode.is_available(_config(enabled=True)) is True
+    assert mode.is_available(_config(enabled=False)) is False
+    assert mode.is_active(_ctx(_config(enabled=True))) is False
+    mode.session_state("sess-1").override = True
     assert mode.is_active(_ctx(_config(enabled=True))) is True
+    # Switching the agent off wins over a conversation that picked it.
     assert mode.is_active(_ctx(_config(enabled=False))) is False
 
 
@@ -76,7 +90,9 @@ def test_loads_persisted_config_when_ctx_has_none(monkeypatch):
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: _config(enabled=True),
     )
-    assert AdvisorMode().is_active(_ctx(None)) is True
+    mode = AdvisorMode()
+    mode.session_state("sess-1").override = True
+    assert mode.is_active(_ctx(None)) is True
 
 
 # ── student model hook ──────────────────────────────────────────────────
@@ -93,7 +109,7 @@ def test_hook_is_registered_pre_build():
 
 
 async def test_hook_routes_agent_to_subagent_model():
-    mode = AdvisorMode()
+    mode = _picked()
     ctx = _ctx(_config())
     await mode.hooks()[0].run(ctx)
     assert ctx.request.model_slot_override == {
@@ -117,7 +133,7 @@ async def test_hook_prefers_the_student_model_override():
         model="s-mini",
     )
     ctx = _ctx(cfg)
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)
     assert ctx.request.model_slot_override == {
         "provider_id": "small",
         "model": "s-mini",
@@ -131,7 +147,7 @@ async def test_hook_student_override_works_without_a_subagent_model():
         model="s-mini",
     )
     ctx = _ctx(cfg)
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)
     assert ctx.mode_state["advisor"]["student_model"] == {
         "provider_id": "small",
         "model": "s-mini",
@@ -140,14 +156,14 @@ async def test_hook_student_override_works_without_a_subagent_model():
 
 async def test_hook_keeps_main_model_without_subagent_model():
     ctx = _ctx(_config(sub=None))
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)
     assert not hasattr(ctx.request, "model_slot_override")
     assert ctx.mode_state["advisor"]["student_model"] is None
 
 
 async def test_hook_respects_explicit_request_override():
     ctx = _ctx(_config(), request=SimpleNamespace(model_slot_override="p:m"))
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)
     assert ctx.request.model_slot_override == "p:m"
     assert ctx.mode_state["advisor"]["student_model"] is None
 
@@ -155,13 +171,13 @@ async def test_hook_respects_explicit_request_override():
 async def test_hook_respects_payload_override():
     request = SimpleNamespace(request_context={"model_slot_override": "p:m"})
     ctx = _ctx(_config(), request=request)
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)
     assert not hasattr(ctx.request, "model_slot_override")
 
 
 async def test_hook_is_a_no_op_when_mode_disabled():
     ctx = _ctx(_config(enabled=False))
-    await AdvisorMode().hooks()[0].run(ctx)
+    await _picked().hooks()[0].run(ctx)  # picked, but switched off
     assert not hasattr(ctx.request, "model_slot_override")
     assert "advisor" not in ctx.mode_state
 
@@ -170,7 +186,7 @@ async def test_hook_is_a_no_op_when_mode_disabled():
 
 
 def test_middlewares_only_when_enabled():
-    mode = AdvisorMode()
+    mode = _picked()
     cfg = _config(enabled=True, followup=False)
     mws = mode.middlewares(_ctx(cfg), cfg)
     assert len(mws) == 1
@@ -221,10 +237,14 @@ async def test_command_status_reports_models(monkeypatch):
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: _config(enabled=True),
     )
-    reply = await AdvisorMode()._command_handler(_ctx(), "status")
+    mode = AdvisorMode()
+    text = _text(await mode._command_handler(_ctx(), "status"))
+    assert "Advisor Mode: off (not selected for this conversation" in text
+    mode.session_state("sess-1").override = True
+    reply = await mode._command_handler(_ctx(), "status")
     text = _text(reply)
     assert reply.role == "system"
-    assert "Advisor Mode: on" in text
+    assert "Advisor Mode: on (this conversation)" in text
     assert "dash:qwen3-max" in text and "dash:qwen3-8b" in text
 
 
@@ -234,8 +254,33 @@ async def test_command_status_without_subagent_model(monkeypatch):
         lambda _agent_id: _config(enabled=False, sub=None),
     )
     text = _text(await AdvisorMode()._command_handler(_ctx(), ""))
-    assert "Advisor Mode: off" in text
+    assert "Advisor Mode: off (switched off for this agent" in text
     assert "no sub-agent model configured" in text
+
+
+async def test_command_refuses_to_start_when_switched_off(monkeypatch):
+    """With the agent switch off, ``/advisor on`` and ``/advisor <task>``
+    explain where to turn it on instead of starting the mode."""
+    from agentscope.message import UserMsg
+
+    cfg = _config(enabled=False)
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: cfg,
+    )
+    mode = AdvisorMode()
+    ctx = _ctx(cfg)
+    ctx.input_msgs = [UserMsg(name="user", content="/advisor build it")]
+    for args in ("on", "build it"):
+        reply = await mode._command_handler(ctx, args)
+        assert "switched off for this agent" in _text(reply)
+    assert mode.is_active(ctx) is False
+    assert mode._override("sess-1") is None
+    assert ctx.input_msgs[-1].content[0].text == "/advisor build it"
+    # ``off`` always works, so a stale override can be cleared.
+    assert "disabled for this conversation" in _text(
+        await mode._command_handler(ctx, "off"),
+    )
 
 
 @pytest.mark.parametrize("arg,expected", [("on", True), ("OFF", False)])
@@ -244,9 +289,9 @@ async def test_command_on_off_switches_this_conversation(
     arg,
     expected,
 ):
-    """/advisor on|off overrides the agent default for the session only;
-    agent.json is never written."""
-    stored = _config(enabled=not expected)
+    """/advisor on|off switches the session only; agent.json is never
+    written."""
+    stored = _config(enabled=True)
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: stored,
@@ -254,7 +299,7 @@ async def test_command_on_off_switches_this_conversation(
     mode = AdvisorMode()
     ctx = _ctx(stored)
     reply = await mode._command_handler(ctx, arg)
-    assert stored.advisor_mode.enabled is (not expected), "default untouched"
+    assert stored.advisor_mode.enabled is True, "config untouched"
     assert mode.is_active(ctx) is expected
     assert mode.session_state("sess-1").override is expected
     text = _text(reply)
@@ -270,7 +315,7 @@ async def test_command_with_a_task_starts_the_mode_and_runs_it(
     agent sees the bare task."""
     from agentscope.message import UserMsg
 
-    cfg = _config(enabled=False)
+    cfg = _config(enabled=True)
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: cfg,
@@ -289,17 +334,17 @@ async def test_command_with_a_task_starts_the_mode_and_runs_it(
     assert mode.is_active(ctx) is False
 
 
-async def test_session_override_beats_agent_default(monkeypatch):
+async def test_leaving_the_mode_switches_everything_off(monkeypatch):
     cfg = _config(enabled=True)
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: cfg,
     )
-    mode = AdvisorMode()
+    mode = _picked()
     ctx = _ctx(cfg)
-    assert mode.is_active(ctx) is True, "agent default on"
+    assert mode.is_active(ctx) is True, "picked for the conversation"
     await mode._command_handler(ctx, "off")
-    assert mode.is_active(ctx) is False, "session override wins"
+    assert mode.is_active(ctx) is False
     assert not mode.middlewares(ctx, cfg)
     hook_ctx = _ctx(cfg)
     await mode.hooks()[0].run(hook_ctx)
@@ -397,7 +442,7 @@ def test_teacher_override_beats_the_main_model():
     cfg.advisor_mode.teacher_model = ModelSlotConfig(provider_id="big")
     assert resolve_teacher_slot(cfg)[1] == "main_model"
     assert resolve_student_slot(_config(sub=None)) == (None, "main_model")
-    mw = AdvisorMode().middlewares(_ctx(cfg), cfg)[0]
+    mw = _picked().middlewares(_ctx(cfg), cfg)[0]
     assert mw._teacher.label == "dash:qwen3-max"
 
 
@@ -455,7 +500,7 @@ def test_tool_is_registered_and_mode_gated():
 def test_advisor_mode_is_an_exclusive_loop_mode():
     """Listed in the composer's mode menu like /goal; while active it
     counts as the explicit mode of the conversation."""
-    mode = AdvisorMode()
+    mode = _picked()
     assert mode.exclusive is True
     ctx = _ctx(_config(enabled=True))
     ctx.workspace = SimpleNamespace(plugins=SimpleNamespace(modes=[mode]))

@@ -375,6 +375,9 @@ def _build_loop_catalog(
         if not getattr(mode, "exclusive", True):
             continue
         try:
+            is_available = getattr(mode, "is_available", None)
+            if callable(is_available) and not is_available(workspace.config):
+                continue
             commands = mode.commands()
         except Exception:
             logger.warning(

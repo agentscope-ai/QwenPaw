@@ -4,7 +4,7 @@ import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCodingMode } from "../../../../stores/codingModeStore";
-import { useAdvisorMode } from "../../../../stores/advisorModeStore";
+import { useLoopStore } from "../../../../stores/loopStore";
 import styles from "./index.module.less";
 
 const MOBILE_BREAKPOINT_PX = 480;
@@ -13,7 +13,11 @@ const ChatHeaderTitle: React.FC = () => {
   const { sessions, currentSessionId, setCurrentSessionId } =
     useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const { advisorMode } = useAdvisorMode();
+  // Advisor Mode is per conversation: on once it was picked from the
+  // composer's mode menu (or /advisor on), regardless of the agent switch.
+  const advisorMode = useLoopStore(
+    (s) => s.sessionState !== "idle" && s.activeMode?.id === "plugin:advisor",
+  );
   const { t } = useTranslation();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const chatName = currentSession?.name || "New Chat";
@@ -81,7 +85,7 @@ const ChatHeaderTitle: React.FC = () => {
     </span>
   );
 
-  // Small tag after the title while Advisor Mode is on for this agent.
+  // Small tag after the title while this conversation is in Advisor Mode.
   const advisorBadge = advisorMode ? (
     <span
       className={styles.advisorBadge}

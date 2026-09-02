@@ -27,9 +27,11 @@ The advisor is called through the same model factory as every other QwenPaw mode
 
 ## Turning it on
 
-**For one conversation (chat composer)**: open the mode menu in the chat input bar (the pill that shows `default`) and pick **Advisor**, then send the task as usual. The first message is sent as `/advisor <task>`: the conversation switches into Advisor Mode and the agent runs the task right away. The conversation stays in Advisor Mode for its later messages until you leave it; while it is active the composer shows it like any other loop mode, and the other loop modes (`/goal`, mission) cannot be started in the same conversation.
+**Switch it on for the agent**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the composer's mode menu takes you there). The first switch makes Advisor Mode available for the agent: it adds **Advisor** to the composer's mode menu and enables `/advisor`. It does not change how conversations start — they still begin in the default loop. The same card has three more switches, one per capability, so each can be evaluated on its own: _Opening plan_ (the advisor writes a plan before the agent's first step), _Mid-run auto intervention_ (the harness watches tool results and calls the advisor when the agent keeps failing) and _Let the agent proactively ask the advisor via the `consult_advisor` tool_.
 
-The same works anywhere slash commands do (chat, TUI, channels):
+**Use it in a conversation (chat composer)**: open the mode menu in the chat input bar (the pill that shows `default`) and pick **Advisor**, then send the task as usual. The first message is sent as `/advisor <task>`: the conversation switches into Advisor Mode and the agent runs the task right away. The conversation stays in Advisor Mode for its later messages until you leave it; while it is active the composer shows it like any other loop mode, and the other loop modes (`/goal`, mission) cannot be started in the same conversation.
+
+The same works anywhere slash commands do (chat, TUI, channels, cron prompts):
 
 ```text
 /advisor <task>   # start Advisor Mode for this conversation and run the task
@@ -38,7 +40,7 @@ The same works anywhere slash commands do (chat, TUI, channels):
 /advisor status   # show advisor / agent models and the current state
 ```
 
-**For every conversation of an agent (default)**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the composer's mode menu takes you there). This is the default that every conversation, channel and cron run starts with; `/advisor on|off` overrides it for one conversation. The same card has three more switches, one per capability, so each can be evaluated on its own: _Opening plan_ (the advisor writes a plan before the agent's first step), _Mid-run auto intervention_ (the harness watches tool results and calls the advisor when the agent keeps failing) and _Let the agent proactively ask the advisor via the `consult_advisor` tool_.
+While the agent switch is off, `/advisor on` and `/advisor <task>` reply with where to turn it on instead of starting the mode.
 
 **API**: `GET /api/advisor-mode` returns the state (the switches, the models in effect and where each comes from), `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}`, `{"max_consults": 5}`, `{"teacher_model": {"provider_id": "…", "model": "…"}}` or `{"student_model": null}` updates it; fields left out are unchanged and `null` clears a model override.
 
