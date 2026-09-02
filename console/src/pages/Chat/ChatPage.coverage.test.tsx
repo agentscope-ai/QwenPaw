@@ -339,10 +339,6 @@ vi.mock("@/plugins/registry/useChatExtensions", () => ({
   ),
 }));
 
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => <div data-testid="session-drawer" />,
-}));
-
 vi.mock("./components/ContextUsageIndicator", () => ({
   default: () => <div data-testid="context-usage" />,
 }));
@@ -442,10 +438,6 @@ vi.mock("./turnUsageStore", () => ({
 vi.mock("./HostBubbles", () => ({
   HostRequestCard: () => null,
   HostResponseCard: () => null,
-}));
-
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => null,
 }));
 
 vi.mock("../../plugins/registry/PluginSlotBoundary", () => ({

@@ -131,12 +131,11 @@ describe("Chat mobile layout styles", () => {
     expect(stylesSource).not.toContain(".historyPanelMask {");
   });
 
-  it("opens history from the shared collapsed-sidebar event", () => {
-    expect(chatSource).toContain(
-      "window.addEventListener(\n      OPEN_SESSION_HISTORY_DRAWER_EVENT",
-    );
-    expect(chatSource).toContain("{historyPanelOpen && (");
-    expect(chatSource).not.toContain("onToggleHistory=");
+  it("does not retain the right-side history drawer", () => {
+    expect(chatSource).not.toContain("ChatSessionDrawer");
+    expect(chatSource).not.toContain("historyPanelOpen");
+    expect(chatSource).not.toContain("OPEN_SESSION_HISTORY_DRAWER_EVENT");
+    expect(chatSource).not.toContain("SESSION_HISTORY_DRAWER_STORAGE_KEY");
   });
 
   it("keeps the mobile composer toolbar in two stable columns", () => {

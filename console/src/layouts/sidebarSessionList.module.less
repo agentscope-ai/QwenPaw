@@ -1,4 +1,4 @@
-/* SidebarSessionList — shared conversation history for sidebar and mobile drawer */
+/* SidebarSessionList — conversation history in the primary sidebar */
 
 .sessionList {
   flex: 1;
@@ -120,8 +120,7 @@
     }
   }
 
-  .historyAction,
-  .closeButton {
+  .historyAction {
     color: rgba(255, 255, 255, 0.68);
 
     &:hover {
@@ -191,32 +190,6 @@
   border-radius: 6px;
   background: transparent;
   color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
-  cursor: pointer;
-
-  &:hover {
-    background: var(--colorFillSecondary, rgba(0, 0, 0, 0.06));
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
-    outline-offset: 1px;
-  }
-}
-
-.closeButton {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  align-items: center;
-  justify-content: center;
-  margin-right: 8px;
-  padding: 0;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
   cursor: pointer;
 
   &:hover {

@@ -24,14 +24,7 @@ describe("SessionItem status indicator", () => {
       label: "chat.statusIdle",
     },
   ])("renders $name", ({ props, label }) => {
-    render(
-      <SessionItem
-        variant="drawer"
-        sessionId="chat-1"
-        name="Chat"
-        {...props}
-      />,
-    );
+    render(<SessionItem sessionId="chat-1" name="Chat" {...props} />);
 
     expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
   });

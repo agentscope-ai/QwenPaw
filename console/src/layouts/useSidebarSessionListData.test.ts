@@ -9,16 +9,16 @@ import type { ReactNode } from "react";
 import React from "react";
 import { App } from "antd";
 import { MemoryRouter } from "react-router-dom";
-import type { ChatSpec } from "../../../../api";
-import api from "../../../../api";
-import { chatApi } from "../../../../api/modules/chat";
-import sessionApi from "../../sessionApi";
-import { useAgentStore } from "../../../../stores/agentStore";
-import { useSessionListStore } from "../../../../stores/sessionListStore";
+import type { ChatSpec } from "../api";
+import api from "../api";
+import { chatApi } from "../api/modules/chat";
+import sessionApi from "../pages/Chat/sessionApi";
+import { useAgentStore } from "../stores/agentStore";
+import { useSessionListStore } from "../stores/sessionListStore";
 import {
   useSessionListData,
   type ExtendedChatSession,
-} from "./useSessionListData";
+} from "./useSidebarSessionListData";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

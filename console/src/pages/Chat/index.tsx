@@ -62,7 +62,6 @@ import {
   getChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
 import ChatActionGroup from "./components/ChatActionGroup";
-import ChatSessionDrawer from "./components/ChatSessionDrawer";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
   patchContextMaxInputLength,
@@ -196,10 +195,6 @@ import {
   buildChatPath,
   getSessionIdFromPath,
 } from "../../utils/sessionRoute";
-import {
-  OPEN_SESSION_HISTORY_DRAWER_EVENT,
-  SESSION_HISTORY_DRAWER_STORAGE_KEY,
-} from "../../utils/sessionHistoryDrawer";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
 import {
@@ -1543,42 +1538,8 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-  // Desktop sessions live in the unified left sidebar. Mobile keeps the
-  // right-side history panel because the left sidebar starts collapsed.
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
-
-  // Mobile history drawer state, opened from the collapsed left sidebar.
-  const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
-    try {
-      return (
-        localStorage.getItem(SESSION_HISTORY_DRAWER_STORAGE_KEY) === "true"
-      );
-    } catch {
-      return false;
-    }
-  });
-  const closeHistoryPanel = useCallback(() => {
-    setHistoryPanelOpen(false);
-    try {
-      localStorage.removeItem(SESSION_HISTORY_DRAWER_STORAGE_KEY);
-    } catch {
-      // Storage can be unavailable in restricted browser contexts.
-    }
-  }, []);
-  useEffect(() => {
-    const openHistoryPanel = () => setHistoryPanelOpen(true);
-    window.addEventListener(
-      OPEN_SESSION_HISTORY_DRAWER_EVENT,
-      openHistoryPanel,
-    );
-    return () => {
-      window.removeEventListener(
-        OPEN_SESSION_HISTORY_DRAWER_EVENT,
-        openHistoryPanel,
-      );
-    };
-  }, []);
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -2344,7 +2305,7 @@ export default function ChatPage() {
 
       // If the user just created a new chat that hasn't sent its first message
       // yet, suppress the library's auto-selection of another session.
-      // The pending session will enter the drawer (and become the selected
+      // The pending session will enter the sidebar (and become the selected
       // session) only after triggerResolve fires onSessionIdResolved.
       if (
         sessionApi.lastActiveChatId &&
@@ -3804,14 +3765,6 @@ export default function ChatPage() {
         </Modal>
       </motion.div>
       {/* End of main chat area */}
-
-      {/* History drawer opens from the collapsed left sidebar. */}
-      {historyPanelOpen && (
-        <ChatSessionDrawer
-          open={historyPanelOpen}
-          onClose={closeHistoryPanel}
-        />
-      )}
     </div>
   );
 }

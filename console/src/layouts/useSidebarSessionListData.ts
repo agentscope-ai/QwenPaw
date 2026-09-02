@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
-import type { ChatStatus } from "../../../../api/types/chat";
-import { chatApi } from "../../../../api/modules/chat";
-import sessionApi from "../../sessionApi";
-import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
+import type { ChatStatus } from "../api/types/chat";
+import { chatApi } from "../api/modules/chat";
+import sessionApi from "../pages/Chat/sessionApi";
+import { useMessageQueueStore } from "../stores/messageQueueStore";
 import {
   ContextMenu,
   useContextMenu,
   type ContextMenuItem,
-} from "../../../../components/ContextMenu";
-import { getChannelLabel } from "../../../Control/Channels/components";
-import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
-import { useAgentStore } from "../../../../stores/agentStore";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
+} from "../components/ContextMenu";
+import { getChannelLabel } from "../pages/Control/Channels/components";
+import { syncSessionsGlobal } from "../stores/sessionListStore";
+import { useAgentStore } from "../stores/agentStore";
+import { useAppMessage } from "../hooks/useAppMessage";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
 
@@ -91,7 +91,7 @@ export const formatCreatedAt = (raw: string | null | undefined): string => {
 };
 
 interface UseSessionListDataOptions {
-  /** Whether to start fetching (works like `open` in the drawer) */
+  /** Whether the sidebar list should fetch sessions. */
   active: boolean;
   /** Current session id — used to determine active item and block no-op clicks */
   currentSessionId: string | undefined;
@@ -125,10 +125,8 @@ export interface SessionListData {
 }
 
 /**
- * Shared session-list logic used by SidebarSessionList in both hosts.
- *
- * The `onSessionClick` callback is injected by the caller so that:
- * The `onSessionClick` callback lets each host select its navigation behavior.
+ * Shared session-list logic used by SidebarSessionList.
+ * The callback lets the sidebar select its navigation behavior.
  */
 export function useSessionListData(
   sessions: ExtendedChatSession[],

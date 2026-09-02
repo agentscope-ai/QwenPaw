@@ -1,8 +1,8 @@
 /**
  * Persistent collapsed-state for the date groups of the session lists.
  *
- * Both SidebarSessionList and ChatSessionDrawer group conversations by
- * date and collapse the "month" / "older" groups by default. Keeping
+ * SidebarSessionList groups conversations by date and collapses the
+ * "month" / "older" groups by default. Keeping
  * that set in component state made it reset on every remount: after
  * navigating away and back, a conversation older than 7 days was hidden
  * inside a re-collapsed group and could not be found by scrolling.

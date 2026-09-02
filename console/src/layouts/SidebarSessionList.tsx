@@ -14,7 +14,6 @@ import {
   ChevronDown,
   Ellipsis,
   FolderPlus,
-  PanelRightClose,
   Search,
   SquarePen,
 } from "lucide-react";
@@ -23,7 +22,7 @@ import {
   getBackendId,
   useSessionListData,
   type ExtendedChatSession,
-} from "../pages/Chat/components/ChatSessionDrawer/useSessionListData";
+} from "./useSidebarSessionListData";
 import { getSessionIdFromPath } from "../utils/sessionRoute";
 import {
   useSessionListStore,
@@ -193,7 +192,6 @@ const VirtualRow = React.memo(function VirtualRow({
         label={session.name || "New Chat"}
       >
         <SessionItem
-          variant="sidebar"
           sessionId={session.id!}
           name={session.name || "New Chat"}
           channelKey={channelKey || undefined}
@@ -234,14 +232,11 @@ export interface SidebarSessionListProps {
   onNewChat?: () => void;
   /** Called when user clicks a session. Provided by parent for direct navigation. */
   onSessionClick?: (sessionId: string) => void;
-  /** Optional close action when the list is hosted in a mobile drawer. */
-  onClose?: () => void;
 }
 
 export default function SidebarSessionList({
   onNewChat,
   onSessionClick: onSessionClickProp,
-  onClose,
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -695,16 +690,6 @@ export default function SidebarSessionList({
               </button>
             </Dropdown>
           </div>
-          {onClose && (
-            <button
-              type="button"
-              className={styles.closeButton}
-              aria-label={t("common.close", "Close")}
-              onClick={onClose}
-            >
-              <PanelRightClose size={16} />
-            </button>
-          )}
         </div>
 
         {!historyCollapsed && (searchOpen || creatingGroup) && (

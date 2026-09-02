@@ -1,5 +1,5 @@
 /**
- * Shared session grouping utilities for both SidebarSessionList and ChatSessionDrawer.
+ * Session grouping utilities for SidebarSessionList.
  * Groups sessions by date: pinned, today, within 7 days, within 30 days, older.
  */
 

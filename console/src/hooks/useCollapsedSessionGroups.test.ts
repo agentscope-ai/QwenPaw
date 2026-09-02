@@ -1,13 +1,12 @@
 /**
- * Collapsed session-group state shared by SidebarSessionList and
- * ChatSessionDrawer.
+ * Collapsed session-group state for SidebarSessionList.
  *
  * Previously each list kept the collapsed set in component state with
  * "month" and "older" collapsed by default. Leaving the page remounted
  * the list and silently re-collapsed those groups, so a conversation
  * older than 7 days seemed to vanish from the list (no amount of
  * scrolling reveals a row inside a collapsed group). The hook fixes
- * both halves: the set persists across remounts, and the group holding
+ * both cases: the set persists across remounts, and the group holding
  * the active session is expanded automatically.
  */
 import { describe, it, expect, beforeEach } from "vitest";

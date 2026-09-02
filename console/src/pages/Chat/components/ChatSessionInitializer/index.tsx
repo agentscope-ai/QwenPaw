@@ -21,7 +21,7 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
  * to avoid triggering the effect when the context changes from the other direction
  * (context → URL via onSessionSelected), which would cause circular re-loads.
  *
- * IMPORTANT: sessions array reference changes (e.g. from polling in pinned drawer)
+ * IMPORTANT: sessions array reference changes (e.g. from sidebar polling)
  * must NOT re-trigger setCurrentSessionId when the chatId hasn't changed, otherwise
  * it causes an infinite loop of getSession calls bouncing between two chat IDs.
  *
@@ -66,7 +66,7 @@ const ChatSessionInitializer: React.FC = () => {
   const switchControllerRef = useRef<AbortController | null>(null);
 
   /** Track the last chatId for which we called setCurrentSessionId, so that
-   *  subsequent sessions array reference changes (from polling in pinned drawer)
+   *  subsequent sessions array reference changes (from sidebar polling)
    *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
   const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
 

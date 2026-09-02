@@ -159,7 +159,6 @@ describe("Sidebar overflow layout", () => {
     expect(pinnedRegion).toContain("<SquarePen size={18} />");
     expect(pinnedRegion).toContain("chat.chatHistoryTooltip");
     expect(pinnedRegion).toContain("onClick={() => setCollapsed(false)}");
-    expect(pinnedRegion).not.toContain("requestSessionHistoryDrawerOpen()");
     expect(pinnedRegion).toContain("<History size={18} />");
   });
 
