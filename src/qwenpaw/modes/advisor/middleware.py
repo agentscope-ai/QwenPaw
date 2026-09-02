@@ -5,8 +5,9 @@ agent gets stuck, and answers when the agent asks.
 Three behaviours, all injected into the agent's context as a tool call +
 result pair so the agent reads them as something it asked for:
 
-1. **Plan injection.** On the first model call of a user turn the teacher
-   is asked for a strategic plan for the task. The agent then sees::
+1. **Plan injection.** On the first model call of a conversation the
+   teacher is asked for a strategic plan for the task. The agent then
+   sees::
 
        [system prompt]
        [user: task instruction]
@@ -25,8 +26,10 @@ result pair so the agent reads them as something it asked for:
    ``tools.py``), with the same teacher and the recent calls attached.
 
 The teacher conversation (``teacher_history``) is shared across the turns
-of one chat session, so every request is answered in light of the plans
-and advice already given.
+of one chat session, so every request is answered in light of the plan
+and advice already given. The plan is written once per conversation:
+later user turns rely on the mid-run intervention and on the agent's own
+questions, which always carry the current task.
 """
 from __future__ import annotations
 
@@ -412,6 +415,7 @@ class AdvisorMiddleware(MiddlewareBase):
         on_demand_enabled: bool = True,
         max_consults: int = DEFAULT_MAX_CONSULTS,
         consults_used: int = 0,
+        plan_injected: bool = False,
     ) -> None:
         self._teacher = teacher
         self._followup_enabled = followup_enabled
@@ -429,7 +433,10 @@ class AdvisorMiddleware(MiddlewareBase):
         self._max_consults = max(0, int(max_consults))
         self._consults_used = max(0, int(consults_used))
 
-        self._plan_injected = False
+        # True when an earlier request of the same conversation already
+        # put the plan in context: this request then skips the opening
+        # plan and goes straight to watching the agent.
+        self._plan_injected = plan_injected
         # Set when every plan attempt failed, so the run can report that it
         # went ahead without one instead of looking like a normal advisor
         # run.
@@ -1095,9 +1102,9 @@ class AdvisorMiddleware(MiddlewareBase):
     def _extract_instruction(context: list[Msg]) -> str:
         """The text of the latest user message in *context*.
 
-        The context of a chat session carries every earlier turn, so the
-        plan must be about the message the agent is answering now, not
-        the first one of the conversation.
+        The context of a chat session carries every earlier turn; the
+        follow-up and consultation requests must describe the message the
+        agent is answering now, not the first one of the conversation.
         """
         for msg in reversed(context):
             if getattr(msg, "role", None) != "user":

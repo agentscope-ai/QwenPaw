@@ -552,6 +552,58 @@ async def test_session_state_carries_history_and_budget_across_requests():
     assert mode.session_state("sess-1").middleware is second
 
 
+async def test_plan_is_written_once_per_conversation():
+    """The second user turn of a conversation gets no new opening plan;
+    it relies on the mid-run intervention and on-demand questions."""
+    from agentscope.message import UserMsg
+
+    async def next_handler(**kwargs):
+        return kwargs
+
+    def agent(text):
+        return SimpleNamespace(
+            name="a",
+            state=SimpleNamespace(
+                context=[UserMsg(name="user", content=text)],
+            ),
+        )
+
+    mode = AdvisorMode()
+    cfg = _config()
+    first = mode.build_middleware(_ctx(cfg), cfg)
+    first._teacher = _Teacher("THE PLAN")
+    assert first.plan_injected is False
+    await first.on_model_call(
+        agent("task one"),
+        {"messages": []},
+        next_handler,
+    )
+    assert first.plan_injected is True
+    assert len(first._teacher.calls) == 1
+
+    second = mode.build_middleware(_ctx(cfg), cfg)  # next user turn
+    second._teacher = _Teacher("ANOTHER PLAN")
+    assert second.plan_injected is True, "carried over from the first turn"
+    a2 = agent("task two")
+    await second.on_model_call(a2, {"messages": []}, next_handler)
+    assert second._teacher.calls == [], "no plan request on a later turn"
+    assert len(a2.state.context) == 1, "nothing injected"
+    assert second._task == "task two", "follow-ups still name the new task"
+
+    await mode.on_conversation_reset(_ctx(cfg))
+    fresh = mode.build_middleware(_ctx(cfg), cfg)
+    assert fresh.plan_injected is False, "/new starts the advisor over"
+
+
+async def test_a_failed_plan_is_retried_on_the_next_turn():
+    mode = AdvisorMode()
+    cfg = _config()
+    first = mode.build_middleware(_ctx(cfg), cfg)
+    first._plan_injected = False  # the plan never landed (teacher down)
+    second = mode.build_middleware(_ctx(cfg), cfg)
+    assert second.plan_injected is False
+
+
 async def test_conversation_reset_forgets_the_session():
     mode = AdvisorMode()
     cfg = _config()
