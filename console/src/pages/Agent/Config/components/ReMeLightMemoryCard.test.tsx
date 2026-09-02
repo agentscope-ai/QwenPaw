@@ -590,10 +590,7 @@ describe("long-term memory defaults", () => {
       screen.getByRole("link", {
         name: "agentConfig.dailyPaperDocumentation",
       }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
-    );
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
 
     fireEvent.click(sourceToggle);
 

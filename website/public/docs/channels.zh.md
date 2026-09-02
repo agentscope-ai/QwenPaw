@@ -91,6 +91,7 @@
 | `card_template_id`       | string | `""`         | AI 卡片模板 ID（当 `message_type` 为 `"card"` 时必填）                                 |
 | `card_template_key`      | string | `"content"`  | AI 卡片模板变量名（必须与钉钉模板中的变量名完全一致）                                  |
 | `robot_code`             | string | `""`         | 机器人编码（群聊卡片场景建议配置，留空时回退使用 `client_id`）                         |
+| `card_auto_layout`       | bool   | `false`      | 为 `true` 时，钉钉将在桌面端以宽屏渲染 AI 卡片（仅消息类型为 `card` 时生效）           |
 | `share_session_in_group` | bool   | `false`      | 为 `true` 时群内所有成员共享同一会话上下文；为 `false`（默认）时每位成员拥有独立上下文 |
 | `media_dir`              | string | `null`       | 媒体文件下载目录（留空则不保存）                                                       |
 

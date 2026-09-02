@@ -53,6 +53,7 @@ from ...config.config import (
     EmbeddingModelConfig,
     RerankerConfig,
 )
+from ...exceptions import ProviderError
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -202,7 +203,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if self._reme is None:
             return
 
-        await self._update_qwenpaw_model()
+        try:
+            await self._update_qwenpaw_model()
+        except ProviderError as exc:
+            # A fresh installation has no active model until onboarding is
+            # complete.  ReMe's provider-free jobs (for example BM25 reindex)
+            # must still be available in that state.  Jobs that require an
+            # LLM refresh the injected model immediately before execution.
+            logger.info(
+                "ReMe starting without an active QwenPaw model for agent "
+                "'%s': %s",
+                self.agent_id,
+                exc,
+            )
         try:
             await self._reme.start()
             logger.info(

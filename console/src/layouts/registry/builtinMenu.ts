@@ -68,7 +68,7 @@ export const BUILTIN_MENU: MenuItem[] = [
   {
     id: "core.marketplace",
     location: "primary.agentScoped",
-    label: navLabel("nav.marketplace", "Marketplace"),
+    label: navLabel("nav.marketplace", "Extension"),
     icon: SparkMyApplicationLine,
     route: "core.marketplace",
     order: 15,
