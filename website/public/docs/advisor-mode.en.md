@@ -53,14 +53,14 @@ The setting is stored per agent in `agent.json`:
     "plan_enabled": true,
     "followup_enabled": true,
     "on_demand_enabled": true,
-    "max_consults": 3,
+    "max_consults": 32,
     "teacher_model": null,
     "student_model": null
   }
 }
 ```
 
-`max_consults` caps the agent's own questions per conversation (default 3); past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (3 per run). With the opening plan switched off, the advisor is only consulted by the harness (auto intervention) or by the agent (`consult_advisor`); the follow-up and consultation requests always carry the task itself, so they work without a plan. Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
+`max_consults` caps the agent's own questions per conversation (default 32); past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (3 per run). With the opening plan switched off, the advisor is only consulted by the harness (auto intervention) or by the agent (`consult_advisor`); the follow-up and consultation requests always carry the task itself, so they work without a plan. Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
 
 It takes effect on the next message; no restart is needed.
 

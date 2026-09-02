@@ -91,7 +91,7 @@ _ADJUST = "ADJUST"
 _FOLLOWUP_FORMAT_ATTEMPTS = 3
 
 # Default on-demand budget per conversation.
-DEFAULT_MAX_CONSULTS = 3
+DEFAULT_MAX_CONSULTS = 32
 CONSULT_BUDGET_EXHAUSTED = (
     "The advisor is not available for further consultation in this "
     "conversation. Decide with your own best judgment and keep going."
