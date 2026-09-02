@@ -1290,9 +1290,6 @@ describe("ModelSelector", () => {
     );
     const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
     await user.click(fallbackOptions[fallbackOptions.length - 1]);
-    await user.click(
-      screen.getByRole("button", { name: "modelSelector.addFallback" }),
-    );
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
     await waitFor(() =>
@@ -1582,6 +1579,94 @@ describe("ModelSelector", () => {
     expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
       "default",
       expect.not.objectContaining({ thinking_level: expect.anything() }),
+    );
+  });
+
+  it("hides thinking in the agent management routing editor", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        agentId="default"
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+        showThinking={false}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    );
+
+    expect(
+      screen.queryByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("modelSelector.thinkingUnsupported"),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /modelSelector.saveAgentSettings/ }),
+    );
+    await waitFor(() =>
+      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
+    );
+    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
+      "default",
+      expect.not.objectContaining({ thinking_level: expect.anything() }),
+    );
+  });
+
+  it("reports routing changes from a new-agent draft", async () => {
+    const onDraftChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+        showThinking={false}
+        initialConfig={{
+          fallback_models: [],
+          fallback_policy: { enabled: true, target_scope: "configured" },
+          subagent_model: null,
+        }}
+        draftResetToken={1}
+        onDraftChange={onDraftChange}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "modelSelector.subagentModel",
+      }),
+    );
+    const subagentOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(subagentOptions[subagentOptions.length - 1]);
+
+    expect(onDraftChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        subagent_model: {
+          provider_id: "openai",
+          model: "gpt-3.5-turbo",
+        },
+      }),
     );
   });
 
