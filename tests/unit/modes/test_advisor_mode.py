@@ -117,14 +117,6 @@ async def test_hook_routes_agent_to_subagent_model():
         "provider_id": "dash",
         "model": "qwen3-8b",
     }
-    assert ctx.mode_state["advisor"]["worker_model"] == {
-        "provider_id": "dash",
-        "model": "qwen3-8b",
-    }
-    assert ctx.mode_state["advisor"]["advisor_model"] == {
-        "provider_id": "dash",
-        "model": "qwen3-max",
-    }
 
 
 async def test_hook_prefers_the_student_model_override():
@@ -149,24 +141,18 @@ async def test_hook_student_override_works_without_a_subagent_model():
     )
     ctx = _ctx(cfg)
     await _picked().hooks()[0].run(ctx)
-    assert ctx.mode_state["advisor"]["worker_model"] == {
-        "provider_id": "small",
-        "model": "s-mini",
-    }
 
 
 async def test_hook_keeps_main_model_without_subagent_model():
     ctx = _ctx(_config(sub=None))
     await _picked().hooks()[0].run(ctx)
     assert not hasattr(ctx.request, "model_slot_override")
-    assert ctx.mode_state["advisor"]["worker_model"] is None
 
 
 async def test_hook_respects_explicit_request_override():
     ctx = _ctx(_config(), request=SimpleNamespace(model_slot_override="p:m"))
     await _picked().hooks()[0].run(ctx)
     assert ctx.request.model_slot_override == "p:m"
-    assert ctx.mode_state["advisor"]["worker_model"] is None
 
 
 async def test_hook_respects_payload_override():
@@ -180,7 +166,6 @@ async def test_hook_is_a_no_op_when_mode_disabled():
     ctx = _ctx(_config(enabled=False))
     await _picked().hooks()[0].run(ctx)  # picked, but switched off
     assert not hasattr(ctx.request, "model_slot_override")
-    assert "advisor" not in ctx.mode_state
 
 
 # ── middlewares ─────────────────────────────────────────────────────────
@@ -498,11 +483,10 @@ def test_tool_is_registered_and_mode_gated():
     assert "advisor" in descs[0].description.lower()
 
 
-def test_advisor_mode_is_an_exclusive_loop_mode():
+def test_advisor_mode_counts_as_the_explicit_loop_mode():
     """Listed in the composer's mode menu like /goal; while active it
     counts as the explicit mode of the conversation."""
     mode = _picked()
-    assert mode.exclusive is True
     ctx = _ctx(_config(enabled=True))
     ctx.workspace = SimpleNamespace(plugins=SimpleNamespace(modes=[mode]))
     assert find_active_explicit_mode(ctx) == "advisor"

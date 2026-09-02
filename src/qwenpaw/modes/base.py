@@ -38,11 +38,6 @@ class AgentMode:
     """
 
     name: str
-    #: Whether this mode is an *exclusive* loop mode. Exclusive modes
-    #: refuse to start while another exclusive mode is active (see
-    #: :func:`find_active_explicit_mode`). Coaching-style modes that
-    #: compose with anything (e.g. ``advisor``) set this to ``False``.
-    exclusive: bool = True
 
     def setup(self, workspace: object) -> None:
         """Register every contribution into ``workspace``'s plugins.
@@ -128,13 +123,11 @@ class AgentMode:
 
 
 def find_active_explicit_mode(ctx: HookContext) -> str | None:
-    """Return the active exclusive (non-default) mode for one request."""
+    """Return the active non-default mode for one request context."""
     plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
     for mode in getattr(plugins, "modes", []):
         name = getattr(mode, "name", "")
         if not name or name in {"default", "custom-loop-control"}:
-            continue
-        if not getattr(mode, "exclusive", True):
             continue
         try:
             if mode.is_active(ctx):

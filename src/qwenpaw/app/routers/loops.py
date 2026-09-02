@@ -368,12 +368,6 @@ def _build_loop_catalog(
             or runtime_name == "custom-loop-control"
         ):
             continue
-        # Only exclusive modes are loop modes the composer can switch to.
-        # Coaching modes such as ``advisor`` compose with any loop and
-        # must not be offered here: selecting one would prefix every
-        # message with its slash command.
-        if not getattr(mode, "exclusive", True):
-            continue
         try:
             is_available = getattr(mode, "is_available", None)
             if callable(is_available) and not is_available(workspace.config):

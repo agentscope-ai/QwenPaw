@@ -156,9 +156,6 @@ class AdvisorMode(AgentMode):
     """
 
     name = "advisor"
-    # Listed in the composer's loop-mode menu and mutually exclusive with
-    # the other loop modes while active.
-    exclusive = True
 
     def __init__(self) -> None:
         from .tools import register_advisor_tools_governance
