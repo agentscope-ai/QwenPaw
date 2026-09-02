@@ -60,7 +60,7 @@
 
 /* ---- Dropdown panel ---- */
 .panel {
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -71,13 +71,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
 .searchIcon {
   font-size: 14px;
-  color: #999;
+  color: var(--app-text-tertiary);
   flex-shrink: 0;
 }
 
@@ -100,7 +100,7 @@
 /* ---- Tab bar ---- */
 .tabBar {
   display: flex;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
@@ -157,11 +157,11 @@
 .collapseIcon {
   margin-left: auto;
   font-size: 10px;
-  color: #bbb;
+  color: var(--app-text-quaternary);
   transition: color 0.2s;
 
   .providerHeader:hover & {
-    color: #666;
+    color: var(--app-text-secondary);
   }
 }
 
@@ -202,7 +202,7 @@
   border-radius: 99px;
   font-size: 11px;
   font-weight: 500;
-  border: 1px solid rgba(82, 196, 26, 0.2);
+  border: 1px solid var(--app-success-border);
   white-space: nowrap;
 }
 
@@ -213,7 +213,7 @@
   border-radius: 99px;
   font-size: 11px;
   font-weight: 500;
-  border: 1px solid rgba(24, 144, 255, 0.2);
+  border: 1px solid var(--app-info-border);
   white-space: nowrap;
 }
 
@@ -326,7 +326,7 @@
   padding: 5px 8px;
   border: 0;
   border-radius: 7px;
-  color: #fff;
+  color: var(--app-text-inverse);
   font-size: 12px;
   cursor: pointer;
 }
@@ -609,7 +609,7 @@
   padding: 7px 10px;
   border: 0;
   border-radius: 7px;
-  color: #fff;
+  color: var(--app-text-inverse);
   font-size: 12px;
   cursor: pointer;
 }
@@ -733,20 +733,17 @@
 .trigger,
 .oauthModalContent,
 .agentSelectDropdown {
-  --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
-  --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
-  --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
-  --ms-accent-soft: var(
-    --qwenpaw-color-primary-bg,
-    var(--colorPrimaryBg, rgba(255, 127, 22, 0.08))
-  );
-  --ms-surface: var(--qwenpaw-color-bg-container, #ffffff);
-  --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #f5f5f5);
-  --ms-border: var(--qwenpaw-color-border-secondary, #e8e8e8);
-  --ms-border-strong: var(--qwenpaw-color-border, #d9d9d9);
-  --ms-text: var(--qwenpaw-color-text, #1f1f1f);
-  --ms-text-muted: var(--qwenpaw-color-text-secondary, rgba(0, 0, 0, 0.65));
-  --ms-text-faint: var(--qwenpaw-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --ms-primary: var(--app-accent);
+  --ms-accent: var(--app-accent);
+  --ms-accent-strong: var(--app-accent-hover);
+  --ms-accent-soft: var(--app-accent-soft);
+  --ms-surface: var(--app-surface);
+  --ms-surface-muted: var(--app-fill-faint);
+  --ms-border: var(--app-border);
+  --ms-border-strong: var(--app-border-strong);
+  --ms-text: var(--app-text);
+  --ms-text-muted: var(--app-text-secondary);
+  --ms-text-faint: var(--app-text-tertiary);
   --ms-focus: color-mix(in srgb, var(--ms-primary) 34%, transparent);
 }
 
@@ -949,8 +946,8 @@
 }
 
 .freeTag {
-  color: var(--qwenpaw-color-success-text, #3f7450);
-  background: var(--qwenpaw-color-success-bg, #edf5ee);
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
   border-color: var(--ms-border);
 }
 
@@ -1265,26 +1262,17 @@
   .trigger,
   .oauthModalContent,
   .agentSelectDropdown {
-    --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
-    --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
-    --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
-    --ms-accent-soft: var(--qwenpaw-color-primary-bg, rgba(255, 127, 22, 0.14));
-    --ms-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
-    --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
-    --ms-border: var(
-      --qwenpaw-color-border-secondary,
-      rgba(255, 255, 255, 0.12)
-    );
-    --ms-border-strong: var(--qwenpaw-color-border, rgba(255, 255, 255, 0.2));
-    --ms-text: var(--qwenpaw-color-text, rgba(255, 255, 255, 0.88));
-    --ms-text-muted: var(
-      --qwenpaw-color-text-secondary,
-      rgba(255, 255, 255, 0.65)
-    );
-    --ms-text-faint: var(
-      --qwenpaw-color-text-tertiary,
-      rgba(255, 255, 255, 0.45)
-    );
+    --ms-primary: var(--app-accent);
+    --ms-accent: var(--app-accent);
+    --ms-accent-strong: var(--app-accent-hover);
+    --ms-accent-soft: var(--app-accent-soft);
+    --ms-surface: var(--app-surface);
+    --ms-surface-muted: var(--app-fill-faint);
+    --ms-border: var(--app-border);
+    --ms-border-strong: var(--app-border-strong);
+    --ms-text: var(--app-text);
+    --ms-text-muted: var(--app-text-secondary);
+    --ms-text-faint: var(--app-text-tertiary);
     --ms-focus: color-mix(in srgb, var(--ms-primary) 38%, transparent);
   }
 
@@ -1356,9 +1344,9 @@
   }
 
   .freeTag {
-    color: #a8d7b2;
-    background: rgba(76, 175, 96, 0.12);
-    border-color: rgba(130, 210, 145, 0.22);
+    color: var(--app-success-text);
+    background: var(--app-success-bg);
+    border-color: var(--app-success-border);
   }
 
   .visionTag {

@@ -102,6 +102,10 @@
   /* Idle status dot — neutral in both themes, unrelated to the status colours */
   --app-status-idle: #94a3b8;
 
+  /* Scrollbars need a visible thumb, not a surface fill */
+  --app-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+
   /* Elevation */
   --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
   --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
@@ -173,6 +177,10 @@ html.dark-mode {
 
   /* Idle status dot */
   --app-status-idle: rgba(255, 255, 255, 0.35);
+
+  /* Scrollbars */
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 
   /* Elevation */
   --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
