@@ -13,7 +13,9 @@
  *   - resetSessionMode returns to "idle"
  *   - Each transition updates both sessionState and activeMode
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("@/api/request", () => ({ request: vi.fn() }));
 import {
   useLoopStore,
   DEFAULT_LOOP_MODE,
@@ -174,5 +176,45 @@ describe("loopStore state transitions (A#85096690)", () => {
     useLoopStore.getState().setSessionMode(goalMode, "running");
 
     expect(beginLoopModeSubmission("continue")).toBe("continue");
+  });
+});
+
+describe("fetchActiveLoopMode while a mode is starting", () => {
+  beforeEach(() => {
+    useLoopStore.getState().resetSessionMode();
+  });
+
+  it("keeps the starting mode when the backend still reports idle", async () => {
+    const { request } = await import("@/api/request");
+    vi.mocked(request).mockResolvedValueOnce({ state: "idle", mode: null });
+    const { fetchActiveLoopMode } = await import("./loopStore");
+    useLoopStore.getState().setStartingMode({
+      id: "plugin:advisor",
+      name: "Advisor",
+      slash_command: "advisor",
+      description: "",
+      source: "plugin",
+    });
+    await fetchActiveLoopMode({ chatId: "chat-1" });
+    expect(useLoopStore.getState().sessionState).toBe("starting");
+    expect(useLoopStore.getState().activeMode?.id).toBe("plugin:advisor");
+  });
+
+  it("still resets to idle when nothing is starting", async () => {
+    const { request } = await import("@/api/request");
+    vi.mocked(request).mockResolvedValueOnce({ state: "idle", mode: null });
+    const { fetchActiveLoopMode } = await import("./loopStore");
+    useLoopStore.getState().setSessionMode(
+      {
+        id: "goal",
+        name: "goal",
+        slash_command: "goal",
+        description: "",
+        source: "builtin",
+      },
+      "awaiting_user",
+    );
+    await fetchActiveLoopMode({ chatId: "chat-1" });
+    expect(useLoopStore.getState().sessionState).toBe("idle");
   });
 });
