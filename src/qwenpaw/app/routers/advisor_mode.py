@@ -12,23 +12,41 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
-from ...modes.advisor.teacher import effective_teacher_slot
+from ...modes.advisor.teacher import (
+    resolve_student_slot,
+    resolve_teacher_slot,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/advisor-mode", tags=["advisor-mode"])
 
 
+class ModelSlotBody(BaseModel):
+    """A ``{"provider_id", "model"}`` pair naming one model."""
+
+    provider_id: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+
+
 class AdvisorModeUpdateRequest(BaseModel):
-    """Request body for updating Advisor Mode."""
+    """Request body for updating Advisor Mode.
+
+    Fields left out of the body are unchanged. For the two model
+    overrides an explicit ``null`` clears the override (back to the
+    default slot), so "omitted" and "null" mean different things.
+    """
 
     enabled: Optional[bool] = None
     plan_enabled: Optional[bool] = None
     followup_enabled: Optional[bool] = None
     on_demand_enabled: Optional[bool] = None
+    max_consults: Optional[int] = Field(default=None, ge=0)
+    teacher_model: Optional[ModelSlotBody] = None
+    student_model: Optional[ModelSlotBody] = None
 
 
 def _slot(slot: object) -> dict | None:
@@ -41,20 +59,44 @@ def _slot(slot: object) -> dict | None:
 
 
 def _state(config) -> dict:
-    """The Advisor Mode state the Console renders."""
+    """The Advisor Mode state the Console renders.
+
+    ``teacher_model`` / ``student_model`` are the models actually used,
+    with ``*_source`` saying where each comes from (``override`` = set in
+    the Advisor tab, ``main_model`` / ``global`` = the agent's main model,
+    ``subagent_model`` = the sub-agent slot). ``*_model_override`` echo the
+    stored overrides so the Console can show "default" vs "custom".
+    """
     am = config.advisor_mode
+    teacher, teacher_source = resolve_teacher_slot(config)
+    student, student_source = resolve_student_slot(config)
     return {
         "enabled": bool(am.enabled),
         "plan_enabled": bool(am.plan_enabled),
         "followup_enabled": bool(am.followup_enabled),
         "on_demand_enabled": bool(am.on_demand_enabled),
+        "max_consults": int(am.max_consults),
         "agent_id": config.id,
-        # Teacher = the agent's main model (falling back to the global
-        # active model); student = sub-agent model (None means the agent
-        # keeps running on the main model).
-        "teacher_model": _slot(effective_teacher_slot(config)),
-        "student_model": _slot(config.subagent_model),
+        "teacher_model": _slot(teacher),
+        "teacher_source": teacher_source,
+        "student_model": _slot(student),
+        "student_source": student_source,
+        "teacher_model_override": _slot(am.teacher_model),
+        "student_model_override": _slot(am.student_model),
+        # The defaults the overrides fall back to, for the Console labels.
+        "main_model": _slot(
+            resolve_teacher_slot(_without_overrides(config))[0],
+        ),
+        "subagent_model": _slot(config.subagent_model),
     }
+
+
+def _without_overrides(config):
+    """``config`` as seen with the advisor model overrides cleared."""
+    am = config.advisor_mode.model_copy(
+        update={"teacher_model": None, "student_model": None},
+    )
+    return config.model_copy(update={"advisor_mode": am})
 
 
 @router.get(
@@ -81,23 +123,37 @@ async def post_advisor_mode_update(
 ) -> dict:
     """Update Advisor Mode settings.
 
-    Persists ``advisor_mode.enabled`` / ``followup_enabled`` /
-    ``on_demand_enabled`` in ``agent.json``. Fields left out of the body
-    are unchanged.
+    Persists the ``advisor_mode`` section of ``agent.json``: the switches,
+    ``max_consults`` and the two model overrides. Fields left out of the
+    body are unchanged; ``"teacher_model": null`` / ``"student_model":
+    null`` clear the respective override.
     """
-    from ...config.config import update_agent_config_async
+    from ...config.config import ModelSlotConfig, update_agent_config_async
 
     workspace = await get_agent_for_request(request)
+    given = body.model_fields_set
+
+    def _slot_config(slot: Optional[ModelSlotBody]):
+        if slot is None:
+            return None
+        return ModelSlotConfig(provider_id=slot.provider_id, model=slot.model)
 
     def _update(config) -> None:
+        am = config.advisor_mode
         if body.enabled is not None:
-            config.advisor_mode.enabled = body.enabled
+            am.enabled = body.enabled
         if body.plan_enabled is not None:
-            config.advisor_mode.plan_enabled = body.plan_enabled
+            am.plan_enabled = body.plan_enabled
         if body.followup_enabled is not None:
-            config.advisor_mode.followup_enabled = body.followup_enabled
+            am.followup_enabled = body.followup_enabled
         if body.on_demand_enabled is not None:
-            config.advisor_mode.on_demand_enabled = body.on_demand_enabled
+            am.on_demand_enabled = body.on_demand_enabled
+        if body.max_consults is not None:
+            am.max_consults = body.max_consults
+        if "teacher_model" in given:
+            am.teacher_model = _slot_config(body.teacher_model)
+        if "student_model" in given:
+            am.student_model = _slot_config(body.student_model)
 
     config = await update_agent_config_async(workspace.agent_id, _update)
     logger.info(

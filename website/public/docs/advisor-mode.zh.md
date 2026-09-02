@@ -12,14 +12,16 @@
 
 ## 使用哪些模型
 
-顾问模式直接复用智能体已有的两个模型槽位，不需要新增任何配置：
+默认情况下，顾问模式直接复用智能体已有的两个模型槽位：
 
-| 角色              | 模型槽位                               |
+| 角色              | 默认模型槽位                           |
 | ----------------- | -------------------------------------- |
 | 顾问（teacher）   | 智能体的**主模型**（`active_model`）   |
 | 智能体（student） | **Sub-agent 模型**（`subagent_model`） |
 
 在 Console 中设置：打开聊天标题栏的模型选择器，选择主模型，再打开 **智能体模型设置**，选择 **Sub-agent 模型**。未配置 Sub-agent 模型时，智能体仍然使用主模型运行；顾问模式照样会规划和介入，只是不省 token。
+
+两个角色也都可以单独指定模型：顾问循环模板（智能体 → 运行配置 → Agent Loop Settings → 顾问）里的 **顾问模型与智能体模型** 卡片会显示当前实际使用的模型，并允许分别选择其它的顾问模型或智能体模型。选择随智能体持久保存（`agent.json` 里的 `advisor_mode.teacher_model` / `advisor_mode.student_model`），不会改动主模型和 Sub-agent 槽位；重新选回默认项即可恢复。`/advisor status` 会报告实际生效的模型。
 
 顾问的调用走与 QwenPaw 其它模型调用相同的 model factory，因此 provider 路由、重试、限流和 token 统计全部一致。
 
@@ -38,7 +40,7 @@
 
 **针对智能体的所有对话（默认值）**：智能体 → 运行配置 → **Agent Loop Settings** → Loop templates 里的 **顾问** 页签（输入栏模式菜单里的齿轮图标也会跳到这里）。这是每个对话、渠道和定时任务的起始默认值；`/advisor on|off` 只覆盖当前对话。同一卡片还有三个子开关，每项能力各自独立，便于单独评估效果：_开场计划_（智能体迈出第一步前先由顾问写计划）、_中途自动介入_（harness 监测工具结果，智能体反复失败时自动召唤顾问）和 _允许智能体通过 `consult_advisor` 工具主动向顾问提问_。
 
-**API**：`GET /api/advisor-mode` 读取状态；`POST /api/advisor-mode` 传 `{"enabled": true}`、`{"plan_enabled": false}`、`{"followup_enabled": false}`、`{"on_demand_enabled": false}` 中的任意字段更新。
+**API**：`GET /api/advisor-mode` 读取状态（各开关、实际生效的模型及其来源）；`POST /api/advisor-mode` 传 `{"enabled": true}`、`{"plan_enabled": false}`、`{"followup_enabled": false}`、`{"on_demand_enabled": false}`、`{"max_consults": 5}`、`{"teacher_model": {"provider_id": "…", "model": "…"}}` 或 `{"student_model": null}` 中的任意字段更新；未传的字段保持不变，`null` 表示清除该模型覆盖。
 
 设置按智能体保存在 `agent.json` 中：
 
@@ -49,7 +51,9 @@
     "plan_enabled": true,
     "followup_enabled": true,
     "on_demand_enabled": true,
-    "max_consults": 3
+    "max_consults": 3,
+    "teacher_model": null,
+    "student_model": null
   }
 }
 ```

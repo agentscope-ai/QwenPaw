@@ -108,6 +108,34 @@ async def test_hook_routes_agent_to_subagent_model():
     }
 
 
+async def test_hook_prefers_the_student_model_override():
+    cfg = _config()
+    cfg.advisor_mode.student_model = ModelSlotConfig(
+        provider_id="small",
+        model="s-mini",
+    )
+    ctx = _ctx(cfg)
+    await AdvisorMode().hooks()[0].run(ctx)
+    assert ctx.request.model_slot_override == {
+        "provider_id": "small",
+        "model": "s-mini",
+    }
+
+
+async def test_hook_student_override_works_without_a_subagent_model():
+    cfg = _config(sub=None)
+    cfg.advisor_mode.student_model = ModelSlotConfig(
+        provider_id="small",
+        model="s-mini",
+    )
+    ctx = _ctx(cfg)
+    await AdvisorMode().hooks()[0].run(ctx)
+    assert ctx.mode_state["advisor"]["student_model"] == {
+        "provider_id": "small",
+        "model": "s-mini",
+    }
+
+
 async def test_hook_keeps_main_model_without_subagent_model():
     ctx = _ctx(_config(sub=None))
     await AdvisorMode().hooks()[0].run(ctx)
@@ -342,6 +370,33 @@ async def test_teacher_builds_model_once_and_sends_msgs(monkeypatch):
 def test_mode_module_exports():
     assert mode_module.AdvisorMode is AdvisorMode
     assert teacher_module.AdvisorTeacher is AdvisorTeacher
+
+
+def test_teacher_override_beats_the_main_model():
+    from qwenpaw.modes.advisor.teacher import (
+        resolve_student_slot,
+        resolve_teacher_slot,
+    )
+
+    cfg = _config()
+    assert resolve_teacher_slot(cfg) == (cfg.active_model, "main_model")
+    assert resolve_student_slot(cfg) == (cfg.subagent_model, "subagent_model")
+    cfg.advisor_mode.teacher_model = ModelSlotConfig(
+        provider_id="big",
+        model="b-max",
+    )
+    slot, source = resolve_teacher_slot(cfg)
+    assert (slot.provider_id, slot.model, source) == (
+        "big",
+        "b-max",
+        "override",
+    )
+    # An override with an empty model name does not count.
+    cfg.advisor_mode.teacher_model = ModelSlotConfig(provider_id="big")
+    assert resolve_teacher_slot(cfg)[1] == "main_model"
+    assert resolve_student_slot(_config(sub=None)) == (None, "main_model")
+    mw = AdvisorMode().middlewares(_ctx(cfg), cfg)[0]
+    assert mw._teacher.label == "dash:qwen3-max"
 
 
 def test_effective_teacher_falls_back_to_global_active_model(monkeypatch):

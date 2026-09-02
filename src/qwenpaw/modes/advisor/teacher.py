@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """The advisor ("teacher") model, resolved through QwenPaw's model factory.
 
-Advisor Mode reuses the agent's existing model settings instead of adding
-new ones: the *main* model (``active_model``) is the teacher and the
-cheaper ``subagent_model`` — when configured — runs the agent itself.
+By default Advisor Mode reuses the agent's existing model settings: the
+*main* model (``active_model``) is the teacher and the cheaper
+``subagent_model`` — when configured — runs the agent itself. Both can be
+overridden per agent in ``advisor_mode.teacher_model`` /
+``advisor_mode.student_model`` (the Advisor tab of Agent Loop Settings).
 Going through :func:`create_model_and_formatter_async` means the teacher
 inherits provider routing, retries, rate limiting and token accounting
 exactly like every other model call in QwenPaw.
@@ -42,23 +44,62 @@ def slot_label(slot: Any) -> str:
     return f"{data['provider_id']}:{data['model']}"
 
 
-def effective_teacher_slot(agent_config: Any) -> Any:
-    """The model slot that answers as the teacher.
+def _override(agent_config: Any, field: str) -> Any:
+    """The ``advisor_mode.<field>`` slot when it names a model."""
+    am = getattr(agent_config, "advisor_mode", None)
+    slot = getattr(am, field, None) if am is not None else None
+    return slot if slot_to_dict(slot) is not None else None
 
-    The agent's own ``active_model`` when it is set; otherwise the global
-    active model from :class:`ProviderManager` — the same fallback the
-    model factory applies when building the agent's main model.
+
+def resolve_teacher_slot(agent_config: Any) -> tuple[Any, str]:
+    """The model slot that answers as the teacher, and where it comes from.
+
+    Precedence: the ``advisor_mode.teacher_model`` override
+    (``"override"``), the agent's own ``active_model`` (``"main_model"``),
+    then the global active model from :class:`ProviderManager`
+    (``"global"``) — the same fallback the model factory applies when
+    building the agent's main model.
     """
+    override = _override(agent_config, "teacher_model")
+    if override is not None:
+        return override, "override"
     slot = getattr(agent_config, "active_model", None)
     if slot_to_dict(slot) is not None:
-        return slot
+        return slot, "main_model"
     try:
         from ...providers import ProviderManager
 
-        return ProviderManager.get_instance().get_active_model()
+        return ProviderManager.get_instance().get_active_model(), "global"
     except Exception:
         logger.debug("AdvisorTeacher: no global active model", exc_info=True)
-        return None
+        return None, "global"
+
+
+def resolve_student_slot(agent_config: Any) -> tuple[Any, str]:
+    """The model slot the agent itself runs on, and where it comes from.
+
+    Precedence: the ``advisor_mode.student_model`` override
+    (``"override"``), then ``subagent_model`` (``"subagent_model"``).
+    ``(None, "main_model")`` means the agent keeps its main model, i.e. it
+    shares the teacher's model and Advisor Mode saves no tokens.
+    """
+    override = _override(agent_config, "student_model")
+    if override is not None:
+        return override, "override"
+    slot = getattr(agent_config, "subagent_model", None)
+    if slot_to_dict(slot) is not None:
+        return slot, "subagent_model"
+    return None, "main_model"
+
+
+def effective_teacher_slot(agent_config: Any) -> Any:
+    """The model slot that answers as the teacher."""
+    return resolve_teacher_slot(agent_config)[0]
+
+
+def effective_student_slot(agent_config: Any) -> Any:
+    """The model slot the agent runs on, or ``None`` for the main model."""
+    return resolve_student_slot(agent_config)[0]
 
 
 class AdvisorTeacher:

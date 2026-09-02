@@ -10,7 +10,11 @@ from ..base import ModeGatedHook
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 from .config import resolve_agent_config
-from .teacher import effective_teacher_slot, slot_to_dict
+from .teacher import (
+    effective_student_slot,
+    effective_teacher_slot,
+    slot_to_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +44,17 @@ def _apply_model_override(request: Any, slot: dict[str, str]) -> bool:
 
 
 class StudentModelHook(ModeGatedHook):
-    """Run the agent on ``subagent_model`` while the advisor keeps the
-    main model.
+    """Run the agent on the student model while the advisor keeps its own.
 
-    Advisor Mode reuses the agent's two existing model slots: the main
-    ``active_model`` answers as the teacher and the cheaper
-    ``subagent_model`` — when one is configured — runs the agent itself.
-    This hook applies the swap by setting ``model_slot_override`` on the
-    request before :class:`AgentBuilder` builds the model, the same path a
-    spawned subagent uses. An override already present on the request
-    (an explicit per-request model) always wins.
+    By default Advisor Mode reuses the agent's two existing model slots:
+    the main ``active_model`` answers as the teacher and the cheaper
+    ``subagent_model`` — when one is configured — runs the agent itself;
+    ``advisor_mode.student_model`` overrides the latter (see
+    :func:`effective_student_slot`). This hook applies the swap by setting
+    ``model_slot_override`` on the request before :class:`AgentBuilder`
+    builds the model, the same path a spawned subagent uses. An override
+    already present on the request (an explicit per-request model) always
+    wins.
     """
 
     phase = Phase.PRE_AGENT_BUILD
@@ -62,12 +67,13 @@ class StudentModelHook(ModeGatedHook):
         state["teacher_model"] = slot_to_dict(effective_teacher_slot(cfg))
         state["student_model"] = None
 
-        student = slot_to_dict(getattr(cfg, "subagent_model", None))
+        student = slot_to_dict(effective_student_slot(cfg))
         request = getattr(ctx, "request", None)
         if student is None:
             logger.info(
-                "Advisor Mode: no subagent_model configured; the agent "
-                "runs on the main model and the advisor shares it",
+                "Advisor Mode: no student model configured (sub-agent "
+                "model or advisor_mode.student_model); the agent runs on "
+                "the main model and the advisor shares it",
             )
         elif request is None or _has_model_override(request):
             logger.debug(
