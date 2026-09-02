@@ -2,7 +2,7 @@
 
 Advisor Mode pairs two models on one task: a stronger **advisor** ("teacher") and the agent that does the work (the "student").
 
-- Before the agent's first step, the advisor writes a strategic plan for the task. The plan is injected into the agent's context as a `consult_advisor` tool call and result, so the agent reads it as something it asked for.
+- Before the agent's first step in a conversation, the advisor writes a strategic plan for the task. The plan is injected into the agent's context as a `consult_advisor` tool call and result, so the agent reads it as something it asked for.
 - While the agent works, Advisor Mode watches its tool results. When the agent keeps failing (several failures in a row, or failures recurring over the last few steps), the advisor is consulted again with the recent calls. It replies **CONTINUE** (nothing is injected) or **ADJUST** followed by a short revised plan, which is injected as a `consult_advisor_followup` call.
 - The agent can also ask on its own: `consult_advisor` is a real tool in Advisor Mode. The agent is told to use it at a genuine decision point (before committing to a costly route, or when it is unsure whether to abandon an approach), not for routine steps. The advisor answers in free text with the agent's recent calls attached, and the exchange shares the same conversation as the plan and any interventions.
 
@@ -66,7 +66,7 @@ It takes effect on the next message; no restart is needed.
 
 The injected plan and any follow-up advice appear in the conversation as tool calls named `consult_advisor` and `consult_advisor_followup`; the agent's own questions appear as ordinary `consult_advisor` calls. The injected calls show up the moment the advisor is asked and their output streams in while the advisor writes, like any other tool result, so a long plan is visible as it takes shape rather than after the agent's first step. The agent's own `consult_advisor` calls stream the same way: the tool is a streaming tool and its result grows as the advisor answers. A follow-up consultation that ends in CONTINUE is shown too (with the advisor's verdict) even though nothing is added to the agent's context. For the injected ones the arguments shown to the agent are a short fixed question ("Before I start, how should I approach this task?"), not the full request sent to the advisor, which keeps the agent's context small.
 
-In a multi-turn chat the plan is written for the message the agent is answering now, and the advisor remembers the earlier plans and answers of the same session; `/new` or `/clear` starts the advisor over as well.
+In a multi-turn chat the plan is written once, for the first message of the conversation; later turns get no new opening plan and rely on the mid-run intervention and on the agent's own `consult_advisor` questions, both of which carry the message the agent is answering now. The advisor remembers the plan and its earlier answers for the whole session; `/new` or `/clear` starts the advisor over, plan included.
 
 The advisor's request includes the agent's tool list and a shallow listing of the working directory (the Coding Mode project directory when one is set, otherwise the agent workspace), so its plan is grounded in what is actually there.
 

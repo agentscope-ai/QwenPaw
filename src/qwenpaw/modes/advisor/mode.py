@@ -93,7 +93,9 @@ class AdvisorSessionState:
     takes precedence over the agent's default from ``agent.json``.
     ``teacher_history`` is the teacher conversation, and ``middleware`` the
     instance serving the request in flight (looked up by the
-    ``consult_advisor`` tool).
+    ``consult_advisor`` tool). Whether the opening plan has been written
+    is read off that instance too, so the plan happens once per
+    conversation rather than once per user turn.
     """
 
     override: bool | None = None
@@ -104,6 +106,11 @@ class AdvisorSessionState:
     def consults_used(self) -> int:
         """On-demand consultations spent in this session so far."""
         return self.middleware.consults_used if self.middleware else 0
+
+    @property
+    def plan_injected(self) -> bool:
+        """Whether the opening plan already reached this conversation."""
+        return bool(self.middleware and self.middleware.plan_injected)
 
 
 class AdvisorMode(AgentMode):
@@ -236,8 +243,9 @@ class AdvisorMode(AgentMode):
     ) -> AdvisorMiddleware:
         """Build the request-scoped :class:`AdvisorMiddleware`.
 
-        The teacher conversation and the on-demand budget carry over from
-        the earlier requests of the same chat session.
+        The teacher conversation, the on-demand budget and the fact that
+        the opening plan has been written carry over from the earlier
+        requests of the same chat session.
         """
         agent_id = (
             getattr(cfg, "id", None) or getattr(ctx, "agent_id", None) or ""
@@ -268,6 +276,7 @@ class AdvisorMode(AgentMode):
                 getattr(am, "max_consults", DEFAULT_MAX_CONSULTS),
             ),
             consults_used=state.consults_used,
+            plan_injected=state.plan_injected,
             teacher_history=state.teacher_history,
             env_context_root=env_root,
             log_dir=default_log_dir(agent_id),
