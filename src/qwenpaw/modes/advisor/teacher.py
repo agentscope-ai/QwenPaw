@@ -11,7 +11,7 @@ exactly like every other model call in QwenPaw.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from agentscope.message import Msg, TextBlock
 
@@ -102,9 +102,15 @@ class AdvisorTeacher:
             )
         return self._model
 
-    async def ask(self, messages: list[dict[str, str]]) -> str:
+    async def ask(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        on_text: Callable[[str], None] | None = None,
+    ) -> str:
         """Send ``messages`` (``{"role", "content"}`` dicts) and return the
-        reply text."""
+        reply text. ``on_text`` receives the cumulative reply text as it
+        streams in, so the caller can show it before it is complete."""
         model = await self._get_model()
         msgs = [
             Msg(
@@ -114,12 +120,15 @@ class AdvisorTeacher:
             )
             for m in messages
         ]
-        return await consume_model_response(model, msgs)
+        return await consume_model_response(model, msgs, on_text=on_text)
 
 
 __all__ = [
     "AdvisorTeacher",
+    "effective_student_slot",
     "effective_teacher_slot",
+    "resolve_student_slot",
+    "resolve_teacher_slot",
     "slot_label",
     "slot_to_dict",
 ]

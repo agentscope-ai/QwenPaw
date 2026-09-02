@@ -9,7 +9,7 @@ reply needs the same handling, so it lives here once.
 """
 from __future__ import annotations
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from typing import Any
 
 _REASONING_BLOCK_TYPES = frozenset(
@@ -84,6 +84,8 @@ def extract_response_text(response: Any) -> str:
 async def consume_model_response(
     model: Any,
     messages: list,
+    *,
+    on_text: Callable[[str], None] | None = None,
     **call_kwargs: Any,
 ) -> str:
     """Await ``model(messages, **call_kwargs)`` and return its text, streaming
@@ -91,11 +93,21 @@ async def consume_model_response(
 
     Some providers stream (an ``async_generator`` whose chunks carry the
     cumulative text — the last non-empty wins); others return one response.
+    ``on_text`` is called with the cumulative text after every chunk that
+    carries any, so a caller can relay the reply while it is still being
+    written (a non-streaming reply triggers it once, with the whole text).
     """
     response = await model(messages, **call_kwargs)
     if not isinstance(response, AsyncIterable):
-        return extract_response_text(response)
+        text = extract_response_text(response)
+        if text and on_text is not None:
+            on_text(text)
+        return text
     text = ""
     async for chunk in response:
-        text = extract_response_text(chunk) or text
+        chunk_text = extract_response_text(chunk)
+        if chunk_text:
+            text = chunk_text
+            if on_text is not None:
+                on_text(text)
     return text
