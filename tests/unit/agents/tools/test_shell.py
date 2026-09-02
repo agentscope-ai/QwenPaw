@@ -175,6 +175,24 @@ class TestCollapseEmbeddedNewlines:
         command = 'echo "hello\nworld"'
         assert _collapse_embedded_newlines(command, "/bin/bash") == command
 
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_unix_removes_posix_line_continuation(self, mock_sys):
+        mock_sys.platform = "linux"
+        command = "cat /tmp/.qwenpaw\\\n.secret/token.json"
+        assert (
+            _collapse_embedded_newlines(command, "/bin/sh")
+            == "cat /tmp/.qwenpaw.secret/token.json"
+        )
+
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_unix_preserves_line_continuation_inside_single_quotes(
+        self,
+        mock_sys,
+    ):
+        mock_sys.platform = "linux"
+        command = "printf '%s' 'a\\\nb'"
+        assert _collapse_embedded_newlines(command, "/bin/sh") == command
+
     @pytest.mark.parametrize(
         "command",
         [

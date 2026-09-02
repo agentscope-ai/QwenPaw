@@ -925,7 +925,7 @@ def get_agent_dirs() -> list[Path]:
     agent_dirs = []
     if config.agents and config.agents.profiles:
         for profile in config.agents.profiles.values():
-            workspace_dir = Path(profile.workspace_dir)
+            workspace_dir = Path(profile.workspace_dir).expanduser()
             if (
                 workspace_dir.exists()
                 and (workspace_dir / "agent.json").exists()

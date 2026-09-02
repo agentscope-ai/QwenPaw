@@ -16,7 +16,7 @@ import {
   Wifi,
   Inbox,
   Store,
-  ShoppingBag,
+  Blocks,
   Settings,
   Puzzle,
   History,
@@ -218,15 +218,15 @@ export const STORE_APP: OsAppDef = {
 };
 
 /**
- * Marketplace — a route-backed system app. It is always available in the
+ * Extension — a route-backed system app. It is always available in the
  * Desktop OS, but intentionally lives outside OS_APPS so it cannot be
  * installed or uninstalled through the simulated App Store catalog.
  */
 export const MARKETPLACE_APP: OsAppDef = {
   routeId: "core.marketplace",
   labelKey: "nav.marketplace",
-  fallback: "Marketplace",
-  Icon: ShoppingBag,
+  fallback: "Extension",
+  Icon: Blocks,
   accent: "#0ea5e9",
   defaultW: 1180,
   defaultH: 720,
