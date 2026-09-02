@@ -44,13 +44,10 @@ export interface QueueItem {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
-  /** Agent ID captured at enqueue time to prevent cross-agent delivery */
-  agentId?: string;
-  /** Backend session_id captured at enqueue time so background sender uses
-   *  the correct session even after agent switch clears the session list. */
-  backendSessionId?: string;
-  userId?: string;
-  channel?: string;
+  /** Agent ID captured at enqueue time to prevent cross-agent delivery. */
+  agentId: string;
+  /** Immutable request parameters captured at enqueue time. */
+  bizParams: Record<string, unknown>;
   status: QueueItemStatus;
   retryCount: number;
   errorMessage?: string;
@@ -64,8 +61,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
-  userId?: string;
-  channel?: string;
+  agentId: string;
+  bizParams: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,11 +71,54 @@ export interface QueueItemInput {
 // ---------------------------------------------------------------------------
 
 export const STORAGE_PREFIX = "qwenpaw:message-queue:";
+export const MESSAGE_QUEUE_STORAGE_VERSION = 2;
+const NEW_QUEUE_PREFIX = "new:";
 
 /** Shape persisted in localStorage per session */
 interface PersistedQueue {
+  version: typeof MESSAGE_QUEUE_STORAGE_VERSION;
   items: QueueItem[];
   runState: QueueRunState;
+}
+
+export function getNewQueueKey(agentId: string): string {
+  return `${NEW_QUEUE_PREFIX}${agentId}`;
+}
+
+export function isNewQueueKey(sessionId: string): boolean {
+  return sessionId.startsWith(NEW_QUEUE_PREFIX);
+}
+
+function isQueueItem(value: unknown): value is QueueItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<QueueItem>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.text === "string" &&
+    typeof item.agentId === "string" &&
+    !!item.bizParams &&
+    typeof item.bizParams === "object" &&
+    (item.status === "pending" ||
+      item.status === "sending" ||
+      item.status === "failed" ||
+      item.status === "sent") &&
+    typeof item.retryCount === "number" &&
+    typeof item.createdAt === "number"
+  );
+}
+
+function isPersistedQueue(value: unknown): value is PersistedQueue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const queue = value as Partial<PersistedQueue>;
+  return (
+    queue.version === MESSAGE_QUEUE_STORAGE_VERSION &&
+    Array.isArray(queue.items) &&
+    queue.items.every(isQueueItem) &&
+    (queue.runState === "idle" ||
+      queue.runState === "running" ||
+      queue.runState === "paused" ||
+      queue.runState === "error")
+  );
 }
 
 export function getStorageKey(sessionId: string): string {
@@ -87,29 +127,11 @@ export function getStorageKey(sessionId: string): string {
 
 function readQueueFromStorage(sessionId: string): PersistedQueue | null {
   try {
-    const key = getStorageKey(sessionId);
-    let saved = localStorage.getItem(key);
-    // One-time migration from sessionStorage (older builds used sessionStorage)
-    if (!saved) {
-      try {
-        const legacy = sessionStorage.getItem(key);
-        if (legacy) {
-          localStorage.setItem(key, legacy);
-          sessionStorage.removeItem(key);
-          saved = legacy;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Backward compat: old format was QueueItem[]
-      if (Array.isArray(parsed)) {
-        return { items: parsed as QueueItem[], runState: "idle" };
-      }
-      return parsed as PersistedQueue;
-    }
+    const saved = localStorage.getItem(getStorageKey(sessionId));
+    if (!saved) return null;
+    const parsed: unknown = JSON.parse(saved);
+    if (isPersistedQueue(parsed)) return parsed;
+    localStorage.removeItem(getStorageKey(sessionId));
   } catch {
     // ignore
   }
@@ -125,7 +147,11 @@ function writeQueueToStorage(
     if (items.length > 0) {
       localStorage.setItem(
         getStorageKey(sessionId),
-        JSON.stringify({ items, runState }),
+        JSON.stringify({
+          version: MESSAGE_QUEUE_STORAGE_VERSION,
+          items,
+          runState,
+        }),
       );
     } else {
       localStorage.removeItem(getStorageKey(sessionId));
@@ -141,12 +167,6 @@ export function removeQueueFromStorage(sessionId: string) {
   } catch {
     // ignore
   }
-  // Also clean any legacy sessionStorage entry
-  try {
-    sessionStorage.removeItem(getStorageKey(sessionId));
-  } catch {
-    // ignore
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +176,45 @@ export function removeQueueFromStorage(sessionId: string) {
 let _nextQueueId = 0;
 export function nextQueueId(): string {
   return "mq-" + Date.now().toString(36) + "-" + (++_nextQueueId).toString(36);
+}
+
+/**
+ * Move client-side session aliases with the queue while preserving the
+ * backend identity captured at enqueue time. The special `new` key is only a
+ * placeholder, so its empty backend identity is bound to the SDK's new local
+ * session as part of the first migration.
+ */
+function migrateQueueItemIdentity(
+  item: QueueItem,
+  fromSessionId: string,
+  toSessionId: string,
+): QueueItem {
+  const requestContext =
+    item.bizParams.request_context &&
+    typeof item.bizParams.request_context === "object"
+      ? (item.bizParams.request_context as Record<string, unknown>)
+      : {};
+  const chatId = requestContext.chat_id;
+  const sdkSessionId = requestContext.sdk_session_id;
+  const isNewPlaceholder = isNewQueueKey(fromSessionId);
+
+  return {
+    ...item,
+    bizParams: {
+      ...item.bizParams,
+      ...(isNewPlaceholder ? { session_id: toSessionId } : {}),
+      request_context: {
+        ...requestContext,
+        ...(chatId === fromSessionId || (isNewPlaceholder && chatId === "new")
+          ? { chat_id: toSessionId }
+          : {}),
+        ...(isNewPlaceholder &&
+        (sdkSessionId === fromSessionId || sdkSessionId === "new")
+          ? { sdk_session_id: toSessionId }
+          : {}),
+      },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +273,10 @@ function getLockManager(): LockLike | null {
   return nav.locks ?? null;
 }
 
+function getOwnershipLockName(sessionId: string): string {
+  return `qwenpaw:queue-owner:${sessionId}`;
+}
+
 export async function withSendLock<T>(
   sessionId: string,
   fn: () => Promise<T> | T,
@@ -236,6 +299,51 @@ export async function withSendLock<T>(
   } catch {
     return null;
   }
+}
+
+/**
+ * Try to run a task while holding the same exclusive lock used by the
+ * foreground conversation owner. The request never enters the lock queue, so
+ * a background sender cannot get ahead of a foreground ownership request.
+ */
+async function withAvailableOwnershipLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+  abortSignal: AbortSignal,
+): Promise<T | null> {
+  if (abortSignal.aborted) return null;
+  const locks = getLockManager();
+  if (!locks) {
+    return await fn();
+  }
+  try {
+    return (await locks.request(
+      getOwnershipLockName(sessionId),
+      { mode: "exclusive", ifAvailable: true },
+      async (lock: unknown) => {
+        if (!lock || abortSignal.aborted) return null;
+        return await fn();
+      },
+    )) as T | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run one background send while no foreground tab owns the conversation.
+ * Both ownership and POST serialization remain held until `fn` completes.
+ */
+export async function withBackgroundSendLocks<T>(
+  sessionId: string,
+  abortSignal: AbortSignal,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  return await withAvailableOwnershipLock(
+    sessionId,
+    () => withSendLock(sessionId, fn),
+    abortSignal,
+  );
 }
 
 /**
@@ -264,7 +372,7 @@ export function holdOwnershipLock(
   }
   return locks
     .request(
-      `qwenpaw:queue-owner:${sessionId}`,
+      getOwnershipLockName(sessionId),
       { mode: "exclusive", signal: abortSignal },
       async (lock: unknown) => {
         if (!lock) return;
@@ -351,25 +459,6 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       // Queue is full, reject
       return;
     }
-    // Capture the current selected agent at enqueue time so that
-    // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
-    try {
-      const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
-      if (agentStorage) {
-        const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
-      }
-    } catch {
-      // ignore
-    }
-    // Capture backend session_id so background sender targets the correct
-    // session even if the session list is cleared after agent switch.
-    const backendSessionId =
-      (window as unknown as { currentSessionId?: string }).currentSessionId ||
-      undefined;
     const item: QueueItem = {
       id: nextQueueId(),
       clientMessageId: createClientMessageId(),
@@ -378,10 +467,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       images: input.images,
       mentions: input.mentions,
       quote: input.quote,
-      agentId,
-      backendSessionId,
-      userId: input.userId,
-      channel: input.channel,
+      agentId: input.agentId,
+      bizParams: structuredClone(input.bizParams),
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),
@@ -459,7 +546,9 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
   migrateQueue: (fromSessionId: string, toSessionId: string) => {
     if (fromSessionId === toSessionId) return;
     set((state) => {
-      const fromItems = state.queues[fromSessionId] ?? [];
+      const fromItems = (state.queues[fromSessionId] ?? []).map((item) =>
+        migrateQueueItemIdentity(item, fromSessionId, toSessionId),
+      );
       const toItems = state.queues[toSessionId] ?? [];
       // Preserve order: existing destination items first, migrated source items appended.
       const merged = [...toItems, ...fromItems];
@@ -636,15 +725,9 @@ if (typeof window !== "undefined") {
       return;
     }
     try {
-      const parsed = JSON.parse(event.newValue);
-      const items: QueueItem[] = Array.isArray(parsed)
-        ? (parsed as QueueItem[])
-        : (parsed as PersistedQueue).items ?? [];
-      store.applyRemoteItems(sessionId, items);
-      if (
-        !Array.isArray(parsed) &&
-        (parsed as PersistedQueue).runState === "paused"
-      ) {
+      const parsed = JSON.parse(event.newValue) as PersistedQueue;
+      store.applyRemoteItems(sessionId, parsed.items ?? []);
+      if (parsed.runState === "paused") {
         useMessageQueueStore
           .getState()
           .applyRemoteRunState(sessionId, "paused");

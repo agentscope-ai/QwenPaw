@@ -214,7 +214,7 @@ describe("agent session ownership epochs", () => {
     expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT);
   });
 
-  it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {
+  it("a stale getSession cannot rewrite turn usage or fire selection", async () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
@@ -227,10 +227,8 @@ describe("agent session ownership epochs", () => {
     await sessionApi.getSessionList();
     const pending = sessionApi.getSession(A_CHAT);
 
-    // Switch to B and mark B's current view state with sentinels.
+    // Switch to B and mark B's current view state with a sentinel.
     sessionApi.setActiveAgent("agent-b");
-    (window as { currentSessionId?: string }).currentSessionId =
-      "sentinel-session";
     const sentinelSnapshot = {
       usage: null,
       context_usage: null,
@@ -241,9 +239,6 @@ describe("agent session ownership epochs", () => {
     dChat.resolve(makeHistory());
     await pending;
 
-    expect((window as { currentSessionId?: string }).currentSessionId).toBe(
-      "sentinel-session",
-    );
     expect(useTurnUsageStore.getState().snapshot).toBe(sentinelSnapshot);
     expect(onSessionSelected).not.toHaveBeenCalled();
   });

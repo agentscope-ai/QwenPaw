@@ -2,6 +2,7 @@ import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
@@ -213,13 +214,30 @@ import {
   type QueueItem,
   MAX_QUEUE_SIZE,
   STORAGE_PREFIX,
+  MESSAGE_QUEUE_STORAGE_VERSION,
+  getNewQueueKey,
+  isNewQueueKey,
   withSendLock,
+  withBackgroundSendLocks,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
 import {
   requiresQwenPawModel,
   supportsAgentAttachments,
 } from "../../utils/agentBackend";
+import {
+  buildSubmissionBizParams,
+  enforceSubmissionIdentity,
+  getSubmissionAgentId,
+  getSubmissionChatId,
+  getSubmissionConversationReference,
+  getSubmissionIdentity,
+  getQueueSubmissionTarget,
+  getSubmissionSdkSessionId,
+  isConversationReferenceMatch,
+  isSubmissionTargetReady,
+  rebindSubmissionBizParams,
+} from "./submissionBizParams";
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -323,11 +341,25 @@ function clearSenderAttachments(): void {
   }, 0);
 }
 
-async function startBackgroundQueue(
-  queueKey: string,
-  backendSessionId: string,
-  chatIdForStatus: string,
-) {
+function isQueueSubmissionTargetActive(
+  item: QueueItem,
+  expectedQueueKey: string,
+  currentQueueKey: string,
+): boolean {
+  if (expectedQueueKey !== currentQueueKey) return false;
+  const queuedAgentId = getSubmissionAgentId(item.bizParams);
+  if (
+    queuedAgentId &&
+    queuedAgentId !== useAgentStore.getState().selectedAgent
+  ) {
+    return false;
+  }
+  const queuedChatId = getSubmissionChatId(item.bizParams);
+  const routeChatId = getSessionIdFromPath(window.location.pathname);
+  return !queuedChatId || !routeChatId || queuedChatId === routeChatId;
+}
+
+async function startBackgroundQueue(queueKey: string) {
   // Stop only THIS session's previous background sender (if any)
   stopBackgroundQueue(queueKey);
   if (useMessageQueueStore.getState().getQueue(queueKey).length === 0) return;
@@ -335,170 +367,219 @@ async function startBackgroundQueue(
   const ctrl = new AbortController();
   setBackgroundAbort(queueKey, ctrl);
 
-  // Acquire the per-session send lock so only one tab keeps draining the queue
-  // after the page unmounts. If the lock is taken, skip background sending.
-  await withSendLock(queueKey, async () => {
-    while (!ctrl.signal.aborted) {
-      // Always read the latest queue from the store: items may have been
-      // added / removed / reordered by the user, by other tabs, or by the
-      // foreground page mounting again.
-      const current = useMessageQueueStore.getState().getQueue(queueKey);
-      if (current.length === 0) break;
+  while (!ctrl.signal.aborted) {
+    // Always read the latest queue from the store: items may have been
+    // added / removed / reordered by the user, by other tabs, or by the
+    // foreground page mounting again.
+    const current = useMessageQueueStore.getState().getQueue(queueKey);
+    if (current.length === 0) break;
 
-      // Respect pause/error state.
-      const rs = useMessageQueueStore.getState().getRunState(queueKey);
-      if (rs === "paused" || rs === "error") break;
+    // Respect pause/error state.
+    const rs = useMessageQueueStore.getState().getRunState(queueKey);
+    if (rs === "paused" || rs === "error") break;
 
-      const item = current[0];
-      const clientMessageId = item.clientMessageId ?? item.id;
-
-      // Wait until the backend finishes the currently running task before
-      // sending the next one. This preserves order task1 → task2 → task3
-      // and prevents firing while task1 is still generating.
-      const idle = await waitForChatIdle(
-        chatIdForStatus,
-        ctrl.signal,
-        item.agentId,
-      );
-      if (!idle) break;
-
-      // Mark as sending — visible to other tabs and to the foreground page
-      // if the user navigates back. Crucially we do NOT remove the item
-      // before the request completes, so a navigate-back during sending
-      // still shows the item in the queue.
+    const item = current[0];
+    const clientMessageId = item.clientMessageId ?? item.id;
+    const itemTarget = getQueueSubmissionTarget(item.bizParams, item.agentId);
+    if (!itemTarget) {
+      // A new-chat placeholder has no routable conversation yet. Keep it
+      // pending so the foreground SDK can bind it to the created session.
+      if (
+        isNewQueueKey(queueKey) &&
+        getSubmissionChatId(item.bizParams) === "new" &&
+        getSubmissionAgentId(item.bizParams) === item.agentId &&
+        item.bizParams.session_id === "" &&
+        typeof item.bizParams.user_id === "string" &&
+        !!item.bizParams.user_id &&
+        typeof item.bizParams.channel === "string" &&
+        !!item.bizParams.channel
+      ) {
+        break;
+      }
       useMessageQueueStore
         .getState()
-        .setItemStatus(queueKey, item.id, "sending");
-      useMessageQueueStore.getState().setCurrentSendingId(item.id);
+        .setItemStatus(
+          queueKey,
+          item.id,
+          "failed",
+          i18n.t("chat.queue.sendFailed"),
+        );
+      break;
+    }
+    const { agentId, conversationReference, identity } = itemTarget;
 
-      // Mirror what foreground customFetch does: cache the in-flight user
-      // text in sessionStorage so that when ChatPage re-mounts during
-      // generation, sessionApi.patchLastUserMessage can patch THIS user
-      // message into history (otherwise the previous turn's stale text
-      // would surface, e.g. showing user="2" while task3 is generating).
-      if (chatIdForStatus) {
+    // Wait until the backend finishes the currently running task before
+    // sending the next one. This preserves order task1 → task2 → task3
+    // and prevents firing while task1 is still generating.
+    const idle = await waitForChatIdle(
+      conversationReference,
+      ctrl.signal,
+      agentId,
+    );
+    if (!idle) break;
+
+    // Acquire ownership for one queue item at a time. Releasing between items
+    // lets a foreground tab that opened this conversation take priority before
+    // the background sender starts the next request.
+    const shouldContinue = await withBackgroundSendLocks(
+      queueKey,
+      ctrl.signal,
+      async () => {
+        const fresh = useMessageQueueStore.getState().getQueue(queueKey);
+        if (fresh.length === 0) return false;
+        if (fresh[0].id !== item.id) return true;
+        const lockedRunState = useMessageQueueStore
+          .getState()
+          .getRunState(queueKey);
+        if (lockedRunState === "paused" || lockedRunState === "error") {
+          return false;
+        }
+        if (ctrl.signal.aborted) return false;
+
+        // Mark as sending — visible to other tabs and to the foreground page
+        // if the user navigates back. Crucially we do NOT remove the item
+        // before the request completes, so a navigate-back during sending
+        // still shows the item in the queue.
+        useMessageQueueStore
+          .getState()
+          .setItemStatus(queueKey, item.id, "sending");
+
+        // Mirror what foreground customFetch does: cache the in-flight user
+        // text in sessionStorage so that when ChatPage re-mounts during
+        // generation, sessionApi.patchLastUserMessage can patch THIS user
+        // message into history (otherwise the previous turn's stale text
+        // would surface, e.g. showing user="2" while task3 is generating).
         // Build content items matching the POST body (stored-name format)
         // so patchLastUserMessage can rebuild the user card with attachments.
-        const contentItems: Array<{ type: string; [key: string]: unknown }> = [
+        const contentItems: Array<{
+          type: string;
+          [key: string]: unknown;
+        }> = [
           { type: "text", text: item.text },
           ...buildAttachmentContentItems(item.attachments),
         ];
         sessionApi.setLastUserMessage(
-          chatIdForStatus,
+          conversationReference,
           item.text,
           contentItems,
           clientMessageId,
         );
-      }
 
-      let fetchSucceeded = false;
-      // True once fetch() has resolved with an HTTP response. For a streaming
-      // chat endpoint, this means the backend has already accepted the
-      // request and started generating — the backend keeps producing the turn
-      // and the foreground SDK's reconnect will pick it up.
-      let fetchStarted = false;
-      try {
-        const authHeaders = buildAuthHeaders();
-        const queueAgentId = item.agentId || "default";
-        // Use the agent ID captured at enqueue time to prevent cross-agent
-        // delivery when the user switches agents after queueing.
-        if (item.agentId) {
-          authHeaders["X-Agent-Id"] = item.agentId;
-        }
-        const pendingRequest = withPendingProjectDirectory(
-          {
-            input: [
-              {
-                role: "user",
-                metadata: {
-                  [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+        let fetchSucceeded = false;
+        // True once fetch() has resolved with an HTTP response. For a streaming
+        // chat endpoint, this means the backend has already accepted the
+        // request and started generating — the backend keeps producing the turn
+        // and the foreground SDK's reconnect will pick it up.
+        let fetchStarted = false;
+        try {
+          const authHeaders = buildAuthHeaders();
+          const queueAgentId = agentId;
+          // Use the agent ID captured at enqueue time to prevent cross-agent
+          // delivery when the user switches agents after queueing.
+          authHeaders["X-Agent-Id"] = agentId;
+          const pendingRequest = withPendingProjectDirectory(
+            {
+              ...item.bizParams,
+              input: [
+                {
+                  role: "user",
+                  metadata: {
+                    [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+                  },
+                  content: [
+                    { type: "text", text: item.text },
+                    ...buildAttachmentContentItems(item.attachments),
+                  ],
                 },
-                content: [
-                  { type: "text", text: item.text },
-                  ...buildAttachmentContentItems(item.attachments),
-                ],
-              },
-            ],
-            session_id: item.backendSessionId || backendSessionId,
-            user_id: item.userId || DEFAULT_USER_ID,
-            channel: item.channel || DEFAULT_CHANNEL,
-            stream: true,
-          },
-          queueAgentId,
-          queueKey,
-        );
-        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
-        // HTTP connection alive even when the queue loop is aborted (e.g.
-        // foreground takes over). The server finishes generating and
-        // persists the turn so no message is lost and no re-send occurs.
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
-          body: JSON.stringify(pendingRequest.requestBody),
-        });
+              ],
+              session_id: identity.sessionId,
+              user_id: identity.userId,
+              channel: identity.channel,
+              stream: true,
+            },
+            queueAgentId,
+            conversationReference,
+          );
+          // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
+          // HTTP connection alive even when the queue loop is aborted (e.g.
+          // foreground takes over). The server finishes generating and
+          // persists the turn so no message is lost and no re-send occurs.
+          const res = await fetch(getApiUrl("/console/chat"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            body: JSON.stringify(pendingRequest.requestBody),
+          });
 
-        if (!res.ok) {
-          sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
-          throw new Error(`HTTP ${res.status}`);
-        }
-        if (pendingRequest.projectDir) {
-          setPendingProjectDirectory(queueAgentId, queueKey, null);
-        }
-        fetchStarted = true;
-
-        // Drain the stream; reaching `done` means the backend persisted the
-        // turn. Only then is it safe to remove the item from the queue.
-        const reader = res.body?.getReader();
-        if (reader) {
-          while (!ctrl.signal.aborted) {
-            const r = await reader.read();
-            if (r.done) break;
+          if (!res.ok) {
+            sessionApi.discardLastUserMessage(
+              conversationReference,
+              clientMessageId,
+            );
+            throw new Error(`HTTP ${res.status}`);
           }
-        }
-        fetchSucceeded = !ctrl.signal.aborted;
-      } catch {
-        fetchSucceeded = false;
-      }
+          if (pendingRequest.projectDir) {
+            setPendingProjectDirectory(
+              queueAgentId,
+              conversationReference,
+              null,
+            );
+          }
+          fetchStarted = true;
 
-      if (ctrl.signal.aborted) {
-        if (fetchStarted) {
-          // Server connection was NOT aborted (no signal on fetch), so the
-          // backend will finish generating and persist this turn. Safe to
-          // remove — the foreground SDK will see it in history on reconnect.
+          // Drain the stream; reaching `done` means the backend persisted the
+          // turn. Only then is it safe to remove the item from the queue.
+          const reader = res.body?.getReader();
+          if (reader) {
+            while (true) {
+              const r = await reader.read();
+              if (r.done) break;
+            }
+          }
+          fetchSucceeded = true;
+        } catch {
+          fetchSucceeded = false;
+        }
+
+        if (ctrl.signal.aborted) {
+          if (fetchStarted) {
+            // The accepted request was drained to completion before honoring
+            // the loop abort, so the turn is persisted and safe to remove.
+            useMessageQueueStore.getState().remove(queueKey, item.id);
+          } else {
+            // Request never made it out (aborted while waiting for status idle
+            // or before the response head arrived). Restore to pending so the
+            // foreground sender can pick it up.
+            useMessageQueueStore
+              .getState()
+              .setItemStatus(queueKey, item.id, "pending");
+          }
+          return false;
+        }
+
+        if (fetchSucceeded) {
+          // Backend finished generating → safe to remove from queue.
           useMessageQueueStore.getState().remove(queueKey, item.id);
+          return true;
         } else {
-          // Request never made it out (aborted while waiting for status idle
-          // or before the response head arrived). Restore to pending so the
-          // foreground sender can pick it up.
+          // Network/HTTP failure: keep the item visible with `failed` status
+          // so the user can retry from the queue panel on next visit.
           useMessageQueueStore
             .getState()
-            .setItemStatus(queueKey, item.id, "pending");
+            .setItemStatus(
+              queueKey,
+              item.id,
+              "failed",
+              i18n.t("chat.queue.sendFailed"),
+            );
+          return false;
         }
-        break;
-      }
-
-      if (fetchSucceeded) {
-        // Backend finished generating → safe to remove from queue.
-        useMessageQueueStore.getState().remove(queueKey, item.id);
-      } else {
-        // Network/HTTP failure: keep the item visible with `failed` status
-        // so the user can retry from the queue panel on next visit.
-        useMessageQueueStore
-          .getState()
-          .setItemStatus(
-            queueKey,
-            item.id,
-            "failed",
-            i18n.t("chat.queue.sendFailed"),
-          );
-        break;
-      }
-    }
-    useMessageQueueStore.getState().setCurrentSendingId(null);
-  });
+      },
+    );
+    if (!shouldContinue) break;
+  }
 
   clearBackgroundAbortIfCurrent(queueKey, ctrl);
 }
@@ -514,15 +595,18 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
     const sessionId = key.slice(STORAGE_PREFIX.length);
     if (sessionId === excludeSessionId) continue;
+    if (isNewQueueKey(sessionId)) continue;
     // Skip sessions already running a background sender
     if (hasBackgroundQueue(sessionId)) continue;
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
-      const items: Array<{ status: string }> = Array.isArray(parsed)
-        ? parsed
-        : parsed.items;
+      if (parsed.version !== MESSAGE_QUEUE_STORAGE_VERSION) {
+        localStorage.removeItem(key);
+        continue;
+      }
+      const items: Array<{ status: string }> = parsed.items;
       if (!items || items.length === 0) continue;
       // Only start if there are actionable items
       const hasPending = items.some(
@@ -530,37 +614,13 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
       );
       if (!hasPending) continue;
       // Check runState: respect paused queues
-      const runState = Array.isArray(parsed) ? "idle" : parsed.runState;
+      const runState = parsed.runState;
       if (runState === "paused") continue;
     } catch {
       continue;
     }
-    // For background sending, resolve the actual session_id the backend
-    // expects (chat.session_id), which may differ from the localStorage key
-    // (chat.id). Prefer the snapshot stored in the queue item (captured at
-    // enqueue time) because the session list may have been cleared after an
-    // agent switch. Fall back to sessionApi lookup, then to the key itself.
-    let backendSessionId: string | undefined;
-    try {
-      const raw2 = localStorage.getItem(key);
-      if (raw2) {
-        const parsed2 = JSON.parse(raw2);
-        const itemsArr: Array<{ backendSessionId?: string }> = Array.isArray(
-          parsed2,
-        )
-          ? parsed2
-          : parsed2.items;
-        backendSessionId = itemsArr?.[0]?.backendSessionId || undefined;
-      }
-    } catch {
-      // ignore
-    }
-    if (!backendSessionId) {
-      backendSessionId = sessionApi.getBackendSessionId(sessionId);
-    }
-    const chatIdForStatus =
-      sessionApi.getRealIdForSession(sessionId) || sessionId;
-    startBackgroundQueue(sessionId, backendSessionId, chatIdForStatus);
+    // Every loop iteration resolves the current item's immutable identity.
+    startBackgroundQueue(sessionId);
   }
 }
 
@@ -571,14 +631,6 @@ interface SessionInfo {
   user_id?: string;
   channel?: string;
 }
-
-interface CustomWindow extends Window {
-  currentSessionId?: string;
-  currentUserId?: string;
-  currentChannel?: string;
-}
-
-declare const window: CustomWindow;
 
 interface CommandSuggestion {
   command: string;
@@ -1155,30 +1207,45 @@ export default function ChatPage() {
   const location = useLocation();
   const { isDark } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  const isAgentSwitchTransition =
+    prevSelectedAgentRef.current !== selectedAgent;
+  const agentSwitchTransitionRef = useRef(isAgentSwitchTransition);
+  agentSwitchTransitionRef.current = isAgentSwitchTransition;
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
-  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
-  const backendChatId = resolveBackendChatId(chatId);
+  const lastActiveChatId = sessionApi.lastActiveChatId;
+  const validLastActiveChatId =
+    lastActiveChatId &&
+    sessionApi.getSessionIdentity(lastActiveChatId).sessionId
+      ? lastActiveChatId
+      : undefined;
+  const activeSessionId = chatId ?? validLastActiveChatId ?? "new";
+  const queueSessionId =
+    activeSessionId === "new" ? getNewQueueKey(selectedAgent) : activeSessionId;
+  const backendChatId = isAgentSwitchTransition
+    ? undefined
+    : resolveBackendChatId(chatId);
   const pendingProjectDir = backendChatId
     ? undefined
-    : getPendingProjectDirectory(selectedAgent, queueSessionId) ?? undefined;
+    : getPendingProjectDirectory(selectedAgent, activeSessionId) ?? undefined;
   const sessionScope = useMemo<
     Extract<FilesWorkspaceScope, { kind: "session" }>
   >(
     () => ({
       kind: "session",
       agentId: selectedAgent,
-      sessionId: queueSessionId,
+      sessionId: activeSessionId,
       chatId: backendChatId,
       projectDirOverride: pendingProjectDir,
     }),
-    [backendChatId, pendingProjectDir, queueSessionId, selectedAgent],
+    [activeSessionId, backendChatId, pendingProjectDir, selectedAgent],
   );
   const currentSessionFilesScopeKey = sessionFilesScopeKey(
     selectedAgent,
-    queueSessionId,
+    activeSessionId,
   );
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
   const dispatchFilesDrawer = useCallback(
@@ -1357,22 +1424,29 @@ export default function ChatPage() {
   const [isOwner, setIsOwner] = useState(false);
   const [ownershipResolved, setOwnershipResolved] = useState(false);
   const isOwnerRef = useRef(false);
+  const ownershipWaitedRef = useRef(false);
   isOwnerRef.current = isOwner;
   useEffect(() => {
     setIsOwner(false);
     setOwnershipResolved(false);
+    ownershipWaitedRef.current = false;
     const ctrl = new AbortController();
     void holdOwnershipLock(
       queueSessionId,
       () => {
+        const refreshAfterHandoff = ownershipWaitedRef.current;
         setIsOwner(true);
         setOwnershipResolved(true);
+        if (refreshAfterHandoff) {
+          setRefreshKey((current) => current + 1);
+        }
       },
       ctrl.signal,
     );
     // If the lock callback never fires (e.g. another tab holds it), resolve
     // after a short delay so the non-owner Alert appears without flashing.
     const fallbackTimer = setTimeout(() => {
+      ownershipWaitedRef.current = true;
       setOwnershipResolved(true);
     }, 300);
     return () => {
@@ -1382,31 +1456,30 @@ export default function ChatPage() {
   }, [queueSessionId]);
 
   const syncLoopModeStatus = useCallback(() => {
+    if (isAgentSwitchTransition) return Promise.resolve();
     const backendSessionId =
-      window.currentSessionId ||
-      (queueSessionId !== "new"
-        ? sessionApi.getBackendSessionId(queueSessionId)
-        : "");
+      activeSessionId !== "new"
+        ? sessionApi.getSessionIdentity(activeSessionId).sessionId
+        : "";
     return fetchActiveLoopMode({
       chatId,
       sessionId: backendSessionId,
     });
-  }, [chatId, queueSessionId]);
+  }, [activeSessionId, chatId, isAgentSwitchTransition]);
 
   useEffect(() => {
     const controller = new AbortController();
     useLoopStore.getState().resetSessionMode();
     void fetchAvailableLoopModes(controller.signal);
-    if (chatId) {
+    if (chatId && !isAgentSwitchTransition) {
       void fetchActiveLoopMode({
         chatId,
-        sessionId:
-          window.currentSessionId || sessionApi.getBackendSessionId(chatId),
+        sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
         signal: controller.signal,
       });
     }
     return () => controller.abort();
-  }, [chatId, selectedAgent]);
+  }, [chatId, isAgentSwitchTransition, selectedAgent]);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -1429,7 +1502,7 @@ export default function ChatPage() {
     // Invalidate immediately so A→B never briefly filters/shows A's tasks.
     setBgBackendSessionId("");
 
-    if (!queueSessionId || queueSessionId === "new") {
+    if (!queueSessionId || isNewQueueKey(queueSessionId)) {
       stopBackgroundWatchersNotInSession("");
       return;
     }
@@ -1437,8 +1510,7 @@ export default function ChatPage() {
     let cancelled = false;
 
     const resolveBackendSessionId = async (): Promise<string> => {
-      // Prefer sessionApi mapping; do not trust window.currentSessionId here —
-      // it can briefly still hold the previous session after a switch.
+      // Wait until the explicit queue key resolves in the current session list.
       for (let i = 0; i < 20 && !cancelled; i++) {
         const mapped = sessionApi.getBackendSessionId(queueSessionId);
         const knownInList =
@@ -1483,23 +1555,26 @@ export default function ChatPage() {
       // cross-tab broadcast will refresh our queue and the next loading→idle
       // transition will retry.
       void withSendLock(queueSessionId, () => {
+        if (
+          !isQueueSubmissionTargetActive(
+            next,
+            queueSessionId,
+            queueSessionIdRef.current,
+          )
+        )
+          return;
         // Re-check: another tab may have already removed this item via
         // broadcast, or a session switch may have happened.
         const fresh = useMessageQueueStore.getState().getQueue(queueSessionId);
         if (fresh.length === 0 || fresh[0].id !== next.id) return;
+        if (!chatRef.current) return;
         useMessageQueueStore.getState().setCurrentSendingId(next.id);
         useMessageQueueStore.getState().remove(queueSessionId, next.id);
-        // Force-set window.currentSessionId from the queue item's snapshot
-        // so customFetch uses the correct session_id, even if the global
-        // was overwritten by a recent agent switch.
-        if (next.backendSessionId) {
-          (
-            window as unknown as { currentSessionId?: string }
-          ).currentSessionId = next.backendSessionId;
-        }
         chatRef.current?.input.submit({
           query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
+          biz_params:
+            next.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
         });
       });
     }, 500);
@@ -1518,6 +1593,7 @@ export default function ChatPage() {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
+    useMessageQueueStore.getState().setCurrentSendingId(null);
     prevChatLoadingRef.current = false;
     // Keep prevQueueLenRef at current value to prevent auto-send effect from
     // seeing a false 0→N transition on stale messageQueue in the same render.
@@ -1659,7 +1735,9 @@ export default function ChatPage() {
   const prevApprovalKeyRef = useRef("");
 
   useEffect(() => {
-    const currentSessionId = window.currentSessionId || chatId || "";
+    const currentSessionId = chatId
+      ? sessionApi.getSessionIdentity(chatId).sessionId || chatId
+      : "";
 
     // When no session ID is available yet, use the first approval's
     // root_session_id as a hint (handles the race where approval arrives
@@ -1914,19 +1992,12 @@ export default function ChatPage() {
         // Use captured queueSessionId from this effect instance, not the
         // ref (which may already point to the next session after re-render).
         const queueKey = currentQueueSessionId;
-        const backendSessionId =
-          sessionApi.getBackendSessionId(queueKey) || queueKey;
-        // Skip if no real backend session yet (e.g. "new" chat that never
-        // resolved an id) — the items remain in storage to be picked up by
-        // the next foreground load.
-        if (backendSessionId) {
-          // Resolve the chat UUID for status polling. queueKey may be a
-          // local timestamp if the URL hasn't been replaced yet; in that
-          // case sessionApi keeps the real backend UUID under realId.
-          const chatIdForStatus =
-            sessionApi.getRealIdForSession(queueKey) || queueKey;
-          startBackgroundQueue(queueKey, backendSessionId, chatIdForStatus);
-        }
+        // The ownership effect aborts first, but Web Locks releases the lock
+        // asynchronously. Defer the non-blocking background attempt so a new
+        // foreground owner can queue first during a session switch.
+        setTimeout(() => {
+          startBackgroundQueue(queueKey);
+        }, 0);
       }
     };
   }, [queueSessionId]);
@@ -1998,7 +2069,23 @@ export default function ChatPage() {
         return;
       }
       const queueText = prepareLoopModeMessage(val);
-      const enqueueIdentity = sessionApi.getSessionIdentity();
+      const enqueueIdentity = sessionApi.getSessionIdentity(activeSessionId);
+      if (
+        !isSubmissionTargetReady(
+          undefined,
+          selectedAgent,
+          chatId,
+          enqueueIdentity.sessionId,
+        )
+      ) {
+        return;
+      }
+      const bizParams = buildSubmissionBizParams(enqueueIdentity, {
+        source: "console_chat_queue",
+        agent_id: selectedAgent,
+        chat_id: activeSessionId,
+        sdk_session_id: enqueueIdentity.sdkSessionId,
+      });
       useMessageQueueStore.getState().enqueue(queueSessionId, {
         text: queueText,
         attachments:
@@ -2010,8 +2097,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
-        userId: enqueueIdentity.userId,
-        channel: enqueueIdentity.channel,
+        bizParams,
+        agentId: selectedAgent,
       });
       // Clear tracked attachments after enqueuing
       pendingFileListRef.current = [];
@@ -2024,7 +2111,7 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [isChatActive, queueSessionId]);
+  }, [activeSessionId, isChatActive, queueSessionId, selectedAgent]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2051,20 +2138,31 @@ export default function ChatPage() {
     (item: QueueItem) => {
       if (!isOwnerRef.current) return;
       if (runtimeLoadingBridgeRef.current?.getLoading?.()) {
-        const sessionId = window.currentSessionId || chatIdRef.current;
+        const sessionId = queueSessionId;
         if (sessionId) {
           const resolvedId =
             sessionApi.getRealIdForSession(sessionId) ?? sessionId;
           chatApi.stopChat(resolvedId).catch(() => {});
         }
       }
-      useMessageQueueStore.getState().remove(queueSessionId, item.id);
       setTimeout(() => {
         void withSendLock(queueSessionId, () => {
+          if (
+            !isQueueSubmissionTargetActive(
+              item,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(item.id);
+          useMessageQueueStore.getState().remove(queueSessionId, item.id);
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(item.text),
             fileList: buildFileList(item),
+            biz_params:
+              item.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }, 600);
@@ -2086,11 +2184,22 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const head = q[0];
+          if (
+            !isQueueSubmissionTargetActive(
+              head,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(head.id);
           useMessageQueueStore.getState().remove(queueSessionId, head.id);
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(head.text),
             fileList: buildFileList(head),
+            biz_params:
+              head.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2111,11 +2220,22 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           const target = q.find((it) => it.id === id);
           if (!target) return;
+          if (
+            !isQueueSubmissionTargetActive(
+              target,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(id);
           useMessageQueueStore.getState().remove(queueSessionId, id);
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(target.text),
             fileList: buildFileList(target),
+            biz_params:
+              target.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2132,11 +2252,22 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const next = q[0];
+          if (
+            !isQueueSubmissionTargetActive(
+              next,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(next.id);
           useMessageQueueStore.getState().remove(queueSessionId, next.id);
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(next.text),
             fileList: buildFileList(next),
+            biz_params:
+              next.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2286,6 +2417,11 @@ export default function ChatPage() {
       } catch {
         // ignore migration errors
       }
+      const activeReference =
+        chatIdRef.current ?? sessionApi.lastActiveChatId ?? "";
+      const activeSdkSessionId =
+        sessionApi.getSessionIdentity(activeReference).sdkSessionId;
+      if (activeSdkSessionId !== tempId) return;
       lastSessionIdRef.current = realId;
       sessionApi.trackNavigatedSession(
         realId,
@@ -2416,7 +2552,9 @@ export default function ChatPage() {
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
-        useMessageQueueStore.getState().clear("new");
+        useMessageQueueStore
+          .getState()
+          .migrateQueue(getNewQueueKey(agentId), sessionId);
       } catch {
         // ignore
       }
@@ -2445,7 +2583,6 @@ export default function ChatPage() {
   // Setup multimodal capabilities tracking via custom hook
 
   // Refresh chat when selectedAgent changes, preserving last active chat per agent
-  const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
@@ -2454,18 +2591,8 @@ export default function ChatPage() {
       // so in-flight results owned by the previous agent are stale by now.
 
       useTurnUsageStore.getState().invalidateTurn();
-      // Immediately block the queue sender. window.currentSessionId is a
-      // global that still holds the PREVIOUS agent's session_id until the
-      // SDK finishes reloading. Without this guard, scheduleNextSend could
-      // fire during the reload window and send a queued item to the wrong
-      // agent's conversation.
+      // Immediately block the queue sender while the SDK reloads ownership.
       setChatLoading(true);
-
-      // Window identity globals are only rewritten when another session
-      // loads, so reset them explicitly — otherwise the new agent inherits
-      // the previous agent's session/channel (possibly a deleted channel)
-      // and the first message of a fresh chat would carry it.
-      sessionApi.resetWindowIdentity();
 
       // Save current chat ID for the agent we're leaving.
       // Skip temporary local timestamp ids — they are not real backend
@@ -2526,16 +2653,34 @@ export default function ChatPage() {
     }): Promise<Response> => {
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      const { input = [], biz_params } = data;
+      const session: SessionInfo = input[input.length - 1]?.session || {};
+      const submissionChatId = getSubmissionChatId(biz_params);
+      const frozenSdkSessionId = getSubmissionSdkSessionId(biz_params);
+      const fallbackIdentity = sessionApi.getSessionIdentity(
+        submissionChatId || frozenSdkSessionId || session?.session_id,
+      );
+      const submissionIdentity = getSubmissionIdentity(biz_params, {
+        sessionId: fallbackIdentity.sessionId || session?.session_id || "",
+        userId: fallbackIdentity.userId || session?.user_id || DEFAULT_USER_ID,
+        channel:
+          fallbackIdentity.channel || session?.channel || DEFAULT_CHANNEL,
+      });
+      const submissionSdkSessionId =
+        frozenSdkSessionId || fallbackIdentity.sdkSessionId;
+      const submissionAgentId =
+        getSubmissionAgentId(biz_params) || selectedAgent;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
+        "X-Agent-Id": submissionAgentId,
       };
 
       if (usesQwenPawBackend) {
         try {
           const activeModels = await providerApi.getActiveModels({
             scope: "effective",
-            agent_id: selectedAgent,
+            agent_id: submissionAgentId,
           });
           if (
             !activeModels?.active_llm?.provider_id ||
@@ -2556,11 +2701,9 @@ export default function ChatPage() {
       if (submittedValue !== null) {
         clearSubmittedSenderInput(submittedValue);
         pendingSenderClearRef.current = null;
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        localStorage.removeItem(getDraftStorageKey(submissionAgentId));
       }
 
-      const { input = [], biz_params } = data;
-      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const clientMessageId =
@@ -2582,20 +2725,16 @@ export default function ChatPage() {
           ? [rewrittenLastMsg]
           : [];
 
-      const identity = sessionApi.getSessionIdentity();
       const usageTurn = useTurnUsageStore
         .getState()
-        .beginTurn(
-          selectedAgent,
-          identity.sessionId || session?.session_id || "",
-        );
+        .beginTurn(submissionAgentId, submissionIdentity.sessionId);
       let requestBody: Record<string, unknown> = {
-        input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
-        stream: true,
         ...biz_params,
+        input: rewrittenInput,
+        session_id: submissionIdentity.sessionId,
+        user_id: submissionIdentity.userId,
+        channel: submissionIdentity.channel,
+        stream: true,
       };
 
       for (const entry of sortByOrder(
@@ -2604,7 +2743,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: submissionAgentId,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -2635,12 +2774,13 @@ export default function ChatPage() {
           runningConfigApprovalLevel,
         );
         projectSessionId =
-          sessionApi.lastActiveChatId ??
-          chatIdRef.current ??
-          String(requestBody.session_id || "new");
+          getSubmissionConversationReference(
+            biz_params,
+            submissionSdkSessionId,
+          ) ?? String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
-          selectedAgent,
+          submissionAgentId,
           projectSessionId,
         );
         requestBody = pendingRequest.requestBody;
@@ -2657,10 +2797,18 @@ export default function ChatPage() {
         };
       }
 
-      const backendChatId =
-        sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
-        chatIdRef.current ??
-        String(requestBody.session_id || "");
+      requestBody = enforceSubmissionIdentity(
+        requestBody,
+        biz_params,
+        submissionIdentity,
+      );
+
+      const submissionConversationReference =
+        getSubmissionConversationReference(biz_params, submissionSdkSessionId);
+      const backendChatId = submissionConversationReference
+        ? sessionApi.getRealIdForSession(submissionConversationReference) ??
+          submissionConversationReference
+        : "";
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m) => m.role === "user")
@@ -2701,10 +2849,10 @@ export default function ChatPage() {
         sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
       }
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const localIdToResolve = submissionSdkSessionId;
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
-          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
+          setPendingProjectDirectory(submissionAgentId, projectSessionId, null);
         }
         sessionApi.triggerResolve(localIdToResolve);
       }
@@ -2860,19 +3008,60 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async () => {
+    const handleBeforeSubmit = async (
+      data: IAgentScopeRuntimeWebUIInputData,
+    ) => {
       if (isComposingRef.current) return false;
+
+      const routeChatId = chatIdRef.current;
+      const frozenChatId = getSubmissionChatId(data.biz_params);
+      const selectedSessionId =
+        frozenChatId && frozenChatId !== "new"
+          ? frozenChatId
+          : routeChatId ?? sessionApi.lastActiveChatId ?? "";
+      const submissionIdentity =
+        sessionApi.getSessionIdentity(selectedSessionId);
+      if (
+        !isSubmissionTargetReady(
+          data.biz_params,
+          selectedAgent,
+          routeChatId,
+          submissionIdentity.sessionId,
+        )
+      ) {
+        return false;
+      }
+      const bizParams = buildSubmissionBizParams(submissionIdentity, {
+        source: "console_chat",
+        agent_id: selectedAgent,
+        chat_id: selectedSessionId,
+        sdk_session_id: submissionIdentity.sdkSessionId,
+      });
+      data.biz_params =
+        getSubmissionChatId(data.biz_params) === "new"
+          ? rebindSubmissionBizParams(data.biz_params, submissionIdentity, {
+              agentId: selectedAgent,
+              chatId: selectedSessionId,
+              sdkSessionId: submissionIdentity.sdkSessionId,
+            })
+          : ({
+              ...bizParams,
+              ...data.biz_params,
+            } as IAgentScopeRuntimeWebUIInputData["biz_params"]);
+
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
+        const submissionQueueKey =
+          getSubmissionConversationReference(data.biz_params) ?? queueSessionId;
         const textarea = getActiveSenderTextarea();
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
         const currentQ = useMessageQueueStore
           .getState()
-          .getQueue(queueSessionId);
+          .getQueue(submissionQueueKey);
         if (currentQ.length >= MAX_QUEUE_SIZE) {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
@@ -2880,8 +3069,18 @@ export default function ChatPage() {
         const queueText = usesQwenPawBackend
           ? prepareLoopModeMessage(val)
           : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity();
-        useMessageQueueStore.getState().enqueue(queueSessionId, {
+        const frozenBizParams = data.biz_params as Record<string, unknown>;
+        const frozenRequestContext = frozenBizParams.request_context;
+        const queueBizParams = {
+          ...frozenBizParams,
+          request_context: {
+            ...(frozenRequestContext && typeof frozenRequestContext === "object"
+              ? (frozenRequestContext as Record<string, unknown>)
+              : {}),
+            source: "console_chat_queue",
+          },
+        };
+        useMessageQueueStore.getState().enqueue(submissionQueueKey, {
           text: queueText,
           attachments:
             pendingFileListRef.current.length > 0
@@ -2892,8 +3091,8 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
-          userId: enqueueIdentity.userId,
-          channel: enqueueIdentity.channel,
+          bizParams: queueBizParams,
+          agentId: selectedAgent,
         });
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
@@ -3221,7 +3420,7 @@ export default function ChatPage() {
                 />
               </span>
             )}
-            {usesQwenPawBackend && (
+            {usesQwenPawBackend && !isAgentSwitchTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={isMobile || compactSender}
@@ -3408,34 +3607,47 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (resolvedChatId) {
-            chatApi.stopChat(resolvedChatId).catch((err) => {
+          const routeChatId = chatIdRef.current;
+          const routeIdentity = sessionApi.getSessionIdentity(routeChatId);
+          const resolvedRouteChatId = resolveBackendChatId(routeChatId);
+          if (
+            !agentSwitchTransitionRef.current &&
+            resolvedRouteChatId &&
+            isConversationReferenceMatch(data.session_id, routeIdentity)
+          ) {
+            chatApi.stopChat(resolvedRouteChatId).catch((err) => {
               console.error("Failed to stop chat:", err);
             });
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
+          const routeChatId = chatIdRef.current;
+          const reconnectIdentity = sessionApi.getSessionIdentity(routeChatId);
+          const resolvedRouteChatId = resolveBackendChatId(routeChatId);
+          if (
+            agentSwitchTransitionRef.current ||
+            !resolvedRouteChatId ||
+            reconnectIdentity.chatId !== resolvedRouteChatId ||
+            !reconnectIdentity.sessionId ||
+            !isConversationReferenceMatch(data.session_id, reconnectIdentity)
+          ) {
+            return;
+          }
+
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
           };
-
-          const reconnectIdentity = sessionApi.getSessionIdentity();
           const usageTurn = useTurnUsageStore
             .getState()
-            .beginTurn(
-              selectedAgent,
-              reconnectIdentity.sessionId || data.session_id,
-            );
+            .beginTurn(selectedAgent, reconnectIdentity.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: sessionApi.getBackendSessionId(data.session_id),
+              session_id: reconnectIdentity.sessionId,
               user_id: reconnectIdentity.userId,
               channel: reconnectIdentity.channel,
             }),
@@ -3544,6 +3756,7 @@ export default function ChatPage() {
     usesQwenPawBackend,
     supportsAttachments,
     runningConfigApprovalLevel,
+    activeSessionId,
     queueSessionId,
     onFileCardClick,
     whisperChecked,
@@ -3569,6 +3782,7 @@ export default function ChatPage() {
     handleNewCommand,
     isMobile,
     compactSender,
+    isAgentSwitchTransition,
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,
@@ -3707,14 +3921,19 @@ export default function ChatPage() {
               onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {
-                const sessionId =
-                  request.rootSessionId || window.currentSessionId || "";
-                const resolvedChatId =
-                  sessionApi.getRealIdForSession(sessionId) ??
-                  chatIdRef.current ??
-                  sessionId;
+                const routeChatId = chatIdRef.current;
+                const routeIdentity =
+                  sessionApi.getSessionIdentity(routeChatId);
+                const rootSessionId =
+                  request.rootSessionId || request.sessionId;
+                const resolvedChatId = resolveBackendChatId(routeChatId);
 
-                if (resolvedChatId) {
+                if (
+                  !agentSwitchTransitionRef.current &&
+                  rootSessionId &&
+                  routeIdentity.sessionId === rootSessionId &&
+                  resolvedChatId
+                ) {
                   console.log("[Chat] Calling stopChat with:", resolvedChatId);
                   chatApi
                     .stopChat(resolvedChatId)
@@ -3722,8 +3941,7 @@ export default function ChatPage() {
                       console.log("[Chat] stopChat succeeded");
                       setApprovals((prev) =>
                         prev.filter(
-                          (item) =>
-                            item.root_session_id !== request.rootSessionId,
+                          (item) => item.root_session_id !== rootSessionId,
                         ),
                       );
                     })
@@ -3731,9 +3949,7 @@ export default function ChatPage() {
                       console.error("[Chat] stopChat failed:", err);
                     });
                 } else {
-                  console.warn(
-                    "[Chat] No chat_id resolved, cannot cancel task",
-                  );
+                  console.warn("[Chat] Ignoring stale approval cancel target");
                 }
               }}
             />
