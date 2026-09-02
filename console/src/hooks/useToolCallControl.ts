@@ -21,6 +21,13 @@ export interface ToolCallControlState {
   maxInternalTimeoutSecs: number | null;
   /** Seconds since tool start (from last backend snapshot + local tick). */
   elapsed: number;
+  /**
+   * True once the backend tool coordinator reported this call. Exchanges a
+   * middleware injects into the stream (an advisor plan) look like running
+   * tools but have no coordinator entry, so cancel / offload / extend would
+   * only ever answer "not found" for them.
+   */
+  managed: boolean;
 }
 
 function resolveSessionId(sessionId: string): string {
@@ -43,6 +50,7 @@ export function useToolCallControl(
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
+    managed: false,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -245,6 +253,7 @@ export function useToolCallControl(
       if (!info) return;
 
       fetchedRef.current = true;
+      setState((s) => (s.managed ? s : { ...s, managed: true }));
       if (info.status === "offloaded") {
         tryRegisterBackground("initial-getInfo-offloaded");
       }
