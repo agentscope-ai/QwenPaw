@@ -78,6 +78,9 @@
    * colour is tuned for icons and fills, not for small labels. */
   --app-success: #52c41a;
   --app-success-text: #389e0d;
+  /* -faint tints a control surface without replacing it; -bg is a filled
+   * status background. Mixing them up makes a whole input read as green. */
+  --app-success-faint: rgba(82, 196, 26, 0.02);
   --app-success-bg: #f6ffed;
   --app-success-border: #b7eb8f;
   --app-warning: #faad14;
@@ -86,6 +89,7 @@
   --app-warning-border: #ffe58f;
   --app-error: #ff4d4f;
   --app-error-text: #cf1322;
+  --app-error-faint: rgba(255, 77, 79, 0.02);
   --app-error-bg: #fff2f0;
   --app-error-border: #ffccc7;
   --app-error-ring: rgba(255, 77, 79, 0.2);
@@ -146,6 +150,7 @@ html.dark-mode {
   /* Status */
   --app-success: #49aa19;
   --app-success-text: #6abe39;
+  --app-success-faint: rgba(82, 196, 26, 0.05);
   --app-success-bg: #162312;
   --app-success-border: #274916;
   --app-warning: #d89614;
@@ -154,6 +159,7 @@ html.dark-mode {
   --app-warning-border: #594214;
   --app-error: #dc4446;
   --app-error-text: #ff7875;
+  --app-error-faint: rgba(255, 77, 79, 0.05);
   --app-error-bg: #2c1618;
   --app-error-border: #58191c;
   --app-error-ring: rgba(220, 68, 70, 0.25);

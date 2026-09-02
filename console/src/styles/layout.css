@@ -156,7 +156,7 @@ html.dark-mode .ant-table-tbody > tr:hover > td {
 
 html.dark-mode .qwenpaw-table-tbody > tr.qwenpaw-table-row-selected > td,
 html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
-  background: rgba(97, 92, 237, 0.12) !important;
+  background: var(--app-accent-soft) !important;
 }
 
 /* Table fixed columns shadow in dark mode */
@@ -312,12 +312,12 @@ html.dark-mode .ant-select-item-empty {
 
 html.dark-mode .qwenpaw-select-item-option-active,
 html.dark-mode .ant-select-item-option-active {
-  background: rgba(97, 92, 237, 0.12) !important;
+  background: var(--app-accent-faint) !important;
 }
 
 html.dark-mode .qwenpaw-select-item-option-selected,
 html.dark-mode .ant-select-item-option-selected {
-  background: rgba(97, 92, 237, 0.2) !important;
+  background: var(--app-accent-soft) !important;
   color: #ff7f16 !important;
 }
 
@@ -398,8 +398,8 @@ html.dark-mode
 html.dark-mode
   .ant-picker-time-panel-cell-selected
   .ant-picker-time-panel-cell-inner {
-  background: rgba(97, 92, 237, 0.2) !important;
-  color: #ff7f16 !important;
+  background: var(--app-accent-soft) !important;
+  color: var(--app-accent) !important;
 }
 
 /* DatePicker / RangePicker calendar panel */
@@ -454,7 +454,7 @@ html.dark-mode .ant-picker-cell .ant-picker-cell-inner {
 
 html.dark-mode .qwenpaw-picker-cell:hover .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell:hover .ant-picker-cell-inner {
-  background: rgba(97, 92, 237, 0.2) !important;
+  background: var(--app-accent-soft) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
@@ -486,7 +486,7 @@ html.dark-mode .ant-picker-cell-range-end .ant-picker-cell-inner {
 /* Range in-between cells */
 html.dark-mode .qwenpaw-picker-cell-in-range::before,
 html.dark-mode .ant-picker-cell-in-range::before {
-  background: rgba(97, 92, 237, 0.15) !important;
+  background: var(--app-accent-faint) !important;
 }
 
 html.dark-mode .qwenpaw-picker-cell-in-range .qwenpaw-picker-cell-inner,

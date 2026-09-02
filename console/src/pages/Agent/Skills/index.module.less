@@ -561,7 +561,7 @@
   border-radius: 20px;
   background: radial-gradient(
       circle at top left,
-      rgba(97, 92, 237, 0.08),
+      var(--app-accent-soft),
       transparent 34%
     ),
     linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
@@ -797,7 +797,7 @@
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #615ced;
+  color: var(--app-accent-text);
   cursor: pointer;
   margin-bottom: 8px;
 
@@ -831,11 +831,11 @@
 
   &.pickerAllCard {
     text-align: center;
-    background: rgba(97, 92, 237, 0.03);
+    background: var(--app-accent-faint);
     border-style: dashed;
 
     &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.06);
+      background: var(--app-accent-soft);
     }
   }
 }
@@ -1576,15 +1576,15 @@
     border-color: rgba(255, 255, 255, 0.1);
     background: radial-gradient(
         circle at top left,
-        rgba(97, 92, 237, 0.18),
+        var(--app-accent-soft),
         transparent 34%
       ),
       linear-gradient(180deg, #17191f 0%, #111318 100%);
   }
 
   .emptyStateBadge {
-    background: rgba(97, 92, 237, 0.18);
-    color: #c7d2fe;
+    background: var(--app-accent-soft);
+    color: var(--app-accent-text);
   }
 
   .emptyStateTitle {
@@ -1823,15 +1823,15 @@
     border-color: rgba(255, 255, 255, 0.12);
 
     &:hover {
-      background: rgba(97, 92, 237, 0.08);
+      background: var(--app-accent-faint);
     }
 
     &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.12);
+      background: var(--app-accent-soft);
     }
 
     &.pickerAllCard {
-      background: rgba(97, 92, 237, 0.05);
+      background: var(--app-accent-faint);
     }
   }
 
