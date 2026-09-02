@@ -20,7 +20,16 @@ import {
   UnfoldHorizontal,
   Wrench,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { languageApi } from "../api/modules/language";
@@ -76,14 +85,55 @@ interface FlyoutItemProps {
   content: ReactNode;
 }
 
+interface FlyoutContextValue {
+  setChildOpen: (id: string, open: boolean) => void;
+}
+
+const FlyoutContext = createContext<FlyoutContextValue | null>(null);
+
 function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
+  const parentFlyout = useContext(FlyoutContext);
+  const flyoutId = useId();
+  const [requestedOpen, setRequestedOpen] = useState(false);
+  const [openChildIds, setOpenChildIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const open = requestedOpen || openChildIds.size > 0;
+  const setChildOpen = useCallback((id: string, childOpen: boolean) => {
+    setOpenChildIds((current) => {
+      if (current.has(id) === childOpen) return current;
+      const next = new Set(current);
+      if (childOpen) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const contextValue = useMemo(() => ({ setChildOpen }), [setChildOpen]);
+
+  useEffect(() => {
+    parentFlyout?.setChildOpen(flyoutId, open);
+  }, [flyoutId, open, parentFlyout]);
+
+  useEffect(
+    () => () => parentFlyout?.setChildOpen(flyoutId, false),
+    [flyoutId, parentFlyout],
+  );
+
   return (
     <Popover
+      open={open}
+      onOpenChange={setRequestedOpen}
       placement="rightTop"
-      trigger="click"
-      content={content}
+      trigger={["hover", "click"]}
+      content={
+        <FlyoutContext.Provider value={contextValue}>
+          {content}
+        </FlyoutContext.Provider>
+      }
       overlayClassName={styles.nestedPopover}
       destroyOnHidden
+      mouseEnterDelay={0.06}
+      mouseLeaveDelay={0.18}
     >
       <button type="button" className={styles.menuItem}>
         {icon}

@@ -38,9 +38,8 @@ import {
   type ExtendedSession,
 } from "../stores/sessionListStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
-import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
+import { buildChatPath } from "../utils/sessionRoute";
 import { getOsRootHref } from "../utils/navigationMode";
-import { requestSessionHistoryDrawerOpen } from "../utils/sessionHistoryDrawer";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
@@ -90,8 +89,6 @@ export default function Sidebar({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
-  const currentSessionId = getSessionIdFromPath(location.pathname);
-  const chatPath = buildChatPath(currentSessionId);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [hubAdmin, setHubAdmin] = useState(false);
   const [hubUsername, setHubUsername] = useState("");
@@ -603,12 +600,7 @@ export default function Sidebar({
                 type="button"
                 className={styles.collapsedNavItem}
                 aria-label={t("chat.chatHistoryTooltip")}
-                onClick={() => {
-                  requestSessionHistoryDrawerOpen();
-                  if (!isChatActive) {
-                    navigate(chatPath);
-                  }
-                }}
+                onClick={() => setCollapsed(false)}
               >
                 <History size={18} />
               </button>
