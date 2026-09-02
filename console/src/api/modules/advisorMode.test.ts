@@ -13,13 +13,14 @@ const STATE = {
   followup_enabled: true,
   on_demand_enabled: true,
   max_consults: 3,
+  advisor_thinking: "inherit" as const,
   agent_id: "a1",
-  teacher_model: { provider_id: "dash", model: "qwen3-max" },
-  teacher_source: "main_model",
-  student_model: null,
-  student_source: "main_model",
-  teacher_model_override: null,
-  student_model_override: null,
+  advisor_model: { provider_id: "dash", model: "qwen3-max" },
+  advisor_source: "main_model",
+  worker_model: null,
+  worker_source: "main_model",
+  advisor_model_override: null,
+  worker_model_override: null,
   main_model: { provider_id: "dash", model: "qwen3-max" },
   subagent_model: null,
 };
@@ -54,18 +55,18 @@ describe("advisorModeApi", () => {
   it("update sends a model override, and null to clear it", async () => {
     vi.mocked(request).mockResolvedValue(STATE);
     await advisorModeApi.update({
-      teacher_model: { provider_id: "big", model: "b-max" },
+      advisor_model: { provider_id: "big", model: "b-max" },
     });
     expect(request).toHaveBeenCalledWith("/advisor-mode", {
       method: "POST",
       body: JSON.stringify({
-        teacher_model: { provider_id: "big", model: "b-max" },
+        advisor_model: { provider_id: "big", model: "b-max" },
       }),
     });
-    await advisorModeApi.update({ student_model: null, max_consults: 5 });
+    await advisorModeApi.update({ worker_model: null, max_consults: 5 });
     expect(request).toHaveBeenLastCalledWith("/advisor-mode", {
       method: "POST",
-      body: JSON.stringify({ student_model: null, max_consults: 5 }),
+      body: JSON.stringify({ worker_model: null, max_consults: 5 }),
     });
   });
 

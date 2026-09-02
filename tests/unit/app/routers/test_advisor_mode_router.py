@@ -71,12 +71,13 @@ def test_get_reports_state_and_models(client):
             "max_interventions": 3,
         },
         "agent_id": "agent-1",
-        "teacher_model": {"provider_id": "dash", "model": "qwen3-max"},
-        "teacher_source": "main_model",
-        "student_model": {"provider_id": "dash", "model": "qwen3-8b"},
-        "student_source": "subagent_model",
-        "teacher_model_override": None,
-        "student_model_override": None,
+        "advisor_model": {"provider_id": "dash", "model": "qwen3-max"},
+        "advisor_source": "main_model",
+        "worker_model": {"provider_id": "dash", "model": "qwen3-8b"},
+        "worker_source": "subagent_model",
+        "advisor_model_override": None,
+        "worker_model_override": None,
+        "advisor_thinking": "inherit",
         "main_model": {"provider_id": "dash", "model": "qwen3-max"},
         "subagent_model": {"provider_id": "dash", "model": "qwen3-8b"},
     }
@@ -85,8 +86,8 @@ def test_get_reports_state_and_models(client):
 def test_get_without_subagent_model(client, stored_config):
     stored_config.subagent_model = None
     body = client.get("/api/advisor-mode").json()
-    assert body["student_model"] is None
-    assert body["student_source"] == "main_model"
+    assert body["worker_model"] is None
+    assert body["worker_source"] == "main_model"
     assert body["subagent_model"] is None
 
 
@@ -94,44 +95,44 @@ def test_post_sets_and_clears_the_model_overrides(client, stored_config):
     resp = client.post(
         "/api/advisor-mode",
         json={
-            "teacher_model": {"provider_id": "big", "model": "b-max"},
-            "student_model": {"provider_id": "small", "model": "s-mini"},
+            "advisor_model": {"provider_id": "big", "model": "b-max"},
+            "worker_model": {"provider_id": "small", "model": "s-mini"},
         },
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["teacher_model"] == {"provider_id": "big", "model": "b-max"}
-    assert body["teacher_source"] == "override"
-    assert body["student_model"] == {"provider_id": "small", "model": "s-mini"}
-    assert body["student_source"] == "override"
-    assert body["teacher_model_override"] == body["teacher_model"]
-    assert body["student_model_override"] == body["student_model"]
+    assert body["advisor_model"] == {"provider_id": "big", "model": "b-max"}
+    assert body["advisor_source"] == "override"
+    assert body["worker_model"] == {"provider_id": "small", "model": "s-mini"}
+    assert body["worker_source"] == "override"
+    assert body["advisor_model_override"] == body["advisor_model"]
+    assert body["worker_model_override"] == body["worker_model"]
     # The defaults are still reported for the Console labels.
     assert body["main_model"] == {"provider_id": "dash", "model": "qwen3-max"}
     assert body["subagent_model"] == {
         "provider_id": "dash",
         "model": "qwen3-8b",
     }
-    assert stored_config.advisor_mode.teacher_model.model == "b-max"
-    assert stored_config.advisor_mode.student_model.model == "s-mini"
+    assert stored_config.advisor_mode.advisor_model.model == "b-max"
+    assert stored_config.advisor_mode.worker_model.model == "s-mini"
 
     # Omitted → unchanged; explicit null → cleared.
     body = client.post("/api/advisor-mode", json={"enabled": True}).json()
-    assert body["teacher_source"] == "override"
+    assert body["advisor_source"] == "override"
     body = client.post(
         "/api/advisor-mode",
-        json={"teacher_model": None},
+        json={"advisor_model": None},
     ).json()
-    assert body["teacher_source"] == "main_model"
-    assert body["teacher_model_override"] is None
-    assert body["student_source"] == "override", "other override untouched"
-    assert stored_config.advisor_mode.teacher_model is None
+    assert body["advisor_source"] == "main_model"
+    assert body["advisor_model_override"] is None
+    assert body["worker_source"] == "override", "other override untouched"
+    assert stored_config.advisor_mode.advisor_model is None
 
 
 def test_post_rejects_an_empty_model_slot(client):
     resp = client.post(
         "/api/advisor-mode",
-        json={"teacher_model": {"provider_id": "", "model": "x"}},
+        json={"advisor_model": {"provider_id": "", "model": "x"}},
     )
     assert resp.status_code == 422
 
@@ -188,7 +189,7 @@ def test_get_reports_global_active_model_as_teacher_fallback(
         lambda: manager,
     )
     body = client.get("/api/advisor-mode").json()
-    assert body["teacher_model"] == {"provider_id": "glob", "model": "g-max"}
+    assert body["advisor_model"] == {"provider_id": "glob", "model": "g-max"}
 
 
 def test_post_can_update_on_demand_alone(client, stored_config):
@@ -227,3 +228,17 @@ def test_post_updates_intervention_thresholds_partially(client, stored_config):
         json={"intervention": {"window_size": 0}},
     )
     assert bad.status_code == 422
+
+
+def test_post_sets_the_advisor_thinking_level(client, stored_config):
+    resp = client.post("/api/advisor-mode", json={"advisor_thinking": "off"})
+    assert resp.status_code == 200
+    assert resp.json()["advisor_thinking"] == "off"
+    assert stored_config.advisor_mode.advisor_thinking == "off"
+    assert (
+        client.post(
+            "/api/advisor-mode",
+            json={"advisor_thinking": "max"},
+        ).status_code
+        == 422
+    )

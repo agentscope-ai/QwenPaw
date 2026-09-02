@@ -8,8 +8,8 @@ const ON = {
   plan_enabled: true,
   followup_enabled: true,
   on_demand_enabled: true,
-  teacher_model: { provider_id: "dash", model: "qwen3-max" },
-  student_model: { provider_id: "dash", model: "qwen3-8b" },
+  advisor_model: { provider_id: "dash", model: "qwen3-max" },
+  worker_model: { provider_id: "dash", model: "qwen3-8b" },
 };
 
 beforeEach(() => {
@@ -43,7 +43,7 @@ describe("advisorModeStore", () => {
     const { result } = renderHook(() => useAdvisorMode());
     expect(result.current.advisorMode).toBe(false);
     expect(result.current.initialized).toBe(false);
-    expect(result.current.state.student_model).toBeNull();
+    expect(result.current.state.worker_model).toBeNull();
   });
 
   it("useAdvisorMode: reflects the selected agent's snapshot", () => {
@@ -52,7 +52,7 @@ describe("advisorModeStore", () => {
     const { result } = renderHook(() => useAdvisorMode());
     expect(result.current.advisorMode).toBe(true);
     expect(result.current.initialized).toBe(true);
-    expect(result.current.state.teacher_model?.model).toBe("qwen3-max");
+    expect(result.current.state.advisor_model?.model).toBe("qwen3-max");
   });
 
   it("useAdvisorMode.setAdvisorMode writes to the selected agent", () => {

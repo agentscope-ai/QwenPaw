@@ -25,6 +25,7 @@ const STATE = {
   followup_enabled: false,
   on_demand_enabled: true,
   max_consults: 3,
+  advisor_thinking: "inherit" as const,
   intervention: {
     consecutive_failures: 3,
     window_size: 10,
@@ -33,12 +34,12 @@ const STATE = {
     max_interventions: 3,
   },
   agent_id: "a1",
-  teacher_model: { provider_id: "dash", model: "qwen3-max" },
-  teacher_source: "main_model" as const,
-  student_model: { provider_id: "dash", model: "qwen-plus" },
-  student_source: "subagent_model" as const,
-  teacher_model_override: null,
-  student_model_override: null,
+  advisor_model: { provider_id: "dash", model: "qwen3-max" },
+  advisor_source: "main_model" as const,
+  worker_model: { provider_id: "dash", model: "qwen-plus" },
+  worker_source: "subagent_model" as const,
+  advisor_model_override: null,
+  worker_model_override: null,
   main_model: { provider_id: "dash", model: "qwen3-max" },
   subagent_model: { provider_id: "dash", model: "qwen-plus" },
 };
@@ -159,7 +160,7 @@ describe("AdvisorModeTab", () => {
     renderWithProviders(<AdvisorModeTab />);
     await screen.findByText("agentConfig.advisorModeModelsTitle");
     await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const teacher = await screen.findByTestId("advisor-teacher-model");
+    const teacher = await screen.findByTestId("advisor-advisor-model");
     // The default entry stands for the main model.
     expect(
       within(teacher).getByText("agentConfig.advisorModeMainModel"),
@@ -168,7 +169,7 @@ describe("AdvisorModeTab", () => {
     await user.click(await screen.findByText("DashScope / Qwen Plus"));
     await waitFor(() =>
       expect(advisorModeApi.update).toHaveBeenCalledWith({
-        teacher_model: { provider_id: "dash", model: "qwen-plus" },
+        advisor_model: { provider_id: "dash", model: "qwen-plus" },
       }),
     );
   });
@@ -177,13 +178,13 @@ describe("AdvisorModeTab", () => {
     const user = userEvent.setup();
     vi.mocked(advisorModeApi.get).mockResolvedValue({
       ...STATE,
-      student_model_override: { provider_id: "dash", model: "qwen-plus" },
-      student_source: "override",
+      worker_model_override: { provider_id: "dash", model: "qwen-plus" },
+      worker_source: "override",
     });
     renderWithProviders(<AdvisorModeTab />);
     await screen.findByText("agentConfig.advisorModeModelsTitle");
     await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const student = await screen.findByTestId("advisor-student-model");
+    const student = await screen.findByTestId("advisor-worker-model");
     await user.click(within(student).getByRole("combobox"));
     const entries = await screen.findAllByText(
       "agentConfig.advisorModeSubagentModel",
@@ -191,7 +192,7 @@ describe("AdvisorModeTab", () => {
     await user.click(entries[entries.length - 1]); // the dropdown option
     await waitFor(() =>
       expect(advisorModeApi.update).toHaveBeenCalledWith({
-        student_model: null,
+        worker_model: null,
       }),
     );
   });

@@ -1799,7 +1799,7 @@
     }
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Modo Conselheiro: em conversas do Conselheiro o agente roda neste modelo enquanto o modelo principal atua como conselheiro (o template de loop Conselheiro pode indicar outros modelos).",
+    "subagentModelAdvisorHint": "Modo Conselheiro: em conversas do Conselheiro o trabalhador roda neste modelo enquanto o modelo principal aconselha (o template de loop Conselheiro pode indicar outros modelos).",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",
@@ -1825,7 +1825,8 @@
     "oauthConnected": "Conectado ao {{provider}} com sucesso",
     "oauthFailed": "Autorização falhou, tente novamente",
     "oauthTimeout": "Autorização expirou, tente novamente",
-    "viewMore": "Ver mais ({{count}})"
+    "viewMore": "Ver mais ({{count}})",
+    "advisorSection": "Modo Conselheiro"
   },
   "tokenUsage": {
     "title": "Uso de Tokens",
@@ -2335,16 +2336,18 @@
     "advisorModePlan": "Plano inicial: o conselheiro escreve um plano antes do primeiro passo do agente",
     "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
     "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
-    "advisorModeModels": "Conselheiro: {{teacher}} · Agente: {{student}}",
+    "advisorModeModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
     "advisorModeNoStudent": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
     "advisorModeEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo do compositor e /advisor funciona; escolha por conversa (canais e prompts de cron usam /advisor on).",
-    "advisorModeModelsTitle": "Modelos do conselheiro e do agente",
-    "advisorModeModelsHelp": "Por padrão o conselheiro é o modelo principal do agente e o agente em si roda no modelo de subagente. Escolha outros modelos aqui para sobrescrever qualquer um deles; a escolha é salva com o agente.",
-    "advisorModeTeacherModel": "Modelo do conselheiro",
-    "advisorModeStudentModel": "Modelo do agente",
+    "advisorModeModelsTitle": "Modelos do conselheiro e do trabalhador",
+    "advisorModeModelsHelp": "Por padrão o conselheiro é o modelo principal do agente e o trabalhador (o próprio agente) roda no modelo de subagente. Escolha outros modelos aqui para sobrescrever qualquer um deles; a escolha é salva com o agente e também pode ser alterada no seletor de modelo do chat.",
+    "advisorModeAdvisorModel": "Modelo do conselheiro",
+    "advisorModeWorkerModel": "Modelo do trabalhador",
     "advisorModeMainModel": "Modelo principal ({{model}})",
     "advisorModeSubagentModel": "Modelo de subagente ({{model}})",
-    "advisorModeSameAsTeacher": "igual ao conselheiro",
+    "advisorModeSameAsAdvisor": "igual ao conselheiro",
+    "advisorModeThinking": "Raciocínio do conselheiro",
+    "advisorModeThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Um raciocínio longo antes de um plano curto é a maior parte da espera pelo primeiro token; 'herdar' segue os padrões do agente e do modelo.",
     "advisorModePlanTitle": "Plano inicial",
     "advisorModePlanDescription": "O conselheiro escreve um plano antes do primeiro passo do agente.",
     "advisorModePlanHelp": "O plano é injetado no contexto do agente como uma chamada e resultado de consult_advisor, e aparece no chat enquanto está sendo escrito.",

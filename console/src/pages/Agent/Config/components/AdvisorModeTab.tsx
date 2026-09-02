@@ -13,6 +13,7 @@ import {
   advisorModeApi,
   type AdvisorInterventionConfig,
   type AdvisorModeUpdate,
+  type AdvisorThinking,
 } from "../../../../api/modules/advisorMode";
 import { providerApi } from "../../../../api/modules/provider";
 import type { ModelSlotConfig } from "../../../../api/types";
@@ -87,6 +88,14 @@ function CommittedNumber({
     />
   );
 }
+
+const THINKING_LEVELS: AdvisorThinking[] = [
+  "inherit",
+  "off",
+  "low",
+  "medium",
+  "high",
+];
 
 const INTERVENTION_FIELDS: {
   key: keyof AdvisorInterventionConfig;
@@ -198,19 +207,19 @@ export function AdvisorModeTab() {
   const pickSlot = (value: string): ModelSlotConfig | null =>
     value === DEFAULT_KEY ? null : slotByKey.get(value) ?? null;
 
-  const teacherDefault = t("agentConfig.advisorModeMainModel", {
+  const advisorDefault = t("agentConfig.advisorModeMainModel", {
     model: slotLabel(state.main_model) || "-",
   });
-  const studentDefault = state.subagent_model
+  const workerDefault = state.subagent_model
     ? t("agentConfig.advisorModeSubagentModel", {
         model: slotLabel(state.subagent_model),
       })
     : t("agentConfig.advisorModeNoStudent");
   const modelSummary = t("agentConfig.advisorModeModels", {
-    teacher: slotLabel(state.teacher_model) || "-",
-    student:
-      slotLabel(state.student_model) ||
-      t("agentConfig.advisorModeSameAsTeacher"),
+    advisor: slotLabel(state.advisor_model) || "-",
+    worker:
+      slotLabel(state.worker_model) ||
+      t("agentConfig.advisorModeSameAsAdvisor"),
   });
 
   const toggle = (
@@ -259,37 +268,55 @@ export function AdvisorModeTab() {
               {t("agentConfig.advisorModeModelsHelp")}
             </p>
             <div className={loopStyles.fieldGrid}>
-              <Form.Item label={t("agentConfig.advisorModeTeacherModel")}>
+              <Form.Item label={t("agentConfig.advisorModeAdvisorModel")}>
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  aria-label={t("agentConfig.advisorModeTeacherModel")}
-                  data-testid="advisor-teacher-model"
+                  aria-label={t("agentConfig.advisorModeAdvisorModel")}
+                  data-testid="advisor-advisor-model"
                   disabled={busy}
-                  value={slotKey(state.teacher_model_override)}
+                  value={slotKey(state.advisor_model_override)}
                   options={selectOptions(
-                    state.teacher_model_override,
-                    teacherDefault,
+                    state.advisor_model_override,
+                    advisorDefault,
                   )}
                   onChange={(value: string) =>
-                    void update({ teacher_model: pickSlot(value) })
+                    void update({ advisor_model: pickSlot(value) })
                   }
                 />
               </Form.Item>
-              <Form.Item label={t("agentConfig.advisorModeStudentModel")}>
+              <Form.Item label={t("agentConfig.advisorModeWorkerModel")}>
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  aria-label={t("agentConfig.advisorModeStudentModel")}
-                  data-testid="advisor-student-model"
+                  aria-label={t("agentConfig.advisorModeWorkerModel")}
+                  data-testid="advisor-worker-model"
                   disabled={busy}
-                  value={slotKey(state.student_model_override)}
+                  value={slotKey(state.worker_model_override)}
                   options={selectOptions(
-                    state.student_model_override,
-                    studentDefault,
+                    state.worker_model_override,
+                    workerDefault,
                   )}
                   onChange={(value: string) =>
-                    void update({ student_model: pickSlot(value) })
+                    void update({ worker_model: pickSlot(value) })
+                  }
+                />
+              </Form.Item>
+              <Form.Item
+                label={t("agentConfig.advisorModeThinking")}
+                tooltip={t("agentConfig.advisorModeThinkingTooltip")}
+              >
+                <Select
+                  aria-label={t("agentConfig.advisorModeThinking")}
+                  data-testid="advisor-thinking"
+                  disabled={busy}
+                  value={state.advisor_thinking ?? "inherit"}
+                  options={THINKING_LEVELS.map((level) => ({
+                    value: level,
+                    label: t(`modelSelector.thinking.${level}`),
+                  }))}
+                  onChange={(value: AdvisorThinking) =>
+                    void update({ advisor_thinking: value })
                   }
                 />
               </Form.Item>

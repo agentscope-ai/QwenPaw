@@ -134,9 +134,10 @@ export interface AdvisorModeConfig {
   on_demand_enabled: boolean;
   max_consults: number;
   /** Advisor model override; null = the agent's main model. */
-  teacher_model?: ModelSlotConfig | null;
-  /** Agent model override while Advisor Mode is on; null = sub-agent model. */
-  student_model?: ModelSlotConfig | null;
+  advisor_model?: ModelSlotConfig | null;
+  /** Worker model override while Advisor Mode is on; null = sub-agent model. */
+  worker_model?: ModelSlotConfig | null;
+  advisor_thinking?: "inherit" | "off" | "low" | "medium" | "high";
 }
 
 export interface AgentModelSettingsPatch {

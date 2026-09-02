@@ -45,8 +45,8 @@ export function useSyncAdvisorMode(): void {
             plan_enabled: true,
             followup_enabled: true,
             on_demand_enabled: true,
-            teacher_model: null,
-            student_model: null,
+            advisor_model: null,
+            worker_model: null,
           });
         }
       });
