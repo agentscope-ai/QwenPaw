@@ -68,6 +68,7 @@ import {
   getAssistantMessageDisplayPreference,
   getShowThinkingPreference,
   subscribeChatDisplayPreference,
+  type AssistantMessageDisplayPreference,
 } from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
@@ -232,11 +233,12 @@ function DefaultHostResponseCard({
     () => filterThinkingMessages(mergedMessages, showThinking),
     [mergedMessages, showThinking],
   );
-  const assistantDisplayPreference = useSyncExternalStore(
-    subscribeChatDisplayPreference,
-    getAssistantMessageDisplayPreference,
-    () => "result-collapsed",
-  );
+  const assistantDisplayPreference =
+    useSyncExternalStore<AssistantMessageDisplayPreference>(
+      subscribeChatDisplayPreference,
+      getAssistantMessageDisplayPreference,
+      () => "result-collapsed",
+    );
   const messageDisplayMode = getResponseMessageDisplayMode(
     data.status,
     assistantDisplayPreference,

@@ -53,7 +53,11 @@ export default function LazyAccordion({
     // The vendor contract exposes open/close header classes, but its wrapper
     // depth is not stable. Only the first (outer) header controls this group;
     // later headers belong to nested tool/reasoning accordions.
-    if (header !== event.currentTarget.querySelector(HEADER_SELECTOR)) return;
+    if (
+      !header ||
+      header !== event.currentTarget.querySelector(HEADER_SELECTOR)
+    )
+      return;
     pendingHeaderTopRef.current = header.getBoundingClientRect().top;
     pendingScrollerRef.current = header.closest<HTMLElement>(
       MESSAGE_SCROLL_SELECTOR,
