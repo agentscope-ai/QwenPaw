@@ -20,6 +20,7 @@ from .middleware import (
     AdvisorMiddleware,
     default_log_dir,
 )
+from .trigger import InterventionTrigger, TriggerConfig
 from .teacher import (
     AdvisorTeacher,
     effective_student_slot,
@@ -67,6 +68,23 @@ _UNAVAILABLE_NOTICE = (
     "Configuration → Agent Loop Settings → Advisor, then pick Advisor in "
     "the composer's mode menu or send /advisor on."
 )
+
+
+def _trigger_config(advisor_config: Any) -> TriggerConfig:
+    """The mid-run intervention thresholds from ``advisor_mode.intervention``
+    (defaults when the section is missing)."""
+    section = getattr(advisor_config, "intervention", None)
+    defaults = TriggerConfig()
+    kwargs = {}
+    for name in (
+        "consecutive_failures",
+        "window_size",
+        "window_failures",
+        "cooldown_steps",
+        "max_interventions",
+    ):
+        kwargs[name] = int(getattr(section, name, getattr(defaults, name)))
+    return TriggerConfig(**kwargs)
 
 
 def _system_reply(text: str) -> Msg:
@@ -290,6 +308,7 @@ class AdvisorMode(AgentMode):
         am = getattr(cfg, "advisor_mode", None)
         middleware = AdvisorMiddleware(
             teacher=teacher,
+            trigger=InterventionTrigger(config=_trigger_config(am)),
             plan_enabled=bool(getattr(am, "plan_enabled", True)),
             followup_enabled=bool(getattr(am, "followup_enabled", True)),
             on_demand_enabled=bool(getattr(am, "on_demand_enabled", True)),

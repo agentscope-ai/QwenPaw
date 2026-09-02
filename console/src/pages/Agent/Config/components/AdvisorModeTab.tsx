@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   advisorModeApi,
+  type AdvisorInterventionConfig,
   type AdvisorModeUpdate,
 } from "../../../../api/modules/advisorMode";
 import { providerApi } from "../../../../api/modules/provider";
@@ -38,6 +39,66 @@ function slotKey(slot: Slot): string {
 function slotLabel(slot: Slot): string {
   return slot ? `${slot.provider_id} / ${slot.model}` : "";
 }
+
+/**
+ * A number field that saves when the user is done (blur / Enter) rather
+ * than on every keystroke, so a value typed digit by digit is one write.
+ */
+function CommittedNumber({
+  value,
+  min,
+  max,
+  label,
+  disabled,
+  testId,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  label: string;
+  disabled: boolean;
+  testId: string;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState<number | null>(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+  const commit = () => {
+    if (draft === null || draft < min || draft > max || draft === value) {
+      setDraft(value);
+      return;
+    }
+    onCommit(draft);
+  };
+  return (
+    <InputNumber
+      min={min}
+      max={max}
+      style={{ width: "100%" }}
+      aria-label={label}
+      data-testid={testId}
+      disabled={disabled}
+      value={draft}
+      onChange={(next) => setDraft(typeof next === "number" ? next : null)}
+      onBlur={commit}
+      onPressEnter={commit}
+    />
+  );
+}
+
+const INTERVENTION_FIELDS: {
+  key: keyof AdvisorInterventionConfig;
+  min: number;
+  max: number;
+}[] = [
+  { key: "consecutive_failures", min: 1, max: 50 },
+  { key: "window_failures", min: 1, max: 50 },
+  { key: "window_size", min: 1, max: 200 },
+  { key: "max_interventions", min: 0, max: 50 },
+  { key: "cooldown_steps", min: 0, max: 200 },
+];
 
 interface ModelOption {
   value: string;
@@ -88,7 +149,6 @@ export function AdvisorModeTab() {
   const setAdvisorMode = useAdvisorModeStore((s) => s.setAdvisorMode);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [maxConsults, setMaxConsults] = useState<number | null>(null);
   const options = useModelOptions();
 
   const refresh = useCallback(async () => {
@@ -96,7 +156,6 @@ export function AdvisorModeTab() {
     try {
       const next = await advisorModeApi.get();
       setAdvisorMode(selectedAgent, next);
-      setMaxConsults(next.max_consults);
     } finally {
       setLoading(false);
     }
@@ -111,7 +170,6 @@ export function AdvisorModeTab() {
     try {
       const next = await advisorModeApi.update(patch);
       setAdvisorMode(selectedAgent, next);
-      setMaxConsults(next.max_consults);
       if (patch.enabled !== undefined) {
         // The switch adds/removes Advisor in the composer's mode menu.
         void fetchAvailableLoopModes();
@@ -170,16 +228,7 @@ export function AdvisorModeTab() {
       />
     );
 
-  const commitMaxConsults = () => {
-    if (
-      maxConsults === null ||
-      maxConsults < 0 ||
-      maxConsults === state.max_consults
-    ) {
-      return;
-    }
-    void update({ max_consults: maxConsults });
-  };
+  const intervention = state.intervention;
 
   return (
     <div className={loopStyles.modeEditor}>
@@ -194,105 +243,135 @@ export function AdvisorModeTab() {
           {t("agentConfig.advisorModeEnableHelp")}
         </p>
       </LockedGateCard>
-      <div className={loopStyles.pipelineHeader}>
-        {t("agentConfig.loopMode.advisorPipeline", "Advisor pipeline")}
-      </div>
-      <LockedGateCard
-        icon={<Bot size={15} />}
-        title={t("agentConfig.advisorModeModelsTitle")}
-        description={modelSummary}
-      >
-        <p className={loopStyles.readOnlyCopy}>
-          {t("agentConfig.advisorModeModelsHelp")}
-        </p>
-        <div className={loopStyles.fieldGrid}>
-          <Form.Item label={t("agentConfig.advisorModeTeacherModel")}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              aria-label={t("agentConfig.advisorModeTeacherModel")}
-              data-testid="advisor-teacher-model"
-              disabled={busy}
-              value={slotKey(state.teacher_model_override)}
-              options={selectOptions(
-                state.teacher_model_override,
-                teacherDefault,
-              )}
-              onChange={(value: string) =>
-                void update({ teacher_model: pickSlot(value) })
-              }
-            />
-          </Form.Item>
-          <Form.Item label={t("agentConfig.advisorModeStudentModel")}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              aria-label={t("agentConfig.advisorModeStudentModel")}
-              data-testid="advisor-student-model"
-              disabled={busy}
-              value={slotKey(state.student_model_override)}
-              options={selectOptions(
-                state.student_model_override,
-                studentDefault,
-              )}
-              onChange={(value: string) =>
-                void update({ student_model: pickSlot(value) })
-              }
-            />
-          </Form.Item>
-        </div>
-      </LockedGateCard>
-      <LockedGateCard
-        icon={<ListChecks size={15} />}
-        title={t("agentConfig.advisorModePlanTitle")}
-        description={t("agentConfig.advisorModePlanDescription")}
-        extra={toggle("plan_enabled", t("agentConfig.advisorModePlan"))}
-      >
-        <p className={loopStyles.readOnlyCopy}>
-          {t("agentConfig.advisorModePlanHelp")}
-        </p>
-      </LockedGateCard>
-      <LockedGateCard
-        icon={<LifeBuoy size={15} />}
-        title={t("agentConfig.advisorModeFollowupTitle")}
-        description={t("agentConfig.advisorModeFollowupDescription")}
-        extra={toggle("followup_enabled", t("agentConfig.advisorModeFollowup"))}
-      >
-        <p className={loopStyles.readOnlyCopy}>
-          {t("agentConfig.advisorModeFollowupHelp")}
-        </p>
-      </LockedGateCard>
-      <LockedGateCard
-        icon={<HelpCircle size={15} />}
-        title={t("agentConfig.advisorModeOnDemandTitle")}
-        description={t("agentConfig.advisorModeOnDemandDescription")}
-        extra={toggle(
-          "on_demand_enabled",
-          t("agentConfig.advisorModeOnDemand"),
-        )}
-      >
-        <p className={loopStyles.readOnlyCopy}>
-          {t("agentConfig.advisorModeOnDemandHelp")}
-        </p>
-        <Form.Item
-          label={t("agentConfig.advisorModeMaxConsults")}
-          tooltip={t("agentConfig.advisorModeMaxConsultsTooltip")}
-        >
-          <InputNumber
-            min={0}
-            max={50}
-            style={{ width: 220 }}
-            aria-label={t("agentConfig.advisorModeMaxConsults")}
-            disabled={busy}
-            value={maxConsults}
-            onChange={(value) =>
-              setMaxConsults(typeof value === "number" ? value : null)
-            }
-            onBlur={commitMaxConsults}
-            onPressEnter={commitMaxConsults}
-          />
-        </Form.Item>
-      </LockedGateCard>
+      {!loading && state.enabled ? (
+        <>
+          <div
+            className={`${loopStyles.pipelineHeader} ${loopStyles.pipelineHeaderAfterCard}`}
+          >
+            {t("agentConfig.loopMode.advisorPipeline", "Advisor pipeline")}
+          </div>
+          <LockedGateCard
+            icon={<Bot size={15} />}
+            title={t("agentConfig.advisorModeModelsTitle")}
+            description={modelSummary}
+          >
+            <p className={loopStyles.readOnlyCopy}>
+              {t("agentConfig.advisorModeModelsHelp")}
+            </p>
+            <div className={loopStyles.fieldGrid}>
+              <Form.Item label={t("agentConfig.advisorModeTeacherModel")}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  aria-label={t("agentConfig.advisorModeTeacherModel")}
+                  data-testid="advisor-teacher-model"
+                  disabled={busy}
+                  value={slotKey(state.teacher_model_override)}
+                  options={selectOptions(
+                    state.teacher_model_override,
+                    teacherDefault,
+                  )}
+                  onChange={(value: string) =>
+                    void update({ teacher_model: pickSlot(value) })
+                  }
+                />
+              </Form.Item>
+              <Form.Item label={t("agentConfig.advisorModeStudentModel")}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  aria-label={t("agentConfig.advisorModeStudentModel")}
+                  data-testid="advisor-student-model"
+                  disabled={busy}
+                  value={slotKey(state.student_model_override)}
+                  options={selectOptions(
+                    state.student_model_override,
+                    studentDefault,
+                  )}
+                  onChange={(value: string) =>
+                    void update({ student_model: pickSlot(value) })
+                  }
+                />
+              </Form.Item>
+            </div>
+          </LockedGateCard>
+          <LockedGateCard
+            icon={<ListChecks size={15} />}
+            title={t("agentConfig.advisorModePlanTitle")}
+            description={t("agentConfig.advisorModePlanDescription")}
+            extra={toggle("plan_enabled", t("agentConfig.advisorModePlan"))}
+          >
+            <p className={loopStyles.readOnlyCopy}>
+              {t("agentConfig.advisorModePlanHelp")}
+            </p>
+          </LockedGateCard>
+          <LockedGateCard
+            icon={<LifeBuoy size={15} />}
+            title={t("agentConfig.advisorModeFollowupTitle")}
+            description={t("agentConfig.advisorModeFollowupDescription")}
+            extra={toggle(
+              "followup_enabled",
+              t("agentConfig.advisorModeFollowup"),
+            )}
+          >
+            <p className={loopStyles.readOnlyCopy}>
+              {t("agentConfig.advisorModeFollowupHelp")}
+            </p>
+            {intervention ? (
+              <div className={loopStyles.fieldGrid}>
+                {INTERVENTION_FIELDS.map(({ key, min, max }) => (
+                  <Form.Item
+                    key={key}
+                    label={t(`agentConfig.advisorIntervention.${key}`)}
+                    tooltip={t(`agentConfig.advisorIntervention.${key}Tooltip`)}
+                  >
+                    <CommittedNumber
+                      value={intervention[key]}
+                      min={min}
+                      max={max}
+                      label={t(`agentConfig.advisorIntervention.${key}`)}
+                      testId={`advisor-intervention-${key}`}
+                      disabled={busy}
+                      onCommit={(value) =>
+                        void update({ intervention: { [key]: value } })
+                      }
+                    />
+                  </Form.Item>
+                ))}
+              </div>
+            ) : null}
+          </LockedGateCard>
+          <LockedGateCard
+            icon={<HelpCircle size={15} />}
+            title={t("agentConfig.advisorModeOnDemandTitle")}
+            description={t("agentConfig.advisorModeOnDemandDescription")}
+            extra={toggle(
+              "on_demand_enabled",
+              t("agentConfig.advisorModeOnDemand"),
+            )}
+          >
+            <p className={loopStyles.readOnlyCopy}>
+              {t("agentConfig.advisorModeOnDemandHelp")}
+            </p>
+            <Form.Item
+              label={t("agentConfig.advisorModeMaxConsults")}
+              tooltip={t("agentConfig.advisorModeMaxConsultsTooltip")}
+            >
+              <div style={{ maxWidth: 220 }}>
+                <CommittedNumber
+                  value={state.max_consults ?? 3}
+                  min={0}
+                  max={50}
+                  label={t("agentConfig.advisorModeMaxConsults")}
+                  testId="advisor-max-consults"
+                  disabled={busy}
+                  onCommit={(value) => void update({ max_consults: value })}
+                />
+              </div>
+            </Form.Item>
+          </LockedGateCard>
+        </>
+      ) : null}
     </div>
   );
 }

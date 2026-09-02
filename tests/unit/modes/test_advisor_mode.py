@@ -23,6 +23,7 @@ from qwenpaw.modes.advisor.teacher import (
     slot_label,
     slot_to_dict,
 )
+from qwenpaw.modes.advisor.trigger import TriggerConfig
 from qwenpaw.runtime.phases import Phase
 
 

@@ -63,6 +63,13 @@ def test_get_reports_state_and_models(client):
         "followup_enabled": True,
         "on_demand_enabled": True,
         "max_consults": 3,
+        "intervention": {
+            "consecutive_failures": 3,
+            "window_size": 10,
+            "window_failures": 4,
+            "cooldown_steps": 0,
+            "max_interventions": 3,
+        },
         "agent_id": "agent-1",
         "teacher_model": {"provider_id": "dash", "model": "qwen3-max"},
         "teacher_source": "main_model",
@@ -197,3 +204,26 @@ def test_post_can_switch_off_the_opening_plan(client, stored_config):
     assert resp.status_code == 200
     assert resp.json()["plan_enabled"] is False
     assert stored_config.advisor_mode.plan_enabled is False
+
+
+def test_post_updates_intervention_thresholds_partially(client, stored_config):
+    resp = client.post(
+        "/api/advisor-mode",
+        json={
+            "intervention": {
+                "consecutive_failures": 2,
+                "max_interventions": 5,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()["intervention"]
+    assert body["consecutive_failures"] == 2
+    assert body["max_interventions"] == 5
+    assert body["window_size"] == 10, "untouched"
+    assert stored_config.advisor_mode.intervention.consecutive_failures == 2
+    bad = client.post(
+        "/api/advisor-mode",
+        json={"intervention": {"window_size": 0}},
+    )
+    assert bad.status_code == 422

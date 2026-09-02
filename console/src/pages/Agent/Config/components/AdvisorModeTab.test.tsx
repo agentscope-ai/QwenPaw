@@ -25,6 +25,13 @@ const STATE = {
   followup_enabled: false,
   on_demand_enabled: true,
   max_consults: 3,
+  intervention: {
+    consecutive_failures: 3,
+    window_size: 10,
+    window_failures: 4,
+    cooldown_steps: 0,
+    max_interventions: 3,
+  },
   agent_id: "a1",
   teacher_model: { provider_id: "dash", model: "qwen3-max" },
   teacher_source: "main_model" as const,
@@ -64,6 +71,7 @@ beforeEach(() => {
   vi.mocked(advisorModeApi.update).mockImplementation(async (patch) => ({
     ...STATE,
     ...patch,
+    intervention: { ...STATE.intervention, ...patch.intervention },
   }));
   vi.mocked(providerApi.listProviders).mockResolvedValue(
     PROVIDERS as unknown as Awaited<
@@ -92,6 +100,37 @@ describe("AdvisorModeTab", () => {
     }
     // One switch per capability plus the agent-level default.
     expect(await screen.findAllByRole("switch")).toHaveLength(4);
+  });
+
+  it("hides the pipeline while Advisor Mode is switched off", async () => {
+    vi.mocked(advisorModeApi.get).mockResolvedValue({
+      ...STATE,
+      enabled: false,
+    });
+    renderWithProviders(<AdvisorModeTab />);
+    await waitFor(() => expect(advisorModeApi.get).toHaveBeenCalled());
+    expect(await screen.findAllByRole("switch")).toHaveLength(1);
+    expect(screen.queryByText("Advisor pipeline")).toBeNull();
+    expect(screen.queryByText("agentConfig.advisorModeModelsTitle")).toBeNull();
+  });
+
+  it("saves an intervention threshold when the field is left", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AdvisorModeTab />);
+    await screen.findByText("agentConfig.advisorModeFollowupTitle");
+    await user.click(screen.getByText("agentConfig.advisorModeFollowupTitle"));
+    const field = await screen.findByRole("spinbutton", {
+      name: "agentConfig.advisorIntervention.consecutive_failures",
+    });
+    await user.clear(field);
+    await user.type(field, "2");
+    await user.tab();
+    await waitFor(() =>
+      expect(advisorModeApi.update).toHaveBeenCalledWith({
+        intervention: { consecutive_failures: 2 },
+      }),
+    );
+    expect(advisorModeApi.update).toHaveBeenCalledTimes(1);
   });
 
   it("switches save straight to the backend and update the store", async () => {

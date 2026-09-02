@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from qwenpaw.config.config import (
     AdvisorModeConfig,
     AgentProfileConfig,
@@ -34,6 +36,13 @@ def test_round_trips_through_json():
         "followup_enabled": False,
         "on_demand_enabled": True,
         "max_consults": 3,
+        "intervention": {
+            "consecutive_failures": 3,
+            "window_size": 10,
+            "window_failures": 4,
+            "cooldown_steps": 0,
+            "max_interventions": 3,
+        },
         "teacher_model": None,
         "student_model": None,
     }
@@ -69,7 +78,21 @@ def test_legacy_agent_json_without_the_section_loads_with_defaults():
 
 
 def test_max_consults_cannot_be_negative():
-    import pytest
-
     with pytest.raises(ValueError):
         AdvisorModeConfig(max_consults=-1)
+
+
+def test_intervention_thresholds_are_validated():
+    from qwenpaw.config.config import AdvisorInterventionConfig
+
+    assert AdvisorInterventionConfig().max_interventions == 3
+    with pytest.raises(ValueError):
+        AdvisorInterventionConfig(consecutive_failures=0)
+    legacy = AgentProfileConfig(id="a", name="A").model_dump()
+    legacy["advisor_mode"].pop("intervention")
+    assert (
+        AgentProfileConfig.model_validate(
+            legacy,
+        ).advisor_mode.intervention.window_size
+        == 10
+    )

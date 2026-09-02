@@ -2015,6 +2015,41 @@ class CodingModeConfig(BaseModel):
     )
 
 
+class AdvisorInterventionConfig(BaseModel):
+    """When the advisor is called back in mid-run (Advisor Mode).
+
+    The trigger fires on ``consecutive_failures`` failed tool calls in a
+    row, or ``window_failures`` failures within the last ``window_size``
+    steps; counters reset after each intervention.
+    """
+
+    consecutive_failures: int = Field(
+        default=3,
+        ge=1,
+        description="Failures in a row that call the advisor in",
+    )
+    window_size: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent steps the failure window spans",
+    )
+    window_failures: int = Field(
+        default=4,
+        ge=1,
+        description="Failures within the window that call the advisor in",
+    )
+    cooldown_steps: int = Field(
+        default=0,
+        ge=0,
+        description="Steps to wait after an intervention before the next",
+    )
+    max_interventions: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum automatic interventions per run",
+    )
+
+
 class AdvisorModeConfig(BaseModel):
     """Configuration for Advisor Mode (stored in agent.json).
 
@@ -2052,6 +2087,10 @@ class AdvisorModeConfig(BaseModel):
         default=3,
         ge=0,
         description="Maximum on-demand consultations per conversation",
+    )
+    intervention: AdvisorInterventionConfig = Field(
+        default_factory=AdvisorInterventionConfig,
+        description="Thresholds for the mid-run auto intervention",
     )
     teacher_model: Optional[ModelSlotConfig] = Field(
         default=None,

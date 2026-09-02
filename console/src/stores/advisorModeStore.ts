@@ -15,6 +15,7 @@ export type AdvisorModeSnapshot = Pick<
     Pick<
       AdvisorModeApiState,
       | "max_consults"
+      | "intervention"
       | "teacher_source"
       | "student_source"
       | "teacher_model_override"
