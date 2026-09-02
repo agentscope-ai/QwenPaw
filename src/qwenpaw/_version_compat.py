@@ -46,12 +46,6 @@ def check_plugin_version_compat(
 
     current = Version(current_version_str)
 
-    # Pre-release versions (e.g. 2.0.0b2) should be treated as their base
-    # release for compatibility purposes — developers on a pre-release build
-    # must be able to load plugins targeting the upcoming release.
-    if current.pre is not None:
-        current = Version(f"{current.major}.{current.minor}.{current.micro}")
-
     qv = manifest.qwenpaw_version
     if qv is not None:
         min_v = Version(qv.min)
@@ -63,6 +57,12 @@ def check_plugin_version_compat(
             if manifest.max_version
             else _derive_exclusive_max(manifest.min_version)
         )
+
+    # A stable minimum accepts development builds of that same base release,
+    # preserving the existing developer workflow. A pre-release minimum is an
+    # exact capability boundary and must retain normal PEP 440 ordering.
+    if current.pre is not None and min_v.pre is None:
+        current = Version(f"{current.major}.{current.minor}.{current.micro}")
 
     # Temporary: only enforce >= min.  Original full-range check:
     # if current < min_v or current >= max_v:
