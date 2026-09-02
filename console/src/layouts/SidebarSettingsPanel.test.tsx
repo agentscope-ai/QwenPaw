@@ -28,6 +28,9 @@ function last<T>(items: T[]): T {
 describe("SidebarSettingsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.removeItem("qwenpaw_tool_display_mode");
+    localStorage.removeItem("qwenpaw_assistant_message_display_mode");
+    localStorage.removeItem("qwenpaw_show_thinking");
   });
 
   it("keeps Settings as an action and displays the current version", async () => {
@@ -57,7 +60,7 @@ describe("SidebarSettingsPanel", () => {
     );
   });
 
-  it("uses cascading preferences without dropdown controls", async () => {
+  it("uses cascading appearance controls without dropdowns", async () => {
     renderWithProviders(
       <ThemeProvider>
         <SidebarSettingsPanel
@@ -68,30 +71,29 @@ describe("SidebarSettingsPanel", () => {
       </ThemeProvider>,
     );
 
-    const preferencesButton = screen.getByRole("button", {
-      name: "Preferences",
+    const appearanceButton = screen.getByRole("button", {
+      name: "Appearance",
     });
-    await userEvent.click(preferencesButton);
-    expect(preferencesButton).toHaveClass("ant-popover-open");
+    await userEvent.click(appearanceButton);
+    expect(appearanceButton).toHaveClass("ant-popover-open");
     const language = last(await screen.findAllByText("Language"));
-    const preferences = within(language.closest(".ant-popover")!);
-    expect(preferences.getByText("Language")).toBeInTheDocument();
-    expect(preferences.getByText("Theme")).toBeInTheDocument();
-    expect(preferences.getByText("Content width")).toBeInTheDocument();
-    expect(preferences.getByText("Desktop mode")).toBeInTheDocument();
+    const appearance = within(language.closest(".ant-popover")!);
+    expect(appearance.getByText("Language")).toBeInTheDocument();
+    expect(appearance.getByText("Theme")).toBeInTheDocument();
+    expect(appearance.getByText("Content width")).toBeInTheDocument();
+    expect(appearance.getByText("Desktop mode")).toBeInTheDocument();
     expect(document.querySelector(".ant-select")).not.toBeInTheDocument();
     expect(document.querySelector(".ant-segmented")).not.toBeInTheDocument();
 
-    await userEvent.click(
-      preferences.getByRole("button", { name: "Language" }),
-    );
+    await userEvent.click(appearance.getByRole("button", { name: "Language" }));
+    expect(appearanceButton).toHaveClass("ant-popover-open");
     const english = last(await screen.findAllByText("English"));
     const languages = within(english.closest(".ant-popover")!);
     expect(languages.getByText("简体中文")).toBeInTheDocument();
     expect(languages.getByText("Português")).toBeInTheDocument();
   });
 
-  it("opens desktop mode from preferences", async () => {
+  it("opens desktop mode from appearance", async () => {
     const onClose = vi.fn();
     const onOpenDesktopMode = vi.fn();
     renderWithProviders(
@@ -104,13 +106,37 @@ describe("SidebarSettingsPanel", () => {
       </ThemeProvider>,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Preferences" }));
+    await userEvent.click(screen.getByRole("button", { name: "Appearance" }));
     await userEvent.click(
       last(await screen.findAllByRole("button", { name: "Desktop mode" })),
     );
 
     expect(onOpenDesktopMode).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the three message display controls", async () => {
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Message display" }),
+    );
+    const thinking = last(
+      await screen.findAllByRole("button", { name: "Show thinking" }),
+    );
+    const messageDisplay = within(thinking.closest(".ant-popover")!);
+
+    expect(messageDisplay.getByText("Tool display")).toBeInTheDocument();
+    expect(
+      messageDisplay.getByText("Assistant message collapse"),
+    ).toBeInTheDocument();
   });
 
   it("expands documentation links and opens GitHub directly", async () => {

@@ -14,7 +14,7 @@
  * Vendor response primitives are deep-imported because the SDK does not expose
  * a message-renderer seam. If their paths change, update the imports below.
  */
-import React, { useDeferredValue, useMemo } from "react";
+import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
 import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -67,6 +67,7 @@ import LazyAccordion from "./LazyAccordion";
 import {
   getAssistantMessageDisplayPreference,
   getShowThinkingPreference,
+  subscribeChatDisplayPreference,
 } from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
@@ -222,12 +223,20 @@ function DefaultHostResponseCard({
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
-  const showThinking = getShowThinkingPreference();
+  const showThinking = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getShowThinkingPreference,
+    () => true,
+  );
   const messages = useMemo(
     () => filterThinkingMessages(mergedMessages, showThinking),
     [mergedMessages, showThinking],
   );
-  const assistantDisplayPreference = getAssistantMessageDisplayPreference();
+  const assistantDisplayPreference = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getAssistantMessageDisplayPreference,
+    () => "result-collapsed",
+  );
   const messageDisplayMode = getResponseMessageDisplayMode(
     data.status,
     assistantDisplayPreference,

@@ -1,6 +1,7 @@
 import { Popover } from "antd";
 import {
   BookOpen,
+  BrainCircuit,
   Check,
   ChevronRight,
   CircleHelp,
@@ -8,6 +9,8 @@ import {
   Github,
   Info,
   Languages,
+  ListCollapse,
+  MessageSquareText,
   Monitor,
   Moon,
   Palette,
@@ -15,6 +18,7 @@ import {
   Settings,
   Sun,
   UnfoldHorizontal,
+  Wrench,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +29,16 @@ import {
   getChatWideModePreference,
   setChatWideModePreference,
 } from "../utils/chatLayoutPreference";
+import {
+  getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
+  getToolDisplayPreference,
+  setAssistantMessageDisplayPreference,
+  setShowThinkingPreference,
+  setToolDisplayPreference,
+  type AssistantMessageDisplayPreference,
+  type ToolDisplayPreference,
+} from "../utils/chatDisplayPreference";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
   GITHUB_URL,
@@ -66,12 +80,10 @@ function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
   return (
     <Popover
       placement="rightTop"
-      trigger={["hover", "click"]}
+      trigger="click"
       content={content}
       overlayClassName={styles.nestedPopover}
       destroyOnHidden
-      mouseEnterDelay={0.08}
-      mouseLeaveDelay={0.12}
     >
       <button type="button" className={styles.menuItem}>
         {icon}
@@ -130,6 +142,13 @@ export default function SidebarSettingsPanel({
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
+  const [showThinking, setShowThinking] = useState(getShowThinkingPreference);
+  const [toolDisplayMode, setToolDisplayMode] = useState(
+    getToolDisplayPreference,
+  );
+  const [assistantDisplayMode, setAssistantDisplayMode] = useState(
+    getAssistantMessageDisplayPreference,
+  );
   const rawLanguage = i18n.resolvedLanguage || i18n.language || "en";
   const currentLanguage = LANGUAGES.some(
     (language) => language.value === rawLanguage,
@@ -159,6 +178,28 @@ export default function SidebarSettingsPanel({
     finishAction(() => {
       setChatWideModePreference(enabled);
       setWideMode(enabled);
+    });
+  };
+
+  const toggleThinkingDisplay = () => {
+    const show = !showThinking;
+    finishAction(() => {
+      setShowThinkingPreference(show);
+      setShowThinking(show);
+    });
+  };
+
+  const changeToolDisplay = (mode: ToolDisplayPreference) => {
+    finishAction(() => {
+      setToolDisplayPreference(mode);
+      setToolDisplayMode(mode);
+    });
+  };
+
+  const changeAssistantDisplay = (mode: AssistantMessageDisplayPreference) => {
+    finishAction(() => {
+      setAssistantMessageDisplayPreference(mode);
+      setAssistantDisplayMode(mode);
     });
   };
 
@@ -215,7 +256,48 @@ export default function SidebarSettingsPanel({
     />
   );
 
-  const preferencesContent = (
+  const toolDisplayChoices = (
+    <ChoicePanel<ToolDisplayPreference>
+      choices={[
+        {
+          value: "current",
+          label: t("settingsCenter.toolDisplayCurrent", "Card view"),
+        },
+        {
+          value: "raw-input-output",
+          label: t("settingsCenter.toolDisplayRaw", "Raw parameters"),
+        },
+      ]}
+      value={toolDisplayMode}
+      onChange={changeToolDisplay}
+    />
+  );
+
+  const assistantDisplayChoices = (
+    <ChoicePanel<AssistantMessageDisplayPreference>
+      choices={[
+        {
+          value: "expanded",
+          label: t("settingsCenter.displayExpanded", "Expanded"),
+        },
+        {
+          value: "process-collapsed",
+          label: t(
+            "settingsCenter.displayProcessCollapsed",
+            "Collapse process",
+          ),
+        },
+        {
+          value: "result-collapsed",
+          label: t("settingsCenter.displayResultCollapsed", "Collapse results"),
+        },
+      ]}
+      value={assistantDisplayMode}
+      onChange={changeAssistantDisplay}
+    />
+  );
+
+  const appearanceContent = (
     <div className={styles.flyoutPanel}>
       <FlyoutItem
         icon={<Languages size={16} />}
@@ -243,12 +325,42 @@ export default function SidebarSettingsPanel({
     </div>
   );
 
+  const messageDisplayContent = (
+    <div className={styles.flyoutPanel}>
+      <button
+        type="button"
+        className={styles.menuItem}
+        aria-pressed={showThinking}
+        onClick={toggleThinkingDisplay}
+      >
+        <BrainCircuit size={16} />
+        <span>{t("settingsCenter.thinkingDisplay", "Show thinking")}</span>
+        {showThinking && <Check className={styles.check} size={16} />}
+      </button>
+      <FlyoutItem
+        icon={<Wrench size={16} />}
+        label={t("settingsCenter.toolDisplay", "Tool display")}
+        content={toolDisplayChoices}
+      />
+      <FlyoutItem
+        icon={<ListCollapse size={16} />}
+        label={t("settingsCenter.assistantDisplay", "Assistant messages")}
+        content={assistantDisplayChoices}
+      />
+    </div>
+  );
+
   return (
     <div className={styles.panel}>
       <FlyoutItem
         icon={<Palette size={16} />}
-        label={t("sidebar.quickMenu.preferences", "Preferences")}
-        content={preferencesContent}
+        label={t("sidebar.quickMenu.appearance", "Appearance")}
+        content={appearanceContent}
+      />
+      <FlyoutItem
+        icon={<MessageSquareText size={16} />}
+        label={t("settingsCenter.chatDisplay", "Message display")}
+        content={messageDisplayContent}
       />
       <button
         type="button"

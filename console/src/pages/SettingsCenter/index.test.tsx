@@ -76,11 +76,11 @@ describe("SettingsCenter", () => {
     const contentLayout = screen
       .getByRole("heading", { name: "Content layout" })
       .closest("section");
-    const conversationDisplay = screen
-      .getByRole("heading", { name: "Conversation display" })
+    const messageDisplay = screen
+      .getByRole("heading", { name: "Message display" })
       .closest("section");
     expect(contentLayout).not.toBeNull();
-    expect(conversationDisplay).not.toBeNull();
+    expect(messageDisplay).not.toBeNull();
     expect(within(contentLayout!).getByText("Content width")).toBeVisible();
     expect(within(contentLayout!).getByText("Desktop Mode")).toBeVisible();
     expect(
@@ -90,12 +90,10 @@ describe("SettingsCenter", () => {
       screen.queryByRole("heading", { name: "Desktop app" }),
     ).not.toBeInTheDocument();
     expect(
-      within(conversationDisplay!).queryByText("Content width"),
+      within(messageDisplay!).queryByText("Content width"),
     ).not.toBeInTheDocument();
-    const thinkingDisplay = within(conversationDisplay!).getByText(
-      "Show thinking",
-    );
-    const toolDisplay = within(conversationDisplay!).getByText("Tool display");
+    const thinkingDisplay = within(messageDisplay!).getByText("Show thinking");
+    const toolDisplay = within(messageDisplay!).getByText("Tool display");
     expect(
       thinkingDisplay.compareDocumentPosition(toolDisplay) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -112,7 +110,7 @@ describe("SettingsCenter", () => {
     expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBeNull();
   });
 
-  it("persists conversation display preferences", async () => {
+  it("persists message display preferences", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
     });

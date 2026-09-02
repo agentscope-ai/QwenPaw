@@ -7,6 +7,7 @@ import {
   setAssistantMessageDisplayPreference,
   setShowThinkingPreference,
   setToolDisplayPreference,
+  subscribeChatDisplayPreference,
 } from "./chatDisplayPreference";
 
 describe("chatDisplayPreference", () => {
@@ -32,6 +33,16 @@ describe("chatDisplayPreference", () => {
     setShowThinkingPreference(true);
     expect(getShowThinkingPreference()).toBe(true);
     expect(localStorage.getItem("qwenpaw_show_thinking")).toBeNull();
+  });
+
+  it("notifies subscribers when a display preference changes", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeChatDisplayPreference(listener);
+
+    setShowThinkingPreference(false);
+
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
   });
 
   it("persists and clears the tool display preference", () => {

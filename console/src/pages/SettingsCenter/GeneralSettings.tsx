@@ -227,7 +227,7 @@ export default function GeneralSettings() {
 
       <section className={styles.settingsSection}>
         <h3 className={styles.sectionTitle}>
-          {t("settingsCenter.chatDisplay", "Conversation display")}
+          {t("settingsCenter.chatDisplay", "Message display")}
         </h3>
         <div className={styles.settingsCard}>
           <div className={styles.settingRow}>

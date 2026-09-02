@@ -12,7 +12,13 @@
  * tool name, call ID, and parameters.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import type { ToolCallContent } from "./types";
@@ -21,7 +27,10 @@ import { formatRawToolValue } from "./rawToolDisplay";
 import { stringifyResult } from "./utils";
 import { useToolCallSessionId } from "./ToolCallSessionContext";
 import { useToolCallControl } from "../../../../hooks/useToolCallControl";
-import { getToolDisplayPreference } from "@/utils/chatDisplayPreference";
+import {
+  getToolDisplayPreference,
+  subscribeChatDisplayPreference,
+} from "@/utils/chatDisplayPreference";
 import { OffloadBanner } from "./ToolCallControlPopover";
 import styles from "./toolCards.module.less";
 import bannerStyles from "./offloadBanner.module.less";
@@ -62,7 +71,12 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
 }) => {
   const { t } = useTranslation();
   const sessionId = useToolCallSessionId();
-  const showRawInputOutput = getToolDisplayPreference() === "raw-input-output";
+  const toolDisplayPreference = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getToolDisplayPreference,
+    () => "current",
+  );
+  const showRawInputOutput = toolDisplayPreference === "raw-input-output";
   const initiallyExpanded = showRawInputOutput ? false : defaultExpanded;
   // Lazy-mount the expandable body: children stay unmounted until the
   // <details> is first opened, so collapsed cards never pay the render

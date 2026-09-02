@@ -3,6 +3,8 @@ const LEGACY_TOOL_EXPANDED_STORAGE_KEY = "qwenpaw_tool_calls_default_expanded";
 const ASSISTANT_DISPLAY_MODE_STORAGE_KEY =
   "qwenpaw_assistant_message_display_mode";
 const SHOW_THINKING_STORAGE_KEY = "qwenpaw_show_thinking";
+const CHAT_DISPLAY_PREFERENCE_CHANGE_EVENT =
+  "qwenpaw:chat-display-preference-change";
 
 export type AssistantMessageDisplayPreference =
   | "expanded"
@@ -10,6 +12,25 @@ export type AssistantMessageDisplayPreference =
   | "result-collapsed";
 
 export type ToolDisplayPreference = "current" | "raw-input-output";
+
+export function subscribeChatDisplayPreference(
+  onStoreChange: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(CHAT_DISPLAY_PREFERENCE_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener(
+      CHAT_DISPLAY_PREFERENCE_CHANGE_EVENT,
+      onStoreChange,
+    );
+  };
+}
+
+function notifyChatDisplayPreferenceChange(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CHAT_DISPLAY_PREFERENCE_CHANGE_EVENT));
+  }
+}
 
 export function getShowThinkingPreference(): boolean {
   try {
@@ -29,6 +50,7 @@ export function setShowThinkingPreference(show: boolean): void {
   } catch {
     // storage unavailable
   }
+  notifyChatDisplayPreferenceChange();
 }
 
 export function getToolDisplayPreference(): ToolDisplayPreference {
@@ -53,6 +75,7 @@ export function setToolDisplayPreference(mode: ToolDisplayPreference): void {
   } catch {
     // storage unavailable
   }
+  notifyChatDisplayPreferenceChange();
 }
 
 export function getAssistantMessageDisplayPreference(): AssistantMessageDisplayPreference {
@@ -79,4 +102,5 @@ export function setAssistantMessageDisplayPreference(
   } catch {
     // storage unavailable
   }
+  notifyChatDisplayPreferenceChange();
 }
