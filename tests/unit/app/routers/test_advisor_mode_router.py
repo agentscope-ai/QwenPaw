@@ -62,9 +62,16 @@ def test_get_reports_state_and_models(client):
         "plan_enabled": True,
         "followup_enabled": True,
         "on_demand_enabled": True,
+        "max_consults": 3,
         "agent_id": "agent-1",
         "teacher_model": {"provider_id": "dash", "model": "qwen3-max"},
+        "teacher_source": "main_model",
         "student_model": {"provider_id": "dash", "model": "qwen3-8b"},
+        "student_source": "subagent_model",
+        "teacher_model_override": None,
+        "student_model_override": None,
+        "main_model": {"provider_id": "dash", "model": "qwen3-max"},
+        "subagent_model": {"provider_id": "dash", "model": "qwen3-8b"},
     }
 
 
@@ -72,6 +79,65 @@ def test_get_without_subagent_model(client, stored_config):
     stored_config.subagent_model = None
     body = client.get("/api/advisor-mode").json()
     assert body["student_model"] is None
+    assert body["student_source"] == "main_model"
+    assert body["subagent_model"] is None
+
+
+def test_post_sets_and_clears_the_model_overrides(client, stored_config):
+    resp = client.post(
+        "/api/advisor-mode",
+        json={
+            "teacher_model": {"provider_id": "big", "model": "b-max"},
+            "student_model": {"provider_id": "small", "model": "s-mini"},
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["teacher_model"] == {"provider_id": "big", "model": "b-max"}
+    assert body["teacher_source"] == "override"
+    assert body["student_model"] == {"provider_id": "small", "model": "s-mini"}
+    assert body["student_source"] == "override"
+    assert body["teacher_model_override"] == body["teacher_model"]
+    assert body["student_model_override"] == body["student_model"]
+    # The defaults are still reported for the Console labels.
+    assert body["main_model"] == {"provider_id": "dash", "model": "qwen3-max"}
+    assert body["subagent_model"] == {
+        "provider_id": "dash",
+        "model": "qwen3-8b",
+    }
+    assert stored_config.advisor_mode.teacher_model.model == "b-max"
+    assert stored_config.advisor_mode.student_model.model == "s-mini"
+
+    # Omitted → unchanged; explicit null → cleared.
+    body = client.post("/api/advisor-mode", json={"enabled": True}).json()
+    assert body["teacher_source"] == "override"
+    body = client.post(
+        "/api/advisor-mode",
+        json={"teacher_model": None},
+    ).json()
+    assert body["teacher_source"] == "main_model"
+    assert body["teacher_model_override"] is None
+    assert body["student_source"] == "override", "other override untouched"
+    assert stored_config.advisor_mode.teacher_model is None
+
+
+def test_post_rejects_an_empty_model_slot(client):
+    resp = client.post(
+        "/api/advisor-mode",
+        json={"teacher_model": {"provider_id": "", "model": "x"}},
+    )
+    assert resp.status_code == 422
+
+
+def test_post_updates_max_consults(client, stored_config):
+    resp = client.post("/api/advisor-mode", json={"max_consults": 5})
+    assert resp.status_code == 200
+    assert resp.json()["max_consults"] == 5
+    assert stored_config.advisor_mode.max_consults == 5
+    assert (
+        client.post("/api/advisor-mode", json={"max_consults": -1}).status_code
+        == 422
+    )
 
 
 def test_post_enables_and_persists(client, stored_config):

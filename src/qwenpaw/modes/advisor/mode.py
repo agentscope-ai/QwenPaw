@@ -22,6 +22,7 @@ from .middleware import (
 )
 from .teacher import (
     AdvisorTeacher,
+    effective_student_slot,
     effective_teacher_slot,
     slot_label,
     slot_to_dict,
@@ -346,7 +347,7 @@ class AdvisorMode(AgentMode):
             else DEFAULT_MAX_CONSULTS,
         )
         teacher = slot_label(effective_teacher_slot(cfg))
-        student_slot = slot_to_dict(getattr(cfg, "subagent_model", None))
+        student_slot = slot_to_dict(effective_student_slot(cfg))
         student = (
             slot_label(student_slot)
             if student_slot is not None

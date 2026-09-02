@@ -2053,6 +2053,20 @@ class AdvisorModeConfig(BaseModel):
         ge=0,
         description="Maximum on-demand consultations per conversation",
     )
+    teacher_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model that answers as the advisor; None means the agent's "
+            "main model"
+        ),
+    )
+    student_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model the agent runs on while Advisor Mode is on; None means "
+            "the sub-agent model, or the main model when none is set"
+        ),
+    )
 
 
 class FallbackPolicyConfig(BaseModel):

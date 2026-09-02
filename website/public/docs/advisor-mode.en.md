@@ -12,14 +12,16 @@ This is how a cheap model gets most of the benefit of an expensive one: the expe
 
 ## Which models are used
 
-Advisor Mode reuses the two model slots an agent already has, so there is nothing new to configure:
+By default Advisor Mode reuses the two model slots an agent already has:
 
-| Role              | Model slot                                  |
+| Role              | Default model slot                          |
 | ----------------- | ------------------------------------------- |
 | Advisor (teacher) | the agent's **main model** (`active_model`) |
 | Agent (student)   | the **sub-agent model** (`subagent_model`)  |
 
 Set both in the Console: open the model selector in the chat header, pick the main model, then open **Agent model settings** and pick a **Sub-agent model**. When no sub-agent model is configured the agent keeps running on the main model; Advisor Mode still plans and intervenes, it just does not save tokens.
+
+Either role can also be given its own model: the **Advisor and agent models** card of the Advisor loop template (Agent → Configuration → Agent Loop Settings → Advisor) shows which models are in use and lets you pick a different advisor model or agent model. The choice is stored with the agent (`advisor_mode.teacher_model` / `advisor_mode.student_model` in `agent.json`) and does not touch the main or sub-agent slots; pick the default entry again to go back to them. `/advisor status` reports the models in effect.
 
 The advisor is called through the same model factory as every other QwenPaw model call, so provider routing, retries, rate limiting and token accounting all apply.
 
@@ -38,7 +40,7 @@ The same works anywhere slash commands do (chat, TUI, channels):
 
 **For every conversation of an agent (default)**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the composer's mode menu takes you there). This is the default that every conversation, channel and cron run starts with; `/advisor on|off` overrides it for one conversation. The same card has three more switches, one per capability, so each can be evaluated on its own: _Opening plan_ (the advisor writes a plan before the agent's first step), _Mid-run auto intervention_ (the harness watches tool results and calls the advisor when the agent keeps failing) and _Let the agent proactively ask the advisor via the `consult_advisor` tool_.
 
-**API**: `GET /api/advisor-mode` returns the state, `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}` updates it.
+**API**: `GET /api/advisor-mode` returns the state (the switches, the models in effect and where each comes from), `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}`, `{"max_consults": 5}`, `{"teacher_model": {"provider_id": "…", "model": "…"}}` or `{"student_model": null}` updates it; fields left out are unchanged and `null` clears a model override.
 
 The setting is stored per agent in `agent.json`:
 
@@ -49,7 +51,9 @@ The setting is stored per agent in `agent.json`:
     "plan_enabled": true,
     "followup_enabled": true,
     "on_demand_enabled": true,
-    "max_consults": 3
+    "max_consults": 3,
+    "teacher_model": null,
+    "student_model": null
   }
 }
 ```
