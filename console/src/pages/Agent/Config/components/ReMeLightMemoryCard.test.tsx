@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -21,6 +21,7 @@ import { EmbeddingModelCard } from "./EmbeddingModelCard";
 import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
 import { useReMeRuntimeStatus } from "../useReMeRuntimeStatus";
 import {
+  getEmbeddingConfigFingerprint,
   getEmbeddingServiceFingerprint,
   isEmbeddingEnabled,
 } from "./embeddingUtils";
@@ -55,12 +56,27 @@ const memoryStatus = {
       last_error: null,
     },
     reindexing: false,
+    embedding_reindex_required: false,
+    embedding_reindex_undo_available: false,
   },
 };
 
 const unknownRuntime = { type: "unknown" as const };
 const unknownDiagnostics = { type: "unknown" as const };
 const noopStatusCheck = async () => {};
+const persistedDashScopeEmbeddingConfig = {
+  backend: "dashscope" as const,
+  model_name: "text-embedding-v4",
+  api_key: "secret",
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  dimensions: 1024,
+  enable_cache: true,
+  use_dimensions: true,
+  max_cache_size: 1000,
+  max_input_length: 8192,
+  max_batch_size: 10,
+  health_check_timeout: 15,
+};
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
@@ -190,7 +206,68 @@ function ReindexingEmbeddingForm() {
   );
 }
 
-function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
+function PersistedEmbeddingForm() {
+  const config = {
+    backend: "openai" as const,
+    model_name: "text-embedding-v4",
+    api_key: "secret",
+    dimensions: 1024,
+    enable_cache: true,
+  };
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(config),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function PersistedDashScopeEmbeddingForm() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({
+      reme_light_memory_config: {
+        embedding_model_config: persistedDashScopeEmbeddingConfig,
+      },
+    });
+  }, [form]);
+
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(
+          persistedDashScopeEmbeddingConfig,
+        ),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+      }}
+    >
+      <Form form={form}>
+        <EmbeddingModelCard />
+      </Form>
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function NeedsReindexEmbeddingForm({ undoAvailable = true }) {
   const [needsReindex, setNeedsReindex] = useState(true);
   return (
     <MemoryMaintenanceContext.Provider
@@ -199,8 +276,15 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         setNeedsReindex,
         reindexing: false,
         setReindexing: vi.fn(),
-        openMemorySettings: onOpen,
-        runtimeStatus: unknownRuntime,
+        openMemorySettings: vi.fn(),
+        runtimeStatus: {
+          type: "healthy",
+          agentId: "bot",
+          data: {
+            ...memoryStatus.runtime,
+            embedding_reindex_undo_available: undoAvailable,
+          },
+        },
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
       }}
@@ -553,10 +637,7 @@ describe("long-term memory defaults", () => {
       screen.getByRole("link", {
         name: "agentConfig.dailyPaperDocumentation",
       }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
-    );
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
 
     fireEvent.click(sourceToggle);
 
@@ -734,15 +815,75 @@ describe("embedding card separation", () => {
     ).toBeInTheDocument();
   });
 
-  it("links to long-term memory when a rebuild is required", async () => {
-    const onOpen = vi.fn();
-    renderWithProviders(<NeedsReindexEmbeddingForm onOpen={onOpen} />);
+  it("shows explicit embedding rebuild and undo actions when required", async () => {
+    renderWithProviders(<NeedsReindexEmbeddingForm />);
 
-    const button = await screen.findByRole("button", {
-      name: "agentConfig.goToLongTermMemory",
-    });
-    fireEvent.click(button);
-    expect(onOpen).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeBm25Pending"),
+    ).toBeInTheDocument();
+  });
+
+  it("hides undo when a legacy pending state has no indexed snapshot", async () => {
+    renderWithProviders(<NeedsReindexEmbeddingForm undoAvailable={false} />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexNeedsRebuild"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("always shows embedding index status and the manual rebuild action", async () => {
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexMatchesConfig"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeHybrid"),
+    ).toBeInTheDocument();
+  });
+
+  it("disables embedding reindex while embedding is not enabled", async () => {
+    renderWithProviders(<EmbeddingForm />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexDisabled"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeBm25"),
+    ).toBeInTheDocument();
   });
 
   it("disables every embedding config field while rebuilding", () => {
@@ -757,6 +898,43 @@ describe("embedding card separation", () => {
     expect(
       screen.getByRole("button", {
         name: "agentConfig.embeddingTestConnection",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexRebuilding"),
+    ).toBeInTheDocument();
+  });
+
+  it("requires unsaved embedding changes to be saved before rebuilding", async () => {
+    renderWithProviders(<PersistedEmbeddingForm />);
+
+    fireEvent.change(
+      await screen.findByLabelText("agentConfig.embeddingModelName"),
+      { target: { value: "unsaved-model" } },
+    );
+
+    expect(
+      screen.getByText("agentConfig.embeddingIndexSaveFirst"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("enables reindex for a freshly loaded DashScope config", async () => {
+    renderWithProviders(<PersistedDashScopeEmbeddingForm />);
+
+    expect(
+      await screen.findByDisplayValue("text-embedding-v4"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
       }),
     ).toBeEnabled();
   });
@@ -874,6 +1052,36 @@ describe("getEmbeddingServiceFingerprint", () => {
         max_cache_size: 20,
         max_input_length: 200,
         max_batch_size: 4,
+      }),
+    );
+  });
+
+  it("ignores use_dimensions outside the OpenAI backend", () => {
+    const dashscope = {
+      ...base,
+      backend: "dashscope" as const,
+    };
+
+    expect(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: false,
+      }),
+    );
+    expect(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: false,
       }),
     );
   });

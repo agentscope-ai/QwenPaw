@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Focused unit tests for workspace running-config update ordering."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -245,7 +246,80 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
     assert events == ["save", "apply"]
     assert response is new_running
     assert response.reme_light_memory_config.needs_reindex is True
+    previous = (
+        response.reme_light_memory_config.pending_reindex_embedding_config
+    )
+    assert previous is not None
+    assert previous.model_name == (
+        old_running.reme_light_memory_config.embedding_model_config.model_name
+    )
     schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_save_cancel_after_persist_completes_runtime() -> None:
+    # pylint: disable=protected-access
+    old_running, new_running = _embedding_update_configs()
+    old_embedding = old_running.reme_light_memory_config.embedding_model_config
+    new_embedding = new_running.reme_light_memory_config.embedding_model_config
+    live_gate = AsyncMock()
+
+    async def apply_embedding(_config):
+        await live_gate()
+        return True
+
+    memory_manager = MagicMock()
+    memory_manager._active_embedding_config = old_embedding.model_copy(
+        deep=True,
+    )
+    memory_manager._reme = SimpleNamespace(is_started=True)
+    memory_manager.apply_tested_embedding = AsyncMock(
+        side_effect=apply_embedding,
+    )
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    caller = asyncio.current_task()
+    assert caller is not None
+    request = MagicMock()
+
+    async def update_config(_agent_id, updater):
+        updater(agent_config)
+        caller.cancel()
+        return agent_config
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            side_effect=update_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await put_agents_running_config(new_running, request)
+
+    assert agent_config.running == new_running
+    memory_config = agent_config.running.reme_light_memory_config
+    assert memory_config.needs_reindex is True
+    assert memory_config.pending_reindex_embedding_config == old_embedding
+    # The active config still describes the indexed vector space until the
+    # rebuild completes; the live gate prevents reads from that old space.
+    assert memory_manager._active_embedding_config == old_embedding
+    assert memory_manager._reme.is_started is True
+    live_gate.assert_awaited_once_with()
+    memory_manager.apply_tested_embedding.assert_awaited_once_with(
+        new_embedding,
+    )
+    schedule_reload.assert_called_once_with(request, "bot")
 
 
 @pytest.mark.asyncio
@@ -277,6 +351,54 @@ async def test_api_key_change_does_not_require_reindex() -> None:
         response = await put_agents_running_config(new_running, MagicMock())
 
     assert response.reme_light_memory_config.needs_reindex is False
+
+
+@pytest.mark.asyncio
+async def test_restoring_indexed_config_clears_reindex_requirement() -> None:
+    old_running, _ = _embedding_update_configs()
+    indexed = old_running.reme_light_memory_config.embedding_model_config
+    pending_running = old_running.model_copy(deep=True)
+    pending_memory = pending_running.reme_light_memory_config
+    pending_memory.embedding_model_config.model_name = "pending-model"
+    pending_memory.needs_reindex = True
+    pending_memory.pending_reindex_embedding_config = indexed.model_copy(
+        deep=True,
+    )
+    restored_running = pending_running.model_copy(deep=True)
+    restored_running.reme_light_memory_config.embedding_model_config = (
+        indexed.model_copy(deep=True)
+    )
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(return_value=True)
+    memory_manager.reload_embedding_config = AsyncMock(return_value=True)
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=pending_running,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(
+            restored_running,
+            MagicMock(),
+        )
+
+    memory_config = response.reme_light_memory_config
+    assert memory_config.needs_reindex is False
+    assert memory_config.pending_reindex_embedding_config is None
+    memory_manager.apply_tested_embedding.assert_not_awaited()
+    memory_manager.reload_embedding_config.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -318,7 +440,7 @@ async def test_running_config_save_failure_does_not_touch_runtime() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embedding_hot_update_failure_restarts_reme() -> None:
+async def test_hot_update_exception_rolls_back_before_reload() -> None:
     old_running, new_running = _embedding_update_configs()
     events: list[str] = []
 
@@ -363,14 +485,16 @@ async def test_embedding_hot_update_failure_restarts_reme() -> None:
             "qwenpaw.app.routers.workspace.schedule_agent_reload",
             side_effect=schedule_reload,
         ),
+        pytest.raises(HTTPException) as exc_info,
     ):
-        response = await put_agents_running_config(
+        await put_agents_running_config(
             new_running,
             MagicMock(),
         )
 
-    assert events == ["save", "apply", "reme-reload", "reload"]
-    assert response is new_running
+    assert exc_info.value.status_code == 503
+    assert events == ["save", "apply", "save", "reme-reload"]
+    assert agent_config.running == old_running
 
 
 @pytest.mark.asyncio
