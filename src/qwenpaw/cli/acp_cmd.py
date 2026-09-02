@@ -85,7 +85,7 @@ def acp_cmd(
     # declared one, so environments without it must keep starting normally.
     if sys.platform == "win32":
         try:
-            import numpy  # noqa: E401,F402
+            import numpy  # noqa: E401,F402  pylint: disable=unused-import
         except ModuleNotFoundError:
             pass
 
