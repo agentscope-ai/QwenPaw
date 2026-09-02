@@ -117,11 +117,11 @@ async def test_hook_routes_agent_to_subagent_model():
         "provider_id": "dash",
         "model": "qwen3-8b",
     }
-    assert ctx.mode_state["advisor"]["student_model"] == {
+    assert ctx.mode_state["advisor"]["worker_model"] == {
         "provider_id": "dash",
         "model": "qwen3-8b",
     }
-    assert ctx.mode_state["advisor"]["teacher_model"] == {
+    assert ctx.mode_state["advisor"]["advisor_model"] == {
         "provider_id": "dash",
         "model": "qwen3-max",
     }
@@ -129,7 +129,7 @@ async def test_hook_routes_agent_to_subagent_model():
 
 async def test_hook_prefers_the_student_model_override():
     cfg = _config()
-    cfg.advisor_mode.student_model = ModelSlotConfig(
+    cfg.advisor_mode.worker_model = ModelSlotConfig(
         provider_id="small",
         model="s-mini",
     )
@@ -143,13 +143,13 @@ async def test_hook_prefers_the_student_model_override():
 
 async def test_hook_student_override_works_without_a_subagent_model():
     cfg = _config(sub=None)
-    cfg.advisor_mode.student_model = ModelSlotConfig(
+    cfg.advisor_mode.worker_model = ModelSlotConfig(
         provider_id="small",
         model="s-mini",
     )
     ctx = _ctx(cfg)
     await _picked().hooks()[0].run(ctx)
-    assert ctx.mode_state["advisor"]["student_model"] == {
+    assert ctx.mode_state["advisor"]["worker_model"] == {
         "provider_id": "small",
         "model": "s-mini",
     }
@@ -159,14 +159,14 @@ async def test_hook_keeps_main_model_without_subagent_model():
     ctx = _ctx(_config(sub=None))
     await _picked().hooks()[0].run(ctx)
     assert not hasattr(ctx.request, "model_slot_override")
-    assert ctx.mode_state["advisor"]["student_model"] is None
+    assert ctx.mode_state["advisor"]["worker_model"] is None
 
 
 async def test_hook_respects_explicit_request_override():
     ctx = _ctx(_config(), request=SimpleNamespace(model_slot_override="p:m"))
     await _picked().hooks()[0].run(ctx)
     assert ctx.request.model_slot_override == "p:m"
-    assert ctx.mode_state["advisor"]["student_model"] is None
+    assert ctx.mode_state["advisor"]["worker_model"] is None
 
 
 async def test_hook_respects_payload_override():
@@ -429,7 +429,7 @@ def test_teacher_override_beats_the_main_model():
     cfg = _config()
     assert resolve_teacher_slot(cfg) == (cfg.active_model, "main_model")
     assert resolve_student_slot(cfg) == (cfg.subagent_model, "subagent_model")
-    cfg.advisor_mode.teacher_model = ModelSlotConfig(
+    cfg.advisor_mode.advisor_model = ModelSlotConfig(
         provider_id="big",
         model="b-max",
     )
@@ -440,7 +440,7 @@ def test_teacher_override_beats_the_main_model():
         "override",
     )
     # An override with an empty model name does not count.
-    cfg.advisor_mode.teacher_model = ModelSlotConfig(provider_id="big")
+    cfg.advisor_mode.advisor_model = ModelSlotConfig(provider_id="big")
     assert resolve_teacher_slot(cfg)[1] == "main_model"
     assert resolve_student_slot(_config(sub=None)) == (None, "main_model")
     mw = _picked().middlewares(_ctx(cfg), cfg)[0]
@@ -735,3 +735,29 @@ def test_consult_tool_is_registered_with_governance():
     assert DEFAULT_REGISTRY.get_type(CONSULT_POLICY_NAME) == "internal"
     assert DEFAULT_REGISTRY.get_owner(CONSULT_TOOL_NAME) == "builtin"
     AdvisorMode()  # idempotent: a second mode instance must not conflict
+
+
+async def test_advisor_thinking_level_reaches_the_model_factory(monkeypatch):
+    seen = {}
+
+    async def fake_create(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(), None
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory.create_model_and_formatter_async",
+        fake_create,
+    )
+    cfg = _config()
+    cfg.thinking_level = "high"
+    cfg.advisor_mode.advisor_thinking = "off"
+    mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
+    await mw._teacher._get_model()
+    assert seen["agent_config"].thinking_level == "off"
+    assert cfg.thinking_level == "high", "the agent's own level is untouched"
+
+    seen.clear()
+    cfg.advisor_mode.advisor_thinking = "inherit"
+    mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
+    await mw._teacher._get_model()
+    assert seen["agent_config"] is cfg

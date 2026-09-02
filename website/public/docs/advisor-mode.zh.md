@@ -1,6 +1,6 @@
 # 顾问模式（Advisor Mode）
 
-顾问模式让两个模型协作完成同一个任务：一个更强的**顾问模型**（"teacher"），和真正干活的智能体（"student"）。
+顾问模式让两个模型协作完成同一个任务：一个更强的**顾问**（advisor），和真正干活的 **Worker**（智能体本身）。
 
 - 在智能体于一个会话中迈出第一步之前，顾问先为任务写一份策略性计划。计划以一对 `consult_advisor` 工具调用 + 结果的形式注入到智能体的上下文中，智能体会把它当作自己主动询问得到的回答。
 - 智能体工作期间，顾问模式会持续观察它的工具结果。当智能体反复失败（连续多次失败，或最近几步里失败反复出现）时，顾问会带着最近的调用记录被再次咨询。它回复 **CONTINUE**（不注入任何内容）或 **ADJUST** 加一段简短的修正计划，后者以 `consult_advisor_followup` 调用的形式注入。
@@ -14,14 +14,16 @@
 
 默认情况下，顾问模式直接复用智能体已有的两个模型槽位：
 
-| 角色              | 默认模型槽位                           |
-| ----------------- | -------------------------------------- |
-| 顾问（teacher）   | 智能体的**主模型**（`active_model`）   |
-| 智能体（student） | **Sub-agent 模型**（`subagent_model`） |
+| 角色   | 默认模型槽位                           |
+| ------ | -------------------------------------- |
+| 顾问   | 智能体的**主模型**（`active_model`）   |
+| Worker | **Sub-agent 模型**（`subagent_model`） |
 
-在 Console 中设置：打开聊天标题栏的模型选择器，选择主模型，再打开 **智能体模型设置**，选择 **Sub-agent 模型**。未配置 Sub-agent 模型时，智能体仍然使用主模型运行；顾问模式照样会规划和介入，只是不省 token。
+未配置 Sub-agent 模型时，Worker 仍然使用主模型运行；顾问模式照样会规划和介入，只是不省 token。
 
-两个角色也都可以单独指定模型：顾问循环模板（智能体 → 运行配置 → Agent Loop Settings → 顾问）里的 **顾问模型与智能体模型** 卡片会显示当前实际使用的模型，并允许分别选择其它的顾问模型或智能体模型。选择随智能体持久保存（`agent.json` 里的 `advisor_mode.teacher_model` / `advisor_mode.student_model`），不会改动主模型和 Sub-agent 槽位；重新选回默认项即可恢复。`/advisor status` 会报告实际生效的模型。
+两个角色都可以在两处单独指定模型：顾问循环模板（智能体 → 运行配置 → Agent Loop Settings → 顾问）里的 **顾问模型与 Worker 模型** 卡片，以及聊天标题栏模型选择器底部的 **顾问模式** 区块，后者会显示当前生效的模型并提供同样的两个下拉。选择随智能体持久保存（`agent.json` 里的 `advisor_mode.advisor_model` / `advisor_mode.worker_model`），不会改动主模型和 Sub-agent 槽位；重新选回默认项即可恢复。`/advisor status` 会报告实际生效的模型。
+
+顾问自身的调用有单独的思考档位 `advisor_mode.advisor_thinking`（同一卡片上的 **顾问思考**）：`inherit`（默认）跟随智能体和模型的默认设置，`off` / `low` / `medium` / `high` 只对顾问生效。对 qwen3-max 这类思考模型，计划首 token 之前的时间大部分花在思考上，觉得计划慢时先调低这一项。
 
 顾问的调用走与 QwenPaw 其它模型调用相同的 model factory，因此 provider 路由、重试、限流和 token 统计全部一致。
 
@@ -42,7 +44,7 @@
 
 智能体的开关关着时，`/advisor on` 和 `/advisor <任务>` 只会回复去哪里开启，不会启动该模式。
 
-**API**：`GET /api/advisor-mode` 读取状态（各开关、实际生效的模型及其来源）；`POST /api/advisor-mode` 传 `{"enabled": true}`、`{"plan_enabled": false}`、`{"followup_enabled": false}`、`{"on_demand_enabled": false}`、`{"max_consults": 5}`、`{"teacher_model": {"provider_id": "…", "model": "…"}}` 或 `{"student_model": null}` 中的任意字段更新；未传的字段保持不变，`null` 表示清除该模型覆盖。
+**API**：`GET /api/advisor-mode` 读取状态（各开关、实际生效的模型及其来源）；`POST /api/advisor-mode` 传 `{"enabled": true}`、`{"plan_enabled": false}`、`{"followup_enabled": false}`、`{"on_demand_enabled": false}`、`{"max_consults": 5}`、`{"advisor_model": {"provider_id": "…", "model": "…"}}`、`{"worker_model": null}` 或 `{"advisor_thinking": "off"}` 中的任意字段更新；未传的字段保持不变，`null` 表示清除该模型覆盖。
 
 设置按智能体保存在 `agent.json` 中：
 
@@ -54,8 +56,9 @@
     "followup_enabled": true,
     "on_demand_enabled": true,
     "max_consults": 32,
-    "teacher_model": null,
-    "student_model": null
+    "advisor_model": null,
+    "worker_model": null,
+    "advisor_thinking": "inherit"
   }
 }
 ```

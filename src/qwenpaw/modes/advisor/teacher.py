@@ -2,10 +2,11 @@
 """The advisor ("teacher") model, resolved through QwenPaw's model factory.
 
 By default Advisor Mode reuses the agent's existing model settings: the
-*main* model (``active_model``) is the teacher and the cheaper
-``subagent_model`` — when configured — runs the agent itself. Both can be
-overridden per agent in ``advisor_mode.teacher_model`` /
-``advisor_mode.student_model`` (the Advisor tab of Agent Loop Settings).
+*main* model (``active_model``) is the advisor ("teacher" in this
+module) and the cheaper ``subagent_model`` — when configured — runs the
+agent itself (the "worker", or "student"). Both can be overridden per agent
+in ``advisor_mode.advisor_model`` / ``advisor_mode.worker_model`` (the
+Advisor tab of Agent Loop Settings).
 Going through :func:`create_model_and_formatter_async` means the teacher
 inherits provider routing, retries, rate limiting and token accounting
 exactly like every other model call in QwenPaw.
@@ -54,13 +55,13 @@ def _override(agent_config: Any, field: str) -> Any:
 def resolve_teacher_slot(agent_config: Any) -> tuple[Any, str]:
     """The model slot that answers as the teacher, and where it comes from.
 
-    Precedence: the ``advisor_mode.teacher_model`` override
+    Precedence: the ``advisor_mode.advisor_model`` override
     (``"override"``), the agent's own ``active_model`` (``"main_model"``),
     then the global active model from :class:`ProviderManager`
     (``"global"``) — the same fallback the model factory applies when
     building the agent's main model.
     """
-    override = _override(agent_config, "teacher_model")
+    override = _override(agent_config, "advisor_model")
     if override is not None:
         return override, "override"
     slot = getattr(agent_config, "active_model", None)
@@ -78,18 +79,38 @@ def resolve_teacher_slot(agent_config: Any) -> tuple[Any, str]:
 def resolve_student_slot(agent_config: Any) -> tuple[Any, str]:
     """The model slot the agent itself runs on, and where it comes from.
 
-    Precedence: the ``advisor_mode.student_model`` override
+    Precedence: the ``advisor_mode.worker_model`` override
     (``"override"``), then ``subagent_model`` (``"subagent_model"``).
     ``(None, "main_model")`` means the agent keeps its main model, i.e. it
     shares the teacher's model and Advisor Mode saves no tokens.
     """
-    override = _override(agent_config, "student_model")
+    override = _override(agent_config, "worker_model")
     if override is not None:
         return override, "override"
     slot = getattr(agent_config, "subagent_model", None)
     if slot_to_dict(slot) is not None:
         return slot, "subagent_model"
     return None, "main_model"
+
+
+def _with_thinking(agent_config: Any, thinking: str) -> Any:
+    """``agent_config`` as seen with the advisor's thinking level.
+
+    The model factory reads ``thinking_level`` off the config it is given,
+    so a detached copy carries the override without touching the agent.
+    """
+    if not thinking or thinking == "inherit" or agent_config is None:
+        return agent_config
+    copy = getattr(agent_config, "model_copy", None)
+    if callable(copy):
+        try:
+            return copy(update={"thinking_level": thinking})
+        except Exception:
+            logger.debug(
+                "AdvisorTeacher: could not copy config",
+                exc_info=True,
+            )
+    return agent_config
 
 
 def effective_teacher_slot(agent_config: Any) -> Any:
@@ -111,10 +132,15 @@ class AdvisorTeacher:
         agent_id: str,
         agent_config: Any = None,
         model_slot: Any = None,
+        thinking: str = "inherit",
     ) -> None:
         self._agent_id = agent_id
         self._agent_config = agent_config
         self._model_slot = model_slot
+        # ``advisor_mode.advisor_thinking``: the advisor's own thinking
+        # level. A long think before a short plan is most of the wait the
+        # user sees, so it is separate from the agent's level.
+        self._thinking = thinking or "inherit"
         self._model: Any = None
 
     @property
@@ -133,7 +159,10 @@ class AdvisorTeacher:
             model, _formatter = await create_model_and_formatter_async(
                 agent_id=self._agent_id,
                 model_slot_override=self._model_slot,
-                agent_config=self._agent_config,
+                agent_config=_with_thinking(
+                    self._agent_config,
+                    self._thinking,
+                ),
             )
             self._model = model
             logger.info(

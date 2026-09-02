@@ -8,18 +8,19 @@ export type AdvisorModeSnapshot = Pick<
   | "plan_enabled"
   | "followup_enabled"
   | "on_demand_enabled"
-  | "teacher_model"
-  | "student_model"
+  | "advisor_model"
+  | "worker_model"
 > &
   Partial<
     Pick<
       AdvisorModeApiState,
       | "max_consults"
       | "intervention"
-      | "teacher_source"
-      | "student_source"
-      | "teacher_model_override"
-      | "student_model_override"
+      | "advisor_thinking"
+      | "advisor_source"
+      | "worker_source"
+      | "advisor_model_override"
+      | "worker_model_override"
       | "main_model"
       | "subagent_model"
     >
@@ -59,8 +60,8 @@ const DISABLED: AdvisorModeSnapshot = {
   plan_enabled: true,
   followup_enabled: true,
   on_demand_enabled: true,
-  teacher_model: null,
-  student_model: null,
+  advisor_model: null,
+  worker_model: null,
 };
 
 /** Convenience hook: Advisor Mode status for the currently selected agent. */

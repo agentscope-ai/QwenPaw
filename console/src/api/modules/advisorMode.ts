@@ -2,8 +2,8 @@ import { request } from "../request";
 import type { ModelSlotConfig } from "../types";
 
 /** Where an effective advisor/agent model comes from. */
-export type AdvisorTeacherSource = "override" | "main_model" | "global";
-export type AdvisorStudentSource = "override" | "subagent_model" | "main_model";
+export type AdvisorSource = "override" | "main_model" | "global";
+export type WorkerSource = "override" | "subagent_model" | "main_model";
 
 /** Thresholds of the mid-run auto intervention. */
 export interface AdvisorInterventionConfig {
@@ -13,6 +13,8 @@ export interface AdvisorInterventionConfig {
   cooldown_steps: number;
   max_interventions: number;
 }
+
+export type AdvisorThinking = "inherit" | "off" | "low" | "medium" | "high";
 
 export interface AdvisorModeState {
   enabled: boolean;
@@ -24,16 +26,18 @@ export interface AdvisorModeState {
   /** Cap on the agent's own consult_advisor calls per conversation. */
   max_consults: number;
   intervention: AdvisorInterventionConfig;
+  /** Thinking level of the advisor's own calls. */
+  advisor_thinking: AdvisorThinking;
   agent_id: string;
-  /** The advisor ("teacher") actually used. */
-  teacher_model: ModelSlotConfig | null;
-  teacher_source: AdvisorTeacherSource;
-  /** The agent ("student") actually used; null = it keeps the main model. */
-  student_model: ModelSlotConfig | null;
-  student_source: AdvisorStudentSource;
+  /** The advisor model actually used. */
+  advisor_model: ModelSlotConfig | null;
+  advisor_source: AdvisorSource;
+  /** The worker model actually used; null = the agent keeps the main model. */
+  worker_model: ModelSlotConfig | null;
+  worker_source: WorkerSource;
   /** Overrides stored in agent.json (null = default slot). */
-  teacher_model_override: ModelSlotConfig | null;
-  student_model_override: ModelSlotConfig | null;
+  advisor_model_override: ModelSlotConfig | null;
+  worker_model_override: ModelSlotConfig | null;
   /** The defaults the overrides fall back to, for labels. */
   main_model: ModelSlotConfig | null;
   subagent_model: ModelSlotConfig | null;
@@ -47,9 +51,10 @@ export interface AdvisorModeUpdate {
   max_consults?: number;
   /** Fields left out keep their value. */
   intervention?: Partial<AdvisorInterventionConfig>;
+  advisor_thinking?: AdvisorThinking;
   /** A slot sets the override; `null` clears it; omitted = unchanged. */
-  teacher_model?: ModelSlotConfig | null;
-  student_model?: ModelSlotConfig | null;
+  advisor_model?: ModelSlotConfig | null;
+  worker_model?: ModelSlotConfig | null;
 }
 
 export const advisorModeApi = {

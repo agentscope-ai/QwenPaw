@@ -9,7 +9,7 @@ message without an agent reload.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -56,8 +56,11 @@ class AdvisorModeUpdateRequest(BaseModel):
     on_demand_enabled: Optional[bool] = None
     max_consults: Optional[int] = Field(default=None, ge=0)
     intervention: Optional[InterventionBody] = None
-    teacher_model: Optional[ModelSlotBody] = None
-    student_model: Optional[ModelSlotBody] = None
+    advisor_thinking: Optional[
+        Literal["inherit", "off", "low", "medium", "high"]
+    ] = None
+    advisor_model: Optional[ModelSlotBody] = None
+    worker_model: Optional[ModelSlotBody] = None
 
 
 def _slot(slot: object) -> dict | None:
@@ -72,7 +75,7 @@ def _slot(slot: object) -> dict | None:
 def _state(config) -> dict:
     """The Advisor Mode state the Console renders.
 
-    ``teacher_model`` / ``student_model`` are the models actually used,
+    ``advisor_model`` / ``worker_model`` are the models actually used,
     with ``*_source`` saying where each comes from (``override`` = set in
     the Advisor tab, ``main_model`` / ``global`` = the agent's main model,
     ``subagent_model`` = the sub-agent slot). ``*_model_override`` echo the
@@ -89,12 +92,13 @@ def _state(config) -> dict:
         "max_consults": int(am.max_consults),
         "intervention": am.intervention.model_dump(),
         "agent_id": config.id,
-        "teacher_model": _slot(teacher),
-        "teacher_source": teacher_source,
-        "student_model": _slot(student),
-        "student_source": student_source,
-        "teacher_model_override": _slot(am.teacher_model),
-        "student_model_override": _slot(am.student_model),
+        "advisor_model": _slot(teacher),
+        "advisor_source": teacher_source,
+        "worker_model": _slot(student),
+        "worker_source": student_source,
+        "advisor_model_override": _slot(am.advisor_model),
+        "worker_model_override": _slot(am.worker_model),
+        "advisor_thinking": am.advisor_thinking,
         # The defaults the overrides fall back to, for the Console labels.
         "main_model": _slot(
             resolve_teacher_slot(_without_overrides(config))[0],
@@ -106,7 +110,7 @@ def _state(config) -> dict:
 def _without_overrides(config):
     """``config`` as seen with the advisor model overrides cleared."""
     am = config.advisor_mode.model_copy(
-        update={"teacher_model": None, "student_model": None},
+        update={"advisor_model": None, "worker_model": None},
     )
     return config.model_copy(update={"advisor_mode": am})
 
@@ -137,7 +141,7 @@ async def post_advisor_mode_update(
 
     Persists the ``advisor_mode`` section of ``agent.json``: the switches,
     ``max_consults`` and the two model overrides. Fields left out of the
-    body are unchanged; ``"teacher_model": null`` / ``"student_model":
+    body are unchanged; ``"advisor_model": null`` / ``"worker_model":
     null`` clear the respective override.
     """
     from ...config.config import ModelSlotConfig, update_agent_config_async
@@ -166,10 +170,12 @@ async def post_advisor_mode_update(
             am.intervention = am.intervention.model_copy(
                 update=body.intervention.model_dump(exclude_none=True),
             )
-        if "teacher_model" in given:
-            am.teacher_model = _slot_config(body.teacher_model)
-        if "student_model" in given:
-            am.student_model = _slot_config(body.student_model)
+        if body.advisor_thinking is not None:
+            am.advisor_thinking = body.advisor_thinking
+        if "advisor_model" in given:
+            am.advisor_model = _slot_config(body.advisor_model)
+        if "worker_model" in given:
+            am.worker_model = _slot_config(body.worker_model)
 
     config = await update_agent_config_async(workspace.agent_id, _update)
     logger.info(

@@ -1,6 +1,6 @@
 # Advisor Mode
 
-Advisor Mode pairs two models on one task: a stronger **advisor** ("teacher") and the agent that does the work (the "student").
+Advisor Mode pairs two models on one task: a stronger **advisor** and the **worker**, the agent that does the work.
 
 - Before the agent's first step in a conversation, the advisor writes a strategic plan for the task. The plan is injected into the agent's context as a `consult_advisor` tool call and result, so the agent reads it as something it asked for.
 - While the agent works, Advisor Mode watches its tool results. When the agent keeps failing (several failures in a row, or failures recurring over the last few steps), the advisor is consulted again with the recent calls. It replies **CONTINUE** (nothing is injected) or **ADJUST** followed by a short revised plan, which is injected as a `consult_advisor_followup` call.
@@ -14,14 +14,16 @@ This is how a cheap model gets most of the benefit of an expensive one: the expe
 
 By default Advisor Mode reuses the two model slots an agent already has:
 
-| Role              | Default model slot                          |
-| ----------------- | ------------------------------------------- |
-| Advisor (teacher) | the agent's **main model** (`active_model`) |
-| Agent (student)   | the **sub-agent model** (`subagent_model`)  |
+| Role    | Default model slot                          |
+| ------- | ------------------------------------------- |
+| Advisor | the agent's **main model** (`active_model`) |
+| Worker  | the **sub-agent model** (`subagent_model`)  |
 
-Set both in the Console: open the model selector in the chat header, pick the main model, then open **Agent model settings** and pick a **Sub-agent model**. When no sub-agent model is configured the agent keeps running on the main model; Advisor Mode still plans and intervenes, it just does not save tokens.
+When no sub-agent model is configured the worker keeps running on the main model; Advisor Mode still plans and intervenes, it just does not save tokens.
 
-Either role can also be given its own model: the **Advisor and agent models** card of the Advisor loop template (Agent → Configuration → Agent Loop Settings → Advisor) shows which models are in use and lets you pick a different advisor model or agent model. The choice is stored with the agent (`advisor_mode.teacher_model` / `advisor_mode.student_model` in `agent.json`) and does not touch the main or sub-agent slots; pick the default entry again to go back to them. `/advisor status` reports the models in effect.
+Either role can be given its own model in two places: the **Advisor and worker models** card of the Advisor loop template (Agent → Configuration → Agent Loop Settings → Advisor), and the **Advisor Mode** section at the bottom of the chat header's model selector, which shows the models in effect and offers the same two pickers. The choice is stored with the agent (`advisor_mode.advisor_model` / `advisor_mode.worker_model` in `agent.json`) and does not touch the main or sub-agent slots; pick the default entry again to go back to them. `/advisor status` reports the models in effect.
+
+The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `inherit` (default) follows the agent and model defaults, `off` / `low` / `medium` / `high` override it for the advisor only. With a thinking model such as qwen3-max most of the time before the plan's first token is the model thinking, so lowering this is the first thing to try when the plan feels slow.
 
 The advisor is called through the same model factory as every other QwenPaw model call, so provider routing, retries, rate limiting and token accounting all apply.
 
@@ -42,7 +44,7 @@ The same works anywhere slash commands do (chat, TUI, channels, cron prompts):
 
 While the agent switch is off, `/advisor on` and `/advisor <task>` reply with where to turn it on instead of starting the mode.
 
-**API**: `GET /api/advisor-mode` returns the state (the switches, the models in effect and where each comes from), `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}`, `{"max_consults": 5}`, `{"teacher_model": {"provider_id": "…", "model": "…"}}` or `{"student_model": null}` updates it; fields left out are unchanged and `null` clears a model override.
+**API**: `GET /api/advisor-mode` returns the state (the switches, the models in effect and where each comes from), `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}`, `{"max_consults": 5}`, `{"advisor_model": {"provider_id": "…", "model": "…"}}`, `{"worker_model": null}` or `{"advisor_thinking": "off"}` updates it; fields left out are unchanged and `null` clears a model override.
 
 The setting is stored per agent in `agent.json`:
 
@@ -54,8 +56,9 @@ The setting is stored per agent in `agent.json`:
     "followup_enabled": true,
     "on_demand_enabled": true,
     "max_consults": 32,
-    "teacher_model": null,
-    "student_model": null
+    "advisor_model": null,
+    "worker_model": null,
+    "advisor_thinking": "inherit"
   }
 }
 ```

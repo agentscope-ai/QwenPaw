@@ -49,7 +49,7 @@ class StudentModelHook(ModeGatedHook):
     By default Advisor Mode reuses the agent's two existing model slots:
     the main ``active_model`` answers as the teacher and the cheaper
     ``subagent_model`` — when one is configured — runs the agent itself;
-    ``advisor_mode.student_model`` overrides the latter (see
+    ``advisor_mode.worker_model`` overrides the latter (see
     :func:`effective_student_slot`). This hook applies the swap by setting
     ``model_slot_override`` on the request before :class:`AgentBuilder`
     builds the model, the same path a spawned subagent uses. An override
@@ -64,15 +64,15 @@ class StudentModelHook(ModeGatedHook):
     async def _run(self, ctx: HookContext) -> HookResult:
         cfg = resolve_agent_config(ctx)
         state = ctx.mode_state.setdefault("advisor", {})
-        state["teacher_model"] = slot_to_dict(effective_teacher_slot(cfg))
-        state["student_model"] = None
+        state["advisor_model"] = slot_to_dict(effective_teacher_slot(cfg))
+        state["worker_model"] = None
 
         student = slot_to_dict(effective_student_slot(cfg))
         request = getattr(ctx, "request", None)
         if student is None:
             logger.info(
-                "Advisor Mode: no student model configured (sub-agent "
-                "model or advisor_mode.student_model); the agent runs on "
+                "Advisor Mode: no worker model configured (sub-agent "
+                "model or advisor_mode.worker_model); the agent runs on "
                 "the main model and the advisor shares it",
             )
         elif request is None or _has_model_override(request):
@@ -81,12 +81,12 @@ class StudentModelHook(ModeGatedHook):
                 "leaving it alone",
             )
         elif _apply_model_override(request, student):
-            state["student_model"] = student
+            state["worker_model"] = student
             logger.info(
-                "Advisor Mode: agent runs on %s:%s (teacher: %s)",
+                "Advisor Mode: worker runs on %s:%s (advisor: %s)",
                 student["provider_id"],
                 student["model"],
-                state["teacher_model"],
+                state["advisor_model"],
             )
         return HookResult()
 

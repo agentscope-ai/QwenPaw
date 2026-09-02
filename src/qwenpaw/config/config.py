@@ -2092,20 +2092,50 @@ class AdvisorModeConfig(BaseModel):
         default_factory=AdvisorInterventionConfig,
         description="Thresholds for the mid-run auto intervention",
     )
-    teacher_model: Optional[ModelSlotConfig] = Field(
+    advisor_model: Optional[ModelSlotConfig] = Field(
         default=None,
         description=(
             "Model that answers as the advisor; None means the agent's "
             "main model"
         ),
     )
-    student_model: Optional[ModelSlotConfig] = Field(
+    worker_model: Optional[ModelSlotConfig] = Field(
         default=None,
         description=(
             "Model the agent runs on while Advisor Mode is on; None means "
             "the sub-agent model, or the main model when none is set"
         ),
     )
+    advisor_thinking: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] = Field(
+        default="inherit",
+        description=(
+            "Thinking level for the advisor's own calls; 'inherit' "
+            "follows the agent / model default"
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_names(cls, data: Any) -> Any:
+        """Read ``teacher_model`` / ``student_model`` written by earlier
+        builds of Advisor Mode as ``advisor_model`` / ``worker_model``."""
+        if isinstance(data, dict):
+            data = dict(data)
+            for old, new in (
+                ("teacher_model", "advisor_model"),
+                ("student_model", "worker_model"),
+            ):
+                if old in data and new not in data:
+                    data[new] = data.pop(old)
+                else:
+                    data.pop(old, None)
+        return data
 
 
 class FallbackPolicyConfig(BaseModel):

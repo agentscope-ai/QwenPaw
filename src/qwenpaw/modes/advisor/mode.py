@@ -295,17 +295,18 @@ class AdvisorMode(AgentMode):
             if session_id
             else AdvisorSessionState()
         )
+        am = getattr(cfg, "advisor_mode", None)
         teacher = AdvisorTeacher(
             agent_id=agent_id,
             agent_config=cfg,
             model_slot=effective_teacher_slot(cfg),
+            thinking=str(getattr(am, "advisor_thinking", "inherit")),
         )
         env_root = getattr(cfg, "project_dir", None) or getattr(
             ctx,
             "workspace_dir",
             None,
         )
-        am = getattr(cfg, "advisor_mode", None)
         middleware = AdvisorMiddleware(
             teacher=teacher,
             trigger=InterventionTrigger(config=_trigger_config(am)),
@@ -416,8 +417,8 @@ class AdvisorMode(AgentMode):
             )
         return (
             f"Advisor Mode: {'on' if active else 'off'} ({scope})\n"
-            f"- advisor (teacher): {teacher}\n"
-            f"- agent (student): {student}\n"
+            f"- advisor model: {teacher}\n"
+            f"- worker model: {student}\n"
             f"- opening plan: {'on' if plan else 'off'}\n"
             f"- mid-run auto intervention: {'on' if followup else 'off'}\n"
             f"- consult_advisor tool: {'on' if on_demand else 'off'} "
