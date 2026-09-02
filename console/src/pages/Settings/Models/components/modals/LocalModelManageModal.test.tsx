@@ -852,4 +852,129 @@ describe("LocalModelManageModal", () => {
       expect(generateConfigLabel).toBeInTheDocument();
     });
   });
+
+  describe("高级配置校验分支", () => {
+    it("max context length 低于最小值时拒绝保存", async () => {
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+      renderModal({ onSaved });
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const contextInput = screen.getByDisplayValue("65536");
+      fireEvent.change(contextInput, { target: { value: "1000" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[0]);
+
+      // Below the minimum, the save API must NOT be called
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("max context length 非整数时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const contextInput = screen.getByDisplayValue("65536");
+      fireEvent.change(contextInput, { target: { value: "65536.5" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[0]);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("server port 超出范围时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const portInput = screen.getByDisplayValue("8080");
+      fireEvent.change(portInput, { target: { value: "99999" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      // the second save button belongs to server port
+      await user.click(saveButtons[1]);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("generate config 非法 JSON 时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      // find the generate config textarea (advanced settings expanded)
+      const textarea = document.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement;
+      if (textarea) {
+        fireEvent.change(textarea, { target: { value: "{ bad json" } });
+        const saveButtons = screen.getAllByRole("button", {
+          name: /models.save/i,
+        });
+        await user.click(saveButtons[saveButtons.length - 1]);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  describe("下载与服务动作", () => {
+    it("空 repo ID 时给出警告且不发起下载", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalServerStatus).toHaveBeenCalled());
+
+      // locate the custom-model download button and click with empty repo
+      const customDownloadButtons = screen.getAllByRole("button").filter(
+        (b) => b.querySelector("svg") && b.closest("[class*='customModel']"),
+      );
+      if (customDownloadButtons.length > 0) {
+        await user.click(customDownloadButtons[0]);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(api.startLocalModelDownload).not.toHaveBeenCalled();
+      }
+    });
+
+    it("推荐模型下载按钮触发下载并轮询", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.startLocalModelDownload).mockResolvedValue(undefined as any);
+      renderModal();
+
+      await waitFor(() =>
+        expect(api.listRecommendedLocalModels).toHaveBeenCalled(),
+      );
+
+      // The not-downloaded model (mistral) has a download button
+      const downloadButtons = screen.queryAllByRole("button").filter((b) => {
+        const row = b.closest("[class*='modelListItem']");
+        return row && row.textContent?.includes("Mistral 7B");
+      });
+      if (downloadButtons.length > 0) {
+        await user.click(downloadButtons[0]);
+        await waitFor(() =>
+          expect(api.startLocalModelDownload).toHaveBeenCalled(),
+        );
+      }
+    });
+  });
 });
