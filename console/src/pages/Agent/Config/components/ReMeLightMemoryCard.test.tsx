@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -64,6 +64,19 @@ const memoryStatus = {
 const unknownRuntime = { type: "unknown" as const };
 const unknownDiagnostics = { type: "unknown" as const };
 const noopStatusCheck = async () => {};
+const persistedDashScopeEmbeddingConfig = {
+  backend: "dashscope" as const,
+  model_name: "text-embedding-v4",
+  api_key: "secret",
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  dimensions: 1024,
+  enable_cache: true,
+  use_dimensions: true,
+  max_cache_size: 1000,
+  max_input_length: 8192,
+  max_batch_size: 10,
+  health_check_timeout: 15,
+};
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
@@ -216,6 +229,40 @@ function PersistedEmbeddingForm() {
       }}
     >
       <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function PersistedDashScopeEmbeddingForm() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({
+      reme_light_memory_config: {
+        embedding_model_config: persistedDashScopeEmbeddingConfig,
+      },
+    });
+  }, [form]);
+
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(
+          persistedDashScopeEmbeddingConfig,
+        ),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+      }}
+    >
+      <Form form={form}>
+        <EmbeddingModelCard />
+      </Form>
     </MemoryMaintenanceContext.Provider>
   );
 }
@@ -875,6 +922,22 @@ describe("embedding card separation", () => {
       }),
     ).toBeDisabled();
   });
+
+  it("enables reindex for a freshly loaded DashScope config", async () => {
+    renderWithProviders(<PersistedDashScopeEmbeddingForm />);
+
+    expect(
+      await screen.findByDisplayValue("text-embedding-v4"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+  });
 });
 
 describe("isValidDreamCronShape", () => {
@@ -989,6 +1052,36 @@ describe("getEmbeddingServiceFingerprint", () => {
         max_cache_size: 20,
         max_input_length: 200,
         max_batch_size: 4,
+      }),
+    );
+  });
+
+  it("ignores use_dimensions outside the OpenAI backend", () => {
+    const dashscope = {
+      ...base,
+      backend: "dashscope" as const,
+    };
+
+    expect(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: false,
+      }),
+    );
+    expect(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: false,
       }),
     );
   });
