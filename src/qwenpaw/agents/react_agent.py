@@ -791,7 +791,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             name,
         )
 
-    async def _execute_tool_call(self, tool_call: Any):
+    async def _execute_tool_call(
+        self,
+        tool_call: Any,
+        kept_rules: Any | None = None,
+    ):
         """Coerce the tool input, then delegate to the base funnel.
 
         ``Agent._execute_tool_call`` is the single funnel for tool-call
@@ -799,9 +803,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
         it — and it runs immediately before agentscope parses and
         validates the input, which is where the #6839 failure happens.
         Coercing here covers every provider, not just OpenAI.
+
+        The signature mirrors the base method exactly: the concurrent
+        execution path calls this with two positional arguments
+        (``tool_call`` and the batch-shared ``kept_rules`` accumulator),
+        so accepting only ``tool_call`` raised ``TypeError`` on every
+        concurrent tool call.
         """
         self._coerce_tool_call_input(tool_call)
-        async for evt in super()._execute_tool_call(tool_call):
+        async for evt in super()._execute_tool_call(tool_call, kept_rules):
             yield evt
 
     # pylint: disable=too-many-branches,too-many-statements

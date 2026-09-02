@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 from agentscope.agent import Agent
@@ -170,8 +171,9 @@ async def test_execute_tool_call_coerces_before_base(
     }
     seen: dict[str, str] = {}
 
-    async def fake_base_execute(self, tool_call):
+    async def fake_base_execute(self, tool_call, kept_rules=None):
         seen["input"] = tool_call.input
+        seen["kept_rules"] = kept_rules
         yield "result-event"
 
     monkeypatch.setattr(Agent, "_execute_tool_call", fake_base_execute)
@@ -194,7 +196,7 @@ async def test_execute_tool_call_mutates_block_in_place(
         "stock-client-local__analyze": STOCK_SCHEMA,
     }
 
-    async def fake_base_execute(self, tool_call):
+    async def fake_base_execute(self, tool_call, kept_rules=None):
         yield "done"
 
     monkeypatch.setattr(Agent, "_execute_tool_call", fake_base_execute)
@@ -214,8 +216,9 @@ async def test_execute_tool_call_noop_for_unindexed_tool(
     agent._tool_schema_index = {}
     seen: dict[str, str] = {}
 
-    async def fake_base_execute(self, tool_call):
+    async def fake_base_execute(self, tool_call, kept_rules=None):
         seen["input"] = tool_call.input
+        seen["kept_rules"] = kept_rules
         yield "done"
 
     monkeypatch.setattr(Agent, "_execute_tool_call", fake_base_execute)
@@ -234,8 +237,9 @@ async def test_execute_tool_call_invalid_json_passthrough(
     }
     seen: dict[str, str] = {}
 
-    async def fake_base_execute(self, tool_call):
+    async def fake_base_execute(self, tool_call, kept_rules=None):
         seen["input"] = tool_call.input
+        seen["kept_rules"] = kept_rules
         yield "done"
 
     monkeypatch.setattr(Agent, "_execute_tool_call", fake_base_execute)
@@ -264,3 +268,37 @@ async def test_coerce_tool_call_input_accepts_dict_form() -> None:
     parsed = json.loads(tool_call["input"])
     assert parsed["assetInfo"] == "7"
     assert parsed["count"] == 1
+
+
+async def test_execute_tool_call_accepts_concurrent_path_args(
+    monkeypatch,
+) -> None:
+    """Regression: agentscope's concurrent path (``Agent._into_queue``)
+    calls ``self._execute_tool_call(tool_call, kept_rules)`` with two
+    positional arguments.  The first revision of this override declared
+    only ``(self, tool_call)``, so every concurrent tool call raised
+    ``TypeError: takes 2 positional arguments but 3 were given`` (run
+    33614106515, 11 integrated-test jobs across 3 platforms).
+    """
+    agent = _agent()
+    agent._tool_schema_index = {
+        "stock-client-local__analyze": STOCK_SCHEMA,
+    }
+    seen: dict[str, Any] = {}
+
+    async def fake_base_execute(self, tool_call, kept_rules=None):
+        seen["input"] = tool_call.input
+        seen["kept_rules"] = kept_rules
+        yield "done"
+
+    monkeypatch.setattr(Agent, "_execute_tool_call", fake_base_execute)
+    block = _bad_input_block()
+    sentinel_rules = ["rule-sentinel"]
+    events = [
+        evt async for evt in agent._execute_tool_call(block, sentinel_rules)
+    ]
+    assert events == ["done"]
+    # kept_rules is forwarded to the base funnel untouched.
+    assert seen["kept_rules"] is sentinel_rules
+    parsed = json.loads(seen["input"])
+    assert parsed["assetInfo"] == "1.000001"
