@@ -5,7 +5,7 @@
       flex-direction: column;
       height: 100%;
       overflow: hidden;
-      background-color: var(--colorBgBase, #fff);
+      background-color: var(--app-surface);
     }
   }
 }
@@ -29,7 +29,7 @@
   align-items: center;
   padding: 16px 16px 16px 20px;
   gap: 8px;
-  background-color: var(--colorBgBase, #fff);
+  background-color: var(--app-surface);
   flex-shrink: 0;
 }
 
@@ -44,12 +44,12 @@
   font-size: 16px;
   font-weight: 500;
   line-height: 32px;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
 }
 
 .headerInfoIcon {
   font-size: 20px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
 }
 
 .headerRight {
@@ -68,22 +68,22 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   cursor: pointer;
 
   &:hover {
-    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-primary, #ff9d4d);
+    outline: 2px solid var(--app-accent);
     outline-offset: 1px;
   }
 }
 
 .pinActive {
-  color: var(--color-primary, #ff9d4d);
+  color: var(--app-accent);
 }
 
 /* Create new chat button area */
@@ -112,22 +112,22 @@
   gap: 7px;
   margin-top: 6px;
   padding: 0 10px;
-  border: 1px dashed var(--colorBorder, rgba(43, 18, 0, 0.14));
+  border: 1px dashed var(--app-border-strong);
   border-radius: 8px;
-  background: var(--colorBgContainer, rgba(255, 255, 255, 0.45));
-  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+  background: var(--app-fill-faint);
+  color: var(--app-text-secondary);
   font-size: 12px;
   font-weight: 550;
   cursor: pointer;
 
   &:hover {
-    border-color: color-mix(in srgb, #ff7f16 46%, transparent);
-    background: color-mix(in srgb, #ff7f16 6%, transparent);
-    color: var(--colorPrimary, #ff7f16);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: 1px;
   }
 }
@@ -144,16 +144,16 @@
   justify-content: center;
   padding: 24px 12px;
   font-size: 12px;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
 }
 
 .createButton {
   width: 100%;
   height: 36px;
   border-radius: 6px;
-  background: var(--colorPrimary, #ff9d4d);
+  background: var(--app-accent);
   border: none;
-  color: #fff;
+  color: var(--app-text-inverse);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -182,8 +182,8 @@
   right: 12px;
   left: 12px;
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
-  background: color-mix(in srgb, var(--colorBgBase, #fff) 96%, transparent);
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
   backdrop-filter: blur(12px);
 }
 
@@ -219,12 +219,12 @@
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   user-select: none;
   transition: color 0.15s;
 
   &:hover {
-    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    color: var(--app-text-secondary);
   }
 }
 
@@ -244,7 +244,7 @@
   height: 28px;
   background: linear-gradient(
     180deg,
-    var(--colorBgBase, #fff) 0%,
+    var(--app-surface) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -260,7 +260,7 @@
   height: 28px;
   background: linear-gradient(
     0deg,
-    var(--colorBgBase, #fff) 0%,
+    var(--app-surface) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -271,14 +271,14 @@
 .footer {
   flex-shrink: 0;
   padding: 20px 16px;
-  background-color: var(--colorBgBase, #fff);
+  background-color: var(--app-surface);
 }
 
 .footerText {
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
 }
 
 /* Embedded panel mode (inline, no Drawer wrapper) */
@@ -291,8 +291,8 @@
   right: 0;
   bottom: 0;
   overflow: hidden;
-  background-color: var(--colorBgBase, #fff);
-  border-left: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  background-color: var(--app-surface);
+  border-left: 1px solid var(--app-border);
 
   .createSection {
     padding: 0 16px 12px;
@@ -308,90 +308,36 @@
 }
 
 /* Dark mode */
+
+/* Dark-only. The fade overlays need a colour-matched fully transparent end,
+ * which a token cannot express, so the stop stays per theme. The group name
+ * field relies on antd's own surface in light mode and only gets an explicit
+ * one here. */
 :global(.dark-mode) {
-  .embeddedPanel {
-    background-color: #141414;
-    border-left-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .drawer {
-    :global {
-      .qwenpaw-drawer-body {
-        background-color: #141414;
-      }
-    }
-  }
-
-  .header {
-    background-color: #141414;
-  }
-
-  .headerTitle {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .headerInfoIcon {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .searchInput,
   .groupInput {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.88);
+    border-color: var(--app-border);
+    background: var(--app-fill);
+    color: var(--app-text);
 
     &::placeholder,
     :global(.qwenpaw-input)::placeholder {
-      color: rgba(255, 255, 255, 0.34);
+      color: var(--app-text-quaternary);
     }
-  }
-
-  .createGroupButton {
-    border-color: rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.62);
-
-    &:hover {
-      border-color: rgba(255, 143, 50, 0.5);
-      background: rgba(255, 127, 22, 0.1);
-      color: #ff8f32;
-    }
-  }
-
-  .stickyGroupHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-    background: color-mix(in srgb, #141414 96%, transparent);
   }
 
   .topGradient {
-    background: linear-gradient(180deg, #141414 0%, rgba(31, 31, 31, 0) 100%);
+    background: linear-gradient(
+      180deg,
+      var(--app-surface) 0%,
+      rgba(31, 31, 31, 0) 100%
+    );
   }
 
   .bottomGradient {
-    background: linear-gradient(0deg, #141414 0%, rgba(31, 31, 31, 0) 100%);
-  }
-
-  .footer {
-    background-color: #141414;
-  }
-
-  .footerText {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .groupLabel {
-    color: var(--text-quaternary, rgba(255, 255, 255, 0.35));
-
-    &:hover {
-      color: var(--text-secondary, rgba(255, 255, 255, 0.55));
-    }
-  }
-
-  .emptyState {
-    color: var(--text-quaternary, rgba(255, 255, 255, 0.35));
-  }
-
-  .createButton {
-    background: #c75c00;
+    background: linear-gradient(
+      0deg,
+      var(--app-surface) 0%,
+      rgba(31, 31, 31, 0) 100%
+    );
   }
 }
