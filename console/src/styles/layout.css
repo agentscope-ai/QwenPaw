@@ -4,11 +4,11 @@ body {
   overflow: hidden;
   margin: 0;
   padding: 0;
-  background: #f9f8f4;
+  background: var(--app-bg);
 }
 
 .qwenpaw-layout {
-  background: #f9f8f4;
+  background: var(--app-bg);
 }
 
 /* ─── Dark mode global token overrides ─────────────────────────────────────── */
@@ -19,73 +19,73 @@ html.dark-mode {
 }
 
 html.dark-mode body {
-  background: #141414;
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--app-bg);
+  color: var(--app-text);
 }
 
 /* Ant Design layout background in dark mode */
 html.dark-mode .ant-layout,
 html.dark-mode .qwenpaw-layout {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 html.dark-mode .ant-layout-content,
 html.dark-mode .qwenpaw-layout-content {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 /* Page content area background */
 html.dark-mode .page-content {
-  background: #141414;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--app-bg);
+  border: 1px solid var(--app-border);
 }
 
 /* Card components — @agentscope-ai/design uses qwenpaw prefix */
 html.dark-mode .qwenpaw-card,
 html.dark-mode .ant-card {
-  background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-card-head,
 html.dark-mode .ant-card-head {
-  background: #1f1f1f !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-card-head-title,
 html.dark-mode .ant-card-head-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* @agentscope-ai/design Card custom title (sparkPrefix-title inside card-wrapper) */
 html.dark-mode .qwenpaw-card-wrapper .qwenpaw-title,
 html.dark-mode .qwenpaw-spark-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-card-wrapper .qwenpaw-info,
 html.dark-mode .qwenpaw-spark-info {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 html.dark-mode .qwenpaw-card-body,
 html.dark-mode .ant-card-body {
-  background: #1f1f1f !important;
+  background: var(--app-surface) !important;
 }
 
 /* Table components */
 html.dark-mode .qwenpaw-table,
 html.dark-mode .ant-table {
-  background: #1f1f1f !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-table-wrapper,
 html.dark-mode .ant-table-wrapper {
-  background: #1f1f1f !important;
+  background: var(--app-surface) !important;
 }
 
 html.dark-mode .qwenpaw-table-thead > tr > th,
@@ -116,22 +116,22 @@ html.dark-mode
   .ant-table-thead
   > tr
   > td {
-  background: #262626 !important;
-  color: rgba(255, 255, 255, 0.65) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-surface-sunken) !important;
+  color: var(--app-text-secondary) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
 }
 
 /* Sticky thead background (scroll.y tables) */
 html.dark-mode .qwenpaw-table-sticky-holder,
 html.dark-mode .ant-table-sticky-holder {
-  background: #262626 !important;
+  background: var(--app-surface-sunken) !important;
 }
 
 html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > th,
 html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > th,
 html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > td,
 html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > td {
-  background: #262626 !important;
+  background: var(--app-surface-sunken) !important;
 }
 
 /* Fix left/right sticky columns in thead */
@@ -139,19 +139,19 @@ html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-left,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
 html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right {
-  background: #262626 !important;
+  background: var(--app-surface-sunken) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr > td,
 html.dark-mode .ant-table-tbody > tr > td {
-  background: #1f1f1f !important;
-  color: rgba(255, 255, 255, 0.85) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr:hover > td,
 html.dark-mode .ant-table-tbody > tr:hover > td {
-  background: #2a2a2a !important;
+  background: var(--app-surface-raised) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr.qwenpaw-table-row-selected > td,
@@ -162,7 +162,7 @@ html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
 /* Table fixed columns shadow in dark mode */
 html.dark-mode .qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-cell-fix-right {
-  background: #1f1f1f !important;
+  background: var(--app-surface) !important;
 }
 
 html.dark-mode .qwenpaw-table-cell-fix-right-first::after,
@@ -173,74 +173,74 @@ html.dark-mode .ant-table-cell-fix-right-first::after {
 /* Table pagination */
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item,
 html.dark-mode .ant-pagination .ant-pagination-item {
-  background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
 }
 
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item a,
 html.dark-mode .ant-pagination .ant-pagination-item a {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item-active,
 html.dark-mode .ant-pagination .ant-pagination-item-active {
-  background: #ff7f16 !important;
-  border-color: #ff7f16 !important;
+  background: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
 }
 
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item-active a,
 html.dark-mode .ant-pagination .ant-pagination-item-active a {
-  color: #fff !important;
+  color: var(--app-text-inverse) !important;
 }
 
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-prev button,
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-next button,
 html.dark-mode .ant-pagination .ant-pagination-prev button,
 html.dark-mode .ant-pagination .ant-pagination-next button {
-  background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-  color: rgba(255, 255, 255, 0.65) !important;
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 /* Table sorter icons */
 html.dark-mode .qwenpaw-table-column-sorter,
 html.dark-mode .ant-table-column-sorter {
-  color: rgba(255, 255, 255, 0.3) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 html.dark-mode .qwenpaw-table-column-sorter-up.active,
 html.dark-mode .qwenpaw-table-column-sorter-down.active,
 html.dark-mode .ant-table-column-sorter-up.active,
 html.dark-mode .ant-table-column-sorter-down.active {
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 /* Checkbox in table */
 html.dark-mode .qwenpaw-checkbox-inner,
 html.dark-mode .ant-checkbox-inner {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
 }
 
 html.dark-mode .qwenpaw-checkbox-checked .qwenpaw-checkbox-inner,
 html.dark-mode .ant-checkbox-checked .ant-checkbox-inner {
-  background: #ff7f16 !important;
-  border-color: #ff7f16 !important;
+  background: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
 }
 
 /* Page titles (h1) */
 html.dark-mode h1,
 html.dark-mode h2,
 html.dark-mode h3 {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--app-text);
 }
 
 /* Input / Textarea */
 html.dark-mode .qwenpaw-input,
 html.dark-mode .ant-input {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
+  color: var(--app-text) !important;
 }
 
 /* Disabled input */
@@ -248,9 +248,9 @@ html.dark-mode .qwenpaw-input[disabled],
 html.dark-mode .ant-input[disabled],
 html.dark-mode .qwenpaw-input-disabled,
 html.dark-mode .ant-input-disabled {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.4) !important;
+  background: var(--app-fill-faint) !important;
+  border-color: var(--app-border-subtle) !important;
+  color: var(--app-text-tertiary) !important;
   cursor: not-allowed;
 }
 
@@ -259,55 +259,55 @@ html.dark-mode .qwenpaw-input-number-disabled,
 html.dark-mode .ant-input-number-disabled,
 html.dark-mode .qwenpaw-input-number-disabled .qwenpaw-input-number-input,
 html.dark-mode .ant-input-number-disabled .ant-input-number-input {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.4) !important;
+  background: var(--app-fill-faint) !important;
+  border-color: var(--app-border-subtle) !important;
+  color: var(--app-text-tertiary) !important;
 }
 
 html.dark-mode .qwenpaw-input::placeholder,
 html.dark-mode .ant-input::placeholder {
-  color: rgba(255, 255, 255, 0.25) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 html.dark-mode .qwenpaw-input-affix-wrapper,
 html.dark-mode .ant-input-affix-wrapper {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
 }
 
 /* Select */
 html.dark-mode .qwenpaw-select-selector,
 html.dark-mode .ant-select-selector {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-select-selection-placeholder,
 html.dark-mode .ant-select-selection-placeholder {
-  color: rgba(255, 255, 255, 0.25) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 html.dark-mode .qwenpaw-select-arrow,
 html.dark-mode .ant-select-arrow {
-  color: rgba(255, 255, 255, 0.3) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Select dropdown */
 html.dark-mode .qwenpaw-select-dropdown,
 html.dark-mode .ant-select-dropdown {
-  background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
 }
 
 html.dark-mode .qwenpaw-select-item,
 html.dark-mode .ant-select-item {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-select-item-empty,
 html.dark-mode .ant-select-item-empty {
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--app-text-secondary);
 }
 
 html.dark-mode .qwenpaw-select-item-option-active,
@@ -318,78 +318,78 @@ html.dark-mode .ant-select-item-option-active {
 html.dark-mode .qwenpaw-select-item-option-selected,
 html.dark-mode .ant-select-item-option-selected {
   background: var(--app-accent-soft) !important;
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 /* Form labels */
 html.dark-mode .qwenpaw-form-item-label > label,
 html.dark-mode .ant-form-item-label > label {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-form-item-required::before,
 html.dark-mode .ant-form-item-required::before {
-  color: #ff4d4f !important;
+  color: var(--app-error) !important;
 }
 
 /* InputNumber */
 html.dark-mode .qwenpaw-input-number,
 html.dark-mode .ant-input-number {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-input-number-input,
 html.dark-mode .ant-input-number-input {
-  background: #2a2a2a !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface-raised) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-input-number-handler-wrap,
 html.dark-mode .ant-input-number-handler-wrap {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border) !important;
 }
 
 html.dark-mode .qwenpaw-input-number-handler,
 html.dark-mode .ant-input-number-handler {
-  color: rgba(255, 255, 255, 0.45) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--app-text-tertiary) !important;
+  border-color: var(--app-border) !important;
 }
 
 /* TimePicker */
 html.dark-mode .qwenpaw-picker,
 html.dark-mode .ant-picker {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-picker-input > input,
 html.dark-mode .ant-picker-input > input {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-picker-suffix,
 html.dark-mode .ant-picker-suffix {
-  color: rgba(255, 255, 255, 0.3) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 html.dark-mode .qwenpaw-picker-dropdown,
 html.dark-mode .ant-picker-dropdown {
-  background: #1f1f1f !important;
+  background: var(--app-surface) !important;
 }
 
 html.dark-mode .qwenpaw-picker-panel,
 html.dark-mode .ant-picker-panel {
-  background: #1f1f1f !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
 }
 
 html.dark-mode .qwenpaw-picker-time-panel-cell-inner,
 html.dark-mode .ant-picker-time-panel-cell-inner {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode
@@ -410,16 +410,16 @@ html.dark-mode .ant-picker-dropdown {
 
 html.dark-mode .qwenpaw-picker-panel-container,
 html.dark-mode .ant-picker-panel-container {
-  background: #1f1f1f !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface) !important;
+  border: 1px solid var(--app-border) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Header (month/year nav) */
 html.dark-mode .qwenpaw-picker-header,
 html.dark-mode .ant-picker-header {
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-picker-header-view button,
@@ -432,30 +432,30 @@ html.dark-mode .ant-picker-prev-icon,
 html.dark-mode .ant-picker-next-icon,
 html.dark-mode .ant-picker-super-prev-icon,
 html.dark-mode .ant-picker-super-next-icon {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-picker-header button:hover,
 html.dark-mode .ant-picker-header button:hover {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* Week day labels (Su Mo Tu ...) */
 html.dark-mode .qwenpaw-picker-content th,
 html.dark-mode .ant-picker-content th {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Normal date cells */
 html.dark-mode .qwenpaw-picker-cell .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell .ant-picker-cell-inner {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-picker-cell:hover .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell:hover .ant-picker-cell-inner {
   background: var(--app-accent-soft) !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* Outside-month cells */
@@ -463,13 +463,13 @@ html.dark-mode .qwenpaw-picker-cell-disabled .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-disabled .ant-picker-cell-inner,
 html.dark-mode .qwenpaw-picker-cell-disabled,
 html.dark-mode .ant-picker-cell-disabled {
-  color: rgba(255, 255, 255, 0.2) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Today marker */
 html.dark-mode .qwenpaw-picker-cell-today .qwenpaw-picker-cell-inner::before,
 html.dark-mode .ant-picker-cell-today .ant-picker-cell-inner::before {
-  border-color: #ff7f16 !important;
+  border-color: var(--app-accent) !important;
 }
 
 /* Selected start/end cell */
@@ -479,8 +479,8 @@ html.dark-mode .qwenpaw-picker-cell-range-start .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-start .ant-picker-cell-inner,
 html.dark-mode .qwenpaw-picker-cell-range-end .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-end .ant-picker-cell-inner {
-  background: #ff7f16 !important;
-  color: #fff !important;
+  background: var(--app-accent) !important;
+  color: var(--app-text-inverse) !important;
 }
 
 /* Range in-between cells */
@@ -491,7 +491,7 @@ html.dark-mode .ant-picker-cell-in-range::before {
 
 html.dark-mode .qwenpaw-picker-cell-in-range .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-in-range .ant-picker-cell-inner {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* Range hover preview */
@@ -505,89 +505,89 @@ html.dark-mode
 html.dark-mode
   .qwenpaw-picker-cell-in-view.qwenpaw-picker-cell-range-hover-end::after,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
-  border-color: #ff7f16 !important;
+  border-color: var(--app-accent) !important;
 }
 
 /* Panel footer (OK button area) */
 html.dark-mode .qwenpaw-picker-footer,
 html.dark-mode .ant-picker-footer {
-  border-top-color: rgba(255, 255, 255, 0.08) !important;
-  background: #1f1f1f !important;
+  border-top-color: var(--app-border-subtle) !important;
+  background: var(--app-surface) !important;
 }
 
 html.dark-mode .qwenpaw-picker-today-btn,
 html.dark-mode .ant-picker-today-btn {
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 /* Divider between two panels in RangePicker */
 html.dark-mode .qwenpaw-picker-panel + .qwenpaw-picker-panel,
 html.dark-mode .ant-picker-panel + .ant-picker-panel {
-  border-left-color: rgba(255, 255, 255, 0.08) !important;
+  border-left-color: var(--app-border-subtle) !important;
 }
 
 /* Modal */
 html.dark-mode .qwenpaw-modal-content,
 html.dark-mode .ant-modal-content {
-  background: #1f1f1f !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid var(--app-border) !important;
 }
 
 html.dark-mode .qwenpaw-modal-header,
 html.dark-mode .ant-modal-header {
-  background: #1f1f1f !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-surface) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
 }
 
 html.dark-mode .qwenpaw-modal-title,
 html.dark-mode .ant-modal-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-modal-close,
 html.dark-mode .ant-modal-close {
-  color: rgba(255, 255, 255, 0.45) !important;
+  color: var(--app-text-tertiary) !important;
 }
 
 html.dark-mode .qwenpaw-modal-close:hover,
 html.dark-mode .ant-modal-close:hover {
-  color: rgba(255, 255, 255, 0.85) !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--app-text) !important;
+  background: var(--app-fill-subtle) !important;
 }
 
 html.dark-mode .qwenpaw-modal-body,
 html.dark-mode .ant-modal-body {
-  background: #1f1f1f !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-modal-footer,
 html.dark-mode .ant-modal-footer {
-  background: #1f1f1f !important;
-  border-top-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-surface) !important;
+  border-top-color: var(--app-border-subtle) !important;
 }
 
 /* Modal.confirm — confirm dialog dark mode */
 html.dark-mode .ant-modal-confirm-content,
 html.dark-mode .qwenpaw-modal-confirm-content {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .ant-modal-confirm-title,
 html.dark-mode .qwenpaw-modal-confirm-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .ant-modal-confirm-body,
 html.dark-mode .qwenpaw-modal-confirm-body {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .ant-modal-confirm-paragraph,
 html.dark-mode .qwenpaw-modal-confirm-paragraph {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 .qwenpaw-free-model-warning-link-row {
@@ -602,59 +602,59 @@ html.dark-mode .qwenpaw-modal-confirm-paragraph {
 html.dark-mode .qwenpaw-modal-body .qwenpaw-form-item-label > label,
 html.dark-mode .qwenpaw-modal-body .ant-form-item-label > label,
 html.dark-mode .ant-modal-body .ant-form-item-label > label {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 /* Extra description text inside modal */
 html.dark-mode .qwenpaw-modal-body .qwenpaw-form-item-extra,
 html.dark-mode .ant-modal-body .ant-form-item-extra {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Drawer */
 html.dark-mode .qwenpaw-drawer-content,
 html.dark-mode .ant-drawer-content {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-header,
 html.dark-mode .ant-drawer-header {
-  background: #141414 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-bg) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-title,
 html.dark-mode .ant-drawer-title {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-close,
 html.dark-mode .ant-drawer-close {
-  color: rgba(255, 255, 255, 0.45) !important;
+  color: var(--app-text-tertiary) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-close:hover,
 html.dark-mode .ant-drawer-close:hover {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-body,
 html.dark-mode .ant-drawer-body {
-  background: #141414 !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background: var(--app-bg) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-footer,
 html.dark-mode .ant-drawer-footer {
-  background: #141414 !important;
-  border-top-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-bg) !important;
+  border-top-color: var(--app-border-subtle) !important;
 }
 
 /* Form labels inside drawer */
 html.dark-mode .qwenpaw-drawer-body .qwenpaw-form-item-label > label,
 html.dark-mode .qwenpaw-drawer-body .ant-form-item-label > label,
 html.dark-mode .ant-drawer-body .ant-form-item-label > label {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 /* Tooltip info icon inside drawer (Form.Item tooltip only, not Alert icons) */
@@ -664,59 +664,59 @@ html.dark-mode
   .anticon-info-circle,
 html.dark-mode .qwenpaw-drawer-body .ant-form-item-label .anticon-info-circle,
 html.dark-mode .ant-drawer-body .ant-form-item-label .anticon-info-circle {
-  color: rgba(255, 255, 255, 0.3) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Slider */
 html.dark-mode .qwenpaw-slider-rail,
 html.dark-mode .ant-slider-rail {
-  background-color: rgba(255, 255, 255, 0.12) !important;
+  background-color: var(--app-fill) !important;
 }
 
 html.dark-mode .qwenpaw-slider-track,
 html.dark-mode .ant-slider-track {
-  background-color: #ff7f16 !important;
+  background-color: var(--app-accent) !important;
 }
 
 html.dark-mode .qwenpaw-slider-mark-text,
 html.dark-mode .ant-slider-mark-text {
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 html.dark-mode .qwenpaw-form-item-label > label .qwenpaw-form-item-tooltip,
 html.dark-mode .ant-form-item-label > label .ant-form-item-tooltip {
-  color: rgba(255, 255, 255, 0.45) !important;
+  color: var(--app-text-tertiary) !important;
 }
 
 html.dark-mode .qwenpaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
-  box-shadow: 0 0 0 2px #ff7f16 !important;
-  background-color: #1f1f1f !important;
+  box-shadow: 0 0 0 2px var(--app-accent) !important;
+  background-color: var(--app-surface) !important;
 }
 
 html.dark-mode .qwenpaw-slider-dot,
 html.dark-mode .ant-slider-dot {
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  background-color: #2a2a2a !important;
+  border-color: var(--app-border-strong) !important;
+  background-color: var(--app-surface-raised) !important;
 }
 
 /* Tooltip popup (slider value) */
 html.dark-mode .qwenpaw-tooltip-inner,
 html.dark-mode .ant-tooltip-inner {
-  background-color: #2a2a2a !important;
-  color: rgba(255, 255, 255, 0.85) !important;
+  background-color: var(--app-surface-raised) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode .qwenpaw-tooltip-arrow::before,
 html.dark-mode .ant-tooltip-arrow::before {
-  background: #2a2a2a !important;
+  background: var(--app-surface-raised) !important;
 }
 
 /* Tooltip global override — force opaque background in light mode */
 .qwenpaw-tooltip-inner,
 .ant-tooltip-inner {
   background-color: rgba(0, 0, 0, 0.75) !important;
-  color: #fff !important;
+  color: var(--app-text-inverse) !important;
 }
 
 .qwenpaw-tooltip-arrow::before,
@@ -731,13 +731,13 @@ html.dark-mode
 html.dark-mode [class*="chatDisabledOverlay"] :global([class*="chat-input"]),
 html.dark-mode [class*="chatDisabledOverlay"] :global(textarea),
 html.dark-mode [class*="chatDisabledOverlay"] :global(input[type="text"]) {
-  background-color: #2a2a2a !important;
+  background-color: var(--app-surface-raised) !important;
 }
 
 /* Sender area dark mode */
 html.dark-mode [class*="qwenpaw-sender-content"],
 html.dark-mode [class*="sender-content"] {
-  background: #2a2a2a !important;
+  background: var(--app-surface-raised) !important;
 }
 
 /* Chat page bottom input area container */
@@ -745,30 +745,30 @@ html.dark-mode .qwenpaw-chat-anywhere-input,
 html.dark-mode [class*="chat-anywhere-input"],
 html.dark-mode [class*="qwenpaw-chat-anywhere-default-footer"],
 html.dark-mode [class*="chat-anywhere-footer"] {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 /* Chat input placeholder text in dark mode */
 html.dark-mode .qwenpaw-sender textarea::placeholder,
 html.dark-mode .qwenpaw-sender input::placeholder {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Chat input text color */
 html.dark-mode .qwenpaw-sender textarea,
 html.dark-mode .qwenpaw-sender input {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* Chat input action buttons (mic, attachment, send) */
 html.dark-mode .qwenpaw-sender-actions button,
 html.dark-mode [class*="sender-actions"] button {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-sender-actions button:hover,
 html.dark-mode [class*="sender-actions"] button:hover {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 /* Chat message bubble text in dark mode */
@@ -792,45 +792,45 @@ html.dark-mode
 html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode [class*="chat-anywhere"] [class*="message"] strong,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] b {
-  color: rgba(255, 255, 255, 0.95) !important;
+  color: var(--app-text) !important;
 }
 
 html.dark-mode
   [class*="chat-anywhere"]
   [class*="message"]
   code:not(.qwenpaw-code-block code) {
-  color: rgba(255, 255, 255, 0.85) !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--app-text) !important;
+  background: var(--app-fill-subtle) !important;
 }
 
 html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
-  color: #ff7f16 !important;
+  color: var(--app-accent) !important;
 }
 
 /* Tool card content blocks — dark mode text and background overrides.
    These elements use div/pre which are not covered by the span/p/li rules above. */
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlock"] {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockHeader"] {
-  background: #333 !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  background: var(--app-fill-strong) !important;
+  border-bottom-color: var(--app-border-subtle) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockTitle"],
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockContent"],
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"],
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] pre,
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallDiff"] {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] {
-  background: #2a2a2a !important;
+  background: var(--app-surface-raised) !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
@@ -839,25 +839,25 @@ html.dark-mode
   [class*="chat-anywhere"]
   [class*="defaultBlockContent"]
   [class*="jsonKey"] {
-  color: #f5827a !important;
+  color: var(--app-error-text) !important;
 }
 html.dark-mode
   [class*="chat-anywhere"]
   [class*="defaultBlockContent"]
   [class*="jsonStr"] {
-  color: #7ec87e !important;
+  color: var(--app-success-text) !important;
 }
 html.dark-mode
   [class*="chat-anywhere"]
   [class*="defaultBlockContent"]
   [class*="jsonNum"] {
-  color: #6cb6ff !important;
+  color: var(--app-info-text) !important;
 }
 html.dark-mode
   [class*="chat-anywhere"]
   [class*="defaultBlockContent"]
   [class*="jsonNull"] {
-  color: #f0b95f !important;
+  color: var(--app-warning-text) !important;
 }
 
 /* ─── Mobile safe-area & keyboard adaptation (#4738) ──────────────────────── */
@@ -905,26 +905,26 @@ html.dark-mode
   min-height: 100vh;
   max-height: 100vh;
   overflow: hidden;
-  background: #f9f8f4;
+  background: var(--app-bg);
 }
 
 .ant-layout-content {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #f9f8f4;
+  background: var(--app-bg);
 }
 
 .qwenpaw-bubble-list-wrapper {
-  background: #fff !important;
+  background: var(--app-surface) !important;
 }
 
 .qwenpaw-chat-anywhere-input {
-  background: #fff !important;
+  background: var(--app-surface) !important;
 }
 
 .qwenpaw-chat-anywhere-message-list-welcome {
-  background: #fff !important;
+  background: var(--app-surface) !important;
 }
 
 /* Chat bubble list max-width override */
@@ -936,31 +936,31 @@ html.dark-mode
 html.dark-mode .qwenpaw-chat-anywhere,
 html.dark-mode .qwenpaw-chat-anywhere-message-list,
 html.dark-mode .qwenpaw-bubble-list-wrapper {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 /* Chat welcome message in dark mode */
 html.dark-mode .qwenpaw-chat-anywhere-welcome-default {
-  background: #141414 !important;
+  background: var(--app-bg) !important;
 }
 
 /* Chat input area in dark mode */
 html.dark-mode .qwenpaw-sender,
 html.dark-mode .qwenpaw-sender-content {
-  background: #2a2a2a !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
+  background: var(--app-surface-raised) !important;
+  border-color: var(--app-border-strong) !important;
 }
 
 /* Menu background in light mode */
 .qwenpaw-menu,
 .ant-menu {
-  background: #f9f8f4 !important;
+  background: var(--app-bg) !important;
 }
 
 /* Menu selected item in light mode */
 .qwenpaw-menu-item-selected,
 .ant-menu-item-selected {
-  background: rgba(43, 18, 0, 0.08) !important;
+  background: var(--app-fill) !important;
   color: inherit !important;
 }
 
@@ -978,7 +978,7 @@ html.dark-mode .qwenpaw-sender-content {
   font-weight: 500 !important;
   line-height: 32px !important;
   letter-spacing: normal !important;
-  color: rgba(26, 23, 22, 0.25) !important;
+  color: var(--app-text-quaternary) !important;
 }
 
 /* Remove submenu indent - align with parent in light mode */
@@ -1013,12 +1013,11 @@ html.dark-mode .qwenpaw-sender-content {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background-color: #fff;
+  background-color: var(--app-surface);
   border-radius: 8px;
   /* 8px */
   box-sizing: border-box;
-  border: 1px solid #eae9e7;
-  /* #EAE9E7 */
+  border: 1px solid var(--app-border);
 }
 
 @supports (height: 100dvh) {
@@ -1096,10 +1095,10 @@ html.dark-mode .qwenpaw-sender-content {
 .qwenpaw-btn-primary:disabled,
 .qwenpaw-btn-primary[disabled],
 .qwenpaw-btn-primary.qwenpaw-btn-disabled {
-  background-color: #f5f5f5 !important;
-  background: #f5f5f5 !important;
-  color: rgba(0, 0, 0, 0.25) !important;
-  border: 1px solid #d9d9d9 !important;
+  background-color: var(--app-fill-subtle) !important;
+  background: var(--app-fill-subtle) !important;
+  color: var(--app-text-quaternary) !important;
+  border: 1px solid var(--app-border-strong) !important;
   box-shadow: none !important;
 }
 
@@ -1110,19 +1109,19 @@ html.dark-mode .ant-btn-primary.ant-btn-disabled,
 html.dark-mode .qwenpaw-btn-primary:disabled,
 html.dark-mode .qwenpaw-btn-primary[disabled],
 html.dark-mode .qwenpaw-btn-primary.qwenpaw-btn-disabled {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: rgba(255, 255, 255, 0.3) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background-color: var(--app-fill-subtle) !important;
+  background: var(--app-fill-subtle) !important;
+  color: var(--app-text-quaternary) !important;
+  border: 1px solid var(--app-border-strong) !important;
   box-shadow: none !important;
 }
 
 /* Dark mode - default button */
 html.dark-mode .ant-btn-default,
 html.dark-mode .qwenpaw-btn-default {
-  color: rgba(255, 235, 218, 0.88) !important;
-  background-color: #000000 !important;
-  border: 1px solid #3a312a !important;
+  color: var(--app-text) !important;
+  background-color: var(--app-bg) !important;
+  border: 1px solid var(--app-border-strong) !important;
 }
 
 /* Dark mode - danger button */
@@ -1131,7 +1130,7 @@ html.dark-mode .qwenpaw-btn-dangerous,
 html.dark-mode .ant-btn-danger,
 html.dark-mode .qwenpaw-btn-danger {
   background: rgba(129, 46, 46, 0.25) !important;
-  color: #ff4d4f !important;
+  color: var(--app-error) !important;
 }
 
 /* Dark mode - danger button disabled state */
@@ -1153,40 +1152,42 @@ html.dark-mode .qwenpaw-btn-danger.qwenpaw-btn-disabled {
 
 html.dark-mode .qwenpaw-empty-image,
 html.dark-mode .ant-empty-image {
-  opacity: 0.2;
+  /* The vendor illustration is already dark line art, so the 0.2 this rule
+   * used to carry (written for antd's pale default SVG) made it invisible. */
+  opacity: 0.75;
 }
 
 html.dark-mode .qwenpaw-empty-description,
 html.dark-mode .ant-empty-description {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .qwenpaw-input-prefix {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 .debug-log-container {
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
 }
 
 html.dark-mode .debug-log-container {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--app-border);
+  background: var(--app-fill-faint);
 }
 
 html.dark-mode .debug-log-container mark {
-  background: rgba(255, 214, 102, 0.35) !important;
+  background: var(--app-highlight-bg) !important;
   color: rgba(0, 0, 0, 0.9);
 }
 
 html.dark-mode .qwenpaw-typography-secondary,
 html.dark-mode .ant-typography-secondary {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--app-text-secondary) !important;
 }
 
 html.dark-mode .debug-log-path strong {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--app-text) !important;
 }
 
 [class*="tool-call-block-content"] .cm-content,
