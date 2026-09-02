@@ -1,8 +1,10 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
   type IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUISubmissionContext,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
@@ -87,10 +89,11 @@ import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
 import {
   resolveLocalized,
   type ChatApprovalRendererItem,
+  type ChatRequestData,
   type WelcomeRenderProps,
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
-import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { HostResponseCard } from "./HostBubbles";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
   buildChatSubmissionContext,
@@ -219,6 +222,8 @@ import {
   type QueueItem,
   MAX_QUEUE_SIZE,
   STORAGE_PREFIX,
+  findQueueItemSessionId,
+  getLatestQueuedSessionIdForAgent,
   withSendLock,
   withBackgroundSendLock,
   holdOwnershipLock,
@@ -309,6 +314,41 @@ function buildAttachmentContentItems(
 }
 
 /**
+ * Read completed SDK uploads from the immutable beforeSubmit payload.
+ * CoPaw still owns queue execution, but attachment identity must come from
+ * the submission snapshot rather than from the textarea or DOM preview.
+ */
+function getSubmissionAttachments(
+  data: IAgentScopeRuntimeWebUIInputData,
+): Array<{ url: string; name?: string; type?: string; size?: number }> {
+  const files =
+    data.attachments && data.attachments.length > 0
+      ? data.attachments
+      : data.fileList ?? [];
+  return files.flatMap((file) => {
+    const response =
+      file.response && typeof file.response === "object"
+        ? (file.response as { url?: unknown; thumbUrl?: unknown })
+        : undefined;
+    const url =
+      (typeof file.url === "string" && file.url) ||
+      (typeof response?.url === "string" && response.url) ||
+      (typeof file.thumbUrl === "string" && file.thumbUrl) ||
+      (typeof response?.thumbUrl === "string" && response.thumbUrl) ||
+      "";
+    if (!url) return [];
+    return [
+      {
+        url,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      },
+    ];
+  });
+}
+
+/**
  * Clear the SDK Sender's attachment preview by clicking all remove buttons.
  * Deferred to next tick so React commits pending state updates first.
  */
@@ -383,11 +423,11 @@ async function startBackgroundQueue(
       useMessageQueueStore.getState().setCurrentSendingId(item.id);
 
       // Mirror what foreground customFetch does: cache the in-flight user
-      // text in sessionStorage so that when ChatPage re-mounts during
+      // text in shared storage so that when ChatPage re-mounts during
       // generation, sessionApi.patchLastUserMessage can patch THIS user
       // message into history (otherwise the previous turn's stale text
       // would surface, e.g. showing user="2" while task3 is generating).
-      if (chatIdForStatus) {
+      if (chatIdForStatus || backendSessionId || queueKey) {
         // Build content items matching the POST body (stored-name format)
         // so patchLastUserMessage can rebuild the user card with attachments.
         const contentItems: Array<{ type: string; [key: string]: unknown }> = [
@@ -395,7 +435,7 @@ async function startBackgroundQueue(
           ...buildAttachmentContentItems(item.attachments),
         ];
         sessionApi.setLastUserMessage(
-          chatIdForStatus,
+          [chatIdForStatus, backendSessionId, queueKey],
           item.text,
           contentItems,
           clientMessageId,
@@ -452,7 +492,10 @@ async function startBackgroundQueue(
         });
 
         if (!res.ok) {
-          sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
+          sessionApi.discardLastUserMessage(
+            [chatIdForStatus, backendSessionId, queueKey],
+            clientMessageId,
+          );
           throw new Error(`HTTP ${res.status}`);
         }
         if (pendingRequest.projectDir) {
@@ -1160,23 +1203,6 @@ const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
 const isLocalTimestampId = (id: string | null | undefined): boolean =>
   !!id && /^\d+-[a-z0-9]+$/.test(id);
 
-/**
- * AgentScopeRuntimeWebUI 1.2 merges the supplied session API with its defaults
- * via object spread. SessionApi is a class singleton, so its prototype methods
- * are not enumerable and would otherwise be replaced by the SDK defaults.
- * Keep an own-property adapter at the integration boundary.
- */
-const runtimeSessionApi = {
-  getSessionList: () => sessionApi.getSessionList(),
-  getSession: (sessionId: string) => sessionApi.getSession(sessionId),
-  updateSession: (session: Parameters<typeof sessionApi.updateSession>[0]) =>
-    sessionApi.updateSession(session),
-  createSession: (session: Parameters<typeof sessionApi.createSession>[0]) =>
-    sessionApi.createSession(session),
-  removeSession: (session: Parameters<typeof sessionApi.removeSession>[0]) =>
-    sessionApi.removeSession(session),
-};
-
 export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -1320,6 +1346,7 @@ export default function ChatPage() {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
+  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
@@ -1376,6 +1403,103 @@ export default function ChatPage() {
       }));
     },
     [],
+  );
+
+  /**
+   * Execute one CoPaw-owned queue item through the SDK Run pipeline.
+   * CoPaw keeps ordering/persistence/Web Locks; the SDK owns message creation,
+   * request acceptance, SSE parsing and the mounted component lifecycle.
+   */
+  const executeQueuedItem = useCallback(
+    async (item: QueueItem): Promise<boolean> => {
+      const locateQueue = () =>
+        findQueueItemSessionId(
+          useMessageQueueStore.getState().queues,
+          item.id,
+          queueSessionId,
+        );
+      const initialQueueId = locateQueue();
+      const execution = chatRef.current?.execution;
+      if (!initialQueueId || !execution) return false;
+
+      const store = useMessageQueueStore.getState();
+      store.setCurrentSendingId(item.id);
+      store.setItemStatus(initialQueueId, item.id, "sending");
+
+      const agentId = item.agentId || selectedAgent;
+      const runtimeSessionId =
+        item.backendSessionId ||
+        (queueSessionId !== "new"
+          ? sessionApi.getBackendSessionId(queueSessionId)
+          : undefined);
+      const userId = item.userId || DEFAULT_USER_ID;
+      const channel = item.channel || DEFAULT_CHANNEL;
+
+      try {
+        const run = await execution.execute(
+          {
+            query: beginLoopModeSubmission(item.text),
+            fileList: buildFileList(item),
+            session_id: runtimeSessionId,
+            user_id: userId,
+            channel,
+            agent_id: agentId,
+            context: buildChatSubmissionContext(
+              undefined,
+              { sessionId: runtimeSessionId, userId, channel },
+              agentId,
+            ),
+          },
+          {
+            source: "host-queue",
+            clientRequestId: item.clientMessageId ?? item.id,
+            sessionId: queueSessionId === "new" ? undefined : queueSessionId,
+          },
+        );
+
+        const session = await run.session;
+        if (!session.resolved) {
+          throw session.error || new Error("SDK chat session is not ready");
+        }
+        const accepted = await run.accepted;
+        const currentQueueId = locateQueue();
+        if (accepted.accepted) {
+          if (currentQueueId) {
+            useMessageQueueStore.getState().remove(currentQueueId, item.id);
+          }
+          return true;
+        }
+
+        if (currentQueueId) {
+          useMessageQueueStore
+            .getState()
+            .setItemStatus(
+              currentQueueId,
+              item.id,
+              "failed",
+              i18n.t("chat.queue.sendFailed"),
+            );
+        }
+      } catch (error) {
+        const currentQueueId = locateQueue();
+        if (currentQueueId) {
+          useMessageQueueStore
+            .getState()
+            .setItemStatus(
+              currentQueueId,
+              item.id,
+              "failed",
+              error instanceof Error
+                ? error.message
+                : i18n.t("chat.queue.sendFailed"),
+            );
+        }
+      }
+
+      useMessageQueueStore.getState().setCurrentSendingId(null);
+      return false;
+    },
+    [buildFileList, i18n, queueSessionId, selectedAgent],
   );
 
   // Single-tab ownership: only one tab per conversation may send. Other tabs
@@ -1510,28 +1634,15 @@ export default function ChatPage() {
       // the same item. If another tab holds the lock, drop this attempt; the
       // cross-tab broadcast will refresh our queue and the next loading→idle
       // transition will retry.
-      void withSendLock(queueSessionId, () => {
+      void withSendLock(queueSessionId, async () => {
         // Re-check: another tab may have already removed this item via
         // broadcast, or a session switch may have happened.
         const fresh = useMessageQueueStore.getState().getQueue(queueSessionId);
         if (fresh.length === 0 || fresh[0].id !== next.id) return;
-        useMessageQueueStore.getState().setCurrentSendingId(next.id);
-        useMessageQueueStore.getState().remove(queueSessionId, next.id);
-        // Force-set window.currentSessionId from the queue item's snapshot
-        // so customFetch uses the correct session_id, even if the global
-        // was overwritten by a recent agent switch.
-        if (next.backendSessionId) {
-          (
-            window as unknown as { currentSessionId?: string }
-          ).currentSessionId = next.backendSessionId;
-        }
-        chatRef.current?.input.submit({
-          query: beginLoopModeSubmission(next.text),
-          fileList: buildFileList(next),
-        });
+        await executeQueuedItem(next);
       });
     }, 500);
-  }, [queueSessionId, buildFileList]);
+  }, [executeQueuedItem, queueSessionId]);
 
   // Reload queue when switching sessions or on first mount
   const prevQueueSessionIdRef = useRef<string | null>(null);
@@ -1872,7 +1983,6 @@ export default function ChatPage() {
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
-  const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingSenderClearRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -2038,6 +2148,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        agentId: selectedAgent,
+        backendSessionId: enqueueIdentity.sessionId,
         userId: enqueueIdentity.userId,
         channel: enqueueIdentity.channel,
       });
@@ -2052,7 +2164,7 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [isChatActive, queueSessionId]);
+  }, [isChatActive, queueSessionId, selectedAgent]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2086,18 +2198,11 @@ export default function ChatPage() {
           chatApi.stopChat(resolvedId).catch(() => {});
         }
       }
-      useMessageQueueStore.getState().remove(queueSessionId, item.id);
       setTimeout(() => {
-        void withSendLock(queueSessionId, () => {
-          useMessageQueueStore.getState().setCurrentSendingId(item.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(item.text),
-            fileList: buildFileList(item),
-          });
-        });
+        void withSendLock(queueSessionId, () => executeQueuedItem(item));
       }, 600);
     },
-    [queueSessionId, buildFileList],
+    [executeQueuedItem, queueSessionId],
   );
 
   const handleQueueClear = useCallback(() => {
@@ -2110,22 +2215,17 @@ export default function ChatPage() {
       useMessageQueueStore.getState().setRunState(queueSessionId, "running");
       // Try to resume sending immediately
       if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
+        void withSendLock(queueSessionId, async () => {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const head = q[0];
-          useMessageQueueStore.getState().setCurrentSendingId(head.id);
-          useMessageQueueStore.getState().remove(queueSessionId, head.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(head.text),
-            fileList: buildFileList(head),
-          });
+          await executeQueuedItem(head);
         });
       }
     } else {
       useMessageQueueStore.getState().setRunState(queueSessionId, "paused");
     }
-  }, [queueSessionId, buildFileList]);
+  }, [executeQueuedItem, queueSessionId]);
 
   const handleQueueRetry = useCallback(
     (id: string) => {
@@ -2135,20 +2235,15 @@ export default function ChatPage() {
       useMessageQueueStore.getState().setRunState(queueSessionId, "running");
       // Trigger send if idle
       if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
+        void withSendLock(queueSessionId, async () => {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           const target = q.find((it) => it.id === id);
           if (!target) return;
-          useMessageQueueStore.getState().setCurrentSendingId(id);
-          useMessageQueueStore.getState().remove(queueSessionId, id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(target.text),
-            fileList: buildFileList(target),
-          });
+          await executeQueuedItem(target);
         });
       }
     },
-    [queueSessionId, buildFileList],
+    [executeQueuedItem, queueSessionId],
   );
 
   const handleQueueSkip = useCallback(
@@ -2156,20 +2251,15 @@ export default function ChatPage() {
       useMessageQueueStore.getState().remove(queueSessionId, id);
       // After skip, try to continue sending
       if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
+        void withSendLock(queueSessionId, async () => {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const next = q[0];
-          useMessageQueueStore.getState().setCurrentSendingId(next.id);
-          useMessageQueueStore.getState().remove(queueSessionId, next.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(next.text),
-            fileList: buildFileList(next),
-          });
+          await executeQueuedItem(next);
         });
       }
     },
-    [queueSessionId, buildFileList],
+    [executeQueuedItem, queueSessionId],
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
@@ -2507,7 +2597,14 @@ export default function ChatPage() {
       // Restore last chat ID for the agent we're switching to.
       // Ignore temporary local timestamp ids that may have been persisted
       // before this guard was added.
-      const restored = getLastChatId(selectedAgent);
+      // CoPaw owns the input queue. When another tab has a pending item for
+      // the target agent, its synchronized queue identifies the active
+      // conversation more reliably than this tab's older last-chat snapshot.
+      const queuedSessionId = getLatestQueuedSessionIdForAgent(
+        useMessageQueueStore.getState().queues,
+        selectedAgent,
+      );
+      const restored = queuedSessionId ?? getLastChatId(selectedAgent);
       if (restored && !isLocalTimestampId(restored)) {
         navigateRef.current(buildChatPath(restored), {
           replace: true,
@@ -2551,6 +2648,7 @@ export default function ChatPage() {
       data: {
         input?: Array<Record<string, unknown>>;
         signal?: AbortSignal;
+        submission?: IAgentScopeRuntimeWebUISubmissionContext;
       } & Partial<
         Pick<
           IAgentScopeRuntimeWebUIInputData,
@@ -2617,7 +2715,9 @@ export default function ChatPage() {
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const clientMessageId =
-        lastMsg?.role === "user" ? createClientMessageId() : undefined;
+        lastMsg?.role === "user"
+          ? data.submission?.queueItemId || createClientMessageId()
+          : undefined;
       const rewrittenLastMsg: Record<string, unknown> | undefined = lastMsg
         ? clientMessageId
           ? attachClientMessageId(lastMsg, clientMessageId)
@@ -2717,26 +2817,33 @@ export default function ChatPage() {
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
         String(requestBody.session_id || "");
+      const pendingSessionIds = [
+        backendChatId,
+        chatIdRef.current,
+        requestSnapshot.sessionId,
+        String(requestBody.session_id || ""),
+      ];
       if (backendChatId) {
-        const userText = rewrittenInput
-          .filter((m) => m.role === "user")
+        const userMessages = rewrittenInput.filter((m) => m.role === "user");
+        const userText = userMessages
           .map(extractUserMessageText)
           .join("\n")
           .trim();
-        if (userText) {
-          // Also pass the full content array so patchLastUserMessage can
-          // rebuild user card with images/files when reconnecting.
-          const lastUserMsg = rewrittenInput
-            .filter((m) => m.role === "user")
-            .slice(-1)[0];
-          const contentArr = Array.isArray(lastUserMsg?.content)
-            ? (lastUserMsg.content as Array<{
-                type: string;
-                [key: string]: unknown;
-              }>)
-            : undefined;
+        const lastUserMsg = userMessages.slice(-1)[0];
+        const contentArr = Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as Array<{
+              type: string;
+              [key: string]: unknown;
+            }>)
+          : undefined;
+        const hasAttachmentContent = contentArr?.some(
+          (item) => item.type !== "text",
+        );
+        if (userText || hasAttachmentContent) {
+          // Cache full content so attachment-only messages survive refresh,
+          // reconnect, and the backend history flush window.
           sessionApi.setLastUserMessage(
-            backendChatId,
+            pendingSessionIds,
             userText,
             contentArr,
             clientMessageId,
@@ -2754,7 +2861,7 @@ export default function ChatPage() {
       });
 
       if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+        sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
       }
 
       const localIdToResolve = fallbackLocalChatId;
@@ -2930,8 +3037,18 @@ export default function ChatPage() {
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
         const textarea = getActiveSenderTextarea();
-        const val = textarea?.value.trim() ?? "";
-        if (!val) return false;
+        const val = data.query.trim() || textarea?.value.trim() || "";
+        const submittedAttachments = getSubmissionAttachments(data);
+        const queueAttachments =
+          submittedAttachments.length > 0
+            ? submittedAttachments
+            : pendingFileListRef.current.map((f) => ({
+                url: f.url,
+                name: f.name,
+                type: f.type,
+                size: f.size,
+              }));
+        if (!val && queueAttachments.length === 0) return false;
         const currentQ = useMessageQueueStore
           .getState()
           .getQueue(queueSessionId);
@@ -2946,14 +3063,9 @@ export default function ChatPage() {
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
           attachments:
-            pendingFileListRef.current.length > 0
-              ? pendingFileListRef.current.map((f) => ({
-                  url: f.url,
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                }))
-              : undefined,
+            queueAttachments.length > 0 ? queueAttachments : undefined,
+          agentId: selectedAgent,
+          backendSessionId: enqueueIdentity.sessionId,
           userId: enqueueIdentity.userId,
           channel: enqueueIdentity.channel,
         });
@@ -3110,6 +3222,53 @@ export default function ChatPage() {
     const pluginRequestActions = extLists[ChatList.requestActions].map((e) =>
       wrapActionSpec(e.pluginId, ChatList.requestActions, e.item.item),
     );
+
+    const requestRenderEntry = extScalar[ChatScalar.requestRender];
+    const requestRender = requestRenderEntry?.value;
+    const requestOptions: IAgentScopeRuntimeWebUIOptions["request"] = {
+      render:
+        requestRenderEntry && requestRender
+          ? ({ data, fallback }) => {
+              const fallbackNode = fallback();
+              return (
+                <PluginSlotBoundary
+                  slot={ChatScalar.requestRender}
+                  pluginId={requestRenderEntry.pluginId}
+                  fallback={fallbackNode}
+                >
+                  {requestRender({
+                    data: data as unknown as ChatRequestData,
+                    fallback: () => fallbackNode,
+                  })}
+                </PluginSlotBoundary>
+              );
+            }
+          : undefined,
+      prepend: sortByOrder(extLists[ChatList.requestPrepend]).map((entry) => ({
+        id: entry.item.id,
+        order: entry.item.order,
+        render: ({ data }: { data: IAgentScopeRuntimeRequest }) => (
+          <PluginSlotBoundary
+            slot={ChatList.requestPrepend}
+            pluginId={entry.pluginId}
+          >
+            {entry.item.render({ data: data as unknown as ChatRequestData })}
+          </PluginSlotBoundary>
+        ),
+      })),
+      append: sortByOrder(extLists[ChatList.requestAppend]).map((entry) => ({
+        id: entry.item.id,
+        order: entry.item.order,
+        render: ({ data }: { data: IAgentScopeRuntimeRequest }) => (
+          <PluginSlotBoundary
+            slot={ChatList.requestAppend}
+            pluginId={entry.pluginId}
+          >
+            {entry.item.render({ data: data as unknown as ChatRequestData })}
+          </PluginSlotBoundary>
+        ),
+      })),
+    };
 
     const wrapToolFC = (
       pluginId: string,
@@ -3378,8 +3537,14 @@ export default function ChatPage() {
       },
       session: {
         multiple: true,
+        // The URL is the source of truth for the visible conversation. Passing
+        // the key even when it is undefined enables the SDK's controlled
+        // session mode, so `/chat` stays an empty new-chat page and the first
+        // createSession call cannot be overwritten by the previous session's
+        // in-flight load.
+        currentSessionId: chatId,
         hideBuiltInSessionList: true,
-        api: runtimeSessionApi,
+        api: sessionApi,
       },
       api: {
         ...defaultConfig.api,
@@ -3520,11 +3685,10 @@ export default function ChatPage() {
         },
       },
       customToolRenderConfig: withGenericFallback(mergedToolRenderers),
+      request: requestOptions,
       cards: {
-        // Host wrappers that delegate to vendor defaults when no plugin
-        // request/response render/prepend/append is registered — and
-        // compose plugin slots otherwise.
-        AgentScopeRuntimeRequestCard: HostRequestCard,
+        // CoPaw still owns assistant Markdown/media/artifact rendering. User
+        // request extensions use the SDK's public request seam above.
         AgentScopeRuntimeResponseCard: HostResponseCard,
         Audios: DownloadableAudios,
         ...pluginCards,
@@ -3644,6 +3808,7 @@ export default function ChatPage() {
     bgTaskCount,
     bgBackendSessionId,
     queueSessionId,
+    chatId,
   ]);
 
   const filesDrawerClass =

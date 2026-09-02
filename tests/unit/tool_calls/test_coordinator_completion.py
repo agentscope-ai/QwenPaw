@@ -369,9 +369,7 @@ async def test_background_completion_emits_hint():
     assert events[-1].metadata["offloaded"] is True
     assert hint.role == "assistant"
     text_block = next(
-        block
-        for block in hint.content
-        if getattr(block, "type", None) == "text"
+        block for block in hint.content if getattr(block, "type", None) == "text"
     )
     assert "slow_tool" in text_block.text
 
@@ -519,9 +517,7 @@ async def test_completed_cache_keeps_final_response():
     )
 
     # Hot table should not list it as in-flight
-    assert all(
-        e.ctx.tool_call_id != "call-cache" for e in coordinator.list_entries()
-    )
+    assert all(e.ctx.tool_call_id != "call-cache" for e in coordinator.list_entries())
 
     entry = coordinator.get("call-cache")
     assert entry is not None
@@ -1137,6 +1133,67 @@ async def test_force_cancel_sets_cancel_event_before_task_cancel():
 
 
 @pytest.mark.asyncio
+async def test_cancel_running_for_session_is_scoped_and_skips_offloaded():
+    """Chat Stop cancels only foreground tools in its session tree."""
+    coordinator = ToolCoordinator(
+        default_timeout_secs=30.0,
+        offload_on_deadline=False,
+    )
+    release = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        await release.wait()
+        yield _text_response(tool_call.id, "done")
+
+    async def start(
+        call_id: str,
+        session_id: str,
+        root_session_id: str,
+    ) -> asyncio.Task[list[Any]]:
+        task = asyncio.create_task(
+            _collect(
+                coordinator.execute(
+                    tool_call=_ToolCall(id=call_id),
+                    next_handler=next_handler,
+                    session_id=session_id,
+                    agent_id="agent-1",
+                    root_session_id=root_session_id,
+                ),
+            ),
+        )
+        while coordinator.get(call_id) is None:
+            await asyncio.sleep(0)
+        return task
+
+    direct = await start("call-direct", "session-a", "session-a")
+    child = await start("call-child", "session-a-child", "session-a")
+    other = await start("call-other", "session-b", "session-b")
+    offloaded = await start("call-offloaded", "session-a", "session-a")
+    assert await coordinator.request_offload("call-offloaded") is True
+    await asyncio.wait_for(offloaded, timeout=2)
+
+    count = await coordinator.cancel_running_for_session("session-a")
+    assert count == 2
+    await asyncio.wait_for(asyncio.gather(direct, child), timeout=2)
+
+    direct_entry = coordinator.get("call-direct")
+    child_entry = coordinator.get("call-child")
+    other_entry = coordinator.get("call-other")
+    offloaded_entry = coordinator.get("call-offloaded")
+    assert direct_entry is not None and direct_entry.force_cancelled is True
+    assert child_entry is not None and child_entry.force_cancelled is True
+    assert other_entry is not None and other_entry.force_cancelled is False
+    assert offloaded_entry is not None and offloaded_entry.force_cancelled is False
+
+    release.set()
+    await asyncio.wait_for(other, timeout=2)
+    assert offloaded_entry.background_task is not None
+    await asyncio.wait_for(offloaded_entry.background_task, timeout=2)
+
+
+@pytest.mark.asyncio
 async def test_equal_timeout_budget_offloads_before_kill():
     """Default equal offload/kill budgets must still auto-offload.
 
@@ -1242,9 +1299,7 @@ async def test_extend_kill_allows_tool_past_original_budget():
     await ext_task
     assert any(
         getattr(evt, "content", None)
-        and any(
-            getattr(b, "text", "") == "survived-extend" for b in evt.content
-        )
+        and any(getattr(b, "text", "") == "survived-extend" for b in evt.content)
         for evt in events
     )
 
@@ -1302,10 +1357,7 @@ async def test_extend_kill_keeps_chat_style_async_collect_alive():
     await ext_task
     assert any(
         getattr(evt, "content", None)
-        and any(
-            getattr(b, "text", "") == "chat-survived-extend"
-            for b in evt.content
-        )
+        and any(getattr(b, "text", "") == "chat-survived-extend" for b in evt.content)
         for evt in events
     )
 
@@ -1422,9 +1474,7 @@ async def test_extend_kill_refuses_past_max_internal_and_no_deadline():
     ok_small = await coordinator.extend_kill_deadline("call-cap", seconds=0.5)
     assert ok_small is True
     assert entry.ctx.kill_deadline <= (
-        entry.ctx.started_at
-        + float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
-        + 1e-6
+        entry.ctx.started_at + float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS) + 1e-6
     )
     assert entry.ctx.kill_deadline > loop.time()
 

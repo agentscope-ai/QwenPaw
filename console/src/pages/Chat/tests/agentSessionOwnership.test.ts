@@ -134,9 +134,8 @@ describe("agent session ownership epochs", () => {
 
     // Agent A creates a blank local session (temp timestamp id).
     sessionApi.setActiveAgent("agent-a");
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = await sessionApi.createSession({});
+    const tempId = created.session.id;
     expect(tempId).toMatch(/^\d+-[a-z0-9]+$/);
 
     // First message sent: resolution starts but the list stays pending.
@@ -202,9 +201,8 @@ describe("agent session ownership epochs", () => {
 
     // Temp-id resolution completes normally within the same epoch. The
     // backend reports the new chat with session_id equal to the temp id.
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = await sessionApi.createSession({});
+    const tempId = created.session.id;
     listSpy.mockResolvedValueOnce([
       makeChatSpec(B_CHAT, tempId),
       makeChatSpec(A_CHAT, "console:a"),
@@ -318,9 +316,8 @@ describe("agent session ownership epochs", () => {
     // Agent A resolves a blank local session to its backend UUID, leaving a
     // list entry with a local id and realId mapping.
     sessionApi.setActiveAgent("agent-a");
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = await sessionApi.createSession({});
+    const tempId = created.session.id;
     listSpy.mockResolvedValueOnce([makeChatSpec(A_CHAT, tempId)]);
     sessionApi.triggerResolve(tempId);
     await flush();

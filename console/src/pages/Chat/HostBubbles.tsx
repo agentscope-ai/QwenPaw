@@ -1,21 +1,20 @@
 /**
- * pages/Chat/HostBubbles.tsx — host-side wrappers around the vendor's
- * AgentScopeRuntime{Request,Response}Card components.
+ * pages/Chat/HostBubbles.tsx — host-side response renderer for CoPaw-specific
+ * Markdown, media download, artifact, and plugin behavior.
  *
  * Why wrappers:
- * - Plugin extensions (chat.request.render / prepend / append and the
- *   response equivalents) need a render seam SDK doesn't expose.
- * - We register HostRequestCard / HostResponseCard into options.cards so the
- *   SDK Cards dispatcher invokes them instead of the vendor defaults.
+ * - We register HostResponseCard into options.cards so the SDK Cards
+ *   dispatcher invokes it instead of the vendor default.
  * - The wrapper itself subscribes to the chat extension registry via hooks,
  *   so it re-renders when plugins register/dispose — no need to rebuild the
  *   parent useMemo (and avoid re-mounting bubbles on every plugin change).
  *
- * Vendor response primitives are deep-imported because the SDK does not expose
- * a message-renderer seam. If their paths change, update the imports below.
+ * Request extensions use the SDK's public request.render/prepend/append seam.
+ * Vendor response primitives remain private dependencies because CoPaw
+ * replaces individual Markdown/media/tool rendering rather than only framing
+ * the default response bubble.
  */
 import React, { useDeferredValue, useMemo } from "react";
-import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -25,32 +24,26 @@ import {
   AgentScopeRuntimeContentType,
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
+  Bubble,
+  DefaultCards,
+  Markdown,
   type IAgentScopeRuntimeMessage,
   type IAgentScopeRuntimeResponse,
-} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+} from "@agentscope-ai/chat";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
-import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
-import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
-import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
-// Vendor `.d.ts` doesn't yet describe the request content slots.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
 } from "../../plugins/registry/useChatExtensions";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
-import type {
-  ChatRequestData,
-  ChatResponseData,
-} from "../../plugins/registry/types";
+import type { ChatResponseData } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
+import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 import {
   countCollapsedSteps,
   findActiveStepBlockIndex,
@@ -63,16 +56,12 @@ import {
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
 import LazyAccordion from "./LazyAccordion";
-import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
     .slice()
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyCardProps = any;
 
 function DeferredMarkdown({
   content,
@@ -127,14 +116,14 @@ const HostMessage = React.memo(function HostMessage({
             return <Markdown key={index} content={item.refusal} raw />;
           case AgentScopeRuntimeContentType.IMAGE:
             return (
-              <Images
+              <DefaultCards.Images
                 key={index}
                 data={[{ url: formatMediaURL(item.image_url) }]}
               />
             );
           case AgentScopeRuntimeContentType.VIDEO:
             return (
-              <Videos
+              <DefaultCards.Videos
                 key={index}
                 data={[
                   {
@@ -146,7 +135,7 @@ const HostMessage = React.memo(function HostMessage({
             );
           case AgentScopeRuntimeContentType.FILE:
             return (
-              <Files
+              <DefaultCards.Files
                 key={index}
                 data={[
                   {
@@ -291,74 +280,6 @@ function DefaultHostResponseCard({
       <ResponseActions data={data} messageId={messageId} isLast={isLast} />
     </>
   );
-}
-
-function HostRequestCardContent(props: { data: ChatRequestData }) {
-  const extScalar = useChatScalarSnapshot();
-  const extLists = useChatListSnapshot();
-
-  const renderEntry = extScalar[ChatScalar.requestRender];
-  const renderFn = renderEntry?.value;
-  const prependList = sortByOrder(extLists[ChatList.requestPrepend]);
-  const appendList = sortByOrder(extLists[ChatList.requestAppend]);
-
-  // prepend/append routed through vendor's contentPrepend/contentAppend
-  // slot so actions stay last. Mirrors HostResponseCard.
-  const contentPrepend =
-    prependList.length === 0 ? null : (
-      <>
-        {prependList.map((e) => (
-          <PluginSlotBoundary
-            key={e.item.id}
-            slot={ChatList.requestPrepend}
-            pluginId={e.pluginId}
-          >
-            {e.item.render({ data: props.data })}
-          </PluginSlotBoundary>
-        ))}
-      </>
-    );
-  const contentAppend =
-    appendList.length === 0 ? null : (
-      <>
-        {appendList.map((e) => (
-          <PluginSlotBoundary
-            key={e.item.id}
-            slot={ChatList.requestAppend}
-            pluginId={e.pluginId}
-          >
-            {e.item.render({ data: props.data })}
-          </PluginSlotBoundary>
-        ))}
-      </>
-    );
-
-  const fallback = () => (
-    <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
-    />
-  );
-
-  if (renderFn) {
-    return (
-      <PluginSlotBoundary
-        slot={ChatScalar.requestRender}
-        pluginId={renderEntry!.pluginId}
-        fallback={fallback()}
-      >
-        {renderFn({ data: props.data, fallback })}
-      </PluginSlotBoundary>
-    );
-  }
-  return fallback();
-}
-
-const MemoizedHostRequestCard = React.memo(HostRequestCardContent);
-
-export function HostRequestCard(props: { data: ChatRequestData }) {
-  return <MemoizedHostRequestCard {...props} />;
 }
 
 function HostResponseCardContent(props: {

@@ -22,6 +22,8 @@ const {
   mockSelectedAgent,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
+  mockQueueEnqueue,
+  mockOwnershipState,
   mockCopyText,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
@@ -32,6 +34,8 @@ const {
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
+  mockQueueEnqueue: vi.fn(),
+  mockOwnershipState: { acquire: true },
   mockCopyText: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -285,7 +289,7 @@ vi.mock("@/stores/messageQueueStore", () => ({
         remove: vi.fn(),
         loadFromStorage: vi.fn(),
         consumeMigratedTo: vi.fn(() => undefined),
-        enqueue: vi.fn(),
+        enqueue: mockQueueEnqueue,
         edit: vi.fn(),
         reorder: vi.fn(),
         clear: vi.fn(),
@@ -305,7 +309,7 @@ vi.mock("@/stores/messageQueueStore", () => ({
         remove: vi.fn(),
         loadFromStorage: vi.fn(),
         consumeMigratedTo: vi.fn(() => undefined),
-        enqueue: vi.fn(),
+        enqueue: mockQueueEnqueue,
         edit: vi.fn(),
         reorder: vi.fn(),
         clear: vi.fn(),
@@ -318,7 +322,7 @@ vi.mock("@/stores/messageQueueStore", () => ({
   STORAGE_PREFIX: "chat.queue.",
   withSendLock: vi.fn(async (_key: string, fn: () => any) => fn()),
   holdOwnershipLock: vi.fn((_key: string, cb: () => void, _signal: any) => {
-    cb();
+    if (mockOwnershipState.acquire) cb();
     return Promise.resolve();
   }),
 }));
@@ -505,6 +509,7 @@ describe("ChatPage coverage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    mockOwnershipState.acquire = true;
     mockCopyText.mockClear();
     mockListProviders.mockResolvedValue([
       {
@@ -1066,6 +1071,44 @@ describe("ChatPage coverage", () => {
     });
   });
 
+  it("queues an attachment-only submission in a non-owner tab", async () => {
+    mockOwnershipState.acquire = false;
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "",
+      fileList: [
+        {
+          uid: "upload-1",
+          name: "report.pdf",
+          type: "application/pdf",
+          size: 123,
+          status: "done",
+          response: { url: "/preview/report.pdf" },
+        },
+      ],
+    });
+
+    expect(result).toBe(false);
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      "test-session",
+      expect.objectContaining({
+        text: "",
+        attachments: [
+          {
+            url: "/preview/report.pdf",
+            name: "report.pdf",
+            type: "application/pdf",
+            size: 123,
+          },
+        ],
+      }),
+    );
+  });
+
   // ── sender attachments trigger renders ─────────────────────────────────
   it("sender attachments trigger function renders tooltip", async () => {
     renderWithProviders(<ChatPage />, {
@@ -1251,6 +1294,51 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("customFetch caches an attachment-only user turn", async () => {
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      body: null,
+      json: () => Promise.resolve({}),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    const sessionApiMock = (await import("./sessionApi")).default;
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "" },
+            {
+              type: "file",
+              file_url: "report.pdf",
+              file_name: "report.pdf",
+            },
+          ],
+        },
+      ],
+      signal: undefined,
+    });
+
+    expect(sessionApiMock.setLastUserMessage).toHaveBeenCalledWith(
+      expect.any(Array),
+      "",
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          file_url: "report.pdf",
+        }),
+      ]),
+      expect.any(String),
+    );
+  });
+
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {
     const mockResponse = { ok: true, status: 200, body: null };
@@ -1387,24 +1475,29 @@ describe("ChatPage coverage", () => {
   });
 
   // ── session config ─────────────────────────────────────────────────────
-  it("session config has multiple and api", async () => {
+  it("session config follows the deep-link route in controlled mode", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.session?.multiple).toBe(true);
+    expect(capturedOptions?.session?.currentSessionId).toBe("test-session");
     expect(capturedOptions?.session?.hideBuiltInSessionList).toBe(true);
     expect(capturedOptions?.session?.api).toBeTruthy();
-    expect(Object.keys(capturedOptions.session.api)).toEqual(
-      expect.arrayContaining([
-        "getSessionList",
-        "getSession",
-        "updateSession",
-        "createSession",
-        "removeSession",
-      ]),
-    );
+  });
+
+  it("keeps the currentSessionId key on the blank new-chat route", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        capturedOptions?.session,
+        "currentSessionId",
+      ),
+    ).toBe(true);
+    expect(capturedOptions?.session?.currentSessionId).toBeUndefined();
   });
 
   // ── welcome config ─────────────────────────────────────────────────────
@@ -1451,14 +1544,18 @@ describe("ChatPage coverage", () => {
     expect(typeof capturedOptions.customToolRenderConfig).toBe("object");
   });
 
-  // ── cards config ───────────────────────────────────────────────────────
-  it("cards config has host wrappers", async () => {
+  // ── request/response extension config ──────────────────────────────────
+  it("uses the public request seam and keeps the custom response card", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
-    expect(capturedOptions?.cards?.AgentScopeRuntimeRequestCard).toBeTruthy();
+    expect(
+      capturedOptions?.cards?.AgentScopeRuntimeRequestCard,
+    ).toBeUndefined();
+    expect(capturedOptions?.request?.prepend).toEqual([]);
+    expect(capturedOptions?.request?.append).toEqual([]);
     expect(capturedOptions?.cards?.AgentScopeRuntimeResponseCard).toBeTruthy();
     expect(capturedOptions?.cards?.Audios).toBeTruthy();
   });

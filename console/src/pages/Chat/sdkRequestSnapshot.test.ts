@@ -55,4 +55,18 @@ describe("SDK 1.2 request snapshots", () => {
       agent_id: "agent-1",
     });
   });
+
+  it("keeps the backend runtime session when SDK session_id is the chat id", () => {
+    expect(
+      resolveChatRequestSnapshot(
+        {
+          session_id: "chat-uuid",
+          context: { session_id: "runtime-session" },
+        },
+        { sessionId: "stale-runtime" },
+        {},
+        "default",
+      ).sessionId,
+    ).toBe("runtime-session");
+  });
 });

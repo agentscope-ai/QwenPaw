@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +28,13 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +187,7 @@ async def _persist_pending_project_dirs(
         for path, label in normalize_project_dir_list(pending):
             if not path.is_dir():
                 logger.warning(
-                    "Ignoring pending project dir that is not a "
-                    "directory: %s",
+                    "Ignoring pending project dir that is not a " "directory: %s",
                     path,
                 )
                 continue
@@ -246,8 +246,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
-                    _coerce_content_item(c)
-                    for c in (content_part["content"] or [])
+                    _coerce_content_item(c) for c in (content_part["content"] or [])
                 )
                 if isinstance(content_part.get("metadata"), dict):
                     message_metadata = content_part["metadata"]
@@ -482,42 +481,59 @@ async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
 ) -> dict:
-    """Stop the running chat. Only stops when called."""
+    """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
 
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
-    )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
-
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
-        )
-        chat_manager = workspace.chat_manager
-        if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+    resolved_chat_id = chat_id
+    runtime_session_id: str | None = None
+    chat_manager = workspace.chat_manager
+    if chat_manager:
+        chat = await chat_manager.get_chat(chat_id)
+        if chat is None:
+            candidate = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
                 channel="console",
             )
-            if resolved_chat_id:
+            if candidate:
+                resolved_chat_id = candidate
+                chat = await chat_manager.get_chat(candidate)
                 logger.debug(
                     "[STOP API] Resolved session_id=%s to chat_id=%s",
                     chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
+                    candidate,
                 )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+        if chat is not None:
+            runtime_session_id = chat.session_id
+
+    tool_cancelled = 0
+    app_services = getattr(request.app.state, "app_services", None)
+    coordinator = getattr(app_services, "tool_coordinator", None)
+    cancel_session = getattr(
+        coordinator,
+        "cancel_running_for_session",
+        None,
+    )
+    if runtime_session_id and callable(cancel_session):
+        # Tool calls have their own task owner. Cancel them before cancelling
+        # the producer so subprocess bridges can observe cancel_event and tear
+        # down the process tree deterministically.
+        tool_cancelled = await cancel_session(
+            runtime_session_id,
+            reason=CancelReason.USER,
+        )
 
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
+    run_stopped = await workspace.task_tracker.request_stop(resolved_chat_id)
+    stopped = run_stopped or tool_cancelled > 0
+
+    logger.debug(
+        "[STOP API] stop completed: stopped=%s run_stopped=%s tools=%s",
         stopped,
+        run_stopped,
+        tool_cancelled,
     )
     return {"stopped": stopped}
 

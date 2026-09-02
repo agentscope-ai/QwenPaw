@@ -64,8 +64,54 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  /** Explicit route snapshot. Callers should provide these when available. */
+  agentId?: string;
+  backendSessionId?: string;
   userId?: string;
   channel?: string;
+}
+
+/** Locate an item after a `new` queue has migrated to its backend chat id. */
+export function findQueueItemSessionId(
+  queues: Record<string, QueueItem[]>,
+  itemId: string,
+  preferredSessionId?: string,
+): string | undefined {
+  if (
+    preferredSessionId &&
+    queues[preferredSessionId]?.some((item) => item.id === itemId)
+  ) {
+    return preferredSessionId;
+  }
+  return Object.entries(queues).find(([, items]) =>
+    items.some((item) => item.id === itemId),
+  )?.[0];
+}
+
+/**
+ * Return the session that most recently received a queued item for an agent.
+ *
+ * Queue state is synchronized across tabs, so it is the authoritative host
+ * signal when another tab is actively working in an agent session. Legacy
+ * queue items without an agentId belong to the default agent.
+ */
+export function getLatestQueuedSessionIdForAgent(
+  queues: Record<string, QueueItem[]>,
+  agentId: string,
+): string | undefined {
+  let latestSessionId: string | undefined;
+  let latestCreatedAt = Number.NEGATIVE_INFINITY;
+
+  for (const [sessionId, items] of Object.entries(queues)) {
+    for (const item of items) {
+      if ((item.agentId ?? "default") !== agentId) continue;
+      if (item.createdAt <= latestCreatedAt) continue;
+      latestCreatedAt = item.createdAt;
+      latestSessionId = sessionId;
+    }
+  }
+
+  return latestSessionId;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,14 +438,16 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     }
     // Capture the current selected agent at enqueue time so that
     // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
+    let agentId = input.agentId;
     try {
-      const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
-      if (agentStorage) {
-        const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
+      if (!agentId) {
+        const agentStorage =
+          sessionStorage.getItem("qwenpaw-agent-storage") ||
+          localStorage.getItem("qwenpaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          agentId = parsed?.state?.selectedAgent || undefined;
+        }
       }
     } catch {
       // ignore
@@ -407,6 +455,7 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     // Capture backend session_id so background sender targets the correct
     // session even if the session list is cleared after agent switch.
     const backendSessionId =
+      input.backendSessionId ||
       (window as unknown as { currentSessionId?: string }).currentSessionId ||
       undefined;
     const item: QueueItem = {

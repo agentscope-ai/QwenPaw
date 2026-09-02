@@ -2,10 +2,10 @@
  * Pending user message must survive the "generation finished but memory
  * not yet flushed" window.
  *
- * customFetch caches the last user message in sessionStorage
+ * customFetch caches the last user message in localStorage
  * (setLastUserMessage) so patchLastUserMessage can re-insert it when the
- * chat page remounts (mode switch /chat <-> /coding, session switch) while
- * the backend has not persisted the turn yet.
+ * chat page remounts or another tab switches into the running conversation
+ * while the backend has not persisted the turn yet.
  *
  * The old behavior cleared the cache unconditionally whenever the chat
  * reported status != "running". Two windows made that lossy:
@@ -101,9 +101,9 @@ function assistantMsg(id: string, text: string): Message {
   } as Message;
 }
 
-function seedSessionList(id: string): void {
+function seedSessionList(id: string, sessionId = id): void {
   testApi.sessionList = [
-    { id, sessionId: id, userId: "u", channel: "c", name: "t" },
+    { id, sessionId, userId: "u", channel: "c", name: "t" },
   ];
 }
 
@@ -128,6 +128,13 @@ function userCardTexts(session: unknown): string[] {
     });
 }
 
+function lastUserCardContent(session: unknown): RuntimeContent[] {
+  const msgs = (session as RuntimeSession).messages.filter(
+    (message) => message.role === "user",
+  );
+  return msgs[msgs.length - 1]?.cards?.[0]?.data?.input?.[0]?.content ?? [];
+}
+
 describe("patchLastUserMessage — pending cache lifecycle", () => {
   beforeEach(() => {
     testApi.sessionList = [];
@@ -135,11 +142,13 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     testApi.sessionResultCache.clear();
     testApi.sessionRequests.clear();
     testApi.lastSelectedIds.clear();
+    localStorage.clear();
     sessionStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
     sessionStorage.clear();
   });
 
@@ -154,9 +163,118 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     const session = await sessionApi.getSession("chat-running");
     expect(userCardTexts(session)).toContain("hello in flight");
     // Cache is kept while the turn is still generating.
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-running`)).not.toBe(
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-running`)).not.toBe(
       null,
     );
+  });
+
+  it("patches an attachment-only pending message while generating", async () => {
+    seedSessionList("chat-file-running");
+    sessionApi.setLastUserMessage(
+      "chat-file-running",
+      "",
+      [
+        { type: "text", text: "" },
+        {
+          type: "file",
+          file_url: "report.pdf",
+          file_name: "report.pdf",
+        },
+      ],
+      "client-file",
+    );
+    await mockGetChat({
+      messages: [userMsg("u1", "earlier"), assistantMsg("a1", "reply")],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-file-running");
+    expect(lastUserCardContent(session)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          file_url: expect.stringContaining("report.pdf"),
+        }),
+      ]),
+    );
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-file-running`)).not.toBe(
+      null,
+    );
+  });
+
+  it("clears an attachment-only cache when its client id is persisted", async () => {
+    seedSessionList("chat-file-done");
+    sessionApi.setLastUserMessage(
+      "chat-file-done",
+      "",
+      [{ type: "file", file_url: "report.pdf", file_name: "report.pdf" }],
+      "client-file",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "", "client-file"),
+        assistantMsg("a1", "processed"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-file-done");
+    expect(userCardTexts(session)).toEqual([""]);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-file-done`)).toBe(null);
+  });
+
+  it("migrates a legacy per-tab pending message to shared storage", async () => {
+    seedSessionList("chat-legacy");
+    sessionStorage.setItem(
+      `${STORAGE_PREFIX}chat-legacy`,
+      JSON.stringify({ text: "legacy in flight" }),
+    );
+    await mockGetChat({
+      messages: [],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-legacy");
+    expect(userCardTexts(session)).toContain("legacy in flight");
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-legacy`)).not.toBe(null);
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-legacy`)).toBe(null);
+  });
+
+  it("restores a pending turn cached by runtime session_id through its chat UUID", async () => {
+    seedSessionList("chat-uuid", "runtime-session-id");
+    sessionApi.setLastUserMessage(
+      "runtime-session-id",
+      "cross-tab in flight",
+      undefined,
+      "client-cross-tab",
+    );
+    await mockGetChat({
+      messages: [userMsg("u1", "earlier"), assistantMsg("a1", "reply")],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-uuid");
+    expect(userCardTexts(session)).toContain("cross-tab in flight");
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-uuid`)).not.toBe(null);
+  });
+
+  it("persists and discards every known conversation identity alias", () => {
+    const aliases = ["chat-alias", "runtime-alias"];
+    sessionApi.setLastUserMessage(
+      aliases,
+      "same pending turn",
+      undefined,
+      "client-alias",
+    );
+
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-alias`)).not.toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}runtime-alias`)).not.toBe(
+      null,
+    );
+
+    sessionApi.discardLastUserMessage(aliases, "client-alias");
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-alias`)).toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}runtime-alias`)).toBe(null);
   });
 
   it("attaches the client id without dropping existing metadata", () => {
@@ -183,12 +301,10 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
 
     sessionApi.discardLastUserMessage("chat-failed", "client-old");
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).not.toBe(
-      null,
-    );
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).not.toBe(null);
 
     sessionApi.discardLastUserMessage("chat-failed", "client-new");
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).toBe(null);
   });
 
   it("clears the cache on idle when history already contains the text", async () => {
@@ -208,7 +324,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(texts.filter((t) => t.includes("persisted question"))).toHaveLength(
       1,
     );
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-done`)).toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-done`)).toBe(null);
   });
 
   it("keeps the cache and patches the message on idle when history is missing it (flush window)", async () => {
@@ -226,9 +342,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     // The pending message must still be visible after the remount…
     expect(userCardTexts(session)).toContain("lost in the window");
     // …and the cache must survive until history confirms persistence.
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-window`)).not.toBe(
-      null,
-    );
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-window`)).not.toBe(null);
   });
 
   it("does nothing on idle when no pending message is cached", async () => {
@@ -259,9 +373,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
 
     const session = await sessionApi.getSession("chat-substr");
     expect(userCardTexts(session)).toContain("yes");
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-substr`)).not.toBe(
-      null,
-    );
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-substr`)).not.toBe(null);
   });
 
   it("keeps an identical pending prompt when its client id is newer", async () => {
@@ -282,9 +394,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
 
     const session = await sessionApi.getSession("chat-repeat");
     expect(userCardTexts(session)).toEqual(["continue", "continue"]);
-    expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-repeat`)).not.toBe(
-      null,
-    );
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-repeat`)).not.toBe(null);
   });
 
   it("clears an identical pending prompt only when its client id matches", async () => {
@@ -305,9 +415,9 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
 
     const session = await sessionApi.getSession("chat-repeat-confirmed");
     expect(userCardTexts(session)).toEqual(["continue"]);
-    expect(
-      sessionStorage.getItem(`${STORAGE_PREFIX}chat-repeat-confirmed`),
-    ).toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-repeat-confirmed`)).toBe(
+      null,
+    );
   });
 
   it("does not serve a patched (incomplete) idle history from the LRU cache", async () => {

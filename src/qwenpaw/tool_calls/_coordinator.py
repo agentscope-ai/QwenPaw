@@ -287,9 +287,7 @@ class ToolCoordinator:
                     exc_info=True,
                 )
 
-        bg_task_name = (
-            entry.background_task.get_name() if entry.background_task else ""
-        )
+        bg_task_name = entry.background_task.get_name() if entry.background_task else ""
         reason = ctx.offload_reason.value if ctx.offload_reason else "unknown"
         if ctx.offload_reason == OffloadReason.USER:
             text = (
@@ -438,6 +436,44 @@ class ToolCoordinator:
             return True
         entry.ctx.cancel_event.set()
         return True
+
+    async def cancel_running_for_session(
+        self,
+        session_id: str,
+        *,
+        reason: CancelReason = CancelReason.USER,
+    ) -> int:
+        """Force-cancel foreground tool calls owned by one conversation.
+
+        A chat run and its tool task have separate asyncio owners. Cancelling
+        the chat producer therefore must explicitly reach the coordinator;
+        otherwise a subprocess-backed tool can continue after the user presses
+        Stop. Explicitly offloaded work is excluded because it is no longer
+        part of the foreground response lifecycle.
+
+        ``root_session_id`` is included so stopping a parent conversation also
+        reaches foreground tool calls currently executing in a child agent.
+        """
+        if not session_id:
+            return 0
+        entries = [
+            entry
+            for entry in self._entries.values()
+            if entry.status == ToolCallStatus.RUNNING
+            and (
+                entry.ctx.session_id == session_id
+                or entry.ctx.root_session_id == session_id
+            )
+        ]
+        cancelled = 0
+        for entry in entries:
+            if await self.cancel(
+                entry.ctx.tool_call_id,
+                reason=reason,
+                force=True,
+            ):
+                cancelled += 1
+        return cancelled
 
     async def extend_offload_deadline(
         self,
@@ -596,14 +632,10 @@ class ToolCoordinator:
         ctx = entry.ctx
 
         remaining_offload = (
-            (ctx.offload_deadline - now)
-            if ctx.offload_deadline is not None
-            else None
+            (ctx.offload_deadline - now) if ctx.offload_deadline is not None else None
         )
         remaining_kill = (
-            (ctx.kill_deadline - now)
-            if ctx.kill_deadline is not None
-            else None
+            (ctx.kill_deadline - now) if ctx.kill_deadline is not None else None
         )
 
         # kill takes priority — execution limit supersedes offload
@@ -612,9 +644,7 @@ class ToolCoordinator:
         if remaining_offload is not None and remaining_offload <= 0:
             return _NextEvent(type="deadline_reached")
 
-        candidates = [
-            r for r in (remaining_offload, remaining_kill) if r is not None
-        ]
+        candidates = [r for r in (remaining_offload, remaining_kill) if r is not None]
         remaining = min(candidates) if candidates else None
 
         waiters: dict[str, asyncio.Task[Any]] = {}
@@ -649,9 +679,7 @@ class ToolCoordinator:
 
         if "chunk" in waiters and waiters["chunk"] in done:
             item = waiters["chunk"].result()
-            event_type = (
-                "stream_closed" if item is _STREAM_SENTINEL else "chunk"
-            )
+            event_type = "stream_closed" if item is _STREAM_SENTINEL else "chunk"
             return _NextEvent(
                 type=event_type,
                 chunk=item if event_type == "chunk" else None,

@@ -6,10 +6,13 @@ import {
   removeQueueFromStorage,
   nextQueueId,
   MAX_QUEUE_SIZE,
+  findQueueItemSessionId,
+  getLatestQueuedSessionIdForAgent,
   withSendLock,
   withAvailableOwnershipLock,
   withBackgroundSendLock,
   holdOwnershipLock,
+  type QueueItem,
 } from "./messageQueueStore";
 
 const SESSION_ID = "sess-1";
@@ -77,6 +80,59 @@ describe("messageQueueStore", () => {
     localStorage.setItem(getStorageKey(SESSION_ID), "sentinel");
     removeQueueFromStorage(SESSION_ID);
     expect(localStorage.getItem(getStorageKey(SESSION_ID))).toBeNull();
+  });
+
+  it("finds the newest queued session for the requested agent", () => {
+    const queueItem = (
+      agentId: string | undefined,
+      createdAt: number,
+    ): QueueItem => ({
+      id: `item-${createdAt}`,
+      text: "queued",
+      agentId,
+      status: "pending",
+      retryCount: 0,
+      createdAt,
+    });
+
+    expect(
+      getLatestQueuedSessionIdForAgent(
+        {
+          "default-newer": [queueItem("default", 300)],
+          "qa-older": [queueItem("qa", 100)],
+          "qa-newer": [queueItem("qa", 200)],
+        },
+        "qa",
+      ),
+    ).toBe("qa-newer");
+  });
+
+  it("treats legacy queue items without agentId as default-agent items", () => {
+    const legacyItem: QueueItem = {
+      id: "legacy",
+      text: "queued",
+      status: "pending",
+      retryCount: 0,
+      createdAt: 100,
+    };
+
+    const queues = { legacy: [legacyItem] };
+    expect(getLatestQueuedSessionIdForAgent(queues, "default")).toBe("legacy");
+    expect(getLatestQueuedSessionIdForAgent(queues, "qa")).toBeUndefined();
+  });
+
+  it("locates an item after the new queue migrates while it is submitting", () => {
+    const migrated: QueueItem = {
+      id: "moving-item",
+      text: "queued",
+      status: "sending",
+      retryCount: 0,
+      createdAt: 100,
+    };
+
+    expect(
+      findQueueItemSessionId({ "chat-uuid": [migrated] }, migrated.id, "new"),
+    ).toBe("chat-uuid");
   });
 
   // ---------------------------------------------------------------------------
@@ -178,6 +234,28 @@ describe("messageQueueStore", () => {
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.backendSessionId).toBe("backend-42");
+
+    delete (window as unknown as { currentSessionId?: string })
+      .currentSessionId;
+  });
+
+  it("enqueue prefers the explicit agent and backend session snapshot", () => {
+    sessionStorage.setItem(
+      "qwenpaw-agent-storage",
+      JSON.stringify({ state: { selectedAgent: "stale-agent" } }),
+    );
+    (window as unknown as { currentSessionId?: string }).currentSessionId =
+      "stale-session";
+
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      agentId: "queued-agent",
+      backendSessionId: "queued-session",
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.agentId).toBe("queued-agent");
+    expect(item.backendSessionId).toBe("queued-session");
 
     delete (window as unknown as { currentSessionId?: string })
       .currentSessionId;

@@ -1,4 +1,5 @@
 import type {
+  IAgentScopeRuntimeWebUICreateSessionResult,
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
@@ -469,7 +470,7 @@ const resolveRealId = (
 
 const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 
-/** Shape stored in sessionStorage. Backward compat: old format was plain text. */
+/** Shape stored in localStorage. Backward compat: old format was plain text. */
 interface PendingUserMsg {
   text: string;
   clientMessageId?: string;
@@ -482,18 +483,39 @@ function savePendingUserMessage(
   sessionId: string,
   data: string | PendingUserMsg,
 ): void {
+  const key = `${STORAGE_PREFIX}${sessionId}`;
+  const val = typeof data === "string" ? data : JSON.stringify(data);
   try {
-    const val = typeof data === "string" ? data : JSON.stringify(data);
-    sessionStorage.setItem(`${STORAGE_PREFIX}${sessionId}`, val);
+    // localStorage is shared across tabs. A tab switching to an agent whose
+    // run is owned by another tab can therefore reconstruct the in-flight
+    // user message before the backend history flushes it.
+    localStorage.setItem(key, val);
+    sessionStorage.removeItem(key);
   } catch {
-    /* quota exceeded – ignore */
+    // Retain the old per-tab fallback when shared storage is unavailable.
+    try {
+      sessionStorage.setItem(key, val);
+    } catch {
+      /* quota exceeded – ignore */
+    }
   }
 }
 
 function loadPendingUserMessage(sessionId: string): PendingUserMsg | null {
+  const key = `${STORAGE_PREFIX}${sessionId}`;
   try {
-    const raw = sessionStorage.getItem(`${STORAGE_PREFIX}${sessionId}`);
+    const shared = localStorage.getItem(key);
+    const legacy = shared ? null : sessionStorage.getItem(key);
+    const raw = shared ?? legacy;
     if (!raw) return null;
+    if (!shared && legacy) {
+      try {
+        localStorage.setItem(key, legacy);
+        sessionStorage.removeItem(key);
+      } catch {
+        // Keep reading the legacy value in this tab.
+      }
+    }
     // Try parsing as JSON (new format with content array)
     try {
       const parsed = JSON.parse(raw);
@@ -510,11 +532,24 @@ function loadPendingUserMessage(sessionId: string): PendingUserMsg | null {
 }
 
 function clearPendingUserMessage(sessionId: string): void {
+  const key = `${STORAGE_PREFIX}${sessionId}`;
   try {
-    sessionStorage.removeItem(`${STORAGE_PREFIX}${sessionId}`);
+    localStorage.removeItem(key);
   } catch {
     /* ignore */
   }
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+function normalizePendingUserMessageIds(
+  sessionIds: string | readonly (string | null | undefined)[],
+): string[] {
+  const ids = Array.isArray(sessionIds) ? sessionIds : [sessionIds];
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))];
 }
 
 // ---------------------------------------------------------------------------
@@ -579,15 +614,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.isSessionSwitching = true;
     return controller;
   }
-
-  /**
-   * Set to true by useCreateNewSession before calling createSession().
-   * Consumed and reset inside createSession on every call.
-   * Distinguishes a user-initiated creation from the library's automatic
-   * post-SSE prepare call, which must NOT navigate away from the current
-   * active conversation or fire onSessionCreated unexpectedly.
-   */
-  userInitiatedCreate = false;
 
   /** Short-lived result cache so the library's subsequent getSession call
    *  (triggered by setCurrentSessionId → useAsyncEffect) can reuse the
@@ -824,7 +850,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.lastNavigatedChatId = null;
     this.isSessionSwitching = false;
     this.switchAbortController = null;
-    this.userInitiatedCreate = false;
     this.onSessionIdResolved = null;
     this.onSessionRemoved = null;
     this.onSessionSelected = null;
@@ -834,43 +859,53 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * Cache the latest user message for a chat so it can be patched into
    * history during reconnect (the backend only persists it after generation
-   * completes). Persisted to sessionStorage so it survives page refresh.
+   * completes). Persisted to localStorage so it survives page refresh and is
+   * visible when another tab switches into this running conversation.
    *
    * @param content  Optional full content array (in stored-name format)
    *                 including images/files. When provided, patchLastUserMessage
    *                 will reconstruct the user card with attachments.
    */
   setLastUserMessage(
-    sessionId: string,
+    sessionIds: string | readonly (string | null | undefined)[],
     text: string,
     content?: Array<{ type: string; [key: string]: unknown }>,
     clientMessageId?: string,
   ): void {
-    if (!sessionId || !text) return;
-    // Invalidate LRU cache so switching back fetches fresh messages
-    this.invalidateConvertedCache(sessionId);
-    if (content && content.length > 0) {
-      savePendingUserMessage(sessionId, { text, content, clientMessageId });
-    } else if (clientMessageId) {
-      savePendingUserMessage(sessionId, { text, clientMessageId });
-    } else {
-      savePendingUserMessage(sessionId, text);
+    if (!text && (!content || content.length === 0)) return;
+    const ids = normalizePendingUserMessageIds(sessionIds);
+    for (const sessionId of ids) {
+      // A conversation has both a URL chat UUID and a runtime session_id.
+      // Persist the same pending turn under every known alias so another tab
+      // can reconstruct it regardless of which identity its reload resolves.
+      this.invalidateConvertedCache(sessionId);
+      if (content && content.length > 0) {
+        savePendingUserMessage(sessionId, { text, content, clientMessageId });
+      } else if (clientMessageId) {
+        savePendingUserMessage(sessionId, { text, clientMessageId });
+      } else {
+        savePendingUserMessage(sessionId, text);
+      }
     }
   }
 
   /** Remove a pending message only when it still belongs to this request. */
-  discardLastUserMessage(sessionId: string, clientMessageId?: string): void {
-    if (!sessionId) return;
-    const cached = loadPendingUserMessage(sessionId);
-    if (!cached) return;
-    if (
-      clientMessageId &&
-      cached.clientMessageId &&
-      cached.clientMessageId !== clientMessageId
-    ) {
-      return;
+  discardLastUserMessage(
+    sessionIds: string | readonly (string | null | undefined)[],
+    clientMessageId?: string,
+  ): void {
+    for (const sessionId of normalizePendingUserMessageIds(sessionIds)) {
+      const cached = loadPendingUserMessage(sessionId);
+      if (!cached) continue;
+      if (
+        clientMessageId &&
+        cached.clientMessageId &&
+        cached.clientMessageId !== clientMessageId
+      ) {
+        continue;
+      }
+      clearPendingUserMessage(sessionId);
     }
-    clearPendingUserMessage(sessionId);
   }
 
   /**
@@ -937,7 +972,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * When reconnecting to a running conversation, the backend history may not
    * include the latest user message (it's only persisted after generation
-   * completes). If generating, look up the cached data from sessionStorage
+   * completes). If generating, look up the cached data from shared storage
    * and patch it into the message list (including any attachments).
    *
    * When not generating the conversation is done — clear the cached entry
@@ -949,12 +984,30 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private patchLastUserMessage(
     messages: IAgentScopeRuntimeWebUIMessage[],
     generating: boolean,
-    backendSessionId: string,
+    sessionIds: readonly (string | null | undefined)[],
   ): boolean {
-    const cached = loadPendingUserMessage(backendSessionId);
-    if (!cached || !cached.text) {
-      if (!generating) clearPendingUserMessage(backendSessionId);
+    const pendingIds = normalizePendingUserMessageIds(sessionIds);
+    let cached: PendingUserMsg | null = null;
+    let cachedId: string | null = null;
+    for (const sessionId of pendingIds) {
+      cached = loadPendingUserMessage(sessionId);
+      if (cached) {
+        cachedId = sessionId;
+        break;
+      }
+    }
+    if (!cached || (!cached.text && !cached.content?.length)) {
+      if (!generating) {
+        pendingIds.forEach(clearPendingUserMessage);
+      }
       return false;
+    }
+
+    // Canonicalize an entry found by runtime session_id onto the backend UUID
+    // so later reloads no longer depend on the alias ordering.
+    const canonicalId = pendingIds[0];
+    if (canonicalId && cachedId !== canonicalId) {
+      savePendingUserMessage(canonicalId, cached);
     }
 
     // When the chat is idle, clear the cache only after the fetched
@@ -976,7 +1029,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         ? lastUserClientMessageId === cached.clientMessageId
         : lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
-        clearPendingUserMessage(backendSessionId);
+        pendingIds.forEach(clearPendingUserMessage);
         return false;
       }
       // History is missing the turn — fall through and patch it in,
@@ -985,9 +1038,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Use the full content array (with images/files) when available;
     // fall back to text-only for legacy entries.
-    const msgContent: unknown = cached.content ?? [
-      { type: "text", text: cached.text },
-    ];
+    const msgContent: unknown =
+      cached.content ??
+      (cached.text ? [{ type: "text", text: cached.text }] : []);
 
     const lastMsg = messages[messages.length - 1];
     if (lastMsg?.role === ROLE_USER) {
@@ -1427,11 +1480,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
-    const patchedPending = this.patchLastUserMessage(
-      messages,
-      generating,
+    const patchedPending = this.patchLastUserMessage(messages, generating, [
       backendId,
-    );
+      displayId,
+      listEntry?.sessionId,
+      listEntry?.realId,
+    ]);
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1625,52 +1679,26 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return [...this.sessionList];
   }
 
-  async createSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
-    const isUserInitiated = this.userInitiatedCreate;
-    this.userInitiatedCreate = false;
-
-    // CRITICAL: The library's internal updateSession returns the INPUT `session`
-    // object (not our return value). The library's createSession then does:
-    //   setCurrentSessionId(session.id)
-    //   setMessages(session.messages)
-    // If session.id is undefined, currentSessionId becomes undefined, which
-    // causes ensureSession to call createSession again on EVERY message send,
-    // each time clearing messages via setMessages([]). We MUST write-back the
-    // generated id onto the input object so the library sets currentSessionId
-    // to a valid value.
-
-    // Idempotency: reuse an existing unresolved local session. Only fire
-    // onSessionCreated on explicit user action; suppress on library retries
-    // to prevent navigating away during the race window where SSE ends before
-    // resolveAndNotify completes (ts-xxx.realId not yet set).
+  async createSession(
+    session: Partial<IAgentScopeRuntimeWebUISession>,
+  ): Promise<IAgentScopeRuntimeWebUICreateSessionResult> {
+    // Idempotency: reuse an unresolved local session. The explicit SDK result
+    // identifies the reused session without mutating the caller's draft or
+    // relying on list order.
     const existing = this.sessionList.find(
       (s) => isLocalTimestamp(s.id) && !(s as ExtendedSession).realId,
     ) as ExtendedSession | undefined;
     if (existing) {
-      session.id = existing.id;
-      if (isUserInitiated) this.onSessionCreated?.(existing.id);
-      return [...this.sessionList];
-    }
-
-    // Library auto-prepares a session after SSE ends. Skip when the user is
-    // already viewing a resolved conversation to avoid navigating away.
-    if (
-      !isUserInitiated &&
-      this.lastActiveChatId &&
-      !isLocalTimestamp(this.lastActiveChatId)
-    ) {
-      const active = this.findSession(this.lastActiveChatId);
-      if (active) session.id = active.id;
-      return [...this.sessionList];
+      this.onSessionCreated?.(existing.id);
+      return { sessions: [...this.sessionList], session: existing };
     }
 
     const localId = `${Date.now()}-${randomBase36(7)}`;
     const extended = this.createEmptySession(localId, this.getActiveOwner());
     extended.name = session.name || DEFAULT_SESSION_NAME;
     this.sessionList.unshift(extended);
-    session.id = localId;
     this.onSessionCreated?.(localId);
-    return [...this.sessionList];
+    return { sessions: [...this.sessionList], session: extended };
   }
 
   async removeSession(session: Partial<IAgentScopeRuntimeWebUISession>) {

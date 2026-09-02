@@ -1,4 +1,4 @@
-import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat";
 
 const TOOL_LIKE_RESPONSE_TYPES = new Set<AgentScopeRuntimeMessageType>([
   AgentScopeRuntimeMessageType.PLUGIN_CALL,

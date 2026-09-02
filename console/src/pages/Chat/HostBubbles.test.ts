@@ -1,34 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
-import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat";
+import { HostResponseCard } from "./HostBubbles";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 
 describe("host card SDK contract", () => {
-  it("exports callable card components", () => {
+  it("exports a callable response card component", () => {
     // The SDK checks typeof Component === "function" before rendering a
     // registered custom card. React.memo returns an object and is incompatible
     // with that dispatcher even though JSX accepts memoized components.
-    expect(typeof HostRequestCard).toBe("function");
     expect(typeof HostResponseCard).toBe("function");
   });
 
-  it("forwards SDK card functions to stable memoized components", () => {
-    const requestProps = { data: {} as never };
+  it("forwards the SDK card function to a stable memoized component", () => {
     const responseProps = {
       id: "assistant-message-1",
       data: {} as never,
       isLast: false,
     };
 
-    const requestElement = HostRequestCard(requestProps);
     const responseElement = HostResponseCard(responseProps);
 
-    expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
     expect(responseElement.type).toBe(HostResponseCard(responseProps).type);
-    expect(requestElement.type).toHaveProperty(
-      "$$typeof",
-      Symbol.for("react.memo"),
-    );
     expect(responseElement.type).toHaveProperty(
       "$$typeof",
       Symbol.for("react.memo"),

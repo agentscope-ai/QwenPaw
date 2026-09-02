@@ -35,9 +35,11 @@ export function resolveChatRequestSnapshot(
 ) {
   const context = data.context ?? {};
   return {
+    // SDK session_id identifies the rendered chat. CoPaw's backend runtime
+    // session is frozen in context by beforeSubmit / the host queue.
     sessionId: firstString(
-      data.session_id,
       context.session_id,
+      data.session_id,
       fallbackIdentity.sessionId,
       messageSession.session_id,
     ),
