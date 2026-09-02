@@ -60,7 +60,7 @@ It takes effect on the next message; no restart is needed.
 
 ## What the agent sees
 
-The injected plan and any follow-up advice appear in the conversation as tool calls named `consult_advisor` and `consult_advisor_followup`; the agent's own questions appear as ordinary `consult_advisor` calls. For the injected ones the arguments shown to the agent are a short fixed question ("Before I start, how should I approach this task?"), not the full request sent to the advisor, which keeps the agent's context small.
+The injected plan and any follow-up advice appear in the conversation as tool calls named `consult_advisor` and `consult_advisor_followup`; the agent's own questions appear as ordinary `consult_advisor` calls. The injected calls show up the moment the advisor is asked and their output streams in while the advisor writes, like any other tool result, so a long plan is visible as it takes shape rather than after the agent's first step. A follow-up consultation that ends in CONTINUE is shown too (with the advisor's verdict) even though nothing is added to the agent's context. For the injected ones the arguments shown to the agent are a short fixed question ("Before I start, how should I approach this task?"), not the full request sent to the advisor, which keeps the agent's context small.
 
 In a multi-turn chat the plan is written for the message the agent is answering now, and the advisor remembers the earlier plans and answers of the same session; `/new` or `/clear` starts the advisor over as well.
 

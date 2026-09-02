@@ -270,14 +270,24 @@ def _workspace_listing(
     return "\n".join(lines)
 
 
-def _exchange_msg(agent_name: str, tool: str, args: dict, body: str) -> Msg:
+def _new_call_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def _exchange_msg(
+    agent_name: str,
+    tool: str,
+    args: dict,
+    body: str,
+    call_id: str | None = None,
+) -> Msg:
     """Build the injected tool call + result pair as one assistant message.
 
     This mirrors how AgentScope 2.x records a finished tool call: the
     ``ToolCallBlock`` and its ``ToolResultBlock`` share an id and live in
     the same assistant message.
     """
-    call_id = uuid.uuid4().hex[:12]
+    call_id = call_id or _new_call_id()
     return AssistantMsg(
         name=agent_name,
         content=[
@@ -295,6 +305,90 @@ def _exchange_msg(agent_name: str, tool: str, args: dict, body: str) -> Msg:
             ),
         ],
     )
+
+
+class _LiveExchange:
+    """One injected exchange shown in the UI while the teacher is talking.
+
+    The tool call is opened the moment the teacher is asked, the reply is
+    relayed as it streams in and the call is closed once the answer (or
+    the failure) is in — so the user watches the plan being written
+    instead of a spinner. Agents without the live hooks (plain AgentScope
+    agents, test doubles) leave ``active`` False; the caller then falls
+    back to :meth:`AdvisorMiddleware._surface` once the exchange is
+    complete.
+    """
+
+    def __init__(
+        self,
+        agent: Any,
+        call_id: str,
+        tool: str,
+        args: dict,
+    ) -> None:
+        self._agent = agent
+        self.call_id = call_id
+        self._sent = ""
+        self.active = False
+        begin = getattr(agent, "begin_injected_exchange", None)
+        if not callable(begin):
+            return
+        try:
+            begin(call_id=call_id, name=tool, arguments=json.dumps(args))
+            self.active = True
+        except Exception:
+            logger.debug(
+                "AdvisorMiddleware: could not open the live exchange",
+                exc_info=True,
+            )
+
+    def _emit(self, method: str, **kwargs: Any) -> None:
+        fn = getattr(self._agent, method, None)
+        if not callable(fn):
+            return
+        try:
+            fn(call_id=self.call_id, **kwargs)
+        except Exception:
+            logger.debug(
+                "AdvisorMiddleware: live exchange update failed",
+                exc_info=True,
+            )
+
+    def on_text(self, text: str) -> None:
+        """Relay the cumulative teacher reply ``text`` as a delta."""
+        if not self.active or not text.startswith(self._sent):
+            return
+        delta = text[len(self._sent) :]
+        if not delta:
+            return
+        self._sent = text
+        self._emit("stream_injected_output", delta=delta)
+
+    def note(self, text: str) -> None:
+        """Append a harness note (a retry, say) and start a fresh reply."""
+        if not self.active:
+            return
+        prefix = "\n\n" if self._sent else ""
+        self._emit("stream_injected_output", delta=f"{prefix}{text}\n\n")
+        self._sent = ""
+
+    def finish(self, output: str) -> None:
+        """Close the exchange, first sending any tail of ``output`` the
+        stream never delivered."""
+        if not self.active:
+            return
+        self.on_text(output)
+        self._emit("finish_injected_exchange", state=ToolResultState.SUCCESS)
+        self.active = False
+
+    def fail(self, message: str) -> None:
+        """Close the exchange as failed, with ``message`` as the output."""
+        if not self.active:
+            return
+        prefix = "\n\n" if self._sent else ""
+        self._emit("stream_injected_output", delta=f"{prefix}{message}")
+        self._emit("finish_injected_exchange", state=ToolResultState.ERROR)
+        self.active = False
 
 
 # pylint: disable=too-many-instance-attributes
@@ -632,11 +726,25 @@ class AdvisorMiddleware(MiddlewareBase):
         advice = ""
         action = ""
         body = ""
+        # Shown live like the plan. A CONTINUE verdict adds nothing to the
+        # agent's context, but the user still sees that the advisor was
+        # consulted and what it said.
+        call_id = _new_call_id()
+        live = _LiveExchange(
+            agent,
+            call_id,
+            FOLLOWUP_TOOL_NAME,
+            _FOLLOWUP_CALL_ARGS,
+        )
         # Re-ask the SAME request on a malformed reply — a fresh sample of
         # the same question, not a follow-up question about the bad answer.
         for attempt in range(1, _FOLLOWUP_FORMAT_ATTEMPTS + 1):
             try:
-                advice = await self._call_teacher(request, stateful=True)
+                advice = await self._call_teacher(
+                    request,
+                    stateful=True,
+                    on_text=live.on_text if live.active else None,
+                )
             except Exception as exc:
                 logger.error(
                     "AdvisorMiddleware: follow-up teacher call failed: %s",
@@ -644,6 +752,7 @@ class AdvisorMiddleware(MiddlewareBase):
                 )
                 record["error"] = str(exc)
                 self._record_intervention(record)
+                live.fail(f"The advisor could not be reached: {exc}")
                 return None
             action, body = _parse_followup(advice)
             if action:
@@ -654,6 +763,8 @@ class AdvisorMiddleware(MiddlewareBase):
                 attempt,
                 _FOLLOWUP_FORMAT_ATTEMPTS,
             )
+            if attempt < _FOLLOWUP_FORMAT_ATTEMPTS:
+                live.note("(no CONTINUE/ADJUST verdict; asking again)")
         else:
             # Still unparseable: treat as ADJUST rather than drop the
             # advice, so a teacher that ignored the format is not silently
@@ -677,12 +788,14 @@ class AdvisorMiddleware(MiddlewareBase):
                 "AdvisorMiddleware: teacher said %s, nothing injected",
                 _CONTINUE,
             )
+            live.finish(advice)
             return None
         if not body:
             logger.info(
                 "AdvisorMiddleware: %s reply had no body, nothing injected",
                 action,
             )
+            live.finish(advice)
             return None
 
         msg = _exchange_msg(
@@ -690,9 +803,13 @@ class AdvisorMiddleware(MiddlewareBase):
             FOLLOWUP_TOOL_NAME,
             _FOLLOWUP_CALL_ARGS,
             body,
+            call_id=call_id,
         )
         agent.state.context.append(msg)
-        self._surface(agent, msg)
+        if live.active:
+            live.finish(advice)
+        else:
+            self._surface(agent, msg)
         logger.info(
             "AdvisorMiddleware: follow-up advice injected (%d chars)",
             len(body),
@@ -715,7 +832,7 @@ class AdvisorMiddleware(MiddlewareBase):
             logger.warning("AdvisorMiddleware: no user instruction found")
             return None
 
-        tool_list = await self._format_tool_list(agent, tools=tools)
+        tool_list = self._format_tool_list(tools)
         env_context = self._read_env_context()
         env_section = (
             f"{ENV_SECTION_HEADER}\n\n{env_context}" if env_context else ""
@@ -730,10 +847,20 @@ class AdvisorMiddleware(MiddlewareBase):
             getattr(self._teacher, "label", "?"),
         )
 
+        # Open the exchange in the UI before the teacher is asked, so the
+        # user sees the consultation (and the plan, as it streams) instead
+        # of a silent wait before the agent's first token.
+        call_id = _new_call_id()
+        live = _LiveExchange(agent, call_id, PLAN_TOOL_NAME, _PLAN_CALL_ARGS)
+
         plan, last_exc = "", None
         for attempt in range(1, _PLAN_ATTEMPTS + 1):
             try:
-                plan = await self._call_teacher(plan_request, stateful=True)
+                plan = await self._call_teacher(
+                    plan_request,
+                    stateful=True,
+                    on_text=live.on_text if live.active else None,
+                )
                 break
             except Exception as exc:
                 last_exc = exc
@@ -744,6 +871,7 @@ class AdvisorMiddleware(MiddlewareBase):
                     exc,
                 )
                 if attempt < _PLAN_ATTEMPTS:
+                    live.note(f"(advisor call failed: {exc}; retrying)")
                     await asyncio.sleep(_PLAN_RETRY_DELAY_S * attempt)
         else:
             # Every attempt failed. Say so loudly: a silent miss here turns
@@ -755,6 +883,7 @@ class AdvisorMiddleware(MiddlewareBase):
             )
             self._plan_error = str(last_exc)
             self._record_plan(plan_request, error=str(last_exc))
+            live.fail(f"The advisor could not be reached: {last_exc}")
             return None
 
         logger.info(
@@ -764,18 +893,28 @@ class AdvisorMiddleware(MiddlewareBase):
         )
         self._record_plan(plan_request, plan=plan)
 
-        msg = _exchange_msg(agent.name, PLAN_TOOL_NAME, _PLAN_CALL_ARGS, plan)
+        msg = _exchange_msg(
+            agent.name,
+            PLAN_TOOL_NAME,
+            _PLAN_CALL_ARGS,
+            plan,
+            call_id=call_id,
+        )
         agent.state.context.append(msg)
-        self._surface(agent, msg)
+        if live.active:
+            live.finish(plan)
+        else:
+            self._surface(agent, msg)
         return msg
 
     @staticmethod
     def _surface(agent: "Agent", msg: Msg) -> None:
-        """Ask the agent to show the injected exchange in the UI.
+        """Ask the agent to show a completed injected exchange in the UI.
 
-        ``QwenPawAgent.queue_injected_exchange`` emits it as tool-call
-        events before the next model event; agents without that method
-        (plain AgentScope agents, test doubles) simply keep it in context.
+        Fallback for agents that offer ``queue_injected_exchange`` but not
+        the live hooks used by :class:`_LiveExchange`; agents without
+        either (plain AgentScope agents, test doubles) simply keep the
+        exchange in context.
         """
         queue = getattr(agent, "queue_injected_exchange", None)
         if not callable(queue):
@@ -800,12 +939,14 @@ class AdvisorMiddleware(MiddlewareBase):
         self,
         message: str,
         stateful: bool = False,
+        on_text: Callable[[str], None] | None = None,
     ) -> str:
         """Ask the teacher.
 
         With ``stateful=True`` the earlier exchange is replayed first, so
         the question is answered in light of the plans already given (and
         any advice already offered) instead of from a blank slate.
+        ``on_text`` receives the cumulative reply while it streams.
         """
         messages: list[dict[str, str]] = [
             {"role": "system", "content": ADVISOR_SYSTEM_PROMPT},
@@ -813,7 +954,10 @@ class AdvisorMiddleware(MiddlewareBase):
         if stateful:
             messages.extend(self._teacher_history)
         messages.append({"role": "user", "content": message})
-        reply = await self._teacher.ask(messages)
+        if on_text is None:
+            reply = await self._teacher.ask(messages)
+        else:
+            reply = await self._teacher.ask(messages, on_text=on_text)
         # Remember the exchange so later questions build on it.
         self._teacher_history.append({"role": "user", "content": message})
         self._teacher_history.append({"role": "assistant", "content": reply})
@@ -876,37 +1020,25 @@ class AdvisorMiddleware(MiddlewareBase):
             logger.warning("Failed to build env context: %s", exc)
             return ""
 
-    @classmethod
-    async def _format_tool_list(
-        cls,
-        agent: "Agent",
-        tools: list[dict] | None = None,
-    ) -> str:
+    @staticmethod
+    def _format_tool_list(tools: list[dict] | None) -> str:
         """Render tool names and descriptions for the teacher.
 
-        Prefers the schemas of the model call in flight (exactly what the
-        agent sees); falls back to the agent's toolkit.
+        ``tools`` are the schemas of the model call in flight — the very
+        list the agent is given on this call — so the teacher plans with
+        exactly the tools the student has, and there is one place that
+        decides what those are.
         """
-        try:
-            schemas = tools
-            if schemas is None:
-                groups = None
-                tool_context = getattr(agent.state, "tool_context", None)
-                if tool_context is not None:
-                    groups = getattr(tool_context, "activated_groups", None)
-                schemas = await agent.toolkit.get_tool_schemas(groups)
-            lines = []
-            for schema in schemas or []:
-                func = schema.get("function", {})
-                name = func.get("name", "?")
-                if name in _EXCLUDED_TOOLS:
-                    continue
-                desc = func.get("description", "")
-                lines.append(f"- {name}: {desc}")
-            return "\n".join(lines) if lines else "(no tools available)"
-        except Exception as exc:
-            logger.warning("Failed to extract tool list: %s", exc)
-            return "(tool list unavailable)"
+        lines = []
+        for schema in tools or []:
+            func = (
+                schema.get("function", {}) if isinstance(schema, dict) else {}
+            )
+            name = func.get("name", "?")
+            if name in _EXCLUDED_TOOLS:
+                continue
+            lines.append(f"- {name}: {func.get('description', '')}")
+        return "\n".join(lines) if lines else "(no tools available)"
 
     @staticmethod
     def _extract_instruction(context: list[Msg]) -> str:

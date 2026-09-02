@@ -61,11 +61,17 @@ class _Teacher:
         self.replies = list(replies)
         self.calls: list[list[dict]] = []
 
-    async def ask(self, messages):
+    async def ask(self, messages, *, on_text=None):
         self.calls.append(messages)
         reply = self.replies[min(len(self.calls) - 1, len(self.replies) - 1)]
         if isinstance(reply, Exception):
             raise reply
+        if on_text is not None:
+            # Stream it the way providers do: cumulative text per chunk.
+            step = max(1, len(reply) // 3)
+            for end in range(step, len(reply), step):
+                on_text(reply[:end])
+            on_text(reply)
         return reply
 
 
@@ -811,3 +817,135 @@ async def test_injected_plan_and_followup_are_surfaced_to_the_agent():
 async def test_agents_without_the_hook_are_fine():
     mw, agent = _plan_mw(["THE PLAN"]), _agent_with_task()
     assert await mw._inject_plan(agent, tools=[]) is not None
+
+
+# ── live surfacing: the exchange streams while the teacher talks ────────
+
+
+class _LiveAgent(_Agent):
+    """Agent with the live hooks; records every UI update in order."""
+
+    def __init__(self):
+        super().__init__()
+        self.events: list[tuple] = []
+
+    def begin_injected_exchange(self, **kw):
+        self.events.append(("begin", kw))
+
+    def stream_injected_output(self, **kw):
+        self.events.append(("delta", kw))
+
+    def finish_injected_exchange(self, **kw):
+        self.events.append(("finish", kw))
+
+    def queue_injected_exchange(self, **kw):  # must NOT be used
+        self.events.append(("queue", kw))
+
+
+def _streamed(agent):
+    return "".join(kw["delta"] for kind, kw in agent.events if kind == "delta")
+
+
+async def test_plan_is_opened_before_the_teacher_answers_and_streamed():
+    mw = _plan_mw(["THE PLAN, in full"])
+    agent = _LiveAgent()
+    agent.state.context.append(UserMsg(name="user", content="do it"))
+
+    opened_before_reply = []
+    real_ask = mw.teacher.ask
+
+    async def ask(messages, *, on_text=None):
+        opened_before_reply.append(
+            agent.events[0][0] if agent.events else None,
+        )
+        return await real_ask(messages, on_text=on_text)
+
+    mw.teacher.ask = ask
+    await mw.on_model_call(agent, {"messages": []}, _next_handler)
+
+    assert opened_before_reply == [
+        "begin",
+    ], "call shown before the teacher ran"
+    kinds = [kind for kind, _ in agent.events]
+    assert kinds[0] == "begin" and kinds[-1] == "finish"
+    assert "queue" not in kinds, "live path used, not the completed-pair one"
+    assert kinds.count("delta") >= 2, "reply relayed in pieces"
+    assert _streamed(agent) == "THE PLAN, in full"
+    begin = agent.events[0][1]
+    assert begin["name"] == PLAN_TOOL_NAME
+    assert json.loads(begin["arguments"]) == _PLAN_CALL_ARGS
+    call_id = begin["call_id"]
+    assert all(kw["call_id"] == call_id for _, kw in agent.events)
+    assert (
+        agent.state.context[-1].content[0].id == call_id
+    ), "same id in context"
+    assert agent.events[-1][1]["state"] == ToolResultState.SUCCESS
+
+
+async def test_plan_failure_closes_the_exchange_as_an_error(monkeypatch):
+    import qwenpaw.modes.advisor.middleware as mw_module
+
+    monkeypatch.setattr(mw_module, "_PLAN_RETRY_DELAY_S", 0)
+    mw = _plan_mw([RuntimeError("teacher down")])
+    agent = _LiveAgent()
+    agent.state.context.append(UserMsg(name="user", content="do it"))
+    await mw.on_model_call(agent, {"messages": []}, _next_handler)
+    kinds = [kind for kind, _ in agent.events]
+    assert kinds[0] == "begin" and kinds[-1] == "finish"
+    assert agent.events[-1][1]["state"] == ToolResultState.ERROR
+    assert "teacher down" in _streamed(agent)
+    assert "retrying" in _streamed(agent), "retries are narrated"
+    assert mw.plan_injected is False
+
+
+async def test_followup_continue_is_shown_but_not_injected():
+    mw = make_mw(["CONTINUE\nLooks fine, carry on."])
+    agent = _LiveAgent()
+    for i in range(3):
+        add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
+        await mw._check_and_intervene(agent)
+    assert followups(agent) == [], "CONTINUE adds nothing to the context"
+    kinds = [kind for kind, _ in agent.events]
+    assert kinds[0] == "begin" and kinds[-1] == "finish"
+    assert agent.events[0][1]["name"] == FOLLOWUP_TOOL_NAME
+    assert _streamed(agent) == "CONTINUE\nLooks fine, carry on."
+
+
+async def test_followup_adjust_streams_and_injects_the_body():
+    mw = make_mw(["ADJUST\nSwitch."])
+    agent = _LiveAgent()
+    for i in range(3):
+        add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
+        await mw._check_and_intervene(agent)
+    assert [f.output for f in followups(agent)] == ["Switch."]
+    assert _streamed(agent) == "ADJUST\nSwitch."
+    call_id = agent.events[0][1]["call_id"]
+    assert agent.state.context[-1].content[0].id == call_id
+
+
+async def test_teacher_without_streaming_support_still_works():
+    """A teacher whose ``ask`` takes no ``on_text`` (older plugin, test
+    double) gets a plain call: the exchange is opened live and completed
+    with the whole reply at the end."""
+
+    class _PlainTeacher:
+        label = "plain"
+
+        async def ask(self, messages):
+            return "PLAN"
+
+    mw = _plan_mw(["ignored"])
+    mw._teacher = _PlainTeacher()
+    agent = _LiveAgent()
+    agent.state.context.append(UserMsg(name="user", content="do it"))
+    # ``_call_teacher`` passes ``on_text`` only when it is not None; make
+    # the live path hand over None for this teacher.
+    real = mw._call_teacher
+
+    async def call(message, stateful=False, on_text=None):
+        return await real(message, stateful=stateful, on_text=None)
+
+    mw._call_teacher = call
+    await mw.on_model_call(agent, {"messages": []}, _next_handler)
+    assert _streamed(agent) == "PLAN"
+    assert agent.events[-1][0] == "finish"
