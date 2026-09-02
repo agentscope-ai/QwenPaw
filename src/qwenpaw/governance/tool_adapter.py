@@ -204,11 +204,11 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
 def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
 
-    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
-    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
-    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
-    provisioning and user approval are independent concerns: skipping "ask the
-    user" must not skip "run it in a sandbox".
+    ``approval_level=OFF`` skips approval for clean calls, which normally also
+    skips the ``SANDBOX_FALLBACK`` branch that compiles a ``sandbox_config``
+    (see :func:`_policy_tool_check_permissions`). Sandbox provisioning and
+    user approval are independent concerns: skipping "ask the user" must not
+    skip "run it in a sandbox".
 
     Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
     the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
@@ -303,18 +303,24 @@ async def _policy_tool_check_permissions(
         effective_level = ToolExecutionLevel.STRICT
 
     if effective_level is not None and effective_level.is_disabled():
-        # OFF means "never ask the user" — it does NOT mean "skip the
-        # sandbox". Sandbox isolation is an execution mechanism, not an
-        # approval gate. Fail-closed tools (the REPL) return DENIED without
-        # a sandbox_config, which the guard layer then misreads as a sandbox
-        # violation and escalates to a recurring approval prompt OFF can
-        # never resolve. So we still compile+attach the sandbox here; only
-        # the "ask the user" step is skipped.
-        _prepare_off_mode_sandbox(self, governor)
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="governance: approval_level=off, all tools allowed.",
-        )
+        # OFF suppresses approval for ordinary calls, but mandatory
+        # sensitive-path rules still need policy evaluation.  Evaluate and
+        # audit first so builtin/file-guard ASK and DENY decisions cannot be
+        # bypassed by the mode short-circuit.
+        if governor is None or not hasattr(governor, "policy"):
+            # Preserve the existing development/test pass-through fallback
+            # when no policy object is available to evaluate.
+            _prepare_off_mode_sandbox(self, governor)
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message=(
+                    "governance: approval_level=off, "
+                    "governor unavailable."
+                ),
+            )
+        # Keep the remainder of this function's unified decision flow. The
+        # policy engine skips optional deep scans in OFF while retaining
+        # builtin and sensitive-path protections.
 
     # Sync effective approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
@@ -369,9 +375,18 @@ async def _policy_tool_check_permissions(
     self._qp_sandbox_mode = False
 
     if decision.action is GovernanceAction.ALLOW:
+        if effective_level is not None and effective_level.is_disabled():
+            # Clean OFF-mode calls remain approval-free, while fail-closed
+            # tools still receive their sandbox configuration.
+            _prepare_off_mode_sandbox(self, governor)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message="governance: tool allowed.",
+            message=(
+                "governance: approval_level=off, clean tool allowed."
+                if effective_level is not None
+                and effective_level.is_disabled()
+                else "governance: tool allowed."
+            ),
         )
     elif decision.action is GovernanceAction.DENY:
         return PermissionDecision(
@@ -379,6 +394,17 @@ async def _policy_tool_check_permissions(
             message=f"governance: '{tc_spec.tool_name}' is denied by policy",
         )
     elif decision.action is GovernanceAction.SANDBOX_FALLBACK:
+        if effective_level is not None and effective_level.is_disabled():
+            # OFF preserves the historical fail-open behavior of shell
+            # tools.  Only fail-closed tools are sandboxed by the helper in
+            # the ALLOW branch above.
+            self._qp_sandbox_mode = False
+            if hasattr(self, "_qp_sandbox_config"):
+                del self._qp_sandbox_config
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: approval_level=off, clean tool allowed.",
+            )
         # Bash tool with no rule match → allow execution in sandbox
         self._qp_sandbox_mode = True
         self._qp_sandbox_config = decision.sandbox_config
@@ -387,6 +413,24 @@ async def _policy_tool_check_permissions(
             message="governance: sandbox fallback.",
         )
     elif decision.action is GovernanceAction.ASK:
+        if effective_level is not None and effective_level.is_disabled():
+            # OFF never opens an approval window. Mandatory protection ASK
+            # decisions are converted to a direct denial.
+            if decision.source == "sensitive_paths":
+                return PermissionDecision(
+                    behavior=PermissionBehavior.DENY,
+                    message=(
+                        "governance: "
+                        f"'{getattr(tc_spec, 'tool_name', self.name)}' "
+                        "access denied "
+                        "by mandatory protection"
+                    ),
+                )
+            _prepare_off_mode_sandbox(self, governor)
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: approval_level=off, clean tool allowed.",
+            )
         # Requires user confirmation
         self._qp_policy_decision = decision
 
