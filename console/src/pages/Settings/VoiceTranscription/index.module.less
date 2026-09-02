@@ -27,7 +27,7 @@
   margin-bottom: 16px;
 
   &:hover {
-    border: 1px solid #ff7f16;
+    border: 1px solid var(--app-accent);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
   }
 }
@@ -39,7 +39,7 @@
 }
 
 .cardDescription {
-  color: #888;
+  color: var(--app-text-tertiary);
   font-size: 13px;
   margin-bottom: 12px;
 }
@@ -48,11 +48,12 @@
 .optionLabel {
   font-weight: 500;
   margin-right: 8px;
+  color: var(--app-text);
 }
 
 .optionDescription {
   font-size: 13px;
-  color: #888;
+  color: var(--app-text-tertiary);
 }
 
 /* ─── Footer ─────────────────────────────────────────────────────────────── */
@@ -61,8 +62,8 @@
   justify-content: flex-end;
   align-items: center;
   padding: 16px 24px;
-  border-top: 1px solid #eae9e7;
-  background: #fff;
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-surface);
   flex-shrink: 0;
 }
 
@@ -92,21 +93,5 @@
 
   .footerButtons {
     padding: 12px 16px;
-  }
-}
-
-/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .cardDescription {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .optionLabel {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .footerButtons {
-    background: #1f1f1f;
-    border-top-color: rgba(255, 255, 255, 0.08);
   }
 }

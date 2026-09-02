@@ -7,6 +7,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--app-bg);
 }
 
 .pageBody {
@@ -125,7 +126,7 @@
 
   &:hover:not(:disabled) {
     color: var(--app-text);
-    border-color: var(--app-border-strong);
+    border-color: var(--app-border-hover);
   }
 
   &:focus-visible {
@@ -227,7 +228,7 @@
 
   &:hover {
     border-color: var(--app-border-strong);
-    box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
+    box-shadow: var(--app-shadow-sm);
     transform: translateY(-2px);
   }
 
@@ -504,52 +505,31 @@
   }
 }
 
+/* Dark-only exceptions: the active filter reads as accent-tinted and the tab
+ * labels are dimmed only in dark mode. Both differ from the light design on
+ * purpose, so they cannot be folded into the base rules. */
 :global(.dark-mode) {
-  .page {
-    background: #141414;
-  }
-
-  .marketFilter {
-    border-color: rgba(255, 255, 255, 0.16);
-    background: #1f1f1f;
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover:not(:disabled):not(.marketFilterActive) {
-      border-color: rgba(255, 255, 255, 0.3);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
   .marketFilterActive {
-    border-color: rgba(255, 127, 22, 0.5);
-    background: rgba(255, 127, 22, 0.18);
-    color: #ffad66;
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+    color: var(--app-accent-hover);
   }
 
   .viewTabs {
-    :global(.ant-tabs-nav::before),
-    :global(.qwenpaw-tabs-nav::before) {
-      border-bottom-color: rgba(255, 255, 255, 0.12);
-    }
-
     :global(.ant-tabs-tab),
     :global(.qwenpaw-tabs-tab) {
-      color: rgba(255, 255, 255, 0.55);
+      color: var(--app-text-secondary);
     }
 
     :global(.ant-tabs-tab-active .ant-tabs-tab-btn),
     :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-      color: rgba(255, 255, 255, 0.88);
+      color: var(--app-text);
     }
 
     :global(.ant-tabs-ink-bar),
     :global(.qwenpaw-tabs-ink-bar) {
-      background: #ff7f16;
+      background: var(--app-accent);
     }
-  }
-
-  .appCard:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
 }
 

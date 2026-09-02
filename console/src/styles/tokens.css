@@ -28,6 +28,8 @@
   --app-surface: #ffffff;
   --app-surface-subtle: #faf9f7;
   --app-surface-raised: #ffffff;
+  /* Inset strips such as table headers, which sit lower than the card. */
+  --app-surface-sunken: #f9f8f4;
 
   /* Fills (hover / selected / inline chips) */
   --app-fill-strong: rgba(0, 0, 0, 0.09);
@@ -38,6 +40,7 @@
   /* Borders */
   --app-border: #eae8e7;
   --app-border-strong: #d8d4cf;
+  --app-border-hover: #d8d4cf;
   --app-border-subtle: #f0eeeb;
 
   /* Text */
@@ -51,8 +54,12 @@
   --app-accent: #ff7f16;
   --app-accent-hover: #ff9d4d;
   --app-accent-active: #d96806;
+  /* Accent used as text: darkened in light mode so small labels stay legible
+   * on an accent-soft background. */
+  --app-accent-text: #bd5100;
+  --app-accent-faint: rgba(255, 127, 22, 0.04);
   --app-accent-soft: rgba(255, 127, 22, 0.1);
-  --app-accent-border: rgba(255, 127, 22, 0.28);
+  --app-accent-border: rgba(255, 127, 22, 0.42);
   --app-accent-ring: rgba(255, 127, 22, 0.2);
 
   /* Selected row / active item. Still antd blue: kept as-is so the token
@@ -91,6 +98,7 @@ html.dark-mode {
   --app-surface: #1f1f1f;
   --app-surface-subtle: #1a1a1a;
   --app-surface-raised: #262626;
+  --app-surface-sunken: #262626;
 
   /* Fills */
   --app-fill-strong: rgba(255, 255, 255, 0.16);
@@ -101,6 +109,7 @@ html.dark-mode {
   /* Borders */
   --app-border: rgba(255, 255, 255, 0.12);
   --app-border-strong: rgba(255, 255, 255, 0.15);
+  --app-border-hover: rgba(255, 255, 255, 0.3);
   --app-border-subtle: rgba(255, 255, 255, 0.08);
 
   /* Text */
@@ -110,8 +119,10 @@ html.dark-mode {
   --app-text-quaternary: rgba(255, 255, 255, 0.35);
 
   /* Accent softs need more opacity to read on dark surfaces */
+  --app-accent-text: #ff9a47;
+  --app-accent-faint: rgba(255, 127, 22, 0.08);
   --app-accent-soft: rgba(255, 127, 22, 0.16);
-  --app-accent-border: rgba(255, 127, 22, 0.35);
+  --app-accent-border: rgba(255, 127, 22, 0.5);
 
   /* Selection */
   --app-selected-bg: rgba(22, 119, 255, 0.12);
