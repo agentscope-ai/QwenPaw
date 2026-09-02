@@ -44,6 +44,8 @@
 
 智能体的开关关着时，`/advisor on` 和 `/advisor <任务>` 只会回复去哪里开启，不会启动该模式。
 
+对话级的开关和 Goal、自定义循环模式一样保存在内存里：QwenPaw 重启后，对话会回到默认循环（顾问对之前计划的记忆也会清空），需要重新选择顾问。智能体级的开关以及顾问模板里的其它设置都保存在 `agent.json` 中，重启后仍然有效。
+
 **API**：`GET /api/advisor-mode` 读取状态（各开关、实际生效的模型及其来源）；`POST /api/advisor-mode` 传 `{"enabled": true}`、`{"plan_enabled": false}`、`{"followup_enabled": false}`、`{"on_demand_enabled": false}`、`{"max_consults": 5}`、`{"advisor_model": {"provider_id": "…", "model": "…"}}`、`{"worker_model": null}` 或 `{"advisor_thinking": "off"}` 中的任意字段更新；未传的字段保持不变，`null` 表示清除该模型覆盖。
 
 设置按智能体保存在 `agent.json` 中：
