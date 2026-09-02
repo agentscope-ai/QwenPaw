@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import { useAgentStore } from "@/stores/agentStore";
 import { useAdvisorModeStore } from "@/stores/advisorModeStore";
 import { advisorModeApi } from "@/api/modules/advisorMode";
-import { providerApi } from "@/api/modules/provider";
 import { AdvisorModeTab } from "./AdvisorModeTab";
 
 // Same as AgentLoopCard.render.test: the design package re-exports antd.
@@ -14,9 +13,6 @@ vi.mock("@agentscope-ai/design", async () =>
 );
 vi.mock("@/api/modules/advisorMode", () => ({
   advisorModeApi: { get: vi.fn(), update: vi.fn() },
-}));
-vi.mock("@/api/modules/provider", () => ({
-  providerApi: { listProviders: vi.fn() },
 }));
 
 const STATE = {
@@ -44,23 +40,6 @@ const STATE = {
   subagent_model: { provider_id: "dash", model: "qwen-plus" },
 };
 
-const PROVIDERS = [
-  {
-    id: "dash",
-    name: "DashScope",
-    api_key: "sk-x",
-    base_url: "https://x",
-    require_api_key: true,
-    is_custom: false,
-    is_local: false,
-    models: [
-      { id: "qwen3-max", name: "Qwen3 Max" },
-      { id: "qwen-plus", name: "Qwen Plus" },
-    ],
-    extra_models: [],
-  },
-];
-
 beforeEach(() => {
   vi.clearAllMocks();
   useAgentStore.setState({ selectedAgent: "a1", agents: [] });
@@ -74,11 +53,6 @@ beforeEach(() => {
     ...patch,
     intervention: { ...STATE.intervention, ...patch.intervention },
   }));
-  vi.mocked(providerApi.listProviders).mockResolvedValue(
-    PROVIDERS as unknown as Awaited<
-      ReturnType<typeof providerApi.listProviders>
-    >,
-  );
 });
 
 describe("AdvisorModeTab", () => {
@@ -152,48 +126,6 @@ describe("AdvisorModeTab", () => {
         useAdvisorModeStore.getState().advisorModeByAgent["a1"]
           ?.followup_enabled,
       ).toBe(true),
-    );
-  });
-
-  it("offers the default slot plus every model, and saves an override", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<AdvisorModeTab />);
-    await screen.findByText("agentConfig.advisorModeModelsTitle");
-    await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const advisor = await screen.findByTestId("advisor-advisor-model");
-    // The default entry stands for the main model.
-    expect(
-      within(advisor).getByText("agentConfig.advisorModeMainModel"),
-    ).toBeInTheDocument();
-    await user.click(within(advisor).getByRole("combobox"));
-    await user.click(await screen.findByText("DashScope / Qwen Plus"));
-    await waitFor(() =>
-      expect(advisorModeApi.update).toHaveBeenCalledWith({
-        advisor_model: { provider_id: "dash", model: "qwen-plus" },
-      }),
-    );
-  });
-
-  it("picking the default slot clears the override with null", async () => {
-    const user = userEvent.setup();
-    vi.mocked(advisorModeApi.get).mockResolvedValue({
-      ...STATE,
-      worker_model_override: { provider_id: "dash", model: "qwen-plus" },
-      worker_source: "override",
-    });
-    renderWithProviders(<AdvisorModeTab />);
-    await screen.findByText("agentConfig.advisorModeModelsTitle");
-    await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const worker = await screen.findByTestId("advisor-worker-model");
-    await user.click(within(worker).getByRole("combobox"));
-    const entries = await screen.findAllByText(
-      "agentConfig.advisorModeSubagentModel",
-    );
-    await user.click(entries[entries.length - 1]); // the dropdown option
-    await waitFor(() =>
-      expect(advisorModeApi.update).toHaveBeenCalledWith({
-        worker_model: null,
-      }),
     );
   });
 });

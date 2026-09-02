@@ -21,7 +21,7 @@
 
 未配置 Sub-agent 模型时，Worker 仍然使用主模型运行；顾问模式照样会规划和介入，只是不省 token。
 
-两个角色都可以在两处单独指定模型：顾问循环模板（智能体 → 运行配置 → Agent Loop Settings → 顾问）里的 **顾问模型与 Worker 模型** 卡片，以及聊天标题栏模型选择器底部的 **顾问模式** 区块，后者会显示当前生效的模型并提供同样的两个下拉。选择随智能体持久保存（`agent.json` 里的 `advisor_mode.advisor_model` / `advisor_mode.worker_model`），不会改动主模型和 Sub-agent 槽位；重新选回默认项即可恢复。`/advisor status` 会报告实际生效的模型。
+在 Console 中设置：主模型在聊天标题栏的模型选择器里选，Sub-agent 模型在智能体的模型路由设置里选（该面板的位置见 #7493 / #7501）。顾问循环模板里的 **顾问模型与 Worker 模型** 卡片会显示当前实际生效的模型。`agent.json` 也接受 `advisor_mode.advisor_model` / `advisor_mode.worker_model`，用来把任一角色固定到其它模型（`POST /api/advisor-mode` 接受同样的字段）；Console 里的选择器会在路由面板问题解决后补上。`/advisor status` 会报告实际生效的模型。
 
 顾问自身的调用有单独的思考档位 `advisor_mode.advisor_thinking`（同一卡片上的 **顾问思考**）：`inherit`（默认）跟随智能体和模型的默认设置，`off` / `low` / `medium` / `high` 只对顾问生效。对 qwen3-max 这类思考模型，计划首 token 之前的时间大部分花在思考上，觉得计划慢时先调低这一项。
 
