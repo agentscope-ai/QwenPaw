@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,59 @@ def _register_workspace_skill_entry(
     }
 
 
+def _resolve_install_source(source_dir: Path) -> Path:
+    source_dir = Path(source_dir).expanduser()
+    if source_dir.is_symlink() or not source_dir.is_dir():
+        raise SkillsError(message="Skill source must be a directory")
+    if not (source_dir / "SKILL.md").is_file():
+        raise SkillsError(message="Skill source must contain SKILL.md")
+    try:
+        for path in source_dir.rglob("*"):
+            if path.is_symlink():
+                raise SkillsError(
+                    message=f"Symlink not allowed in skill: {path}",
+                )
+            if not path.is_file() and not path.is_dir():
+                raise SkillsError(
+                    message=f"Unsupported file type in skill: {path}",
+                )
+    except OSError as exc:
+        raise SkillsError(message="Could not inspect Skill source") from exc
+    return source_dir.resolve(strict=True)
+
+
+def _resolve_install_root(workspace_dir: Path, source_root: Path) -> Path:
+    skill_root = get_workspace_skills_dir(workspace_dir)
+    if skill_root.is_symlink():
+        raise SkillsError(message="Workspace Skill root cannot be a symlink")
+    skill_root.mkdir(parents=True, exist_ok=True)
+    resolved_skill_root = skill_root.resolve(strict=True)
+    if resolved_skill_root.parent != workspace_dir.resolve(strict=True):
+        raise SkillsError(message="Workspace Skill root is outside workspace")
+    if resolved_skill_root.is_relative_to(source_root):
+        raise SkillsError(
+            message="Skill source cannot contain the install destination",
+        )
+    return resolved_skill_root
+
+
+def _install_conflict_result(
+    skill_root: Path,
+    skill_name: str,
+) -> dict[str, Any]:
+    existing = {
+        path.name
+        for path in skill_root.iterdir()
+        if not is_ignored_skill_entry(path.name)
+    }
+    return {
+        "success": False,
+        "reason": "conflict",
+        "name": skill_name,
+        "suggested_name": suggest_conflict_name(skill_name, existing),
+    }
+
+
 class SkillService:
     """Workspace-scoped skill lifecycle service.
 
@@ -159,10 +213,8 @@ class SkillService:
         skill_name = normalize_skill_dir_name(name)
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         skill_root.mkdir(parents=True, exist_ok=True)
-        skill_dir = safe_skill_dir(skill_root, skill_name)
-        if skill_dir.exists():
+        if safe_skill_dir(skill_root, skill_name).exists():
             return None
-
         with staged_skill_dir(skill_name) as staged_dir:
             write_skill_to_dir(
                 staged_dir,
@@ -171,61 +223,132 @@ class SkillService:
                 scripts,
                 extra_files,
             )
-            scan_skill_dir_or_raise(staged_dir, skill_name)
-            copy_skill_dir(staged_dir, skill_dir)
-
-        def _update(payload: dict[str, Any]) -> None:
-            _register_workspace_skill_entry(
-                payload,
-                skill_name,
-                skill_dir,
+            result = self.install_skill_directory(
+                staged_dir,
+                target_name=skill_name,
                 enable=enable,
                 installed_from=installed_from,
                 config=config,
                 source=source,
             )
+        return str(result["name"]) if result["success"] else None
 
+    def install_skill_directory(
+        self,
+        source_dir: Path,
+        *,
+        target_name: str | None = None,
+        enable: bool = False,
+        source: str | None = None,
+        installed_from: str = "",
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Install one complete Skill directory without overwriting files."""
+        source_root = _resolve_install_source(source_dir)
+        resolved_skill_root = _resolve_install_root(
+            self.workspace_dir,
+            source_root,
+        )
+        staged_dir: Path | None = None
         try:
-            mutate_json(
-                get_workspace_skill_manifest_path(self.workspace_dir),
-                default_workspace_manifest(),
-                _update,
-            )
-        except Exception as exc:
-            try:
-                if skill_dir.exists():
-                    shutil.rmtree(skill_dir, ignore_errors=True)
-            except Exception as cleanup_exc:
-                raise SkillsError(
-                    message=(
-                        "Workspace skill files were created, but manifest "
-                        "update failed and rollback cleanup also failed."
-                    ),
-                    details={
-                        "skill_name": skill_name,
-                        "workspace_dir": str(self.workspace_dir),
-                        "manifest_path": str(
-                            get_workspace_skill_manifest_path(
-                                self.workspace_dir,
-                            ),
-                        ),
-                        "cleanup_error": str(cleanup_exc),
-                    },
-                ) from exc
-            raise SkillsError(
-                message=(
-                    "Workspace skill files were created, but manifest "
-                    "update failed. File changes were rolled back."
+            stage = Path(
+                tempfile.mkdtemp(
+                    prefix="~skill-install-",
+                    dir=resolved_skill_root,
                 ),
-                details={
-                    "skill_name": skill_name,
-                    "workspace_dir": str(self.workspace_dir),
-                    "manifest_path": str(
-                        get_workspace_skill_manifest_path(self.workspace_dir),
-                    ),
-                },
+            )
+            staged_dir = stage
+            copy_skill_dir(source_root, stage)
+            skill_md = stage / "SKILL.md"
+            if skill_md.is_symlink() or not skill_md.is_file():
+                raise SkillsError(message="Skill source must contain SKILL.md")
+            content = read_text_file_with_encoding_fallback(skill_md)
+            declared_name, _ = validate_skill_content(content)
+            skill_name = normalize_skill_dir_name(target_name or declared_name)
+            scan_skill_dir_or_raise(stage, skill_name)
+
+            raw_target = resolved_skill_root / skill_name
+            if raw_target.exists() or raw_target.is_symlink():
+                return _install_conflict_result(
+                    resolved_skill_root,
+                    skill_name,
+                )
+            target_dir = safe_skill_dir(resolved_skill_root, skill_name)
+            manifest_path = get_workspace_skill_manifest_path(
+                self.workspace_dir,
+            )
+            installed = False
+            conflict = False
+            installed_enabled = bool(enable)
+
+            def _install(payload: dict[str, Any]) -> bool:
+                nonlocal conflict, installed, installed_enabled
+                if target_dir.exists() or target_dir.is_symlink():
+                    conflict = True
+                    return False
+                payload.setdefault("skills", {})
+                stage.rename(target_dir)
+                installed = True
+                _register_workspace_skill_entry(
+                    payload,
+                    skill_name,
+                    target_dir,
+                    enable=enable,
+                    source=source,
+                    installed_from=installed_from,
+                    config=config,
+                )
+                installed_enabled = bool(
+                    payload["skills"][skill_name]["enabled"],
+                )
+                return True
+
+            try:
+                mutate_json(
+                    manifest_path,
+                    default_workspace_manifest(),
+                    _install,
+                )
+            except Exception as exc:
+                if installed:
+                    try:
+                        shutil.rmtree(target_dir)
+                    except OSError as cleanup_exc:
+                        raise SkillsError(
+                            message="Manifest update and rollback failed",
+                            details={
+                                "skill_name": skill_name,
+                                "path": str(target_dir),
+                                "cleanup_error": str(cleanup_exc),
+                            },
+                        ) from exc
+                raise SkillsError(
+                    message="Skill manifest update failed; files rolled back",
+                    details={"skill_name": skill_name},
+                ) from exc
+
+            if conflict:
+                return _install_conflict_result(
+                    resolved_skill_root,
+                    skill_name,
+                )
+            return {
+                "success": True,
+                "name": skill_name,
+                "enabled": installed_enabled,
+                "path": str(target_dir),
+            }
+        except UnicodeError as exc:
+            raise SkillsError(
+                message="Could not read source SKILL.md",
             ) from exc
-        return skill_name
+        except OSError as exc:
+            raise SkillsError(
+                message="Could not install Skill directory",
+            ) from exc
+        finally:
+            if staged_dir is not None and staged_dir.exists():
+                shutil.rmtree(staged_dir, ignore_errors=True)
 
     def save_skill(
         self,

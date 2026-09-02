@@ -3896,8 +3896,6 @@
     "checkAgentTaskDefault": "タスクを確認",
     "delegateExternalAgent": "{{runner}} に委任",
     "delegateExternalAgentDefault": "外部エージェントに委任",
-    "materializeSkill": "{{skill}} を作成",
-    "materializeSkillDefault": "スキルを作成",
     "shell": "{{command}} を実行",
     "shellDefault": "コマンドを実行",
     "formatTable": {

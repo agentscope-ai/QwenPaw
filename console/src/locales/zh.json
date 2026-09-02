@@ -4286,8 +4286,6 @@
     "checkAgentTaskDefault": "检查 任务",
     "delegateExternalAgent": "委派 {{runner}}",
     "delegateExternalAgentDefault": "委派 外部代理",
-    "materializeSkill": "创建 {{skill}}",
-    "materializeSkillDefault": "创建 技能",
     "shell": "执行 {{command}}",
     "shellDefault": "执行 命令",
     "runToolBatch": "运行工作流 {{workflow}}",
