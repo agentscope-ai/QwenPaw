@@ -72,6 +72,7 @@
 
   /* Informational callouts (also antd blue) */
   --app-info-bg: rgba(22, 119, 255, 0.06);
+  --app-info-bg-hover: rgba(22, 119, 255, 0.12);
   --app-info-border: rgba(22, 119, 255, 0.16);
   --app-info-text: #1668dc;
 
@@ -146,6 +147,7 @@ html.dark-mode {
 
   /* Informational callouts */
   --app-info-bg: rgba(22, 119, 255, 0.12);
+  --app-info-bg-hover: rgba(22, 119, 255, 0.2);
   --app-info-border: rgba(22, 119, 255, 0.28);
   --app-info-text: #6cb2ff;
 
