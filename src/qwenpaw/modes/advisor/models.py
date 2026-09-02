@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""The advisor ("teacher") model, resolved through QwenPaw's model factory.
+"""The advisor model, resolved through QwenPaw's model factory.
 
 By default Advisor Mode reuses the agent's existing model settings: the
-*main* model (``active_model``) is the advisor ("teacher" in this
-module) and the cheaper ``subagent_model`` — when configured — runs the
-agent itself (the "worker", or "student"). Both can be overridden per agent
+*main* model (``active_model``) is the advisor and the cheaper
+``subagent_model`` — when configured — runs the agent itself (the worker).
+Both can be overridden per agent
 in ``advisor_mode.advisor_model`` / ``advisor_mode.worker_model`` (the
 Advisor tab of Agent Loop Settings).
-Going through :func:`create_model_and_formatter_async` means the teacher
+Going through :func:`create_model_and_formatter_async` means the advisor
 inherits provider routing, retries, rate limiting and token accounting
 exactly like every other model call in QwenPaw.
 """
@@ -52,8 +52,8 @@ def _override(agent_config: Any, field: str) -> Any:
     return slot if slot_to_dict(slot) is not None else None
 
 
-def resolve_teacher_slot(agent_config: Any) -> tuple[Any, str]:
-    """The model slot that answers as the teacher, and where it comes from.
+def resolve_advisor_slot(agent_config: Any) -> tuple[Any, str]:
+    """The model slot that answers as the advisor, and where it comes from.
 
     Precedence: the ``advisor_mode.advisor_model`` override
     (``"override"``), the agent's own ``active_model`` (``"main_model"``),
@@ -72,17 +72,17 @@ def resolve_teacher_slot(agent_config: Any) -> tuple[Any, str]:
 
         return ProviderManager.get_instance().get_active_model(), "global"
     except Exception:
-        logger.debug("AdvisorTeacher: no global active model", exc_info=True)
+        logger.debug("AdvisorClient: no global active model", exc_info=True)
         return None, "global"
 
 
-def resolve_student_slot(agent_config: Any) -> tuple[Any, str]:
+def resolve_worker_slot(agent_config: Any) -> tuple[Any, str]:
     """The model slot the agent itself runs on, and where it comes from.
 
     Precedence: the ``advisor_mode.worker_model`` override
     (``"override"``), then ``subagent_model`` (``"subagent_model"``).
     ``(None, "main_model")`` means the agent keeps its main model, i.e. it
-    shares the teacher's model and Advisor Mode saves no tokens.
+    shares the advisor's model and Advisor Mode saves no tokens.
     """
     override = _override(agent_config, "worker_model")
     if override is not None:
@@ -107,24 +107,24 @@ def _with_thinking(agent_config: Any, thinking: str) -> Any:
             return copy(update={"thinking_level": thinking})
         except Exception:
             logger.debug(
-                "AdvisorTeacher: could not copy config",
+                "AdvisorClient: could not copy config",
                 exc_info=True,
             )
     return agent_config
 
 
-def effective_teacher_slot(agent_config: Any) -> Any:
-    """The model slot that answers as the teacher."""
-    return resolve_teacher_slot(agent_config)[0]
+def effective_advisor_slot(agent_config: Any) -> Any:
+    """The model slot that answers as the advisor."""
+    return resolve_advisor_slot(agent_config)[0]
 
 
-def effective_student_slot(agent_config: Any) -> Any:
+def effective_worker_slot(agent_config: Any) -> Any:
     """The model slot the agent runs on, or ``None`` for the main model."""
-    return resolve_student_slot(agent_config)[0]
+    return resolve_worker_slot(agent_config)[0]
 
 
-class AdvisorTeacher:
-    """Lazily build the teacher model and answer chat-style requests."""
+class AdvisorClient:
+    """Lazily build the advisor model and answer chat-style requests."""
 
     def __init__(
         self,
@@ -145,7 +145,7 @@ class AdvisorTeacher:
 
     @property
     def label(self) -> str:
-        """Which model answers as the teacher."""
+        """Which model answers as the advisor."""
         return slot_label(self._model_slot)
 
     async def _get_model(self) -> Any:
@@ -166,7 +166,7 @@ class AdvisorTeacher:
             )
             self._model = model
             logger.info(
-                "AdvisorTeacher: using %s for agent %s",
+                "AdvisorClient: using %s for agent %s",
                 self.label,
                 self._agent_id,
             )
@@ -194,11 +194,11 @@ class AdvisorTeacher:
 
 
 __all__ = [
-    "AdvisorTeacher",
-    "effective_student_slot",
-    "effective_teacher_slot",
-    "resolve_student_slot",
-    "resolve_teacher_slot",
+    "AdvisorClient",
+    "effective_worker_slot",
+    "effective_advisor_slot",
+    "resolve_worker_slot",
+    "resolve_advisor_slot",
     "slot_label",
     "slot_to_dict",
 ]

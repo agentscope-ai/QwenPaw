@@ -214,7 +214,7 @@ export function AdvisorModeTab() {
     ? t("agentConfig.advisorModeSubagentModel", {
         model: slotLabel(state.subagent_model),
       })
-    : t("agentConfig.advisorModeNoStudent");
+    : t("agentConfig.advisorModeNoWorker");
   const modelSummary = t("agentConfig.advisorModeModels", {
     advisor: slotLabel(state.advisor_model) || "-",
     worker:

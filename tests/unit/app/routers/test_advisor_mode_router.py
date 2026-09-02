@@ -172,7 +172,7 @@ def test_post_rejects_wrong_types(client):
     assert resp.status_code == 422
 
 
-def test_get_reports_global_active_model_as_teacher_fallback(
+def test_get_reports_global_active_model_as_advisor_fallback(
     client,
     stored_config,
     monkeypatch,

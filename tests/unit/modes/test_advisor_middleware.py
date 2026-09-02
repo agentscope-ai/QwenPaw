@@ -52,11 +52,11 @@ class _Agent:
         self.state = _State()
 
 
-class _Teacher:
-    """Scripted teacher: replies come from ``replies`` in order (an
+class _Advisor:
+    """Scripted advisor: replies come from ``replies`` in order (an
     Exception entry raises); the last entry repeats."""
 
-    label = "stub:teacher"
+    label = "stub:advisor"
 
     def __init__(self, replies):
         self.replies = list(replies)
@@ -82,16 +82,16 @@ def make_mw(
     log_dir=None,
     **trigger_kw,
 ):
-    """A middleware past the opening plan, with a scripted teacher."""
+    """A middleware past the opening plan, with a scripted advisor."""
     cfg = TriggerConfig(
         consecutive_failures=3,
         window_size=10,
         window_failures=4,
         **trigger_kw,
     )
-    teacher = _Teacher(replies)
+    advisor = _Advisor(replies)
     mw = AdvisorMiddleware(
-        teacher=teacher,
+        advisor=advisor,
         trigger=InterventionTrigger(config=cfg),
         log_dir=log_dir,
         session_id="sess-1",
@@ -99,7 +99,7 @@ def make_mw(
     )
     mw._plan_injected = True
     mw._baselined = True  # already past the first model call of the turn
-    mw.teacher = teacher
+    mw.advisor = advisor
     return mw
 
 
@@ -159,7 +159,7 @@ async def test_no_intervention_while_healthy():
     for i in range(6):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, OK)
         await mw._check_and_intervene(agent)
-    assert not mw.teacher.calls
+    assert not mw.advisor.calls
     assert followups(agent) == []
 
 
@@ -168,7 +168,7 @@ async def test_intervenes_after_consecutive_failures():
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
     assert len(followups(agent)) == 1
 
 
@@ -200,7 +200,7 @@ async def test_on_model_call_adds_followup_to_the_request_in_flight():
 
 async def test_followup_can_be_disabled():
     mw = AdvisorMiddleware(
-        teacher=_Teacher(["ADJUST\nx"]),
+        advisor=_Advisor(["ADJUST\nx"]),
         followup_enabled=False,
     )
     mw._plan_injected = True
@@ -218,19 +218,19 @@ async def test_followup_can_be_disabled():
 async def test_followups_are_stateful_and_accumulate():
     mw = make_mw(max_interventions=5)
     agent = _Agent()
-    mw._teacher_history = [
+    mw._advisor_history = [
         {"role": "user", "content": "plan req"},
         {"role": "assistant", "content": "the plan"},
     ]
     for i in range(9):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    calls = mw.teacher.calls
+    calls = mw.advisor.calls
     assert len(calls) >= 2
     # Every follow-up starts with the system prompt, then the earlier
     # exchange: the first one sees the plan, later ones see more.
     assert all(c[0]["role"] == "system" for c in calls)
-    assert calls[0][1:3] == mw._teacher_history[:2]
+    assert calls[0][1:3] == mw._advisor_history[:2]
     lens = [len(c) for c in calls]
     assert all(b > a for a, b in zip(lens, lens[1:]))
 
@@ -246,7 +246,7 @@ async def test_each_result_is_counted_once():
     add_result(agent, "execute_shell_command", {"command": "b"}, FAIL)
     for _ in range(5):  # repeated scans of the same two failures
         await mw._check_and_intervene(agent)
-    assert not mw.teacher.calls, "two failures must not reach the threshold"
+    assert not mw.advisor.calls, "two failures must not reach the threshold"
 
 
 async def test_injected_advice_is_not_read_back_as_a_failure():
@@ -254,10 +254,10 @@ async def test_injected_advice_is_not_read_back_as_a_failure():
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    before = len(mw.teacher.calls)
+    before = len(mw.advisor.calls)
     for _ in range(4):  # advice now sits in context; rescanning ignores it
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == before
+    assert len(mw.advisor.calls) == before
 
 
 async def test_pydantic_tool_results_are_scanned_too():
@@ -289,7 +289,7 @@ async def test_pydantic_tool_results_are_scanned_too():
             )(),
         )
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
 
 
 async def test_cap_is_enforced():
@@ -298,7 +298,7 @@ async def test_cap_is_enforced():
     for i in range(20):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 2
+    assert len(mw.advisor.calls) == 2
 
 
 # ── request contents ────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ async def test_request_carries_recent_calls_and_severity():
             "'content' is a required property",
         )
         await mw._check_and_intervene(agent)
-    msg = mw.teacher.calls[0][-1]["content"]
+    msg = mw.advisor.calls[0][-1]["content"]
     assert "write_file" in msg
     assert "backtest.py" in msg
     assert "'content' is a required property" in msg
@@ -325,13 +325,13 @@ async def test_request_carries_recent_calls_and_severity():
     assert "CONTINUE" in msg and "ADJUST" in msg
 
 
-async def test_teacher_failure_does_not_break_the_agent():
-    mw, agent = make_mw([RuntimeError("teacher unreachable")]), _Agent()
+async def test_advisor_failure_does_not_break_the_agent():
+    mw, agent = make_mw([RuntimeError("advisor unreachable")]), _Agent()
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)  # must not raise
     assert followups(agent) == []
-    assert "teacher unreachable" in mw.interventions[-1]["error"]
+    assert "advisor unreachable" in mw.interventions[-1]["error"]
 
 
 # ── verdict handling ────────────────────────────────────────────────────
@@ -360,9 +360,9 @@ async def test_continue_is_not_injected_but_is_remembered():
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 1, "the teacher is still consulted"
+    assert len(mw.advisor.calls) == 1, "the advisor is still consulted"
     assert followups(agent) == [], "CONTINUE must not reach the agent"
-    assert mw._teacher_history[-1]["content"] == "CONTINUE"
+    assert mw._advisor_history[-1]["content"] == "CONTINUE"
     assert mw.interventions[-1]["action"] == "CONTINUE"
 
 
@@ -387,8 +387,8 @@ async def test_malformed_reply_retries_the_same_request():
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 3, "retries until the verdict parses"
-    sent = {c[-1]["content"] for c in mw.teacher.calls}
+    assert len(mw.advisor.calls) == 3, "retries until the verdict parses"
+    sent = {c[-1]["content"] for c in mw.advisor.calls}
     assert len(sent) == 1, "the SAME request is re-asked"
     assert followups(agent)[0].output == "Do it this way."
 
@@ -398,7 +398,7 @@ async def test_persistently_malformed_reply_is_treated_as_adjust():
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 3, "gives up after the retry budget"
+    assert len(mw.advisor.calls) == 3, "gives up after the retry budget"
     assert (
         followups(agent)[0].output == "I think you should try something else."
     )
@@ -428,7 +428,7 @@ async def test_transcript_is_written(tmp_path):
         (tmp_path / "adv" / "sess-1.json").read_text(encoding="utf-8"),
     )
     assert transcript["agent_id"] == "agent-1"
-    assert transcript["teacher"] == "stub:teacher"
+    assert transcript["advisor"] == "stub:advisor"
     assert transcript["interventions"][0]["action"] == "ADJUST"
     assert transcript["interventions"][0]["index"] == 1
 
@@ -441,9 +441,9 @@ async def _no_sleep(_seconds):
 
 
 def _plan_mw(replies, **kw):
-    teacher = _Teacher(replies)
-    mw = AdvisorMiddleware(teacher=teacher, **kw)
-    mw.teacher = teacher
+    advisor = _Advisor(replies)
+    mw = AdvisorMiddleware(advisor=advisor, **kw)
+    mw.advisor = advisor
     return mw
 
 
@@ -457,7 +457,7 @@ async def test_plan_injected_on_first_success():
     mw, agent = _plan_mw(["THE PLAN"]), _agent_with_task()
     injected = await mw._inject_plan(agent, tools=[])
     assert injected is not None
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
     assert agent.state.context[-1] is injected
     call, result = injected.content
     assert call.name == PLAN_TOOL_NAME and result.name == PLAN_TOOL_NAME
@@ -474,7 +474,7 @@ async def test_plan_request_carries_task_tools_and_system_prompt():
         {"function": {"name": "get_token_usage", "description": "x"}},
     ]
     await mw._inject_plan(agent, tools=tools)
-    messages = mw.teacher.calls[0]
+    messages = mw.advisor.calls[0]
     assert messages[0]["role"] == "system"
     assert "planning advisor" in messages[0]["content"]
     request = messages[-1]["content"]
@@ -489,7 +489,7 @@ async def test_plan_uses_workspace_listing_as_env_context(tmp_path):
     mw = _plan_mw(["THE PLAN"], env_context_root=tmp_path)
     agent = _agent_with_task()
     await mw._inject_plan(agent, tools=[])
-    request = mw.teacher.calls[0][-1]["content"]
+    request = mw.advisor.calls[0][-1]["content"]
     assert "Workspace file listing" in request
     assert "data/" in request and "data/input.csv 8" in request
 
@@ -518,7 +518,7 @@ async def test_plan_call_is_retried(monkeypatch):
     agent = _agent_with_task()
     injected = await mw._inject_plan(agent, tools=[])
     assert injected is not None
-    assert len(mw.teacher.calls) == 2, "retries after a rejected call"
+    assert len(mw.advisor.calls) == 2, "retries after a rejected call"
     assert agent.state.context[-1].content[1].output == "THE PLAN"
 
 
@@ -529,7 +529,7 @@ async def test_exhausted_retries_report_failure(monkeypatch):
     )
     mw, agent = _plan_mw([RuntimeError("400 filtered")]), _agent_with_task()
     assert await mw._inject_plan(agent, tools=[]) is None
-    assert len(mw.teacher.calls) == 3
+    assert len(mw.advisor.calls) == 3
     assert len(agent.state.context) == 1, "nothing injected"
     assert "400 filtered" in mw.plan_error, "the failure is recorded"
 
@@ -559,13 +559,13 @@ async def test_on_model_call_injects_plan_into_the_request_in_flight():
     assert out["messages"][:-1] == messages
     # A second call must not ask for another plan.
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
 
 
 async def test_no_instruction_means_no_plan():
     mw, agent = _plan_mw(["THE PLAN"]), _Agent()  # empty context
     assert await mw._inject_plan(agent, tools=[]) is None
-    assert not mw.teacher.calls
+    assert not mw.advisor.calls
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -659,12 +659,12 @@ async def test_results_already_in_context_are_not_counted():
     mw._baselined = False  # fresh middleware for a new request
     _fail_n(agent, 5)  # earlier turn's failures already in context
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert not mw.teacher.calls, "old failures were baselined, not counted"
+    assert not mw.advisor.calls, "old failures were baselined, not counted"
     # Failures produced from now on count as usual.
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"n{i}"}, FAIL)
         await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
 
 
 def test_extract_instruction_uses_the_latest_user_message():
@@ -680,14 +680,14 @@ def test_extract_instruction_uses_the_latest_user_message():
     )
 
 
-async def test_shared_teacher_history_is_the_same_list():
+async def test_shared_advisor_history_is_the_same_list():
     shared = [{"role": "user", "content": "earlier plan request"}]
-    mw = _plan_mw(["THE PLAN"], teacher_history=shared)
+    mw = _plan_mw(["THE PLAN"], advisor_history=shared)
     await mw._inject_plan(_agent_with_task(), tools=[])
-    assert mw.teacher_history is shared
+    assert mw.advisor_history is shared
     assert len(shared) == 3, "the new exchange was appended to the list"
-    # The plan request replayed the earlier exchange to the teacher.
-    assert mw.teacher.calls[0][1]["content"] == "earlier plan request"
+    # The plan request replayed the earlier exchange to the advisor.
+    assert mw.advisor.calls[0][1]["content"] == "earlier plan request"
 
 
 # ── on-demand consultation ──────────────────────────────────────────────
@@ -704,14 +704,14 @@ async def test_consult_answers_with_recent_calls_and_counts_budget():
     reply = await mw.consult("Should I keep building or switch to X?")
     assert reply == "Try the other route."
     assert mw.consults_used == 1 and mw.consults_left == 1
-    request = mw.teacher.calls[-1][-1]["content"]
+    request = mw.advisor.calls[-1][-1]["content"]
     assert "Consultation 1 of 2" in request
     assert "Should I keep building or switch to X?" in request
     assert "make" in request and "FAILED" in request, "recent calls attached"
     assert mw.consults[-1]["question"].startswith("Should I")
     assert mw.consults[-1]["reply"] == "Try the other route."
     # The exchange is remembered for later follow-ups.
-    assert mw._teacher_history[-1]["content"] == "Try the other route."
+    assert mw._advisor_history[-1]["content"] == "Try the other route."
 
 
 async def test_consult_budget_exhaustion_returns_notice_without_a_call():
@@ -719,7 +719,7 @@ async def test_consult_budget_exhaustion_returns_notice_without_a_call():
     mw._max_consults = 1
     assert await mw.consult("q1") == "ok"
     assert await mw.consult("q2") == CONSULT_BUDGET_EXHAUSTED
-    assert len(mw.teacher.calls) == 1
+    assert len(mw.advisor.calls) == 1
     assert mw.consults_left == 0
 
 
@@ -733,10 +733,10 @@ async def test_consult_resets_the_failure_counters():
     await mw.consult("what now?")
     add_result(agent, "execute_shell_command", {"command": "c2"}, FAIL)
     await mw._check_and_intervene(agent)
-    assert len(mw.teacher.calls) == 1, "only the consult reached the teacher"
+    assert len(mw.advisor.calls) == 1, "only the consult reached the advisor"
 
 
-async def test_consult_empty_question_and_teacher_failure():
+async def test_consult_empty_question_and_advisor_failure():
     mw = make_mw([RuntimeError("down")])
     assert "concrete question" in await mw.consult("   ")
     reply = await mw.consult("help")
@@ -762,13 +762,13 @@ async def test_plan_can_be_switched_off_while_interventions_stay():
     mw = _plan_mw(["ADJUST\nTry another route."], plan_enabled=False)
     agent = _agent_with_task("build it")
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert not mw.teacher.calls, "no plan request"
+    assert not mw.advisor.calls, "no plan request"
     assert mw.plan_injected is False and mw.plan_enabled is False
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert len(mw.teacher.calls) == 1, "auto intervention still works"
-    request = mw.teacher.calls[0][-1]["content"]
+    assert len(mw.advisor.calls) == 1, "auto intervention still works"
+    request = mw.advisor.calls[0][-1]["content"]
     assert (
         "# Task" in request and "build it" in request
     ), "the follow-up carries the task itself, since no plan exists"
@@ -779,7 +779,7 @@ async def test_consult_request_carries_the_task():
     agent = _agent_with_task("write report.md")
     await mw.on_model_call(agent, {"messages": []}, _next_handler)  # plan
     await mw.consult("which format?")
-    request = mw.teacher.calls[-1][-1]["content"]
+    request = mw.advisor.calls[-1][-1]["content"]
     assert "write report.md" in request and "which format?" in request
 
 
@@ -788,7 +788,7 @@ async def test_agents_without_the_hook_are_fine():
     assert await mw._inject_plan(agent, tools=[]) is not None
 
 
-# ── live surfacing: the exchange streams while the teacher talks ────────
+# ── live surfacing: the exchange streams while the advisor talks ────────
 
 
 class _LiveAgent(_Agent):
@@ -812,13 +812,13 @@ def _streamed(agent):
     return "".join(kw["delta"] for kind, kw in agent.events if kind == "delta")
 
 
-async def test_plan_is_opened_before_the_teacher_answers_and_streamed():
+async def test_plan_is_opened_before_the_advisor_answers_and_streamed():
     mw = _plan_mw(["THE PLAN, in full"])
     agent = _LiveAgent()
     agent.state.context.append(UserMsg(name="user", content="do it"))
 
     opened_before_reply = []
-    real_ask = mw.teacher.ask
+    real_ask = mw.advisor.ask
 
     async def ask(messages, *, on_text=None):
         opened_before_reply.append(
@@ -826,12 +826,12 @@ async def test_plan_is_opened_before_the_teacher_answers_and_streamed():
         )
         return await real_ask(messages, on_text=on_text)
 
-    mw.teacher.ask = ask
+    mw.advisor.ask = ask
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
 
     assert opened_before_reply == [
         "begin",
-    ], "call shown before the teacher ran"
+    ], "call shown before the advisor ran"
     kinds = [kind for kind, _ in agent.events]
     assert kinds[0] == "begin" and kinds[-1] == "finish"
     assert kinds.count("delta") >= 2, "reply relayed in pieces"
@@ -851,14 +851,14 @@ async def test_plan_failure_closes_the_exchange_as_an_error(monkeypatch):
     import qwenpaw.modes.advisor.middleware as mw_module
 
     monkeypatch.setattr(mw_module, "_PLAN_RETRY_DELAY_S", 0)
-    mw = _plan_mw([RuntimeError("teacher down")])
+    mw = _plan_mw([RuntimeError("advisor down")])
     agent = _LiveAgent()
     agent.state.context.append(UserMsg(name="user", content="do it"))
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
     kinds = [kind for kind, _ in agent.events]
     assert kinds[0] == "begin" and kinds[-1] == "finish"
     assert agent.events[-1][1]["state"] == ToolResultState.ERROR
-    assert "teacher down" in _streamed(agent)
+    assert "advisor down" in _streamed(agent)
     assert "retrying" in _streamed(agent), "retries are narrated"
     assert mw.plan_injected is False
 
@@ -888,29 +888,29 @@ async def test_followup_adjust_streams_and_injects_the_body():
     assert agent.state.context[-1].content[0].id == call_id
 
 
-async def test_teacher_without_streaming_support_still_works():
-    """A teacher whose ``ask`` takes no ``on_text`` (older plugin, test
+async def test_advisor_without_streaming_support_still_works():
+    """A advisor whose ``ask`` takes no ``on_text`` (older plugin, test
     double) gets a plain call: the exchange is opened live and completed
     with the whole reply at the end."""
 
-    class _PlainTeacher:
+    class _PlainAdvisor:
         label = "plain"
 
         async def ask(self, messages):
             return "PLAN"
 
     mw = _plan_mw(["ignored"])
-    mw._teacher = _PlainTeacher()
+    mw._advisor = _PlainAdvisor()
     agent = _LiveAgent()
     agent.state.context.append(UserMsg(name="user", content="do it"))
-    # ``_call_teacher`` passes ``on_text`` only when it is not None; make
-    # the live path hand over None for this teacher.
-    real = mw._call_teacher
+    # ``_call_advisor`` passes ``on_text`` only when it is not None; make
+    # the live path hand over None for this advisor.
+    real = mw._call_advisor
 
     async def call(message, stateful=False, on_text=None):
         return await real(message, stateful=stateful, on_text=None)
 
-    mw._call_teacher = call
+    mw._call_advisor = call
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
     assert _streamed(agent) == "PLAN"
     assert agent.events[-1][0] == "finish"
@@ -931,7 +931,7 @@ async def test_consult_stream_yields_the_reply_in_pieces():
     assert len(pieces) >= 2, "streamed, not delivered in one go"
     assert "".join(pieces) == "Take the other route, it is shorter."
     assert mw.consults_left == DEFAULT_MAX_CONSULTS - 1, "counted once"
-    assert "which route?" in mw.teacher.calls[-1][-1]["content"]
+    assert "which route?" in mw.advisor.calls[-1][-1]["content"]
 
 
 async def test_consult_stream_delivers_a_notice_as_one_piece():
@@ -939,23 +939,23 @@ async def test_consult_stream_delivers_a_notice_as_one_piece():
     mw._max_consults = 0
     pieces = await _pieces(mw, "anything?")
     assert pieces == [CONSULT_BUDGET_EXHAUSTED]
-    assert not mw.teacher.calls, "no teacher call past the cap"
+    assert not mw.advisor.calls, "no advisor call past the cap"
 
 
-async def test_consult_stream_without_teacher_streaming():
-    class _PlainTeacher:
+async def test_consult_stream_without_advisor_streaming():
+    class _PlainAdvisor:
         label = "plain"
 
         async def ask(self, messages, *, on_text=None):
             return "  whole answer  "  # never calls on_text
 
     mw = make_mw(["x"])
-    mw._teacher = _PlainTeacher()
+    mw._advisor = _PlainAdvisor()
     pieces = await _pieces(mw, "q?")
     assert "".join(pieces) == "whole answer", "stripped like consult()"
 
 
-async def test_consult_stream_reports_a_failed_teacher_call():
+async def test_consult_stream_reports_a_failed_advisor_call():
     mw = make_mw([RuntimeError("down")])
     pieces = await _pieces(mw, "q?")
     assert len(pieces) == 1 and "could not be reached" in pieces[0]
@@ -968,8 +968,8 @@ async def test_rejected_followup_samples_do_not_enter_the_history():
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
     assert [f.output for f in followups(agent)] == ["Switch."]
-    assert len(mw.teacher.calls) == 2, "re-asked once"
+    assert len(mw.advisor.calls) == 2, "re-asked once"
     assistant_turns = [
-        m for m in mw.teacher_history if m["role"] == "assistant"
+        m for m in mw.advisor_history if m["role"] == "assistant"
     ]
     assert [m["content"] for m in assistant_turns] == ["ADJUST\nSwitch."]

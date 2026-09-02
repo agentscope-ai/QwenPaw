@@ -21,10 +21,10 @@ from .middleware import (
     default_log_dir,
 )
 from .trigger import InterventionTrigger, TriggerConfig
-from .teacher import (
-    AdvisorTeacher,
-    effective_student_slot,
-    effective_teacher_slot,
+from .models import (
+    AdvisorClient,
+    effective_worker_slot,
+    effective_advisor_slot,
     slot_label,
     slot_to_dict,
 )
@@ -116,7 +116,7 @@ class AdvisorSessionState:
 
     ``override`` is the per-conversation switch (set by ``/advisor``): it
     takes precedence over the agent's default from ``agent.json``.
-    ``teacher_history`` is the teacher conversation, and ``middleware`` the
+    ``advisor_history`` is the advisor conversation, and ``middleware`` the
     instance serving the request in flight (looked up by the
     ``consult_advisor`` tool). Whether the opening plan has been written
     is read off that instance too, so the plan happens once per
@@ -124,7 +124,7 @@ class AdvisorSessionState:
     """
 
     override: bool | None = None
-    teacher_history: list[dict[str, str]] = field(default_factory=list)
+    advisor_history: list[dict[str, str]] = field(default_factory=list)
     middleware: AdvisorMiddleware | None = None
 
     @property
@@ -146,9 +146,9 @@ class AdvisorMode(AgentMode):
     * ``is_active``: the conversation's ``/advisor`` switch, which only
       counts while the mode is available.
     * ``hooks`` swaps the agent onto ``subagent_model`` before the build
-      (:class:`StudentModelHook`).
+      (:class:`WorkerModelHook`).
     * ``middlewares`` contributes :class:`AdvisorMiddleware`, which asks
-      the teacher (the main model) for a plan and re-consults it mid-run.
+      the advisor (the main model) for a plan and re-consults it mid-run.
     * ``tools`` registers the real ``consult_advisor`` tool so the agent
       can ask on its own.
     * ``commands`` registers ``/advisor``, which also makes the mode
@@ -195,7 +195,7 @@ class AdvisorMode(AgentMode):
         return state.middleware if state is not None else None
 
     async def on_conversation_reset(self, ctx: HookContext) -> None:
-        """Forget the conversation's switch and teacher history on
+        """Forget the conversation's switch and advisor history on
         ``/new`` and ``/clear``."""
         key = self._session_key(ctx)
         if key and self._sessions.pop(key, None) is not None:
@@ -223,9 +223,9 @@ class AdvisorMode(AgentMode):
         return bool(state is not None and state.override)
 
     def hooks(self) -> list[HookBase]:
-        from .hooks import StudentModelHook
+        from .hooks import WorkerModelHook
 
-        return [StudentModelHook(owner_mode=self)]
+        return [WorkerModelHook(owner_mode=self)]
 
     def tools(self) -> list["ToolDescriptor"]:
         from ...runtime.tool_registry import ToolDescriptor
@@ -279,7 +279,7 @@ class AdvisorMode(AgentMode):
     ) -> AdvisorMiddleware:
         """Build the request-scoped :class:`AdvisorMiddleware`.
 
-        The teacher conversation, the on-demand budget and the fact that
+        The advisor conversation, the on-demand budget and the fact that
         the opening plan has been written carry over from the earlier
         requests of the same chat session.
         """
@@ -293,10 +293,10 @@ class AdvisorMode(AgentMode):
             else AdvisorSessionState()
         )
         am = getattr(cfg, "advisor_mode", None)
-        teacher = AdvisorTeacher(
+        advisor = AdvisorClient(
             agent_id=agent_id,
             agent_config=cfg,
-            model_slot=effective_teacher_slot(cfg),
+            model_slot=effective_advisor_slot(cfg),
             thinking=str(getattr(am, "advisor_thinking", "inherit")),
         )
         env_root = getattr(cfg, "project_dir", None) or getattr(
@@ -305,7 +305,7 @@ class AdvisorMode(AgentMode):
             None,
         )
         middleware = AdvisorMiddleware(
-            teacher=teacher,
+            advisor=advisor,
             trigger=InterventionTrigger(config=_trigger_config(am)),
             plan_enabled=bool(getattr(am, "plan_enabled", True)),
             followup_enabled=bool(getattr(am, "followup_enabled", True)),
@@ -315,7 +315,7 @@ class AdvisorMode(AgentMode):
             ),
             consults_used=state.consults_used,
             plan_injected=state.plan_injected,
-            teacher_history=state.teacher_history,
+            advisor_history=state.advisor_history,
             env_context_root=env_root,
             log_dir=default_log_dir(agent_id),
             session_id=session_id,
@@ -396,12 +396,12 @@ class AdvisorMode(AgentMode):
             if am is not None
             else DEFAULT_MAX_CONSULTS,
         )
-        teacher = slot_label(effective_teacher_slot(cfg))
-        student_slot = slot_to_dict(effective_student_slot(cfg))
-        student = (
-            slot_label(student_slot)
-            if student_slot is not None
-            else f"{teacher} (no sub-agent model configured)"
+        advisor = slot_label(effective_advisor_slot(cfg))
+        worker_slot = slot_to_dict(effective_worker_slot(cfg))
+        worker = (
+            slot_label(worker_slot)
+            if worker_slot is not None
+            else f"{advisor} (no sub-agent model configured)"
         )
         if not available:
             scope = "switched off for this agent in Configuration"
@@ -414,8 +414,8 @@ class AdvisorMode(AgentMode):
             )
         return (
             f"Advisor Mode: {'on' if active else 'off'} ({scope})\n"
-            f"- advisor model: {teacher}\n"
-            f"- worker model: {student}\n"
+            f"- advisor model: {advisor}\n"
+            f"- worker model: {worker}\n"
             f"- opening plan: {'on' if plan else 'off'}\n"
             f"- mid-run auto intervention: {'on' if followup else 'off'}\n"
             f"- consult_advisor tool: {'on' if on_demand else 'off'} "

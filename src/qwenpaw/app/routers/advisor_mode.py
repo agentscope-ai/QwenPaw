@@ -15,9 +15,9 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
-from ...modes.advisor.teacher import (
-    resolve_student_slot,
-    resolve_teacher_slot,
+from ...modes.advisor.models import (
+    resolve_worker_slot,
+    resolve_advisor_slot,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,8 @@ def _state(config) -> dict:
     stored overrides so the Console can show "default" vs "custom".
     """
     am = config.advisor_mode
-    teacher, teacher_source = resolve_teacher_slot(config)
-    student, student_source = resolve_student_slot(config)
+    advisor, advisor_source = resolve_advisor_slot(config)
+    worker, worker_source = resolve_worker_slot(config)
     return {
         "enabled": bool(am.enabled),
         "plan_enabled": bool(am.plan_enabled),
@@ -92,16 +92,16 @@ def _state(config) -> dict:
         "max_consults": int(am.max_consults),
         "intervention": am.intervention.model_dump(),
         "agent_id": config.id,
-        "advisor_model": _slot(teacher),
-        "advisor_source": teacher_source,
-        "worker_model": _slot(student),
-        "worker_source": student_source,
+        "advisor_model": _slot(advisor),
+        "advisor_source": advisor_source,
+        "worker_model": _slot(worker),
+        "worker_source": worker_source,
         "advisor_model_override": _slot(am.advisor_model),
         "worker_model_override": _slot(am.worker_model),
         "advisor_thinking": am.advisor_thinking,
         # The defaults the overrides fall back to, for the Console labels.
         "main_model": _slot(
-            resolve_teacher_slot(_without_overrides(config))[0],
+            resolve_advisor_slot(_without_overrides(config))[0],
         ),
         "subagent_model": _slot(config.subagent_model),
     }

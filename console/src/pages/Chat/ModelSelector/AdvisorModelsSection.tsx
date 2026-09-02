@@ -87,7 +87,7 @@ export function AdvisorModelsSection({
     ? t("agentConfig.advisorModeSubagentModel", {
         model: slotLabel(state.subagent_model),
       })
-    : t("agentConfig.advisorModeNoStudent");
+    : t("agentConfig.advisorModeNoWorker");
 
   return (
     <div className={styles.advisorSection} data-testid="advisor-models">
