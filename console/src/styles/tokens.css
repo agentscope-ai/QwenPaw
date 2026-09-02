@@ -69,14 +69,23 @@
   --app-selected-bg-hover: #d6eaff;
   --app-selected-border: #1677ff;
 
-  /* Status */
+  /* Informational callouts (also antd blue) */
+  --app-info-bg: rgba(22, 119, 255, 0.06);
+  --app-info-border: rgba(22, 119, 255, 0.16);
+  --app-info-text: #1668dc;
+
+  /* Status. The *-text variants are the readable-on-*-bg pairing: the base
+   * colour is tuned for icons and fills, not for small labels. */
   --app-success: #52c41a;
+  --app-success-text: #389e0d;
   --app-success-bg: #f6ffed;
   --app-success-border: #b7eb8f;
   --app-warning: #faad14;
+  --app-warning-text: #d48806;
   --app-warning-bg: #fffbe6;
   --app-warning-border: #ffe58f;
   --app-error: #ff4d4f;
+  --app-error-text: #cf1322;
   --app-error-bg: #fff2f0;
   --app-error-border: #ffccc7;
   --app-error-ring: rgba(255, 77, 79, 0.2);
@@ -129,14 +138,22 @@ html.dark-mode {
   --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
   --app-selected-border: #4096ff;
 
+  /* Informational callouts */
+  --app-info-bg: rgba(22, 119, 255, 0.12);
+  --app-info-border: rgba(22, 119, 255, 0.28);
+  --app-info-text: #6cb2ff;
+
   /* Status */
   --app-success: #49aa19;
+  --app-success-text: #6abe39;
   --app-success-bg: #162312;
   --app-success-border: #274916;
   --app-warning: #d89614;
+  --app-warning-text: #e8b339;
   --app-warning-bg: #2b2111;
   --app-warning-border: #594214;
   --app-error: #dc4446;
+  --app-error-text: #ff7875;
   --app-error-bg: #2c1618;
   --app-error-border: #58191c;
   --app-error-ring: rgba(220, 68, 70, 0.25);
@@ -239,13 +256,13 @@ html.dark-mode {
 
   /* Status */
   --ant-color-success: var(--app-success);
-  --ant-color-success-text: var(--app-success);
-  --qwenpaw-color-success-text: var(--app-success);
+  --ant-color-success-text: var(--app-success-text);
+  --qwenpaw-color-success-text: var(--app-success-text);
   --ant-color-success-bg: var(--app-success-bg);
   --qwenpaw-color-success-bg: var(--app-success-bg);
   --ant-color-warning: var(--app-warning);
-  --ant-color-warning-text: var(--app-warning);
-  --qwenpaw-color-warning-text: var(--app-warning);
+  --ant-color-warning-text: var(--app-warning-text);
+  --qwenpaw-color-warning-text: var(--app-warning-text);
   --ant-color-warning-bg: var(--app-warning-bg);
   --qwenpaw-color-warning-bg: var(--app-warning-bg);
   --ant-color-warning-border: var(--app-warning-border);
