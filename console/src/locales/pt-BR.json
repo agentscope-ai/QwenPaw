@@ -1825,8 +1825,7 @@
     "oauthConnected": "Conectado ao {{provider}} com sucesso",
     "oauthFailed": "Autorização falhou, tente novamente",
     "oauthTimeout": "Autorização expirou, tente novamente",
-    "viewMore": "Ver mais ({{count}})",
-    "advisorSection": "Modo Conselheiro"
+    "viewMore": "Ver mais ({{count}})"
   },
   "tokenUsage": {
     "title": "Uso de Tokens",
@@ -2337,14 +2336,9 @@
     "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
     "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
     "advisorModeModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
-    "advisorModeNoWorker": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
     "advisorModeEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo do compositor e /advisor funciona; escolha por conversa (canais e prompts de cron usam /advisor on).",
     "advisorModeModelsTitle": "Modelos do conselheiro e do trabalhador",
-    "advisorModeModelsHelp": "Por padrão o conselheiro é o modelo principal do agente e o trabalhador (o próprio agente) roda no modelo de subagente. Escolha outros modelos aqui para sobrescrever qualquer um deles; a escolha é salva com o agente e também pode ser alterada no seletor de modelo do chat.",
-    "advisorModeAdvisorModel": "Modelo do conselheiro",
-    "advisorModeWorkerModel": "Modelo do trabalhador",
-    "advisorModeMainModel": "Modelo principal ({{model}})",
-    "advisorModeSubagentModel": "Modelo de subagente ({{model}})",
+    "advisorModeModelsHelp": "O conselheiro usa o modelo principal do agente; o trabalhador (o próprio agente) roda no modelo de subagente. Defina o modelo principal no seletor de modelo do chat e o modelo de subagente nas configurações de roteamento de modelo do agente. O agent.json pode fixar qualquer papel em outro modelo (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "igual ao conselheiro",
     "advisorModeThinking": "Raciocínio do conselheiro",
     "advisorModeThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Um raciocínio longo antes de um plano curto é a maior parte da espera pelo primeiro token; 'herdar' segue os padrões do agente e do modelo.",

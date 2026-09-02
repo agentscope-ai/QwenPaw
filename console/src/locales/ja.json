@@ -1664,8 +1664,7 @@
     "oauthConnected": "{{provider}} に正常に接続しました",
     "oauthFailed": "認証に失敗しました。もう一度お試しください",
     "oauthTimeout": "認証がタイムアウトしました。もう一度お試しください",
-    "viewMore": "もっと見る ({{count}})",
-    "advisorSection": "アドバイザーモード"
+    "viewMore": "もっと見る ({{count}})"
   },
   "models": {
     "discoveryOriginApi": "API 検出",
@@ -2099,14 +2098,9 @@
     "advisorModeFollowup": "実行中の自動介入: ハーネスがツール結果を監視し、失敗が続くとアドバイザーを呼び出す",
     "advisorModeOnDemand": "エージェントが consult_advisor ツールで自発的にアドバイザーに質問できるようにする",
     "advisorModeModels": "アドバイザー：{{advisor}} · ワーカー：{{worker}}",
-    "advisorModeNoWorker": "メインモデル（サブエージェントモデルを設定すると、より安価なモデルでエージェントを実行できます）",
     "advisorModeEnableHelp": "会話は引き続きデフォルトループで始まります。オンにするとコンポーザーのモードメニューに「アドバイザー」が現れ、/advisor が使えます。会話ごとに選んでください（チャネルや cron のプロンプトでは /advisor on）。",
     "advisorModeModelsTitle": "アドバイザーとワーカーのモデル",
-    "advisorModeModelsHelp": "デフォルトでは、アドバイザーはエージェントのメインモデル、ワーカー（エージェント自身）はサブエージェントモデルで動作します。ここで別のモデルを選ぶとそれぞれを上書きでき、選択はエージェントに保存され、チャットのモデルセレクターからも変更できます。",
-    "advisorModeAdvisorModel": "アドバイザーモデル",
-    "advisorModeWorkerModel": "ワーカーモデル",
-    "advisorModeMainModel": "メインモデル（{{model}}）",
-    "advisorModeSubagentModel": "サブエージェントモデル（{{model}}）",
+    "advisorModeModelsHelp": "アドバイザーはエージェントのメインモデルを、ワーカー（エージェント自身）はサブエージェントモデルを使います。メインモデルはチャットのモデルセレクターで、サブエージェントモデルはエージェントのモデルルーティング設定で設定します。agent.json でどちらの役割も別のモデルに固定できます（advisor_mode.advisor_model / worker_model）。",
     "advisorModeSameAsAdvisor": "アドバイザーと同じ",
     "advisorModeThinking": "アドバイザーの思考",
     "advisorModeThinkingTooltip": "アドバイザー自身の呼び出しの思考レベル。短い計画の前の長い思考が最初のトークンまでの待ち時間の大半です。「継承」はエージェントとモデルのデフォルトに従います。",

@@ -30,7 +30,6 @@ import { ProviderIcon } from "../../Settings/Models/components/ProviderIconCompo
 import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import { AgentModelSettings } from "./AgentModelSettings";
-import { AdvisorModelsSection } from "./AdvisorModelsSection";
 import { CandidateModelSection } from "./CandidateModelSection";
 import { modelSelectorApi } from "./modelSelectorApi";
 import {
@@ -1017,7 +1016,6 @@ export default function ModelSelector({
               })}
             </details>
           )}
-        <AdvisorModelsSection providers={eligibleProviders} />
         {showAdvancedModelControls && (
           <AgentModelSettings
             agentId={selectedAgent}

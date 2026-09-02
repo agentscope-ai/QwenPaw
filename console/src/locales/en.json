@@ -2119,8 +2119,7 @@
     "moveFallbackUp": "Move {{model}} up",
     "moveFallbackDown": "Move {{model}} down",
     "removeFallback": "Remove {{model}}",
-    "fallbackActive": "Actual processing model: {{provider}} / {{model}}",
-    "advisorSection": "Advisor Mode"
+    "fallbackActive": "Actual processing model: {{provider}} / {{model}}"
   },
   "tokenUsage": {
     "title": "Token Usage",
@@ -2669,14 +2668,9 @@
     "advisorModeFollowup": "Mid-run auto intervention: the harness watches tool results and calls the advisor when the agent keeps failing",
     "advisorModeOnDemand": "Let the agent proactively ask the advisor via the consult_advisor tool",
     "advisorModeModels": "Advisor: {{advisor}} · Worker: {{worker}}",
-    "advisorModeNoWorker": "main model (set a sub-agent model to run the agent on a cheaper one)",
     "advisorModeEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the composer's mode menu and /advisor works; pick it per conversation (channels and cron prompts use /advisor on).",
     "advisorModeModelsTitle": "Advisor and worker models",
-    "advisorModeModelsHelp": "By default the advisor is the agent's main model and the worker (the agent itself) runs on the sub-agent model. Pick other models here to override either one; the choice is stored with the agent and also editable from the chat model selector.",
-    "advisorModeAdvisorModel": "Advisor model",
-    "advisorModeWorkerModel": "Worker model",
-    "advisorModeMainModel": "Main model ({{model}})",
-    "advisorModeSubagentModel": "Sub-agent model ({{model}})",
+    "advisorModeModelsHelp": "The advisor uses the agent's main model; the worker (the agent itself) runs on the sub-agent model. Set the main model in the chat model selector and the sub-agent model in the agent's model routing settings. agent.json can pin either role to another model (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "same as the advisor",
     "advisorModeThinking": "Advisor thinking",
     "advisorModeThinkingTooltip": "Thinking level for the advisor's own calls. A long think before a short plan is most of the wait before the first token; 'inherit' follows the agent and model defaults.",

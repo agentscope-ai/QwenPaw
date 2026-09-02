@@ -867,8 +867,7 @@
     "oauthConnected": "Berhasil terhubung ke {{provider}}",
     "oauthFailed": "Otorisasi gagal, silakan coba lagi",
     "oauthTimeout": "Otorisasi habis waktu, silakan coba lagi",
-    "viewMore": "Lihat lebih ({{count}})",
-    "advisorSection": "Mode Penasihat"
+    "viewMore": "Lihat lebih ({{count}})"
   },
   "agent": {
     "parent": "Pengaturan",
@@ -3007,14 +3006,9 @@
     "advisorModeFollowup": "Intervensi otomatis di tengah jalan: harness memantau hasil alat dan memanggil penasihat saat agen terus gagal",
     "advisorModeOnDemand": "Izinkan agen bertanya secara proaktif kepada penasihat melalui alat consult_advisor",
     "advisorModeModels": "Penasihat: {{advisor}} · Pekerja: {{worker}}",
-    "advisorModeNoWorker": "model utama (atur model sub-agen untuk menjalankan agen pada model yang lebih murah)",
     "advisorModeEnableHelp": "Percakapan tetap dimulai di loop default. Saat aktif, Penasihat muncul di menu mode kotak input dan /advisor berfungsi; pilih per percakapan (kanal dan prompt cron memakai /advisor on).",
     "advisorModeModelsTitle": "Model penasihat dan pekerja",
-    "advisorModeModelsHelp": "Secara default penasihat adalah model utama agen dan pekerja (agen itu sendiri) berjalan pada model sub-agen. Pilih model lain di sini untuk menimpa salah satunya; pilihan disimpan bersama agen dan juga dapat diubah dari pemilih model di obrolan.",
-    "advisorModeAdvisorModel": "Model penasihat",
-    "advisorModeWorkerModel": "Model pekerja",
-    "advisorModeMainModel": "Model utama ({{model}})",
-    "advisorModeSubagentModel": "Model sub-agen ({{model}})",
+    "advisorModeModelsHelp": "Penasihat memakai model utama agen; pekerja (agen itu sendiri) berjalan pada model sub-agen. Atur model utama di pemilih model obrolan dan model sub-agen di pengaturan perutean model agen. agent.json dapat mengunci salah satu peran ke model lain (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "sama dengan penasihat",
     "advisorModeThinking": "Pemikiran penasihat",
     "advisorModeThinkingTooltip": "Tingkat pemikiran untuk panggilan penasihat sendiri. Pemikiran panjang sebelum rencana singkat adalah sebagian besar waktu tunggu token pertama; 'warisi' mengikuti default agen dan model.",
