@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import { useAgentStore } from "@/stores/agentStore";
 import { useAdvisorModeStore } from "@/stores/advisorModeStore";
+import { useLoopStore } from "@/stores/loopStore";
 import { advisorModeApi } from "@/api/modules/advisorMode";
 import { AdvisorModelsSection } from "./AdvisorModelsSection";
 
@@ -47,8 +48,18 @@ const PROVIDERS = [
   },
 ] as unknown as Parameters<typeof AdvisorModelsSection>[0]["providers"];
 
+const ADVISOR_MODE = {
+  id: "plugin:advisor",
+  name: "Advisor",
+  slash_command: "advisor",
+  description: "",
+  source: "plugin" as const,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useLoopStore.getState().resetSessionMode();
+  useLoopStore.getState().setSessionMode(ADVISOR_MODE, "awaiting_user");
   useAgentStore.setState({ selectedAgent: "a1", agents: [] });
   useAdvisorModeStore.setState({
     advisorModeByAgent: {},
@@ -57,6 +68,21 @@ beforeEach(() => {
 });
 
 describe("AdvisorModelsSection", () => {
+  it("renders nothing in a default-mode conversation", () => {
+    useAdvisorModeStore.getState().setAdvisorMode("a1", STATE);
+    useLoopStore.getState().resetSessionMode();
+    const { unmount } = renderWithProviders(
+      <AdvisorModelsSection providers={PROVIDERS} />,
+    );
+    expect(screen.queryByTestId("advisor-models")).toBeNull();
+    unmount();
+    // A new chat with Advisor picked in the composer counts.
+    useLoopStore.getState().setAvailableModes([ADVISOR_MODE]);
+    useLoopStore.getState().setSelectedMode("plugin:advisor");
+    renderWithProviders(<AdvisorModelsSection providers={PROVIDERS} />);
+    expect(screen.getByTestId("advisor-models")).toBeInTheDocument();
+  });
+
   it("renders nothing until the agent's Advisor Mode state is known or when it is off", () => {
     const { unmount } = renderWithProviders(
       <AdvisorModelsSection providers={PROVIDERS} />,
