@@ -318,7 +318,7 @@
     "desktopApplication": "桌面应用",
     "languageHint": "更改当前设备上的界面语言。",
     "themeHint": "使用浅色、深色或跟随系统外观。",
-    "contentWidth": "内容宽度",
+    "contentWidth": "消息宽度",
     "contentWidthHint": "设置对话内容使用标准宽度或扩展到可用宽度。",
     "contentWidthStandard": "标准",
     "contentWidthWide": "加宽",

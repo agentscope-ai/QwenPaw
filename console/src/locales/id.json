@@ -329,7 +329,7 @@
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
     "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
-    "contentWidth": "Lebar konten",
+    "contentWidth": "Lebar pesan",
     "contentWidthHint": "Gunakan lebar standar atau perluas percakapan ke ruang yang tersedia.",
     "contentWidthStandard": "Standar",
     "contentWidthWide": "Lebar",

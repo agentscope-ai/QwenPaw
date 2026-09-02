@@ -2895,7 +2895,7 @@
     "desktopApplication": "Aplicativo desktop",
     "languageHint": "Altera o idioma da interface neste dispositivo.",
     "themeHint": "Use aparência clara, escura ou de acordo com o sistema.",
-    "contentWidth": "Largura do conteúdo",
+    "contentWidth": "Largura da mensagem",
     "contentWidthHint": "Use a largura padrão ou expanda as conversas para a largura disponível.",
     "contentWidthStandard": "Padrão",
     "contentWidthWide": "Ampla",

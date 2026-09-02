@@ -58,11 +58,10 @@ function UpdateCodeBlock({ code }: { code: string }) {
 }
 
 interface AppBrandProps {
-  collapsed?: boolean;
   action?: ReactNode;
 }
 
-export default function AppBrand({ collapsed = false, action }: AppBrandProps) {
+export default function AppBrand({ action }: AppBrandProps) {
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
   const desktop = useDesktopUpdate();
@@ -154,7 +153,6 @@ export default function AppBrand({ collapsed = false, action }: AppBrandProps) {
   const backgroundFailureTitle = desktop.error?.message
     ? `${t("sidebar.updateModal.backgroundFailed")}: ${desktop.error.message}`
     : t("sidebar.updateModal.backgroundFailed");
-
   const handleOpenUpdateModal = () => {
     setUpdateMarkdown("");
     setUpdateModalOpen(true);
@@ -215,7 +213,7 @@ export default function AppBrand({ collapsed = false, action }: AppBrandProps) {
 
   const versionContent = (
     <span className={styles.appBrandVersionArea}>
-      {version && !collapsed && (
+      {version && (
         <Badge
           dot={hasUpdate && !isReady && !isBackgroundActive}
           color="rgba(255, 157, 77, 1)"
@@ -276,39 +274,18 @@ export default function AppBrand({ collapsed = false, action }: AppBrandProps) {
 
   return (
     <>
-      <div
-        className={`${styles.appBrand} ${
-          collapsed ? styles.appBrandCollapsed : ""
-        }`}
-      >
-        <Badge
-          dot={collapsed && hasUpdate && !isReady && !isBackgroundActive}
-          color="rgba(255, 157, 77, 1)"
-          offset={[-1, 3]}
-        >
-          <span
-            className={styles.appBrandLogo}
-            onClick={
-              collapsed && hasUpdate ? handleOpenUpdateModal : handleLogoClick
-            }
-          >
-            <Slot name="header.logo" kind="replace">
-              <img
-                src={
-                  collapsed
-                    ? "/qwenpaw.png"
-                    : isDark
-                    ? "/logo-dark.svg"
-                    : "/logo-light.svg"
-                }
-                alt="QwenPaw"
-                className={collapsed ? styles.sidebarBrandMark : styles.logoImg}
-              />
-            </Slot>
-          </span>
-        </Badge>
-        {!collapsed && <span className={styles.logoDivider} />}
-        {!collapsed && versionContent}
+      <div className={styles.appBrand}>
+        <span className={styles.appBrandLogo} onClick={handleLogoClick}>
+          <Slot name="header.logo" kind="replace">
+            <img
+              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+              alt="QwenPaw"
+              className={styles.logoImg}
+            />
+          </Slot>
+        </span>
+        <span className={styles.logoDivider} />
+        {versionContent}
         {action && <span className={styles.appBrandAction}>{action}</span>}
       </div>
 

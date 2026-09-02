@@ -10,13 +10,8 @@ import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import {
-  ChevronDown,
-  Ellipsis,
-  FolderPlus,
-  Search,
-  SquarePen,
-} from "lucide-react";
+import { ChevronDown, Ellipsis, FolderPlus, Search } from "lucide-react";
+import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
   getBackendId,
@@ -655,7 +650,7 @@ export default function SidebarSessionList({
                 aria-label={t("chat.newTask", "New task")}
                 onClick={handleNewChat}
               >
-                <SquarePen size={15} />
+                <SparkNewChatLine size={18} />
               </button>
             </Tooltip>
             <Dropdown

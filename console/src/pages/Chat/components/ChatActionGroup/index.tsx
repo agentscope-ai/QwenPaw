@@ -1,7 +1,7 @@
 import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
-import { SparkNewChatFill } from "@agentscope-ai/icons";
+import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
 import { Files } from "lucide-react";
@@ -23,10 +23,12 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 
   return (
     <Flex className={styles.actionGroup} gap={8} align="center">
-      <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
+      <Tooltip title={t("chat.newTask")} mouseEnterDelay={0.5}>
         <IconButton
           bordered={false}
-          icon={<SparkNewChatFill />}
+          aria-label={t("chat.newTask")}
+          icon={<SparkNewChatLine size={18} />}
+          style={{ width: 32, height: 32, padding: 0 }}
           onClick={createNewSession}
         />
       </Tooltip>

@@ -68,29 +68,26 @@ describe("SettingsCenter", () => {
     expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
   });
 
-  it("persists the standard and wide content widths", async () => {
+  it("persists the standard and wide message widths", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],
     });
 
-    const contentLayout = screen
-      .getByRole("heading", { name: "Content layout" })
+    const appearance = screen
+      .getByRole("heading", { name: "Appearance & language" })
       .closest("section");
     const messageDisplay = screen
       .getByRole("heading", { name: "Message display" })
       .closest("section");
-    expect(contentLayout).not.toBeNull();
+    expect(appearance).not.toBeNull();
     expect(messageDisplay).not.toBeNull();
-    expect(within(contentLayout!).getByText("Content width")).toBeVisible();
-    expect(within(contentLayout!).getByText("Desktop Mode")).toBeVisible();
+    expect(within(messageDisplay!).getByText("Message width")).toBeVisible();
+    expect(within(appearance!).getByText("Desktop Mode")).toBeVisible();
     expect(
-      within(contentLayout!).getByRole("button", { name: "Open" }),
+      within(appearance!).getByRole("button", { name: "Open" }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "Desktop app" }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(messageDisplay!).queryByText("Content width"),
     ).not.toBeInTheDocument();
     const thinkingDisplay = within(messageDisplay!).getByText("Show thinking");
     const toolDisplay = within(messageDisplay!).getByText("Tool display");
@@ -98,8 +95,8 @@ describe("SettingsCenter", () => {
       thinkingDisplay.compareDocumentPosition(toolDisplay) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    const standard = within(contentLayout!).getByText("Standard");
-    const wide = within(contentLayout!).getByText("Wide");
+    const standard = within(messageDisplay!).getByText("Standard");
+    const wide = within(messageDisplay!).getByText("Wide");
 
     await userEvent.click(wide);
 
@@ -199,7 +196,7 @@ describe("SettingsCenter", () => {
     ).toBeVisible();
     expect(screen.getByText("Language")).toBeVisible();
     expect(screen.getByText("Theme")).toBeVisible();
-    expect(screen.getByText("Content width")).toBeVisible();
+    expect(screen.getByText("Message width")).toBeVisible();
     expect(screen.queryByText("Sidebar content")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sidebar" })).toBeVisible();
     expect(

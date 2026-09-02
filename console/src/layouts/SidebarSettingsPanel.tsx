@@ -359,11 +359,6 @@ export default function SidebarSettingsPanel({
         label={t("sidebar.settings.theme", "Theme")}
         content={themeChoices}
       />
-      <FlyoutItem
-        icon={<UnfoldHorizontal size={16} />}
-        label={t("settingsCenter.contentWidth", "Content width")}
-        content={widthChoices}
-      />
       <button
         type="button"
         className={styles.menuItem}
@@ -377,6 +372,16 @@ export default function SidebarSettingsPanel({
 
   const messageDisplayContent = (
     <div className={styles.flyoutPanel}>
+      <FlyoutItem
+        icon={<UnfoldHorizontal size={16} />}
+        label={t("settingsCenter.contentWidth", "Message width")}
+        content={widthChoices}
+      />
+      <FlyoutItem
+        icon={<ListCollapse size={16} />}
+        label={t("settingsCenter.assistantDisplay", "Assistant messages")}
+        content={assistantDisplayChoices}
+      />
       <button
         type="button"
         className={styles.menuItem}
@@ -391,11 +396,6 @@ export default function SidebarSettingsPanel({
         icon={<Wrench size={16} />}
         label={t("settingsCenter.toolDisplay", "Tool display")}
         content={toolDisplayChoices}
-      />
-      <FlyoutItem
-        icon={<ListCollapse size={16} />}
-        label={t("settingsCenter.assistantDisplay", "Assistant messages")}
-        content={assistantDisplayChoices}
       />
     </div>
   );

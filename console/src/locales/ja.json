@@ -2651,7 +2651,7 @@
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",
     "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
-    "contentWidth": "コンテンツ幅",
+    "contentWidth": "メッセージ幅",
     "contentWidthHint": "標準幅を使用するか、会話を利用可能な幅まで広げます。",
     "contentWidthStandard": "標準",
     "contentWidthWide": "ワイド",

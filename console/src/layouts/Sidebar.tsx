@@ -12,19 +12,15 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import {
-  History,
-  RotateCw,
-  Settings,
-  ShieldCheck,
-  SquarePen,
-} from "lucide-react";
+import { Check, History, RotateCw, Settings, ShieldCheck } from "lucide-react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  SparkMenuExpandLine,
-  SparkMenuFoldLine,
   SparkEmailLine,
+  SparkAgentLine,
+  SparkNewChatLine,
+  SparkOperateLeftLine,
+  SparkOperateRightLine,
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
@@ -55,6 +51,9 @@ import {
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
+import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
+import { getAgentDisplayName } from "../utils/agentDisplayName";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -96,6 +95,8 @@ export default function Sidebar({
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
+  const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
@@ -113,8 +114,14 @@ export default function Sidebar({
   // The legacy store name is retained for persisted-data compatibility. The
   // user-facing UI now exposes one sidebar with configurable visibility.
   const { focusItemIds, hiddenPluginItemIds } = useSidebarModeStore();
-  const { selectedAgent, agents } = useAgentStore();
+  const { selectedAgent, agents, setSelectedAgent, refreshAgents } =
+    useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+  const availableAgents = useMemo(
+    () =>
+      agents.filter((agent) => agent.enabled && isAgentAvailableInChat(agent)),
+    [agents],
+  );
   const backendCapabilities = useMemo(
     () =>
       currentAgent
@@ -245,6 +252,14 @@ export default function Sidebar({
       mediaQuery.removeEventListener("change", syncMobileSidebar);
     };
   }, []);
+
+  useEffect(() => {
+    if (!collapsed) {
+      setHistoryPopoverOpen(false);
+      setAgentPopoverOpen(false);
+    }
+  }, [collapsed]);
+
   useEffect(() => {
     const loadUnreadState = async () => {
       try {
@@ -588,28 +603,103 @@ export default function Sidebar({
         !collapsed ? ` ${styles.siderSimple}` : ""
       }`}
     >
-      <AppBrand
-        collapsed={collapsed}
-        action={
-          <Button
-            type="text"
-            icon={
-              collapsed ? (
-                <SparkMenuExpandLine size={18} />
-              ) : (
-                <SparkMenuFoldLine size={18} />
-              )
-            }
-            onClick={() => setCollapsed(!collapsed)}
-            className={styles.brandCollapseToggle}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          />
-        }
-      />
+      {!collapsed && (
+        <AppBrand
+          action={
+            <Button
+              type="text"
+              icon={<SparkOperateLeftLine size={18} />}
+              onClick={() => setCollapsed(true)}
+              className={styles.brandCollapseToggle}
+              aria-label="Collapse sidebar"
+            />
+          }
+        />
+      )}
 
       {collapsed ? (
         <nav className={styles.collapsedNav}>
           <div className={styles.collapsedNavPinned}>
+            <Tooltip
+              title="Expand sidebar"
+              placement="right"
+              mouseEnterDelay={0.5}
+            >
+              <button
+                type="button"
+                className={styles.collapsedNavItem}
+                aria-label="Expand sidebar"
+                onClick={() => setCollapsed(false)}
+              >
+                <SparkOperateRightLine size={18} />
+              </button>
+            </Tooltip>
+            <Popover
+              open={agentPopoverOpen}
+              onOpenChange={(open) => {
+                setAgentPopoverOpen(open);
+                if (open && agents.length === 0) {
+                  void refreshAgents().catch(() => {});
+                }
+              }}
+              placement="rightTop"
+              trigger="click"
+              arrow={false}
+              overlayClassName={styles.collapsedAgentPopover}
+              content={
+                <div className={styles.collapsedAgentPanel}>
+                  <div className={styles.collapsedPanelTitle}>
+                    {t("agent.selectAgent")}
+                  </div>
+                  <div className={styles.collapsedAgentList}>
+                    {availableAgents.map((agent) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        className={`${styles.collapsedAgentOption} ${
+                          agent.id === selectedAgent
+                            ? styles.collapsedAgentOptionActive
+                            : ""
+                        }`}
+                        onClick={() => {
+                          setSelectedAgent(agent.id);
+                          setAgentPopoverOpen(false);
+                          message.success(t("agent.switchSuccess"));
+                        }}
+                      >
+                        <AgentStatusIndicator
+                          status={agent.startup_status}
+                          enabled={agent.enabled}
+                        />
+                        <SparkAgentLine size={18} />
+                        <span className={styles.collapsedAgentName}>
+                          {getAgentDisplayName(agent, t)}
+                        </span>
+                        {agent.id === selectedAgent && <Check size={16} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              }
+            >
+              <Tooltip
+                title={
+                  currentAgent
+                    ? getAgentDisplayName(currentAgent, t)
+                    : t("agent.selectAgent")
+                }
+                placement="right"
+                mouseEnterDelay={0.5}
+              >
+                <button
+                  type="button"
+                  className={styles.collapsedNavItem}
+                  aria-label={t("agent.selectAgent")}
+                >
+                  <SparkAgentLine size={18} />
+                </button>
+              </Tooltip>
+            </Popover>
             <Tooltip
               title={t("chat.newTask", "New task")}
               placement="right"
@@ -621,23 +711,45 @@ export default function Sidebar({
                 aria-label={t("chat.newTask", "New task")}
                 onClick={handleNewChat}
               >
-                <SquarePen size={18} />
+                <SparkNewChatLine size={18} />
               </button>
             </Tooltip>
-            <Tooltip
-              title={t("chat.chatHistoryTooltip")}
-              placement="right"
-              mouseEnterDelay={0.5}
+            <Popover
+              open={historyPopoverOpen}
+              onOpenChange={setHistoryPopoverOpen}
+              placement="rightTop"
+              trigger="click"
+              arrow={false}
+              overlayClassName={styles.collapsedHistoryPopover}
+              content={
+                <div className={styles.collapsedHistoryPanel}>
+                  <SidebarSessionList
+                    onNewChat={() => {
+                      setHistoryPopoverOpen(false);
+                      handleNewChat();
+                    }}
+                    onSessionClick={(sessionId) => {
+                      setHistoryPopoverOpen(false);
+                      handleSidebarSessionClick(sessionId);
+                    }}
+                  />
+                </div>
+              }
             >
-              <button
-                type="button"
-                className={styles.collapsedNavItem}
-                aria-label={t("chat.chatHistoryTooltip")}
-                onClick={() => setCollapsed(false)}
+              <Tooltip
+                title={t("chat.chatHistoryTooltip")}
+                placement="right"
+                mouseEnterDelay={0.5}
               >
-                <History size={18} />
-              </button>
-            </Tooltip>
+                <button
+                  type="button"
+                  className={styles.collapsedNavItem}
+                  aria-label={t("chat.chatHistoryTooltip")}
+                >
+                  <History size={18} />
+                </button>
+              </Tooltip>
+            </Popover>
           </div>
           <div className={styles.collapsedNavScroll}>
             {collapsedNavItems.map(renderCollapsedNavItem)}
@@ -658,7 +770,7 @@ export default function Sidebar({
               className={styles.simpleNewTask}
               onClick={handleNewChat}
             >
-              <SquarePen size={16} />
+              <SparkNewChatLine size={18} />
               <span>{t("chat.newTask", "New task")}</span>
             </button>
             <div
@@ -744,7 +856,12 @@ export default function Sidebar({
 
       <div className={styles.collapseToggleContainer}>
         {authEnabled && !collapsed && (
-          <div className={styles.sidebarUser}>
+          <button
+            type="button"
+            className={styles.sidebarUser}
+            onClick={() => setSettingsOpen(true)}
+            aria-label={t("nav.moreSettings", "More settings")}
+          >
             <span className={styles.sidebarUserAvatar} aria-hidden>
               {(authUsername || "Q").slice(0, 2).toUpperCase()}
             </span>
@@ -754,7 +871,7 @@ export default function Sidebar({
               </strong>
               <span>{hubMode ? t("hub.brand.title") : "QwenPaw"}</span>
             </span>
-          </div>
+          </button>
         )}
         <Popover
           open={settingsOpen}

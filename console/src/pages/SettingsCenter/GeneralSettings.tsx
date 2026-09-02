@@ -161,46 +161,6 @@ export default function GeneralSettings() {
               onChange={setThemeMode}
             />
           </div>
-        </div>
-      </section>
-
-      <section className={styles.settingsSection}>
-        <h3 className={styles.sectionTitle}>
-          {t("settingsCenter.contentLayout", "Content layout")}
-        </h3>
-        <div className={styles.settingsCard}>
-          <div className={styles.settingRow}>
-            <span className={styles.settingIcon}>
-              <Expand size={18} />
-            </span>
-            <span className={styles.settingCopy}>
-              <strong>
-                {t("settingsCenter.contentWidth", "Content width")}
-              </strong>
-              <small>
-                {t(
-                  "settingsCenter.contentWidthHint",
-                  "Choose the standard or wide conversation width.",
-                )}
-              </small>
-            </span>
-            <Segmented<ContentWidth>
-              className={styles.segmentedControl}
-              aria-label={t("settingsCenter.contentWidth", "Content width")}
-              value={wideMode ? "wide" : "standard"}
-              options={[
-                {
-                  value: "standard",
-                  label: t("settingsCenter.contentWidthStandard", "Standard"),
-                },
-                {
-                  value: "wide",
-                  label: t("settingsCenter.contentWidthWide", "Wide"),
-                },
-              ]}
-              onChange={changeContentWidth}
-            />
-          </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
               <Monitor size={18} />
@@ -230,6 +190,79 @@ export default function GeneralSettings() {
           {t("settingsCenter.chatDisplay", "Message display")}
         </h3>
         <div className={styles.settingsCard}>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Expand size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.contentWidth", "Message width")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.contentWidthHint",
+                  "Choose the standard or wide conversation width.",
+                )}
+              </small>
+            </span>
+            <Segmented<ContentWidth>
+              className={styles.segmentedControl}
+              aria-label={t("settingsCenter.contentWidth", "Message width")}
+              value={wideMode ? "wide" : "standard"}
+              options={[
+                {
+                  value: "standard",
+                  label: t("settingsCenter.contentWidthStandard", "Standard"),
+                },
+                {
+                  value: "wide",
+                  label: t("settingsCenter.contentWidthWide", "Wide"),
+                },
+              ]}
+              onChange={changeContentWidth}
+            />
+          </div>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <MessageSquareText size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.assistantDisplay", "Assistant messages")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.assistantDisplayHint",
+                  "Control how intermediate text, reasoning and tools collapse.",
+                )}
+              </small>
+            </span>
+            <Segmented<AssistantMessageDisplayPreference>
+              className={styles.messageDisplayControl}
+              value={assistantDisplayMode}
+              options={[
+                {
+                  value: "expanded",
+                  label: t("settingsCenter.displayExpanded", "Expanded"),
+                },
+                {
+                  value: "process-collapsed",
+                  label: t(
+                    "settingsCenter.displayProcessCollapsed",
+                    "Collapse process",
+                  ),
+                },
+                {
+                  value: "result-collapsed",
+                  label: t(
+                    "settingsCenter.displayResultCollapsed",
+                    "Collapse results",
+                  ),
+                },
+              ]}
+              onChange={changeAssistantDisplayMode}
+            />
+          </div>
           <div className={styles.settingRow}>
             <span className={styles.settingIcon}>
               <BrainCircuit size={18} />
@@ -274,47 +307,6 @@ export default function GeneralSettings() {
                 },
               ]}
               onChange={changeToolDisplayMode}
-            />
-          </div>
-          <div className={styles.settingRow}>
-            <span className={styles.settingIcon}>
-              <MessageSquareText size={18} />
-            </span>
-            <span className={styles.settingCopy}>
-              <strong>
-                {t("settingsCenter.assistantDisplay", "Assistant messages")}
-              </strong>
-              <small>
-                {t(
-                  "settingsCenter.assistantDisplayHint",
-                  "Control how intermediate text, reasoning and tools collapse.",
-                )}
-              </small>
-            </span>
-            <Segmented<AssistantMessageDisplayPreference>
-              className={styles.messageDisplayControl}
-              value={assistantDisplayMode}
-              options={[
-                {
-                  value: "expanded",
-                  label: t("settingsCenter.displayExpanded", "Expanded"),
-                },
-                {
-                  value: "process-collapsed",
-                  label: t(
-                    "settingsCenter.displayProcessCollapsed",
-                    "Collapse process",
-                  ),
-                },
-                {
-                  value: "result-collapsed",
-                  label: t(
-                    "settingsCenter.displayResultCollapsed",
-                    "Collapse results",
-                  ),
-                },
-              ]}
-              onChange={changeAssistantDisplayMode}
             />
           </div>
         </div>

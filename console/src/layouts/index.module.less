@@ -52,6 +52,7 @@
 
   > .appBrand {
     flex-basis: auto;
+    margin-left: -12px;
     margin-right: 16px;
   }
 }
@@ -410,11 +411,6 @@
   cursor: default;
 }
 
-.appBrandCollapsed {
-  justify-content: space-between;
-  padding: 0 1px;
-}
-
 .appBrandLogo {
   display: inline-flex;
   min-width: 0;
@@ -470,13 +466,6 @@
   height: 18px;
   width: auto;
   max-width: 128px;
-}
-
-.sidebarBrandMark {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  object-fit: cover;
 }
 
 .logoDivider {
@@ -654,6 +643,11 @@
   align-items: center;
   gap: 9px;
   padding-left: 2px;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
 }
 
 .sidebarUserAvatar {
@@ -730,6 +724,85 @@
   :global(.qwenpaw-popover-arrow) {
     display: none;
   }
+}
+
+.collapsedHistoryPopover,
+.collapsedAgentPopover {
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid rgba(26, 23, 22, 0.08);
+    border-radius: 12px;
+    background: #f9f8f4 !important;
+    box-shadow: 0 12px 32px rgba(26, 23, 22, 0.14);
+  }
+
+  :global(.ant-popover-inner-content),
+  :global(.qwenpaw-popover-inner-content) {
+    height: 100%;
+  }
+}
+
+.collapsedHistoryPanel {
+  display: flex;
+  width: 320px;
+  height: min(680px, calc(100vh - 32px));
+  min-height: 320px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.collapsedAgentPanel {
+  width: 268px;
+  padding: 8px;
+}
+
+.collapsedPanelTitle {
+  padding: 6px 10px 8px;
+  color: rgba(26, 23, 22, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.collapsedAgentList {
+  display: flex;
+  max-height: min(480px, calc(100vh - 80px));
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.collapsedAgentOption {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: rgba(26, 23, 22, 0.75);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: rgba(26, 23, 22, 0.92);
+    background: rgba(26, 23, 22, 0.06);
+  }
+}
+
+.collapsedAgentName {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsedAgentOptionActive {
+  color: #ff7f16;
+  background: rgba(255, 127, 22, 0.1);
 }
 
 .modeToggleActive {
@@ -1304,6 +1377,34 @@
   .sider {
     background: #1a1a1a !important;
     border-right-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .collapsedHistoryPopover,
+  .collapsedAgentPopover {
+    :global(.ant-popover-inner),
+    :global(.qwenpaw-popover-inner) {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: #1a1a1a !important;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+    }
+  }
+
+  .collapsedPanelTitle {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .collapsedAgentOption {
+    color: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.95);
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .collapsedAgentOptionActive {
+    color: #ff7f16;
+    background: rgba(255, 127, 22, 0.14);
   }
 
   .siderTop {

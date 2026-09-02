@@ -79,7 +79,7 @@ describe("SidebarSettingsPanel", () => {
     const appearance = within(language.closest(".ant-popover")!);
     expect(appearance.getByText("Language")).toBeInTheDocument();
     expect(appearance.getByText("Theme")).toBeInTheDocument();
-    expect(appearance.getByText("Content width")).toBeInTheDocument();
+    expect(appearance.queryByText("Message width")).not.toBeInTheDocument();
     expect(appearance.getByText("Desktop mode")).toBeInTheDocument();
     expect(document.querySelector(".ant-select")).not.toBeInTheDocument();
     expect(document.querySelector(".ant-segmented")).not.toBeInTheDocument();
@@ -114,7 +114,7 @@ describe("SidebarSettingsPanel", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("exposes the three message display controls", async () => {
+  it("exposes the four message display controls", async () => {
     renderWithProviders(
       <ThemeProvider>
         <SidebarSettingsPanel
@@ -132,6 +132,7 @@ describe("SidebarSettingsPanel", () => {
     );
     const messageDisplay = within(thinking.closest(".ant-popover")!);
 
+    expect(messageDisplay.getByText("Message width")).toBeInTheDocument();
     expect(messageDisplay.getByText("Tool display")).toBeInTheDocument();
     expect(
       messageDisplay.getByText("Assistant message collapse"),

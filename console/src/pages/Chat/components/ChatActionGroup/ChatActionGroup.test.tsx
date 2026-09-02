@@ -16,10 +16,10 @@ describe("ChatActionGroup", () => {
     expect(document.querySelector(".anticon-more")).not.toBeInTheDocument();
   });
 
-  it("renders new chat icon button", () => {
+  it("renders the shared new task icon button", () => {
     renderWithProviders(<ChatActionGroup />);
     expect(
-      document.querySelector('[data-icon="SparkNewChatFill"]'),
+      document.querySelector('[data-icon="SparkNewChatLine"]'),
     ).toBeInTheDocument();
   });
 

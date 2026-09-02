@@ -13,8 +13,8 @@
   background: #141414;
 
   .sidebar {
-    border-right-color: rgba(255, 255, 255, 0.1);
-    background: #181818;
+    border-right-color: rgba(255, 255, 255, 0.08);
+    background: #1a1a1a;
   }
 
   .content {
@@ -30,13 +30,14 @@
   }
 
   .navItem:hover {
-    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .navItemActive,
   .navItemActive:hover {
-    color: rgba(255, 255, 255, 0.92);
-    background: rgba(255, 255, 255, 0.1);
+    color: #ff7f16;
+    background: rgba(255, 127, 22, 0.5);
   }
 
   .settingsCard {
@@ -81,7 +82,7 @@
 
 .body {
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   flex: 1;
   height: 100%;
   min-height: 0;
@@ -91,9 +92,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 20px 14px;
+  padding: 16px;
   border-right: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
-  background: var(--colorFillQuaternary, rgba(0, 0, 0, 0.02));
+  background: #f9f8f4;
 }
 
 .backButton {
@@ -112,7 +113,7 @@
 
 .navigation {
   overflow-y: auto;
-  margin-top: 20px;
+  margin-top: 16px;
   padding-right: 2px;
 }
 
@@ -184,11 +185,12 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 0;
   border-radius: 8px;
-  color: inherit;
+  color: rgba(0, 0, 0, 0.75);
   text-align: left;
   background: transparent;
   cursor: pointer;
@@ -200,23 +202,24 @@
   strong {
     overflow: hidden;
     min-width: 0;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   &:hover {
-    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+    color: rgba(0, 0, 0, 0.88);
+    background: rgba(0, 0, 0, 0.06);
   }
 }
 
 .navItemActive {
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
-  background: var(--colorFillSecondary, rgba(0, 0, 0, 0.06));
+  color: rgba(0, 0, 0, 0.88);
+  background: rgba(43, 18, 0, 0.08);
 
   &:hover {
-    background: var(--colorFillSecondary, rgba(0, 0, 0, 0.06));
+    background: rgba(43, 18, 0, 0.08);
   }
 }
 

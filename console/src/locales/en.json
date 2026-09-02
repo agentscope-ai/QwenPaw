@@ -318,7 +318,7 @@
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",
     "themeHint": "Use a light, dark or system-matched appearance.",
-    "contentWidth": "Content width",
+    "contentWidth": "Message width",
     "contentWidthHint": "Use the standard width or expand conversations to the available width.",
     "contentWidthStandard": "Standard",
     "contentWidthWide": "Wide",

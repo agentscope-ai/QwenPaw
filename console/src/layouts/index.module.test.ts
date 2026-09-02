@@ -200,10 +200,13 @@ describe("Sidebar overflow layout", () => {
     expect(pinnedStart).toBeGreaterThanOrEqual(0);
     expect(pinnedRegion).toContain('chat.newTask", "New task');
     expect(pinnedRegion).toContain("onClick={handleNewChat}");
-    expect(pinnedRegion).toContain("<SquarePen size={18} />");
+    expect(pinnedRegion).toContain("<SparkNewChatLine size={18} />");
     expect(pinnedRegion).toContain("chat.chatHistoryTooltip");
-    expect(pinnedRegion).toContain("onClick={() => setCollapsed(false)}");
+    expect(pinnedRegion).toContain("open={historyPopoverOpen}");
+    expect(pinnedRegion).toContain("<SidebarSessionList");
     expect(pinnedRegion).toContain("<History size={18} />");
+    expect(pinnedRegion).toContain("open={agentPopoverOpen}");
+    expect(pinnedRegion).toContain("<SparkAgentLine size={18} />");
   });
 
   it("removes the standalone chat navigation entry", () => {
@@ -213,7 +216,7 @@ describe("Sidebar overflow layout", () => {
   });
 
   it("uses a recent-style history header with compact actions", () => {
-    expect(sessionListSource).toContain("<SquarePen size={15} />");
+    expect(sessionListSource).toContain("<SparkNewChatLine size={18} />");
     expect(sessionListSource).toContain("<Ellipsis size={16} />");
     expect(sessionListSource).toContain('key: "search"');
     expect(sessionListSource).toContain('key: "create-group"');
