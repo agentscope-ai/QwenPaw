@@ -10,6 +10,18 @@ const sidebarSource = readFileSync(
   join(process.cwd(), "src/layouts/Sidebar.tsx"),
   "utf8",
 );
+const headerSource = readFileSync(
+  join(process.cwd(), "src/layouts/Header.tsx"),
+  "utf8",
+);
+const appBrandSource = readFileSync(
+  join(process.cwd(), "src/layouts/AppBrand.tsx"),
+  "utf8",
+);
+const mainLayoutSource = readFileSync(
+  join(process.cwd(), "src/layouts/MainLayout/index.tsx"),
+  "utf8",
+);
 const sessionListSource = readFileSync(
   join(process.cwd(), "src/layouts/SidebarSessionList.tsx"),
   "utf8",
@@ -20,6 +32,34 @@ const sessionListStylesSource = readFileSync(
 );
 
 describe("Sidebar overflow layout", () => {
+  it("owns the application brand while preserving plugin header slots", () => {
+    expect(sidebarSource).toContain("<AppBrand");
+    expect(sidebarSource).toContain("className={styles.brandCollapseToggle}");
+    expect(appBrandSource).toContain(
+      '<Slot name="header.logo" kind="replace">',
+    );
+    expect(headerSource).toContain('<Slot name="header.left" kind="fill" />');
+    expect(headerSource).toContain('<Slot name="header.right" kind="fill" />');
+    expect(headerSource).toContain("showBrand && <AppBrand />");
+    expect(mainLayoutSource).toContain(
+      "<Header showBrand={settingsCenterActive} />",
+    );
+  });
+
+  it("places the sidebar beside the header and content column", () => {
+    const sidebarIndex = mainLayoutSource.indexOf("<Sidebar");
+    const contentLayoutIndex = mainLayoutSource.indexOf(
+      "className={styles.mainContentLayout}",
+    );
+    const headerIndex = mainLayoutSource.indexOf("<Header");
+
+    expect(sidebarIndex).toBeGreaterThanOrEqual(0);
+    expect(contentLayoutIndex).toBeGreaterThan(sidebarIndex);
+    expect(headerIndex).toBeGreaterThan(contentLayoutIndex);
+    expect(stylesSource).toContain(".mainContentLayout {");
+    expect(stylesSource).toContain("height: 100vh !important;");
+  });
+
   it("bounds non-chat shortcuts to roughly five rows", () => {
     const ruleStart = stylesSource.indexOf(".simpleNavScroll {");
     const rule = stylesSource.slice(

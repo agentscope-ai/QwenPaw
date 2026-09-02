@@ -2,6 +2,15 @@
 .mainLayout {
   height: 100vh;
   min-height: 100vh;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.mainContentLayout {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @supports (height: 100dvh) {
@@ -32,6 +41,18 @@
 
   .showOnMobile {
     display: none;
+  }
+}
+
+.headerPluginLeft {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+
+  > .appBrand {
+    flex-basis: auto;
+    margin-right: 16px;
   }
 }
 
@@ -66,7 +87,7 @@
 .sider {
   background: #f9f8f4 !important;
   overflow: auto;
-  height: calc(100vh - 64px) !important;
+  height: 100vh !important;
   padding: 0 16px;
 
   // Hide scrollbar in browser
@@ -378,15 +399,84 @@
   }
 }
 
-.logoWrapper {
+.appBrand {
   display: flex;
+  height: 56px;
+  flex: 0 0 56px;
+  min-width: 0;
   align-items: center;
-  gap: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  cursor: default;
+}
+
+.appBrandCollapsed {
+  justify-content: space-between;
+  padding: 0 1px;
+}
+
+.appBrandLogo {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+
+  > * {
+    max-width: 100%;
+  }
+}
+
+.appBrandVersionArea {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.appBrandAction {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+}
+
+.brandCollapseToggle {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border-radius: 7px !important;
+  color: rgba(26, 23, 22, 0.52) !important;
+
+  &:hover {
+    color: #ff7f16 !important;
+    background: rgba(255, 127, 22, 0.08) !important;
+  }
+}
+
+.appBrandUpdateIcon,
+.appBrandReadyIcon,
+.appBrandFailedIcon {
+  font-size: 13px;
+  color: #ff7f16;
+}
+
+.appBrandFailedIcon {
+  color: #ff4d4f;
+  cursor: pointer;
 }
 
 .logoImg {
-  height: 16px;
+  height: 18px;
   width: auto;
+  max-width: 128px;
+}
+
+.sidebarBrandMark {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .logoDivider {
@@ -410,16 +500,10 @@
   color: #1a171673;
   font-weight: 600;
   line-height: 1;
-  position: relative;
-  top: 3px;
 }
 
 .versionBadgeClickable {
   cursor: pointer;
-}
-
-.versionBadgeDefault {
-  cursor: default;
 }
 
 .collapseBtn {
@@ -985,7 +1069,7 @@
 
 @media (max-width: 768px) {
   .sider {
-    height: calc(100vh - 56px) !important;
+    height: 100vh !important;
     padding: 0 8px;
     flex: 0 0 auto !important;
     max-width: 240px !important;
@@ -1026,7 +1110,7 @@
 @supports (height: 100dvh) {
   @media (max-width: 768px) {
     .sider {
-      height: calc(100dvh - 56px) !important;
+      height: 100dvh !important;
     }
   }
 }
@@ -1228,6 +1312,15 @@
 
   .versionBadge {
     color: #ff7f16;
+  }
+
+  .brandCollapseToggle {
+    color: rgba(255, 255, 255, 0.58) !important;
+
+    &:hover {
+      color: #ff9d4d !important;
+      background: rgba(255, 127, 22, 0.12) !important;
+    }
   }
 
   .collapseBtn {

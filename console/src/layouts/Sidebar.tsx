@@ -54,6 +54,7 @@ import {
 } from "./registry/sidebarEntries";
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
+import AppBrand from "./AppBrand";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -587,6 +588,25 @@ export default function Sidebar({
         !collapsed ? ` ${styles.siderSimple}` : ""
       }`}
     >
+      <AppBrand
+        collapsed={collapsed}
+        action={
+          <Button
+            type="text"
+            icon={
+              collapsed ? (
+                <SparkMenuExpandLine size={18} />
+              ) : (
+                <SparkMenuFoldLine size={18} />
+              )
+            }
+            onClick={() => setCollapsed(!collapsed)}
+            className={styles.brandCollapseToggle}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          />
+        }
+      />
+
       {collapsed ? (
         <nav className={styles.collapsedNav}>
           <div className={styles.collapsedNavPinned}>
@@ -763,18 +783,6 @@ export default function Sidebar({
             className={styles.collapseToggle}
           />
         </Popover>
-        <Button
-          type="text"
-          icon={
-            collapsed ? (
-              <SparkMenuExpandLine size={20} />
-            ) : (
-              <SparkMenuFoldLine size={20} />
-            )
-          }
-          onClick={() => setCollapsed(!collapsed)}
-          className={styles.collapseToggle}
-        />
       </div>
 
       <Modal

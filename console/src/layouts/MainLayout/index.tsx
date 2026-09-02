@@ -60,11 +60,11 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
 
   return (
     <Layout className={styles.mainLayout}>
-      <Header />
-      <Layout>
-        {!settingsCenterActive && (
-          <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
-        )}
+      {!settingsCenterActive && (
+        <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
+      )}
+      <Layout className={styles.mainContentLayout}>
+        <Header showBrand={settingsCenterActive} />
         <Content className="page-container">
           <ConsolePollService />
           <AgentStatusPollingController />
