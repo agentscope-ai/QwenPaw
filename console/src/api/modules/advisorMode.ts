@@ -5,6 +5,15 @@ import type { ModelSlotConfig } from "../types";
 export type AdvisorTeacherSource = "override" | "main_model" | "global";
 export type AdvisorStudentSource = "override" | "subagent_model" | "main_model";
 
+/** Thresholds of the mid-run auto intervention. */
+export interface AdvisorInterventionConfig {
+  consecutive_failures: number;
+  window_size: number;
+  window_failures: number;
+  cooldown_steps: number;
+  max_interventions: number;
+}
+
 export interface AdvisorModeState {
   enabled: boolean;
   /** Whether the advisor writes a plan before the agent's first step. */
@@ -14,6 +23,7 @@ export interface AdvisorModeState {
   on_demand_enabled: boolean;
   /** Cap on the agent's own consult_advisor calls per conversation. */
   max_consults: number;
+  intervention: AdvisorInterventionConfig;
   agent_id: string;
   /** The advisor ("teacher") actually used. */
   teacher_model: ModelSlotConfig | null;
@@ -35,6 +45,8 @@ export interface AdvisorModeUpdate {
   followup_enabled?: boolean;
   on_demand_enabled?: boolean;
   max_consults?: number;
+  /** Fields left out keep their value. */
+  intervention?: Partial<AdvisorInterventionConfig>;
   /** A slot sets the override; `null` clears it; omitted = unchanged. */
   teacher_model?: ModelSlotConfig | null;
   student_model?: ModelSlotConfig | null;

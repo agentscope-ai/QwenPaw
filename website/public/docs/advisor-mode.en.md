@@ -76,7 +76,9 @@ The advisor's request includes the agent's tool list and a shallow listing of th
 
 The intervention trigger looks only at signals the tool layer itself emits (`Command failed …`, `Input validation failed …`, `Error: …`, tool-not-found, denied or timed-out approvals) plus a few tool-scoped checks (a shell run that printed `[FAIL]` or a traceback, a search with no matches, a fetch that landed on an error page). Page _content_ that merely mentions "Not Found" does not count.
 
-It fires on three failures in a row, or four failures within the last ten steps; counters reset after each intervention and there are at most three interventions per run. When the same call is repeated verbatim the advisor is told the agent is looping and asked to be directive.
+By default it fires on three failures in a row, or four failures within the last ten steps; counters reset after each intervention and there are at most three interventions per run. When the same call is repeated verbatim the advisor is told the agent is looping and asked to be directive.
+
+The thresholds are per agent: the **Mid-run auto intervention** card of the Advisor loop template exposes _failures in a row_, _failures in the window_, _window size_, _max interventions per run_ and _cooldown_, stored as `advisor_mode.intervention` in `agent.json` (`consecutive_failures`, `window_failures`, `window_size`, `max_interventions`, `cooldown_steps`) and accepted as a partial object by `POST /api/advisor-mode`.
 
 ## Transcripts
 

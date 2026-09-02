@@ -76,7 +76,9 @@
 
 介入触发器只看工具层自己发出的信号（`Command failed …`、`Input validation failed …`、`Error: …`、工具不存在、审批被拒绝或超时），外加少量按工具限定的检查（shell 运行打印了 `[FAIL]` 或 traceback、搜索无结果、抓取落到错误页）。页面*内容*里仅仅提到 "Not Found" 不算失败。
 
-连续 3 次失败，或最近 10 步内 4 次失败即触发；每次介入后计数器重置，每次运行最多介入 3 次。当同一个调用被原样重复时，顾问会被告知智能体在打转，并被要求给出更直接的指令。
+默认连续 3 次失败，或最近 10 步内 4 次失败即触发；每次介入后计数器重置，每次运行最多介入 3 次。当同一个调用被原样重复时，顾问会被告知智能体在打转，并被要求给出更直接的指令。
+
+这些阈值按智能体配置：顾问循环模板里的 **中途自动介入** 卡片可以设置 _连续失败次数_、_窗口内失败次数_、_窗口大小_、_每次运行最多介入次数_ 和 _冷却_，保存在 `agent.json` 的 `advisor_mode.intervention`（`consecutive_failures`、`window_failures`、`window_size`、`max_interventions`、`cooldown_steps`），`POST /api/advisor-mode` 接受部分字段更新。
 
 ## 记录
 

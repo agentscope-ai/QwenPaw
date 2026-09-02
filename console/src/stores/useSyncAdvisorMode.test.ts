@@ -18,6 +18,13 @@ const ON = {
   followup_enabled: false,
   on_demand_enabled: true,
   max_consults: 3,
+  intervention: {
+    consecutive_failures: 3,
+    window_size: 10,
+    window_failures: 4,
+    cooldown_steps: 0,
+    max_interventions: 3,
+  },
   agent_id: "agent-1",
   teacher_model: { provider_id: "dash", model: "qwen3-max" },
   teacher_source: "main_model" as const,

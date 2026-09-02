@@ -32,6 +32,16 @@ class ModelSlotBody(BaseModel):
     model: str = Field(min_length=1)
 
 
+class InterventionBody(BaseModel):
+    """Partial update of the mid-run intervention thresholds."""
+
+    consecutive_failures: Optional[int] = Field(default=None, ge=1)
+    window_size: Optional[int] = Field(default=None, ge=1)
+    window_failures: Optional[int] = Field(default=None, ge=1)
+    cooldown_steps: Optional[int] = Field(default=None, ge=0)
+    max_interventions: Optional[int] = Field(default=None, ge=0)
+
+
 class AdvisorModeUpdateRequest(BaseModel):
     """Request body for updating Advisor Mode.
 
@@ -45,6 +55,7 @@ class AdvisorModeUpdateRequest(BaseModel):
     followup_enabled: Optional[bool] = None
     on_demand_enabled: Optional[bool] = None
     max_consults: Optional[int] = Field(default=None, ge=0)
+    intervention: Optional[InterventionBody] = None
     teacher_model: Optional[ModelSlotBody] = None
     student_model: Optional[ModelSlotBody] = None
 
@@ -76,6 +87,7 @@ def _state(config) -> dict:
         "followup_enabled": bool(am.followup_enabled),
         "on_demand_enabled": bool(am.on_demand_enabled),
         "max_consults": int(am.max_consults),
+        "intervention": am.intervention.model_dump(),
         "agent_id": config.id,
         "teacher_model": _slot(teacher),
         "teacher_source": teacher_source,
@@ -150,6 +162,10 @@ async def post_advisor_mode_update(
             am.on_demand_enabled = body.on_demand_enabled
         if body.max_consults is not None:
             am.max_consults = body.max_consults
+        if body.intervention is not None:
+            am.intervention = am.intervention.model_copy(
+                update=body.intervention.model_dump(exclude_none=True),
+            )
         if "teacher_model" in given:
             am.teacher_model = _slot_config(body.teacher_model)
         if "student_model" in given:
