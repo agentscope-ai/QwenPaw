@@ -160,12 +160,12 @@ describe("AdvisorModeTab", () => {
     renderWithProviders(<AdvisorModeTab />);
     await screen.findByText("agentConfig.advisorModeModelsTitle");
     await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const teacher = await screen.findByTestId("advisor-advisor-model");
+    const advisor = await screen.findByTestId("advisor-advisor-model");
     // The default entry stands for the main model.
     expect(
-      within(teacher).getByText("agentConfig.advisorModeMainModel"),
+      within(advisor).getByText("agentConfig.advisorModeMainModel"),
     ).toBeInTheDocument();
-    await user.click(within(teacher).getByRole("combobox"));
+    await user.click(within(advisor).getByRole("combobox"));
     await user.click(await screen.findByText("DashScope / Qwen Plus"));
     await waitFor(() =>
       expect(advisorModeApi.update).toHaveBeenCalledWith({
@@ -184,8 +184,8 @@ describe("AdvisorModeTab", () => {
     renderWithProviders(<AdvisorModeTab />);
     await screen.findByText("agentConfig.advisorModeModelsTitle");
     await user.click(screen.getByText("agentConfig.advisorModeModelsTitle"));
-    const student = await screen.findByTestId("advisor-worker-model");
-    await user.click(within(student).getByRole("combobox"));
+    const worker = await screen.findByTestId("advisor-worker-model");
+    await user.click(within(worker).getByRole("combobox"));
     const entries = await screen.findAllByText(
       "agentConfig.advisorModeSubagentModel",
     );

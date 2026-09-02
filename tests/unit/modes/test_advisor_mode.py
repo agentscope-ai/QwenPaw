@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,unused-argument,redefined-outer-name
-"""Tests for ``AdvisorMode``: activation, the student-model hook, the
-``/advisor`` command, middleware construction and the teacher client."""
+"""Tests for ``AdvisorMode``: activation, the worker-model hook, the
+``/advisor`` command, middleware construction and the advisor client."""
 from __future__ import annotations
 
 import json
@@ -14,12 +14,12 @@ from agentscope.message import TextBlock
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.modes.advisor import AdvisorMiddleware, AdvisorMode
 from qwenpaw.modes.advisor import mode as mode_module
-from qwenpaw.modes.advisor import teacher as teacher_module
-from qwenpaw.modes.advisor.hooks import StudentModelHook
+from qwenpaw.modes.advisor import models as models_module
+from qwenpaw.modes.advisor.hooks import WorkerModelHook
 from qwenpaw.modes.advisor.tools import CONSULT_TOOL_NAME
 from qwenpaw.modes.base import find_active_explicit_mode
-from qwenpaw.modes.advisor.teacher import (
-    AdvisorTeacher,
+from qwenpaw.modes.advisor.models import (
+    AdvisorClient,
     slot_label,
     slot_to_dict,
 )
@@ -96,7 +96,7 @@ def test_loads_persisted_config_when_ctx_has_none(monkeypatch):
     assert mode.is_active(_ctx(None)) is True
 
 
-# ── student model hook ──────────────────────────────────────────────────
+# ── worker model hook ──────────────────────────────────────────────────
 
 
 def test_hook_is_registered_pre_build():
@@ -104,7 +104,7 @@ def test_hook_is_registered_pre_build():
     hooks = mode.hooks()
     assert len(hooks) == 1
     hook = hooks[0]
-    assert isinstance(hook, StudentModelHook)
+    assert isinstance(hook, WorkerModelHook)
     assert hook.phase == Phase.PRE_AGENT_BUILD
     assert hook.owner_mode is mode
 
@@ -119,7 +119,7 @@ async def test_hook_routes_agent_to_subagent_model():
     }
 
 
-async def test_hook_prefers_the_student_model_override():
+async def test_hook_prefers_the_worker_model_override():
     cfg = _config()
     cfg.advisor_mode.worker_model = ModelSlotConfig(
         provider_id="small",
@@ -133,7 +133,7 @@ async def test_hook_prefers_the_student_model_override():
     }
 
 
-async def test_hook_student_override_works_without_a_subagent_model():
+async def test_hook_worker_override_works_without_a_subagent_model():
     cfg = _config(sub=None)
     cfg.advisor_mode.worker_model = ModelSlotConfig(
         provider_id="small",
@@ -179,7 +179,7 @@ def test_middlewares_only_when_enabled():
     mw = mws[0]
     assert isinstance(mw, AdvisorMiddleware)
     assert mw.followup_enabled is False
-    assert mw._teacher.label == "dash:qwen3-max"
+    assert mw._advisor.label == "dash:qwen3-max"
     assert mw._session_id == "sess-1"
 
     off = _config(enabled=False)
@@ -337,7 +337,7 @@ async def test_leaving_the_mode_switches_everything_off(monkeypatch):
     assert not hasattr(hook_ctx.request, "model_slot_override")
 
 
-# ── teacher ─────────────────────────────────────────────────────────────
+# ── advisor ─────────────────────────────────────────────────────────────
 
 
 def test_slot_helpers():
@@ -353,7 +353,7 @@ def test_slot_helpers():
     assert slot_label(None) == "active model"
 
 
-async def test_teacher_builds_model_once_and_sends_msgs(monkeypatch):
+async def test_advisor_builds_model_once_and_sends_msgs(monkeypatch):
     created = []
     seen = {}
 
@@ -366,25 +366,25 @@ async def test_teacher_builds_model_once_and_sends_msgs(monkeypatch):
         created.append(kwargs)
         return _Model(), None
 
-    # Patched at the source module: ``teacher.py`` imports lazily.
+    # Patched at the source module: ``advisor.py`` imports lazily.
     monkeypatch.setattr(
         "qwenpaw.agents.model_factory.create_model_and_formatter_async",
         fake_factory,
     )
     cfg = _config()
-    teacher = AdvisorTeacher(
+    advisor = AdvisorClient(
         agent_id="agent-1",
         agent_config=cfg,
         model_slot=cfg.active_model,
     )
-    reply = await teacher.ask(
+    reply = await advisor.ask(
         [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "plan please"},
         ],
     )
     assert reply == "PLAN"
-    assert teacher.label == "dash:qwen3-max"
+    assert advisor.label == "dash:qwen3-max"
     assert created == [
         {
             "agent_id": "agent-1",
@@ -396,29 +396,29 @@ async def test_teacher_builds_model_once_and_sends_msgs(monkeypatch):
     assert [m.role for m in msgs] == ["system", "user"]
     assert msgs[1].content[0].text == "plan please"
 
-    await teacher.ask([{"role": "user", "content": "again"}])
+    await advisor.ask([{"role": "user", "content": "again"}])
     assert len(created) == 1, "the model is built once and reused"
 
 
 def test_mode_module_exports():
     assert mode_module.AdvisorMode is AdvisorMode
-    assert teacher_module.AdvisorTeacher is AdvisorTeacher
+    assert models_module.AdvisorClient is AdvisorClient
 
 
-def test_teacher_override_beats_the_main_model():
-    from qwenpaw.modes.advisor.teacher import (
-        resolve_student_slot,
-        resolve_teacher_slot,
+def test_advisor_override_beats_the_main_model():
+    from qwenpaw.modes.advisor.models import (
+        resolve_worker_slot,
+        resolve_advisor_slot,
     )
 
     cfg = _config()
-    assert resolve_teacher_slot(cfg) == (cfg.active_model, "main_model")
-    assert resolve_student_slot(cfg) == (cfg.subagent_model, "subagent_model")
+    assert resolve_advisor_slot(cfg) == (cfg.active_model, "main_model")
+    assert resolve_worker_slot(cfg) == (cfg.subagent_model, "subagent_model")
     cfg.advisor_mode.advisor_model = ModelSlotConfig(
         provider_id="big",
         model="b-max",
     )
-    slot, source = resolve_teacher_slot(cfg)
+    slot, source = resolve_advisor_slot(cfg)
     assert (slot.provider_id, slot.model, source) == (
         "big",
         "b-max",
@@ -426,17 +426,17 @@ def test_teacher_override_beats_the_main_model():
     )
     # An override with an empty model name does not count.
     cfg.advisor_mode.advisor_model = ModelSlotConfig(provider_id="big")
-    assert resolve_teacher_slot(cfg)[1] == "main_model"
-    assert resolve_student_slot(_config(sub=None)) == (None, "main_model")
+    assert resolve_advisor_slot(cfg)[1] == "main_model"
+    assert resolve_worker_slot(_config(sub=None)) == (None, "main_model")
     mw = _picked().middlewares(_ctx(cfg), cfg)[0]
-    assert mw._teacher.label == "dash:qwen3-max"
+    assert mw._advisor.label == "dash:qwen3-max"
 
 
-def test_effective_teacher_falls_back_to_global_active_model(monkeypatch):
-    from qwenpaw.modes.advisor.teacher import effective_teacher_slot
+def test_effective_advisor_falls_back_to_global_active_model(monkeypatch):
+    from qwenpaw.modes.advisor.models import effective_advisor_slot
 
     cfg = _config()
-    assert effective_teacher_slot(cfg) is cfg.active_model
+    assert effective_advisor_slot(cfg) is cfg.active_model
 
     cfg.active_model = None
     global_slot = ModelSlotConfig(provider_id="glob", model="g-max")
@@ -445,15 +445,15 @@ def test_effective_teacher_falls_back_to_global_active_model(monkeypatch):
         "qwenpaw.providers.ProviderManager.get_instance",
         lambda: manager,
     )
-    assert effective_teacher_slot(cfg) is global_slot
+    assert effective_advisor_slot(cfg) is global_slot
     mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
-    assert mw._teacher.label == "glob:g-max"
+    assert mw._advisor.label == "glob:g-max"
 
 
 # ── consult_advisor tool + session state ────────────────────────────────
 
 
-class _Teacher:
+class _Advisor:
     label = "stub"
 
     def __init__(self, reply="ADVICE"):
@@ -501,8 +501,8 @@ async def test_tool_consults_the_middleware_of_the_current_session(
     mode = AdvisorMode()
     cfg = _config()
     mw = mode.build_middleware(_ctx(cfg), cfg)
-    teacher = _Teacher("Switch to the other approach.")
-    mw._teacher = teacher
+    advisor = _Advisor("Switch to the other approach.")
+    mw._advisor = advisor
     monkeypatch.setattr(
         "qwenpaw.modes.advisor.mode.get_current_session_id",
         lambda: "sess-1",
@@ -513,7 +513,7 @@ async def test_tool_consults_the_middleware_of_the_current_session(
     assert len(chunks) >= 2, "the answer streams in pieces"
     assert len({c.content[0].id for c in chunks}) == 1, "one text block"
     assert mw.consults_used == 1
-    assert "Keep going or switch?" in teacher.calls[0][-1]["content"]
+    assert "Keep going or switch?" in advisor.calls[0][-1]["content"]
 
 
 async def test_tool_streams_through_the_agentscope_toolkit(monkeypatch):
@@ -526,7 +526,7 @@ async def test_tool_streams_through_the_agentscope_toolkit(monkeypatch):
     mode = AdvisorMode()
     cfg = _config()
     mw = mode.build_middleware(_ctx(cfg), cfg)
-    mw._teacher = _Teacher("First half, second half.")
+    mw._advisor = _Advisor("First half, second half.")
     monkeypatch.setattr(
         "qwenpaw.modes.advisor.mode.get_current_session_id",
         lambda: "sess-1",
@@ -557,7 +557,7 @@ async def test_tool_without_session_or_when_disabled(monkeypatch):
     cfg = _config()
     cfg.advisor_mode.on_demand_enabled = False
     mw = mode.build_middleware(_ctx(cfg), cfg)
-    mw._teacher = _Teacher()
+    mw._advisor = _Advisor()
     monkeypatch.setattr(
         "qwenpaw.modes.advisor.mode.get_current_session_id",
         lambda: "sess-1",
@@ -571,12 +571,12 @@ async def test_session_state_carries_history_and_budget_across_requests():
     cfg = _config()
     cfg.advisor_mode.max_consults = 2
     first = mode.build_middleware(_ctx(cfg), cfg)
-    first._teacher = _Teacher("A1")
+    first._advisor = _Advisor("A1")
     await first.consult("q1")
     assert first.consults_left == 1
 
     second = mode.build_middleware(_ctx(cfg), cfg)  # next user turn
-    assert second.teacher_history is first.teacher_history
+    assert second.advisor_history is first.advisor_history
     assert second.consults_used == 1 and second.consults_left == 1
     assert mode.current_middleware is not None
     assert mode.session_state("sess-1").middleware is second
@@ -601,7 +601,7 @@ async def test_plan_is_written_once_per_conversation():
     mode = AdvisorMode()
     cfg = _config()
     first = mode.build_middleware(_ctx(cfg), cfg)
-    first._teacher = _Teacher("THE PLAN")
+    first._advisor = _Advisor("THE PLAN")
     assert first.plan_injected is False
     await first.on_model_call(
         agent("task one"),
@@ -609,14 +609,14 @@ async def test_plan_is_written_once_per_conversation():
         next_handler,
     )
     assert first.plan_injected is True
-    assert len(first._teacher.calls) == 1
+    assert len(first._advisor.calls) == 1
 
     second = mode.build_middleware(_ctx(cfg), cfg)  # next user turn
-    second._teacher = _Teacher("ANOTHER PLAN")
+    second._advisor = _Advisor("ANOTHER PLAN")
     assert second.plan_injected is True, "carried over from the first turn"
     a2 = agent("task two")
     await second.on_model_call(a2, {"messages": []}, next_handler)
-    assert second._teacher.calls == [], "no plan request on a later turn"
+    assert second._advisor.calls == [], "no plan request on a later turn"
     assert len(a2.state.context) == 1, "nothing injected"
     assert second._task == "task two", "follow-ups still name the new task"
 
@@ -661,7 +661,7 @@ async def test_a_failed_plan_is_retried_on_the_next_turn():
     mode = AdvisorMode()
     cfg = _config()
     first = mode.build_middleware(_ctx(cfg), cfg)
-    first._plan_injected = False  # the plan never landed (teacher down)
+    first._plan_injected = False  # the plan never landed (advisor down)
     second = mode.build_middleware(_ctx(cfg), cfg)
     assert second.plan_injected is False
 
@@ -670,10 +670,10 @@ async def test_conversation_reset_forgets_the_session():
     mode = AdvisorMode()
     cfg = _config()
     mw = mode.build_middleware(_ctx(cfg), cfg)
-    mw.teacher_history.append({"role": "user", "content": "x"})
+    mw.advisor_history.append({"role": "user", "content": "x"})
     await mode.on_conversation_reset(_ctx(cfg))
     fresh = mode.build_middleware(_ctx(cfg), cfg)
-    assert fresh.teacher_history == []
+    assert fresh.advisor_history == []
     assert fresh.consults_used == 0
 
 
@@ -736,12 +736,12 @@ async def test_advisor_thinking_level_reaches_the_model_factory(monkeypatch):
     cfg.thinking_level = "high"
     cfg.advisor_mode.advisor_thinking = "off"
     mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
-    await mw._teacher._get_model()
+    await mw._advisor._get_model()
     assert seen["agent_config"].thinking_level == "off"
     assert cfg.thinking_level == "high", "the agent's own level is untouched"
 
     seen.clear()
     cfg.advisor_mode.advisor_thinking = "inherit"
     mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
-    await mw._teacher._get_model()
+    await mw._advisor._get_model()
     assert seen["agent_config"] is cfg

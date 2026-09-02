@@ -2337,7 +2337,7 @@
     "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
     "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
     "advisorModeModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
-    "advisorModeNoStudent": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
+    "advisorModeNoWorker": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
     "advisorModeEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo do compositor e /advisor funciona; escolha por conversa (canais e prompts de cron usam /advisor on).",
     "advisorModeModelsTitle": "Modelos do conselheiro e do trabalhador",
     "advisorModeModelsHelp": "Por padrão o conselheiro é o modelo principal do agente e o trabalhador (o próprio agente) roda no modelo de subagente. Escolha outros modelos aqui para sobrescrever qualquer um deles; a escolha é salva com o agente e também pode ser alterada no seletor de modelo do chat.",

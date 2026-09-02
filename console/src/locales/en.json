@@ -2669,7 +2669,7 @@
     "advisorModeFollowup": "Mid-run auto intervention: the harness watches tool results and calls the advisor when the agent keeps failing",
     "advisorModeOnDemand": "Let the agent proactively ask the advisor via the consult_advisor tool",
     "advisorModeModels": "Advisor: {{advisor}} · Worker: {{worker}}",
-    "advisorModeNoStudent": "main model (set a sub-agent model to run the agent on a cheaper one)",
+    "advisorModeNoWorker": "main model (set a sub-agent model to run the agent on a cheaper one)",
     "advisorModeEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the composer's mode menu and /advisor works; pick it per conversation (channels and cron prompts use /advisor on).",
     "advisorModeModelsTitle": "Advisor and worker models",
     "advisorModeModelsHelp": "By default the advisor is the agent's main model and the worker (the agent itself) runs on the sub-agent model. Pick other models here to override either one; the choice is stored with the agent and also editable from the chat model selector.",

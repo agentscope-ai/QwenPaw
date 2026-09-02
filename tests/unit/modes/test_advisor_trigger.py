@@ -251,7 +251,7 @@ def test_severity_struggling_when_calls_differ():
     assert events[0].severity == "struggling"
 
 
-def test_event_carries_recent_calls_for_the_teacher():
+def test_event_carries_recent_calls_for_the_advisor():
     trigger = InterventionTrigger(
         TriggerConfig(consecutive_failures=3, window_failures=99),
     )

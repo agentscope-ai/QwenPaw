@@ -2527,7 +2527,7 @@
     "advisorModeFollowup": "中途自动介入：harness 监测工具结果，智能体反复失败时自动召唤顾问",
     "advisorModeOnDemand": "允许智能体通过 consult_advisor 工具主动向顾问提问",
     "advisorModeModels": "顾问：{{advisor}} · Worker：{{worker}}",
-    "advisorModeNoStudent": "主模型（设置 Sub-agent 模型后可用更便宜的模型运行智能体）",
+    "advisorModeNoWorker": "主模型（设置 Sub-agent 模型后可用更便宜的模型运行智能体）",
     "advisorModeEnableHelp": "对话仍然从默认循环开始。开启后，输入栏的模式菜单里会出现「顾问」，/advisor 命令可用；按对话选择使用（渠道和定时任务的提示词用 /advisor on）。",
     "advisorModeModelsTitle": "顾问模型与 Worker 模型",
     "advisorModeModelsHelp": "默认顾问使用智能体的主模型，Worker（智能体本身）使用 Sub-agent 模型。在这里可以分别改用其它模型，选择随智能体持久保存，聊天里的模型选择器也能改。",

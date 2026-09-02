@@ -2053,10 +2053,10 @@ class AdvisorInterventionConfig(BaseModel):
 class AdvisorModeConfig(BaseModel):
     """Configuration for Advisor Mode (stored in agent.json).
 
-    In Advisor Mode the agent's main model acts as a "teacher": it writes
+    In Advisor Mode the agent's main model acts as the advisor: it writes
     a strategic plan before the agent's first step and is consulted again
-    when the agent keeps failing. The agent itself runs on the cheaper
-    ``subagent_model`` when one is configured.
+    when the agent keeps failing. The agent itself (the worker) runs on
+    the cheaper ``subagent_model`` when one is configured.
     """
 
     enabled: bool = Field(

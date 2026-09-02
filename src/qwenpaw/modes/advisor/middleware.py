@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""``AdvisorMiddleware`` — the teacher plans up front, steps in when the
+"""``AdvisorMiddleware`` — the advisor plans up front, steps in when the
 agent gets stuck, and answers when the agent asks.
 
 Three behaviours, all injected into the agent's context as a tool call +
 result pair so the agent reads them as something it asked for:
 
 1. **Plan injection.** On the first model call of a conversation the
-   teacher is asked for a strategic plan for the task. The agent then
+   advisor is asked for a strategic plan for the task. The agent then
    sees::
 
        [system prompt]
@@ -17,15 +17,15 @@ result pair so the agent reads them as something it asked for:
 
 2. **Mid-run intervention.** Every later model call feeds the tool results
    that accumulated in context to :class:`InterventionTrigger`. When the
-   agent is stuck (repeated failures) the teacher is consulted again with
+   agent is stuck (repeated failures) the advisor is consulted again with
    the recent calls and answers CONTINUE or ADJUST; only an ADJUST body is
    injected, as a ``consult_advisor_followup`` pair.
 
 3. **On-demand consultation.** :meth:`consult` answers a question the
    agent asks through the real ``consult_advisor`` tool (see
-   ``tools.py``), with the same teacher and the recent calls attached.
+   ``tools.py``), with the same advisor and the recent calls attached.
 
-The teacher conversation (``teacher_history``) is shared across the turns
+The advisor conversation (``advisor_history``) is shared across the turns
 of one chat session, so every request is answered in light of the plan
 and advice already given. The plan is written once per conversation:
 later user turns rely on the mid-run intervention and on the agent's own
@@ -66,7 +66,7 @@ from .trigger import InterventionTrigger, ObservedStep, TriggerEvent
 if TYPE_CHECKING:
     from agentscope.agent import Agent
 
-    from .teacher import AdvisorTeacher
+    from .models import AdvisorClient
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 PLAN_TOOL_NAME = "consult_advisor"
 FOLLOWUP_TOOL_NAME = "consult_advisor_followup"
 
-# Tool output can be tens of KB; the teacher only needs enough to judge.
+# Tool output can be tens of KB; the advisor only needs enough to judge.
 _MAX_OUTPUT_CHARS = 800
 _MAX_ARGS_CHARS = 300
 
@@ -110,7 +110,7 @@ _FOLLOWUP_CALL_ARGS = {
     "question": "My recent steps keep failing. What should I do instead?",
 }
 
-# Workspace listing handed to the teacher as environment context.
+# Workspace listing handed to the advisor as environment context.
 _LISTING_MAX_ENTRIES = 150
 _LISTING_MAX_DEPTH = 2
 _LISTING_SKIP_DIRS = frozenset(
@@ -130,7 +130,7 @@ _LISTING_SKIP_DIRS = frozenset(
     },
 )
 
-# Tools irrelevant for task planning — excluded from the teacher's view.
+# Tools irrelevant for task planning — excluded from the advisor's view.
 _EXCLUDED_TOOLS = frozenset(
     {
         "list_agents",
@@ -183,7 +183,7 @@ def _clip(text: str, limit: int) -> str:
 def _parse_followup(reply: str) -> tuple[str, str]:
     """Split a follow-up reply into its verdict and the advice below it.
 
-    The teacher is asked to put CONTINUE or ADJUST alone on the first line.
+    The advisor is asked to put CONTINUE or ADJUST alone on the first line.
     Leading blank lines and markdown emphasis around the word are tolerated,
     since models add those readily; anything else counts as unparseable and
     returns ``("", "")`` so the caller can re-ask.
@@ -221,7 +221,7 @@ def _workspace_listing(
     max_entries: int = _LISTING_MAX_ENTRIES,
     max_depth: int = _LISTING_MAX_DEPTH,
 ) -> str:
-    """A shallow, size-annotated listing of ``root`` for the teacher.
+    """A shallow, size-annotated listing of ``root`` for the advisor.
 
     One line per entry — ``path size`` for files, ``path/`` for
     directories — sorted, hidden/vendor directories skipped, capped at
@@ -312,9 +312,9 @@ def _exchange_msg(
 
 
 class _LiveExchange:
-    """One injected exchange shown in the UI while the teacher is talking.
+    """One injected exchange shown in the UI while the advisor is talking.
 
-    The tool call is opened the moment the teacher is asked, the reply is
+    The tool call is opened the moment the advisor is asked, the reply is
     relayed as it streams in and the call is closed once the answer (or
     the failure) is in — so the user watches the plan being written
     instead of a spinner. Agents without the live hooks (plain AgentScope
@@ -358,7 +358,7 @@ class _LiveExchange:
             )
 
     def on_text(self, text: str) -> None:
-        """Relay the cumulative teacher reply ``text`` as a delta."""
+        """Relay the cumulative advisor reply ``text`` as a delta."""
         if not self.active or not text.startswith(self._sent):
             return
         delta = text[len(self._sent) :]
@@ -402,27 +402,27 @@ class AdvisorMiddleware(MiddlewareBase):
     def __init__(
         self,
         *,
-        teacher: "AdvisorTeacher",
+        advisor: "AdvisorClient",
         followup_enabled: bool = True,
         trigger: InterventionTrigger | None = None,
         env_context_root: Path | str | None = None,
         log_dir: Path | str | None = None,
         session_id: str = "",
         agent_id: str = "",
-        teacher_history: list[dict[str, str]] | None = None,
+        advisor_history: list[dict[str, str]] | None = None,
         plan_enabled: bool = True,
         on_demand_enabled: bool = True,
         max_consults: int = DEFAULT_MAX_CONSULTS,
         consults_used: int = 0,
         plan_injected: bool = False,
     ) -> None:
-        self._teacher = teacher
+        self._advisor = advisor
         self._followup_enabled = followup_enabled
         self._plan_enabled = plan_enabled
         self._on_demand_enabled = on_demand_enabled
         # The latest user instruction, kept for follow-up and consult
         # requests so they stay self-contained even without an opening
-        # plan in the teacher history.
+        # plan in the advisor history.
         self._task = ""
         self._trigger = trigger or InterventionTrigger()
         self._env_context_root = env_context_root
@@ -440,20 +440,20 @@ class AdvisorMiddleware(MiddlewareBase):
         # went ahead without one instead of looking like a normal advisor
         # run.
         self._plan_error: str | None = None
-        # The teacher conversation. Shared with the other requests of the
+        # The advisor conversation. Shared with the other requests of the
         # same chat session when the caller passes the session's list, so
         # follow-ups keep earlier plans in view.
-        self._teacher_history: list[dict[str, str]] = (
-            teacher_history if teacher_history is not None else []
+        self._advisor_history: list[dict[str, str]] = (
+            advisor_history if advisor_history is not None else []
         )
         # tool_result block ids already fed to the trigger.
         self._seen_result_ids: set[str] = set()
         self._baselined = False
-        # Everything said to / by the teacher, persisted for analysis.
+        # Everything said to / by the advisor, persisted for analysis.
         self._transcript: dict[str, Any] = {
             "agent_id": agent_id,
             "session_id": session_id,
-            "teacher": getattr(teacher, "label", ""),
+            "advisor": getattr(advisor, "label", ""),
             "plan": None,
             "interventions": [],
             "consults": [],
@@ -507,9 +507,9 @@ class AdvisorMiddleware(MiddlewareBase):
         return max(0, self._max_consults - self._consults_used)
 
     @property
-    def teacher_history(self) -> list[dict[str, str]]:
-        """The shared teacher conversation (same list object)."""
-        return self._teacher_history
+    def advisor_history(self) -> list[dict[str, str]]:
+        """The shared advisor conversation (same list object)."""
+        return self._advisor_history
 
     # ── middleware hook ─────────────────────────────────────────────────
 
@@ -531,7 +531,7 @@ class AdvisorMiddleware(MiddlewareBase):
         )
         if not self._plan_injected and self._plan_enabled:
             # Only consume the flag once a plan is actually in context.
-            # Setting it first meant a rejected teacher call silently
+            # Setting it first meant a rejected advisor call silently
             # downgraded the run to a plain run, with no retry on this or
             # any later step.
             injected = await self._inject_plan(
@@ -575,8 +575,8 @@ class AdvisorMiddleware(MiddlewareBase):
         The reply is returned to the agent as the tool result (the toolkit
         records it in context, so nothing is injected here). Consultations
         are capped per conversation; past the cap a fixed notice is
-        returned instead of a teacher call. ``on_text`` receives the
-        cumulative reply while the teacher is still writing it.
+        returned instead of a advisor call. ``on_text`` receives the
+        cumulative reply while the advisor is still writing it.
         """
         question = (question or "").strip()
         if not question:
@@ -604,14 +604,14 @@ class AdvisorMiddleware(MiddlewareBase):
             "request": request,
         }
         try:
-            reply = await self._call_teacher(
+            reply = await self._call_advisor(
                 request,
                 stateful=True,
                 on_text=on_text,
             )
         except Exception as exc:
             logger.error(
-                "AdvisorMiddleware: on-demand teacher call failed: %s",
+                "AdvisorMiddleware: on-demand advisor call failed: %s",
                 exc,
             )
             record["error"] = str(exc)
@@ -635,14 +635,14 @@ class AdvisorMiddleware(MiddlewareBase):
         return reply.strip() or "(the advisor had nothing to add)"
 
     async def consult_stream(self, question: str) -> AsyncIterator[str]:
-        """:meth:`consult`, delivered as text deltas while the teacher
+        """:meth:`consult`, delivered as text deltas while the advisor
         writes, so the ``consult_advisor`` tool can stream its result.
 
         Yields the pieces of the reply in order; joined, they equal the
-        text :meth:`consult` returns (a notice — budget exhausted, teacher
+        text :meth:`consult` returns (a notice — budget exhausted, advisor
         unreachable — arrives as one piece).
         """
-        deltas: asyncio.Queue[str] = asyncio.Queue()
+        deltas: asyncio.Queue[str | None] = asyncio.Queue()
         sent = ""
 
         def on_text(text: str) -> None:
@@ -652,17 +652,18 @@ class AdvisorMiddleware(MiddlewareBase):
                 sent = text
 
         task = asyncio.ensure_future(self.consult(question, on_text=on_text))
+        # ``None`` marks the end of the stream once the consultation is
+        # over, so the consumer waits on the queue alone (no polling).
+        task.add_done_callback(lambda _t: deltas.put_nowait(None))
         try:
-            while not task.done():
-                try:
-                    yield await asyncio.wait_for(deltas.get(), timeout=0.1)
-                except asyncio.TimeoutError:
-                    continue
-            while not deltas.empty():
-                yield deltas.get_nowait()
+            while True:
+                piece = await deltas.get()
+                if piece is None:
+                    break
+                yield piece
             reply = task.result()
             # Whatever the stream did not carry: the final text when the
-            # teacher did not stream, or a notice instead of a reply.
+            # advisor did not stream, or a notice instead of a reply.
             if reply.startswith(sent):
                 tail = reply[len(sent) :]
             else:
@@ -678,7 +679,7 @@ class AdvisorMiddleware(MiddlewareBase):
     # ── mid-run intervention ────────────────────────────────────────────
 
     async def _check_and_intervene(self, agent: "Agent") -> Msg | None:
-        """Feed new tool results to the trigger; consult the teacher if
+        """Feed new tool results to the trigger; consult the advisor if
         stuck. Returns the injected message, if any."""
         try:
             event = self._consume_new_results(agent.state.context)
@@ -797,14 +798,14 @@ class AdvisorMiddleware(MiddlewareBase):
         # the same question, not a follow-up question about the bad answer.
         for attempt in range(1, _FOLLOWUP_FORMAT_ATTEMPTS + 1):
             try:
-                advice = await self._call_teacher(
+                advice = await self._call_advisor(
                     request,
                     stateful=True,
                     on_text=live.on_text if live.active else None,
                 )
             except Exception as exc:
                 logger.error(
-                    "AdvisorMiddleware: follow-up teacher call failed: %s",
+                    "AdvisorMiddleware: follow-up advisor call failed: %s",
                     exc,
                 )
                 record["error"] = str(exc)
@@ -822,12 +823,12 @@ class AdvisorMiddleware(MiddlewareBase):
             )
             if attempt < _FOLLOWUP_FORMAT_ATTEMPTS:
                 # The rejected sample must not shape the next answer (or
-                # later consultations): drop it from the teacher history.
-                del self._teacher_history[-2:]
+                # later consultations): drop it from the advisor history.
+                del self._advisor_history[-2:]
                 live.note("(no CONTINUE/ADJUST verdict; asking again)")
         else:
             # Still unparseable: treat as ADJUST rather than drop the
-            # advice, so a teacher that ignored the format is not silently
+            # advice, so a advisor that ignored the format is not silently
             # discarded.
             action, body = _ADJUST, advice.strip()
             logger.warning(
@@ -839,13 +840,13 @@ class AdvisorMiddleware(MiddlewareBase):
         record.update({"action": action, "advice": advice})
         self._record_intervention(record)
 
-        # CONTINUE carries no new instruction. The teacher still remembers
-        # it (``_call_teacher`` recorded the exchange), but putting "keep
+        # CONTINUE carries no new instruction. The advisor still remembers
+        # it (``_call_advisor`` recorded the exchange), but putting "keep
         # going" in front of the agent only grows an already-large context
         # and can read as an endorsement of whatever it is currently doing.
         if action == _CONTINUE:
             logger.info(
-                "AdvisorMiddleware: teacher said %s, nothing injected",
+                "AdvisorMiddleware: advisor said %s, nothing injected",
                 _CONTINUE,
             )
             live.finish(advice)
@@ -880,7 +881,7 @@ class AdvisorMiddleware(MiddlewareBase):
         agent: "Agent",
         tools: list[dict] | None = None,
     ) -> Msg | None:
-        """Ask the teacher for a plan and inject it.
+        """Ask the advisor for a plan and inject it.
 
         Returns the injected message when it landed, else ``None``.
         """
@@ -900,11 +901,11 @@ class AdvisorMiddleware(MiddlewareBase):
             env_section=env_section,
         )
         logger.info(
-            "AdvisorMiddleware: asking teacher (%s) for a plan ...",
-            getattr(self._teacher, "label", "?"),
+            "AdvisorMiddleware: asking advisor (%s) for a plan ...",
+            getattr(self._advisor, "label", "?"),
         )
 
-        # Open the exchange in the UI before the teacher is asked, so the
+        # Open the exchange in the UI before the advisor is asked, so the
         # user sees the consultation (and the plan, as it streams) instead
         # of a silent wait before the agent's first token.
         call_id = _new_call_id()
@@ -913,7 +914,7 @@ class AdvisorMiddleware(MiddlewareBase):
         plan, last_exc = "", None
         for attempt in range(1, _PLAN_ATTEMPTS + 1):
             try:
-                plan = await self._call_teacher(
+                plan = await self._call_advisor(
                     plan_request,
                     stateful=True,
                     on_text=live.on_text if live.active else None,
@@ -922,7 +923,7 @@ class AdvisorMiddleware(MiddlewareBase):
             except Exception as exc:
                 last_exc = exc
                 logger.warning(
-                    "AdvisorMiddleware: teacher call failed (%d/%d): %s",
+                    "AdvisorMiddleware: advisor call failed (%d/%d): %s",
                     attempt,
                     _PLAN_ATTEMPTS,
                     exc,
@@ -961,15 +962,15 @@ class AdvisorMiddleware(MiddlewareBase):
         live.finish(plan)
         return msg
 
-    # ── teacher call ────────────────────────────────────────────────────
+    # ── advisor call ────────────────────────────────────────────────────
 
-    async def _call_teacher(
+    async def _call_advisor(
         self,
         message: str,
         stateful: bool = False,
         on_text: Callable[[str], None] | None = None,
     ) -> str:
-        """Ask the teacher.
+        """Ask the advisor.
 
         With ``stateful=True`` the earlier exchange is replayed first, so
         the question is answered in light of the plans already given (and
@@ -980,15 +981,15 @@ class AdvisorMiddleware(MiddlewareBase):
             {"role": "system", "content": ADVISOR_SYSTEM_PROMPT},
         ]
         if stateful:
-            messages.extend(self._teacher_history)
+            messages.extend(self._advisor_history)
         messages.append({"role": "user", "content": message})
         if on_text is None:
-            reply = await self._teacher.ask(messages)
+            reply = await self._advisor.ask(messages)
         else:
-            reply = await self._teacher.ask(messages, on_text=on_text)
+            reply = await self._advisor.ask(messages, on_text=on_text)
         # Remember the exchange so later questions build on it.
-        self._teacher_history.append({"role": "user", "content": message})
-        self._teacher_history.append({"role": "assistant", "content": reply})
+        self._advisor_history.append({"role": "user", "content": message})
+        self._advisor_history.append({"role": "assistant", "content": reply})
         return reply
 
     # ── transcript persistence ──────────────────────────────────────────
@@ -1016,7 +1017,7 @@ class AdvisorMiddleware(MiddlewareBase):
         self._save_transcript()
 
     def _save_transcript(self) -> None:
-        """Persist the teacher exchange for debugging and analysis.
+        """Persist the advisor exchange for debugging and analysis.
 
         Written under ``ADVISOR_DIR/<agent_id>/<session>.json`` — outside
         the agent workspace on purpose, so the agent's own file searches
@@ -1050,11 +1051,11 @@ class AdvisorMiddleware(MiddlewareBase):
 
     @staticmethod
     def _format_tool_list(tools: list[dict] | None) -> str:
-        """Render tool names and descriptions for the teacher.
+        """Render tool names and descriptions for the advisor.
 
         ``tools`` are the schemas of the model call in flight — the very
-        list the agent is given on this call — so the teacher plans with
-        exactly the tools the student has, and there is one place that
+        list the agent is given on this call — so the advisor plans with
+        exactly the tools the worker has, and there is one place that
         decides what those are.
         """
         lines = []

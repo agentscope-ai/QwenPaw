@@ -3007,7 +3007,7 @@
     "advisorModeFollowup": "Intervensi otomatis di tengah jalan: harness memantau hasil alat dan memanggil penasihat saat agen terus gagal",
     "advisorModeOnDemand": "Izinkan agen bertanya secara proaktif kepada penasihat melalui alat consult_advisor",
     "advisorModeModels": "Penasihat: {{advisor}} · Pekerja: {{worker}}",
-    "advisorModeNoStudent": "model utama (atur model sub-agen untuk menjalankan agen pada model yang lebih murah)",
+    "advisorModeNoWorker": "model utama (atur model sub-agen untuk menjalankan agen pada model yang lebih murah)",
     "advisorModeEnableHelp": "Percakapan tetap dimulai di loop default. Saat aktif, Penasihat muncul di menu mode kotak input dan /advisor berfungsi; pilih per percakapan (kanal dan prompt cron memakai /advisor on).",
     "advisorModeModelsTitle": "Model penasihat dan pekerja",
     "advisorModeModelsHelp": "Secara default penasihat adalah model utama agen dan pekerja (agen itu sendiri) berjalan pada model sub-agen. Pilih model lain di sini untuk menimpa salah satunya; pilihan disimpan bersama agen dan juga dapat diubah dari pemilih model di obrolan.",

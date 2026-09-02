@@ -1841,7 +1841,7 @@
     "advisorModeFollowup": "Tự động can thiệp giữa chừng: harness theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại",
     "advisorModeOnDemand": "Cho phép agent chủ động hỏi cố vấn qua công cụ consult_advisor",
     "advisorModeModels": "Cố vấn: {{advisor}} · Worker: {{worker}}",
-    "advisorModeNoStudent": "mô hình chính (đặt mô hình sub-agent để chạy agent trên mô hình rẻ hơn)",
+    "advisorModeNoWorker": "mô hình chính (đặt mô hình sub-agent để chạy agent trên mô hình rẻ hơn)",
     "advisorModeEnableHelp": "Cuộc trò chuyện vẫn bắt đầu ở vòng lặp mặc định. Khi bật, Cố vấn xuất hiện trong menu chế độ của ô nhập và /advisor hoạt động; chọn theo từng cuộc trò chuyện (kênh và prompt cron dùng /advisor on).",
     "advisorModeModelsTitle": "Mô hình cố vấn và worker",
     "advisorModeModelsHelp": "Mặc định cố vấn là mô hình chính của agent, còn worker (chính agent) chạy trên mô hình sub-agent. Chọn mô hình khác ở đây để ghi đè từng vai trò; lựa chọn được lưu cùng agent và cũng có thể đổi từ bộ chọn mô hình trong chat.",
