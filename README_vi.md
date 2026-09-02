@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-09-01] **v2.2.0** | QwenPaw Hub đa người dùng tự lưu trữ, QwenPaw Mail, QwenPaw Data nguyên bản, định tuyến mô hình hợp nhất, Creator 1.1 cùng nhiều cải tiến lớn cho Market, Console, Skills, kênh và độ tin cậy. [Ghi chú phát hành v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+- [2026-09-02] **v2.2.0** | QwenPaw Hub đa người dùng tự lưu trữ, QwenPaw Mail, QwenPaw Data nguyên bản, định tuyến mô hình hợp nhất, Creator 1.1 cùng nhiều cải tiến lớn cho Market, Console, Skills, kênh và độ tin cậy. [Ghi chú phát hành v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
