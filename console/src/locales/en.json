@@ -139,6 +139,7 @@
     "acp": "ACP",
     "agentConfig": "Configuration",
     "agents": "Agent Management",
+    "console": "Console",
     "settings": "Settings",
     "models": "Models",
     "environments": "Environments",
@@ -3229,6 +3230,11 @@
     "light": "Light",
     "system": "System"
   },
+  "consoleSettings": {
+    "chatSection": "Chat",
+    "historyPageSize": "Messages loaded when opening a chat",
+    "historyPageSizeHint": "How many of the most recent messages to fetch when a chat is opened or when loading earlier messages. Range 1–10000."
+  },
   "chat": {
     "fileReference": {
       "codeSnippet_one": "Code snippet · {{count}} line",
@@ -3261,6 +3267,9 @@
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "The assistant returned an empty response.",
+    "loadEarlierMessages": "Load earlier messages",
+    "loadEarlierFailed": "Failed to load earlier messages",
+    "historyPageSizeAria": "Messages loaded when opening a chat",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"

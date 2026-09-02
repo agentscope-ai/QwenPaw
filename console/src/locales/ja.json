@@ -140,6 +140,7 @@
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
     "agents": "エージェント管理",
+    "console": "コンソール",
     "debug": "デバッグ",
     "plugins": "プラグイン",
     "acp": "ACP",
@@ -2591,6 +2592,11 @@
     "light": "ライト",
     "system": "システムに従う"
   },
+  "consoleSettings": {
+    "chatSection": "チャット",
+    "historyPageSize": "チャットを開いたときに読み込むメッセージ数",
+    "historyPageSizeHint": "チャットを開いたとき、および以前のメッセージを読み込むときに取得する最新メッセージ数です。範囲は 1～10000 です。"
+  },
   "sidebar": {
     "newVersion": "新しいバージョンが利用可能です: v{{version}}、クリックしてアップグレード",
     "updateModal": {
@@ -2668,6 +2674,9 @@
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
+    "loadEarlierMessages": "以前のメッセージを読み込む",
+    "loadEarlierFailed": "以前のメッセージの読み込みに失敗しました",
+    "historyPageSizeAria": "チャットを開いたときに読み込むメッセージ数",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"

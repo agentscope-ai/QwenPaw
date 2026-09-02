@@ -151,6 +151,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
           }
 
           // Load this chat's messages, search, then let GC reclaim
+          // Search needs the full transcript; do not pass limit/before.
           try {
             const history = await chatApi.getChat(chatId, {
               include_app_owned: false,

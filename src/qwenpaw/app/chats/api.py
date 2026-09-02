@@ -16,6 +16,7 @@ from agentscope.state import AgentState
 
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
+from .history_window import apply_history_window
 from .models import (
     BatchArchiveResult,
     ChatGroup,
@@ -706,6 +707,24 @@ async def get_chat(
             "opts out so app dialogues stay inside their owning app."
         ),
     ),
+    limit: int = Query(
+        0,
+        ge=0,
+        le=10000,
+        description=(
+            "Maximum number of most-recent source messages (AgentScope "
+            "Msg objects) to convert and return. 0 (default) returns the "
+            "full history (backward compatible)."
+        ),
+    ),
+    before: Optional[str] = Query(
+        None,
+        description=(
+            "Return only source messages older than the Msg whose id "
+            "(exposed after conversion as metadata.original_id) equals "
+            "this value (cursor for 'load earlier messages' pagination)."
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
     workspace=Depends(get_workspace),
@@ -713,13 +732,21 @@ async def get_chat(
     """Get detailed information about a specific chat by UUID.
 
     Args:
-        request: FastAPI request (for agent context)
         chat_id: Chat UUID
+        include_app_owned: Allow reading PawApp-owned chat history
+        limit: Maximum number of most-recent **source** messages (AgentScope
+            ``Msg`` objects) to convert and return (0 = all)
+        before: Optional cursor equal to a source ``Msg.id`` (exposed after
+            conversion as ``metadata.original_id``); when set, only messages
+            older than that source message are returned
         mgr: Chat manager dependency
         session: SafeJSONSession dependency
 
     Returns:
-        ChatHistory with messages and status (idle/running)
+        ChatHistory with messages and status (idle/running); ``total`` and
+        ``has_more`` describe the unwindowed **source** history so clients
+        can offer "load earlier messages" (see issues #3915 and #6635).
+        Conversion runs only on the windowed ``Msg`` list.
 
     Raises:
         HTTPException: If chat not found (404)
@@ -787,8 +814,18 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    windowed, total, has_more = apply_history_window(
+        memories,
+        limit=limit,
+        before=before,
+    )
+    messages = agentscope_msg_to_message(windowed)
+    return ChatHistory(
+        messages=messages,
+        status=status,
+        total=total,
+        has_more=has_more,
+    )
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

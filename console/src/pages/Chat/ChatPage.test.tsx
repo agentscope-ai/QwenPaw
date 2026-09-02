@@ -151,16 +151,32 @@ vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
 }));
 
-vi.mock("./sessionApi", () => ({
-  default: {
-    onSessionIdResolved: null,
-    onSessionRemoved: null,
-    onSessionSelected: null,
-    onSessionCreated: null,
-    getRealIdForSession: vi.fn(() => null),
-    setLastUserMessage: vi.fn(),
-  },
-}));
+vi.mock("./sessionApi", () => {
+  const emptyHistoryPage = {
+    hasMore: false,
+    loading: false,
+    total: 0,
+    oldestOriginalId: null as string | null,
+    loadedOriginalIds: [] as string[],
+  };
+  return {
+    default: {
+      onSessionIdResolved: null,
+      onSessionRemoved: null,
+      onSessionSelected: null,
+      onSessionCreated: null,
+      subscribeHistoryPage: vi.fn(() => () => undefined),
+      getHistoryPage: vi.fn(() => emptyHistoryPage),
+      loadEarlierMessages: vi.fn(),
+      subscribeHistoryReplaced: vi.fn(() => () => undefined),
+      subscribeLoadEarlierRequest: vi.fn(() => () => undefined),
+      requestLoadEarlier: vi.fn(),
+      reloadAfterPageSizeChange: vi.fn(),
+      getRealIdForSession: vi.fn(() => null),
+      setLastUserMessage: vi.fn(),
+    },
+  };
+});
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
   default: {

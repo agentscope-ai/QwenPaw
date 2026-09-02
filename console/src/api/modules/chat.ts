@@ -9,6 +9,7 @@ import type {
   ChatGroup,
   BatchArchiveResult,
   Session,
+  GetChatOptions,
 } from "../types";
 
 /** Response from POST /console/upload. url = filename only; agent_id from header. */
@@ -19,6 +20,17 @@ export interface ChatUploadResponse {
 }
 
 const FILES_PREVIEW = "/files/preview";
+
+function chatHistoryQuery(options?: GetChatOptions): string {
+  const searchParams = new URLSearchParams();
+  if (options?.include_app_owned !== undefined)
+    searchParams.append("include_app_owned", String(options.include_app_owned));
+  if (options?.limit !== undefined)
+    searchParams.append("limit", String(options.limit));
+  if (options?.before) searchParams.append("before", options.before);
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
 
 export const chatApi = {
   /** Upload a file for chat attachment. Returns URL path for content. */
@@ -82,19 +94,9 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (
-    chatId: string,
-    options?: { signal?: AbortSignal; include_app_owned?: boolean },
-  ) => {
-    const searchParams = new URLSearchParams();
-    if (options?.include_app_owned !== undefined)
-      searchParams.append(
-        "include_app_owned",
-        String(options.include_app_owned),
-      );
-    const query = searchParams.toString();
+  getChat: (chatId: string, options?: GetChatOptions) => {
     return request<ChatHistory>(
-      `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
+      `/chats/${encodeURIComponent(chatId)}${chatHistoryQuery(options)}`,
       {
         signal: options?.signal,
       },
@@ -184,8 +186,13 @@ export const sessionApi = {
     return request<Session[]>(`/chats${query ? `?${query}` : ""}`);
   },
 
-  getSession: (sessionId: string) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(sessionId)}`),
+  getSession: (sessionId: string, options?: GetChatOptions) =>
+    request<ChatHistory>(
+      `/chats/${encodeURIComponent(sessionId)}${chatHistoryQuery(options)}`,
+      {
+        signal: options?.signal,
+      },
+    ),
 
   deleteSession: (sessionId: string) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(sessionId)}`, {

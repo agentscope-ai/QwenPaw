@@ -40,6 +40,19 @@ export interface Message {
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  /** Message count before pagination windowing. */
+  total?: number;
+  /** True when older messages exist beyond the returned window. */
+  has_more?: boolean;
+}
+
+export interface GetChatOptions {
+  signal?: AbortSignal;
+  include_app_owned?: boolean;
+  /** Max most-recent messages to return. Omit for full history. */
+  limit?: number;
+  /** `metadata.original_id` cursor: return messages older than this source Msg. */
+  before?: string;
 }
 
 export interface ChatUpdateRequest {

@@ -1,0 +1,24 @@
+.virtualScroll {
+  // Vendor .bubble-list uses flex gap. Spacers would pick that up too,
+  // so the scroller gap is forced off and only .rows keeps the 24px.
+  gap: 0 !important;
+}
+
+.rows {
+  display: flex;
+  flex-direction: inherit;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.row {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.spacer {
+  flex: 0 0 auto;
+  width: 100%;
+  pointer-events: none;
+}

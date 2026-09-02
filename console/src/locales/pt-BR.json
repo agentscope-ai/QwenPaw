@@ -136,6 +136,7 @@
     "acp": "ACP",
     "agentConfig": "Configuracao",
     "agents": "Gerenciamento de Agentes",
+    "console": "Console",
     "settings": "Configuracoes",
     "models": "Modelos",
     "environments": "Environments",
@@ -2835,6 +2836,11 @@
     "light": "Light",
     "system": "System"
   },
+  "consoleSettings": {
+    "chatSection": "Chat",
+    "historyPageSize": "Mensagens carregadas ao abrir um chat",
+    "historyPageSizeHint": "Quantas das mensagens mais recentes buscar ao abrir um chat ou ao carregar mensagens anteriores. Intervalo 1–10000."
+  },
   "sidebar": {
     "newVersion": "New version available: v{{version}}, click to upgrade",
     "updateModal": {
@@ -2912,6 +2918,9 @@
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "O assistente retornou uma resposta vazia.",
+    "loadEarlierMessages": "Carregar mensagens anteriores",
+    "loadEarlierFailed": "Falha ao carregar mensagens anteriores",
+    "historyPageSizeAria": "Mensagens carregadas ao abrir um chat",
     "commands": {
       "clear": {
         "description": "Limpar the conversation context"
