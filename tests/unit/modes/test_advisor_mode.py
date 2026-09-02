@@ -4,6 +4,8 @@
 ``/advisor`` command, middleware construction and the teacher client."""
 from __future__ import annotations
 
+import json
+
 from types import SimpleNamespace
 
 import pytest
@@ -427,9 +429,19 @@ class _Teacher:
         self.reply = reply
         self.calls = []
 
-    async def ask(self, messages):
+    async def ask(self, messages, *, on_text=None):
         self.calls.append(messages)
+        if on_text is not None:
+            on_text(self.reply[: len(self.reply) // 2])
+            on_text(self.reply)
         return self.reply
+
+
+async def _tool_text(consult, question):
+    """Run the streaming ``consult_advisor`` tool and join its chunks."""
+    chunks = [chunk async for chunk in consult(question)]
+    assert all(len(c.content) == 1 for c in chunks)
+    return "".join(c.content[0].text for c in chunks), chunks
 
 
 def test_tool_is_registered_and_mode_gated():
@@ -466,10 +478,41 @@ async def test_tool_consults_the_middleware_of_the_current_session(
         lambda: "sess-1",
     )
     consult = mode.tools()[0].func
-    reply = await consult("Keep going or switch?")
+    reply, chunks = await _tool_text(consult, "Keep going or switch?")
     assert reply == "Switch to the other approach."
+    assert len(chunks) >= 2, "the answer streams in pieces"
+    assert len({c.content[0].id for c in chunks}) == 1, "one text block"
     assert mw.consults_used == 1
     assert "Keep going or switch?" in teacher.calls[0][-1]["content"]
+
+
+async def test_tool_streams_through_the_agentscope_toolkit(monkeypatch):
+    """End to end through ``Toolkit.call_tool``: the chunks reach the
+    caller as they are produced and accumulate into one text block."""
+    from agentscope.message import ToolCallBlock
+    from agentscope.state import AgentState
+    from agentscope.tool import FunctionTool, Toolkit, ToolResponse
+
+    mode = AdvisorMode()
+    cfg = _config()
+    mw = mode.build_middleware(_ctx(cfg), cfg)
+    mw._teacher = _Teacher("First half, second half.")
+    monkeypatch.setattr(
+        "qwenpaw.modes.advisor.mode.get_current_session_id",
+        lambda: "sess-1",
+    )
+    toolkit = Toolkit(tools=[FunctionTool(mode.tools()[0].func)])
+    call = ToolCallBlock(
+        id="tc-1",
+        name=CONSULT_TOOL_NAME,
+        input=json.dumps({"question": "which half?"}),
+    )
+    seen = [item async for item in toolkit.call_tool(call, AgentState())]
+    final = seen[-1]
+    assert isinstance(final, ToolResponse)
+    assert len(seen) >= 3, "at least two chunks before the response"
+    assert len(final.content) == 1, "chunks merged into one text block"
+    assert final.content[0].text == "First half, second half."
 
 
 async def test_tool_without_session_or_when_disabled(monkeypatch):
@@ -479,7 +522,7 @@ async def test_tool_without_session_or_when_disabled(monkeypatch):
         "qwenpaw.modes.advisor.mode.get_current_session_id",
         lambda: None,
     )
-    assert "not available" in await consult("q")
+    assert "not available" in (await _tool_text(consult, "q"))[0]
 
     cfg = _config()
     cfg.advisor_mode.on_demand_enabled = False
@@ -489,7 +532,7 @@ async def test_tool_without_session_or_when_disabled(monkeypatch):
         "qwenpaw.modes.advisor.mode.get_current_session_id",
         lambda: "sess-1",
     )
-    assert "switched off" in await consult("q")
+    assert "switched off" in (await _tool_text(consult, "q"))[0]
     assert mw.consults_used == 0
 
 

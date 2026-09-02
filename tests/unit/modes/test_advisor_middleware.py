@@ -18,6 +18,7 @@ from agentscope.message import (
 
 from qwenpaw.modes.advisor.middleware import (
     CONSULT_BUDGET_EXHAUSTED,
+    DEFAULT_MAX_CONSULTS,
     FOLLOWUP_TOOL_NAME,
     PLAN_TOOL_NAME,
     AdvisorMiddleware,
@@ -949,3 +950,48 @@ async def test_teacher_without_streaming_support_still_works():
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
     assert _streamed(agent) == "PLAN"
     assert agent.events[-1][0] == "finish"
+
+
+# ── consult_stream: the on-demand answer as deltas ──────────────────────
+
+
+async def _pieces(mw, question):
+    return [piece async for piece in mw.consult_stream(question)]
+
+
+async def test_consult_stream_yields_the_reply_in_pieces():
+    mw = _plan_mw(["THE PLAN", "Take the other route, it is shorter."])
+    agent = _agent_with_task()
+    await mw.on_model_call(agent, {"messages": []}, _next_handler)  # plan
+    pieces = await _pieces(mw, "which route?")
+    assert len(pieces) >= 2, "streamed, not delivered in one go"
+    assert "".join(pieces) == "Take the other route, it is shorter."
+    assert mw.consults_left == DEFAULT_MAX_CONSULTS - 1, "counted once"
+    assert "which route?" in mw.teacher.calls[-1][-1]["content"]
+
+
+async def test_consult_stream_delivers_a_notice_as_one_piece():
+    mw = make_mw(["x"])
+    mw._max_consults = 0
+    pieces = await _pieces(mw, "anything?")
+    assert pieces == [CONSULT_BUDGET_EXHAUSTED]
+    assert not mw.teacher.calls, "no teacher call past the cap"
+
+
+async def test_consult_stream_without_teacher_streaming():
+    class _PlainTeacher:
+        label = "plain"
+
+        async def ask(self, messages, *, on_text=None):
+            return "  whole answer  "  # never calls on_text
+
+    mw = make_mw(["x"])
+    mw._teacher = _PlainTeacher()
+    pieces = await _pieces(mw, "q?")
+    assert "".join(pieces) == "whole answer", "stripped like consult()"
+
+
+async def test_consult_stream_reports_a_failed_teacher_call():
+    mw = make_mw([RuntimeError("down")])
+    pieces = await _pieces(mw, "q?")
+    assert len(pieces) == 1 and "could not be reached" in pieces[0]

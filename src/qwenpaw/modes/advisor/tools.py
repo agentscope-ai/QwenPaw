@@ -10,7 +10,8 @@ of waiting for the failure trigger.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+import uuid
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 if TYPE_CHECKING:
     from .mode import AdvisorMode
@@ -68,10 +69,27 @@ def register_advisor_tools_governance() -> None:
         )
 
 
-def make_consult_advisor(owner: "AdvisorMode") -> Any:
-    """Build the ``consult_advisor`` tool function bound to ``owner``."""
+def _chunk(text: str, block_id: str) -> Any:
+    """One streamed piece of the tool result.
 
-    async def consult_advisor(question: str) -> str:
+    Every chunk carries the same block id, so the toolkit accumulates
+    them into a single text block (the agent then reads one reply, not a
+    list of fragments) and the UI appends each piece as it arrives.
+    """
+    from agentscope.message import TextBlock
+    from agentscope.tool import ToolChunk
+
+    return ToolChunk(content=[TextBlock(type="text", text=text, id=block_id)])
+
+
+def make_consult_advisor(owner: "AdvisorMode") -> Any:
+    """Build the ``consult_advisor`` tool function bound to ``owner``.
+
+    The tool is an async generator: the advisor's answer streams into the
+    tool result while it is being written, like the injected plan does.
+    """
+
+    async def consult_advisor(question: str) -> AsyncIterator[Any]:
         """Ask the advisor a strategic question about the current task.
 
         Args:
@@ -79,18 +97,23 @@ def make_consult_advisor(owner: "AdvisorMode") -> Any:
                 sentences, including what you already tried and which
                 options you see. Ask about strategy, not syntax.
         """
+        block_id = uuid.uuid4().hex[:12]
         middleware = owner.current_middleware()
         if middleware is None:
             logger.info(
                 "consult_advisor called without an active advisor session",
             )
-            return _NO_SESSION_REPLY
+            yield _chunk(_NO_SESSION_REPLY, block_id)
+            return
         if not middleware.on_demand_enabled:
-            return (
+            yield _chunk(
                 "On-demand consultation is switched off for this agent. "
-                "Decide with your own best judgment and keep going."
+                "Decide with your own best judgment and keep going.",
+                block_id,
             )
-        return await middleware.consult(question)
+            return
+        async for piece in middleware.consult_stream(question):
+            yield _chunk(piece, block_id)
 
     return consult_advisor
 

@@ -31,12 +31,13 @@ and advice already given.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from agentscope.message import (
     AssistantMsg,
@@ -558,13 +559,18 @@ class AdvisorMiddleware(MiddlewareBase):
 
     # ── on-demand consultation ──────────────────────────────────────────
 
-    async def consult(self, question: str) -> str:
+    async def consult(
+        self,
+        question: str,
+        on_text: Callable[[str], None] | None = None,
+    ) -> str:
         """Answer a question the agent asked through ``consult_advisor``.
 
         The reply is returned to the agent as the tool result (the toolkit
         records it in context, so nothing is injected here). Consultations
         are capped per conversation; past the cap a fixed notice is
-        returned instead of a teacher call.
+        returned instead of a teacher call. ``on_text`` receives the
+        cumulative reply while the teacher is still writing it.
         """
         question = (question or "").strip()
         if not question:
@@ -592,7 +598,11 @@ class AdvisorMiddleware(MiddlewareBase):
             "request": request,
         }
         try:
-            reply = await self._call_teacher(request, stateful=True)
+            reply = await self._call_teacher(
+                request,
+                stateful=True,
+                on_text=on_text,
+            )
         except Exception as exc:
             logger.error(
                 "AdvisorMiddleware: on-demand teacher call failed: %s",
@@ -617,6 +627,47 @@ class AdvisorMiddleware(MiddlewareBase):
             len(reply),
         )
         return reply.strip() or "(the advisor had nothing to add)"
+
+    async def consult_stream(self, question: str) -> AsyncIterator[str]:
+        """:meth:`consult`, delivered as text deltas while the teacher
+        writes, so the ``consult_advisor`` tool can stream its result.
+
+        Yields the pieces of the reply in order; joined, they equal the
+        text :meth:`consult` returns (a notice — budget exhausted, teacher
+        unreachable — arrives as one piece).
+        """
+        deltas: asyncio.Queue[str] = asyncio.Queue()
+        sent = ""
+
+        def on_text(text: str) -> None:
+            nonlocal sent
+            if text.startswith(sent) and len(text) > len(sent):
+                deltas.put_nowait(text[len(sent) :])
+                sent = text
+
+        task = asyncio.ensure_future(self.consult(question, on_text=on_text))
+        try:
+            while not task.done():
+                try:
+                    yield await asyncio.wait_for(deltas.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+            while not deltas.empty():
+                yield deltas.get_nowait()
+            reply = task.result()
+            # Whatever the stream did not carry: the final text when the
+            # teacher did not stream, or a notice instead of a reply.
+            if reply.startswith(sent):
+                tail = reply[len(sent) :]
+            else:
+                tail = "" if sent else reply
+            if tail:
+                yield tail
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
 
     # ── mid-run intervention ────────────────────────────────────────────
 
