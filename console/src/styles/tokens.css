@@ -59,6 +59,7 @@
   --app-accent-text: #bd5100;
   --app-accent-faint: rgba(255, 127, 22, 0.04);
   --app-accent-soft: rgba(255, 127, 22, 0.1);
+  --app-accent-soft-hover: rgba(255, 127, 22, 0.16);
   --app-accent-border: rgba(255, 127, 22, 0.42);
   --app-accent-ring: rgba(255, 127, 22, 0.2);
 
@@ -135,6 +136,7 @@ html.dark-mode {
   --app-accent-text: #ff9a47;
   --app-accent-faint: rgba(255, 127, 22, 0.08);
   --app-accent-soft: rgba(255, 127, 22, 0.16);
+  --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
   --app-accent-border: rgba(255, 127, 22, 0.5);
 
   /* Selection */
