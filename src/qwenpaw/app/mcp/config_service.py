@@ -179,12 +179,9 @@ class MCPConfigService:
         if manager is not None:
             try:
                 await manager.refresh_driver(client_key)
-            except Exception as exc:
+            except Exception:
                 logger.warning(
-                    "MCP client '%s' whitelist saved but driver not "
-                    "refreshed: %s",
-                    client_key,
-                    exc,
+                    "MCP tool whitelist saved but driver was not refreshed",
                     exc_info=True,
                 )
                 await self._driver_config.reload_driver_best_effort(
