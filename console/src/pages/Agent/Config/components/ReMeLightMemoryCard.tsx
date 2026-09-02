@@ -49,12 +49,11 @@ export function isValidDreamCronShape(value?: string) {
 }
 
 export function ReMeLightMemoryCard() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
   const {
-    setNeedsReindex,
     reindexing,
     setReindexing,
     runtimeStatus,
@@ -68,16 +67,18 @@ export function ReMeLightMemoryCard() {
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
-      title: t("agentConfig.rebuildMemoryIndexConfirmTitle"),
-      content: t("agentConfig.rebuildMemoryIndexConfirm"),
-      okText: t("agentConfig.rebuildMemoryIndex"),
+      title: t("agentConfig.rebuildBm25IndexConfirmTitle"),
+      content: t("agentConfig.rebuildBm25IndexConfirm"),
+      okText: t("agentConfig.rebuildBm25Index"),
       cancelText: t("common.cancel"),
       onOk: async () => {
         setReindexing(true);
         try {
-          await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
-          setNeedsReindex(false);
-          message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
+          await agentsApi.rebuildMemoryIndex(
+            selectedAgent || "default",
+            "bm25",
+          );
+          message.success(t("agentConfig.rebuildBm25IndexSuccess"));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           message.error(
@@ -158,12 +159,6 @@ export function ReMeLightMemoryCard() {
   const dailyPaperCronEnabled = remeConfig?.daily_paper_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
-  const dailyPaperDocsUrl = (i18n?.resolvedLanguage || i18n?.language || "en")
-    .toLowerCase()
-    .startsWith("zh")
-    ? "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md"
-    : "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README.md";
-
   const toggleAutoMemory = (enabled: boolean) => {
     form.setFieldValue(
       ["reme_light_memory_config", "auto_memory_interval"],
@@ -265,8 +260,8 @@ export function ReMeLightMemoryCard() {
                 <AlertTriangle size={14} aria-hidden="true" />
                 {t("agentConfig.memoryMaintenanceEyebrow")}
               </span>
-              <strong>{t("agentConfig.memoryMaintenanceTitle")}</strong>
-              <small>{t("agentConfig.memoryMaintenanceDescription")}</small>
+              <strong>{t("agentConfig.rebuildBm25Index")}</strong>
+              <small>{t("agentConfig.rebuildBm25IndexDescription")}</small>
             </div>
             <ChevronRight size={16} aria-hidden="true" />
           </button>
@@ -374,7 +369,11 @@ export function ReMeLightMemoryCard() {
                 </span>
               </button>
               <div className={styles.memorySourceActions}>
-                <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
+                <a
+                  href="https://qwenpaw.agentscope.io/docs/memory"
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {t("agentConfig.dailyPaperDocumentation")}
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>

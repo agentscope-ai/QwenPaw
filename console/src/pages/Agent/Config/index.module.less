@@ -109,10 +109,6 @@
   width: 100%;
 }
 
-.embeddingReindexAlert {
-  margin-bottom: 12px;
-}
-
 .memoryReferences {
   display: flex;
   align-items: center;
@@ -247,6 +243,65 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.56);
   overflow: hidden;
+}
+
+.embeddingIndexItem {
+  position: relative;
+  min-width: 0;
+  border-right: 0;
+}
+
+.embeddingIndexPrimaryAction {
+  width: 100%;
+  height: 100%;
+  border-right: 0;
+}
+
+.embeddingIndexReady {
+  background: rgba(37, 131, 72, 0.045);
+
+  .embeddingIndexPrimaryAction:hover {
+    background: rgba(37, 131, 72, 0.075);
+  }
+
+  .embeddingIndexPrimaryAction > svg {
+    color: rgba(37, 131, 72, 0.68);
+  }
+}
+
+.embeddingIndexDisabled {
+  background: rgba(20, 20, 19, 0.025);
+
+  .embeddingIndexPrimaryAction > svg {
+    color: rgba(20, 20, 19, 0.28);
+  }
+}
+
+.embeddingIndexRebuildRequired {
+  background: rgba(255, 127, 22, 0.075);
+}
+
+.embeddingIndexUndoAction {
+  position: absolute;
+  right: 29px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c85e08;
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
 }
 
 .memoryOverviewItem {

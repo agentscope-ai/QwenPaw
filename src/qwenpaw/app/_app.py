@@ -431,9 +431,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
-            startup_provider_ids = (
-                provider_manager.prepare_startup_provider_model_sync()
-            )
+            startup_provider_ids = provider_manager.startup_sync_provider_ids()
             asyncio.create_task(
                 provider_manager.sync_startup_provider_models(
                     startup_provider_ids,
