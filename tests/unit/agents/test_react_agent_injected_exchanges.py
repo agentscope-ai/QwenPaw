@@ -28,14 +28,15 @@ def _bare_agent() -> QwenPawAgent:
     return agent
 
 
-def test_queue_and_drain_emit_a_complete_tool_call_and_result():
+def test_begin_stream_finish_emit_a_complete_tool_call_and_result():
     agent = _bare_agent()
-    agent.queue_injected_exchange(
+    agent.begin_injected_exchange(
         call_id="c1",
         name="consult_advisor",
         arguments='{"question": "plan?"}',
-        output="THE PLAN",
     )
+    agent.stream_injected_output(call_id="c1", delta="THE PLAN")
+    agent.finish_injected_exchange(call_id="c1")
     events = list(agent._drain_injected_exchange_events())
     assert [type(e) for e in events] == [
         ToolCallStartEvent,
@@ -56,12 +57,9 @@ def test_queue_and_drain_emit_a_complete_tool_call_and_result():
 
 def test_empty_arguments_and_output_skip_the_deltas():
     agent = _bare_agent()
-    agent.queue_injected_exchange(
-        call_id="c2",
-        name="x",
-        arguments="",
-        output="",
-    )
+    agent.begin_injected_exchange(call_id="c2", name="x", arguments="")
+    agent.stream_injected_output(call_id="c2", delta="")
+    agent.finish_injected_exchange(call_id="c2")
     events = list(agent._drain_injected_exchange_events())
     assert [type(e) for e in events] == [
         ToolCallStartEvent,

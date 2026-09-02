@@ -318,9 +318,8 @@ class _LiveExchange:
     relayed as it streams in and the call is closed once the answer (or
     the failure) is in — so the user watches the plan being written
     instead of a spinner. Agents without the live hooks (plain AgentScope
-    agents, test doubles) leave ``active`` False; the caller then falls
-    back to :meth:`AdvisorMiddleware._surface` once the exchange is
-    complete.
+    agents, test doubles) leave ``active`` False and every update is a
+    no-op; the exchange still lands in their context.
     """
 
     def __init__(
@@ -822,6 +821,9 @@ class AdvisorMiddleware(MiddlewareBase):
                 _FOLLOWUP_FORMAT_ATTEMPTS,
             )
             if attempt < _FOLLOWUP_FORMAT_ATTEMPTS:
+                # The rejected sample must not shape the next answer (or
+                # later consultations): drop it from the teacher history.
+                del self._teacher_history[-2:]
                 live.note("(no CONTINUE/ADJUST verdict; asking again)")
         else:
             # Still unparseable: treat as ADJUST rather than drop the
@@ -864,10 +866,7 @@ class AdvisorMiddleware(MiddlewareBase):
             call_id=call_id,
         )
         agent.state.context.append(msg)
-        if live.active:
-            live.finish(advice)
-        else:
-            self._surface(agent, msg)
+        live.finish(advice)
         logger.info(
             "AdvisorMiddleware: follow-up advice injected (%d chars)",
             len(body),
@@ -959,37 +958,8 @@ class AdvisorMiddleware(MiddlewareBase):
             call_id=call_id,
         )
         agent.state.context.append(msg)
-        if live.active:
-            live.finish(plan)
-        else:
-            self._surface(agent, msg)
+        live.finish(plan)
         return msg
-
-    @staticmethod
-    def _surface(agent: "Agent", msg: Msg) -> None:
-        """Ask the agent to show a completed injected exchange in the UI.
-
-        Fallback for agents that offer ``queue_injected_exchange`` but not
-        the live hooks used by :class:`_LiveExchange`; agents without
-        either (plain AgentScope agents, test doubles) simply keep the
-        exchange in context.
-        """
-        queue = getattr(agent, "queue_injected_exchange", None)
-        if not callable(queue):
-            return
-        try:
-            call, result = msg.content[0], msg.content[1]
-            queue(
-                call_id=_block_get(call, "id", ""),
-                name=_block_get(call, "name", ""),
-                arguments=_block_get(call, "input", "") or "",
-                output=_result_text(result),
-            )
-        except Exception:
-            logger.debug(
-                "AdvisorMiddleware: could not surface the injected exchange",
-                exc_info=True,
-            )
 
     # ── teacher call ────────────────────────────────────────────────────
 

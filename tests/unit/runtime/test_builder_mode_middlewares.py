@@ -108,7 +108,9 @@ def _build(ctx, agent_config):
 
 def test_advisor_middleware_is_last_when_mode_enabled(agent_config):
     agent_config.advisor_mode.enabled = True
-    ctx = _ctx([AdvisorMode()])
+    mode = AdvisorMode()
+    mode.session_state("s").override = True  # picked for this conversation
+    ctx = _ctx([mode])
     ctx.app_services = None
     ctx.agent_config = agent_config
     middlewares = _build(ctx, agent_config)

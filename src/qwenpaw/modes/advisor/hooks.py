@@ -13,6 +13,7 @@ from .config import resolve_agent_config
 from .teacher import (
     effective_student_slot,
     effective_teacher_slot,
+    slot_label,
     slot_to_dict,
 )
 
@@ -63,10 +64,6 @@ class StudentModelHook(ModeGatedHook):
 
     async def _run(self, ctx: HookContext) -> HookResult:
         cfg = resolve_agent_config(ctx)
-        state = ctx.mode_state.setdefault("advisor", {})
-        state["advisor_model"] = slot_to_dict(effective_teacher_slot(cfg))
-        state["worker_model"] = None
-
         student = slot_to_dict(effective_student_slot(cfg))
         request = getattr(ctx, "request", None)
         if student is None:
@@ -81,12 +78,11 @@ class StudentModelHook(ModeGatedHook):
                 "leaving it alone",
             )
         elif _apply_model_override(request, student):
-            state["worker_model"] = student
             logger.info(
                 "Advisor Mode: worker runs on %s:%s (advisor: %s)",
                 student["provider_id"],
                 student["model"],
-                state["advisor_model"],
+                slot_label(effective_teacher_slot(cfg)),
             )
         return HookResult()
 

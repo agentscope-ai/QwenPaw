@@ -97,15 +97,3 @@ def test_intervention_thresholds_are_validated():
         ).advisor_mode.intervention.window_size
         == 10
     )
-
-
-def test_legacy_teacher_student_keys_are_read():
-    raw = AgentProfileConfig(id="a", name="A").model_dump()
-    raw["advisor_mode"].pop("advisor_model")
-    raw["advisor_mode"].pop("worker_model")
-    raw["advisor_mode"]["teacher_model"] = {"provider_id": "big", "model": "b"}
-    raw["advisor_mode"]["student_model"] = {"provider_id": "s", "model": "m"}
-    cfg = AgentProfileConfig.model_validate(raw)
-    assert cfg.advisor_mode.advisor_model.model == "b"
-    assert cfg.advisor_mode.worker_model.model == "m"
-    assert "teacher_model" not in cfg.advisor_mode.model_dump()

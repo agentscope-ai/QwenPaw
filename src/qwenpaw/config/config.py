@@ -2120,23 +2120,6 @@ class AdvisorModeConfig(BaseModel):
         ),
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _accept_legacy_names(cls, data: Any) -> Any:
-        """Read ``teacher_model`` / ``student_model`` written by earlier
-        builds of Advisor Mode as ``advisor_model`` / ``worker_model``."""
-        if isinstance(data, dict):
-            data = dict(data)
-            for old, new in (
-                ("teacher_model", "advisor_model"),
-                ("student_model", "worker_model"),
-            ):
-                if old in data and new not in data:
-                    data[new] = data.pop(old)
-                else:
-                    data.pop(old, None)
-        return data
-
 
 class FallbackPolicyConfig(BaseModel):
     """Policy controlling cross-model fallback targets."""

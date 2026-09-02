@@ -783,38 +783,6 @@ async def test_consult_request_carries_the_task():
     assert "write report.md" in request and "which format?" in request
 
 
-# ── surfacing injected exchanges to the UI ──────────────────────────────
-
-
-class _SurfacingAgent(_Agent):
-    def __init__(self):
-        super().__init__()
-        self.surfaced = []
-
-    def queue_injected_exchange(self, **kw):
-        self.surfaced.append(kw)
-
-
-async def test_injected_plan_and_followup_are_surfaced_to_the_agent():
-    mw = _plan_mw(["THE PLAN", "ADJUST\nSwitch."])
-    agent = _SurfacingAgent()
-    agent.state.context.append(UserMsg(name="user", content="do it"))
-    await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert len(agent.surfaced) == 1
-    plan = agent.surfaced[0]
-    assert plan["name"] == PLAN_TOOL_NAME and plan["output"] == "THE PLAN"
-    assert json.loads(plan["arguments"]) == _PLAN_CALL_ARGS
-    assert plan["call_id"] == agent.state.context[-1].content[0].id
-
-    mw2 = make_mw(["ADJUST\nSwitch."])
-    agent2 = _SurfacingAgent()
-    for i in range(3):
-        add_result(agent2, "execute_shell_command", {"command": f"c{i}"}, FAIL)
-        await mw2._check_and_intervene(agent2)
-    assert [s["name"] for s in agent2.surfaced] == [FOLLOWUP_TOOL_NAME]
-    assert agent2.surfaced[0]["output"] == "Switch."
-
-
 async def test_agents_without_the_hook_are_fine():
     mw, agent = _plan_mw(["THE PLAN"]), _agent_with_task()
     assert await mw._inject_plan(agent, tools=[]) is not None
@@ -838,9 +806,6 @@ class _LiveAgent(_Agent):
 
     def finish_injected_exchange(self, **kw):
         self.events.append(("finish", kw))
-
-    def queue_injected_exchange(self, **kw):  # must NOT be used
-        self.events.append(("queue", kw))
 
 
 def _streamed(agent):
@@ -869,7 +834,6 @@ async def test_plan_is_opened_before_the_teacher_answers_and_streamed():
     ], "call shown before the teacher ran"
     kinds = [kind for kind, _ in agent.events]
     assert kinds[0] == "begin" and kinds[-1] == "finish"
-    assert "queue" not in kinds, "live path used, not the completed-pair one"
     assert kinds.count("delta") >= 2, "reply relayed in pieces"
     assert _streamed(agent) == "THE PLAN, in full"
     begin = agent.events[0][1]
@@ -995,3 +959,17 @@ async def test_consult_stream_reports_a_failed_teacher_call():
     mw = make_mw([RuntimeError("down")])
     pieces = await _pieces(mw, "q?")
     assert len(pieces) == 1 and "could not be reached" in pieces[0]
+
+
+async def test_rejected_followup_samples_do_not_enter_the_history():
+    mw = make_mw(["no verdict here", "ADJUST\nSwitch."])
+    agent = _Agent()
+    for i in range(3):
+        add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
+        await mw._check_and_intervene(agent)
+    assert [f.output for f in followups(agent)] == ["Switch."]
+    assert len(mw.teacher.calls) == 2, "re-asked once"
+    assistant_turns = [
+        m for m in mw.teacher_history if m["role"] == "assistant"
+    ]
+    assert [m["content"] for m in assistant_turns] == ["ADJUST\nSwitch."]

@@ -1279,24 +1279,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             ),
         )
 
-    def queue_injected_exchange(
-        self,
-        *,
-        call_id: str,
-        name: str,
-        arguments: str,
-        output: str,
-    ) -> None:
-        """Show a complete tool call + result pair that a middleware
-        appended to the context (for example an advisor plan)."""
-        self.begin_injected_exchange(
-            call_id=call_id,
-            name=name,
-            arguments=arguments,
-        )
-        self.stream_injected_output(call_id=call_id, delta=output)
-        self.finish_injected_exchange(call_id=call_id)
-
     def _drain_injected_exchange_events(self) -> Any:
         """Yield every event queued so far, without waiting for more."""
         queue = getattr(self, "_injected_events", None)
