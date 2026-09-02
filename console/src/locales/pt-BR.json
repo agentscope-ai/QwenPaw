@@ -1799,7 +1799,7 @@
     }
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Modo Conselheiro ativo: este modelo executa o agente enquanto o modelo principal atua como conselheiro.",
+    "subagentModelAdvisorHint": "Modo Conselheiro: em conversas do Conselheiro o agente roda neste modelo enquanto o modelo principal atua como conselheiro (o template de loop Conselheiro pode indicar outros modelos).",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",
@@ -2331,13 +2331,13 @@
     "enhancedCodeCapabilityDescription": "Ative AST, LSP, prompts de código, contexto Git e controle de versão.",
     "advisorMode": "Modo Conselheiro",
     "advisorModeTooltip": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando; o agente em si roda no modelo de subagente.",
-    "advisorModeDescription": "Deixe o modelo principal planejar e supervisionar este agente (experimental).",
+    "advisorModeDescription": "Disponibilizar o Modo Conselheiro para este agente (experimental).",
     "advisorModePlan": "Plano inicial: o conselheiro escreve um plano antes do primeiro passo do agente",
     "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
     "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
     "advisorModeModels": "Conselheiro: {{teacher}} · Agente: {{student}}",
     "advisorModeNoStudent": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
-    "advisorModeEnableHelp": "O padrão para toda conversa, canal e execução de cron deste agente. /advisor on|off (ou o menu de modo no compositor) o sobrescreve apenas para uma conversa.",
+    "advisorModeEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo do compositor e /advisor funciona; escolha por conversa (canais e prompts de cron usam /advisor on).",
     "advisorModeModelsTitle": "Modelos do conselheiro e do agente",
     "advisorModeModelsHelp": "Por padrão o conselheiro é o modelo principal do agente e o agente em si roda no modelo de subagente. Escolha outros modelos aqui para sobrescrever qualquer um deles; a escolha é salva com o agente.",
     "advisorModeTeacherModel": "Modelo do conselheiro",
@@ -3966,7 +3966,7 @@
   },
   "advisorMode": {
     "badge": "Conselheiro",
-    "badgeTooltip": "Modo Conselheiro ativo: o modelo principal planeja e supervisiona este agente."
+    "badgeTooltip": "Esta conversa está no Modo Conselheiro: o modelo principal planeja e supervisiona o agente."
   },
   "codingMode": {
     "title": "Modo de Codificação",

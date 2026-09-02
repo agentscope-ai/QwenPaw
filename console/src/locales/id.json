@@ -841,7 +841,7 @@
     "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Mode Penasihat aktif: model ini menjalankan agen sementara model utama menjadi penasihatnya.",
+    "subagentModelAdvisorHint": "Mode Penasihat: dalam percakapan Penasihat, agen berjalan pada model ini sementara model utama menjadi penasihatnya (templat loop Penasihat dapat menentukan model lain).",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
     "noFreeModels": "Tidak ada model gratis tersedia",
@@ -1882,7 +1882,7 @@
   },
   "advisorMode": {
     "badge": "Penasihat",
-    "badgeTooltip": "Mode Penasihat aktif: model utama merencanakan dan mengawasi agen ini."
+    "badgeTooltip": "Percakapan ini berjalan dalam Mode Penasihat: model utama merencanakan dan mengawasi agen."
   },
   "codingMode": {
     "title": "Mode Coding",
@@ -3001,13 +3001,13 @@
     "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "advisorMode": "Mode Penasihat",
     "advisorModeTooltip": "Model utama menyusun rencana sebelum agen mulai dan turun tangan saat agen terus gagal; agen sendiri berjalan pada model sub-agen.",
-    "advisorModeDescription": "Biarkan model utama merencanakan dan mengawasi agen ini (eksperimental).",
+    "advisorModeDescription": "Sediakan Mode Penasihat untuk agen ini (eksperimental).",
     "advisorModePlan": "Rencana awal: penasihat menyusun rencana sebelum langkah pertama agen",
     "advisorModeFollowup": "Intervensi otomatis di tengah jalan: harness memantau hasil alat dan memanggil penasihat saat agen terus gagal",
     "advisorModeOnDemand": "Izinkan agen bertanya secara proaktif kepada penasihat melalui alat consult_advisor",
     "advisorModeModels": "Penasihat: {{teacher}} · Agen: {{student}}",
     "advisorModeNoStudent": "model utama (atur model sub-agen untuk menjalankan agen pada model yang lebih murah)",
-    "advisorModeEnableHelp": "Nilai default untuk setiap percakapan, kanal, dan jalankan cron agen ini. /advisor on|off (atau menu mode di kotak input) hanya menimpanya untuk satu percakapan.",
+    "advisorModeEnableHelp": "Percakapan tetap dimulai di loop default. Saat aktif, Penasihat muncul di menu mode kotak input dan /advisor berfungsi; pilih per percakapan (kanal dan prompt cron memakai /advisor on).",
     "advisorModeModelsTitle": "Model penasihat dan agen",
     "advisorModeModelsHelp": "Secara default penasihat adalah model utama agen, dan agen sendiri berjalan pada model sub-agen. Pilih model lain di sini untuk menimpa salah satunya; pilihan disimpan bersama agen.",
     "advisorModeTeacherModel": "Model penasihat",

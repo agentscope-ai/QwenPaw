@@ -62,6 +62,13 @@ _LOOP_DESCRIPTION_I18N = {
 _MAX_SESSIONS = 64
 
 
+_UNAVAILABLE_NOTICE = (
+    "Advisor Mode is switched off for this agent. Turn it on in "
+    "Configuration → Agent Loop Settings → Advisor, then pick Advisor in "
+    "the composer's mode menu or send /advisor on."
+)
+
+
 def _system_reply(text: str) -> Msg:
     return Msg(
         name="system",
@@ -116,8 +123,10 @@ class AdvisorSessionState:
 class AdvisorMode(AgentMode):
     """Bundle for Advisor Mode behaviour.
 
-    * ``is_active``: the conversation's ``/advisor`` switch when set,
-      otherwise ``agent_config.advisor_mode.enabled``.
+    * ``is_available``: ``agent_config.advisor_mode.enabled`` — whether
+      the agent offers the mode at all (composer menu, ``/advisor``).
+    * ``is_active``: the conversation's ``/advisor`` switch, which only
+      counts while the mode is available.
     * ``hooks`` swaps the agent onto ``subagent_model`` before the build
       (:class:`StudentModelHook`).
     * ``middlewares`` contributes :class:`AdvisorMiddleware`, which asks
@@ -179,12 +188,24 @@ class AdvisorMode(AgentMode):
 
     # ── AgentMode surface ───────────────────────────────────────────────
 
+    def is_available(self, agent_config: object) -> bool:
+        """Offered in the composer only when switched on for the agent."""
+        return is_enabled(agent_config)
+
     def is_active(self, ctx: HookContext) -> bool:
+        """On for this conversation.
+
+        Conversations start in the default loop. Advisor Mode is on only
+        after it was picked for the conversation (the composer's mode
+        menu sends ``/advisor <task>``; ``/advisor on`` does the same
+        anywhere slash commands work) — and only while the agent has the
+        mode switched on in Configuration.
+        """
+        if not is_enabled(resolve_agent_config(ctx)):
+            return False
         key = self._session_key(ctx)
         state = self._sessions.get(key) if key else None
-        if state is not None and state.override is not None:
-            return state.override
-        return is_enabled(resolve_agent_config(ctx))
+        return bool(state is not None and state.override)
 
     def hooks(self) -> list[HookBase]:
         from .hooks import StudentModelHook
@@ -315,6 +336,9 @@ class AdvisorMode(AgentMode):
         if word in ("", "status", "help"):
             return _system_reply(self._status_text(cfg, self._override(key)))
 
+        if word != "off" and not is_enabled(cfg):
+            return _system_reply(_UNAVAILABLE_NOTICE)
+
         if word in ("on", "off"):
             enabled = word == "on"
             if key:
@@ -343,8 +367,8 @@ class AdvisorMode(AgentMode):
     @staticmethod
     def _status_text(cfg: Any, override: bool | None = None) -> str:
         am = getattr(cfg, "advisor_mode", None)
-        default_on = bool(am and getattr(am, "enabled", False))
-        active = default_on if override is None else override
+        available = bool(am and getattr(am, "enabled", False))
+        active = available and bool(override)
         plan = bool(am is None or getattr(am, "plan_enabled", True))
         followup = bool(am is None or getattr(am, "followup_enabled", True))
         on_demand = bool(
@@ -362,11 +386,15 @@ class AdvisorMode(AgentMode):
             if student_slot is not None
             else f"{teacher} (no sub-agent model configured)"
         )
-        scope = (
-            "this conversation"
-            if override is not None
-            else "agent default, set in Configuration"
-        )
+        if not available:
+            scope = "switched off for this agent in Configuration"
+        elif active:
+            scope = "this conversation"
+        else:
+            scope = (
+                "not selected for this conversation; pick Advisor in the "
+                "composer's mode menu or send /advisor on"
+            )
         return (
             f"Advisor Mode: {'on' if active else 'off'} ({scope})\n"
             f"- advisor (teacher): {teacher}\n"

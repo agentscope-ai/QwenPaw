@@ -2109,7 +2109,7 @@
       "high": "High"
     },
     "subagentModel": "Sub-agent model",
-    "subagentModelAdvisorHint": "Advisor Mode is on: this model runs the agent while the main model acts as its advisor.",
+    "subagentModelAdvisorHint": "Advisor Mode: in Advisor conversations the agent runs on this model while the main model acts as its advisor (the Advisor loop template can name other models).",
     "sameAsPrimary": "Same as primary",
     "enableFallback": "Enable model fallback",
     "fallbackScope": "Fallback scope",
@@ -2663,13 +2663,13 @@
     "enhancedCodeCapabilityDescription": "Enable AST, LSP, code prompts, Git context and source control.",
     "advisorMode": "Advisor Mode",
     "advisorModeTooltip": "The main model writes a plan before the agent starts and steps in when it keeps failing; the agent itself runs on the sub-agent model.",
-    "advisorModeDescription": "Let the main model plan and supervise this agent (experimental).",
+    "advisorModeDescription": "Make Advisor Mode available for this agent (experimental).",
     "advisorModePlan": "Opening plan: the advisor writes a plan before the agent's first step",
     "advisorModeFollowup": "Mid-run auto intervention: the harness watches tool results and calls the advisor when the agent keeps failing",
     "advisorModeOnDemand": "Let the agent proactively ask the advisor via the consult_advisor tool",
     "advisorModeModels": "Advisor: {{teacher}} · Agent: {{student}}",
     "advisorModeNoStudent": "main model (set a sub-agent model to run the agent on a cheaper one)",
-    "advisorModeEnableHelp": "The default for every conversation, channel and cron run of this agent. /advisor on|off (or the mode menu in the composer) overrides it for one conversation.",
+    "advisorModeEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the composer's mode menu and /advisor works; pick it per conversation (channels and cron prompts use /advisor on).",
     "advisorModeModelsTitle": "Advisor and agent models",
     "advisorModeModelsHelp": "By default the advisor is the agent's main model and the agent itself runs on the sub-agent model. Pick other models here to override either one; the choice is stored with the agent.",
     "advisorModeTeacherModel": "Advisor model",
@@ -4318,7 +4318,7 @@
   },
   "advisorMode": {
     "badge": "Advisor",
-    "badgeTooltip": "Advisor Mode is on: the main model plans and supervises this agent."
+    "badgeTooltip": "This conversation runs in Advisor Mode: the main model plans and supervises the agent."
   },
   "codingMode": {
     "title": "Coding Mode",

@@ -1638,7 +1638,7 @@
     "retry": "再試行"
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "アドバイザーモードが有効です: このモデルがエージェントを実行し、メインモデルがアドバイザーを務めます。",
+    "subagentModelAdvisorHint": "アドバイザーモード：アドバイザー会話ではエージェントがこのモデルで動作し、メインモデルがアドバイザーを務めます（アドバイザーのループテンプレートで別のモデルを指定できます）。",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
     "noFreeModels": "利用可能な無料モデルがありません",
@@ -2093,13 +2093,13 @@
     "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
     "advisorMode": "アドバイザーモード",
     "advisorModeTooltip": "メインモデルがエージェントの開始前に計画を作成し、失敗が続くと介入します。エージェント自体はサブエージェントモデルで動作します。",
-    "advisorModeDescription": "メインモデルにこのエージェントの計画と監督を任せます（実験的）。",
+    "advisorModeDescription": "このエージェントでアドバイザーモードを使えるようにする（実験的）。",
     "advisorModePlan": "開始時の計画: エージェントの最初のステップの前にアドバイザーが計画を作成する",
     "advisorModeFollowup": "実行中の自動介入: ハーネスがツール結果を監視し、失敗が続くとアドバイザーを呼び出す",
     "advisorModeOnDemand": "エージェントが consult_advisor ツールで自発的にアドバイザーに質問できるようにする",
     "advisorModeModels": "アドバイザー: {{teacher}} · エージェント: {{student}}",
     "advisorModeNoStudent": "メインモデル（サブエージェントモデルを設定すると、より安価なモデルでエージェントを実行できます）",
-    "advisorModeEnableHelp": "このエージェントのすべての会話、チャネル、cron 実行のデフォルトです。/advisor on|off（またはコンポーザーのモードメニュー）は現在の会話のみを上書きします。",
+    "advisorModeEnableHelp": "会話は引き続きデフォルトループで始まります。オンにするとコンポーザーのモードメニューに「アドバイザー」が現れ、/advisor が使えます。会話ごとに選んでください（チャネルや cron のプロンプトでは /advisor on）。",
     "advisorModeModelsTitle": "アドバイザーとエージェントのモデル",
     "advisorModeModelsHelp": "デフォルトでは、アドバイザーはエージェントのメインモデル、エージェント自身はサブエージェントモデルで動作します。ここで別のモデルを選ぶとそれぞれを上書きでき、選択はエージェントに保存されます。",
     "advisorModeTeacherModel": "アドバイザーモデル",
@@ -3904,7 +3904,7 @@
   },
   "advisorMode": {
     "badge": "アドバイザー",
-    "badgeTooltip": "アドバイザーモードが有効です: メインモデルがこのエージェントを計画・監督します。"
+    "badgeTooltip": "この会話はアドバイザーモードです：メインモデルがエージェントを計画・監督します。"
   },
   "codingMode": {
     "title": "コーディングモード",

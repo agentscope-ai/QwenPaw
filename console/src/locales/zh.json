@@ -2033,7 +2033,7 @@
       "high": "高"
     },
     "subagentModel": "Sub-agent 模型",
-    "subagentModelAdvisorHint": "顾问模式已开启：该模型运行智能体，主模型担任顾问。",
+    "subagentModelAdvisorHint": "顾问模式：在顾问对话中智能体使用该模型运行，主模型担任顾问（顾问循环模板里可以另外指定模型）。",
     "sameAsPrimary": "与主模型相同",
     "enableFallback": "启用模型降级",
     "fallbackScope": "降级范围",
@@ -2521,13 +2521,13 @@
     "enhancedCodeCapabilityDescription": "启用 AST、LSP、代码提示词、Git 上下文和源码管理。",
     "advisorMode": "顾问模式",
     "advisorModeTooltip": "主模型在智能体开始前写好计划，并在其反复失败时介入；智能体本身使用 Sub-agent 模型运行。",
-    "advisorModeDescription": "让主模型为该智能体规划并督导（实验性）。",
+    "advisorModeDescription": "允许该智能体使用顾问模式（实验性）。",
     "advisorModePlan": "开场计划：智能体迈出第一步前先由顾问写计划",
     "advisorModeFollowup": "中途自动介入：harness 监测工具结果，智能体反复失败时自动召唤顾问",
     "advisorModeOnDemand": "允许智能体通过 consult_advisor 工具主动向顾问提问",
     "advisorModeModels": "顾问：{{teacher}} · 智能体：{{student}}",
     "advisorModeNoStudent": "主模型（设置 Sub-agent 模型后可用更便宜的模型运行智能体）",
-    "advisorModeEnableHelp": "这是该智能体所有对话、渠道和定时任务的默认值。/advisor on|off（或输入栏的模式菜单）只覆盖当前对话。",
+    "advisorModeEnableHelp": "对话仍然从默认循环开始。开启后，输入栏的模式菜单里会出现「顾问」，/advisor 命令可用；按对话选择使用（渠道和定时任务的提示词用 /advisor on）。",
     "advisorModeModelsTitle": "顾问模型与智能体模型",
     "advisorModeModelsHelp": "默认顾问使用智能体的主模型，智能体本身使用 Sub-agent 模型。在这里可以分别改用其它模型，选择会随智能体持久保存。",
     "advisorModeTeacherModel": "顾问模型",
@@ -4336,7 +4336,7 @@
   },
   "advisorMode": {
     "badge": "顾问",
-    "badgeTooltip": "顾问模式已开启：主模型为该智能体规划并督导。"
+    "badgeTooltip": "当前对话处于顾问模式：主模型为智能体规划并督导。"
   },
   "codingMode": {
     "title": "编程模式",

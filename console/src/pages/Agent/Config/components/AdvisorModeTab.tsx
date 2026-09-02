@@ -17,6 +17,7 @@ import { providerApi } from "../../../../api/modules/provider";
 import type { ModelSlotConfig } from "../../../../api/types";
 import { buildEligibleProviders } from "../../../Chat/ModelSelector/modelSelectorModels";
 import { useAgentStore } from "../../../../stores/agentStore";
+import { fetchAvailableLoopModes } from "../../../../stores/loopStore";
 import {
   useAdvisorMode,
   useAdvisorModeStore,
@@ -111,6 +112,10 @@ export function AdvisorModeTab() {
       const next = await advisorModeApi.update(patch);
       setAdvisorMode(selectedAgent, next);
       setMaxConsults(next.max_consults);
+      if (patch.enabled !== undefined) {
+        // The switch adds/removes Advisor in the composer's mode menu.
+        void fetchAvailableLoopModes();
+      }
     } finally {
       setSaving(false);
     }
