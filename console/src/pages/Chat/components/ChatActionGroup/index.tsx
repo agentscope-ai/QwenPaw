@@ -9,7 +9,7 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Dropdown, Flex, Tooltip } from "antd";
-import { Files } from "lucide-react";
+import { ArrowDownToLine, Files, LockKeyhole } from "lucide-react";
 import type { MenuProps } from "antd";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
@@ -24,6 +24,8 @@ interface ChatActionGroupProps {
   workspaceOpen?: boolean;
   isWideMode?: boolean;
   onToggleWideMode?: () => void;
+  scrollLocked?: boolean;
+  onToggleAutoScroll?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
@@ -33,6 +35,8 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   workspaceOpen = false,
   isWideMode = false,
   onToggleWideMode,
+  scrollLocked = false,
+  onToggleAutoScroll,
 }) => {
   const { t } = useTranslation();
 
@@ -66,6 +70,20 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </div>
       ),
       onClick: () => onToggleWideMode(),
+    });
+  }
+  if (onToggleAutoScroll) {
+    moreItems.push({
+      key: "autoScroll",
+      icon: scrollLocked ? <LockKeyhole /> : <ArrowDownToLine />,
+      label: (
+        <div style={{ textAlign: "center" }}>
+          {scrollLocked
+            ? t("chat.followScrollTooltip")
+            : t("chat.lockScrollTooltip")}
+        </div>
+      ),
+      onClick: () => onToggleAutoScroll(),
     });
   }
 
@@ -139,6 +157,50 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             bordered={false}
             icon={isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />}
             onClick={onToggleWideMode}
+          />
+        </Tooltip>
+      )}
+      {!isCompact && onToggleAutoScroll && (
+        <Tooltip
+          title={
+            scrollLocked
+              ? t("chat.followScrollTooltip")
+              : t("chat.lockScrollTooltip")
+          }
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            aria-label={
+              scrollLocked
+                ? t("chat.followScrollTooltip")
+                : t("chat.lockScrollTooltip")
+            }
+            aria-pressed={scrollLocked}
+            icon={
+              scrollLocked ? (
+                <LockKeyhole
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              ) : (
+                <ArrowDownToLine
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              )
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(scrollLocked
+                ? { color: "var(--color-primary, #ff9d4d)" }
+                : {}),
+            }}
+            onClick={onToggleAutoScroll}
           />
         </Tooltip>
       )}

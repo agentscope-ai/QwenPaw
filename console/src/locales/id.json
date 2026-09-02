@@ -637,6 +637,8 @@
       "stepsFailed": "Gagal · {{count}} langkah",
       "stepsCompleted": "Selesai {{count}} langkah"
     },
+    "lockScrollTooltip": "Kunci gulir otomatis",
+    "followScrollTooltip": "Ikuti pesan terbaru",
     "allChats": "Semua Chat",
     "createNewChat": "Buat Chat Baru",
     "pinDrawer": "Sematkan",

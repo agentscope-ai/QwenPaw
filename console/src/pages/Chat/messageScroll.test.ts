@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getNextReverseScrollTop,
+  installReverseMessageScrollLock,
   scrollReverseMessageList,
 } from "./messageScroll";
 
@@ -110,5 +111,35 @@ describe("scrollReverseMessageList", () => {
 
     expect(scrollReverseMessageList(root, outside, 100, 0)).toBe(false);
     expect(scroller.scrollTop).toBe(-420);
+  });
+});
+
+describe("installReverseMessageScrollLock", () => {
+  it("restores a locked reverse scroller after automatic bottom scrolling", async () => {
+    const { content, root, scroller } = createReverseScroller();
+    scroller.scrollTop = -240;
+    const cleanup = installReverseMessageScrollLock(root, () => true);
+
+    scroller.scrollTop = 0;
+    content.append(document.createElement("span"));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(scroller.scrollTop).toBe(-240);
+    cleanup();
+  });
+
+  it("does not restore automatic scrolling when unlocked", async () => {
+    const { content, root, scroller } = createReverseScroller();
+    scroller.scrollTop = -240;
+    const cleanup = installReverseMessageScrollLock(root, () => false);
+
+    scroller.scrollTop = 0;
+    content.append(document.createElement("span"));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(scroller.scrollTop).toBe(0);
+    cleanup();
   });
 });

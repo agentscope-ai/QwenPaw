@@ -3246,6 +3246,8 @@
       "stepsFailed": "Failed · {{count}} steps",
       "stepsCompleted": "Completed {{count}} steps"
     },
+    "lockScrollTooltip": "Lock auto-scroll",
+    "followScrollTooltip": "Follow latest message",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
     "pinDrawer": "Pin",

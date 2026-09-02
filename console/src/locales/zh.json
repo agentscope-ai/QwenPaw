@@ -3103,6 +3103,8 @@
       "stepsFailed": "执行失败 · {{count}} 个步骤",
       "stepsCompleted": "已完成 {{count}} 个步骤"
     },
+    "lockScrollTooltip": "锁定滚动",
+    "followScrollTooltip": "跟随最新消息",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
     "pinDrawer": "固定",

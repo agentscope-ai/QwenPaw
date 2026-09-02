@@ -77,4 +77,19 @@ describe("ChatActionGroup", () => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggleWorkspace).toHaveBeenCalledOnce();
   });
+
+  it("renders the scroll lock toggle and marks the locked state", () => {
+    const onToggleAutoScroll = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup scrollLocked onToggleAutoScroll={onToggleAutoScroll} />,
+    );
+
+    const button = document.querySelector(
+      'button[aria-label="chat.followScrollTooltip"]',
+    ) as HTMLButtonElement | null;
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleAutoScroll).toHaveBeenCalledOnce();
+  });
 });

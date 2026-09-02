@@ -2669,6 +2669,8 @@
       "stepsFailed": "Ошибка · шагов: {{count}}",
       "stepsCompleted": "Выполнено шагов: {{count}}"
     },
+    "lockScrollTooltip": "Заблокировать автопрокрутку",
+    "followScrollTooltip": "Следовать за новым сообщением",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
     "pinDrawer": "Закрепить",

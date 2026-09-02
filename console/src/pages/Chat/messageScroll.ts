@@ -4,6 +4,8 @@ const REVERSE_MESSAGE_SCROLL_SELECTOR =
 
 const LINE_HEIGHT_PX = 16;
 const SCROLL_TOLERANCE_PX = 1;
+const LOCK_RESTORE_DELAY_MS = 0;
+const USER_SCROLL_WINDOW_MS = 250;
 
 function wheelDeltaInPixels(
   deltaY: number,
@@ -84,4 +86,105 @@ export function scrollReverseMessageList(
 
   scroller.scrollTop = nextScrollTop;
   return true;
+}
+
+export function installReverseMessageScrollLock(
+  root: HTMLElement,
+  isLocked: () => boolean,
+): () => void {
+  let scroller: HTMLElement | null = null;
+  let savedScrollTop = 0;
+  let userScrollUntil = 0;
+  let restoreFrame = 0;
+  let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+  let restoring = false;
+
+  const findScroller = () =>
+    root.querySelector<HTMLElement>(REVERSE_MESSAGE_SCROLL_SELECTOR);
+
+  const syncScroller = () => {
+    const nextScroller = findScroller();
+    if (nextScroller === scroller) return;
+
+    if (scroller) {
+      scroller.removeEventListener("scroll", handleScroll, true);
+    }
+
+    scroller = nextScroller;
+    savedScrollTop = scroller?.scrollTop ?? 0;
+
+    if (scroller) {
+      scroller.addEventListener("scroll", handleScroll, true);
+    }
+  };
+
+  const restoreScrollTop = () => {
+    if (!isLocked()) return;
+    syncScroller();
+    if (!scroller || scroller.scrollTop === savedScrollTop) return;
+
+    restoring = true;
+    scroller.scrollTop = savedScrollTop;
+    queueMicrotask(() => {
+      restoring = false;
+    });
+  };
+
+  const scheduleRestore = () => {
+    if (restoreFrame) return;
+
+    restoreFrame = requestAnimationFrame(() => {
+      restoreFrame = 0;
+      restoreScrollTop();
+      requestAnimationFrame(restoreScrollTop);
+      restoreTimer = setTimeout(restoreScrollTop, LOCK_RESTORE_DELAY_MS);
+    });
+  };
+
+  function handleScroll() {
+    if (!isLocked() || restoring || !scroller) return;
+
+    if (performance.now() <= userScrollUntil) {
+      savedScrollTop = scroller.scrollTop;
+      return;
+    }
+
+    scheduleRestore();
+  }
+
+  const markUserScroll = () => {
+    if (!isLocked()) return;
+    syncScroller();
+    if (!scroller) return;
+
+    savedScrollTop = scroller.scrollTop;
+    userScrollUntil = performance.now() + USER_SCROLL_WINDOW_MS;
+  };
+
+  syncScroller();
+
+  const observer = new MutationObserver(() => {
+    if (!isLocked()) return;
+    syncScroller();
+    scheduleRestore();
+  });
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+
+  root.addEventListener("wheel", markUserScroll, true);
+  root.addEventListener("touchstart", markUserScroll, true);
+  root.addEventListener("keydown", markUserScroll, true);
+
+  return () => {
+    observer.disconnect();
+    root.removeEventListener("wheel", markUserScroll, true);
+    root.removeEventListener("touchstart", markUserScroll, true);
+    root.removeEventListener("keydown", markUserScroll, true);
+    scroller?.removeEventListener("scroll", handleScroll, true);
+    if (restoreFrame) cancelAnimationFrame(restoreFrame);
+    if (restoreTimer) clearTimeout(restoreTimer);
+  };
 }

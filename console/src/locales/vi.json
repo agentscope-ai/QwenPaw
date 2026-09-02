@@ -651,6 +651,8 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
+    "lockScrollTooltip": "Khóa tự động cuộn",
+    "followScrollTooltip": "Theo dõi tin nhắn mới nhất",
     "allChats": "Tất cả cuộc trò chuyện",
     "createNewChat": "Tạo cuộc trò chuyện mới",
     "pinDrawer": "Ghim",
