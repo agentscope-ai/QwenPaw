@@ -62,7 +62,7 @@ def test_get_reports_state_and_models(client):
         "plan_enabled": True,
         "followup_enabled": True,
         "on_demand_enabled": True,
-        "max_consults": 3,
+        "max_consults": 32,
         "intervention": {
             "consecutive_failures": 3,
             "window_size": 10,

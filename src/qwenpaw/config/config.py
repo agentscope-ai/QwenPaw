@@ -2084,7 +2084,7 @@ class AdvisorModeConfig(BaseModel):
         ),
     )
     max_consults: int = Field(
-        default=3,
+        default=32,
         ge=0,
         description="Maximum on-demand consultations per conversation",
     )

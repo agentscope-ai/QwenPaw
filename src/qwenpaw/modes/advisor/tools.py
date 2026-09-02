@@ -31,8 +31,8 @@ CONSULT_TOOL_DESCRIPTION = (
     "whether to abandon an approach that keeps failing. Do not use it for "
     "routine steps or things you can check yourself with your tools. The "
     "advisor cannot see your files or run code; state what you tried and "
-    "what you are deciding between. Limited to a few consultations per "
-    "conversation."
+    "what you are deciding between. Consultations are capped per "
+    "conversation, so do not spend them on routine steps."
 )
 
 _NO_SESSION_REPLY = (

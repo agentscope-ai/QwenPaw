@@ -53,14 +53,14 @@
     "plan_enabled": true,
     "followup_enabled": true,
     "on_demand_enabled": true,
-    "max_consults": 3,
+    "max_consults": 32,
     "teacher_model": null,
     "student_model": null
   }
 }
 ```
 
-`max_consults` 限制智能体每个对话里主动提问的次数（默认 3 次）；超出后工具返回一句简短提示，智能体继续自行处理。自动介入另有上限（每次运行 3 次）。关闭开场计划后，顾问只会由 harness（自动介入）或智能体（`consult_advisor`）召唤；介入和咨询请求里始终带有任务本身，因此没有计划也能正常工作。顾问模式可以与 Coding Mode 叠加使用。当前版本里它本身是一个循环模式，所以一个对话要么处于顾问模式，要么处于其它循环模式（`/goal`、mission、自定义循环），不能同时。
+`max_consults` 限制智能体每个对话里主动提问的次数（默认 32 次）；超出后工具返回一句简短提示，智能体继续自行处理。自动介入另有上限（每次运行 3 次）。关闭开场计划后，顾问只会由 harness（自动介入）或智能体（`consult_advisor`）召唤；介入和咨询请求里始终带有任务本身，因此没有计划也能正常工作。顾问模式可以与 Coding Mode 叠加使用。当前版本里它本身是一个循环模式，所以一个对话要么处于顾问模式，要么处于其它循环模式（`/goal`、mission、自定义循环），不能同时。
 
 下一条消息即生效，无需重启。
 

@@ -19,7 +19,7 @@ def test_defaults_are_off_with_followup_on():
     assert cfg.plan_enabled is True
     assert cfg.followup_enabled is True
     assert cfg.on_demand_enabled is True
-    assert cfg.max_consults == 3
+    assert cfg.max_consults == 32
     assert cfg.teacher_model is None
     assert cfg.student_model is None
     assert AgentProfileConfig(id="a", name="A").advisor_mode == cfg
@@ -35,7 +35,7 @@ def test_round_trips_through_json():
         "plan_enabled": True,
         "followup_enabled": False,
         "on_demand_enabled": True,
-        "max_consults": 3,
+        "max_consults": 32,
         "intervention": {
             "consecutive_failures": 3,
             "window_size": 10,

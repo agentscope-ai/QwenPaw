@@ -359,9 +359,9 @@ export function AdvisorModeTab() {
             >
               <div style={{ maxWidth: 220 }}>
                 <CommittedNumber
-                  value={state.max_consults ?? 3}
+                  value={state.max_consults ?? 32}
                   min={0}
-                  max={50}
+                  max={200}
                   label={t("agentConfig.advisorModeMaxConsults")}
                   testId="advisor-max-consults"
                   disabled={busy}
