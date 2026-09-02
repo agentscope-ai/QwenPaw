@@ -339,8 +339,11 @@ class ServiceManager:
         instance = self.services.get(descriptor.name)
         if instance is None:
             return True
-        if descriptor.reuse_compatibility is not None:
-            return descriptor.reuse_compatibility(self.workspace, instance)
+        if (
+            descriptor.reuse_compatibility is not None
+            and not descriptor.reuse_compatibility(self.workspace, instance)
+        ):
+            return False
         if descriptor.service_class is None:
             return True
         if isinstance(descriptor.service_class, type):
