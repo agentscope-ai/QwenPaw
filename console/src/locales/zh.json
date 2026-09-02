@@ -259,7 +259,6 @@
     "settings": {
       "language": "语言",
       "theme": "主题",
-      "mode": "模式",
       "desktopMode": "桌面模式"
     },
     "quickMenu": {
@@ -267,8 +266,6 @@
       "appearance": "外观",
       "about": "关于 QwenPaw"
     },
-    "simpleMode": "精简模式",
-    "fullMode": "完整模式",
     "more": "更多",
     "toggleAgentNavigation": "展开或收起智能体导航"
   },
@@ -3134,18 +3131,13 @@
     },
     "modelSelectTooltip": "模型选择",
     "newTask": "新建任务",
-    "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
-    "wideModeTooltip": "宽屏模式",
-    "normalModeTooltip": "正常模式",
     "messageDisplay": {
       "stepsRunning": "正在执行中… · {{count}} 个步骤",
       "stepsCanceled": "已取消 · {{count}} 个步骤",
       "stepsFailed": "执行失败 · {{count}} 个步骤",
       "stepsCompleted": "已完成 {{count}} 个步骤"
     },
-    "allChats": "全部聊天",
-    "createNewChat": "创建新聊天",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
     "statusUnseenResult": "有新结果",
@@ -3305,19 +3297,9 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
-      "noResults": "无匹配结果",
-      "noConversations": "暂无对话",
-      "loadingConversations": "加载中…"
+      "noConversations": "暂无对话"
     },
-    "conversationHistory": "历史对话",
-    "history": {
-      "empty": "暂无聊天记录"
-    },
-    "sessionGroup": {
-      "today": "今天",
-      "recent": "近 7 天",
-      "earlier": "更早"
-    }
+    "conversationHistory": "历史对话"
   },
   "security": {
     "parent": "设置",

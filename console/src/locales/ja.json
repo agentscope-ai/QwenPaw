@@ -2595,7 +2595,6 @@
     "settings": {
       "language": "言語",
       "theme": "テーマ",
-      "mode": "モード",
       "desktopMode": "デスクトップモード"
     },
     "quickMenu": {
@@ -2603,8 +2602,6 @@
       "appearance": "外観",
       "about": "QwenPaw について"
     },
-    "simpleMode": "シンプルモード",
-    "fullMode": "フルモード",
     "more": "その他",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
@@ -2684,18 +2681,13 @@
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
-    "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
-    "wideModeTooltip": "ワイドモード",
-    "normalModeTooltip": "標準モード",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",
       "stepsFailed": "実行失敗 · {{count}} ステップ",
       "stepsCompleted": "{{count}} ステップ完了"
     },
-    "allChats": "すべてのチャット",
-    "createNewChat": "新しいチャットを作成",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
@@ -2823,19 +2815,9 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noResults": "結果なし",
-      "noConversations": "会話なし",
-      "loadingConversations": "読み込み中…"
+      "noConversations": "会話なし"
     },
-    "conversationHistory": "会話履歴",
-    "history": {
-      "empty": "チャット履歴なし"
-    },
-    "sessionGroup": {
-      "today": "今日",
-      "recent": "過去7日間",
-      "earlier": "それ以前"
-    }
+    "conversationHistory": "会話履歴"
   },
   "security": {
     "parent": "設定",

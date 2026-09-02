@@ -2610,7 +2610,6 @@
     "settings": {
       "language": "Язык",
       "theme": "Тема",
-      "mode": "Режим",
       "desktopMode": "Режим рабочего стола"
     },
     "quickMenu": {
@@ -2618,8 +2617,6 @@
       "appearance": "Внешний вид",
       "about": "О QwenPaw"
     },
-    "simpleMode": "Простой режим",
-    "fullMode": "Полный режим",
     "more": "Ещё",
     "toggleAgentNavigation": "Развернуть или свернуть навигацию агента"
   },
@@ -2699,18 +2696,13 @@
       "codeSnippet": "Фрагмент кода · {{count}} строк"
     },
     "modelSelectTooltip": "Выбор модели",
-    "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
-    "wideModeTooltip": "Широкий режим",
-    "normalModeTooltip": "Обычный режим",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",
       "stepsFailed": "Ошибка · шагов: {{count}}",
       "stepsCompleted": "Выполнено шагов: {{count}}"
     },
-    "allChats": "Все чаты",
-    "createNewChat": "Создать новый чат",
     "statusIdle": "Ожидание",
     "statusInProgress": "Выполняется",
     "disclaimer": "Работает для вас, растёт вместе с вами",
@@ -2838,19 +2830,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Поиск…",
-      "noResults": "Результатов нет",
-      "noConversations": "Нет диалогов",
-      "loadingConversations": "Загрузка…"
+      "noConversations": "Нет диалогов"
     },
-    "conversationHistory": "История диалогов",
-    "history": {
-      "empty": "Нет истории чатов"
-    },
-    "sessionGroup": {
-      "today": "Сегодня",
-      "recent": "За 7 дней",
-      "earlier": "Ранее"
-    }
+    "conversationHistory": "История диалогов"
   },
   "security": {
     "parent": "Настройки",

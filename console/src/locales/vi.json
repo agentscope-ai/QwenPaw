@@ -241,7 +241,6 @@
     "settings": {
       "language": "Ngôn ngữ",
       "theme": "Giao diện",
-      "mode": "Chế độ",
       "desktopMode": "Chế độ Màn hình nền"
     },
     "quickMenu": {
@@ -249,8 +248,6 @@
       "appearance": "Giao diện",
       "about": "Giới thiệu QwenPaw"
     },
-    "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ",
     "more": "Thêm",
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
@@ -716,7 +713,6 @@
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
     "modelSelectTooltip": "Chọn mô hình",
-    "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
@@ -724,8 +720,6 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
-    "allChats": "Tất cả cuộc trò chuyện",
-    "createNewChat": "Tạo cuộc trò chuyện mới",
     "statusIdle": "Rảnh",
     "statusInProgress": "Đang xử lý",
     "disclaimer": "Làm việc cho bạn, lớn lên cùng bạn",
@@ -820,19 +814,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Tìm kiếm…",
-      "noResults": "Không có kết quả",
-      "noConversations": "Không có hội thoại",
-      "loadingConversations": "Đang tải…"
+      "noConversations": "Không có hội thoại"
     },
-    "conversationHistory": "Lịch sử hội thoại",
-    "history": {
-      "empty": "Không có lịch sử trò chuyện"
-    },
-    "sessionGroup": {
-      "today": "Hôm nay",
-      "recent": "7 ngày qua",
-      "earlier": "Trước đó"
-    }
+    "conversationHistory": "Lịch sử hội thoại"
   },
   "debug": {
     "title": "Gỡ lỗi",

@@ -79,7 +79,7 @@ describe("Sidebar overflow layout", () => {
     const ruleStart = stylesSource.indexOf(".simpleNavScroll {");
     const rule = stylesSource.slice(
       ruleStart,
-      stylesSource.indexOf(".simpleAgentFunctionsMotion {", ruleStart),
+      stylesSource.indexOf(".simpleInboxItem {", ruleStart),
     );
 
     expect(rule).toContain("scrollbar-width: thin;");
@@ -179,7 +179,7 @@ describe("Sidebar overflow layout", () => {
     const popoverStart = stylesSource.indexOf(".quickSettingsPopover {");
     const popoverRule = stylesSource.slice(
       popoverStart,
-      stylesSource.indexOf(".modeToggleActive", popoverStart),
+      stylesSource.indexOf(".collapsedHistoryPopover", popoverStart),
     );
 
     expect(popoverRule).toContain(":global(.qwenpaw-popover-inner)");

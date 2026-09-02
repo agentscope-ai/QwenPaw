@@ -99,14 +99,6 @@
     color: rgba(255, 255, 255, 0.42);
   }
 
-  .groupHeader {
-    color: rgba(255, 255, 255, 0.42);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.45);
-    }
-  }
-
   .loadingState,
   .emptyState {
     color: rgba(255, 255, 255, 0.35);
@@ -211,40 +203,6 @@
 }
 
 .historyChevron {
-  display: inline-flex;
-  align-items: center;
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
-}
-
-/* ── Time group header (Today / Last 7 days / Earlier) ─────────────────── */
-
-.groupHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 10px 2px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  user-select: none;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
-  transition: color 0.15s;
-
-  &:hover {
-    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
-  }
-}
-
-.groupHeaderText {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.groupChevron {
   display: inline-flex;
   align-items: center;
   transition: transform 0.2s ease;

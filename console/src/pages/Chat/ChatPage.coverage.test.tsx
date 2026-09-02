@@ -238,10 +238,6 @@ vi.mock("@/stores/loopStore", () => ({
   prepareLoopModeMessage: vi.fn((text: string) => text),
 }));
 
-vi.mock("@/stores/sidebarModeStore", () => ({
-  useSidebarModeStore: vi.fn(() => ({ mode: "full" })),
-}));
-
 vi.mock("@/stores/uploadLimitStore", () => ({
   useUploadLimitStore: Object.assign(
     vi.fn(() => ({ uploadLimit: 10, uploadMaxSizeMb: null })),

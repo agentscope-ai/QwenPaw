@@ -755,7 +755,6 @@ export default function SidebarSessionList({
                 itemCount={flatRows.length}
                 itemSize={getRowHeight}
                 itemData={virtualListData}
-                className={styles.list}
                 overscanCount={10}
                 onItemsRendered={({ visibleStartIndex: nextIndex }) =>
                   setVisibleStartIndex(nextIndex)

@@ -2839,7 +2839,6 @@
     "settings": {
       "language": "Idioma",
       "theme": "Tema",
-      "mode": "Modo",
       "desktopMode": "Modo Desktop"
     },
     "quickMenu": {
@@ -2847,8 +2846,6 @@
       "appearance": "Aparência",
       "about": "Sobre o QwenPaw"
     },
-    "simpleMode": "Modo simples",
-    "fullMode": "Modo completo",
     "more": "Mais",
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
@@ -2928,18 +2925,13 @@
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },
     "modelSelectTooltip": "Selecionar Modelo",
-    "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
-    "wideModeTooltip": "Modo amplo",
-    "normalModeTooltip": "Modo normal",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",
       "stepsFailed": "Falhou · {{count}} etapas",
       "stepsCompleted": "{{count}} etapas concluídas"
     },
-    "allChats": "Todos Chats",
-    "createNewChat": "Criar Novo Chat",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",
@@ -3067,19 +3059,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noResults": "Nenhum resultado",
-      "noConversations": "Sem conversas",
-      "loadingConversations": "Carregando…"
+      "noConversations": "Sem conversas"
     },
-    "conversationHistory": "Histórico de conversas",
-    "history": {
-      "empty": "Sem histórico de conversas"
-    },
-    "sessionGroup": {
-      "today": "Hoje",
-      "recent": "Últimos 7 dias",
-      "earlier": "Anteriores"
-    }
+    "conversationHistory": "Histórico de conversas"
   },
   "security": {
     "parent": "Configuracoes",

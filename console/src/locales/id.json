@@ -270,7 +270,6 @@
     "settings": {
       "language": "Bahasa",
       "theme": "Tema",
-      "mode": "Mode",
       "desktopMode": "Mode Desktop"
     },
     "quickMenu": {
@@ -278,8 +277,6 @@
       "appearance": "Tampilan",
       "about": "Tentang QwenPaw"
     },
-    "simpleMode": "Mode sederhana",
-    "fullMode": "Mode lengkap",
     "more": "Lainnya",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
@@ -703,18 +700,13 @@
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },
     "modelSelectTooltip": "Pilih model",
-    "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
-    "wideModeTooltip": "Mode lebar",
-    "normalModeTooltip": "Mode normal",
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",
       "stepsCanceled": "Dibatalkan · {{count}} langkah",
       "stepsFailed": "Gagal · {{count}} langkah",
       "stepsCompleted": "Selesai {{count}} langkah"
     },
-    "allChats": "Semua Chat",
-    "createNewChat": "Buat Chat Baru",
     "statusIdle": "Idle",
     "statusInProgress": "Sedang berjalan",
     "disclaimer": "Bekerja untuk Anda, berkembang bersama Anda",
@@ -842,19 +834,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Cari…",
-      "noResults": "Tidak ada hasil",
-      "noConversations": "Tidak ada percakapan",
-      "loadingConversations": "Memuat…"
+      "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan",
-    "history": {
-      "empty": "Tidak ada riwayat obrolan"
-    },
-    "sessionGroup": {
-      "today": "Hari ini",
-      "recent": "7 hari terakhir",
-      "earlier": "Sebelumnya"
-    }
+    "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",

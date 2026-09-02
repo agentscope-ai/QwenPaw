@@ -2,7 +2,6 @@ import { create } from "zustand";
 
 import { isFixedSidebarItemId } from "@/constants/sidebarItems";
 
-const STORAGE_KEY = "qwenpaw_sidebar_mode";
 const FOCUS_ITEMS_STORAGE_KEY = "qwenpaw_sidebar_focus_items_v1";
 const HIDDEN_PLUGIN_ITEMS_STORAGE_KEY =
   "qwenpaw_sidebar_hidden_plugin_items_v1";
@@ -14,14 +13,9 @@ export const DEFAULT_FOCUS_ITEM_IDS = [
   "core.models",
 ];
 
-export type SidebarMode = "simple" | "full";
-
-interface SidebarModeState {
-  mode: SidebarMode;
+interface SidebarStoreState {
   focusItemIds: string[];
   hiddenPluginItemIds: string[];
-  toggleMode: () => void;
-  setMode: (mode: SidebarMode) => void;
   setFocusItemIds: (itemIds: string[]) => void;
   setSidebarItemVisible: (itemId: string, visible: boolean) => void;
   setSidebarItemsVisible: (itemIds: string[], visible: boolean) => void;
@@ -115,46 +109,9 @@ function updateSidebarItemsVisibility(
   return next;
 }
 
-export const useSidebarModeStore = create<SidebarModeState>((set) => ({
-  mode: (() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored === "simple" ? "simple" : "full";
-    } catch {
-      return "full";
-    }
-  })(),
-
+export const useSidebarModeStore = create<SidebarStoreState>((set) => ({
   focusItemIds: loadFocusItemIds(),
   hiddenPluginItemIds: loadHiddenPluginItemIds(),
-
-  toggleMode: () =>
-    set((state) => {
-      const next: SidebarMode = state.mode === "simple" ? "full" : "simple";
-      try {
-        if (next === "simple") {
-          localStorage.setItem(STORAGE_KEY, "simple");
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch {
-        // storage unavailable
-      }
-      return { mode: next };
-    }),
-
-  setMode: (mode: SidebarMode) => {
-    try {
-      if (mode === "simple") {
-        localStorage.setItem(STORAGE_KEY, "simple");
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      // storage unavailable
-    }
-    set({ mode });
-  },
 
   setFocusItemIds: (itemIds: string[]) => {
     const next = [...new Set(itemIds)].filter(
