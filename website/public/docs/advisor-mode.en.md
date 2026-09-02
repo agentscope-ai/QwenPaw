@@ -44,6 +44,8 @@ The same works anywhere slash commands do (chat, TUI, channels, cron prompts):
 
 While the agent switch is off, `/advisor on` and `/advisor <task>` reply with where to turn it on instead of starting the mode.
 
+The per-conversation switch lives in memory, like the Goal and custom loop modes: after QwenPaw restarts, a conversation is back in the default loop (and the advisor's memory of its plan is gone) until you pick Advisor again. The agent-level switch and everything else in the Advisor template are stored in `agent.json` and survive restarts.
+
 **API**: `GET /api/advisor-mode` returns the state (the switches, the models in effect and where each comes from), `POST /api/advisor-mode` with any of `{"enabled": true}`, `{"plan_enabled": false}`, `{"followup_enabled": false}`, `{"on_demand_enabled": false}`, `{"max_consults": 5}`, `{"advisor_model": {"provider_id": "…", "model": "…"}}`, `{"worker_model": null}` or `{"advisor_thinking": "off"}` updates it; fields left out are unchanged and `null` clears a model override.
 
 The setting is stored per agent in `agent.json`:
