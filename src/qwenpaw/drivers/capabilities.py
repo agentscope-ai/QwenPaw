@@ -22,6 +22,8 @@ __all__ = [
     "DriverInvocationResult",
     "DriverRuntimeInfo",
     "format_capability_id",
+    "mcp_tool_is_enabled",
+    "mcp_tool_whitelist",
     "parse_capability_id",
 ]
 
@@ -50,6 +52,8 @@ class DriverCapability:
     output_schema: dict[str, Any] = field(default_factory=dict)
     exposure: CapabilityExposure = field(default_factory=CapabilityExposure)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Per-tool whitelist from card.config.tools, not the Driver enable switch.
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,20 @@ def format_capability_id(
         f"{_encode_part(name)}"
         f"#{_encode_part(action)}"
     )
+
+
+def mcp_tool_whitelist(whitelist: Any) -> frozenset[str] | None:
+    """Normalize ``card.config.tools``: non-list is open, ``[]`` is closed."""
+    if not isinstance(whitelist, list):
+        return None
+    return frozenset(str(item) for item in whitelist)
+
+
+def mcp_tool_is_enabled(
+    whitelist: frozenset[str] | None,
+    name: str,
+) -> bool:
+    return whitelist is None or name in whitelist
 
 
 def parse_capability_id(capability_id: str) -> tuple[str, str, str, str, str]:
