@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { advisorModeApi } from "@/api/modules/advisorMode";
 import type { ModelSlotConfig } from "@/api/types";
 import { useAdvisorMode } from "@/stores/advisorModeStore";
+import { useLoopStore } from "@/stores/loopStore";
 import type { EligibleProvider } from "./modelSelectorModels";
 
 import styles from "./index.module.less";
@@ -23,8 +24,9 @@ function slotLabel(slot: ModelSlotConfig | null | undefined): string {
  * Advisor Mode's two models, right in the chat model selector: what the
  * advisor and the worker currently resolve to, and a way to pick either
  * without leaving the chat. Saved through /api/advisor-mode, the same
- * setting the Advisor loop template edits. Shown only while Advisor Mode
- * is available for the agent.
+ * setting the Advisor loop template edits. Shown only for an Advisor
+ * conversation: one already running in Advisor Mode, or a new one with
+ * Advisor picked in the composer.
  */
 export function AdvisorModelsSection({
   providers,
@@ -33,6 +35,11 @@ export function AdvisorModelsSection({
 }) {
   const { t } = useTranslation();
   const { state, setAdvisorMode, initialized } = useAdvisorMode();
+  const advisorConversation = useLoopStore(
+    (s) =>
+      (s.sessionState !== "idle" && s.activeMode?.id === "plugin:advisor") ||
+      s.selectedModeId === "plugin:advisor",
+  );
 
   const options = useMemo(
     () =>
@@ -50,7 +57,7 @@ export function AdvisorModelsSection({
     [options],
   );
 
-  if (!initialized || !state.enabled) return null;
+  if (!initialized || !state.enabled || !advisorConversation) return null;
 
   const withDefault = (
     current: ModelSlotConfig | null | undefined,
