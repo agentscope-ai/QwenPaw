@@ -184,6 +184,7 @@ def _relative_path_base(governor: Any) -> str:
         return str(base)
     return str(getattr(governor, "workspace_dir", "") or "")
 
+
 def _policy_tool_name(tool: Any) -> str:
     """Return an optional per-tool governance identity or the name mapping."""
     return getattr(tool, "_qp_policy_name", "") or (
