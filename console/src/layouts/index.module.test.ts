@@ -184,4 +184,19 @@ describe("Sidebar overflow layout", () => {
     expect(sessionListStylesSource).not.toContain(".newChatBtn");
     expect(sessionListStylesSource).not.toContain(".createGroupBtn");
   });
+
+  it("keeps history actions visible in dark mode", () => {
+    const darkStart = sessionListStylesSource.indexOf(":global(.dark-mode)");
+    const darkRule = sessionListStylesSource.slice(
+      darkStart,
+      sessionListStylesSource.indexOf(
+        "/* ── Collapsible history header",
+        darkStart,
+      ),
+    );
+
+    expect(darkRule).toContain(".historyAction");
+    expect(darkRule).toContain("color: rgba(255, 255, 255, 0.68);");
+    expect(darkRule).toContain("background: rgba(255, 255, 255, 0.08);");
+  });
 });
