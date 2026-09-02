@@ -1,6 +1,10 @@
 import { request } from "../request";
 import type { ModelSlotConfig } from "../types";
 
+/** Where an effective advisor/agent model comes from. */
+export type AdvisorTeacherSource = "override" | "main_model" | "global";
+export type AdvisorStudentSource = "override" | "subagent_model" | "main_model";
+
 export interface AdvisorModeState {
   enabled: boolean;
   /** Whether the advisor writes a plan before the agent's first step. */
@@ -8,11 +12,21 @@ export interface AdvisorModeState {
   followup_enabled: boolean;
   /** Whether the agent may call the consult_advisor tool on its own. */
   on_demand_enabled: boolean;
+  /** Cap on the agent's own consult_advisor calls per conversation. */
+  max_consults: number;
   agent_id: string;
-  /** The advisor ("teacher") — the agent's main model. */
+  /** The advisor ("teacher") actually used. */
   teacher_model: ModelSlotConfig | null;
-  /** The agent ("student") — the sub-agent model, or null when it keeps the main model. */
+  teacher_source: AdvisorTeacherSource;
+  /** The agent ("student") actually used; null = it keeps the main model. */
   student_model: ModelSlotConfig | null;
+  student_source: AdvisorStudentSource;
+  /** Overrides stored in agent.json (null = default slot). */
+  teacher_model_override: ModelSlotConfig | null;
+  student_model_override: ModelSlotConfig | null;
+  /** The defaults the overrides fall back to, for labels. */
+  main_model: ModelSlotConfig | null;
+  subagent_model: ModelSlotConfig | null;
 }
 
 export interface AdvisorModeUpdate {
@@ -20,6 +34,10 @@ export interface AdvisorModeUpdate {
   plan_enabled?: boolean;
   followup_enabled?: boolean;
   on_demand_enabled?: boolean;
+  max_consults?: number;
+  /** A slot sets the override; `null` clears it; omitted = unchanged. */
+  teacher_model?: ModelSlotConfig | null;
+  student_model?: ModelSlotConfig | null;
 }
 
 export const advisorModeApi = {

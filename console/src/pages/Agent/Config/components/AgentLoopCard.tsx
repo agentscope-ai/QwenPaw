@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AdvisorModeTab } from "./AdvisorModeTab";
+import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
 import {
   Card,
   Form,
@@ -318,62 +319,6 @@ function RubricSection() {
           </Form.Item>
         </>
       )}
-    </div>
-  );
-}
-
-function LockedGateCard({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className={loopStyles.gateCard}>
-      <button
-        type="button"
-        className={loopStyles.gateSummary}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <span className={loopStyles.lockSlot}>
-          <Lock size={14} />
-        </span>
-        <span className={loopStyles.gateIcon}>{icon}</span>
-        <span className={loopStyles.gateCopy}>
-          <strong>{title}</strong>
-          <small>{description}</small>
-        </span>
-        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-      </button>
-      {expanded && <div className={loopStyles.gateDetails}>{children}</div>}
-    </div>
-  );
-}
-
-function BuiltInIntro({ description }: { description: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className={loopStyles.builtInIntro}>
-      <div className={loopStyles.builtInIntroMain}>
-        <Tag className={loopStyles.builtInTag}>
-          <Lock size={11} />
-          {t("agentConfig.loopMode.builtIn", "Built-in")}
-        </Tag>
-        <p>{description}</p>
-      </div>
-      <span className={loopStyles.builtInNote}>
-        <Lock size={12} />
-        {t(
-          "agentConfig.loopMode.builtInNote",
-          "Pipeline locked · Values editable",
-        )}
-      </span>
     </div>
   );
 }

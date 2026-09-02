@@ -17,9 +17,16 @@ const ON = {
   plan_enabled: true,
   followup_enabled: false,
   on_demand_enabled: true,
+  max_consults: 3,
   agent_id: "agent-1",
   teacher_model: { provider_id: "dash", model: "qwen3-max" },
+  teacher_source: "main_model" as const,
   student_model: null,
+  student_source: "main_model" as const,
+  teacher_model_override: null,
+  student_model_override: null,
+  main_model: { provider_id: "dash", model: "qwen3-max" },
+  subagent_model: null,
 };
 
 beforeEach(() => {
