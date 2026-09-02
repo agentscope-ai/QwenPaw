@@ -83,6 +83,24 @@
   color: #e96f0b !important;
 }
 
+.dangerItem {
+  color: #d94a42;
+
+  > svg {
+    color: currentColor;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: rgba(217, 74, 66, 0.08);
+    color: #c83d36;
+
+    > svg {
+      color: currentColor;
+    }
+  }
+}
+
 .nestedPopover {
   :global(.ant-popover-inner),
   :global(.qwenpaw-popover-inner) {
@@ -136,5 +154,19 @@
   .chevron,
   .menuMeta {
     color: rgba(255, 255, 255, 0.34) !important;
+  }
+
+  .dangerItem {
+    color: #ff7770;
+
+    > svg {
+      color: currentColor;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(255, 104, 96, 0.12);
+      color: #ff8d87;
+    }
   }
 }

@@ -427,7 +427,7 @@
   color: #ff7f16;
 }
 
-// ─── Auth actions (account + logout) ──────────────────────────────────────────
+// ─── Hub administration ───────────────────────────────────────────────────────
 .authActions {
   flex-shrink: 0;
   padding: 12px 16px;
@@ -445,10 +445,6 @@
     color: rgba(0, 0, 0, 0.88) !important;
     background: rgba(0, 0, 0, 0.04) !important;
   }
-}
-
-.authBtnCollapsed {
-  justify-content: center;
 }
 
 .authBtn + .authBtn {
@@ -565,6 +561,57 @@
   justify-content: flex-end;
   gap: 4px;
   background: #f9f8f4; // match sider background so scrolled content is hidden
+}
+
+.sidebarUser {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding-left: 2px;
+}
+
+.sidebarUserAvatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(26, 23, 22, 0.1);
+  border-radius: 50%;
+  background: rgba(26, 23, 22, 0.045);
+  color: rgba(26, 23, 22, 0.72);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.sidebarUserText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.25;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: rgba(26, 23, 22, 0.86);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    margin-top: 2px;
+    color: rgba(26, 23, 22, 0.4);
+    font-size: 10px;
+  }
 }
 
 .collapseToggle {
@@ -1229,6 +1276,22 @@
     &:hover {
       background: rgba(255, 255, 255, 0.08);
       color: #ff7f16;
+    }
+  }
+
+  .sidebarUserAvatar {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .sidebarUserText {
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    span {
+      color: rgba(255, 255, 255, 0.42);
     }
   }
 

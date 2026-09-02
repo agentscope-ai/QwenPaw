@@ -19,7 +19,6 @@ vi.mock("../api/modules/language", () => ({
 }));
 
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
-import { GITHUB_URL } from "./constants";
 
 function last<T>(items: T[]): T {
   return items[items.length - 1];
@@ -139,7 +138,7 @@ describe("SidebarSettingsPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("expands documentation links and opens GitHub directly", async () => {
+  it("shows the compact documentation links", () => {
     renderWithProviders(
       <ThemeProvider>
         <SidebarSettingsPanel
@@ -151,13 +150,55 @@ describe("SidebarSettingsPanel", () => {
     );
 
     expect(screen.getByRole("button", { name: "Tutorial" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Feature demos" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Changelog" })).toBeVisible();
     expect(screen.getByRole("button", { name: "FAQ" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Feature demos" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "GitHub" }),
+    ).not.toBeInTheDocument();
+  });
 
-    const githubButton = screen.getByRole("button", { name: "GitHub" });
-    await userEvent.click(githubButton);
-    expect(githubButton).not.toHaveClass("ant-popover-open");
-    expect(mocks.openExternalLink).toHaveBeenCalledWith(GITHUB_URL);
+  it("shows account actions only when authentication is enabled", async () => {
+    const onClose = vi.fn();
+    const onOpenAccount = vi.fn();
+    const onLogout = vi.fn();
+    const { rerender } = renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onClose={onClose}
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Account" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Logout" }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          authEnabled
+          onClose={onClose}
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenAccount={onOpenAccount}
+          onLogout={onLogout}
+        />
+      </ThemeProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    expect(onOpenAccount).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+
+    await userEvent.click(screen.getByRole("button", { name: "Logout" }));
+    expect(onLogout).toHaveBeenCalledOnce();
   });
 });

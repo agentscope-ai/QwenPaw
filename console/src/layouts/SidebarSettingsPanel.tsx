@@ -6,18 +6,18 @@ import {
   ChevronRight,
   CircleHelp,
   FileText,
-  Github,
   Info,
   Languages,
   ListCollapse,
+  LogOut,
   MessageSquareText,
   Monitor,
   Moon,
   Palette,
-  PlayCircle,
   Settings,
   Sun,
   UnfoldHorizontal,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import {
@@ -49,13 +49,7 @@ import {
   type ToolDisplayPreference,
 } from "../utils/chatDisplayPreference";
 import { openExternalLink } from "../utils/openExternalLink";
-import {
-  GITHUB_URL,
-  getDocsUrl,
-  getFaqUrl,
-  getFeatureDemosUrl,
-  getReleaseNotesUrl,
-} from "./constants";
+import { getDocsUrl, getFaqUrl, getReleaseNotesUrl } from "./constants";
 import styles from "./sidebarSettingsPanel.module.less";
 
 type ContentWidth = "standard" | "wide";
@@ -77,6 +71,9 @@ interface SidebarSettingsPanelProps {
   onClose?: () => void;
   onOpenDesktopMode: () => void;
   onOpenSettings: () => void;
+  authEnabled?: boolean;
+  onOpenAccount?: () => void;
+  onLogout?: () => void;
 }
 
 interface FlyoutItemProps {
@@ -188,6 +185,9 @@ export default function SidebarSettingsPanel({
   onClose,
   onOpenDesktopMode,
   onOpenSettings,
+  authEnabled = false,
+  onOpenAccount,
+  onLogout,
 }: SidebarSettingsPanelProps) {
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
@@ -434,14 +434,6 @@ export default function SidebarSettingsPanel({
       <button
         type="button"
         className={styles.menuItem}
-        onClick={() => openLink(getFeatureDemosUrl(i18n.language))}
-      >
-        <PlayCircle size={16} />
-        <span>{t("header.featureDemos", "Feature demos")}</span>
-      </button>
-      <button
-        type="button"
-        className={styles.menuItem}
         onClick={() => openLink(getReleaseNotesUrl(i18n.language))}
       >
         <FileText size={16} />
@@ -455,15 +447,6 @@ export default function SidebarSettingsPanel({
         <CircleHelp size={16} />
         <span>{t("header.faq", "FAQ")}</span>
       </button>
-      <button
-        type="button"
-        className={styles.menuItem}
-        onClick={() => openLink(GITHUB_URL)}
-      >
-        <Github size={16} />
-        <span>{t("sidebar.quickMenu.github", "GitHub")}</span>
-      </button>
-
       <div className={styles.divider} />
 
       <button
@@ -475,6 +458,28 @@ export default function SidebarSettingsPanel({
         <span>{t("sidebar.quickMenu.about", "About QwenPaw")}</span>
         {version && <span className={styles.menuMeta}>v{version}</span>}
       </button>
+
+      {authEnabled && (
+        <>
+          <div className={styles.divider} />
+          <button
+            type="button"
+            className={styles.menuItem}
+            onClick={() => onOpenAccount && finishAction(onOpenAccount)}
+          >
+            <UserRound size={16} />
+            <span>{t("account.title", "Account")}</span>
+          </button>
+          <button
+            type="button"
+            className={`${styles.menuItem} ${styles.dangerItem}`}
+            onClick={() => onLogout && finishAction(onLogout)}
+          >
+            <LogOut size={16} />
+            <span>{t("login.logout", "Logout")}</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }

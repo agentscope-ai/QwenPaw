@@ -126,6 +126,10 @@ describe("Sidebar overflow layout", () => {
     expect(bottomControls).toContain("<Settings size={18} />");
     expect(bottomControls).toContain("<SidebarSettingsPanel");
     expect(bottomControls).toContain("onOpenSettings={handleOpenSettings}");
+    expect(bottomControls).toContain("className={styles.sidebarUser}");
+    expect(bottomControls).toContain("authEnabled={authEnabled}");
+    expect(bottomControls).toContain("onOpenAccount={handleOpenAccount}");
+    expect(bottomControls).toContain("onLogout={handleLogout}");
     expect(bottomControls).toContain("open={settingsOpen}");
     expect(bottomControls).toContain("destroyOnHidden");
     expect(bottomControls).not.toContain("{collapsed && (");

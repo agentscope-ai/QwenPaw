@@ -22,8 +22,6 @@ import {
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  SparkExitFullscreenLine,
-  SparkSearchUserLine,
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkEmailLine,
@@ -92,6 +90,7 @@ export default function Sidebar({
   const [authEnabled, setAuthEnabled] = useState(false);
   const [hubAdmin, setHubAdmin] = useState(false);
   const [hubUsername, setHubUsername] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
@@ -213,6 +212,10 @@ export default function Sidebar({
           const user = await hubApi.me();
           setHubAdmin(user.role === "admin");
           setHubUsername(user.username);
+          setAuthUsername(user.username);
+        } else if (res.enabled) {
+          const user = await authApi.getCurrentUser();
+          setAuthUsername(user.username);
         }
       })
       .catch(() => {});
@@ -401,6 +404,16 @@ export default function Sidebar({
 
   const handleOpenDesktopMode = useCallback(() => {
     window.location.assign(getOsRootHref(window.location.pathname));
+  }, []);
+
+  const handleOpenAccount = useCallback(() => {
+    accountForm.resetFields();
+    setAccountModalOpen(true);
+  }, [accountForm]);
+
+  const handleLogout = useCallback(() => {
+    clearAuthToken();
+    window.location.href = "/login";
   }, []);
 
   /**
@@ -695,51 +708,34 @@ export default function Sidebar({
         </>
       )}
 
-      {authEnabled && !collapsed && (
+      {authEnabled && hubAdmin && !collapsed && (
         <div className={styles.authActions}>
-          {hubAdmin && (
-            <Button
-              type="text"
-              icon={<ShieldCheck size={16} />}
-              onClick={() => navigate("/hub/admin")}
-              block
-              className={styles.authBtn}
-            >
-              {t("hub.brand.title")}
-            </Button>
-          )}
           <Button
             type="text"
-            icon={<SparkSearchUserLine size={16} />}
-            onClick={() => {
-              accountForm.resetFields();
-              setAccountModalOpen(true);
-            }}
+            icon={<ShieldCheck size={16} />}
+            onClick={() => navigate("/hub/admin")}
             block
-            className={`${styles.authBtn} ${
-              collapsed ? styles.authBtnCollapsed : ""
-            }`}
+            className={styles.authBtn}
           >
-            {!collapsed && t("account.title")}
-          </Button>
-          <Button
-            type="text"
-            icon={<SparkExitFullscreenLine size={16} />}
-            onClick={() => {
-              clearAuthToken();
-              window.location.href = "/login";
-            }}
-            block
-            className={`${styles.authBtn} ${
-              collapsed ? styles.authBtnCollapsed : ""
-            }`}
-          >
-            {!collapsed && t("login.logout")}
+            {t("hub.brand.title")}
           </Button>
         </div>
       )}
 
       <div className={styles.collapseToggleContainer}>
+        {authEnabled && !collapsed && (
+          <div className={styles.sidebarUser}>
+            <span className={styles.sidebarUserAvatar} aria-hidden>
+              {(authUsername || "Q").slice(0, 2).toUpperCase()}
+            </span>
+            <span className={styles.sidebarUserText}>
+              <strong title={authUsername}>
+                {authUsername || t("common.loading")}
+              </strong>
+              <span>{hubMode ? t("hub.brand.title") : "QwenPaw"}</span>
+            </span>
+          </div>
+        )}
         <Popover
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
@@ -753,6 +749,9 @@ export default function Sidebar({
               onClose={() => setSettingsOpen(false)}
               onOpenDesktopMode={handleOpenDesktopMode}
               onOpenSettings={handleOpenSettings}
+              authEnabled={authEnabled}
+              onOpenAccount={handleOpenAccount}
+              onLogout={handleLogout}
             />
           }
         >
