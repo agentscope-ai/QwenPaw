@@ -2204,16 +2204,6 @@
       "user": "QwenPaw",
       "system": "Sistem",
       "default": "Bawaan"
-    },
-    "category": {
-      "all": "Semua",
-      "llm": "LLM",
-      "storage": "Penyimpanan",
-      "network": "Jaringan",
-      "provider": "Penyedia",
-      "memory": "Memori",
-      "runtime": "Runtime",
-      "security": "Keamanan"
     }
   },
   "tokenUsage": {

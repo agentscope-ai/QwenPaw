@@ -64,7 +64,6 @@ const timeoutSpec = {
   default: "30",
   effective_value: "30",
   source: "default" as const,
-  category: "llm",
   description: "Stream idle timeout",
   description_key:
     "environments.variableDescriptions.QWENPAW_LLM_STREAM_IDLE_TIMEOUT",

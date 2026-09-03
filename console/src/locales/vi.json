@@ -1361,16 +1361,6 @@
       "user": "QwenPaw",
       "system": "Hệ thống",
       "default": "Mặc định"
-    },
-    "category": {
-      "all": "Tất cả",
-      "llm": "LLM",
-      "storage": "Lưu trữ",
-      "network": "Mạng",
-      "provider": "Nhà cung cấp",
-      "memory": "Bộ nhớ",
-      "runtime": "Thời gian chạy",
-      "security": "Bảo mật"
     }
   },
   "tools": {

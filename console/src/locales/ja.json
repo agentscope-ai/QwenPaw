@@ -1571,16 +1571,6 @@
       "user": "QwenPaw",
       "system": "システム",
       "default": "既定値"
-    },
-    "category": {
-      "all": "すべて",
-      "llm": "LLM",
-      "storage": "ストレージ",
-      "network": "ネットワーク",
-      "provider": "プロバイダー",
-      "memory": "メモリ",
-      "runtime": "ランタイム",
-      "security": "セキュリティ"
     }
   },
   "tokenUsage": {

@@ -1571,16 +1571,6 @@
       "user": "QwenPaw",
       "system": "Система",
       "default": "По умолчанию"
-    },
-    "category": {
-      "all": "Все",
-      "llm": "LLM",
-      "storage": "Хранилище",
-      "network": "Сеть",
-      "provider": "Провайдеры",
-      "memory": "Память",
-      "runtime": "Среда выполнения",
-      "security": "Безопасность"
     }
   },
   "tokenUsage": {

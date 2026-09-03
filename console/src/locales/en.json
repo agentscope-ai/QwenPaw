@@ -1979,16 +1979,6 @@
       "user": "QwenPaw",
       "system": "System",
       "default": "Default"
-    },
-    "category": {
-      "all": "All",
-      "llm": "LLM",
-      "storage": "Storage",
-      "network": "Network",
-      "provider": "Providers",
-      "memory": "Memory",
-      "runtime": "Runtime",
-      "security": "Security"
     }
   },
   "modelSelector": {

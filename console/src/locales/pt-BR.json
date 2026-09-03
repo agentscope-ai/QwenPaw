@@ -1798,16 +1798,6 @@
       "user": "QwenPaw",
       "system": "Sistema",
       "default": "Padrão"
-    },
-    "category": {
-      "all": "Todas",
-      "llm": "LLM",
-      "storage": "Armazenamento",
-      "network": "Rede",
-      "provider": "Provedores",
-      "memory": "Memória",
-      "runtime": "Execução",
-      "security": "Segurança"
     }
   },
   "modelSelector": {

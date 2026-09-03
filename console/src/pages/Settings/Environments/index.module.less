@@ -84,26 +84,6 @@
   border: 1px solid var(--env-border);
   border-radius: 10px;
 }
-.categories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.categories button {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  color: var(--env-text-muted);
-  background: transparent;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.categories button:hover,
-.categoryActive {
-  color: var(--env-accent) !important;
-  background: var(--env-accent-soft) !important;
-}
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -232,8 +212,7 @@
   color: var(--env-accent);
   background: var(--env-accent-soft);
 }
-.iconButton:focus-visible,
-.categories button:focus-visible {
+.iconButton:focus-visible {
   outline: 2px solid var(--env-accent);
   outline-offset: 2px;
 }

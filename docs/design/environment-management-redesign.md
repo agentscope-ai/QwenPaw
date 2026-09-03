@@ -139,7 +139,7 @@ Windows Registry、launchd、systemd 或机器级环境。
 
 ### `GET /api/envs/catalog`
 
-返回已知变量的默认值、有效值、来源、类型、分类、是否可编辑和只读原因。
+返回已知变量的默认值、有效值、来源、类型、是否可编辑和只读原因。
 
 来源含义：
 
@@ -172,8 +172,10 @@ Windows Registry、launchd、systemd 或机器级环境。
 2. 初始化期与启动期只读的 QwenPaw 设置；
 3. 用户显式添加的插件、Skill、CLI 和子进程变量。
 
-LLM 分类只表示 QwenPaw 自身的 LLM 运行参数，不表示 Provider 凭据。Provider
-凭据仍在模型服务配置页面中管理。
+页面不提供按 LLM、存储、安全或运行时分类的二级筛选，API 和 catalog 元数据也
+不保留分类字段。三段式内容结构已经表达生命周期和所有权，额外分类会与用户
+自定义变量产生歧义；变量查找统一使用搜索框。Provider 凭据仍在模型服务配置
+页面中管理。
 
 页面使用 QwenPaw 现有语义色，保持浅色/深色主题一致；状态通过文字、边框和 Lucide
 图标表达，不引入其他图标库。所有新增文案覆盖 `en`、`zh`、`ja`、`ru`、
@@ -193,6 +195,7 @@ LLM 分类只表示 QwenPaw 自身的 LLM 运行参数，不表示 Provider 凭�
 - [x] Provider 凭据与模型配置不进入环境变量 catalog 或 `os.environ`
 - [x] Console 分开展示动态、自定义和只读设置
 - [x] Console 将全部 QwenPaw 设置连续展示，自定义变量置于其后
+- [x] 移除与三段式结构重复的分类筛选、API 字段和 catalog 元数据
 - [x] Console 不再调用全量 PUT 保存单项修改
 - [x] 后端单元与集成测试通过
 - [x] 前端页面与 locale 测试通过

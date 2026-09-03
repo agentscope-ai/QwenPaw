@@ -1837,16 +1837,6 @@
       "user": "QwenPaw",
       "system": "系统",
       "default": "默认"
-    },
-    "category": {
-      "all": "全部",
-      "llm": "LLM",
-      "storage": "存储",
-      "network": "网络",
-      "provider": "模型服务",
-      "memory": "记忆",
-      "runtime": "运行时",
-      "security": "安全"
     }
   },
   "tokenUsage": {

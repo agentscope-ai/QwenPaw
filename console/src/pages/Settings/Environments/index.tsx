@@ -62,7 +62,6 @@ function EnvironmentsPage() {
   const { message } = useAppMessage();
   const { envVars, catalog, loading, error, fetchAll } = useEnvVars();
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
   const [editor, setEditor] = useState<EditorState>(null);
   const [saving, setSaving] = useState(false);
 
@@ -74,10 +73,6 @@ function EnvironmentsPage() {
     () => new Set(catalog.map((item) => item.key)),
     [catalog],
   );
-  const categories = useMemo(
-    () => ["all", ...Array.from(new Set(catalog.map((item) => item.category)))],
-    [catalog],
-  );
   const describeSpec = (item: EnvSpec) =>
     t(item.description_key, {
       defaultValue: t(`environments.mutabilityDescription.${item.mutability}`),
@@ -85,11 +80,10 @@ function EnvironmentsPage() {
   const normalizedQuery = query.trim().toLowerCase();
   const visibleCatalog = catalog.filter(
     (item) =>
-      (category === "all" || item.category === category) &&
-      (!normalizedQuery ||
-        item.key.toLowerCase().includes(normalizedQuery) ||
-        item.description.toLowerCase().includes(normalizedQuery) ||
-        describeSpec(item).toLowerCase().includes(normalizedQuery)),
+      !normalizedQuery ||
+      item.key.toLowerCase().includes(normalizedQuery) ||
+      item.description.toLowerCase().includes(normalizedQuery) ||
+      describeSpec(item).toLowerCase().includes(normalizedQuery),
   );
   const editableCatalog = visibleCatalog.filter((item) => item.editable);
   const readonlyCatalog = visibleCatalog.filter((item) => !item.editable);
@@ -241,18 +235,6 @@ function EnvironmentsPage() {
                 aria-label={t("environments.searchPlaceholder")}
                 variant="borderless"
               />
-            </div>
-            <div className={styles.categories}>
-              {categories.map((item) => (
-                <button
-                  type="button"
-                  key={item}
-                  className={category === item ? styles.categoryActive : ""}
-                  onClick={() => setCategory(item)}
-                >
-                  {t(`environments.category.${item}`)}
-                </button>
-              ))}
             </div>
           </div>
 

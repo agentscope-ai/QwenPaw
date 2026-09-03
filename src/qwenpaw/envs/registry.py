@@ -16,7 +16,6 @@ class EnvVarSpec:
 
     key: str
     default: str
-    category: str
     mutability: str
     value_type: str = "string"
     readonly_reason_code: str | None = None
@@ -31,21 +30,18 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
         "30",
-        "llm",
         "hot_runtime",
         "float",
     ),
     EnvVarSpec(
         "QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
         "30",
-        "llm",
         "hot_runtime",
         "float",
     ),
     EnvVarSpec(
         "QWENPAW_LLM_MAX_RETRIES",
         "3",
-        "llm",
         "startup_only",
         "integer",
         "initial_default",
@@ -53,7 +49,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_BACKOFF_BASE",
         "1",
-        "llm",
         "startup_only",
         "float",
         "initial_default",
@@ -61,7 +56,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_BACKOFF_CAP",
         "10",
-        "llm",
         "startup_only",
         "float",
         "initial_default",
@@ -69,7 +63,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_MAX_CONCURRENT",
         "10",
-        "llm",
         "startup_only",
         "integer",
         "initial_default",
@@ -77,7 +70,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_MAX_QPM",
         "600",
-        "llm",
         "startup_only",
         "integer",
         "initial_default",
@@ -85,7 +77,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_RATE_LIMIT_PAUSE",
         "5",
-        "llm",
         "startup_only",
         "float",
         "initial_default",
@@ -93,7 +84,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_RATE_LIMIT_JITTER",
         "1",
-        "llm",
         "startup_only",
         "float",
         "initial_default",
@@ -101,7 +91,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_LLM_ACQUIRE_TIMEOUT",
         "300",
-        "llm",
         "startup_only",
         "float",
         "initial_default",
@@ -109,42 +98,36 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_WORKING_DIR",
         "~/.qwenpaw",
-        "storage",
         "startup_only",
         readonly_reason_code="startup",
     ),
     EnvVarSpec(
         "QWENPAW_SECRET_DIR",
         "~/.qwenpaw.secret",
-        "security",
         "startup_only",
         readonly_reason_code="startup",
     ),
     EnvVarSpec(
         "QWENPAW_CONFIG_FILE",
         "config.json",
-        "storage",
         "startup_only",
         readonly_reason_code="startup",
     ),
     EnvVarSpec(
         "QWENPAW_JOBS_FILE",
         "jobs.json",
-        "storage",
         "startup_only",
         readonly_reason_code="startup",
     ),
     EnvVarSpec(
         "QWENPAW_CHATS_FILE",
         "chats.json",
-        "storage",
         "startup_only",
         readonly_reason_code="startup",
     ),
     EnvVarSpec(
         "QWENPAW_OPENAPI_DOCS",
         "false",
-        "runtime",
         "startup_only",
         "boolean",
         "startup",
@@ -152,7 +135,6 @@ ENV_VAR_SPECS = (
     EnvVarSpec(
         "QWENPAW_RUNNING_IN_CONTAINER",
         "false",
-        "runtime",
         "startup_only",
         "boolean",
         "startup",

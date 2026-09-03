@@ -8,7 +8,6 @@ export interface EnvSpec {
   default: string;
   effective_value: string;
   source: "default" | "system" | "user";
-  category: string;
   description: string;
   description_key: string;
   editable: boolean;

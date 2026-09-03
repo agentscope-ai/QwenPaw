@@ -23,7 +23,6 @@ const requiredPaths = [
   "source.user",
   "source.system",
   "source.default",
-  "category.security",
   "variableDescriptions.QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
   "variableDescriptions.QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
 ];

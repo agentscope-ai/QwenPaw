@@ -33,7 +33,6 @@ class EnvSpecResponse(BaseModel):
     default: str
     effective_value: str
     source: str
-    category: str
     description: str
     description_key: str
     editable: bool
@@ -92,7 +91,6 @@ async def list_env_catalog() -> List[EnvSpecResponse]:
                 default=spec.default,
                 effective_value=value,
                 source=source,
-                category=spec.category,
                 description="",
                 description_key=(
                     f"environments.variableDescriptions.{spec.key}"
