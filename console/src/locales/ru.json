@@ -1525,7 +1525,63 @@
     "variable": "переменная",
     "variables": "переменных",
     "showValue": "Показать значение",
-    "hideValue": "Скрыть значение"
+    "hideValue": "Скрыть значение",
+    "liveEyebrow": "Настройки процесса",
+    "liveDescription": "Управляйте параметрами QwenPaw и окружением будущих процессов MCP, навыков и CLI без изменения системного окружения.",
+    "searchPlaceholder": "Поиск переменных",
+    "liveSettings": "Изменяемые без перезапуска",
+    "liveSettingsDescription": "Новое значение применяется к следующей операции без перезапуска QwenPaw.",
+    "noLiveVariables": "Нет изменяемых настроек, соответствующих фильтру.",
+    "customSettings": "Переменные дочерних процессов и плагинов",
+    "customSettingsDescription": "Плагины могут читать их через os.getenv(), а новые дочерние процессы наследуют их.",
+    "noCustomVariables": "Пользовательские переменные пока не добавлены.",
+    "editVariable": "Изменить переменную",
+    "applyNow": "Применить",
+    "applyHint": "Текущий процесс QwenPaw обновится сразу. Работающие MCP необходимо перезагрузить.",
+    "applied": "Переменная окружения применена",
+    "appliedWithFailures": "Сохранено, но не удалось перезагрузить процессов MCP: {{count}}",
+    "resetVariable": "Сбросить переменную",
+    "resetSuccess": "Восстановлено системное значение или значение по умолчанию",
+    "readonlySettings": "Настройки только для чтения",
+    "readonlySettingsDescription": "Эти значения показаны для справки и управляются запуском или настройками агента.",
+    "noReadonlyVariables": "Нет настроек только для чтения, соответствующих фильтру.",
+    "impactTitle": "Влияние на процессы",
+    "explicitConsumers": "Процессов MCP, явно использующих переменную: {{count}}",
+    "implicitConsumers": "Процессов stdio MCP, которые могут унаследовать её: {{count}}",
+    "restartMode": "Работающие MCP",
+    "restartAffected": "Перезагрузить затронутые MCP",
+    "restartNone": "Не перезагружать",
+    "restartAllStdio": "Перезагрузить все stdio MCP",
+    "readonlyReason": {
+      "startup": "Определяется при запуске QwenPaw",
+      "agent_owned": "Управляется настройками каждого агента",
+      "initial_default": "Только начальное значение настройки агента"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Читается из текущего процесса QwenPaw в начале каждой операции.",
+      "hot_process": "Доступно через os.getenv() и наследуется будущими дочерними процессами.",
+      "startup_only": "Только для справки; нельзя изменить во время работы QwenPaw.",
+      "internal": "Управляется QwenPaw внутренне."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Максимальное ожидание первого значимого содержимого потока; 0 отключает контроль.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Максимальное ожидание между значимыми фрагментами потока; 0 отключает контроль."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Система",
+      "default": "По умолчанию"
+    },
+    "category": {
+      "all": "Все",
+      "llm": "LLM",
+      "storage": "Хранилище",
+      "network": "Сеть",
+      "provider": "Провайдеры",
+      "memory": "Память",
+      "runtime": "Среда выполнения",
+      "security": "Безопасность"
+    }
   },
   "tokenUsage": {
     "title": "Использование токенов",

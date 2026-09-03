@@ -1788,7 +1788,66 @@
     "variable": "变量",
     "variables": "变量",
     "showValue": "显示值",
-    "hideValue": "隐藏值"
+    "hideValue": "隐藏值",
+    "liveEyebrow": "进程级配置",
+    "liveDescription": "统一管理 QwenPaw 运行值以及后续 MCP、Skill 和 CLI 子进程继承的环境，不修改系统环境。",
+    "searchPlaceholder": "搜索变量",
+    "qwenpawSettings": "QwenPaw 已知配置",
+    "qwenpawSettingsDescription": "默认展示已知配置，包括默认值和只读启动项。",
+    "liveSettings": "可实时修改",
+    "liveSettingsDescription": "无需重启 QwenPaw，下一次相关操作直接读取新值。",
+    "noLiveVariables": "当前筛选条件下没有可实时修改的配置。",
+    "customSettings": "子进程与工具变量",
+    "customSettingsDescription": "自定义值会被 QwenPaw 后续启动的子进程继承。",
+    "noCustomVariables": "尚未添加自定义子进程变量。",
+    "editVariable": "编辑变量",
+    "applyNow": "立即应用",
+    "applyHint": "当前 QwenPaw 进程立即更新；已经运行的 MCP 需要重新加载。",
+    "applied": "环境变量已应用",
+    "appliedWithFailures": "变量已保存，但有 {{count}} 个 MCP 未能重新加载",
+    "resetVariable": "重置变量",
+    "resetSuccess": "已恢复为系统值或代码默认值",
+    "startupOnly": "只读",
+    "readonlySettings": "只读配置",
+    "readonlySettingsDescription": "这些值仅供查看，由启动流程或各 Agent 配置负责管理。",
+    "noReadonlyVariables": "当前筛选条件下没有只读配置。",
+    "impactTitle": "进程影响",
+    "explicitConsumers": "{{count}} 个 MCP 明确使用此变量",
+    "implicitConsumers": "{{count}} 个 stdio MCP 可能隐式继承此变量",
+    "restartMode": "已运行的 MCP",
+    "restartAffected": "重新加载受影响的 MCP",
+    "restartNone": "不重新加载",
+    "restartAllStdio": "重新加载全部 stdio MCP",
+    "readonlyReason": {
+      "startup": "QwenPaw 启动时确定",
+      "agent_owned": "由各 Agent 配置管理",
+      "initial_default": "仅作为 Agent 配置的初始化默认值"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "每次操作开始时从当前 QwenPaw 进程读取。",
+      "hot_process": "可通过 os.getenv() 读取，并由之后启动的子进程继承。",
+      "startup_only": "仅供查看，QwenPaw 运行期间不能修改。",
+      "internal": "由 QwenPaw 内部管理。"
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "等待首个有效流式内容的最长时间；设为 0 可关闭检测。",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "两个有效流式内容之间的最长等待时间；设为 0 可关闭检测。"
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "系统",
+      "default": "默认"
+    },
+    "category": {
+      "all": "全部",
+      "llm": "LLM",
+      "storage": "存储",
+      "network": "网络",
+      "provider": "模型服务",
+      "memory": "记忆",
+      "runtime": "运行时",
+      "security": "安全"
+    }
   },
   "tokenUsage": {
     "title": "Token 消耗",

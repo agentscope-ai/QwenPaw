@@ -1930,7 +1930,66 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Show value",
-    "hideValue": "Hide value"
+    "hideValue": "Hide value",
+    "liveEyebrow": "Process-local configuration",
+    "liveDescription": "Manage QwenPaw runtime values and the environment inherited by future MCP, Skill, and CLI processes without changing your system environment.",
+    "searchPlaceholder": "Search variables",
+    "qwenpawSettings": "QwenPaw settings",
+    "qwenpawSettingsDescription": "Known settings include defaults and locked startup values.",
+    "liveSettings": "Live QwenPaw settings",
+    "liveSettingsDescription": "Changes apply to the next operation without restarting QwenPaw.",
+    "noLiveVariables": "No live settings match the current filter.",
+    "customSettings": "Child-process variables",
+    "customSettingsDescription": "Custom values are inherited by processes started from QwenPaw.",
+    "noCustomVariables": "No custom child-process variables yet.",
+    "editVariable": "Edit variable",
+    "applyNow": "Apply now",
+    "applyHint": "The current QwenPaw process updates immediately. Existing MCP processes must be reloaded.",
+    "applied": "Environment variable applied",
+    "appliedWithFailures": "Saved, but {{count}} MCP process could not be reloaded",
+    "resetVariable": "Reset variable",
+    "resetSuccess": "Variable reset to its system or default value",
+    "startupOnly": "Read only",
+    "readonlySettings": "Read-only QwenPaw settings",
+    "readonlySettingsDescription": "These values are shown for reference and are owned by startup or Agent configuration.",
+    "noReadonlyVariables": "No read-only settings match the current filter.",
+    "impactTitle": "Process impact",
+    "explicitConsumers": "{{count}} MCP process explicitly uses this variable",
+    "implicitConsumers": "{{count}} stdio MCP process may inherit it implicitly",
+    "restartMode": "Existing MCP processes",
+    "restartAffected": "Reload affected MCP processes",
+    "restartNone": "Do not reload",
+    "restartAllStdio": "Reload every stdio MCP process",
+    "readonlyReason": {
+      "startup": "Resolved when QwenPaw starts",
+      "agent_owned": "Managed by each Agent configuration",
+      "initial_default": "Used only as an Agent configuration default"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Read from the current QwenPaw process at the start of each operation.",
+      "hot_process": "Available through os.getenv() and inherited by future child processes.",
+      "startup_only": "Displayed for reference; it cannot be changed while QwenPaw is running.",
+      "internal": "Managed internally by QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Maximum wait for the first meaningful stream content; zero disables the watchdog.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Maximum wait between meaningful stream chunks; zero disables the watchdog."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "System",
+      "default": "Default"
+    },
+    "category": {
+      "all": "All",
+      "llm": "LLM",
+      "storage": "Storage",
+      "network": "Network",
+      "provider": "Providers",
+      "memory": "Memory",
+      "runtime": "Runtime",
+      "security": "Security"
+    }
   },
   "modelSelector": {
     "selectModel": "Select model",

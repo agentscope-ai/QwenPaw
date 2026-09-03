@@ -34,6 +34,7 @@ _LEGACY_ENVS_JSON_CANDIDATES = (
     Path(__file__).resolve().parent / "envs.json",
     _BOOTSTRAP_WORKING_DIR / "envs.json",
 )
+_HOST_ENV_VALUES: dict[str, str | None] = {}
 
 
 def _same_path(a: Path, b: Path) -> bool:
@@ -116,14 +117,20 @@ def _apply_to_environ(
         overwrite: When False, existing process env values take precedence.
     """
     for key, value in envs.items():
+        if key not in _HOST_ENV_VALUES:
+            _HOST_ENV_VALUES[key] = os.environ.get(key)
         if not overwrite and key in os.environ:
             continue
         os.environ[key] = value
 
 
 def _remove_from_environ(key: str) -> None:
-    """Remove *key* from ``os.environ`` if present."""
-    os.environ.pop(key, None)
+    """Restore the inherited value for *key*, or remove it if absent."""
+    inherited = _HOST_ENV_VALUES.get(key)
+    if inherited is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = inherited
 
 
 def _sync_environ(
@@ -286,6 +293,17 @@ def set_env_var(
         return envs
 
 
+def update_env_vars(updates: dict[str, str]) -> dict[str, str]:
+    """Merge multiple values atomically and return the persisted mapping."""
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = {**old, **updates}
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
+
+
 def delete_env_var(key: str) -> dict[str, str]:
     """Delete a single env var. Returns updated dict."""
     path = get_envs_json_path()
@@ -323,6 +341,6 @@ def load_envs_into_environ() -> dict[str, str]:
         for key, value in envs.items()
         if key not in _PROTECTED_BOOTSTRAP_KEYS
     }
-    # Do not override explicit runtime/system env vars.
-    _apply_to_environ(bootstrap_envs, overwrite=False)
+    # Console-managed values override the inherited process environment.
+    _apply_to_environ(bootstrap_envs, overwrite=True)
     return envs

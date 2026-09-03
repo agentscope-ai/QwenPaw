@@ -194,6 +194,57 @@ def test_envs_batch_save_empty_key_rejected(app_server) -> None:
     assert resp.status_code == 400, app_server.logs_tail()
 
 
+@pytest.mark.integration
+@pytest.mark.p1
+def test_envs_patch_preserves_omitted_values(app_server) -> None:
+    """PATCH merges values instead of replacing the environment store."""
+    app_server.api_request(
+        "PUT",
+        "/api/envs",
+        json={"INTEG_PATCH_KEEP": "keep"},
+        timeout=_ENVS_TIMEOUT,
+    )
+
+    response = app_server.api_request(
+        "PATCH",
+        "/api/envs",
+        json={"INTEG_PATCH_ADD": "add"},
+        timeout=_ENVS_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()
+    envs = {item["key"]: item["value"] for item in response.json()}
+    assert envs["INTEG_PATCH_KEEP"] == "keep"
+    assert envs["INTEG_PATCH_ADD"] == "add"
+
+    app_server.api_request(
+        "PUT",
+        "/api/envs",
+        json={},
+        timeout=_ENVS_TIMEOUT,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_envs_catalog_exposes_runtime_and_readonly_settings(
+    app_server,
+) -> None:
+    """Catalog distinguishes hot settings from initialization defaults."""
+    response = app_server.api_request(
+        "GET",
+        "/api/envs/catalog",
+        timeout=_ENVS_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()
+    specs = {item["key"]: item for item in response.json()}
+    assert specs["QWENPAW_LLM_STREAM_IDLE_TIMEOUT"]["editable"] is True
+    assert specs["QWENPAW_LLM_MAX_RETRIES"]["editable"] is False
+    assert (
+        specs["QWENPAW_LLM_MAX_RETRIES"]["readonly_reason_code"]
+        == "initial_default"
+    )
+
+
 # ------------------------------------------------------------------ #
 # Delete single
 # ------------------------------------------------------------------ #
