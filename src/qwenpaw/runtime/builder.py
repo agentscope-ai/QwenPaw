@@ -847,6 +847,7 @@ class AgentBuilder:
             else None
         )
         return build_env_context(
+            agent_id=getattr(ctx, "agent_id", None),
             session_id=getattr(ctx, "session_id", ""),
             user_id=(getattr(request, "user_id", None) if request else None),
             user_name=None,

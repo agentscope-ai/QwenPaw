@@ -148,6 +148,7 @@ def build_env_context(
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -168,6 +169,7 @@ def build_env_context(
             so the LLM stops treating the workspace as home.
         active_model_name: Current active model name for runtime
             identity (e.g. "qwen-max", "gpt-4o").
+        agent_id: Current agent identifier.
 
     Returns:
         Formatted environment context string
@@ -207,6 +209,9 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
+
+    if agent_id:
+        parts.append(f"- Agent ID: {agent_id}")
 
     # Keep request-specific values after the reusable environment prefix.
     if channel is not None:

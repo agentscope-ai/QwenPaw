@@ -142,23 +142,6 @@ class ProtectedExecutionContractContributor(SyncPromptContributor):
         return PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 
-class AgentIdentityContributor(SyncPromptContributor):
-    """Prepend agent identity header when ``agent_id`` is set."""
-
-    name = "agent_identity"
-    priority = 5
-
-    def contribute_sync(self, ctx: "HookContext") -> str | None:
-        agent_id = getattr(ctx, "agent_id", None)
-        if not agent_id:
-            return None
-        return (
-            f"# Agent Identity\n\n"
-            f"Your agent id is `{agent_id}`. "
-            f"This is your unique identifier in the multi-agent system."
-        )
-
-
 class AgentsMdContributor(SyncPromptContributor):
     """Load ``AGENTS.md`` with heartbeat / memory section processing."""
 
@@ -470,7 +453,6 @@ class DriverPolicyHintContributor(SyncPromptContributor):
 
 _ALL_CONTRIBUTORS = (
     ProtectedExecutionContractContributor,
-    AgentIdentityContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
     DirectoryContextContributor,
@@ -491,7 +473,6 @@ def build_default_prompt_manager() -> PromptManager:
 
 __all__ = [
     "ProtectedExecutionContractContributor",
-    "AgentIdentityContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",
