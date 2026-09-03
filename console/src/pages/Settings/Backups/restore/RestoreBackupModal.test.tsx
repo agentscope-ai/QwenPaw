@@ -119,7 +119,9 @@ function makeDetail(overrides: Record<string, unknown> = {}) {
 }
 
 /** agent-b is intentionally absent so it counts as a new agent. */
-const existingAgents = [{ id: "agent-a", name: "Agent A", workspace_dir: "/w/a" }];
+const existingAgents = [
+  { id: "agent-a", name: "Agent A", workspace_dir: "/w/a" },
+];
 
 function renderModal(
   backup = makeBackup(),
@@ -157,7 +159,9 @@ describe("RestoreBackupModal", () => {
     renderModal();
     expect(screen.getByText("Nightly backup")).toBeInTheDocument();
     expect(screen.getByText("before release")).toBeInTheDocument();
-    await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalledWith("bk-1"));
+    await waitFor(() =>
+      expect(apiMocks.getBackup).toHaveBeenCalledWith("bk-1"),
+    );
   });
 
   it("disables OK until the confirm checkbox is checked", async () => {
@@ -186,10 +190,15 @@ describe("RestoreBackupModal", () => {
     [false, /backup\.trustLocalBanner/],
     [true, /backup\.trustForeignBanner/],
     [null, /backup\.trustLegacyBanner/],
-  ])("shows the right trust banner for accepted_via_trust=%s", async (accepted, pattern) => {
-    renderModal(makeBackup({ accepted_via_trust: accepted }));
-    await waitFor(() => expect(screen.getByText(pattern)).toBeInTheDocument());
-  });
+  ])(
+    "shows the right trust banner for accepted_via_trust=%s",
+    async (accepted, pattern) => {
+      renderModal(makeBackup({ accepted_via_trust: accepted }));
+      await waitFor(() =>
+        expect(screen.getByText(pattern)).toBeInTheDocument(),
+      );
+    },
+  );
 
   it("defaults to full mode with the warning alert for full backups", async () => {
     renderModal();
@@ -222,7 +231,9 @@ describe("RestoreBackupModal", () => {
       expect(customWrapper).toHaveClass("ant-radio-wrapper-checked");
     });
     expect(document.querySelector('input[value="full"]')).toBeDisabled();
-    expect(screen.getByText("backup.restoreModeFullDisabled")).toBeInTheDocument();
+    expect(
+      screen.getByText("backup.restoreModeFullDisabled"),
+    ).toBeInTheDocument();
     // Scope rows follow the backup scope: global config yes, secrets/skills no.
     expect(screen.getByText("backup.scopeGlobalConfig")).toBeInTheDocument();
     expect(screen.queryByText("backup.scopeSecrets")).not.toBeInTheDocument();
@@ -360,7 +371,9 @@ describe("RestoreBackupModal", () => {
 
   it("opens the legacy trust prompt and retries with trust_mode on confirm", async () => {
     apiMocks.restoreBackup
-      .mockRejectedValueOnce(new Error('denied - {"code":"backup_legacy_unsigned"}'))
+      .mockRejectedValueOnce(
+        new Error('denied - {"code":"backup_legacy_unsigned"}'),
+      )
       .mockResolvedValueOnce({});
     const user = userEvent.setup();
     const { onClose } = renderModal();
@@ -375,9 +388,12 @@ describe("RestoreBackupModal", () => {
 
     await user.click(screen.getByText("trust-confirm"));
     await waitFor(() =>
-      expect(apiMocks.restoreBackup).toHaveBeenCalledWith("bk-1", expect.objectContaining({
-        trust_mode: "legacy",
-      })),
+      expect(apiMocks.restoreBackup).toHaveBeenCalledWith(
+        "bk-1",
+        expect.objectContaining({
+          trust_mode: "legacy",
+        }),
+      ),
     );
     expect(messageMocks.success).toHaveBeenCalledWith("backup.restoreSuccess");
     expect(onClose).toHaveBeenCalled();
@@ -405,7 +421,9 @@ describe("RestoreBackupModal", () => {
 
   it("surfaces failures from the trust retry without reopening the dialog", async () => {
     apiMocks.restoreBackup
-      .mockRejectedValueOnce(new Error('denied - {"code":"backup_legacy_unsigned"}'))
+      .mockRejectedValueOnce(
+        new Error('denied - {"code":"backup_legacy_unsigned"}'),
+      )
       .mockRejectedValueOnce(new Error('boom - {"message":"disk full"}'));
     const user = userEvent.setup();
     renderModal();
@@ -438,7 +456,10 @@ describe("RestoreBackupModal", () => {
     await confirmAndSubmit(user);
     await waitFor(() => expect(messageMocks.error).toHaveBeenCalled());
 
-    const arg = messageMocks.error.mock.calls.at(-1)![0];
+    const arg =
+      messageMocks.error.mock.calls[
+        messageMocks.error.mock.calls.length - 1
+      ][0];
     expect(arg).toMatchObject({ duration: 8 });
     const { container } = render(arg.content as React.ReactElement);
     expect(container.textContent).toContain("backup.restoreTargetBusy");

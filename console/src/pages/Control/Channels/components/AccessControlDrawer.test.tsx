@@ -270,8 +270,7 @@ vi.mock("antd", () => {
     value?: string;
     onChange?: (e: { target: { value: string } }) => void;
     placeholder?: string;
-  }) =>
-    React.createElement("input", { value, onChange, placeholder });
+  }) => React.createElement("input", { value, onChange, placeholder });
 
   const Button = ({
     children,
@@ -320,7 +319,18 @@ vi.mock("antd", () => {
       ),
   };
 
-  return { Drawer, Table, Tabs, Modal, Popconfirm, Select, Input, Button, Space, Typography };
+  return {
+    Drawer,
+    Table,
+    Tabs,
+    Modal,
+    Popconfirm,
+    Select,
+    Input,
+    Button,
+    Space,
+    Typography,
+  };
 });
 
 import { AccessControlDrawer } from "./AccessControlDrawer";
@@ -511,9 +521,7 @@ describe("AccessControlDrawer", () => {
     renderDrawer();
     await waitFor(() => expect(mocks.getAclAll).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId("tab-blacklist"));
-    await waitFor(() =>
-      expect(screen.getByText("bob")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("bob")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("channels.addUser"));
     fireEvent.change(
@@ -585,9 +593,7 @@ describe("AccessControlDrawer", () => {
 
     fireEvent.click(screen.getByTestId("row-select-u-1"));
     fireEvent.click(screen.getByTestId("row-select-u-2"));
-    expect(
-      screen.getByText(/channels\.selectedCount/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/channels\.selectedCount/)).toBeInTheDocument();
 
     // The batch remove button lives in the toolbar, outside any table row;
     // row-level remove buttons share the same label, so scope by that.
@@ -622,7 +628,9 @@ describe("AccessControlDrawer", () => {
     // Find the editable trigger in the remark column of the boss row.
     const row = screen.getByText("alice").closest("[data-row-key]");
     const remarkCell = row!.querySelector("[data-col='remark']");
-    fireEvent.click(remarkCell!.querySelector("[data-testid='editable-trigger']")!);
+    fireEvent.click(
+      remarkCell!.querySelector("[data-testid='editable-trigger']")!,
+    );
     await waitFor(() =>
       expect(mocks.updateAclRemark).toHaveBeenCalledWith(
         "dingtalk",
@@ -657,7 +665,9 @@ describe("AccessControlDrawer", () => {
     await waitFor(() => expect(mocks.getAclAll).toHaveBeenCalled());
     const row = screen.getByText("alice").closest("[data-row-key]");
     const remarkCell = row!.querySelector("[data-col='remark']");
-    fireEvent.click(remarkCell!.querySelector("[data-testid='editable-trigger']")!);
+    fireEvent.click(
+      remarkCell!.querySelector("[data-testid='editable-trigger']")!,
+    );
     await waitFor(() =>
       expect(mocks.messageError).toHaveBeenCalledWith(
         "channels.operationFailed",

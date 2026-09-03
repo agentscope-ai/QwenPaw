@@ -9,7 +9,7 @@
  * Modal.useModal confirm is captured via a spy so onOk can be driven.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -98,7 +98,9 @@ vi.mock("./CheckpointGraph", () => ({
 
 vi.mock("./RestoreModal", () => ({
   RestoreModal: ({ open }: { open: boolean }) =>
-    open ? React.createElement("div", { "data-testid": "restore-modal" }) : null,
+    open
+      ? React.createElement("div", { "data-testid": "restore-modal" })
+      : null,
 }));
 
 vi.mock("./graphLayout", () => ({
@@ -129,7 +131,10 @@ function setupDefaultMocks() {
     workspace_dir: "/ws",
   });
   cpMocks.graph.mockResolvedValue({
-    nodes: [node(), node({ commit: "c2bbbb", kind: "snap", query: "snapshot one" })],
+    nodes: [
+      node(),
+      node({ commit: "c2bbbb", kind: "snap", query: "snapshot one" }),
+    ],
     sessions: [
       {
         session_key: "s1",
@@ -215,9 +220,7 @@ describe("CheckpointsPage", () => {
     const search = screen.getByPlaceholderText("checkpoints.search");
     await user.type(search, "snapshot one");
 
-    await waitFor(() =>
-      expect(screen.getByText("c2bbbb")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("c2bbbb")).toBeInTheDocument());
     expect(screen.queryByText("c1aaaa")).not.toBeInTheDocument();
   });
 
@@ -252,9 +255,7 @@ describe("CheckpointsPage", () => {
     cpMocks.setAuto.mockResolvedValue({ auto_enabled: false });
     await user.click(screen.getByRole("switch"));
 
-    await waitFor(() =>
-      expect(cpMocks.setAuto).toHaveBeenCalledWith(false),
-    );
+    await waitFor(() => expect(cpMocks.setAuto).toHaveBeenCalledWith(false));
     expect(messageMocks.success).toHaveBeenCalledWith(
       "checkpoints.autoDisabled",
     );
@@ -324,7 +325,9 @@ describe("CheckpointsPage", () => {
     await waitFor(() => expect(cpMocks.previewGc).toHaveBeenCalledWith({}));
     await waitFor(() => expect(modalConfirmSpy).toHaveBeenCalled());
 
-    const opts = modalConfirmSpy.mock.calls.at(-1)?.[0] as {
+    const opts = modalConfirmSpy.mock.calls[
+      modalConfirmSpy.mock.calls.length - 1
+    ]?.[0] as {
       onOk: () => Promise<void>;
     };
     await opts.onOk();
@@ -347,7 +350,9 @@ describe("CheckpointsPage", () => {
     await waitFor(() =>
       expect(cpMocks.previewGc).toHaveBeenCalledWith({ compact: true }),
     );
-    const opts = modalConfirmSpy.mock.calls.at(-1)?.[0] as {
+    const opts = modalConfirmSpy.mock.calls[
+      modalConfirmSpy.mock.calls.length - 1
+    ]?.[0] as {
       onOk: () => Promise<void>;
     };
     await opts.onOk();
@@ -365,9 +370,7 @@ describe("CheckpointsPage", () => {
     const { user } = await renderPage();
 
     await user.click(screen.getByLabelText("checkpoints.more"));
-    await user.click(
-      await screen.findByText("checkpoints.gc.action"),
-    );
+    await user.click(await screen.findByText("checkpoints.gc.action"));
 
     await waitFor(() =>
       expect(messageMocks.error).toHaveBeenCalledWith("no repo"),
@@ -378,9 +381,7 @@ describe("CheckpointsPage", () => {
     const { user } = await renderPage();
 
     await user.click(screen.getByLabelText("checkpoints.more"));
-    await user.click(
-      await screen.findByText("checkpoints.gc.settingsAction"),
-    );
+    await user.click(await screen.findByText("checkpoints.gc.settingsAction"));
 
     await waitFor(() => expect(cpMocks.getGcSettings).toHaveBeenCalled());
 
@@ -404,9 +405,7 @@ describe("CheckpointsPage", () => {
     const { user } = await renderPage();
 
     await user.click(screen.getByLabelText("checkpoints.more"));
-    await user.click(
-      await screen.findByText("checkpoints.gc.settingsAction"),
-    );
+    await user.click(await screen.findByText("checkpoints.gc.settingsAction"));
 
     await waitFor(() =>
       expect(messageMocks.error).toHaveBeenCalledWith("no settings"),
@@ -420,7 +419,9 @@ describe("CheckpointsPage", () => {
     await user.click(await screen.findByText("checkpoints.reset.action"));
 
     await waitFor(() => expect(modalConfirmSpy).toHaveBeenCalled());
-    const opts = modalConfirmSpy.mock.calls.at(-1)?.[0] as {
+    const opts = modalConfirmSpy.mock.calls[
+      modalConfirmSpy.mock.calls.length - 1
+    ]?.[0] as {
       onOk: () => Promise<void>;
     };
     await opts.onOk();

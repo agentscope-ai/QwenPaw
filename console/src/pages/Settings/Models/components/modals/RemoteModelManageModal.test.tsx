@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -52,11 +52,7 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
   const antd = await import("antd");
   const original = (await importOriginal()) as Record<string, unknown>;
 
-  const modalLike = ({
-    children,
-    footer,
-    title,
-  }: Record<string, unknown>) =>
+  const modalLike = ({ children, footer, title }: Record<string, unknown>) =>
     React.createElement(
       "div",
       { role: "dialog" },
@@ -109,7 +105,7 @@ vi.mock("./ModelCapabilityTags", () => ({
   }),
 }));
 vi.mock("./ModelConfigEditor", () => ({
-  ModelConfigEditor: (props: Record<string, unknown>) =>
+  ModelConfigEditor: () =>
     React.createElement("div", { "data-testid": "model-config-editor" }),
 }));
 vi.mock("./OpenRouterFilterSection", () => ({
@@ -117,7 +113,11 @@ vi.mock("./OpenRouterFilterSection", () => ({
     onFetchModels,
     onAddModel,
     discoveredModels,
-  }: Record<string, unknown>) =>
+  }: {
+    onFetchModels?: () => void;
+    onAddModel?: (model: { id: string }) => void;
+    discoveredModels?: Array<{ id: string }>;
+  }) =>
     React.createElement(
       "div",
       null,
@@ -126,17 +126,16 @@ vi.mock("./OpenRouterFilterSection", () => ({
         { type: "button", onClick: () => onFetchModels?.() },
         "fetch-filters",
       ),
-      ...((discoveredModels as Array<{ id: string }>) ?? []).map(
-        (m: { id: string }) =>
-          React.createElement(
-            "button",
-            {
-              key: m.id,
-              type: "button",
-              onClick: () => onAddModel?.(m),
-            },
-            `add-filtered:${m.id}`,
-          ),
+      ...(discoveredModels ?? []).map((m: { id: string }) =>
+        React.createElement(
+          "button",
+          {
+            key: m.id,
+            type: "button",
+            onClick: () => onAddModel?.(m),
+          },
+          `add-filtered:${m.id}`,
+        ),
       ),
     ),
 }));
@@ -290,7 +289,9 @@ describe("RemoteModelManageModal", () => {
         discovered_models: [],
       });
 
-      const search = screen.getByPlaceholderText(/models\.searchModelPlaceholder/);
+      const search = screen.getByPlaceholderText(
+        /models\.searchModelPlaceholder/,
+      );
       await user.type(search, "alpha");
 
       await waitFor(() =>
@@ -354,9 +355,7 @@ describe("RemoteModelManageModal", () => {
 
       await openAddForm(user);
       await fillAddForm({ id: "my-model", name: "My Model" });
-      await user.click(
-        screen.getByRole("button", { name: "models.addModel" }),
-      );
+      await user.click(screen.getByRole("button", { name: "models.addModel" }));
 
       await waitFor(() => expect(apiMocks.addModel).toHaveBeenCalled());
       expect(apiMocks.testModelConnection).toHaveBeenCalledWith("siliconflow", {
@@ -447,7 +446,9 @@ describe("RemoteModelManageModal", () => {
       await user.click(screen.getByRole("button", { name: "models.addModel" }));
 
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as {
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as {
         onOk: () => Promise<void>;
       };
       await opts.onOk();
@@ -470,7 +471,9 @@ describe("RemoteModelManageModal", () => {
       await user.click(screen.getByRole("button", { name: "models.addModel" }));
 
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as {
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as {
         onOk: () => Promise<void>;
       };
       await opts.onOk();
@@ -592,13 +595,18 @@ describe("RemoteModelManageModal", () => {
 
       await user.click(screen.getByLabelText("models.removeModel"));
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as {
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as {
         onOk: () => Promise<void>;
       };
       await opts.onOk();
 
       await waitFor(() =>
-        expect(apiMocks.removeModel).toHaveBeenCalledWith("siliconflow", "ex-1"),
+        expect(apiMocks.removeModel).toHaveBeenCalledWith(
+          "siliconflow",
+          "ex-1",
+        ),
       );
       expect(onSaved).toHaveBeenCalled();
       expect(messageMocks.success).toHaveBeenCalled();
@@ -614,7 +622,9 @@ describe("RemoteModelManageModal", () => {
 
       await user.click(screen.getByLabelText("models.removeModel"));
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as {
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as {
         onOk: () => Promise<void>;
       };
       await opts.onOk();

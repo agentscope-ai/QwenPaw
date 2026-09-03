@@ -131,14 +131,20 @@ vi.mock("./MCPAccessClientPanel", () => ({
           "button",
           {
             onClick: () =>
-              props.setClientRuleEffect(props.policy.client_overrides[0], "deny"),
+              props.setClientRuleEffect(
+                props.policy.client_overrides[0],
+                "deny",
+              ),
           },
           "set-client-rule-effect",
         ),
       props.policy.client_overrides.length > 0 &&
         React.createElement(
           "button",
-          { onClick: () => props.deleteClientRule(props.policy.client_overrides[0]) },
+          {
+            onClick: () =>
+              props.deleteClientRule(props.policy.client_overrides[0]),
+          },
           "delete-client-rule",
         ),
     );
@@ -155,7 +161,8 @@ vi.mock("./MCPAccessToolPanel", () => ({
       React.createElement(
         "button",
         {
-          onClick: () => props.setToolDefaultEffect(props.groups[0].toolName, "ask"),
+          onClick: () =>
+            props.setToolDefaultEffect(props.groups[0].toolName, "ask"),
         },
         "set-tool-default",
       ),
@@ -330,7 +337,9 @@ describe("MCPAccessModal", () => {
       },
     ]);
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
     // Defaults remain available and principals still load.
     expect(clientPanelProps.current.channelSourceValues).toContain("telegram");
     expect(clientPanelProps.current.principalOptions).toHaveLength(1);
@@ -339,7 +348,9 @@ describe("MCPAccessModal", () => {
   it("ignores principal load failures", async () => {
     apiMocks.listMCPAccessPrincipals.mockRejectedValue(new Error("nope"));
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
     expect(clientPanelProps.current.principalOptions).toEqual([]);
     expect(messageMocks.error).not.toHaveBeenCalled();
   });
@@ -356,7 +367,9 @@ describe("MCPAccessModal", () => {
   it("saves a valid policy and closes on success", async () => {
     const user = userEvent.setup();
     const { onClose, onSave } = renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("common.save"));
     await waitFor(() =>
@@ -383,7 +396,9 @@ describe("MCPAccessModal", () => {
     );
     const user = userEvent.setup();
     const { onSave } = renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("common.save"));
     await waitFor(() =>
@@ -419,7 +434,9 @@ describe("MCPAccessModal", () => {
     ]);
     const user = userEvent.setup();
     const { onSave } = renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("common.save"));
     await waitFor(() =>
@@ -434,7 +451,9 @@ describe("MCPAccessModal", () => {
     const onSave = vi.fn().mockResolvedValue(false);
     const user = userEvent.setup();
     const { onClose } = renderModal(makeClient(), onSave);
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("common.save"));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
@@ -446,7 +465,9 @@ describe("MCPAccessModal", () => {
   it("closes directly when there are no changes", async () => {
     const user = userEvent.setup();
     const { onClose } = renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("common.cancel"));
     expect(onClose).toHaveBeenCalled();
@@ -456,7 +477,9 @@ describe("MCPAccessModal", () => {
   it("asks for confirmation before discarding unsaved changes", async () => {
     const user = userEvent.setup();
     const { onClose } = renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     // Mutate the policy so the modal becomes dirty.
     await user.click(screen.getByText("set-default-allow"));
@@ -471,7 +494,7 @@ describe("MCPAccessModal", () => {
     );
 
     // Confirming the discard closes the modal.
-    const call = confirmSpy.mock.calls.at(-1)![0];
+    const call = confirmSpy.mock.calls[confirmSpy.mock.calls.length - 1][0];
     call.onOk();
     expect(onClose).toHaveBeenCalled();
   });
@@ -479,7 +502,9 @@ describe("MCPAccessModal", () => {
   it("adds a client access rule through the panel", async () => {
     const user = userEvent.setup();
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("add-client-rule"));
     await waitFor(() =>
@@ -503,7 +528,9 @@ describe("MCPAccessModal", () => {
     );
     const user = userEvent.setup();
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("patch-client-rule"));
     await waitFor(() => {
@@ -529,7 +556,9 @@ describe("MCPAccessModal", () => {
     );
     const user = userEvent.setup();
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("set-client-rule-effect"));
     await waitFor(() =>
@@ -547,7 +576,9 @@ describe("MCPAccessModal", () => {
   it("sets a per-tool default effect through the panel", async () => {
     const user = userEvent.setup();
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("tool-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("set-tool-default"));
     await waitFor(() =>
@@ -562,7 +593,9 @@ describe("MCPAccessModal", () => {
   it("adds, patches and removes tool rules through the panel", async () => {
     const user = userEvent.setup();
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("tool-panel")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-panel")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByText("add-tool-rule"));
     await waitFor(() =>
@@ -598,7 +631,11 @@ describe("MCPAccessModal", () => {
       }),
     );
     renderModal();
-    await waitFor(() => expect(screen.getByTestId("client-panel")).toBeInTheDocument());
-    expect(clientPanelProps.current.channelSourceValues).toContain("legacychan");
+    await waitFor(() =>
+      expect(screen.getByTestId("client-panel")).toBeInTheDocument(),
+    );
+    expect(clientPanelProps.current.channelSourceValues).toContain(
+      "legacychan",
+    );
   });
 });

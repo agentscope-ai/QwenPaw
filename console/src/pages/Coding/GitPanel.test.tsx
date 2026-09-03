@@ -122,9 +122,9 @@ describe("GitPanel", () => {
     await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());
 
     // Row button order: [View diff, (Discard), Stage/Unstage]
-    const rows = screen.getAllByText(/\.ts$/).map((el) =>
-      el.closest("[class*='fileRow']") as HTMLElement,
-    );
+    const rows = screen
+      .getAllByText(/\.ts$/)
+      .map((el) => el.closest("[class*='fileRow']") as HTMLElement);
     const stagedRow = rows.find((r) => r.textContent?.includes("a.ts"))!;
     const unstagedRow = rows.find((r) => r.textContent?.includes("b.ts"))!;
 
@@ -152,7 +152,9 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("b.ts")).toBeInTheDocument());
 
-    const changesHeader = screen.getByText(/Changes \(2\)/).closest("[class*='sectionHeader']") as HTMLElement;
+    const changesHeader = screen
+      .getByText(/Changes \(2\)/)
+      .closest("[class*='sectionHeader']") as HTMLElement;
     await user.click(within(changesHeader).getByRole("button"));
     await waitFor(() =>
       expect(gitMocks.stage).toHaveBeenCalledWith([], undefined),
@@ -169,7 +171,9 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());
 
-    const stagedHeader = screen.getByText(/Staged \(1\)/).closest("[class*='sectionHeader']") as HTMLElement;
+    const stagedHeader = screen
+      .getByText(/Staged \(1\)/)
+      .closest("[class*='sectionHeader']") as HTMLElement;
     await user.click(within(stagedHeader).getByRole("button"));
     await waitFor(() =>
       expect(gitMocks.unstage).toHaveBeenCalledWith([], undefined),
@@ -186,7 +190,9 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("b.ts")).toBeInTheDocument());
 
-    const row = screen.getByText("b.ts").closest("[class*='fileRow']") as HTMLElement;
+    const row = screen
+      .getByText("b.ts")
+      .closest("[class*='fileRow']") as HTMLElement;
     // Row button order: [View diff, Discard, Stage]
     await user.click(within(row).getAllByRole("button")[1]);
     await waitFor(() =>
@@ -208,10 +214,17 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("b.ts")).toBeInTheDocument());
 
-    const row = screen.getByText("b.ts").closest("[class*='fileRow']") as HTMLElement;
+    const row = screen
+      .getByText("b.ts")
+      .closest("[class*='fileRow']") as HTMLElement;
     await user.click(within(row).getAllByRole("button")[0]);
     await waitFor(() =>
-      expect(gitMocks.diff).toHaveBeenCalledWith("b.ts", false, false, undefined),
+      expect(gitMocks.diff).toHaveBeenCalledWith(
+        "b.ts",
+        false,
+        false,
+        undefined,
+      ),
     );
     // UnifiedDiffView renders each diff line
     await waitFor(() => expect(screen.getByText("+added")).toBeInTheDocument());
@@ -228,7 +241,9 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("b.ts")).toBeInTheDocument());
 
-    const row = screen.getByText("b.ts").closest("[class*='fileRow']") as HTMLElement;
+    const row = screen
+      .getByText("b.ts")
+      .closest("[class*='fileRow']") as HTMLElement;
     await user.click(within(row).getAllByRole("button")[0]);
     await waitFor(() =>
       expect(screen.getByText("No diff available.")).toBeInTheDocument(),
@@ -357,11 +372,11 @@ describe("GitPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("first commit")).toBeInTheDocument(),
     );
-    const logEntry = screen.getByText("first commit").closest("[class*='logEntry']") as HTMLElement;
+    const logEntry = screen
+      .getByText("first commit")
+      .closest("[class*='logEntry']") as HTMLElement;
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() =>
-      expect(screen.getByText("Revert")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
     await user.click(screen.getByText("Revert"));
     await waitFor(() => expect(gitMocks.revert).toHaveBeenCalled());
   });
@@ -381,16 +396,16 @@ describe("GitPanel", () => {
       expect(screen.getByText("first commit")).toBeInTheDocument(),
     );
 
-    const logEntry = screen.getByText("first commit").closest("[class*='logEntry']") as HTMLElement;
+    const logEntry = screen
+      .getByText("first commit")
+      .closest("[class*='logEntry']") as HTMLElement;
     await user.click(within(logEntry).getAllByRole("button")[0]);
     await waitFor(() =>
       expect(gitMocks.commitDiff).toHaveBeenCalledWith("abc123", undefined),
     );
 
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() =>
-      expect(screen.getByText("Revert")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
     await user.click(screen.getByText("Revert"));
     await waitFor(() =>
       expect(gitMocks.revert).toHaveBeenCalledWith("abc123", undefined),
@@ -520,7 +535,9 @@ describe("GitPanel", () => {
 
     const before = gitMocks.status.mock.calls.length;
     // The refresh button is the icon button in the branch bar
-    const branchBar = screen.getByRole("combobox").closest("[class*='branchBar']") as HTMLElement;
+    const branchBar = screen
+      .getByRole("combobox")
+      .closest("[class*='branchBar']") as HTMLElement;
     await user.click(within(branchBar).getByRole("button"));
     await waitFor(() =>
       expect(gitMocks.status.mock.calls.length).toBeGreaterThan(before),

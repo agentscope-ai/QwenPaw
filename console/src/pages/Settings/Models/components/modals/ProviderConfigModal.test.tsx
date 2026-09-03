@@ -40,11 +40,7 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
   const antd = await import("antd");
   const original = (await importOriginal()) as Record<string, unknown>;
 
-  const modalLike = ({
-    children,
-    footer,
-    title,
-  }: Record<string, unknown>) =>
+  const modalLike = ({ children, footer, title }: Record<string, unknown>) =>
     React.createElement(
       "div",
       { role: "dialog" },
@@ -184,9 +180,7 @@ describe("ProviderConfigModal", () => {
         ["lmstudio", "models.lmstudioEndpointHint"],
       ];
       for (const [id, hint] of cases) {
-        const { unmount } = renderModal(
-          makeProvider({ id, is_custom: false }),
-        );
+        const { unmount } = renderModal(makeProvider({ id, is_custom: false }));
         expect(screen.getByText(hint)).toBeInTheDocument();
         unmount();
       }
@@ -254,7 +248,9 @@ describe("ProviderConfigModal", () => {
       await dirtyForm(user);
       await user.click(screen.getByText("models.save"));
 
-      await waitFor(() => expect(apiMocks.configureProvider).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(apiMocks.configureProvider).toHaveBeenCalled(),
+      );
       expect(apiMocks.testProviderConnection).toHaveBeenCalledWith(
         "custom-provider",
         expect.objectContaining({ api_key: "sk-x" }),
@@ -278,7 +274,9 @@ describe("ProviderConfigModal", () => {
       await dirtyForm(user);
       await user.click(screen.getByText("models.save"));
 
-      await waitFor(() => expect(apiMocks.configureProvider).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(apiMocks.configureProvider).toHaveBeenCalled(),
+      );
       expect(apiMocks.testProviderConnection).not.toHaveBeenCalled();
     });
 
@@ -399,7 +397,9 @@ describe("ProviderConfigModal", () => {
       await dirtyForm(user);
       await user.click(screen.getByText("models.save"));
 
-      await waitFor(() => expect(messageMocks.error).toHaveBeenCalledWith("boom"));
+      await waitFor(() =>
+        expect(messageMocks.error).toHaveBeenCalledWith("boom"),
+      );
     });
   });
 
@@ -443,7 +443,9 @@ describe("ProviderConfigModal", () => {
     async function openConfirm(user: ReturnType<typeof userEvent.setup>) {
       await user.click(screen.getAllByText("models.revokeAuthorization")[0]);
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as {
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as {
         onOk: () => Promise<void>;
       };
       await opts.onOk();
@@ -451,10 +453,9 @@ describe("ProviderConfigModal", () => {
 
     it("revokes through the confirm dialog (active llm provider)", async () => {
       const user = userEvent.setup();
-      const { onSaved } = renderModal(
-        makeProvider({ api_key: "sk-live" }),
-        { active_llm: { provider_id: "custom-provider" } },
-      );
+      const { onSaved } = renderModal(makeProvider({ api_key: "sk-live" }), {
+        active_llm: { provider_id: "custom-provider" },
+      });
 
       await openConfirm(user);
 
@@ -499,7 +500,9 @@ describe("ProviderConfigModal", () => {
 
       await user.click(screen.getAllByText("models.revokeAuthorization")[0]);
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-      const opts = confirmSpy.mock.calls.at(-1)?.[0] as { content: string };
+      const opts = confirmSpy.mock.calls[
+        confirmSpy.mock.calls.length - 1
+      ]?.[0] as { content: string };
       expect(opts.content).toBe("models.revokeConfirmContent");
     });
   });
@@ -633,9 +636,9 @@ describe("ProviderConfigModal", () => {
         expect(container).not.toBeNull();
       });
 
-      const html = document
-        .querySelector("[class*='jsonEditorHighlight']")!
-        .innerHTML;
+      const html = document.querySelector(
+        "[class*='jsonEditorHighlight']",
+      )!.innerHTML;
       expect(html).toContain("jsonEditorTokenKey");
       expect(html).toContain("jsonEditorTokenBoolean");
       expect(html).toContain("jsonEditorTokenNull");

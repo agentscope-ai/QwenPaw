@@ -945,9 +945,11 @@ describe("LocalModelManageModal", () => {
       await waitFor(() => expect(api.getLocalServerStatus).toHaveBeenCalled());
 
       // locate the custom-model download button and click with empty repo
-      const customDownloadButtons = screen.getAllByRole("button").filter(
-        (b) => b.querySelector("svg") && b.closest("[class*='customModel']"),
-      );
+      const customDownloadButtons = screen
+        .getAllByRole("button")
+        .filter(
+          (b) => b.querySelector("svg") && b.closest("[class*='customModel']"),
+        );
       if (customDownloadButtons.length > 0) {
         await user.click(customDownloadButtons[0]);
         await new Promise((r) => setTimeout(r, 50));
@@ -957,7 +959,9 @@ describe("LocalModelManageModal", () => {
 
     it("推荐模型下载按钮触发下载并轮询", async () => {
       const user = userEvent.setup();
-      vi.mocked(api.startLocalModelDownload).mockResolvedValue(undefined as any);
+      vi.mocked(api.startLocalModelDownload).mockResolvedValue(
+        undefined as any,
+      );
       renderModal();
 
       await waitFor(() =>

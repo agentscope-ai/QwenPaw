@@ -24,11 +24,9 @@ vi.mock("../../../api", () => ({ default: apiMocks }));
 // t and message must be stable references: fetchData/fetchTrend list them in
 // their dependency arrays and a fresh function per render would refetch
 // forever.
-const stableT = vi.hoisted(() =>
-  (key: string, fallback?: string) =>
-    typeof fallback === "string" && !fallback.includes("{")
-      ? fallback
-      : key,
+const stableT = vi.hoisted(
+  () => (key: string, fallback?: string) =>
+    typeof fallback === "string" && !fallback.includes("{") ? fallback : key,
 );
 const stableMessage = vi.hoisted(() => ({
   success: vi.fn(),
@@ -63,7 +61,11 @@ vi.mock("../../../stores/agentStore", () => ({
 
 vi.mock("@/components/PageHeader", () => ({
   PageHeader: ({ parent, current }: { parent: string; current: string }) =>
-    React.createElement("div", { "data-testid": "page-header" }, `${parent}/${current}`),
+    React.createElement(
+      "div",
+      { "data-testid": "page-header" },
+      `${parent}/${current}`,
+    ),
 }));
 
 const capturedProps = vi.hoisted(() => ({
@@ -130,7 +132,8 @@ vi.mock("@agentscope-ai/design", () => ({
 const datePickerMock = vi.hoisted(() => ({ onChange: null as any }));
 
 vi.mock("antd", () => {
-  const Tooltip = ({ children }: any) => React.createElement("span", null, children);
+  const Tooltip = ({ children }: any) =>
+    React.createElement("span", null, children);
   const RangePicker = ({ onChange }: any) => {
     datePickerMock.onChange = onChange;
     return React.createElement("input", {
@@ -210,9 +213,9 @@ describe("TokenUsagePage", () => {
     render(<TokenUsagePage />);
     await waitFor(() => expect(capturedProps.tables).toBeTruthy());
     // Model rows are keyed provider:model.
-    expect(capturedProps.tables.byModelData.map((r: any) => r.model).sort()).toEqual(
-      ["anthropic:claude", "openai:gpt-4o"],
-    );
+    expect(
+      capturedProps.tables.byModelData.map((r: any) => r.model).sort(),
+    ).toEqual(["anthropic:claude", "openai:gpt-4o"]);
     // The named agent resolves through the store; the null agent id is
     // labelled unattributed; rows sort by total tokens descending.
     expect(capturedProps.tables.byAgentData).toEqual([
@@ -261,7 +264,9 @@ describe("TokenUsagePage", () => {
   it("shows the trend loading state until the trend arrives", async () => {
     apiMocks.getGlobalLlmToolTrend.mockReturnValue(new Promise(() => {}));
     render(<TokenUsagePage />);
-    await waitFor(() => expect(screen.getByTestId("summary-cards")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId("summary-cards")).toBeInTheDocument(),
+    );
     // The trend card keeps showing a loading state.
     expect(screen.getAllByTestId("loading-state").length).toBeGreaterThan(0);
     expect(capturedProps.line).toBeNull();
@@ -272,7 +277,9 @@ describe("TokenUsagePage", () => {
     const user = userEvent.setup();
     render(<TokenUsagePage />);
     await waitFor(() =>
-      expect(screen.getByText("tokenUsage.llmAndToolTrendLoadFailed")).toBeInTheDocument(),
+      expect(
+        screen.getByText("tokenUsage.llmAndToolTrendLoadFailed"),
+      ).toBeInTheDocument(),
     );
 
     apiMocks.getGlobalLlmToolTrend.mockResolvedValueOnce([
@@ -302,7 +309,11 @@ describe("TokenUsagePage", () => {
       expect(screen.getByTestId("llm-tool-line")).toBeInTheDocument(),
     );
     expect(capturedProps.line.data).toEqual([
-      { date: "2026-09-01", type: "tokenUsage.recordedTurnsAllAgents", value: 4 },
+      {
+        date: "2026-09-01",
+        type: "tokenUsage.recordedTurnsAllAgents",
+        value: 4,
+      },
       { date: "2026-09-01", type: "tokenUsage.toolCalls", value: 2 },
     ]);
   });
@@ -315,18 +326,20 @@ describe("TokenUsagePage", () => {
     const callsBefore = apiMocks.getTokenUsageDetails.mock.calls.length;
 
     const dayjs = (await import("dayjs")).default;
-    datePickerMock.onChange([
-      dayjs().subtract(7, "day"),
-      dayjs(),
-    ]);
+    datePickerMock.onChange([dayjs().subtract(7, "day"), dayjs()]);
 
     await waitFor(() =>
       expect(apiMocks.getTokenUsageDetails.mock.calls.length).toBe(
         callsBefore + 1,
       ),
     );
-    const [range] = apiMocks.getTokenUsageDetails.mock.calls.at(-1)!;
-    expect(range.start_date).toBe(dayjs().subtract(7, "day").format("YYYY-MM-DD"));
+    const [range] =
+      apiMocks.getTokenUsageDetails.mock.calls[
+        apiMocks.getTokenUsageDetails.mock.calls.length - 1
+      ];
+    expect(range.start_date).toBe(
+      dayjs().subtract(7, "day").format("YYYY-MM-DD"),
+    );
   });
 
   it("ignores null date selections", async () => {

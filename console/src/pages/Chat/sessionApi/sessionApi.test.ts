@@ -292,14 +292,14 @@ describe("contentToRequestParts", () => {
     expect(String(byId[0].file_url)).toContain("fid-1");
     expect(byId[0].file_name).toBe("named.bin");
 
-    const unnamed = T.contentToRequestParts([{ type: "file", file_id: "fid-2" }]);
+    const unnamed = T.contentToRequestParts([
+      { type: "file", file_id: "fid-2" },
+    ]);
     expect(unnamed[0].file_name).toBe("file");
   });
 
   it("passes through content items with no url fields", () => {
-    const parts = T.contentToRequestParts([
-      { type: "text", text: "plain" },
-    ]);
+    const parts = T.contentToRequestParts([{ type: "text", text: "plain" }]);
     expect(parts[0].text).toBe("plain");
     expect(parts[0].status).toBe("created");
   });

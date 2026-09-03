@@ -6,7 +6,7 @@
  * local session list, and timestamp formatting.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -311,7 +311,9 @@ describe("ChatSearchPanel", () => {
     await waitFor(() =>
       expect(screen.getAllByText(/needle/).length).toBeGreaterThan(0),
     );
-    const item = screen.getAllByText(/needle/)[0].closest("[class*='searchResultItem']") as HTMLElement;
+    const item = screen
+      .getAllByText(/needle/)[0]
+      .closest("[class*='searchResultItem']") as HTMLElement;
     await user.click(item);
 
     // c1 does not match any session's realId/id, so it navigates by chat id
@@ -338,7 +340,9 @@ describe("ChatSearchPanel", () => {
     await waitFor(() =>
       expect(screen.getAllByText(/needle/).length).toBeGreaterThan(0),
     );
-    const item = screen.getAllByText(/needle/)[0].closest("[class*='searchResultItem']") as HTMLElement;
+    const item = screen
+      .getAllByText(/needle/)[0]
+      .closest("[class*='searchResultItem']") as HTMLElement;
     await user.click(item);
 
     expect(sessionStateMocks.setCurrentSessionId).toHaveBeenCalledWith("s1");
@@ -400,8 +404,9 @@ describe("ChatSearchPanel", () => {
 
     // chat.created_at "2026-09-01T10:00:00Z" formats to a local YYYY-MM-DD HH:mm
     await waitFor(() =>
-      expect(screen.getAllByText(/2026-09-0\d \d\d:\d\d/).length)
-        .toBeGreaterThan(0),
+      expect(
+        screen.getAllByText(/2026-09-0\d \d\d:\d\d/).length,
+      ).toBeGreaterThan(0),
     );
   });
 

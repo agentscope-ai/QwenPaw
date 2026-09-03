@@ -8,7 +8,7 @@
  * logic (grouping, filtering, state transitions) is what gets exercised.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -37,14 +37,16 @@ vi.mock("react-i18next", () => ({
 
 // Stub the heavy children; expose data-testids for assertions.
 vi.mock("./components", () => {
-  const stub = (name: string) => (props: Record<string, unknown>) =>
-    React.createElement("div", { "data-testid": name }, name);
   return {
     LoadingState: ({
       message,
       error,
       onRetry,
-    }: Record<string, unknown>) =>
+    }: {
+      message: string;
+      error?: boolean;
+      onRetry?: () => void;
+    }) =>
       React.createElement(
         "div",
         { "data-testid": "loading-state" },
@@ -66,7 +68,11 @@ vi.mock("./components", () => {
     ProviderGroupCard: ({ group }: Record<string, unknown>) =>
       React.createElement(
         "div",
-        { "data-testid": `group-card:${(group as { groupKey: string }).groupKey}` },
+        {
+          "data-testid": `group-card:${
+            (group as { groupKey: string }).groupKey
+          }`,
+        },
         (group as { groupName: string }).groupName,
       ),
     CustomProviderModal: ({ open }: Record<string, unknown>) =>
@@ -75,9 +81,7 @@ vi.mock("./components", () => {
         : null,
     ModelsSection: () =>
       React.createElement("div", { "data-testid": "models-section" }),
-    ProviderConfigModal: ({
-      provider,
-    }: Record<string, unknown>) =>
+    ProviderConfigModal: ({ provider }: Record<string, unknown>) =>
       React.createElement(
         "div",
         {
@@ -133,7 +137,7 @@ function makeProvider(overrides: Partial<ProviderInfo> = {}): ProviderInfo {
   } as ProviderInfo;
 }
 
-function setProviders(list: ProviderInfo[], active = null) {
+function setProviders(list: ProviderInfo[], active: unknown = null) {
   providersMock.providers = list;
   providersMock.activeModels = active;
   providersMock.loading = false;
@@ -186,7 +190,12 @@ describe("ModelsPage", () => {
     const user = userEvent.setup();
     setProviders([
       makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" }),
-      makeProvider({ id: "loc", name: "Local Thing", is_local: true, require_api_key: false }),
+      makeProvider({
+        id: "loc",
+        name: "Local Thing",
+        is_local: true,
+        require_api_key: false,
+      }),
     ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
 
@@ -201,7 +210,12 @@ describe("ModelsPage", () => {
   it("restores the last-used tab from localStorage", () => {
     localStorage.setItem("models_tab", "local");
     setProviders([
-      makeProvider({ id: "loc", name: "Local Thing", is_local: true, require_api_key: false }),
+      makeProvider({
+        id: "loc",
+        name: "Local Thing",
+        is_local: true,
+        require_api_key: false,
+      }),
     ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
     expect(screen.getByTestId("provider-card:loc")).toBeInTheDocument();
@@ -222,12 +236,16 @@ describe("ModelsPage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("provider-card:openai")).toBeInTheDocument(),
     );
-    expect(screen.queryByTestId("provider-card:anthropic")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("provider-card:anthropic"),
+    ).not.toBeInTheDocument();
   });
 
   it("refreshes providers via the refresh button", async () => {
     const user = userEvent.setup();
-    setProviders([makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" })]);
+    setProviders([
+      makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" }),
+    ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
 
     await user.click(screen.getByTitle("common.refresh"));
@@ -283,9 +301,7 @@ describe("ModelsPage", () => {
   });
 
   it("auto-opens the config modal from the provider URL param", async () => {
-    setProviders([
-      makeProvider({ id: "openai", name: "OpenAI", api_key: "" }),
-    ]);
+    setProviders([makeProvider({ id: "openai", name: "OpenAI", api_key: "" })]);
     renderWithProviders(<ModelsPage />, {
       initialEntries: ["/models?provider=openai"],
     });
@@ -296,9 +312,7 @@ describe("ModelsPage", () => {
   });
 
   it("auto-opens the manage modal when manageModels=true", async () => {
-    setProviders([
-      makeProvider({ id: "openai", name: "OpenAI", api_key: "" }),
-    ]);
+    setProviders([makeProvider({ id: "openai", name: "OpenAI", api_key: "" })]);
     renderWithProviders(<ModelsPage />, {
       initialEntries: ["/models?provider=openai&manageModels=true"],
     });
@@ -309,9 +323,12 @@ describe("ModelsPage", () => {
   });
 
   it("renders the default LLM pill with the active model", () => {
-    setProviders([makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" })], {
-      active_llm: { provider_id: "openai", model: "gpt-x" },
-    });
+    setProviders(
+      [makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" })],
+      {
+        active_llm: { provider_id: "openai", model: "gpt-x" },
+      },
+    );
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
     expect(screen.getByText(/models\.defaultLlm/)).toBeInTheDocument();
     expect(screen.getByText(/gpt-x/)).toBeInTheDocument();
