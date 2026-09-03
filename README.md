@@ -60,6 +60,8 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
+- [2026-09-03] **v2.2.0** | Self-hosted multi-user QwenPaw Hub, QwenPaw Mail, native QwenPaw Data, unified model routing, Creator 1.1, a unified marketplace, and major Console, Skills, channel, and reliability improvements. [v2.2.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, unified Files workspace, QwenPaw Creator, Codex/Qoder Agent integration, Browser-use, Computer-use, workspace checkpoints, and long-running conversation continuity. [v2.1.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
@@ -76,12 +78,6 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
   Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
