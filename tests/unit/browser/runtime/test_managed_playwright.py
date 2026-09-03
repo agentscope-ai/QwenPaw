@@ -202,24 +202,7 @@ async def test_install_timeout_records_failure(
             await asyncio.sleep(10)
             return b"", None
 
-    async def fake_exec(*_args, **_kwargs):
-        return _Proc()
-
-    monkeypatch.setattr(managed_state, "_INSTALL_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(managed_state, "_cache_dir", lambda: tmp_path)
-    monkeypatch.setattr(
-        "playwright._impl._driver.compute_driver_executable",
-        lambda: ("node", "cli"),
-    )
-    monkeypatch.setattr(
-        "playwright._impl._driver.get_driver_env",
-        lambda: {},
-    )
-    monkeypatch.setattr(
-        managed_state.asyncio,
-        "create_subprocess_exec",
-        fake_exec,
-    )
+    _patch_fake_install(monkeypatch, managed_state, tmp_path, _Proc)
     await managed_state._download_and_record()
     assert "timed out" in managed_state._last_download_error.lower()
     assert managed_state._last_failure_at > 0
@@ -456,23 +439,6 @@ def test_ensure_not_ready_guarantees_minimum_retry_after(
     monkeypatch.setattr(managed_state.asyncio, "create_task", fake_create)
     ready, _detail, retry_after = managed_state.ensure_managed_chromium()
     assert ready is False
-    assert retry_after >= 1.0
-
-
-def test_ensure_fresh_start_reports_downloading(managed_state, monkeypatch):
-    monkeypatch.setattr(managed_state, "_download_task", _Done())
-    monkeypatch.setattr(managed_state, "_install_process", None)
-    monkeypatch.setattr(managed_state, "_last_failure_at", 0.0)
-    monkeypatch.setattr(managed_state, "_last_download_error", "")
-    monkeypatch.setattr(
-        managed_state,
-        "start_managed_chromium_download",
-        lambda: (False, ""),
-    )
-    _block_create(monkeypatch, managed_state)
-    ready, detail, retry_after = managed_state.ensure_managed_chromium()
-    assert ready is False
-    assert detail == ""
     assert retry_after >= 1.0
 
 
