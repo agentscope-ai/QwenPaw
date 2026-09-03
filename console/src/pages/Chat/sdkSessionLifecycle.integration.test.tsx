@@ -33,6 +33,7 @@ import type {
   IAgentScopeRuntimeWebUIOptions,
 } from "@agentscope-ai/chat";
 import api, { type ChatSpec } from "../../api";
+import { toMessagesPage } from "./tests/convertMessagesHelper";
 import { useAgentStore } from "../../stores/agentStore";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
@@ -91,9 +92,9 @@ function createFixture() {
       return chat;
     });
   vi.spyOn(api, "listChats").mockImplementation(async () => [...records]);
-  const history = vi.spyOn(api, "getChat").mockImplementation(async (id) => {
+  const history = vi.spyOn(api, "getMessages").mockImplementation(async (id) => {
     trace.push(`GET-idle:${id}`);
-    return { status: "idle", messages: [] };
+    return toMessagesPage({ status: "idle", messages: [] });
   });
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
@@ -390,13 +391,17 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     gates.push(gate);
     fixture.history.mockImplementation(async () => {
       await gate.promise;
-      return { status: "idle", messages: [] };
+      return toMessagesPage({ status: "idle", messages: [] });
     });
     await act(async () => {
       host.current().navigate(`/chat/${B}`);
     });
     await waitFor(() =>
-      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+      expect(fixture.history).toHaveBeenCalledWith(
+        B,
+        expect.any(Object),
+        expect.any(Object),
+      ),
     );
     expect(
       host
@@ -420,7 +425,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     fixture.records.push(record(B));
     fixture.history.mockImplementation(async (id) => {
       if (id === B) await gate.promise;
-      return {
+      return toMessagesPage({
         status: "idle",
         messages: [
           {
@@ -431,7 +436,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
             metadata: null,
           },
         ],
-      };
+      });
     });
     const host = mountHost(fixture);
     const visibleMessages = () =>
@@ -441,7 +446,11 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
       host.current().navigate(`/chat/${B}`);
     });
     await waitFor(() =>
-      expect(fixture.history).toHaveBeenCalledWith(B, expect.any(Object)),
+      expect(fixture.history).toHaveBeenCalledWith(
+        B,
+        expect.any(Object),
+        expect.any(Object),
+      ),
     );
     await act(async () => {
       host.current().navigate(`/chat/${A}`);
@@ -621,7 +630,9 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     await act(async () => {
       await host.current().newChat();
     });
-    fixture.history.mockResolvedValue({ status: "running", messages: [] });
+    fixture.history.mockResolvedValue(
+      toMessagesPage({ status: "running", messages: [] }),
+    );
     // Real host refresh invalidates the old idle cache before restoring A.
     await act(async () => {
       await sessionApi.refreshSession(A);

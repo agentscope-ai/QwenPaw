@@ -137,3 +137,34 @@ export function convertMessages(messages: Message[]): UIMessage[] {
 export function isGenerating(chatHistory: { status?: string }): boolean {
   return chatHistory.status === "running";
 }
+
+/**
+ * fetchAndBuildSession reads its first screen from `api.getMessages`
+ * (ChatMessagesPage), not `api.getChat` (ChatHistory). Tests written before
+ * that switch mock `getChat` with a plain `{messages, status}` object —
+ * this wraps one into the page shape `getMessages` actually returns, with
+ * defaults ("no more history, not paginating") that are inert for tests
+ * that don't care about pagination themselves.
+ */
+export function toMessagesPage<M>(history: {
+  messages: M[];
+  status?: "idle" | "running";
+}): {
+  messages: M[];
+  next_cursor: number | null;
+  has_more: boolean;
+  history_status: "unavailable";
+  status: "idle" | "running";
+  truncated: boolean;
+  fallback_limited: boolean;
+} {
+  return {
+    messages: history.messages,
+    next_cursor: null,
+    has_more: false,
+    history_status: "unavailable",
+    status: history.status ?? "idle",
+    truncated: false,
+    fallback_limited: false,
+  };
+}
