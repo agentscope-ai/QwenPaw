@@ -21,7 +21,7 @@
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  color: var(--app-text-quaternary);
   user-select: none;
 }
 
@@ -40,28 +40,28 @@
   align-items: center;
   gap: 5px;
   padding: 4px 8px;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--app-border);
   border-radius: 6px;
   background: transparent;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  color: var(--app-text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
 
   &:hover {
-    background: var(--color-fill-tertiary, rgba(0, 0, 0, 0.04));
-    border-color: var(--colorBorder, rgba(0, 0, 0, 0.15));
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
+    background: var(--app-fill-subtle);
+    border-color: var(--app-border-hover);
+    color: var(--app-text);
   }
 
   &Active {
-    background: var(--colorPrimaryBg, #fff7e6);
-    border-color: var(--colorPrimary, #ff9d4d);
-    color: var(--colorPrimary, #ff9d4d);
+    background: var(--app-accent-soft);
+    border-color: var(--app-accent);
+    color: var(--app-accent-text);
 
     &:hover {
-      background: var(--colorPrimaryBg, #fff7e6);
+      background: var(--app-accent-soft-hover);
     }
   }
 
@@ -90,54 +90,13 @@
 }
 
 .desktopModeBtn {
-  border-color: rgba(255, 127, 22, 0.36);
-  color: #d95f00;
-  background: rgba(255, 127, 22, 0.06);
+  border-color: var(--app-accent-border);
+  color: var(--app-accent-text);
+  background: var(--app-accent-faint);
 
   &:hover {
-    border-color: #ff7f16;
-    color: #d95f00;
-    background: rgba(255, 127, 22, 0.12);
-  }
-}
-
-/* ── Dark mode ──────────────────────────────────────────────────────────── */
-
-:global(.dark-mode) {
-  .label {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .optBtn {
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.55);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.2);
-      color: rgba(255, 255, 255, 0.88);
-    }
-
-    &Active {
-      background: rgba(255, 127, 22, 0.12);
-      border-color: #ff7f16;
-      color: #ff7f16;
-
-      &:hover {
-        background: rgba(255, 127, 22, 0.18);
-      }
-    }
-  }
-
-  .desktopModeBtn {
-    border-color: rgba(255, 127, 22, 0.38);
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.08);
-
-    &:hover {
-      border-color: #ff7f16;
-      color: #ffad6b;
-      background: rgba(255, 127, 22, 0.15);
-    }
+    border-color: var(--app-accent);
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
   }
 }
