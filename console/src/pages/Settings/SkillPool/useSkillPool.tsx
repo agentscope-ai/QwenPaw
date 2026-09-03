@@ -1188,7 +1188,7 @@ export function useSkillPool() {
               ))}
             </ul>
             {hasExternal && (
-              <div style={{ color: "var(--ant-color-error, #ff4d4f)" }}>
+              <div style={{ color: "var(--app-error, #ff4d4f)" }}>
                 {t("skillPool.deleteExternalBatchWarning")}
               </div>
             )}

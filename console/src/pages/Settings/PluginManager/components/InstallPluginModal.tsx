@@ -121,7 +121,7 @@ export function InstallPluginModal({
                 prefix={
                   <Link
                     size={14}
-                    style={{ color: "var(--ant-color-text-quaternary)" }}
+                    style={{ color: "var(--app-text-quaternary)" }}
                   />
                 }
                 placeholder={t("pluginManager.urlPlaceholder")}

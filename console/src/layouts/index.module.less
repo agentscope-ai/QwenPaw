@@ -563,19 +563,19 @@
       background: linear-gradient(
         90deg,
         transparent,
-        color-mix(in srgb, var(--colorPrimary, #ff7f16) 44%, transparent)
+        color-mix(in srgb, var(--app-accent, #ff7f16) 44%, transparent)
       );
     }
 
     .simpleAgentDisclosureHandle {
       border-color: color-mix(
         in srgb,
-        var(--colorPrimary, #ff7f16) 34%,
+        var(--app-accent, #ff7f16) 34%,
         transparent
       );
       background: color-mix(
         in srgb,
-        var(--colorPrimary, #ff7f16) 9%,
+        var(--app-accent, #ff7f16) 9%,
         transparent
       );
       box-shadow: 0 3px 10px rgba(255, 127, 22, 0.12);
@@ -584,7 +584,7 @@
 
   &:focus-visible {
     outline: 2px solid
-      color-mix(in srgb, var(--colorPrimary, #ff7f16) 30%, transparent);
+      color-mix(in srgb, var(--app-accent, #ff7f16) 30%, transparent);
     outline-offset: 1px;
   }
 }
@@ -594,7 +594,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    var(--colorBorderSecondary, rgba(43, 18, 0, 0.1))
+    var(--app-border, rgba(43, 18, 0, 0.1))
   );
   transition: background 0.16s ease;
 

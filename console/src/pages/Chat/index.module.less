@@ -438,11 +438,11 @@
   &:hover,
   &:active,
   &[aria-expanded="true"] {
-    background: var(--ant-color-fill-tertiary) !important;
+    background: var(--app-fill-subtle) !important;
   }
 
   &:focus-visible {
-    outline: 2px solid var(--ant-color-primary-border);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: 1px;
   }
 
@@ -451,15 +451,15 @@
   }
 
   &[data-state="starting"] {
-    color: var(--ant-color-primary) !important;
+    color: var(--app-accent) !important;
   }
 
   &[data-state="running"] {
-    color: var(--ant-color-success) !important;
+    color: var(--app-success) !important;
   }
 
   &[data-state="awaiting_user"] {
-    color: var(--ant-color-warning) !important;
+    color: var(--app-warning) !important;
   }
 }
 
