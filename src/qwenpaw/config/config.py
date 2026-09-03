@@ -3881,15 +3881,13 @@ def get_model_max_input_length(
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
     from ..providers import ProviderManager
+    from ..services.model_selection import get_current_model_slot
 
-    model_slot = agent_config.active_model
-    # Fallback: if agent.json doesn't have active_model, try ProviderManager
-    if not model_slot or not model_slot.provider_id:
-        try:
-            manager = ProviderManager.get_instance()
-            model_slot = manager.get_active_model()
-        except Exception:
-            pass
+    manager = ProviderManager.get_instance()
+    model_slot, _source = get_current_model_slot(
+        agent_id=getattr(agent_config, "id", None),
+        agent_model=agent_config.active_model,
+    )
 
     if model_slot and model_slot.provider_id and model_slot.model:
         try:
@@ -3903,6 +3901,6 @@ def get_model_max_input_length(
         "Could not resolve max_input_length for agent '%s' "
         "(active_model=%s), falling back to 128K default.",
         getattr(agent_config, "id", "?"),
-        agent_config.active_model,
+        model_slot,
     )
     return 128 * 1024

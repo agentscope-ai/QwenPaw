@@ -120,6 +120,21 @@ describe("wrapChatResponseUsageStream", () => {
     expect(wrapChatResponseUsageStream(bare, chatRef)).toBe(bare);
   });
 
+  it("runs its completion callback after the response stream is consumed", async () => {
+    const onComplete = vi.fn();
+    const { ref } = makeRef([]);
+    const wrapped = wrapChatResponseUsageStream(
+      sseResponse("data: {}\n\n"),
+      ref,
+      undefined,
+      onComplete,
+    );
+
+    expect(onComplete).not.toHaveBeenCalled();
+    await wrapped.text();
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
   it("captures turn_usage SSE payloads and stores the snapshot", async () => {
     const turn = useTurnUsageStore.getState().beginTurn("a", "s");
     const { ref } = makeRef([assistantCard({})]);

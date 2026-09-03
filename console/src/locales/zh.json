@@ -3111,6 +3111,7 @@
       "codeSnippet": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
+    "modelSelectAfterFirstMessage": "发送第一条消息后才能选择模型",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",

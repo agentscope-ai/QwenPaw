@@ -272,7 +272,7 @@ class AgentBuilder:
         )
         from ..config.config import load_agent_config
         from ..constant import WORKING_DIR
-        from ..providers.provider_manager import ProviderManager
+        from ..services.model_selection import get_current_model_slot
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = await run_sync_io(load_agent_config, agent_id)
@@ -284,9 +284,10 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        active = agent_config.active_model
-        if not (active and active.provider_id and active.model):
-            active = ProviderManager.get_instance().get_active_model()
+        active, _source = get_current_model_slot(
+            agent_id=agent_id,
+            agent_model=agent_config.active_model,
+        )
         if active is None or not active.provider_id or not active.model:
             from ..exceptions import ConfigurationException
 
@@ -295,7 +296,6 @@ class AgentBuilder:
                 config_key="active_model",
                 error_code="MODEL_NOT_CONFIGURED",
             )
-
         workspace_dir = getattr(ctx, "workspace_dir", None)
 
         # Resolve skills.
@@ -390,13 +390,9 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        if model_slot_override is None:
-            model_slot_override = request_context.get("model_slot_override")
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
-            model_slot_override=model_slot_override,
         )
 
         # Built once and shared: the agent's native offloader, and (when
@@ -500,11 +496,10 @@ class AgentBuilder:
 
         _logger.info(
             "builder: built agent for session=%s agent=%s"
-            " model=%s/%s tools=%d",
+            " model=%s tools=%d",
             sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
-            active.provider_id,
-            active.model,
+            getattr(model, "model_key", getattr(model, "model", "unknown")),
             len(agent.toolkit.tool_groups[0].tools),
         )
         return agent
@@ -556,14 +551,12 @@ class AgentBuilder:
     def build_model(
         self,
         agent_config: Any,
-        model_slot_override: Any = None,
     ) -> tuple[Any, Any]:
         """Create model and formatter using the factory method."""
         from ..agents.model_factory import create_model_and_formatter
 
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
-            model_slot_override=model_slot_override,
             agent_config=agent_config,
         )
         if formatter is not None:
@@ -840,7 +833,12 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _active = getattr(agent_config, "active_model", None)
+        from ..services.model_selection import get_current_model_slot
+
+        _active, _source = get_current_model_slot(
+            agent_id=getattr(agent_config, "id", None),
+            agent_model=getattr(agent_config, "active_model", None),
+        )
         _model_name = (
             _active.model
             if _active and getattr(_active, "model", None)

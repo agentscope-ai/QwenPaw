@@ -16,7 +16,6 @@ import {
   Link as LinkIcon,
   Eye,
   GitBranch,
-  LoaderCircle,
   Search,
   Settings,
   XCircle,
@@ -28,6 +27,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../turnUsageStore";
+import sessionApi from "../sessionApi";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { CandidateModelSection } from "./CandidateModelSection";
@@ -41,6 +41,16 @@ import {
 } from "./modelSelectorModels";
 import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+  type ExtendedSession,
+} from "../../../stores/sessionListStore";
+import {
+  getPersistedModelOverride,
+  getPendingModelOverride,
+  setPendingModelOverride,
+} from "../../../features/model-selection/pendingModelOverride";
 import styles from "./index.module.less";
 
 /** Sync Chat context ring with the active model's effective window. */
@@ -67,6 +77,8 @@ const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
   showAdvancedModelControls?: boolean;
+  sessionId?: string;
+  chatId?: string;
 }
 
 function readStoredModelKeys(key: string): string[] {
@@ -82,9 +94,10 @@ function readStoredModelKeys(key: string): string[] {
 
 export default function ModelSelector({
   showAdvancedModelControls = false,
+  sessionId = "new",
+  chatId,
 }: ModelSelectorProps) {
   const { t } = useTranslation();
-  const [saving, setSaving] = useState(false);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -97,7 +110,6 @@ export default function ModelSelector({
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
     () => new Set(),
   );
-  const savingRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelId = useId();
   const proTabId = useId();
@@ -108,10 +120,16 @@ export default function ModelSelector({
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedAgent } = useAgentStore();
+  const sessions = useSessionListStore((state) => state.sessions);
+  const canSelectModel = Boolean(chatId);
+  const sessionModel = useMemo(
+    () => getPersistedModelOverride(sessions, chatId, sessionId),
+    [chatId, sessionId, sessions],
+  );
+  const [pendingModel, setPendingModel] = useState(() =>
+    getPendingModelOverride(selectedAgent, sessionId),
+  );
   const { message } = useAppMessage();
-  const activationRevisionRef = useRef(0);
-  const selectedAgentRef = useRef(selectedAgent);
-  selectedAgentRef.current = selectedAgent;
 
   const [showMoreFree, setShowMoreFree] = useState(false);
   const moreContentRef = useRef<HTMLDivElement>(null);
@@ -150,9 +168,14 @@ export default function ModelSelector({
     providerName: string;
   }>({ open: false, providerId: "", providerName: "" });
 
-  const handleActiveModels = useCallback((activeData: ActiveModelsInfo) => {
-    publishActiveMaxInputLength(activeData.effective_max_input_length);
-  }, []);
+  const handleActiveModels = useCallback(
+    (activeData: ActiveModelsInfo) => {
+      if (!pendingModel && !sessionModel) {
+        publishActiveMaxInputLength(activeData.effective_max_input_length);
+      }
+    },
+    [pendingModel, sessionModel],
+  );
   const {
     activeModels,
     fetchData,
@@ -160,7 +183,6 @@ export default function ModelSelector({
     loadError,
     providers,
     refreshActiveModels,
-    setActiveModels,
     setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
@@ -168,10 +190,59 @@ export default function ModelSelector({
   });
 
   useEffect(() => {
-    activationRevisionRef.current += 1;
-    savingRef.current = false;
-    setSaving(false);
-  }, [selectedAgent]);
+    if (!chatId) {
+      setPendingModelOverride(selectedAgent, sessionId, null);
+    }
+    setPendingModel(getPendingModelOverride(selectedAgent, sessionId));
+  }, [chatId, selectedAgent, sessionId]);
+
+  useEffect(() => {
+    const handlePendingChange = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          agentId: string;
+          sessionId: string;
+          value: ActiveModelsInfo["active_llm"] | null;
+        }>
+      ).detail;
+      if (detail?.agentId !== selectedAgent || detail.sessionId !== sessionId) {
+        return;
+      }
+      setPendingModel(detail.value ?? null);
+    };
+    window.addEventListener(
+      "session-model-override-changed",
+      handlePendingChange,
+    );
+    return () =>
+      window.removeEventListener(
+        "session-model-override-changed",
+        handlePendingChange,
+      );
+  }, [selectedAgent, sessionId]);
+
+  useEffect(() => {
+    const handleModelCommandCompleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ agentId?: string }>).detail;
+      if (detail?.agentId && detail.agentId !== selectedAgent) return;
+      void sessionApi
+        .refreshSessionList()
+        .then((nextSessions) => {
+          syncSessionsGlobal(nextSessions as ExtendedSession[]);
+          setPendingModelOverride(selectedAgent, sessionId, null);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener(
+      "session-model-command-completed",
+      handleModelCommandCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "session-model-command-completed",
+        handleModelCommandCompleted,
+      );
+  }, [selectedAgent, sessionId]);
 
   // Re-sync active model whenever the route switches back to /chat
   const prevPathRef = useRef(location.pathname);
@@ -227,8 +298,10 @@ export default function ModelSelector({
     }
   }, [open]);
 
-  const activeProviderId = activeModels?.active_llm?.provider_id;
-  const activeModelId = activeModels?.active_llm?.model;
+  const effectiveModel =
+    pendingModel ?? sessionModel ?? activeModels?.active_llm;
+  const activeProviderId = effectiveModel?.provider_id;
+  const activeModelId = effectiveModel?.model;
   const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
   const fallbackModel = useMemo(() => {
     const providerId = actualUsage?.provider_id;
@@ -323,6 +396,16 @@ export default function ModelSelector({
     });
   };
 
+  useEffect(() => {
+    if (!pendingModel && !sessionModel) return;
+    const provider = providers.find((item) => item.id === activeProviderId);
+    const model = [
+      ...(provider?.models ?? []),
+      ...(provider?.extra_models ?? []),
+    ].find((item) => item.id === activeModelId);
+    publishActiveMaxInputLength(model?.max_input_length);
+  }, [activeModelId, activeProviderId, pendingModel, providers, sessionModel]);
+
   // Display the active model metadata in the trigger button.
   const activeModel = (() => {
     if (!activeProviderId || !activeModelId) return null;
@@ -364,6 +447,7 @@ export default function ModelSelector({
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
+      if (next && !canSelectModel) return;
       setOpen(next);
       if (next) {
         try {
@@ -373,59 +457,21 @@ export default function ModelSelector({
         }
       }
     },
-    [refreshActiveModels],
+    [canSelectModel, refreshActiveModels],
   );
 
   const activateModel = async (providerId: string, modelId: string) => {
-    if (savingRef.current) return;
+    if (!canSelectModel) return;
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
       return;
     }
 
-    const targetAgentId = selectedAgent;
-    const activationRevision = ++activationRevisionRef.current;
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      const updated = await modelSelectorApi.setActiveLlm({
-        provider_id: providerId,
-        model: modelId,
-        scope: "agent",
-        agent_id: targetAgentId,
-      });
-      if (
-        activationRevision !== activationRevisionRef.current ||
-        targetAgentId !== selectedAgentRef.current
-      ) {
-        return;
-      }
-      setActiveModels(
-        updated?.active_llm
-          ? updated
-          : {
-              ...updated,
-              active_llm: { provider_id: providerId, model: modelId },
-            },
-      );
-      publishActiveMaxInputLength(updated?.effective_max_input_length);
-      rememberRecent(providerId, modelId);
-    } catch (err) {
-      if (
-        activationRevision !== activationRevisionRef.current ||
-        targetAgentId !== selectedAgentRef.current
-      ) {
-        return;
-      }
-      const msg =
-        err instanceof Error ? err.message : t("modelSelector.switchFailed");
-      message.error(msg);
-    } finally {
-      if (activationRevision === activationRevisionRef.current) {
-        setSaving(false);
-        savingRef.current = false;
-      }
-    }
+    const slot = { provider_id: providerId, model: modelId };
+    setPendingModelOverride(selectedAgent, sessionId, slot);
+    setPendingModel(slot);
+    rememberRecent(providerId, modelId);
+    setOpen(false);
   };
 
   const handleSelect = async (providerId: string, modelId: string) => {
@@ -643,7 +689,6 @@ export default function ModelSelector({
                   <button
                     type="button"
                     className={styles.modelSelectButton}
-                    disabled={saving}
                     aria-current={isActive ? "true" : undefined}
                     onClick={() => handleSelect(provider.id, model.id)}
                   >
@@ -1031,6 +1076,7 @@ export default function ModelSelector({
   return (
     <>
       <Dropdown
+        disabled={!canSelectModel}
         open={open}
         onOpenChange={handleOpenChange}
         popupRender={() => (
@@ -1039,17 +1085,27 @@ export default function ModelSelector({
         trigger={["click"]}
         placement={isMobile ? "bottomCenter" : "bottomLeft"}
       >
-        <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+        <Tooltip
+          title={
+            canSelectModel
+              ? t("chat.modelSelectTooltip")
+              : t("chat.modelSelectAfterFirstMessage")
+          }
+          mouseEnterDelay={0.5}
+        >
           <button
             type="button"
             aria-expanded={open}
             aria-controls={panelId}
             aria-label={t("chat.modelSelectTooltip")}
-            className={[styles.trigger, open ? styles.triggerActive : ""].join(
-              " ",
-            )}
+            aria-disabled={!canSelectModel}
+            disabled={!canSelectModel}
+            className={[
+              styles.trigger,
+              open ? styles.triggerActive : "",
+              !canSelectModel ? styles.triggerDisabled : "",
+            ].join(" ")}
           >
-            {saving && <LoaderCircle size={12} className={styles.spinning} />}
             {showActiveProviderIcon && activeProviderId && (
               <ProviderIcon providerId={activeProviderId} size={16} />
             )}

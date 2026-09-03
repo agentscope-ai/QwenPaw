@@ -3254,6 +3254,7 @@
       "codeSnippet_other": "Code snippet · {{count}} lines"
     },
     "modelSelectTooltip": "Select model",
+    "modelSelectAfterFirstMessage": "Send the first message before selecting a model",
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",

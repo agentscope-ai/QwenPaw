@@ -10,11 +10,13 @@ Covers:
 - view_image
 - view_video
 """
+
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
 import base64
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -32,13 +34,14 @@ from qwenpaw.agents.tools.view_media import (
     _download_remote_image,
     _get_multimodal_fallback_hint,
     _is_url,
+    _probe_multimodal_if_needed,
     _validate_media_path,
     _validate_url_extension,
     view_image,
     view_video,
 )
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
-
 
 # ---------------------------------------------------------------------------
 # _is_url
@@ -182,6 +185,27 @@ class TestCheckMultimodalSupport:
     def test_no_model_info_returns_true(self, mock_info):
         mock_info.return_value = (None, None)
         assert _check_multimodal_support("image") is True
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_one_resolved_model_info(monkeypatch):
+    """Probe should get ModelInfo and slot from one unified lookup."""
+    model_info = SimpleNamespace(supports_multimodal=None)
+    slot = ModelSlotConfig(provider_id="provider", model="model")
+    get_model_info = MagicMock(return_value=(model_info, slot))
+    probe = AsyncMock(return_value={"supports_video": True})
+    monkeypatch.setattr(
+        "qwenpaw.services.model_selection.get_current_model_info",
+        get_model_info,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
+        lambda: SimpleNamespace(probe_model_multimodal=probe),
+    )
+
+    assert await _probe_multimodal_if_needed("video") is True
+    get_model_info.assert_called_once_with()
+    probe.assert_awaited_once_with("provider", "model")
 
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_supports_image_true(self, mock_info):
@@ -813,14 +837,17 @@ class TestDownloadRemoteImage:
         transport = httpx.MockTransport(return_image)
         client = httpx.AsyncClient(transport=transport)
 
-        with patch.object(
-            view_media,
-            "_resolve_host_addresses",
-            return_value=("93.184.216.34",),
-        ) as mock_resolve, patch.object(
-            view_media.httpx,
-            "AsyncClient",
-            return_value=client,
+        with (
+            patch.object(
+                view_media,
+                "_resolve_host_addresses",
+                return_value=("93.184.216.34",),
+            ) as mock_resolve,
+            patch.object(
+                view_media.httpx,
+                "AsyncClient",
+                return_value=client,
+            ),
         ):
             result = await _download_remote_image(
                 "https://example.com/image.png",

@@ -4,6 +4,7 @@
 Uses the real :class:`JsonChatRepository` backed by ``tmp_path`` so the
 tests cover the integrated CRUD path without mocking the repo away.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -297,6 +298,73 @@ async def test_set_project_dir_persists_and_clears_controlled_meta(
 
     assert cleared is not None
     assert "runtime_context" not in cleared.meta
+
+
+@pytest.mark.asyncio
+async def test_set_model_slot_override_preserves_other_runtime_context(
+    manager: ChatManager,
+):
+    spec = await manager.create_chat(_make_spec(name="Model session"))
+    await manager.set_project_dir(spec.id, "/project/session")
+
+    updated = await manager.set_model_slot_override(
+        spec.id,
+        {"provider_id": "openai", "model": "gpt-4o"},
+    )
+
+    assert updated is not None
+    assert updated.meta["runtime_context"] == {
+        "project_dir": "/project/session",
+        "model_slot_override": {
+            "provider_id": "openai",
+            "model": "gpt-4o",
+        },
+    }
+
+    cleared = await manager.set_model_slot_override(spec.id, None)
+    assert cleared is not None
+    assert cleared.meta["runtime_context"] == {
+        "project_dir": "/project/session",
+    }
+
+
+@pytest.mark.asyncio
+async def test_model_and_multi_project_overrides_preserve_each_other(
+    manager: ChatManager,
+):
+    spec = await manager.create_chat(_make_spec(name="Multi-project model"))
+    await manager.set_model_slot_override(
+        spec.id,
+        {"provider_id": "openai", "model": "gpt-4o"},
+    )
+
+    with_projects = await manager.set_session_project_dirs(
+        spec.id,
+        [{"path": "/project/one", "label": "One"}],
+    )
+
+    assert with_projects is not None
+    assert with_projects.meta["runtime_context"] == {
+        "model_slot_override": {
+            "provider_id": "openai",
+            "model": "gpt-4o",
+        },
+        "project_dirs": [{"path": "/project/one", "label": "One"}],
+    }
+
+    with_model = await manager.set_model_slot_override(
+        spec.id,
+        {"provider_id": "anthropic", "model": "claude-sonnet"},
+    )
+
+    assert with_model is not None
+    assert with_model.meta["runtime_context"] == {
+        "model_slot_override": {
+            "provider_id": "anthropic",
+            "model": "claude-sonnet",
+        },
+        "project_dirs": [{"path": "/project/one", "label": "One"}],
+    }
 
 
 # ---------------------------------------------------------------------------

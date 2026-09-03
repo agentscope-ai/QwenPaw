@@ -2,13 +2,12 @@
 # pylint:disable=too-many-return-statements
 """Handler for /model command.
 
-The /model command manages model configuration for the current agent.
+The /model command manages model configuration for the current session.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
@@ -24,7 +23,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
     - Show help: /model -h, /model --help, /model help
     - List all models: /model list
     - Switch model: /model <provider_id>:<model_id>
-    - Reset to global default: /model reset
+    - Reset to the agent/global default: /model reset
     - Show model info: /model info <provider_id>:<model_id>
 
     Usage:
@@ -39,6 +38,16 @@ class ModelCommandHandler(BaseControlCommandHandler):
     command_name = "/model"
     description = "Show or switch AI model"
 
+    @staticmethod
+    def _model_context():
+        """Return the model context prepared before command dispatch."""
+        from ....services.model_selection import get_current_model_context
+
+        model_context = get_current_model_context()
+        if model_context is None or not model_context.chat_id:
+            raise RuntimeError("Model context is unavailable")
+        return model_context
+
     async def handle(self, context: ControlContext) -> str:
         """Handle /model command.
 
@@ -51,11 +60,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
         args_str = context.args.get("_raw_args", "").strip()
 
         if not args_str:
-            return await self._show_current_model(context)
+            return self._show_current_model()
         elif args_str.lower() in ("-h", "--help", "help"):
             return self._show_help()
         elif args_str.lower() == "list":
-            return await self._list_models(context)
+            return await self._list_models()
         elif args_str.lower() == "reset":
             return await self._reset_model(context)
         elif args_str.lower() == "info":
@@ -81,83 +90,65 @@ class ModelCommandHandler(BaseControlCommandHandler):
         """
         return (
             "**Model Management Commands**\n\n"
-            "Manage and switch AI models for the current agent.\n\n"
+            "Manage and switch AI models for the current session.\n\n"
             "**Available Commands:**\n\n"
             "`/model` - Show current active model\n\n"
             "`/model list` - List all available models\n\n"
             "`/model <provider>:<model>` - Switch to specified model\n\n"
-            "`/model reset` - Reset to global default model\n\n"
+            "`/model reset` - Reset to the default model\n\n"
             "`/model info <provider>:<model>` - Show model information\n\n"
             "`/model help` or `/model -h` - Show this help message\n\n"
             "**Examples:**\n\n"
             "`/model` - Show current model\n\n"
             "`/model list` - List all models\n\n"
             "`/model openai:gpt-4o` - Switch to GPT-4o\n\n"
-            "`/model reset` - Reset to global default\n\n"
+            "`/model reset` - Reset this session to its default\n\n"
             "`/model info openai:gpt-4o` - Show GPT-4o information\n\n\n"
             "**Capability Indicators:**\n\n"
             "🖼️ - Supports image input\n\n"
             "🎥 - Supports video input"
         )
 
-    async def _show_current_model(self, context: ControlContext) -> str:
+    def _show_current_model(self) -> str:
         """Show current active model for this agent.
 
         Args:
-            context: Control command context
-
         Returns:
             Formatted response with current model info
         """
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        # Get agent-level active model
-        active_model = agent_config.active_model
-
+        model_context = self._model_context()
+        active_model, source = model_context.slot, model_context.source
         if active_model is None or not active_model.provider_id:
-            # Fallback to global active model
-            from ....providers.provider_manager import ProviderManager
+            return (
+                "**No Active Model**\n\n"
+                "No model is currently configured.\n\n"
+                "Use `/model list` to see available models, "
+                "then use `/model <provider>:<model>` to select one."
+            )
 
-            manager = ProviderManager.get_instance()
-            active_model = manager.get_active_model()
-
-            if active_model is None or not active_model.provider_id:
-                return (
-                    "**No Active Model**\n\n"
-                    "No model is currently configured.\n\n"
-                    "Use `/model list` to see available models, "
-                    "then use `/model <provider>:<model>` to select one."
-                )
-
-            source = "global default"
-        else:
-            source = "agent-specific"
+        source_label = {
+            "session": "session-specific",
+            "agent": "agent default",
+            "global": "global default",
+        }.get(source, source)
 
         return (
-            f"**Current Model** ({source})\n\n"
+            f"**Current Model** ({source_label})\n\n"
             f"Provider: `{active_model.provider_id}`\n"
             f"Model: `{active_model.model}` ✓"
         )
 
-    async def _list_models(self, context: ControlContext) -> str:
+    async def _list_models(self) -> str:
         """List all available providers and models.
 
         Args:
-            context: Control command context
-
         Returns:
             Formatted list of all providers and models
         """
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        workspace = context.workspace
-
-        # Get current active model
-        active_model = workspace.config.active_model
-        if active_model is None:
-            active_model = manager.get_active_model()
+        active_model = self._model_context().slot
 
         # Get all provider infos
         all_provider_infos = await manager.list_provider_info()
@@ -238,7 +229,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"\n---\n"
             f"Total: {len(configured_providers)} provider(s), "
             f"{total_models} model(s)\n\n"
-            f"Use `/model <provider_id>:<model_id>` to switch models.",
+            f"Use `/model <provider_id>:<model_id>` to switch this session.",
         )
 
         return "\n".join(lines)
@@ -289,50 +280,42 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Use `/model list` to see available models."
             )
 
-        # Update agent config
-        from ....config.config import update_agent_config_async
-        from ....config.config import ModelSlotConfig as ModelSlot
+        from ....config.config import ModelSlotConfig
+        from ....services.model_selection import update_current_model_context
 
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        new_slot = ModelSlot(
-            provider_id=provider_id,
-            model=model_id,
-        )
-        agent_config.active_model = new_slot
-
-        def apply_active_model(persisted: Any) -> None:
-            persisted.active_model = new_slot
-
-        # Save to agent.json off the event loop (chat hot path)
+        model_context = self._model_context()
+        slot = ModelSlotConfig(provider_id=provider_id, model=model_id)
         try:
-            await update_agent_config_async(
-                agent_config.id,
-                apply_active_model,
+            await context.workspace.chat_manager.set_model_slot_override(
+                model_context.chat_id,
+                slot.model_dump(),
             )
+            update_current_model_context(slot, "session")
         except Exception as e:
-            logger.exception(f"Failed to save agent config: {e}")
+            logger.exception("Failed to save session model: %s", e)
             return (
                 f"**Switch Failed**\n\n"
                 f"Failed to save configuration: {str(e)}"
             )
 
         logger.info(
-            f"/model switch: agent={agent_config.id} "
-            f"provider={sanitize_log_value(provider_id)} "
-            f"model={sanitize_log_value(model_id)}",
+            "/model switch: agent=%s session=%s provider=%s model=%s",
+            sanitize_log_value(context.agent_id),
+            sanitize_log_value(context.session_id),
+            sanitize_log_value(provider_id),
+            sanitize_log_value(model_id),
         )
 
         return (
             f"**Model Switched**\n\n"
             f"Provider: `{provider_id}`\n"
             f"Model: `{model_id}`\n\n"
-            f"The new model will be used for subsequent messages."
+            f"The new model will be used for subsequent messages in this "
+            f"session."
         )
 
     async def _reset_model(self, context: ControlContext) -> str:
-        """Reset to global default model.
+        """Clear the current session override.
 
         Args:
             context: Control command context
@@ -340,50 +323,49 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Success message
         """
-        from ....config.config import update_agent_config_async
-        from ....providers.provider_manager import ProviderManager
+        from ....services.model_selection import (
+            ModelSource,
+            update_current_model_context,
+        )
 
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        # Get global active model
-        manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
-
-        if global_model is None or not global_model.provider_id:
-            return (
-                "**Reset Failed**\n\n"
-                "No global default model is configured.\n\n"
-                "Please configure a model in the web console first."
-            )
-
-        # Clear agent-specific model (use None to indicate using global)
-        agent_config.active_model = None
-
-        def apply_reset(persisted: Any) -> None:
-            persisted.active_model = None
-
-        # Save to agent.json off the event loop (chat hot path)
+        model_context = self._model_context()
         try:
-            await update_agent_config_async(agent_config.id, apply_reset)
+            await context.workspace.chat_manager.set_model_slot_override(
+                model_context.chat_id,
+                None,
+            )
         except Exception as e:
-            logger.exception(f"Failed to save agent config: {e}")
+            logger.exception("Failed to reset session model: %s", e)
             return (
                 f"**Reset Failed**\n\n"
                 f"Failed to save configuration: {str(e)}"
             )
 
-        logger.info(
-            f"/model reset: agent={agent_config.id} "
-            f"using global model={global_model.provider_id}:"
-            f"{global_model.model}",
+        fallback_model = model_context.agent_slot or model_context.global_slot
+        source: ModelSource = (
+            "agent"
+            if model_context.agent_slot
+            else "global"
+            if model_context.global_slot
+            else "none"
+        )
+        update_current_model_context(fallback_model, source)
+        if fallback_model is None:
+            return (
+                "**Model Reset**\n\n"
+                "The session override was cleared, but no default model is "
+                "configured."
+            )
+
+        source_label = (
+            "agent default" if source == "agent" else "global default"
         )
 
         return (
             f"**Model Reset**\n\n"
-            f"Agent now uses global default model:\n"
-            f"Provider: `{global_model.provider_id}`\n"
-            f"Model: `{global_model.model}`"
+            f"This session now uses the {source_label}:\n"
+            f"Provider: `{fallback_model.provider_id}`\n"
+            f"Model: `{fallback_model.model}`"
         )
 
     async def _show_model_info(  # pylint: disable=unused-argument
