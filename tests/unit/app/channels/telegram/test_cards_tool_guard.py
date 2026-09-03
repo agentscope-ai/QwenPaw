@@ -38,11 +38,19 @@ class _StubChannel:
 
     channel = "telegram"
 
-    def __init__(self, *, enabled=True, with_application=True, enqueue=True,
-                 send_error=None):
+    def __init__(
+        self,
+        *,
+        enabled=True,
+        with_application=True,
+        enqueue=True,
+        send_error=None,
+    ):
         self.enabled = enabled
         self._application = (
-            _StubApplication(send_error=send_error) if with_application else None
+            _StubApplication(send_error=send_error)
+            if with_application
+            else None
         )
         self.enqueued = []
         self._enqueue = self.enqueued.append if enqueue else None
@@ -76,8 +84,9 @@ class _StubQuery:
         self.data = data
         # A sentinel keeps ``from_user=None`` (an operator-less callback)
         # distinguishable from "not supplied".
-        self.from_user = _StubUser(username="taige") if from_user is _UNSET \
-            else from_user
+        self.from_user = (
+            _StubUser(username="taige") if from_user is _UNSET else from_user
+        )
         self.answers = []
         self.edits = []
         self._answer_error = answer_error
@@ -246,9 +255,7 @@ class TestBuildResolvedText:
             body_text="raw body",
         )
 
-        assert text == (
-            "raw body\n\n✅ Approved by @taige  |  Tool: shell"
-        )
+        assert text == ("raw body\n\n✅ Approved by @taige  |  Tool: shell")
 
     def test_plain_shape_without_operator(self):
         text = tg.build_resolved_text(
@@ -619,8 +626,12 @@ class TestHandle:
             "shell",
             "high",
             "raw body",
-            {"sender_id": "ctx-sender", "session_id": "ctx-session",
-             "chat_id": "ctx-chat", "is_group": True},
+            {
+                "sender_id": "ctx-sender",
+                "session_id": "ctx-session",
+                "chat_id": "ctx-chat",
+                "is_group": True,
+            },
         )
         query = _StubQuery(data="tga:rid-1")
 
