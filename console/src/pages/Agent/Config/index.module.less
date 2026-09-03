@@ -7,11 +7,11 @@
 
   :global {
     .qwenpaw-slider-track {
-      background-color: #ff7f16;
+      background-color: var(--app-accent);
     }
 
     .qwenpaw-slider .qwenpaw-slider-handle::after {
-      box-shadow: 0 0 0 2px #ff7f16;
+      box-shadow: 0 0 0 2px var(--app-accent);
     }
 
     .qwenpaw-tabs-nav {
@@ -33,7 +33,7 @@
     margin-bottom: 20px;
 
     &::before {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--app-border-subtle);
     }
   }
 
@@ -41,20 +41,20 @@
     padding: 10px 4px;
     font-size: 14px;
     font-weight: 500;
-    color: #666 !important;
+    color: var(--app-text-secondary) !important;
 
     &:hover {
-      color: #ff7f16 !important;
+      color: var(--app-accent) !important;
     }
   }
 
   :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-    color: #ff7f16 !important;
+    color: var(--app-accent) !important;
     font-weight: 600;
   }
 
   :global(.qwenpaw-tabs-ink-bar) {
-    background: #ff7f16 !important;
+    background: var(--app-accent) !important;
     height: 3px;
     border-radius: 2px 2px 0 0;
   }
@@ -77,7 +77,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   margin-bottom: 0;
 }
 
@@ -90,17 +90,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -114,16 +114,16 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 20px;
-  color: rgba(20, 20, 19, 0.42);
+  color: var(--app-text-tertiary);
   font-size: 11px;
 
   a {
-    color: #c85e08;
+    color: var(--app-accent-text);
     font-weight: 550;
     text-decoration: none;
 
     &:hover {
-      color: #f07816;
+      color: var(--app-accent-hover);
       text-decoration: underline;
     }
   }
@@ -132,20 +132,16 @@
     width: 2px;
     height: 2px;
     border-radius: 50%;
-    background: rgba(20, 20, 19, 0.28);
+    background: var(--app-text-quaternary);
   }
 }
 
 .memoryOverview {
   margin-bottom: 18px;
   padding: 20px;
-  border: 1px solid rgba(255, 127, 22, 0.16);
+  border: 1px solid var(--app-accent-border);
   border-radius: 14px;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 127, 22, 0.075),
-    rgba(255, 255, 255, 0) 58%
-  );
+  background: linear-gradient(135deg, var(--app-accent-faint), transparent 58%);
 }
 
 .memoryOverviewHeader {
@@ -157,7 +153,7 @@
 
   h3 {
     margin: 3px 0 5px;
-    color: #242321;
+    color: var(--app-text);
     font-size: 17px;
     font-weight: 650;
   }
@@ -165,7 +161,7 @@
   p {
     max-width: 720px;
     margin: 0;
-    color: rgba(20, 20, 19, 0.54);
+    color: var(--app-text-secondary);
     font-size: 12px;
     line-height: 1.55;
   }
@@ -190,58 +186,58 @@
 }
 
 .memoryStatusUnknown {
-  border: 1px solid rgba(102, 112, 133, 0.18);
-  background: rgba(102, 112, 133, 0.07);
-  color: #667085;
+  border: 1px solid var(--app-border);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
 
   > span,
   > i {
-    background: #98a2b3;
+    background: var(--app-status-idle);
   }
 }
 
 .memoryStatusChecking {
-  border: 1px solid rgba(47, 108, 229, 0.18);
-  background: rgba(47, 108, 229, 0.07);
-  color: #2f6ce5;
+  border: 1px solid var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info-text);
 
   > span,
   > i {
-    background: #5285eb;
-    box-shadow: 0 0 0 3px rgba(47, 108, 229, 0.11);
+    background: var(--app-selected-border);
+    box-shadow: 0 0 0 3px var(--app-info-bg);
   }
 }
 
 .memoryStatusHealthy {
-  border: 1px solid rgba(53, 168, 93, 0.17);
-  background: rgba(53, 168, 93, 0.07);
-  color: #258348;
+  border: 1px solid var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 
   > span,
   > i {
-    background: #35a85d;
-    box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.11);
+    background: var(--app-success);
+    box-shadow: 0 0 0 3px var(--app-success-faint);
   }
 }
 
 .memoryStatusError {
-  border: 1px solid rgba(217, 54, 62, 0.18);
-  background: rgba(217, 54, 62, 0.07);
-  color: #c4313a;
+  border: 1px solid var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-text);
 
   > span,
   > i {
-    background: #d9363e;
-    box-shadow: 0 0 0 3px rgba(217, 54, 62, 0.1);
+    background: var(--app-error);
+    box-shadow: 0 0 0 3px var(--app-error-ring);
   }
 }
 
 .memoryOverviewGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid rgba(20, 20, 19, 0.07);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--app-surface);
   overflow: hidden;
 }
 
@@ -258,27 +254,27 @@
 }
 
 .embeddingIndexReady {
-  background: rgba(37, 131, 72, 0.045);
+  background: var(--app-success-faint);
 
   .embeddingIndexPrimaryAction:hover {
-    background: rgba(37, 131, 72, 0.075);
+    background: var(--app-success-bg);
   }
 
   .embeddingIndexPrimaryAction > svg {
-    color: rgba(37, 131, 72, 0.68);
+    color: var(--app-success-text);
   }
 }
 
 .embeddingIndexDisabled {
-  background: rgba(20, 20, 19, 0.025);
+  background: var(--app-fill-faint);
 
   .embeddingIndexPrimaryAction > svg {
-    color: rgba(20, 20, 19, 0.28);
+    color: var(--app-text-quaternary);
   }
 }
 
 .embeddingIndexRebuildRequired {
-  background: rgba(255, 127, 22, 0.075);
+  background: var(--app-accent-faint);
 }
 
 .embeddingIndexUndoAction {
@@ -289,7 +285,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #c85e08;
+  color: var(--app-accent-text);
   font-size: 10px;
   line-height: 16px;
   cursor: pointer;
@@ -309,7 +305,7 @@
   min-width: 0;
   padding: 13px 15px;
   border: 0;
-  border-right: 1px solid rgba(20, 20, 19, 0.07);
+  border-right: 1px solid var(--app-border-subtle);
   background: transparent;
 
   &:last-child {
@@ -324,13 +320,13 @@
 
   > span {
     margin-bottom: 5px;
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
   }
 
   > strong {
     overflow: hidden;
-    color: #2f2d2a;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 600;
     text-overflow: ellipsis;
@@ -340,7 +336,7 @@
   > small {
     margin-top: 2px;
     overflow: hidden;
-    color: rgba(20, 20, 19, 0.4);
+    color: var(--app-text-tertiary);
     font-size: 10px;
     line-height: 16px;
     text-overflow: ellipsis;
@@ -375,7 +371,7 @@
     position: absolute;
     top: 50%;
     right: 12px;
-    color: rgba(200, 94, 8, 0.62);
+    color: var(--app-accent-text);
     transform: translateY(-50%);
     transition:
       color 160ms ease,
@@ -383,17 +379,17 @@
   }
 
   &:hover {
-    background: rgba(255, 127, 22, 0.055);
+    background: var(--app-accent-faint);
 
     > svg {
-      color: #c85e08;
+      color: var(--app-accent-text);
       transform: translate(2px, -50%);
     }
   }
 
   &:focus-visible {
     z-index: 1;
-    outline: 2px solid rgba(255, 127, 22, 0.38);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: -2px;
   }
 
@@ -441,13 +437,13 @@
 
   small {
     flex: none;
-    color: rgba(20, 20, 19, 0.4);
+    color: var(--app-text-tertiary);
     font-size: 10px;
   }
 
   strong {
     overflow: hidden;
-    color: #2f2d2a;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 600;
     text-overflow: ellipsis;
@@ -468,7 +464,7 @@
   > div > span {
     display: block;
     margin-bottom: 7px;
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
   }
 
@@ -478,7 +474,7 @@
 }
 
 .memoryOverviewMaintenance {
-  background: rgba(255, 183, 36, 0.075);
+  background: var(--app-warning-bg);
 
   > div {
     min-width: 0;
@@ -495,13 +491,13 @@
     align-items: center;
     gap: 5px;
     margin-bottom: 5px;
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
   }
 
   > div > strong {
     margin-bottom: 2px;
-    color: #302d29;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 650;
   }
@@ -509,7 +505,7 @@
   > div > small {
     display: -webkit-box;
     overflow: hidden;
-    color: rgba(20, 20, 19, 0.4);
+    color: var(--app-text-tertiary);
     font-size: 10px;
     line-height: 1.5;
     -webkit-box-orient: vertical;
@@ -545,9 +541,9 @@
 .memoryRecallPanel {
   min-width: 0;
   padding: 20px;
-  border: 1px solid rgba(20, 20, 19, 0.09);
+  border: 1px solid var(--app-border);
   border-radius: 14px;
-  background: rgba(20, 20, 19, 0.018);
+  background: var(--app-fill-faint);
 }
 
 .memorySectionIcon {
@@ -564,42 +560,24 @@
 }
 
 .memorySectionIconPrimary {
-  border: 1px solid rgba(196, 98, 54, 0.22);
-  background: linear-gradient(
-    145deg,
-    rgba(226, 124, 76, 0.18),
-    rgba(244, 181, 126, 0.08)
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 5px 14px rgba(171, 75, 39, 0.09);
-  color: #b95f36;
+  border: 1px solid var(--app-accent-border);
+  background: var(--app-accent-soft);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-accent-text);
 }
 
 .memorySectionIconSecondary {
-  border: 1px solid rgba(82, 96, 174, 0.21);
-  background: linear-gradient(
-    145deg,
-    rgba(91, 107, 190, 0.17),
-    rgba(139, 151, 218, 0.07)
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 5px 14px rgba(69, 82, 153, 0.09);
-  color: #5361ae;
+  border: 1px solid var(--app-info-border);
+  background: var(--app-info-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-info-text);
 }
 
 .memorySectionIconTertiary {
-  border: 1px solid rgba(35, 133, 121, 0.21);
-  background: linear-gradient(
-    145deg,
-    rgba(42, 151, 137, 0.16),
-    rgba(113, 194, 181, 0.07)
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 5px 14px rgba(30, 113, 103, 0.09);
-  color: #237f75;
+  border: 1px solid var(--app-success-border);
+  background: var(--app-success-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-success-text);
 }
 
 .memoryCapabilityHeader {
@@ -616,7 +594,7 @@
 
   span {
     margin-bottom: 3px;
-    color: #d96b11;
+    color: var(--app-accent-text);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -625,7 +603,7 @@
 
   h4 {
     margin: 0;
-    color: #2c2a27;
+    color: var(--app-text);
     font-size: 14px;
     font-weight: 650;
   }
@@ -633,10 +611,10 @@
   code {
     flex: none;
     padding: 3px 8px;
-    border: 1px solid rgba(20, 20, 19, 0.08);
+    border: 1px solid var(--app-border);
     border-radius: 999px;
-    background: rgba(20, 20, 19, 0.035);
-    color: rgba(20, 20, 19, 0.48);
+    background: var(--app-fill-faint);
+    color: var(--app-text-secondary);
     font-size: 10px;
   }
 }
@@ -653,14 +631,10 @@
   width: fit-content;
   margin: 0 !important;
   padding: 2px 7px;
-  border: 1px solid rgba(76, 132, 210, 0.2);
+  border: 1px solid var(--app-info-border);
   border-radius: 999px;
-  background: linear-gradient(
-    135deg,
-    rgba(68, 132, 219, 0.1),
-    rgba(114, 101, 211, 0.07)
-  );
-  color: #4c6fae !important;
+  background: var(--app-info-bg);
+  color: var(--app-info-text) !important;
   font-size: 9px !important;
   font-weight: 650 !important;
   line-height: 15px;
@@ -670,9 +644,9 @@
 
 .memorySourceCard {
   overflow: hidden;
-  border: 1px solid rgba(20, 20, 19, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--app-surface);
 }
 
 .memorySourceHeader {
@@ -708,20 +682,20 @@
 
   strong {
     margin-bottom: 4px;
-    color: #302e2b;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 650;
   }
 
   small {
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
     line-height: 1.45;
   }
 
   &:focus-visible {
     border-radius: 8px;
-    outline: 2px solid rgba(255, 127, 22, 0.45);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: 4px;
   }
 }
@@ -734,8 +708,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  background: rgba(20, 20, 19, 0.045);
-  color: rgba(20, 20, 19, 0.48);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
   font-size: 20px;
   line-height: 1;
   transform: rotate(0deg);
@@ -756,40 +730,36 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    color: #c46211;
+    color: var(--app-accent-text);
     font-size: 10px;
     font-weight: 600;
     text-decoration: none;
 
     &:hover {
-      color: #ff7f16;
+      color: var(--app-accent);
     }
   }
 
   code {
     padding: 3px 8px;
-    border: 1px solid rgba(20, 20, 19, 0.08);
+    border: 1px solid var(--app-border);
     border-radius: 999px;
-    background: rgba(20, 20, 19, 0.035);
-    color: rgba(20, 20, 19, 0.48);
+    background: var(--app-fill-faint);
+    color: var(--app-text-secondary);
     font-size: 10px;
   }
 }
 
 .memorySourceContent {
   padding: 16px 14px 0;
-  border-top: 1px solid rgba(20, 20, 19, 0.07);
-  background: rgba(20, 20, 19, 0.012);
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
 }
 
 .memoryCapabilityDivider {
   height: 1px;
   margin: 22px 0 20px;
-  background: linear-gradient(
-    90deg,
-    rgba(20, 20, 19, 0.09),
-    rgba(20, 20, 19, 0.025)
-  );
+  background: linear-gradient(90deg, var(--app-border), var(--app-fill-faint));
 }
 
 .memorySectionHeader {
@@ -800,14 +770,14 @@
 
   h3 {
     margin: 0 0 4px;
-    color: #282624;
+    color: var(--app-text);
     font-size: 16px;
     font-weight: 650;
   }
 
   p {
     margin: 0;
-    color: rgba(20, 20, 19, 0.5);
+    color: var(--app-text-secondary);
     font-size: 12px;
     line-height: 1.55;
   }
@@ -821,9 +791,9 @@
   min-height: 56px;
   margin-bottom: 14px;
   padding: 11px 13px;
-  border: 1px solid rgba(20, 20, 19, 0.07);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--app-surface);
 
   > div {
     min-width: 0;
@@ -836,13 +806,13 @@
 
   strong {
     margin-bottom: 3px;
-    color: #302e2b;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 600;
   }
 
   span {
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
     line-height: 1.45;
   }
@@ -855,9 +825,9 @@
   gap: 18px;
   min-height: 56px;
   padding: 11px 13px;
-  border: 1px solid rgba(20, 20, 19, 0.07);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--app-surface);
 
   > div:first-child {
     min-width: 0;
@@ -870,13 +840,13 @@
 
   strong {
     margin-bottom: 3px;
-    color: #302e2b;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 600;
   }
 
   > div:first-child > span {
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 11px;
     line-height: 1.45;
   }
@@ -885,7 +855,7 @@
 .memoryRequiredMark {
   display: inline !important;
   margin-left: 4px;
-  color: #ff4d4f;
+  color: var(--app-error-text);
 }
 
 .memoryInlineField {
@@ -903,14 +873,14 @@
   }
 
   strong {
-    color: #282624;
+    color: var(--app-text);
     font-size: 16px;
     font-weight: 650;
   }
 
   > span {
     margin-top: 3px;
-    color: rgba(20, 20, 19, 0.5);
+    color: var(--app-text-secondary);
     font-size: 11px;
     font-weight: 400;
   }
@@ -929,7 +899,7 @@
   justify-content: center;
   flex-direction: column;
   gap: 14px;
-  color: rgba(20, 20, 19, 0.52);
+  color: var(--app-text-secondary);
   font-size: 12px;
 }
 
@@ -964,13 +934,13 @@
 
   > div > strong {
     margin-bottom: 5px;
-    color: #292724;
+    color: var(--app-text);
     font-size: 14px;
     font-weight: 680;
   }
 
   > div > span {
-    color: rgba(20, 20, 19, 0.48);
+    color: var(--app-text-secondary);
     font-size: 10px;
     line-height: 1.6;
   }
@@ -979,7 +949,7 @@
 .memoryAutoMemoryHistory {
   margin-top: 4px;
   padding-top: 16px;
-  border-top: 1px solid rgba(20, 20, 19, 0.07);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .memoryAutoMemoryHistoryHeader {
@@ -990,12 +960,12 @@
   margin-bottom: 8px;
 
   strong {
-    color: rgba(20, 20, 19, 0.72);
+    color: var(--app-text);
     font-size: 11px;
   }
 
   span {
-    color: rgba(20, 20, 19, 0.42);
+    color: var(--app-text-tertiary);
     font-size: 10px;
   }
 }
@@ -1005,9 +975,9 @@
   gap: 6px;
 
   details {
-    border: 1px solid rgba(20, 20, 19, 0.07);
+    border: 1px solid var(--app-border-subtle);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.48);
+    background: var(--app-surface);
   }
 
   summary {
@@ -1026,17 +996,17 @@
     }
 
     span {
-      color: #df6c12;
+      color: var(--app-accent-text);
       font-weight: 650;
     }
 
     strong {
-      color: rgba(20, 20, 19, 0.68);
+      color: var(--app-text);
       font-weight: 550;
     }
 
     small {
-      color: rgba(20, 20, 19, 0.42);
+      color: var(--app-text-tertiary);
     }
   }
 
@@ -1045,8 +1015,8 @@
     margin: 0;
     padding: 10px 12px;
     overflow: auto;
-    border-top: 1px solid rgba(20, 20, 19, 0.06);
-    color: rgba(20, 20, 19, 0.74);
+    border-top: 1px solid var(--app-border-subtle);
+    color: var(--app-text);
     font-family: inherit;
     font-size: 11px;
     line-height: 1.6;
@@ -1059,8 +1029,8 @@
   margin: 0;
   padding: 22px 12px;
   border-radius: 8px;
-  background: rgba(20, 20, 19, 0.025);
-  color: rgba(20, 20, 19, 0.42);
+  background: var(--app-fill-faint);
+  color: var(--app-text-tertiary);
   font-size: 10px;
   text-align: center;
 }
@@ -1073,12 +1043,12 @@
 
   > div {
     padding: 16px;
-    border: 1px solid rgba(255, 127, 22, 0.16);
+    border: 1px solid var(--app-accent-border);
     border-radius: 12px;
     background: linear-gradient(
       135deg,
-      rgba(255, 127, 22, 0.075),
-      rgba(255, 255, 255, 0.2)
+      var(--app-accent-faint),
+      var(--app-surface)
     );
   }
 
@@ -1089,20 +1059,20 @@
   }
 
   span {
-    color: rgba(20, 20, 19, 0.52);
+    color: var(--app-text-secondary);
     font-size: 11px;
   }
 
   strong {
     margin: 5px 0 3px;
-    color: #292724;
+    color: var(--app-text);
     font-size: 22px;
     font-weight: 680;
     letter-spacing: -0.02em;
   }
 
   small {
-    color: rgba(20, 20, 19, 0.42);
+    color: var(--app-text-tertiary);
     font-size: 10px;
   }
 }
@@ -1110,14 +1080,14 @@
 .memoryStatusComponentSection {
   h4 {
     margin: 0 0 10px;
-    color: #302e2b;
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 650;
   }
 }
 
 .memoryStatusComponentList {
-  border: 1px solid rgba(20, 20, 19, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 11px;
   overflow: hidden;
 }
@@ -1128,28 +1098,28 @@
   gap: 12px;
   align-items: center;
   padding: 11px 13px;
-  border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+  border-bottom: 1px solid var(--app-border-subtle);
 
   &:last-child {
     border-bottom: 0;
   }
 
   > span {
-    color: #403d39;
+    color: var(--app-text);
     font-size: 12px;
     font-weight: 550;
   }
 
   code {
     overflow: hidden;
-    color: rgba(20, 20, 19, 0.5);
+    color: var(--app-text-secondary);
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   strong {
-    color: #292724;
+    color: var(--app-text);
     font-size: 12px;
     font-weight: 650;
   }
@@ -1162,7 +1132,7 @@
   margin-top: 14px;
   padding: 10px 12px;
   border-radius: 9px;
-  background: rgba(20, 20, 19, 0.035);
+  background: var(--app-fill-faint);
 
   > span {
     display: flex;
@@ -1172,15 +1142,15 @@
     width: 17px;
     height: 17px;
     border-radius: 50%;
-    background: rgba(20, 20, 19, 0.09);
-    color: rgba(20, 20, 19, 0.55);
+    background: var(--app-fill-strong);
+    color: var(--app-text-secondary);
     font-size: 10px;
     font-weight: 700;
   }
 
   p {
     margin: 0;
-    color: rgba(20, 20, 19, 0.5);
+    color: var(--app-text-secondary);
     font-size: 10px;
     line-height: 1.55;
   }
@@ -1201,35 +1171,35 @@
 }
 
 .embeddingStatusValueEnabled {
-  color: #258348 !important;
+  color: var(--app-success-text) !important;
 
   i {
-    background: #35a85d;
-    box-shadow: 0 0 0 3px rgba(53, 168, 93, 0.12);
+    background: var(--app-success);
+    box-shadow: 0 0 0 3px var(--app-success-faint);
   }
 }
 
 .embeddingStatusValueDisabled {
-  color: rgba(20, 20, 19, 0.5) !important;
+  color: var(--app-text-secondary) !important;
 
   i {
-    background: rgba(20, 20, 19, 0.28);
+    background: var(--app-text-quaternary);
   }
 }
 
 .embeddingStatusValueVerified {
-  color: #258348 !important;
+  color: var(--app-success-text) !important;
 }
 
 .embeddingStatusValuePending {
-  color: #c85e08 !important;
+  color: var(--app-accent-text) !important;
 }
 
 .embeddingVerificationAction {
-  background: rgba(255, 127, 22, 0.055);
+  background: var(--app-accent-faint);
 
   &:hover {
-    background: rgba(255, 127, 22, 0.1);
+    background: var(--app-accent-soft);
   }
 }
 
@@ -1243,7 +1213,7 @@
   }
 
   .memoryOverviewItem:nth-child(-n + 2) {
-    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+    border-bottom: 1px solid var(--app-border-subtle);
   }
 
   .memoryConfigGrid {
@@ -1259,7 +1229,7 @@
   .memoryOverviewItem,
   .memoryOverviewItem:nth-child(2) {
     border-right: 0;
-    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
+    border-bottom: 1px solid var(--app-border-subtle);
   }
 
   .memoryOverviewItem:last-child {
@@ -1326,283 +1296,6 @@
   }
 }
 
-:global(.dark-mode) {
-  .memorySectionIconPrimary {
-    border-color: rgba(255, 157, 76, 0.2);
-    background: linear-gradient(
-      145deg,
-      rgba(255, 127, 22, 0.2),
-      rgba(255, 183, 36, 0.08)
-    );
-    color: #ff9d4c;
-  }
-
-  .memorySectionIconSecondary {
-    border-color: rgba(139, 150, 255, 0.22);
-    background: linear-gradient(
-      145deg,
-      rgba(91, 103, 217, 0.22),
-      rgba(117, 137, 255, 0.08)
-    );
-    color: #a8b0ff;
-  }
-
-  .memoryReferences,
-  .memorySectionHeader p {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .memoryOverview {
-    border-color: rgba(255, 127, 22, 0.2);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 127, 22, 0.1),
-      rgba(255, 255, 255, 0) 58%
-    );
-  }
-
-  .memoryReferences i {
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .memoryOverviewHeader h3,
-  .memorySectionHeader h3 {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .memorySectionIcon {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      0 5px 14px rgba(0, 0, 0, 0.12);
-  }
-
-  .memoryOverviewHeader p {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .embeddingVerificationAction {
-    background: rgba(255, 127, 22, 0.075);
-
-    &:hover {
-      background: rgba(255, 127, 22, 0.13);
-    }
-  }
-
-  .memoryOverviewGrid,
-  .memoryToggleRow,
-  .memorySettingRow {
-    border-color: rgba(255, 255, 255, 0.09);
-    background: rgba(255, 255, 255, 0.035);
-  }
-
-  .memoryOverviewItem {
-    border-right-color: rgba(255, 255, 255, 0.08);
-
-    > span,
-    > small {
-      color: rgba(255, 255, 255, 0.46);
-    }
-
-    > strong {
-      color: rgba(255, 255, 255, 0.82);
-    }
-  }
-
-  .memoryOverviewMetrics {
-    small {
-      color: rgba(255, 255, 255, 0.46);
-    }
-
-    strong {
-      color: rgba(255, 255, 255, 0.82);
-    }
-  }
-
-  .memoryOverviewClickableItem:hover {
-    background: rgba(255, 127, 22, 0.08);
-  }
-
-  .memoryConfigPanel,
-  .memoryRecallPanel {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .memorySourceCard {
-    border-color: rgba(255, 255, 255, 0.09);
-    background: rgba(255, 255, 255, 0.035);
-  }
-
-  .memorySourceToggle {
-    strong {
-      color: rgba(255, 255, 255, 0.86);
-    }
-
-    small {
-      color: rgba(255, 255, 255, 0.48);
-    }
-  }
-
-  .memorySourceChevron {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.52);
-  }
-
-  .memorySourceActions {
-    > a {
-      color: #ff9d4c;
-    }
-
-    code {
-      border-color: rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.05);
-      color: rgba(255, 255, 255, 0.5);
-    }
-  }
-
-  .memorySourceContent {
-    border-top-color: rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.015);
-  }
-
-  .memoryCapabilityHeader {
-    h4 {
-      color: rgba(255, 255, 255, 0.86);
-    }
-
-    code {
-      border-color: rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.05);
-      color: rgba(255, 255, 255, 0.5);
-    }
-  }
-
-  .memoryDevelopingBadge {
-    border-color: rgba(133, 169, 231, 0.26);
-    background: linear-gradient(
-      135deg,
-      rgba(82, 142, 224, 0.14),
-      rgba(125, 105, 218, 0.11)
-    );
-    color: #a9c9ff !important;
-  }
-
-  .memoryCapabilityDivider {
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.1),
-      rgba(255, 255, 255, 0.025)
-    );
-  }
-
-  .memoryToggleRow {
-    strong {
-      color: rgba(255, 255, 255, 0.84);
-    }
-
-    span {
-      color: rgba(255, 255, 255, 0.46);
-    }
-  }
-
-  .memorySettingRow {
-    strong {
-      color: rgba(255, 255, 255, 0.84);
-    }
-
-    > div:first-child > span {
-      color: rgba(255, 255, 255, 0.46);
-    }
-  }
-
-  .memoryStatusModalTitle {
-    strong {
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    > span {
-      color: rgba(255, 255, 255, 0.5);
-    }
-  }
-
-  .memoryStatusMetrics {
-    > div {
-      border-color: rgba(255, 127, 22, 0.2);
-      background: rgba(255, 127, 22, 0.07);
-    }
-
-    span,
-    small {
-      color: rgba(255, 255, 255, 0.48);
-    }
-
-    strong {
-      color: rgba(255, 255, 255, 0.9);
-    }
-  }
-
-  .memoryTaskSummary > div > strong {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .memoryTaskSummary > div > span {
-    color: rgba(255, 255, 255, 0.46);
-  }
-
-  .memoryAutoMemoryHistory {
-    border-top-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .memoryAutoMemoryHistoryEmpty {
-    background: rgba(255, 255, 255, 0.035);
-    color: rgba(255, 255, 255, 0.46);
-  }
-
-  .memoryStatusComponentSection h4,
-  .memoryStatusComponentRow > span,
-  .memoryStatusComponentRow strong {
-    color: rgba(255, 255, 255, 0.84);
-  }
-
-  .memoryStatusComponentList {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .memoryStatusComponentRow {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-
-    code {
-      color: rgba(255, 255, 255, 0.48);
-    }
-  }
-
-  .memoryStatusNote {
-    background: rgba(255, 255, 255, 0.05);
-
-    > span {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.6);
-    }
-
-    p {
-      color: rgba(255, 255, 255, 0.48);
-    }
-  }
-
-  .memoryOverviewMaintenance {
-    background: rgba(255, 183, 36, 0.09);
-
-    > div > strong {
-      color: rgba(255, 255, 255, 0.86);
-    }
-
-    > div > span,
-    > div > small {
-      color: rgba(255, 255, 255, 0.48);
-    }
-  }
-}
-
 .visualCompactDescription {
   margin: 0 0 20px !important;
   line-height: 1.6;
@@ -1611,9 +1304,9 @@
 .visualCompactEffortControl {
   width: 100%;
   padding: 3px;
-  border: 1px solid rgba(20, 20, 19, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 9px;
-  background: rgba(20, 20, 19, 0.035);
+  background: var(--app-fill-faint);
 
   :global(.ant-segmented-item),
   :global(.qwenpaw-segmented-item) {
@@ -1624,7 +1317,7 @@
   :global(.ant-segmented-thumb),
   :global(.qwenpaw-segmented-thumb) {
     border-radius: 7px;
-    box-shadow: 0 1px 3px rgba(20, 20, 19, 0.12);
+    box-shadow: var(--app-shadow-sm);
   }
 }
 
@@ -1639,9 +1332,9 @@
 .visualCompactNote {
   margin: 0 !important;
   padding: 10px 12px;
-  border: 1px solid rgba(20, 20, 19, 0.08);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: rgba(20, 20, 19, 0.025);
+  background: var(--app-fill-faint);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1694,7 +1387,7 @@
 }
 
 .projectDirectorySetting {
-  color: #f36b21;
+  color: var(--app-accent-hover);
 
   > div {
     min-width: 0;
@@ -1734,7 +1427,7 @@
 
 .spin {
   flex: 0 0 auto;
-  color: #f36b21;
+  color: var(--app-accent-hover);
   animation: config-spin 900ms linear infinite;
 }
 
@@ -1764,31 +1457,16 @@
 /* Slider overrides - remove theme color */
 :global {
   .ant-slider-rail {
-    background-color: rgba(20, 20, 19, 0.15) !important;
+    background-color: var(--app-fill-subtle) !important;
   }
 
   .ant-slider-track {
-    background-color: rgba(20, 20, 19, 0.25) !important;
+    background-color: var(--app-fill-strong) !important;
   }
 
   .ant-slider-handle::after {
-    box-shadow: 0 0 0 2px rgba(20, 20, 19, 0.25) !important;
-    background-color: #fff !important;
-  }
-}
-
-:global(.dark-mode) {
-  .ant-slider-rail {
-    background-color: rgba(255, 255, 255, 0.15) !important;
-  }
-
-  .ant-slider-track {
-    background-color: rgba(255, 255, 255, 0.25) !important;
-  }
-
-  .ant-slider-handle::after {
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) !important;
-    background-color: #fff !important;
+    box-shadow: 0 0 0 2px var(--app-fill-strong) !important;
+    background-color: var(--app-surface) !important;
   }
 }
 
@@ -1796,7 +1474,7 @@
 
 .sliderValue {
   font-weight: 500;
-  color: #1890ff;
+  color: var(--app-info-text);
 }
 
 .buttonGroup {
@@ -1818,12 +1496,12 @@
 
 .stateText {
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-secondary);
 }
 
 .stateTextError {
   font-size: 14px;
-  color: #ff4d4f;
+  color: var(--app-error-text);
 }
 
 .footerActions {
@@ -1831,62 +1509,9 @@
   justify-content: flex-end;
   align-items: center;
   padding: 16px 24px;
-  border-top: 1px solid #eae9e7;
-  background: #fff;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
   flex-shrink: 0;
-}
-
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .visualCompactEffortControl {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .visualCompactNote {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .footerActions {
-    background: #1f1f1f;
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .sliderValue {
-    color: #ff7f16;
-  }
-
-  .mainTabs {
-    :global(.qwenpaw-tabs-tab .qwenpaw-tabs-tab-btn) {
-      color: #ffffff !important;
-    }
-
-    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-      color: #ff7f16 !important;
-      font-weight: 600;
-    }
-
-    :global(.qwenpaw-tabs-ink-bar) {
-      background: #ff7f16 !important;
-    }
-  }
 }
 
 /* ─── Mobile responsive ─────────────────────────────────────────────────────── */
