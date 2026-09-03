@@ -123,12 +123,22 @@ class TestBuildSessionCtx:
         else:
             assert ctx["session_id"] == ""
 
-    def test_missing_send_meta_is_tolerated(self):
-        ctx = wecom_ctx.build_session_ctx("wecom:s1", None)
+    def test_empty_send_meta_yields_blank_routing(self):
+        """Unlike the QQ helper, no ``send_meta or {}`` guard exists here.
+
+        The signature promises a dict and the only caller (``render``)
+        always passes one, so an empty dict is the meaningful floor.
+        """
+        ctx = wecom_ctx.build_session_ctx("wecom:s1", {})
 
         assert ctx["sender_id"] == ""
         assert ctx["chatid"] == ""
         assert ctx["chat_type"] == "single"
+
+    def test_none_send_meta_is_not_tolerated(self):
+        """Documents the asymmetry with the QQ helper (no ``or {}``)."""
+        with pytest.raises(AttributeError):
+            wecom_ctx.build_session_ctx("wecom:s1", None)
 
     def test_non_string_values_are_coerced(self):
         ctx = wecom_ctx.build_session_ctx(
