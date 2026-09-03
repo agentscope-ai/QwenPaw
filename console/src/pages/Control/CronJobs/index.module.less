@@ -8,7 +8,7 @@
       .qwenpaw-table-thead
       > tr
       > th {
-      background: #f9f8f4 !important;
+      background: var(--app-surface-sunken) !important;
     }
   }
 }
@@ -19,7 +19,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .breadcrumbHeader {
@@ -31,17 +31,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -49,11 +49,11 @@
 .title {
   font-size: 20px;
   font-weight: 600;
-  color: #333;
+  color: var(--app-text);
 }
 
 .description {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
   margin: 0;
   display: none;
@@ -85,20 +85,20 @@
   height: 32px;
   border: none;
   background: transparent;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   font-size: 16px;
   transition: all 0.2s;
 
   &:hover {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.04);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
   }
 
   &.viewToggleBtnActive {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--app-text);
+    background: var(--app-fill);
   }
 }
 
@@ -114,7 +114,7 @@
   justify-content: center;
   gap: 8px;
   height: 54px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .calendarTitle {
@@ -122,28 +122,28 @@
   text-align: center;
   font-size: 16px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .calendarEmptyHint {
   padding: 8px 16px;
-  color: rgba(20, 20, 19, 0.45);
-  border-bottom: 1px solid #f0f0f0;
+  color: var(--app-text-tertiary);
+  border-bottom: 1px solid var(--app-border-subtle);
   font-size: 12px;
 }
 
 .calendarWeekHeader {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .calendarWeekCell {
   padding: 8px;
   text-align: center;
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
-  border-right: 1px solid #f5f5f5;
+  color: var(--app-text-tertiary);
+  border-right: 1px solid var(--app-border-subtle);
 
   &:last-child {
     border-right: none;
@@ -158,23 +158,23 @@
 .calendarCell {
   min-height: 108px;
   padding: 8px;
-  border-right: 1px solid #f5f5f5;
-  border-bottom: 1px solid #f5f5f5;
-  background: #fff;
+  border-right: 1px solid var(--app-border-subtle);
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface);
 }
 
 .calendarCellMuted {
-  background: #fafafa;
+  background: var(--app-surface-subtle);
 }
 
 .calendarCellToday {
-  box-shadow: inset 0 0 0 1px rgba(24, 144, 255, 0.25);
+  box-shadow: inset 0 0 0 1px var(--app-info-border);
 }
 
 .calendarCellDate {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   margin-bottom: 6px;
 }
 
@@ -190,18 +190,18 @@
   gap: 6px;
   cursor: pointer;
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.72);
+  color: var(--app-text-secondary);
 
   &:hover {
-    color: rgba(20, 20, 19, 0.88);
+    color: var(--app-text);
   }
 }
 
 .calendarEventDisabled {
-  color: rgba(20, 20, 19, 0.72);
+  color: var(--app-text-secondary);
 
   .calendarEventDot {
-    background: #d9d9d9;
+    background: var(--app-text-quaternary);
   }
 }
 
@@ -209,7 +209,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #52c41a;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -222,14 +222,14 @@
 .calendarMoreBtn {
   border: none;
   background: transparent;
-  color: #1677ff;
+  color: var(--app-info-text);
   padding: 0;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 
   &:hover {
-    color: #4096ff;
+    color: var(--app-selected-border);
   }
 }
 
@@ -264,13 +264,13 @@
   font-size: 54px;
   line-height: 1;
   font-weight: 600;
-  color: #3b65f5;
+  color: var(--app-info-text);
 }
 
 .dayJobPopoverWeek {
   font-size: 28px;
   line-height: 1;
-  color: #3b65f5;
+  color: var(--app-info-text);
   font-weight: 600;
 }
 
@@ -281,11 +281,11 @@
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
   transition: background 0.2s;
 
   &:hover {
-    background: #f0f5ff;
+    background: var(--app-info-bg);
   }
 }
 
@@ -294,19 +294,19 @@
 
   .dayJobItemTime,
   .dayJobItemName {
-    color: rgba(20, 20, 19, 0.88);
+    color: var(--app-text-secondary);
   }
 }
 
 .dayJobItemTime {
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.6);
+  color: var(--app-text-tertiary);
   min-width: 42px;
 }
 
 .dayJobItemName {
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .templateModalHeader {
@@ -318,7 +318,7 @@
 }
 
 .templateModalDesc {
-  color: rgba(20, 20, 19, 0.6);
+  color: var(--app-text-secondary);
   font-size: 13px;
 }
 
@@ -329,10 +329,10 @@
 }
 
 .templateCard {
-  border: 1px solid #eaeaea;
+  border: 1px solid var(--app-border);
   border-radius: 10px;
   padding: 14px;
-  background: #fff;
+  background: var(--app-surface-raised);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -341,17 +341,17 @@
 .templateTitle {
   font-size: 14px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .templateDesc {
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .templateMeta {
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .templateTags {
@@ -363,16 +363,16 @@
 
 .templateTag {
   font-size: 11px;
-  color: rgba(20, 20, 19, 0.65);
-  background: #f2f4f7;
+  color: var(--app-text-secondary);
+  background: var(--app-fill-subtle);
   border-radius: 999px;
   padding: 2px 8px;
 }
 
 .templateTagRecommended {
   font-size: 11px;
-  color: #1677ff;
-  background: #e6f4ff;
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -392,14 +392,14 @@
 .historyEmpty {
   padding: 20px 0;
   text-align: center;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .historyItem {
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
 }
 
 .historyItemMain {
@@ -411,7 +411,7 @@
 
 .historyItemTime {
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .historyItemStatus {
@@ -420,23 +420,23 @@
 }
 
 .historyItemStatusSuccess {
-  color: #389e0d;
+  color: var(--app-success-text);
 }
 
 .historyItemStatusError {
-  color: #cf1322;
+  color: var(--app-error-text);
 }
 
 .historyItemMeta {
   margin-top: 4px;
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .historyItemError {
   margin-top: 6px;
   font-size: 12px;
-  color: #cf1322;
+  color: var(--app-error-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -454,12 +454,12 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: #1677ff;
+  color: var(--app-info-text);
   font-size: 12px;
   cursor: pointer;
 
   &:hover {
-    color: #4096ff;
+    color: var(--app-selected-border);
   }
 }
 
@@ -483,11 +483,11 @@
   border-radius: 50%;
 
   &.enabled {
-    background-color: #52c41a;
+    background-color: var(--app-success);
   }
 
   &.disabled {
-    background-color: #d9d9d9;
+    background-color: var(--app-status-idle);
   }
 }
 
@@ -530,18 +530,18 @@
   position: absolute;
   top: 0;
   right: 0;
-  color: #1890ff;
+  color: var(--app-info-text);
   z-index: 10;
 }
 
 /* Form extra text */
 .formExtraText {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--app-text-tertiary);
 }
 
 .formHelperLink {
-  color: #1890ff;
+  color: var(--app-info-text);
 }
 
 /* Action column */
@@ -564,14 +564,14 @@
 
 .mobileJobCard {
   border-radius: var(--border-radius, 8px);
-  background: #ffffff;
-  border: 1px solid #eae8e7;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-sm);
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    border-color: #d9d9d9;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -586,7 +586,7 @@
 .mobileJobName {
   font-weight: 600;
   font-size: 17px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -600,7 +600,7 @@
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   flex-shrink: 0;
   line-height: 26px;
 
@@ -611,7 +611,7 @@
 
 .mobileJobSchedule {
   font-size: 14px;
-  color: rgba(20, 20, 19, 0.55);
+  color: var(--app-text-secondary);
   margin-bottom: 22px;
   line-height: 22px;
 }
@@ -623,24 +623,25 @@
   flex-wrap: wrap;
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 
   .mobileActionBtn {
     font-size: 13px;
     height: 28px;
     padding: 0 10px;
-    color: #666;
+    color: var(--app-text-secondary);
     background: transparent;
-    border: 1px solid #d9d9d9;
+    border: 1px solid var(--app-border-strong);
     border-radius: 7px;
 
     &:hover:not(:disabled) {
-      color: #333;
-      border-color: #bfbfbf;
+      color: var(--app-text);
+      border-color: var(--app-border-hover);
     }
 
     &:disabled {
-      color: #d9d9d9;
+      color: var(--app-text-quaternary);
+      border-color: var(--app-border-subtle);
       cursor: not-allowed;
     }
   }
@@ -649,15 +650,15 @@
     font-size: 13px;
     width: 28px;
     height: 28px;
-    color: #666;
+    color: var(--app-text-secondary);
     background: transparent;
-    border: 1px solid #d9d9d9;
+    border: 1px solid var(--app-border-strong);
     border-radius: 7px;
 
     &:hover:not(:disabled) {
-      color: #333;
-      border-color: #bfbfbf;
-      background: rgba(0, 0, 0, 0.04);
+      color: var(--app-text);
+      border-color: var(--app-border-hover);
+      background: var(--app-fill-subtle);
     }
   }
 }
@@ -710,279 +711,11 @@
   }
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+/* antd's popover surface is rendered outside the module root. */
 :global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  /* Override the light-mode table header background */
-  .cronJobsPage {
-    :global {
-      .qwenpaw-table-wrapper
-        .qwenpaw-table-container
-        .qwenpaw-table-thead
-        > tr
-        > th {
-        background: #2a2a2a !important;
-      }
-    }
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .title {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .description {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .statusDot {
-    &.enabled {
-      background-color: #73d13d;
-    }
-
-    &.disabled {
-      background-color: #5a5a5a;
-    }
-  }
-
-  /* Form extra text */
-  .formExtraText {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .formHelperLink {
-    color: #69b1ff !important;
-  }
-
-  .viewToggleBtn {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &.viewToggleBtnActive {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.12);
-    }
-  }
-
-  .calendarHeader,
-  .calendarEmptyHint,
-  .calendarWeekHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .calendarWeekHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .calendarTitle,
-  .calendarCellDate {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .calendarWeekCell,
-  .calendarEmptyHint {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .calendarCell {
-    background: #1f1f1f;
-    border-right-color: rgba(255, 255, 255, 0.08);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .calendarCellMuted {
-    background: #181818;
-  }
-
-  .calendarCellToday {
-    box-shadow: inset 0 0 0 1px rgba(105, 177, 255, 0.45);
-  }
-
-  .calendarEvent {
-    color: rgba(255, 255, 255, 0.75);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.92);
-    }
-  }
-
-  .calendarEventDisabled {
-    color: rgba(255, 255, 255, 0.75);
-
-    .calendarEventDot {
-      background: #6b7280;
-    }
-  }
-
-  .calendarEventDot {
-    background: #73d13d;
-  }
-
-  .calendarMoreBtn {
-    color: #69b1ff;
-
-    &:hover {
-      color: #91caff;
-    }
-  }
-
-  .dayJobItem {
-    background: #262626;
-
-    &:hover {
-      background: #303030;
-    }
-  }
-
-  .dayJobItemTime {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .dayJobItemName {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .historyEmpty,
-  .historyItemMeta {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .historyItem {
-    background: #262626;
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .historyItemTime {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .historyItemStatusSuccess {
-    color: #95de64;
-  }
-
-  .historyItemStatusError,
-  .historyItemError {
-    color: #ff7875;
-  }
-
-  .templateModalDesc,
-  .templateDesc,
-  .templateMeta,
-  .templateTag {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .templateCard {
-    background: #262626;
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .templateTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .templateTag {
-    background: #303030;
-  }
-
-  .templateTagRecommended {
-    color: #69b1ff;
-    background: rgba(105, 177, 255, 0.16);
-  }
-
-  .historyItemErrorToggle {
-    color: #69b1ff;
-
-    &:hover {
-      color: #91caff;
-    }
-  }
-
   .dayJobPopoverOverlay {
     :global(.ant-popover-inner) {
-      background: #1f1f1f;
-    }
-  }
-
-  .dayJobPopoverDay,
-  .dayJobPopoverWeek {
-    color: #7ea5ff;
-  }
-
-  .mobileJobCard {
-    background: #2d2d2d;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    }
-  }
-
-  .mobileJobName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .mobileJobStatus {
-    color: rgba(255, 255, 255, 0.45);
-
-    &.enabled {
-      color: rgba(20, 184, 166, 1);
-    }
-  }
-
-  .mobileJobSchedule {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .mobileJobActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-
-    .mobileActionBtn {
-      color: rgba(255, 255, 255, 0.65);
-      background: transparent;
-      border-color: rgba(255, 255, 255, 0.2);
-
-      &:hover:not(:disabled) {
-        color: rgba(255, 255, 255, 0.85);
-        border-color: rgba(255, 255, 255, 0.35);
-      }
-
-      &:disabled {
-        color: rgba(255, 255, 255, 0.25);
-        border-color: rgba(255, 255, 255, 0.1);
-      }
-    }
-
-    .mobileMoreBtn {
-      color: rgba(255, 255, 255, 0.65);
-      background: transparent;
-      border-color: rgba(255, 255, 255, 0.2);
-
-      &:hover:not(:disabled) {
-        color: rgba(255, 255, 255, 0.85);
-        border-color: rgba(255, 255, 255, 0.35);
-        background: rgba(255, 255, 255, 0.08);
-      }
+      background: var(--app-surface);
     }
   }
 }
