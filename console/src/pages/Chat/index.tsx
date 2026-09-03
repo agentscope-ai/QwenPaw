@@ -3313,6 +3313,12 @@ export default function ChatPage() {
         multiple: true,
         hideBuiltInSessionList: true,
         api: sessionApi,
+        // Real backend-driven scroll-back pagination — requires the
+        // @jsfund/agent-chat patch in console/patches/ (see
+        // docs/session-scroll-loading-design.md §3). sessionId here is
+        // whatever the SDK considers "current" (display id or backend
+        // UUID); loadOlderMessages resolves it internally.
+        onLoadMore: (sessionId: string) => sessionApi.loadOlderMessages(sessionId),
       },
       api: {
         ...defaultConfig.api,

@@ -43,6 +43,7 @@ import {
   attachClientMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
 } from "../../../utils/clientMessageId";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 
@@ -109,7 +110,9 @@ function seedSessionList(id: string): void {
 
 async function mockGetChat(history: ChatHistory) {
   const apiImport = await import("../../../api");
-  return vi.spyOn(apiImport.api, "getChat").mockResolvedValue(history);
+  return vi
+    .spyOn(apiImport.api, "getMessages")
+    .mockResolvedValue(toMessagesPage(history));
 }
 
 /** Collect texts of user-role cards from a converted session. */

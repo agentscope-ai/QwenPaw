@@ -63,6 +63,7 @@ vi.mock("../../../api/modules/chat", async (importOriginal) => {
 // Import AFTER mocks are registered.
 import { __test__ } from "../sessionApi";
 import sessionApiDefaultExport from "../sessionApi";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 const {
   convertMessages,
@@ -660,12 +661,11 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     );
     // We reach into the default `api` aggregate used by sessionApi.
     const apiImport = await import("../../../api");
-    vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
-      messages,
-      status: "idle",
-    } as ChatHistory);
+    vi.spyOn(apiImport.api, "getMessages").mockResolvedValue(
+      toMessagesPage({ messages, status: "idle" } as ChatHistory),
+    );
 
-    // getChat is invoked via the `api` import inside sessionApi/index.ts.
+    // getMessages is invoked via the `api` import inside sessionApi/index.ts.
     // Pre-seed the session list so getSession finds an entry (and resolves
     // the backend id directly through the UUID branch).
     (sessionApiDefaultExport as any).sessionList = [
@@ -687,12 +687,12 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     expect(typeof ext.messages[0].cards[0].code).toBe("string");
   });
 
-  it("returns an empty session (no white-screen) when getChat throws 'Chat not found'", async () => {
+  it("returns an empty session (no white-screen) when getMessages throws 'Chat not found'", async () => {
     // Regression: historically a 404 on a stale large session would propagate
     // the error and blank the page. The fix returns an empty session so the
     // user sees the chat shell instead of a crash.
     const apiImport = await import("../../../api");
-    vi.spyOn(apiImport.api, "getChat").mockRejectedValue(
+    vi.spyOn(apiImport.api, "getMessages").mockRejectedValue(
       new Error("Chat not found"),
     );
 
@@ -707,8 +707,10 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
 
     const apiImport = await import("../../../api");
     const getChat = vi
-      .spyOn(apiImport.api, "getChat")
-      .mockResolvedValue({ messages, status: "running" } as ChatHistory);
+      .spyOn(apiImport.api, "getMessages")
+      .mockResolvedValue(
+        toMessagesPage({ messages, status: "running" } as ChatHistory),
+      );
 
     (sessionApiDefaultExport as any).sessionList = [
       {
@@ -732,8 +734,10 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
 
     const apiImport = await import("../../../api");
     const getChat = vi
-      .spyOn(apiImport.api, "getChat")
-      .mockResolvedValue({ messages, status: "idle" } as ChatHistory);
+      .spyOn(apiImport.api, "getMessages")
+      .mockResolvedValue(
+        toMessagesPage({ messages, status: "idle" } as ChatHistory),
+      );
 
     (sessionApiDefaultExport as any).sessionList = [
       {
