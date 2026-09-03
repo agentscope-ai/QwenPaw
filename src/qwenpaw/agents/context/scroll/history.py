@@ -9,16 +9,24 @@ import sqlite3
 import sys
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from ..types import LogEntry
+from .memoryspace import MemorySpace
 
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
 _UNSET = object()
+
+# Read-endpoint expansion budget: how far a single page is allowed to walk
+# backward past its own ``limit`` to reach a complete user turn boundary
+# before giving up and returning a truncated page. Mirrors the "唯一允许回
+# 合跨页切分的场景" rule in the pagination design doc.
+DEFAULT_MAX_EXPANSION_ROWS = 600
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
 # printed stdout/stderr — are written through to history like any turn, but
@@ -758,3 +766,257 @@ def _to_json(value) -> str | None:
     if isinstance(value, str):
         return value
     return json.dumps(value, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Stateless read-only page queries for the HTTP pagination endpoint.
+#
+# These are deliberately free functions, not ``HistoryStore`` methods: the
+# endpoint opens its own short-lived ``mode=ro`` connection per request
+# (never the live agent's read-write ``HistoryStore._conn``) so a slow or
+# stuck page query can never contend with write-through persistence. The
+# connection must be created, queried and closed inside one
+# ``asyncio.to_thread`` call — see ``read_history_page``.
+# ---------------------------------------------------------------------------
+
+
+class HistoryUnavailable(Exception):
+    """The history db can't be read (missing file, corruption, query error).
+
+    Callers map this to ``history_status="degraded"`` — never to "no more
+    history" — so a broken store doesn't masquerade as a clean end of scroll.
+    """
+
+
+@dataclass
+class HistoryPageResult:
+    """One page of raw db rows plus the bookkeeping to request the next."""
+
+    rows: list[sqlite3.Row]  # ascending seq order (oldest -> newest)
+    next_cursor: int | None  # smallest seq in ``rows``; None if rows is empty
+    has_more: bool
+    truncated: bool
+
+
+def open_readonly_connection(db_path: str | Path) -> sqlite3.Connection:
+    """Open a standalone ``mode=ro`` connection to an existing history db.
+
+    Raises :class:`HistoryUnavailable` if the file is missing or SQLite can't
+    open/read it (corruption, mid-write torn WAL, etc.) — the caller decides
+    what "unavailable" means for its response (degraded vs unavailable).
+    """
+    path = Path(db_path)
+    if not path.exists():
+        raise HistoryUnavailable(f"history db not found: {path}")
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        # Cheap read to fail fast on a corrupt/torn file rather than on the
+        # caller's first real query.
+        conn.execute("SELECT 1 FROM conversation_history LIMIT 1")
+    except sqlite3.Error as exc:
+        raise HistoryUnavailable(f"history db unreadable: {exc}") from exc
+    return conn
+
+
+def find_seq_by_dedup_key(
+    conn: sqlite3.Connection,
+    session_id: str,
+    dedup_key: str,
+) -> int | None:
+    """Resolve a live Msg's ``id`` (= db ``dedup_key``) to its durable ``seq``.
+
+    This is the first-screen "anchor" query (design doc §2.1 step 4): the
+    earliest real user Msg still visible in the live session JSON window
+    tells the endpoint where to resume once the user scrolls up into
+    ``history.db``.
+    """
+    row = conn.execute(
+        "SELECT seq FROM conversation_history "
+        "WHERE session_id = ? AND dedup_key = ?",
+        (session_id, dedup_key),
+    ).fetchone()
+    return int(row["seq"]) if row else None
+
+
+def min_seq_for_session(
+    conn: sqlite3.Connection,
+    session_id: str,
+) -> int | None:
+    """Smallest surviving ``seq`` for a session, or ``None`` if it has no rows.
+
+    Used to tell "reached the true start" (``complete``) apart from "the true
+    start was purged by an old retention policy" (``expired``) — see the
+    design doc's expired-detection algorithm.
+    """
+    row = conn.execute(
+        "SELECT MIN(seq) AS seq FROM conversation_history "
+        "WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    return int(row["seq"]) if row and row["seq"] is not None else None
+
+
+def fetch_tool_results_by_call_ids(
+    conn: sqlite3.Connection,
+    session_id: str,
+    call_ids: Sequence[str],
+) -> dict[str, sqlite3.Row]:
+    """Look up ``tool_result`` rows anywhere in the session by call id.
+
+    Used to tell "this call's result is just on a different page" apart from
+    "no result row exists anywhere in history" — the latter is what actually
+    drives the expired/pending tool-result placeholder in
+    ``history_rows_to_messages``. Not scoped to a seq range on purpose.
+    """
+    ids = [c for c in dict.fromkeys(call_ids) if c]
+    if not ids:
+        return {}
+    found: dict[str, sqlite3.Row] = {}
+    for start in range(0, len(ids), 400):
+        chunk = ids[start : start + 400]
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = conn.execute(
+            "SELECT * FROM conversation_history "
+            f"WHERE session_id = ? AND kind = 'tool_result' "
+            f"AND tool_call_id IN ({placeholders})",
+            (session_id, *chunk),
+        ).fetchall()
+        for row in rows:
+            found[row["tool_call_id"]] = row
+    return found
+
+
+def has_rows_before(
+    conn: sqlite3.Connection,
+    session_id: str,
+    seq: int,
+) -> bool:
+    """Whether any row for ``session_id`` still exists with ``seq < seq``."""
+    row = conn.execute(
+        "SELECT 1 FROM conversation_history "
+        "WHERE session_id = ? AND seq < ? LIMIT 1",
+        (session_id, seq),
+    ).fetchone()
+    return row is not None
+
+
+def _turn_start_seq_at_or_before(
+    conn: sqlite3.Connection,
+    session_id: str,
+    seq: int,
+) -> int | None:
+    """Max seq of a real user turn boundary with ``seq <= seq`` in-session.
+
+    Reuses ``MemorySpace._real_user_conditions`` — the same role/synthetic-tag
+    test the recall REPL uses to find turn boundaries — so the HTTP read path
+    and the model's own recall queries agree on what counts as a turn start.
+    """
+    conditions, params = MemorySpace._real_user_conditions()
+    sql = (
+        "SELECT MAX(seq) AS seq FROM conversation_history "
+        "WHERE session_id = ? AND "
+        + " AND ".join(conditions)
+        + " AND seq <= ?"
+    )
+    row = conn.execute(sql, (session_id, *params, seq)).fetchone()
+    return int(row["seq"]) if row and row["seq"] is not None else None
+
+
+def read_history_page(
+    db_path: str | Path,
+    session_id: str,
+    *,
+    before_seq: int,
+    limit: int,
+    max_expansion_rows: int = DEFAULT_MAX_EXPANSION_ROWS,
+) -> HistoryPageResult:
+    """Load one turn-aligned page strictly older than ``before_seq``.
+
+    Opens its own read-only connection, runs the whole query (including any
+    boundary expansion), and closes it before returning — the caller wraps
+    this single call in ``asyncio.to_thread``. Raises ``HistoryUnavailable``
+    on any db-level failure; never returns a partial/corrupt result silently.
+    """
+    conn = open_readonly_connection(db_path)
+    try:
+        return _read_history_page(
+            conn,
+            session_id,
+            before_seq=before_seq,
+            limit=max(1, limit),
+            max_expansion_rows=max(limit, max_expansion_rows),
+        )
+    except sqlite3.Error as exc:
+        raise HistoryUnavailable(f"history page query failed: {exc}") from exc
+    finally:
+        conn.close()
+
+
+def _read_history_page(
+    conn: sqlite3.Connection,
+    session_id: str,
+    *,
+    before_seq: int,
+    limit: int,
+    max_expansion_rows: int,
+) -> HistoryPageResult:
+    seed = conn.execute(
+        "SELECT seq FROM conversation_history "
+        "WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?",
+        (session_id, before_seq, limit),
+    ).fetchall()
+    if not seed:
+        return HistoryPageResult(
+            rows=[],
+            next_cursor=None,
+            has_more=False,
+            truncated=False,
+        )
+
+    oldest_seed_seq = int(seed[-1]["seq"])
+    boundary_seq = _turn_start_seq_at_or_before(
+        conn,
+        session_id,
+        oldest_seed_seq,
+    )
+    if boundary_seq is None:
+        # No real user row at or before the oldest candidate in this session
+        # at all (legacy/imported data with no turn markers). Fall back to
+        # the oldest row we actually found rather than expanding forever.
+        boundary_seq = oldest_seed_seq
+
+    span = before_seq - boundary_seq
+    truncated = False
+    if span > max_expansion_rows:
+        # Pathological single turn far exceeding the budget: stop expanding,
+        # return the most recent ``max_expansion_rows`` rows below the
+        # cursor and let the caller mark the page truncated. The next page
+        # picks up exactly where this one stopped (no gap, no duplication).
+        boundary_seq = before_seq - max_expansion_rows
+        truncated = True
+
+    rows_desc = conn.execute(
+        "SELECT * FROM conversation_history "
+        "WHERE session_id = ? AND seq >= ? AND seq < ? "
+        "ORDER BY seq DESC",
+        (session_id, boundary_seq, before_seq),
+    ).fetchall()
+    if not rows_desc:
+        return HistoryPageResult(
+            rows=[],
+            next_cursor=None,
+            has_more=False,
+            truncated=False,
+        )
+
+    ascending = list(reversed(rows_desc))
+    next_cursor = int(ascending[0]["seq"])
+    has_more = has_rows_before(conn, session_id, next_cursor)
+    return HistoryPageResult(
+        rows=ascending,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        truncated=truncated,
+    )

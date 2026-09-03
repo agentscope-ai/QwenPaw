@@ -2220,8 +2220,9 @@ def test_purge_old_zero_keeps_everything(store: HistoryStore):
         session_id="s1",
         dedup_key="m1",
         entry=LogEntry(
-            kind="model_turn",
+            kind="tool_result",
             content="x",
+            tool_call_id="tc1",
             created_at="2000-01-01T00:00:00+00:00",
         ),
     )
@@ -2235,13 +2236,53 @@ def test_purge_old_drops_rows_past_window(store: HistoryStore):
         session_id="s1",
         dedup_key="m1",
         entry=LogEntry(
-            kind="model_turn",
+            kind="tool_result",
             content="ancient",
+            tool_call_id="tc1",
             created_at="2000-01-01T00:00:00+00:00",
         ),
     )
     assert mgr.purge_old(1) == 1
     assert store.count("s1") == 0
+
+
+def test_purge_old_keeps_conversation_turns_past_window(store: HistoryStore):
+    """Only ``tool_result`` rows are disposable — user/assistant turns must
+    survive ``purge_old`` regardless of age, so scroll-back never loses
+    conversation history to the tool-result retention window."""
+    mgr = make_manager(store)
+    store.append(
+        session_id="s1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="ancient question",
+            created_at="2000-01-01T00:00:00+00:00",
+        ),
+    )
+    store.append(
+        session_id="s1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="ancient answer",
+            created_at="2000-01-01T00:00:00+00:00",
+        ),
+    )
+    store.append(
+        session_id="s1",
+        dedup_key="tc1",
+        entry=LogEntry(
+            kind="tool_result",
+            content="ancient tool output",
+            tool_call_id="tc1",
+            created_at="2000-01-01T00:00:00+00:00",
+        ),
+    )
+    assert mgr.purge_old(1) == 1
+    assert store.count("s1") == 2
 
 
 def test_serialize_persists_runtime_tag():

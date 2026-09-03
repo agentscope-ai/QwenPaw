@@ -2004,14 +2004,21 @@ class ScrollContextManager:
         )
 
     def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
-        """Drop durable history older than ``retention_days`` (0 = keep
+        """Drop durable tool output older than ``retention_days`` (0 = keep
         forever). Returns the number of rows removed (or, with ``dry_run``,
-        that would be removed — nothing is deleted)."""
+        that would be removed — nothing is deleted).
+
+        Only ``kind="tool_result"`` rows are eligible: user messages and
+        assistant replies (``context_msg``/``model_turn``) are conversation
+        history, not disposable tool output, and must survive this purge so
+        a user can always scroll back to them.
+        """
         if retention_days <= 0:
             return 0
         return self._history.purge(
             before=self._cutoff(retention_days),
             dry_run=dry_run,
+            kinds=("tool_result",),
         )
 
     @staticmethod
