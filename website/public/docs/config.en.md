@@ -500,31 +500,36 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                            | Type        | Default          | Description                                                                                                                                                                      |
-| -------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `metadata_dir`                   | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
-| `session_dir`                    | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
-| `mem_session_dir`                | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
-| `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
-| `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
-| `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
-| `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
-| `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
-| `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
-| `dream_cron`                     | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
-| `daily_paper_cron_enabled`       | bool        | `false`          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
-| `daily_paper_cron`               | string      | `"0 9 * * *"`    | Valid 5-field cron expression for Daily Paper (required when enabled)                                                                                                            |
-| `daily_paper_use_hf_mirror`      | bool        | `false`          | Whether to fetch Daily Paper information through the Hugging Face mirror                                                                                                         |
-| `daily_paper_topics`             | string      | `""`             | Topics to prioritize when selecting Daily Paper papers                                                                                                                           |
-| `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
-| `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
-| `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
-| `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
+| Field                            | Type        | Default                          | Description                                                                                                                                                                      |
+| -------------------------------- | ----------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_dir`                   | string      | `"mem_metadata"`                 | Subdirectory for ReMe persistent state                                                                                                                                           |
+| `session_dir`                    | string      | `"mem_session"`                  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
+| `mem_session_dir`                | string      | `"mem_agent"`                    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
+| `resource_dir`                   | string      | `"resource"`                     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
+| `daily_dir`                      | string      | `"memory"`                       | Subdirectory for daily memory                                                                                                                                                    |
+| `digest_dir`                     | string      | `"digest"`                       | Subdirectory for digest memory                                                                                                                                                   |
+| `auto_memory_inbox_push_enabled` | bool        | `true`                           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`                           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
+| `daily_paper_inbox_push_enabled` | bool        | `true`                           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
+| `auto_fin_inbox_push_enabled`    | bool        | `true`                           | Whether to push generated Auto Fin reports or failures to the inbox; successful skips are not pushed                                                                             |
+| `auto_memory_interval`           | int \| null | `5`                              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `dream_cron_enabled`             | bool        | `true`                           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
+| `dream_cron`                     | string      | `"0 23 * * *"`                   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
+| `daily_paper_cron_enabled`       | bool        | `false`                          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
+| `daily_paper_cron`               | string      | `"0 9 * * *"`                    | Valid 5-field cron expression for Daily Paper (required when enabled)                                                                                                            |
+| `daily_paper_use_hf_mirror`      | bool        | `false`                          | Whether to fetch Daily Paper information through the Hugging Face mirror                                                                                                         |
+| `daily_paper_topics`             | string      | `""`                             | Topics to prioritize when selecting Daily Paper papers                                                                                                                           |
+| `auto_fin_cron_enabled`          | bool        | `false`                          | Whether to enable the scheduled Auto Fin job                                                                                                                                     |
+| `auto_fin_cron`                  | string      | `"0 18 * * *"`                   | Valid 5-field cron expression for Auto Fin (required when enabled)                                                                                                               |
+| `auto_fin_topics`                | string      | `"gold,robotics,semiconductors"` | Comma-separated topics used to filter CLS news                                                                                                                                   |
+| `auto_fin_window_hours`          | float       | `24`                             | Rolling number of hours of CLS telegraph news to fetch; must be between 1 and 168                                                                                                |
+| `memory_search_enabled`          | bool        | `true`                           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
+| `auto_memory_search_config`      | object      | _(see below)_                    | Auto memory search configuration                                                                                                                                                 |
+| `embedding_model_config`         | object      | _(see below)_                    | Embedding model configuration                                                                                                                                                    |
+| `needs_reindex`                  | bool        | `false`                          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
-> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#runtime-status-and-rebuilding-the-index).
 
 The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
 Inbox switches, then the field is excluded from serialized configuration.
@@ -538,18 +543,19 @@ Inbox switches, then the field is excluded from serialized configuration.
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                                                                    |
-| ------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      |
-| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
-| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
-| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
-| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
-| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
-| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
+| Field                  | Type   | Default    | Description                                                                                                         |
+| ---------------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| `backend`              | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                           |
+| `api_key`              | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends                              |
+| `base_url`             | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host                      |
+| `model_name`           | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                                             |
+| `dimensions`           | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches                             |
+| `enable_cache`         | bool   | `true`     | Whether to enable embedding cache                                                                                   |
+| `use_dimensions`       | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                                         |
+| `max_cache_size`       | int    | `10000`    | Maximum cache size                                                                                                  |
+| `max_input_length`     | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                                          |
+| `max_batch_size`       | int    | `10`       | Maximum batch size for batch processing                                                                             |
+| `health_check_timeout` | float  | `15.0`     | Per-attempt timeout in seconds for Embedding connection tests and ReMe startup health checks; must be in `(0, 300]` |
 
 `use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
 disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
@@ -580,8 +586,11 @@ so no manual restart is required. An Embedding change is rejected with HTTP `409
 
 Changes to `backend`, normalized `base_url`, `model_name`, `dimensions`, or `use_dimensions` set `needs_reindex=true`.
 Changing only the API key or cache/batch limits does not. A hot vector-space change clears the Embedding cache, but it
-does **not** rebuild existing file vectors automatically. Complete the explicit Console or maintenance-API rebuild;
-only a successful rebuild for the still-current vector-space fingerprint clears `needs_reindex`.
+does **not** rebuild existing file vectors automatically. Vector search remains unavailable while BM25 continues to
+work. Complete an explicit `scope=embedding` or `scope=all` rebuild in the Console or maintenance API; only a successful
+rebuild for the still-current vector-space fingerprint clears `needs_reindex`. To abandon a change that has not yet
+been rebuilt, use the Console undo action or call `POST /api/agents/{agentId}/memory/reindex/undo` to restore the
+previous configuration that matches the existing vectors. See [Runtime Status and Rebuilding the Index](./memory#runtime-status-and-rebuilding-the-index).
 
 The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
 indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove

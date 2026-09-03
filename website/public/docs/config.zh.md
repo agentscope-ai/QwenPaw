@@ -432,31 +432,36 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                             | 类型        | 默认值           | 说明                                                                                              |
-| -------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `metadata_dir`                   | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                                               |
-| `session_dir`                    | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
-| `mem_session_dir`                | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                                                 |
-| `resource_dir`                   | string      | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
-| `daily_dir`                      | string      | `"memory"`       | 每日记忆子目录                                                                                    |
-| `digest_dir`                     | string      | `"digest"`       | digest 记忆子目录                                                                                 |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否在 Auto-Memory 实际改变记忆或执行失败时推送到收件箱                                           |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否在 Auto-Dream 实际改变记忆或执行失败时推送到收件箱                                            |
-| `daily_paper_inbox_push_enabled` | bool        | `true`           | 是否将 Daily Paper 结果推送到收件箱                                                               |
-| `auto_memory_interval`           | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
-| `dream_cron_enabled`             | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
-| `dream_cron`                     | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
-| `daily_paper_cron_enabled`       | bool        | `false`          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
-| `daily_paper_cron`               | string      | `"0 9 * * *"`    | 每日论文任务的有效 5 段 Cron 表达式（启用时必填）                                                 |
-| `daily_paper_use_hf_mirror`      | bool        | `false`          | 是否通过 Hugging Face 镜像站获取每日论文信息                                                      |
-| `daily_paper_topics`             | string      | `""`             | 每日论文筛选时优先关注的主题                                                                      |
-| `memory_search_enabled`          | bool        | `true`           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
-| `auto_memory_search_config`      | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
-| `embedding_model_config`         | object      | _（见下方）_     | Embedding 模型配置                                                                                |
-| `needs_reindex`                  | bool        | `false`          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
+| 字段                             | 类型        | 默认值                           | 说明                                                                                              |
+| -------------------------------- | ----------- | -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `metadata_dir`                   | string      | `"mem_metadata"`                 | ReMe 持久状态子目录                                                                               |
+| `session_dir`                    | string      | `"mem_session"`                  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
+| `mem_session_dir`                | string      | `"mem_agent"`                    | ReMe 内部 memory-agent 会话子目录                                                                 |
+| `resource_dir`                   | string      | `"resource"`                     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
+| `daily_dir`                      | string      | `"memory"`                       | 每日记忆子目录                                                                                    |
+| `digest_dir`                     | string      | `"digest"`                       | digest 记忆子目录                                                                                 |
+| `auto_memory_inbox_push_enabled` | bool        | `true`                           | 是否在 Auto-Memory 实际改变记忆或执行失败时推送到收件箱                                           |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`                           | 是否在 Auto-Dream 实际改变记忆或执行失败时推送到收件箱                                            |
+| `daily_paper_inbox_push_enabled` | bool        | `true`                           | 是否将 Daily Paper 结果推送到收件箱                                                               |
+| `auto_fin_inbox_push_enabled`    | bool        | `true`                           | 是否将实际生成的 Auto Fin 报告或失败结果推送到收件箱；成功跳过时不推送                            |
+| `auto_memory_interval`           | int \| null | `5`                              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `dream_cron_enabled`             | bool        | `true`                           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
+| `dream_cron`                     | string      | `"0 23 * * *"`                   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
+| `daily_paper_cron_enabled`       | bool        | `false`                          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
+| `daily_paper_cron`               | string      | `"0 9 * * *"`                    | 每日论文任务的有效 5 段 Cron 表达式（启用时必填）                                                 |
+| `daily_paper_use_hf_mirror`      | bool        | `false`                          | 是否通过 Hugging Face 镜像站获取每日论文信息                                                      |
+| `daily_paper_topics`             | string      | `""`                             | 每日论文筛选时优先关注的主题                                                                      |
+| `auto_fin_cron_enabled`          | bool        | `false`                          | 是否启用按 Cron 定时执行的 Auto Fin 任务                                                          |
+| `auto_fin_cron`                  | string      | `"0 18 * * *"`                   | Auto Fin 的有效 5 段 Cron 表达式（启用时必填）                                                    |
+| `auto_fin_topics`                | string      | `"gold,robotics,semiconductors"` | 用逗号分隔的财联社新闻筛选主题                                                                    |
+| `auto_fin_window_hours`          | float       | `24`                             | 每次向前抓取财联社电报的滚动小时数，范围为 1–168                                                  |
+| `memory_search_enabled`          | bool        | `true`                           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
+| `auto_memory_search_config`      | object      | _（见下方）_                     | 自动记忆搜索配置                                                                                  |
+| `embedding_model_config`         | object      | _（见下方）_                     | Embedding 模型配置                                                                                |
+| `needs_reindex`                  | bool        | `false`                          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
-> [重建记忆搜索索引](./memory#重建索引)。
+> [重建记忆搜索索引](./memory#状态与重建索引)。
 
 已弃用的 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的各任务 Inbox 开关，随后从序列化配置中排除。
 
@@ -469,18 +474,19 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
-| 字段               | 类型   | 默认值     | 说明                                                                                  |
-| ------------------ | ------ | ---------- | ------------------------------------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` |
-| `api_key`          | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
-| `base_url`         | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
-| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
-| `dimensions`       | int    | `1024`     | 预期的 Embedding 向量维度，用于返回值校验、索引和缓存                                 |
-| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
-| `use_dimensions`   | bool   | `false`    | OpenAI 后端是否在 API 请求中传递 `dimensions` 参数                                    |
-| `max_cache_size`   | int    | `10000`    | 最大缓存大小                                                                          |
-| `max_input_length` | int    | `8192`     | 单条 Embedding 输入的近似字符预算，并非精确的 Token 上限                              |
-| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
+| 字段                   | 类型   | 默认值     | 说明                                                                                  |
+| ---------------------- | ------ | ---------- | ------------------------------------------------------------------------------------- |
+| `backend`              | string | `"openai"` | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` |
+| `api_key`              | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
+| `base_url`             | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
+| `model_name`           | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
+| `dimensions`           | int    | `1024`     | 预期的 Embedding 向量维度，用于返回值校验、索引和缓存                                 |
+| `enable_cache`         | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
+| `use_dimensions`       | bool   | `false`    | OpenAI 后端是否在 API 请求中传递 `dimensions` 参数                                    |
+| `max_cache_size`       | int    | `10000`    | 最大缓存大小                                                                          |
+| `max_input_length`     | int    | `8192`     | 单条 Embedding 输入的近似字符预算，并非精确的 Token 上限                              |
+| `max_batch_size`       | int    | `10`       | 批处理的最大批量大小                                                                  |
+| `health_check_timeout` | float  | `15.0`     | Embedding 连接测试和 ReMe 启动健康检查的单次超时秒数，范围为 `(0, 300]`               |
 
 `use_dimensions` 仅控制 OpenAI 兼容请求中是否携带 `dimensions` 参数。关闭后，`dimensions`
 仍用于校验服务返回的向量长度以及配置索引和缓存，因此必须填写模型实际输出的维度。部分 vLLM
@@ -507,8 +513,10 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 修改 `backend`、规范化后的 `base_url`、`model_name`、`dimensions` 或 `use_dimensions` 会设置
 `needs_reindex=true`；只修改 API Key 或缓存、批量限制不会。向量空间热更新会清空 Embedding 缓存，
-但**不会**自动重建已有文件向量，仍需在 Console 或维护 API 中显式执行重建。只有针对当前向量空间成功完成的重建
-才会清除 `needs_reindex`。
+但**不会**自动重建已有文件向量，向量搜索会保持不可用，BM25 仍可使用。请在 Console 或维护 API 中显式执行
+`scope=embedding` 或 `scope=all` 的重建；只有针对当前向量空间成功完成的重建才会清除 `needs_reindex`。
+如果决定放弃尚未重建的变更，可以在控制台撤销，或调用 `POST /api/agents/{agentId}/memory/reindex/undo`
+恢复与现有向量匹配的上一份配置。详见[状态与重建索引](./memory#状态与重建索引)。
 
 控制台中的 Embedding“已开启/未开启”状态会根据当前未保存表单实时计算，只表示 Backend、模型名称和必要凭证是否满足上述启用条件，
 不表示服务已经连通或配置已经应用到运行中的 Agent。“已验证”表示真实测试请求成功；只有保存配置后，变更才会应用到运行状态。

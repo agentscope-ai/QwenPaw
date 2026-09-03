@@ -24,6 +24,7 @@ def test_reme_light_job_notifications_default_to_enabled():
     assert cfg.auto_memory_inbox_push_enabled is True
     assert cfg.auto_dream_inbox_push_enabled is True
     assert cfg.daily_paper_inbox_push_enabled is True
+    assert cfg.auto_fin_inbox_push_enabled is True
     assert "inbox_push_enabled" not in cfg.model_dump()
 
 
@@ -33,6 +34,7 @@ def test_legacy_inbox_switch_initializes_independent_notifications():
     assert cfg.auto_memory_inbox_push_enabled is False
     assert cfg.auto_dream_inbox_push_enabled is False
     assert cfg.daily_paper_inbox_push_enabled is False
+    assert cfg.auto_fin_inbox_push_enabled is False
 
 
 def test_explicit_notification_setting_wins_over_legacy_switch():
@@ -88,7 +90,61 @@ def test_daily_paper_cron_is_disabled_by_default():
     assert cfg.daily_paper_topics == ""
 
 
-@pytest.mark.parametrize("field", ["dream_cron", "daily_paper_cron"])
+def test_auto_fin_cron_is_disabled_by_default():
+    cfg = ReMeLightMemoryConfig()
+
+    assert cfg.auto_fin_cron_enabled is False
+    assert cfg.auto_fin_cron == "0 18 * * *"
+    assert cfg.auto_fin_topics == "gold,robotics,semiconductors"
+    assert cfg.auto_fin_window_hours == 24
+
+
+@pytest.mark.parametrize("window_hours", [0, 0.5, -1, 169])
+def test_auto_fin_window_rejects_values_outside_boundaries(window_hours):
+    with pytest.raises(ValidationError):
+        ReMeLightMemoryConfig(auto_fin_window_hours=window_hours)
+
+
+@pytest.mark.parametrize("window_hours", [1, 168])
+def test_auto_fin_window_accepts_boundaries(window_hours):
+    cfg = ReMeLightMemoryConfig(auto_fin_window_hours=window_hours)
+
+    assert cfg.auto_fin_window_hours == window_hours
+
+
+@pytest.mark.parametrize(
+    "window_hours",
+    [float("inf"), float("-inf"), float("nan")],
+)
+def test_auto_fin_window_rejects_non_finite_values(window_hours):
+    with pytest.raises(ValidationError):
+        ReMeLightMemoryConfig(auto_fin_window_hours=window_hours)
+
+
+def test_enabled_auto_fin_requires_non_empty_cron():
+    with pytest.raises(
+        ValidationError,
+        match="auto_fin_cron must not be empty",
+    ):
+        ReMeLightMemoryConfig(
+            auto_fin_cron_enabled=True,
+            auto_fin_cron="  ",
+        )
+
+
+def test_disabled_auto_fin_allows_empty_cron():
+    cfg = ReMeLightMemoryConfig(
+        auto_fin_cron_enabled=False,
+        auto_fin_cron="",
+    )
+
+    assert cfg.auto_fin_cron == ""
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["dream_cron", "daily_paper_cron", "auto_fin_cron"],
+)
 def test_service_cron_rejects_values_the_scheduler_cannot_parse(field):
     with pytest.raises(ValidationError, match="Invalid cron expression"):
         ReMeLightMemoryConfig.model_validate({field: "61 * * * *"})

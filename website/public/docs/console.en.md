@@ -359,10 +359,10 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max auto-search results, etc.
-- **Embedding model** — Whether to enable embedding cache, etc.
+- **Long-term memory** — Auto-Memory cadence; Auto-Dream, Daily Paper, and Auto Fin schedules and Inbox delivery; automatic memory search; and index maintenance.
+- **Embedding model** — Embedding service, dimensions, cache, health checks, and pending-rebuild state.
 
-For mechanics, see [Context](./context) and [Config & working directory](./config).
+For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embedding Models](./embedding), and [Config & working directory](./config).
 
 ---
 

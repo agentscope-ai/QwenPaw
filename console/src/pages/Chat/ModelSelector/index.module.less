@@ -240,6 +240,12 @@
   border-radius: 9px;
 }
 
+.agentModelSettings {
+  margin: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 .candidateSectionToggle,
 .agentSettingsToggle {
   display: flex;
@@ -401,6 +407,51 @@
   padding: 4px 10px 10px;
 }
 
+.settingsSection {
+  padding: 10px 0;
+  border-top: 1px solid var(--ms-border);
+}
+
+.settingsSection:first-child {
+  border-top: 0;
+}
+
+.settingsSectionHeader {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.settingsSectionTitle,
+.settingsFieldLabel {
+  color: var(--ms-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsControl {
+  display: block;
+}
+
+.fallbackSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settingsFieldLabel {
+  color: var(--ms-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .settingsRow {
   display: grid;
   grid-template-columns: 102px minmax(0, 1fr);
@@ -542,29 +593,66 @@
 }
 
 .fallbackComposer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: 8px;
+  display: block;
+}
 
-  button {
-    min-width: 0;
-    padding: 0;
-    border: 1px solid var(--ms-border);
-    border-radius: 8px;
-    color: var(--ms-text);
-    background: var(--ms-surface);
+.fallbackScope {
+  width: 100%;
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--ms-border);
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: var(--ms-surface);
+
+  :global(.ant-segmented-group),
+  :global(.qwenpaw-segmented-group) {
+    gap: 3px;
   }
 
-  button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
+  :global(.ant-segmented-item),
+  :global(.qwenpaw-segmented-item) {
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--ms-text-muted);
+    font-size: 12px;
+    line-height: 28px;
+  }
 
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.46;
-    }
+  :global(.ant-segmented-item-label),
+  :global(.qwenpaw-segmented-item-label) {
+    min-height: 28px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-selected),
+  :global(.qwenpaw-segmented-item-selected) {
+    border-color: color-mix(
+      in srgb,
+      var(--ms-accent) 42%,
+      transparent
+    ) !important;
+    color: var(--ms-accent-strong) !important;
+    font-weight: 600;
+    background: color-mix(
+      in srgb,
+      var(--ms-accent) 16%,
+      var(--ms-surface)
+    ) !important;
+    box-shadow: none !important;
+  }
+
+  :global(.ant-segmented-thumb),
+  :global(.qwenpaw-segmented-thumb) {
+    border: 1px solid color-mix(in srgb, var(--ms-accent) 42%, transparent) !important;
+    border-radius: 6px;
+    background: color-mix(
+      in srgb,
+      var(--ms-accent) 16%,
+      var(--ms-surface)
+    ) !important;
+    box-shadow: none !important;
   }
 }
 
@@ -605,8 +693,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  align-self: flex-end;
   gap: 6px;
-  padding: 7px 10px;
+  min-width: 132px;
+  padding: 7px 14px;
   border: 0;
   border-radius: 7px;
   color: #fff;
@@ -732,6 +822,7 @@
 .panel,
 .trigger,
 .oauthModalContent,
+.agentModelSettings,
 .agentSelectDropdown {
   --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
   --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
@@ -1004,7 +1095,7 @@
 .candidateModelSection,
 .agentModelSettings {
   border-color: var(--ms-border);
-  background: var(--ms-surface-muted);
+  background: var(--ms-surface);
   box-shadow: none;
 }
 
@@ -1045,6 +1136,19 @@
 .candidateSectionToggle,
 .agentSettingsToggle {
   min-height: 40px;
+}
+
+.agentSettingsToggle {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 0;
+  color: var(--ms-text);
+  font-size: 13px;
+  font-weight: 600;
+
+  &[aria-expanded="true"] {
+    border-bottom: 1px solid var(--ms-border);
+  }
 }
 
 .candidateSectionToggle:focus-visible,
@@ -1264,6 +1368,7 @@
   .panel,
   .trigger,
   .oauthModalContent,
+  .agentModelSettings,
   .agentSelectDropdown {
     --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
     --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
@@ -1295,9 +1400,12 @@
   }
 
   .candidateItem,
-  .candidateModelSection,
-  .agentModelSettings {
+  .candidateModelSection {
     background: var(--ms-surface-muted);
+  }
+
+  .agentModelSettings {
+    background: var(--ms-surface);
   }
 
   .modelItem:hover,
@@ -1313,6 +1421,26 @@
   .hiddenModels,
   .fallbackList span {
     color: var(--ms-text-muted);
+  }
+
+  .fallbackScope {
+    background: var(--ms-surface);
+
+    :global(.ant-segmented-item-selected),
+    :global(.qwenpaw-segmented-item-selected) {
+      border-color: color-mix(
+        in srgb,
+        var(--ms-accent) 52%,
+        transparent
+      ) !important;
+      color: var(--ms-accent-strong) !important;
+      background: color-mix(
+        in srgb,
+        var(--ms-accent) 24%,
+        var(--ms-surface)
+      ) !important;
+      box-shadow: none !important;
+    }
   }
 
   .candidateSectionToggle:hover:not(:disabled),
@@ -1343,12 +1471,6 @@
     :global(.ant-select-selection-search-input) {
       color: var(--ms-text) !important;
     }
-  }
-
-  .fallbackComposer button {
-    color: var(--ms-text);
-    background: var(--ms-surface);
-    border-color: var(--ms-border);
   }
 
   .fallbackList > div {

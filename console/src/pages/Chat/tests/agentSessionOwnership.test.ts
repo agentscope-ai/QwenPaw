@@ -16,6 +16,7 @@ import type { ChatSpec, ChatHistory } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useSessionListStore } from "../../../stores/sessionListStore";
 import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
 
@@ -34,7 +35,12 @@ async function flush(): Promise<void> {
   await new Promise((res) => setTimeout(res, 0));
 }
 
-function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
+function makeChatSpec(
+  id: string,
+  sessionId: string,
+  name = "chat",
+  status: "idle" | "running" = "idle",
+): ChatSpec {
   return {
     id,
     name,
@@ -44,7 +50,7 @@ function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
     created_at: "2026-07-27T10:00:00.000000+00:00",
     updated_at: "2026-07-27T10:00:00.000000+00:00",
     meta: {},
-    status: "idle",
+    status,
     pinned: false,
     archived: false,
     archived_at: null,
@@ -61,11 +67,13 @@ const B_CHAT = "22222222-bbbb-4bbb-8bbb-222222222222";
 beforeEach(() => {
   sessionApi.resetForTests();
   useAgentStore.setState({ lastChatIdByAgent: {} });
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   sessionApi.resetForTests();
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 describe("agent session ownership epochs", () => {
@@ -212,6 +220,45 @@ describe("agent session ownership epochs", () => {
     sessionApi.triggerResolve(tempId);
     await flush();
     expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT);
+  });
+
+  it("keeps both generating sessions selectable after resolving their ids", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const setLibrarySessions = vi.fn();
+    useSessionListStore.setState({ _setLibrarySessions: setLibrarySessions });
+
+    sessionApi.setActiveAgent("agent-a");
+    const firstSpec: { id?: string } = {};
+    await sessionApi.createSession(firstSpec);
+    const firstTempId = firstSpec.id!;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(firstTempId);
+    await flush();
+
+    const secondSpec: { id?: string } = {};
+    await sessionApi.createSession(secondSpec);
+    const secondTempId = secondSpec.id!;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(B_CHAT, secondTempId, "chat-2", "running"),
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(secondTempId);
+    await flush();
+
+    const latestSessions =
+      setLibrarySessions.mock.calls[
+        setLibrarySessions.mock.calls.length - 1
+      ][0];
+    expect(latestSessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstTempId, realId: A_CHAT }),
+        expect.objectContaining({ id: secondTempId, realId: B_CHAT }),
+      ]),
+    );
   });
 
   it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {
