@@ -28,6 +28,10 @@ import {
   resolveLoopModeDescriptionMarkdown,
   resolveLoopModeName,
 } from "../../utils/loopModeDescription";
+import {
+  ADVISOR_LOOP_MODE_ID,
+  AdvisorSetupPopover,
+} from "./AdvisorSetupPopover";
 import styles from "./index.module.less";
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
@@ -52,6 +56,9 @@ export function LoopModeSelector({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Opens by itself right after Advisor is picked, and stays reachable
+  // from the button next to the mode pill.
+  const [advisorSetupOpen, setAdvisorSetupOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);
   const sessionState = useLoopStore((state) => state.sessionState);
@@ -79,30 +86,39 @@ export function LoopModeSelector({
         ? t("loop.activeCustomDescription")
         : t("loop.activePersistentDescription");
     return (
-      <Tooltip title={tooltip}>
-        <div
-          className={[styles.activeMode, className].filter(Boolean).join(" ")}
-          aria-label={`${modeName} ${t(`loop.${sessionState}`)}`}
-          aria-live="polite"
-          data-state={sessionState}
-        >
-          {sessionState === "starting" && (
-            <LoaderCircle className={styles.spin} size={14} />
-          )}
-          {sessionState === "running" && <ModeIcon mode={activeMode} />}
-          {sessionState === "awaiting_user" && (
-            <MessageCircleQuestion size={14} />
-          )}
-          {!compact && (
-            <>
-              <span>{modeName}</span>
-              <span className={styles.activeState}>
-                {t(`loop.${sessionState}`)}
-              </span>
-            </>
-          )}
-        </div>
-      </Tooltip>
+      <>
+        <Tooltip title={tooltip}>
+          <div
+            className={[styles.activeMode, className].filter(Boolean).join(" ")}
+            aria-label={`${modeName} ${t(`loop.${sessionState}`)}`}
+            aria-live="polite"
+            data-state={sessionState}
+          >
+            {sessionState === "starting" && (
+              <LoaderCircle className={styles.spin} size={14} />
+            )}
+            {sessionState === "running" && <ModeIcon mode={activeMode} />}
+            {sessionState === "awaiting_user" && (
+              <MessageCircleQuestion size={14} />
+            )}
+            {!compact && (
+              <>
+                <span>{modeName}</span>
+                <span className={styles.activeState}>
+                  {t(`loop.${sessionState}`)}
+                </span>
+              </>
+            )}
+          </div>
+        </Tooltip>
+        {activeMode.id === ADVISOR_LOOP_MODE_ID && (
+          <AdvisorSetupPopover
+            compact={compact}
+            open={advisorSetupOpen}
+            onOpenChange={setAdvisorSetupOpen}
+          />
+        )}
+      </>
     );
   }
 
@@ -123,6 +139,9 @@ export function LoopModeSelector({
               onClick={() => {
                 setSelectedMode(mode.id);
                 setOpen(false);
+                if (mode.id === ADVISOR_LOOP_MODE_ID) {
+                  setAdvisorSetupOpen(true);
+                }
               }}
               role="option"
               type="button"
@@ -229,10 +248,20 @@ export function LoopModeSelector({
     </button>
   );
 
+  const advisorSetup =
+    selectedMode.id === ADVISOR_LOOP_MODE_ID ? (
+      <AdvisorSetupPopover
+        compact={compact}
+        open={advisorSetupOpen}
+        onOpenChange={setAdvisorSetupOpen}
+      />
+    ) : null;
+
   if (isMobile) {
     return (
       <>
         {triggerButton}
+        {advisorSetup}
         <OsDrawer
           aria-label={t("loop.selectorTitle")}
           open={open}
@@ -258,16 +287,19 @@ export function LoopModeSelector({
   }
 
   return (
-    <Popover
-      arrow={false}
-      content={content}
-      onOpenChange={setOpen}
-      open={open}
-      overlayClassName={styles.modePopover}
-      placement="topLeft"
-      trigger="click"
-    >
-      {triggerButton}
-    </Popover>
+    <>
+      <Popover
+        arrow={false}
+        content={content}
+        onOpenChange={setOpen}
+        open={open}
+        overlayClassName={styles.modePopover}
+        placement="topLeft"
+        trigger="click"
+      >
+        {triggerButton}
+      </Popover>
+      {advisorSetup}
+    </>
   );
 }
