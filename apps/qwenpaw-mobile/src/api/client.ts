@@ -16,6 +16,8 @@ import {
   type QwenPawAuthStatus,
 } from "./qwenPawAuthModel";
 import { availableAgents } from "./compatibility";
+import { relayBytesRequest, relayJsonRequest } from "./relayApi";
+import { mapHttpRequestToRelay } from "./relayRequestModel";
 import type {
   ActiveModelInfo,
   AgentSummary,
@@ -41,6 +43,10 @@ export class QwenPawClient {
   ) {}
 
   async verify(): Promise<void> {
+    if (this.connection.source === "relay") {
+      requireRelayNodeId(this.connection);
+      return;
+    }
     if (!this.connection.token) {
       const status = await qwenPawAuthStatus(
         this.connection.baseUrl,
@@ -396,6 +402,36 @@ export class QwenPawClient {
     signal: AbortSignal;
     onDelta: (delta: StreamDelta) => void;
   }): Promise<void> {
+    if (this.connection.source === "relay") {
+      const bytes = await relayBytesRequest(
+        requireRelayNodeId(this.connection),
+        "message.send",
+        {
+          agent_id: this.connection.agentId || "default",
+          input: [
+            {
+              role: "user",
+              content: [
+                ...(options.text ? [{ type: "text", text: options.text }] : []),
+                ...(options.attachments ?? []),
+              ],
+            },
+          ],
+          session_id: options.sessionId,
+          user_id: "mobile",
+          channel: "console",
+          stream: true,
+          ...(options.modelSlotOverride
+            ? { model_slot_override: options.modelSlotOverride }
+            : {}),
+          ...(options.approvalLevel
+            ? { request_context: { approval_level: options.approvalLevel } }
+            : {}),
+        },
+      );
+      consumeChatBytes(bytes, options.onDelta);
+      return;
+    }
     const request = () =>
       expoFetch(this.url("/console/chat"), {
         method: "POST",
@@ -442,6 +478,21 @@ export class QwenPawClient {
     signal: AbortSignal;
     onDelta: (delta: StreamDelta) => void;
   }): Promise<void> {
+    if (this.connection.source === "relay") {
+      const bytes = await relayBytesRequest(
+        requireRelayNodeId(this.connection),
+        "message.send",
+        {
+          agent_id: this.connection.agentId || "default",
+          reconnect: true,
+          session_id: options.sessionId,
+          user_id: "mobile",
+          channel: "console",
+        },
+      );
+      consumeChatBytes(bytes, options.onDelta);
+      return;
+    }
     const request = () =>
       expoFetch(this.url("/console/chat"), {
         method: "POST",
@@ -472,6 +523,22 @@ export class QwenPawClient {
     path: string,
     init: RequestInit = {},
   ): Promise<T> {
+    if (this.connection.source === "relay") {
+      const mapping = mapHttpRequestToRelay(
+        path,
+        init.method ?? "GET",
+        init.body,
+        this.connection.agentId || "default",
+      );
+      if (!mapping) {
+        throw new Error("此功能尚未开放 Platform 安全中转");
+      }
+      return relayJsonRequest<T>(
+        requireRelayNodeId(this.connection),
+        mapping.operation,
+        mapping.payload,
+      );
+    }
     const headers = this.headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
@@ -507,6 +574,13 @@ export class QwenPawClient {
   private url(path: string): string {
     return `${this.connection.baseUrl}/api${path}`;
   }
+}
+
+function requireRelayNodeId(connection: Connection): string {
+  if (!connection.relayNodeId) {
+    throw new Error("安全中转连接缺少 QwenPaw 节点身份");
+  }
+  return connection.relayNodeId;
 }
 
 export async function loginQwenPaw(
@@ -665,6 +739,24 @@ async function consumeChatStream(
     }
   }
   for (const event of parser.finish()) {
+    const failure = streamError(event);
+    if (failure) throw new Error(failure);
+    const delta = classifier.consume(event);
+    if (delta) onDelta(delta);
+  }
+}
+
+function consumeChatBytes(
+  value: Uint8Array,
+  onDelta: (delta: StreamDelta) => void,
+): void {
+  const parser = new SseParser();
+  const classifier = new StreamEventClassifier();
+  const events = [
+    ...parser.push(new TextDecoder().decode(value)),
+    ...parser.finish(),
+  ];
+  for (const event of events) {
     const failure = streamError(event);
     if (failure) throw new Error(failure);
     const delta = classifier.consume(event);

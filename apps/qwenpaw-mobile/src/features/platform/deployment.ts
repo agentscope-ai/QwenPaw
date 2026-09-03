@@ -63,3 +63,16 @@ export async function restartPlatformDeployment(appId: string): Promise<void> {
     body: JSON.stringify({ appId }),
   });
 }
+
+export async function switchPlatformDeploymentVersion(
+  appId: string,
+  version: "preview" | "stable",
+): Promise<void> {
+  await platformRequest(
+    `/api/v1/app/${version === "stable" ? "stable" : "pre"}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ appId }),
+    },
+  );
+}

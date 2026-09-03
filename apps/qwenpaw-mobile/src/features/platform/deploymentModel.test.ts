@@ -8,6 +8,7 @@ import {
   parsePlatformDeployment,
   parsePlatformDeploymentLogs,
   parsePlatformDeployments,
+  platformMobileCompatibility,
   platformDeploymentErrorMessage,
 } from "./deploymentModel";
 
@@ -25,11 +26,14 @@ test("parses empty and populated Platform deployment lists", () => {
 
 test("normalizes Platform deployment status and access URL", () => {
   assert.deepEqual(
-    parsePlatformDeployment({
-      status: "RUNNING",
-      access_url: "https://paw.example.com/",
-      version_type: "stable",
-    }, "paw-1"),
+    parsePlatformDeployment(
+      {
+        status: "RUNNING",
+        access_url: "https://paw.example.com/",
+        version_type: "stable",
+      },
+      "paw-1",
+    ),
     {
       appId: "paw-1",
       status: "running",
@@ -44,10 +48,12 @@ test("normalizes Platform deployment status and access URL", () => {
 });
 
 test("parses text and structured deployment logs", () => {
-  assert.deepEqual(parsePlatformDeploymentLogs({ logs: [
-    "Mounting files",
-    { source: "qwenpaw", message: "Service ready" },
-  ] }), ["Mounting files", "[QWENPAW] Service ready"]);
+  assert.deepEqual(
+    parsePlatformDeploymentLogs({
+      logs: ["Mounting files", { source: "qwenpaw", message: "Service ready" }],
+    }),
+    ["Mounting files", "[QWENPAW] Service ready"],
+  );
 });
 
 test("maps deployment status to native progress presentation", () => {
@@ -61,6 +67,7 @@ test("maps deployment status to native progress presentation", () => {
   });
   assert.equal(deploymentStatusPresentation("running").label, "QwenPaw 已就绪");
   assert.equal(deploymentStatusPresentation("restarting").active, true);
+  assert.equal(deploymentStatusPresentation("updating").active, true);
   assert.equal(deploymentStatusPresentation("failed").failed, true);
 });
 
@@ -73,27 +80,45 @@ test("provides actionable Platform deployment errors", () => {
     /部署资格/,
   );
   assert.match(
-    platformDeploymentErrorMessage(new Error(
-      "Error while extracting response for application/octet-stream",
-    )),
+    platformDeploymentErrorMessage(
+      new Error("Error while extracting response for application/octet-stream"),
+    ),
     /不会重复部署/,
   );
 });
 
 test("preserves Platform deployment progress and failure details", () => {
-  assert.deepEqual(parsePlatformDeployment({
-    appId: "paw-failed",
-    status: "FAILED",
-    progress: 100,
-    message: "唤醒失败",
-    errorMessage: "wake up failed",
-  }, "fallback"), {
-    appId: "paw-failed",
-    status: "failed",
-    accessUrl: "",
-    errorMessage: "wake up failed",
-    message: "唤醒失败",
-    progress: 100,
-    versionType: undefined,
+  assert.deepEqual(
+    parsePlatformDeployment(
+      {
+        appId: "paw-failed",
+        status: "FAILED",
+        progress: 100,
+        message: "唤醒失败",
+        errorMessage: "wake up failed",
+      },
+      "fallback",
+    ),
+    {
+      appId: "paw-failed",
+      status: "failed",
+      accessUrl: "",
+      errorMessage: "wake up failed",
+      message: "唤醒失败",
+      progress: 100,
+      versionType: undefined,
+    },
+  );
+});
+
+test("allows standard QwenPaw images and blocks incompatible variants", () => {
+  assert.equal(platformMobileCompatibility("stable").compatible, true);
+  assert.equal(platformMobileCompatibility("preview").compatible, true);
+  assert.equal(platformMobileCompatibility(undefined).compatible, true);
+  assert.deepEqual(platformMobileCompatibility("qwenpaw-data"), {
+    compatible: false,
+    label: "QwenPaw Data",
+    versionType: "qwenpaw-data",
   });
+  assert.equal(platformMobileCompatibility("custom-image").compatible, false);
 });

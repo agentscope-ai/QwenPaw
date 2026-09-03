@@ -37,6 +37,7 @@ import {
   platformRefreshRequest,
   type PlatformRefreshMode,
 } from "./platformSessionModel";
+import { PlatformTokenCoordinator } from "./platformTokenCoordinator";
 import { colors } from "../theme/tokens";
 
 export const PLATFORM_BASE_URL = "https://platform.agentscope.io";
@@ -59,7 +60,11 @@ interface JsonObject {
   [key: string]: unknown;
 }
 
-let refreshPromise: Promise<PlatformSession | null> | null = null;
+const tokenCoordinator = new PlatformTokenCoordinator<PlatformSession>({
+  earlyRefreshSeconds: REFRESH_EARLY_SECONDS,
+  load: loadPlatformSession,
+  refresh: refreshPlatformSession,
+});
 
 export async function loginAgentScopePlatform(
   account: string,
@@ -138,15 +143,18 @@ async function openAndroidAuthSession(
   authorizeUrl: string,
   redirectUri: string,
 ): Promise<string | null> {
-  if (shouldUseEmbeddedAndroidOAuth({
-    brand: Device.brand,
-    manufacturer: Device.manufacturer,
-    sdkVersion: Number(Platform.Version),
-  })) {
+  if (
+    shouldUseEmbeddedAndroidOAuth({
+      brand: Device.brand,
+      manufacturer: Device.manufacturer,
+      sdkVersion: Number(Platform.Version),
+    })
+  ) {
     return openEmbeddedPlatformOAuthSession(authorizeUrl, redirectUri);
   }
-  const support = await WebBrowser.getCustomTabsSupportingBrowsersAsync()
-    .catch(() => null);
+  const support = await WebBrowser.getCustomTabsSupportingBrowsersAsync().catch(
+    () => null,
+  );
   if (!support) {
     return openEmbeddedPlatformOAuthSession(authorizeUrl, redirectUri);
   }
@@ -214,18 +222,7 @@ export async function registerAgentScopePlatform(
 }
 
 export async function getPlatformAccessToken(): Promise<string | null> {
-  const session = await loadPlatformSession();
-  if (!session) return null;
-  const now = Math.floor(Date.now() / 1000);
-  if (session.expiresAt > now + REFRESH_EARLY_SECONDS) {
-    return session.accessToken;
-  }
-  if (!refreshPromise) {
-    refreshPromise = refreshPlatformSession(session).finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return (await refreshPromise)?.accessToken ?? null;
+  return tokenCoordinator.accessToken();
 }
 
 export async function platformRequest<T>(
@@ -238,13 +235,33 @@ export async function platformRequest<T>(
   if (!response.ok) {
     const error = await platformResponseError(response);
     if (!isInvalidPlatformSessionError(error)) throw error;
-    const refreshed = await forceRefreshPlatformSession();
+    const refreshed = await refreshPlatformSessionAfterUnauthorized(token);
     if (!refreshed) throw error;
     token = refreshed.accessToken;
     response = await platformFetch(path, init, token);
     if (!response.ok) throw await platformResponseError(response);
   }
   if (response.status === 204) return undefined as T;
+  const payload = (await response.json()) as { data: T };
+  return payload.data;
+}
+
+export async function platformProofRequest<T>(
+  path: string,
+  buildInit: (accessToken: string) => RequestInit,
+): Promise<T> {
+  let token = await getPlatformAccessToken();
+  if (!token) throw new Error("请先登录 AgentScope Platform");
+  let response = await platformFetch(path, buildInit(token), token);
+  if (!response.ok) {
+    const error = await platformResponseError(response);
+    if (!isInvalidPlatformSessionError(error)) throw error;
+    const refreshed = await refreshPlatformSessionAfterUnauthorized(token);
+    if (!refreshed) throw error;
+    token = refreshed.accessToken;
+    response = await platformFetch(path, buildInit(token), token);
+    if (!response.ok) throw await platformResponseError(response);
+  }
   const payload = (await response.json()) as { data: T };
   return payload.data;
 }
@@ -265,15 +282,10 @@ async function refreshPlatformSession(
   }
 }
 
-async function forceRefreshPlatformSession(): Promise<PlatformSession | null> {
-  const session = await loadPlatformSession();
-  if (!session) return null;
-  if (!refreshPromise) {
-    refreshPromise = refreshPlatformSession(session).finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return refreshPromise;
+async function refreshPlatformSessionAfterUnauthorized(
+  failedAccessToken: string,
+): Promise<PlatformSession | null> {
+  return tokenCoordinator.afterUnauthorized(failedAccessToken);
 }
 
 async function requestPlatformSessionRefresh(

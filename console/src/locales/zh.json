@@ -37,6 +37,31 @@
     "yes": "是",
     "no": "否"
   },
+  "mobilePairing": {
+    "menu": "配对手机",
+    "title": "配对 QwenPaw Mobile",
+    "subtitle": "为这只 QwenPaw 选择当前最合适的连接方式。",
+    "direct": "局域网",
+    "relay": "安全中转",
+    "qrAlt": "QwenPaw Mobile 一次性配对二维码",
+    "newCode": "生成新二维码",
+    "enableRelay": "启用安全中转",
+    "enableRelayHint": "只需使用 Platform 账号授权这只 QwenPaw 一次，后续由 App 自动续期。",
+    "authorize": "前往 Platform 授权",
+    "waitingApproval": "等待 Platform 确认",
+    "userCode": "请在 Platform 核对此短码",
+    "openPlatform": "打开 Platform",
+    "expires": "{{seconds}} 秒后过期",
+    "directHint": "手机在同一局域网内直接连接，不需要 Platform 账号。",
+    "relayHint": "无需开放公网端口，QwenPaw 与手机均主动连接 AgentScope Platform。",
+    "errors": {
+      "request": "请求未能完成。",
+      "direct": "无法生成局域网配对二维码。",
+      "relay": "无法生成安全中转配对二维码。",
+      "status": "无法读取安全中转状态。",
+      "authorize": "无法发起 Platform 授权。"
+    }
+  },
   "desktop": {
     "closeWindow": {
       "title": "关闭窗口",

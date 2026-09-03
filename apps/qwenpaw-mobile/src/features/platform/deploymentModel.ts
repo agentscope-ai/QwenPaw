@@ -21,6 +21,12 @@ export interface DeploymentStatusPresentation {
   failed: boolean;
 }
 
+export interface PlatformMobileCompatibility {
+  compatible: boolean;
+  label: string;
+  versionType?: string;
+}
+
 interface JsonObject {
   [key: string]: unknown;
 }
@@ -49,8 +55,10 @@ export function parsePlatformDeployment(
   return {
     appId: String(value.appId ?? value.id ?? fallbackAppId),
     status: String(value.status ?? "pending").toLowerCase(),
-    accessUrl: String(value.accessUrl ?? value.access_url ?? "")
-      .replace(/\/$/, ""),
+    accessUrl: String(value.accessUrl ?? value.access_url ?? "").replace(
+      /\/$/,
+      "",
+    ),
     errorMessage: stringValue(value.errorMessage ?? value.error_message),
     message: stringValue(value.message),
     progress: numberValue(value.progress),
@@ -107,6 +115,12 @@ export function deploymentStatusPresentation(
         "正在恢复这只 QwenPaw，工作数据会保留。",
         true,
       );
+    case "updating":
+      return statusValue(
+        "正在切换版本",
+        "Platform 正在替换 QwenPaw 运行镜像。",
+        true,
+      );
     case "waking_up":
     case "sleeping":
       return statusValue("正在唤醒", "正在恢复你的云端 QwenPaw。", true);
@@ -122,16 +136,58 @@ export function deploymentStatusPresentation(
         true,
       );
     case "deleted":
-      return statusValue("部署已移除", "可以重新创建你的 QwenPaw。", false, true);
+      return statusValue(
+        "部署已移除",
+        "可以重新创建你的 QwenPaw。",
+        false,
+        true,
+      );
     default:
       return statusValue("正在准备", "正在读取 Platform 部署状态。", true);
   }
 }
 
+export function platformMobileCompatibility(
+  versionType?: string,
+): PlatformMobileCompatibility {
+  const normalized = versionType?.trim().toLowerCase();
+  if (!normalized) {
+    return { compatible: true, label: "QwenPaw" };
+  }
+  if (normalized === "stable") {
+    return {
+      compatible: true,
+      label: "QwenPaw 稳定版",
+      versionType: normalized,
+    };
+  }
+  if (["beta", "pre", "preview"].includes(normalized)) {
+    return {
+      compatible: true,
+      label: "QwenPaw Beta",
+      versionType: normalized,
+    };
+  }
+  if (["data", "qwenpaw-data", "qwenpaw_data"].includes(normalized)) {
+    return {
+      compatible: false,
+      label: "QwenPaw Data",
+      versionType: normalized,
+    };
+  }
+  return {
+    compatible: false,
+    label: versionType?.trim() || "未知镜像",
+    versionType: normalized,
+  };
+}
+
 export function isGitHubBindingError(error: unknown): boolean {
   const message = errorText(error).toLowerCase();
-  return message.includes("asp.auth.github_bind_required") ||
-    (message.includes("github") && message.includes("bind"));
+  return (
+    message.includes("asp.auth.github_bind_required") ||
+    (message.includes("github") && message.includes("bind"))
+  );
 }
 
 export function platformDeploymentErrorMessage(error: unknown): string {
@@ -149,12 +205,16 @@ export function platformDeploymentErrorMessage(error: unknown): string {
   if (normalized.includes("violation")) {
     return "当前 Platform 账号的部署权限受限，请前往 Platform 查看或提交申诉。";
   }
-  if (normalized.includes("application_pending") ||
-      normalized.includes("appeal_pending")) {
+  if (
+    normalized.includes("application_pending") ||
+    normalized.includes("appeal_pending")
+  ) {
     return "Platform 正在审核你的申请，审核完成后可直接在这里继续部署。";
   }
-  if (normalized.includes("extracting response") ||
-      normalized.includes("application/octet-stream")) {
+  if (
+    normalized.includes("extracting response") ||
+    normalized.includes("application/octet-stream")
+  ) {
     return "Platform 暂时未能打开这只 QwenPaw。登录态已保留，App 不会重复部署；可稍后重新检查。";
   }
   return message || "Platform 部署请求失败，请稍后重试。";
@@ -181,7 +241,7 @@ function unwrapPayload(payload: unknown): unknown {
 
 function objectValue(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as JsonObject
+    ? (value as JsonObject)
     : null;
 }
 

@@ -227,7 +227,7 @@ export default function Header() {
     {
       key: "pair-mobile",
       icon: <Smartphone size={16} />,
-      label: "Pair mobile",
+      label: t("mobilePairing.menu"),
       onClick: () => setPairingOpen(true),
     },
     { type: "divider" },
@@ -469,7 +469,7 @@ export default function Header() {
             onClick={() => setPairingOpen(true)}
             className={styles.hideOnMobile}
           >
-            Pair mobile
+            {t("mobilePairing.menu")}
           </Button>
           <div className={styles.headerDivider} />
           <span className={styles.hideOnMobile}>

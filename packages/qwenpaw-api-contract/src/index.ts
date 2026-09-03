@@ -1,4 +1,17 @@
 export type ChatStatus = "idle" | "running";
+
+export {
+  RELAY_PROTOCOL_VERSION,
+  assertRelayHeader,
+  decodeRelayFrame,
+  encodeRelayFrame,
+  isRelayOperation,
+  RELAY_OPERATIONS,
+  type RelayFrame,
+  type RelayFrameHeader,
+  type RelayFrameType,
+  type RelayOperation,
+} from "./relay";
 export type ChatSource = "chat" | "cron" | "subagent";
 export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
 

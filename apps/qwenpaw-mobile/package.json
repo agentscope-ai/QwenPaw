@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@noble/ed25519": "^3.2.0",
+    "@noble/hashes": "^2.4.0",
     "@qwenpaw/api-contract": "file:../../packages/qwenpaw-api-contract",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.15",

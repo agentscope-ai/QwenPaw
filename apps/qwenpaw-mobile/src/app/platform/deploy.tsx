@@ -9,6 +9,7 @@ import {
   KeyRound,
   RefreshCw,
   Rocket,
+  ShieldAlert,
   TerminalSquare,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,10 +43,12 @@ import {
   resetPlatformQwenPawAuth,
   restartPlatformDeployment,
   startPlatformDeployment,
+  switchPlatformDeploymentVersion,
 } from "../../features/platform/deployment";
 import {
   deploymentStatusPresentation,
   isGitHubBindingError,
+  platformMobileCompatibility,
   platformDeploymentErrorMessage,
   type PlatformDeployment,
 } from "../../features/platform/deploymentModel";
@@ -75,6 +78,9 @@ export default function PlatformDeployScreen() {
   const [connecting, setConnecting] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [resettingAuth, setResettingAuth] = useState(false);
+  const [switchingVersion, setSwitchingVersion] = useState<
+    "preview" | "stable" | null
+  >(null);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [pollRevision, setPollRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +91,10 @@ export default function PlatformDeployScreen() {
   const pairingRef = useRef("");
   const refreshInFlightRef = useRef<Promise<DeploymentRefreshResult> | null>(
     null,
+  );
+  const compatibility = useMemo(
+    () => platformMobileCompatibility(deployment?.versionType),
+    [deployment?.versionType],
   );
 
   const showError = useCallback((caught: unknown) => {
@@ -138,81 +148,81 @@ export default function PlatformDeployScreen() {
     }
   }, [showError]);
 
-  const refreshDeployment = useCallback((
-    id: string,
-    includeLogs = false,
-  ): Promise<DeploymentRefreshResult> => {
-    if (refreshInFlightRef.current) return refreshInFlightRef.current;
-    const request = (async (): Promise<DeploymentRefreshResult> => {
-      try {
-        const next = await getPlatformDeployment(id);
-        setDeployment(next);
-        if (includeLogs && !isTerminalDeployment(next)) {
-          try {
-            const nextLogs = await getPlatformDeploymentLogs(id);
-            if (nextLogs.length) setLogs(nextLogs);
-          } catch (caught) {
-            if (isPlatformRateLimitError(caught)) throw caught;
+  const refreshDeployment = useCallback(
+    (id: string, includeLogs = false): Promise<DeploymentRefreshResult> => {
+      if (refreshInFlightRef.current) return refreshInFlightRef.current;
+      const request = (async (): Promise<DeploymentRefreshResult> => {
+        try {
+          const next = await getPlatformDeployment(id);
+          setDeployment(next);
+          if (includeLogs && !isTerminalDeployment(next)) {
+            try {
+              const nextLogs = await getPlatformDeploymentLogs(id);
+              if (nextLogs.length) setLogs(nextLogs);
+            } catch (caught) {
+              if (isPlatformRateLimitError(caught)) throw caught;
+            }
           }
+          setError(null);
+          setRateLimited(false);
+          setNeedsPlatformSettings(false);
+          return { deployment: next, error: null };
+        } catch (caught) {
+          showError(caught);
+          return { deployment: null, error: caught };
+        } finally {
+          refreshInFlightRef.current = null;
         }
-        setError(null);
-        setRateLimited(false);
-        setNeedsPlatformSettings(false);
-        return { deployment: next, error: null };
-      } catch (caught) {
-        showError(caught);
-        return { deployment: null, error: caught };
-      } finally {
-        refreshInFlightRef.current = null;
-      }
-    })();
-    refreshInFlightRef.current = request;
-    return request;
-  }, [showError]);
+      })();
+      refreshInFlightRef.current = request;
+      return request;
+    },
+    [showError],
+  );
 
-  const pairDeployment = useCallback(async (
-    accessUrl: string,
-  ) => {
-    const attemptKey = accessUrl.trim();
-    pairingRef.current = attemptKey;
-    setConnecting(true);
-    setConnectionError(null);
-    try {
-      const access = await resolvePlatformQwenPawAccess(accessUrl);
-      const savedConnection = findConnectionByBaseUrl(
-        connections,
-        "platform",
-        access.baseUrl,
-      );
-      const connection = savedConnection
-        ? { ...savedConnection, platformAccessPath: access.accessPath }
-        : await loginQwenPaw(
-          access.baseUrl,
-          "",
-          "",
+  const pairDeployment = useCallback(
+    async (accessUrl: string) => {
+      const attemptKey = accessUrl.trim();
+      pairingRef.current = attemptKey;
+      setConnecting(true);
+      setConnectionError(null);
+      try {
+        const access = await resolvePlatformQwenPawAccess(accessUrl);
+        const savedConnection = findConnectionByBaseUrl(
+          connections,
           "platform",
-          access.accessPath,
+          access.baseUrl,
         );
-      await connect(connection);
-      router.replace("/chats");
-    } catch (caught) {
-      pairingRef.current = "";
-      if (isPlatformRateLimitError(caught)) {
-        setRateLimited(true);
-        setConnectionError(null);
-      } else if (caught instanceof QwenPawCredentialsRequiredError) {
-        setNeedsAuth(true);
-        setConnectionError(null);
-      } else {
-        setConnectionError(errorMessage(
-          caught,
-          "QwenPaw 配对失败，请重试。",
-        ));
+        const connection = savedConnection
+          ? { ...savedConnection, platformAccessPath: access.accessPath }
+          : await loginQwenPaw(
+              access.baseUrl,
+              "",
+              "",
+              "platform",
+              access.accessPath,
+            );
+        await connect(connection);
+        router.replace("/chats");
+      } catch (caught) {
+        pairingRef.current = "";
+        if (isPlatformRateLimitError(caught)) {
+          setRateLimited(true);
+          setConnectionError(null);
+        } else if (caught instanceof QwenPawCredentialsRequiredError) {
+          setNeedsAuth(true);
+          setConnectionError(null);
+        } else {
+          setConnectionError(
+            errorMessage(caught, "QwenPaw 配对失败，请重试。"),
+          );
+        }
+      } finally {
+        setConnecting(false);
       }
-    } finally {
-      setConnecting(false);
-    }
-  }, [connect, connections]);
+    },
+    [connect, connections],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -246,10 +256,7 @@ export default function PlatformDeployScreen() {
       );
       if (cancelled) return;
       if (result.error) {
-        const retryDelay = platformRateLimitDelay(
-          result.error,
-          failureCount,
-        );
+        const retryDelay = platformRateLimitDelay(result.error, failureCount);
         if (retryDelay !== null) {
           failureCount += 1;
           timer = setTimeout(() => void poll(), retryDelay);
@@ -279,9 +286,11 @@ export default function PlatformDeployScreen() {
     if (actionRef.current === actionKey) return;
     actionRef.current = actionKey;
     void startPlatformDeployment(id)
-      .then(() => setDeployment((current) => current?.appId === id
-        ? { ...current, status: "waking_up" }
-        : current))
+      .then(() =>
+        setDeployment((current) =>
+          current?.appId === id ? { ...current, status: "waking_up" } : current,
+        ),
+      )
       .catch((caught) => {
         actionRef.current = "";
         showError(caught);
@@ -294,10 +303,12 @@ export default function PlatformDeployScreen() {
       deployment?.status !== "running" ||
       !accessUrl ||
       needsAuth ||
+      !compatibility.compatible ||
       pairingRef.current === accessUrl.trim()
-    ) return;
+    )
+      return;
     void pairDeployment(accessUrl);
-  }, [deployment, needsAuth, pairDeployment]);
+  }, [compatibility.compatible, deployment, needsAuth, pairDeployment]);
 
   const continueWithPlatform = () => {
     if (!appId) return;
@@ -323,15 +334,14 @@ export default function PlatformDeployScreen() {
       pairingRef.current = "";
       actionRef.current = "";
       setNeedsAuth(false);
-      setDeployment((current) => current?.appId === id
-        ? { ...current, status: "starting" }
-        : current);
+      setDeployment((current) =>
+        current?.appId === id ? { ...current, status: "starting" } : current,
+      );
       setPollRevision((current) => current + 1);
     } catch (caught) {
-      setConnectionError(errorMessage(
-        caught,
-        "无法更新 QwenPaw 登录方式，请稍后重试。",
-      ));
+      setConnectionError(
+        errorMessage(caught, "无法更新 QwenPaw 登录方式，请稍后重试。"),
+      );
     } finally {
       setResettingAuth(false);
     }
@@ -385,22 +395,72 @@ export default function PlatformDeployScreen() {
       await restartPlatformDeployment(id);
       actionRef.current = "";
       pairingRef.current = "";
-      setDeployment((current) => current?.appId === id
-        ? {
-          ...current,
-          status: "restarting",
-          message: "正在重新启动 QwenPaw",
-          errorMessage: undefined,
-        }
-        : current);
+      setDeployment((current) =>
+        current?.appId === id
+          ? {
+              ...current,
+              status: "restarting",
+              message: "正在重新启动 QwenPaw",
+              errorMessage: undefined,
+            }
+          : current,
+      );
       setPollRevision((current) => current + 1);
     } catch (caught) {
-      setConnectionError(errorMessage(
-        caught,
-        "无法重新启动 QwenPaw，请稍后重试。",
-      ));
+      setConnectionError(
+        errorMessage(caught, "无法重新启动 QwenPaw，请稍后重试。"),
+      );
     } finally {
       setRecovering(false);
+    }
+  };
+
+  const confirmVersionSwitch = (version: "preview" | "stable") => {
+    if (!appId || switchingVersion) return;
+    const label = version === "stable" ? "稳定版" : "Beta";
+    MobileAlert.alert(
+      `切换到 QwenPaw ${label}？`,
+      "Platform 会替换当前运行镜像，服务将短暂中断。不同版本可能使用独立数据目录。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: `切换到${label}`,
+          onPress: () => void switchDeploymentVersion(appId, version),
+        },
+      ],
+    );
+  };
+
+  const switchDeploymentVersion = async (
+    id: string,
+    version: "preview" | "stable",
+  ) => {
+    setSwitchingVersion(version);
+    setError(null);
+    setConnectionError(null);
+    try {
+      await switchPlatformDeploymentVersion(id, version);
+      pairingRef.current = "";
+      setDeployment((current) =>
+        current?.appId === id
+          ? {
+              ...current,
+              status: "updating",
+              message:
+                version === "stable"
+                  ? "正在切换到 QwenPaw 稳定版"
+                  : "正在切换到 QwenPaw Beta",
+              errorMessage: undefined,
+            }
+          : current,
+      );
+      setPollRevision((current) => current + 1);
+    } catch (caught) {
+      setConnectionError(
+        errorMessage(caught, "无法切换 QwenPaw 版本，请稍后重试。"),
+      );
+    } finally {
+      setSwitchingVersion(null);
     }
   };
 
@@ -409,8 +469,8 @@ export default function PlatformDeployScreen() {
       rateLimited
         ? "rate_limited"
         : creating
-          ? "creating"
-          : deployment?.status ?? "idle",
+        ? "creating"
+        : deployment?.status ?? "idle",
     );
     return deployment?.message && !deployment.errorMessage
       ? { ...presentation, detail: deployment.message }
@@ -418,10 +478,10 @@ export default function PlatformDeployScreen() {
   }, [creating, deployment, rateLimited]);
   const hasDeployment = Boolean(appId);
   const progress = deploymentProgress(deployment?.status, hasDeployment);
-  const deploymentFailure = deployment?.status === "failed" &&
-      deployment.errorMessage
-    ? platformDeploymentErrorMessage(new Error(deployment.errorMessage))
-    : null;
+  const deploymentFailure =
+    deployment?.status === "failed" && deployment.errorMessage
+      ? platformDeploymentErrorMessage(new Error(deployment.errorMessage))
+      : null;
 
   const switchPlatformAccount = async () => {
     await logoutPlatform();
@@ -493,12 +553,45 @@ export default function PlatformDeployScreen() {
               </View>
               <View style={styles.steps}>
                 <ProgressStep index={1} label="创建实例" progress={progress} />
-                <View style={[styles.stepLine, progress > 1 && styles.stepLineDone]} />
+                <View
+                  style={[styles.stepLine, progress > 1 && styles.stepLineDone]}
+                />
                 <ProgressStep index={2} label="启动服务" progress={progress} />
-                <View style={[styles.stepLine, progress > 2 && styles.stepLineDone]} />
+                <View
+                  style={[styles.stepLine, progress > 2 && styles.stepLineDone]}
+                />
                 <ProgressStep index={3} label="安全配对" progress={progress} />
               </View>
             </View>
+
+            {deployment?.status === "running" && !compatibility.compatible ? (
+              <View style={styles.authCard}>
+                <View style={styles.authIcon}>
+                  <ShieldAlert color={colors.accentDark} size={21} />
+                </View>
+                <Text style={styles.authTitle}>当前镜像暂不支持 Mobile</Text>
+                <Text style={styles.authCopy}>
+                  已检测到 {compatibility.label}。QwenPaw Mobile 目前支持
+                  稳定版和 Beta，切换后会自动继续配对。
+                </Text>
+                <PrimaryButton
+                  label="切换到稳定版（推荐）"
+                  loading={switchingVersion === "stable"}
+                  disabled={switchingVersion === "preview"}
+                  onPress={() => confirmVersionSwitch("stable")}
+                />
+                <PrimaryButton
+                  label="切换到 Beta"
+                  loading={switchingVersion === "preview"}
+                  disabled={switchingVersion === "stable"}
+                  onPress={() => confirmVersionSwitch("preview")}
+                  tone="light"
+                />
+                <Text style={styles.authFootnote}>
+                  版本切换由 Platform 执行；Mobile 只调用公开接口并追踪状态。
+                </Text>
+              </View>
+            ) : null}
 
             {needsAuth && deployment?.accessUrl ? (
               <View style={styles.authCard}>
@@ -530,11 +623,13 @@ export default function PlatformDeployScreen() {
                   <Text style={styles.liveText}>LIVE</Text>
                 </View>
                 <View style={styles.logBody}>
-                  {logs.length ? logs.slice(-40).map((line, index) => (
-                    <Text key={`${index}-${line}`} style={styles.logLine}>
-                      {line}
-                    </Text>
-                  )) : (
+                  {logs.length ? (
+                    logs.slice(-40).map((line, index) => (
+                      <Text key={`${index}-${line}`} style={styles.logLine}>
+                        {line}
+                      </Text>
+                    ))
+                  ) : (
                     <Text style={styles.logEmpty}>
                       {deployment?.message || "等待 Platform 返回部署日志…"}
                     </Text>
@@ -595,9 +690,9 @@ export default function PlatformDeployScreen() {
                 <PrimaryButton
                   icon={ExternalLink}
                   label="前往 Platform 绑定 GitHub"
-                  onPress={() => void WebBrowser.openBrowserAsync(
-                    PLATFORM_SETTINGS_URL,
-                  )}
+                  onPress={() =>
+                    void WebBrowser.openBrowserAsync(PLATFORM_SETTINGS_URL)
+                  }
                   tone="light"
                 />
               ) : null}
@@ -632,11 +727,13 @@ function ProgressStep({
   const active = progress === index;
   return (
     <View style={styles.step}>
-      <View style={[
-        styles.stepCircle,
-        done && styles.stepCircleDone,
-        active && styles.stepCircleActive,
-      ]}>
+      <View
+        style={[
+          styles.stepCircle,
+          done && styles.stepCircleDone,
+          active && styles.stepCircleActive,
+        ]}
+      >
         {done ? (
           <Check color={colors.white} size={13} strokeWidth={3} />
         ) : (
@@ -645,23 +742,31 @@ function ProgressStep({
           </Text>
         )}
       </View>
-      <Text style={[styles.stepLabel, (done || active) && styles.stepLabelActive]}>
+      <Text
+        style={[styles.stepLabel, (done || active) && styles.stepLabelActive]}
+      >
         {label}
       </Text>
     </View>
   );
 }
 
-function deploymentProgress(status: string | undefined, exists: boolean): number {
+function deploymentProgress(
+  status: string | undefined,
+  exists: boolean,
+): number {
   if (!exists) return 1;
   if (status === "running") return 3;
-  if ([
-    "restarting",
-    "starting",
-    "sleeping",
-    "waking_up",
-    "stopped",
-  ].includes(status ?? "")) {
+  if (
+    [
+      "restarting",
+      "starting",
+      "sleeping",
+      "updating",
+      "waking_up",
+      "stopped",
+    ].includes(status ?? "")
+  ) {
     return 2;
   }
   return 1;
@@ -701,7 +806,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  back: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  back: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: { color: colors.ink, fontSize: 17, fontWeight: "700" },
   headerSpacer: { width: 40 },
   hero: { gap: spacing.sm, paddingTop: spacing.lg, paddingBottom: spacing.lg },
@@ -739,7 +849,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: colors.surface,
   },
-  statusHeading: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  statusHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
   statusCopy: { flex: 1, gap: 5 },
   statusLabel: { color: colors.ink, fontSize: 19, fontWeight: "700" },
   statusDetail: { color: colors.muted, fontSize: 13, lineHeight: 19 },
@@ -755,8 +869,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.surface,
   },
-  stepCircleActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  stepCircleDone: { borderColor: colors.accent, backgroundColor: colors.accent },
+  stepCircleActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  stepCircleDone: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent,
+  },
   stepNumber: { color: colors.faint, fontSize: 12, fontWeight: "700" },
   stepNumberActive: { color: colors.accentDark },
   stepLabel: { color: colors.faint, fontSize: 11, fontWeight: "600" },
@@ -807,8 +927,18 @@ const styles = StyleSheet.create({
     borderBottomColor: "#413A35",
   },
   logTitle: { flex: 1, color: "#F8EEE7", fontSize: 13, fontWeight: "700" },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
-  liveText: { color: "#AFA39A", fontSize: 9, fontWeight: "700", letterSpacing: 1 },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  liveText: {
+    color: "#AFA39A",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
   logBody: { minHeight: 132, maxHeight: 260, gap: 7, padding: spacing.md },
   logLine: {
     color: "#D9CEC6",

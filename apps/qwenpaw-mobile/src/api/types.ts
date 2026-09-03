@@ -3,8 +3,10 @@ export interface Connection {
   token: string;
   username: string;
   agentId: string;
-  source?: "platform" | "private";
+  source?: "platform" | "private" | "relay";
   platformAccessPath?: string;
+  relayNodeId?: string;
+  qwenPawId?: string;
 }
 
 export interface AgentSummary {

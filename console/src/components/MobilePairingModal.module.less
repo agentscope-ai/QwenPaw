@@ -1,0 +1,112 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 10px 10px;
+  text-align: center;
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+}
+
+.icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 16px;
+  border-radius: 17px;
+  display: grid;
+  place-items: center;
+  color: var(--colorPrimary, #ff7f16);
+  background: var(--colorPrimaryBg, #fff2e8);
+}
+
+.title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: inherit;
+}
+
+.subtitle {
+  max-width: 340px;
+  margin: 10px auto 18px;
+  line-height: 1.5;
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+}
+
+.segmented {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.content {
+  width: 100%;
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  border: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.08));
+  border-radius: 20px;
+  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
+}
+
+.qr {
+  width: min(224px, 100%);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+}
+
+.authorization {
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+}
+
+.authorization > svg {
+  color: var(--colorPrimary, #ff7f16);
+}
+
+.authorization strong {
+  font-size: 17px;
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+}
+
+.userCode {
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  background: var(--colorBgContainer, #fff);
+}
+
+.expiry {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+}
+
+.privacy {
+  min-height: 40px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+}
+
+@media (max-width: 480px) {
+  .root {
+    padding-inline: 0;
+  }
+
+  .content {
+    min-height: 248px;
+    padding: 14px;
+  }
+}
