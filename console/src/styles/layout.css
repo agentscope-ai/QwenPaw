@@ -77,13 +77,13 @@ html.dark-mode .ant-card-body {
 /* Table components */
 html.dark-mode .qwenpaw-table,
 html.dark-mode .ant-table {
-  background: var(--app-surface) !important;
-  color: var(--app-text) !important;
+  background: var(--app-surface);
+  color: var(--app-text);
 }
 
 html.dark-mode .qwenpaw-table-wrapper,
 html.dark-mode .ant-table-wrapper {
-  background: var(--app-surface) !important;
+  background: var(--app-surface);
 }
 
 html.dark-mode .qwenpaw-table-thead > tr > th,
@@ -114,9 +114,9 @@ html.dark-mode
   .ant-table-thead
   > tr
   > td {
-  background: var(--app-surface-sunken) !important;
-  color: var(--app-text-secondary) !important;
-  border-bottom-color: var(--app-border-subtle) !important;
+  background: var(--app-surface-sunken);
+  color: var(--app-text-secondary);
+  border-bottom-color: var(--app-border-subtle);
 }
 
 /* Sticky thead background (scroll.y tables) */
@@ -137,14 +137,14 @@ html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-left,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
 html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right {
-  background: var(--app-surface-sunken) !important;
+  background: var(--app-surface-sunken);
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr > td,
 html.dark-mode .ant-table-tbody > tr > td {
-  background: var(--app-surface) !important;
-  color: var(--app-text) !important;
-  border-bottom-color: var(--app-border-subtle) !important;
+  background: var(--app-surface);
+  color: var(--app-text);
+  border-bottom-color: var(--app-border-subtle);
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr:hover > td,
@@ -160,7 +160,7 @@ html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
 /* Table fixed columns shadow in dark mode */
 html.dark-mode .qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-cell-fix-right {
-  background: var(--app-surface) !important;
+  background: var(--app-surface);
 }
 
 html.dark-mode .qwenpaw-table-cell-fix-right-first::after,
@@ -236,9 +236,9 @@ html.dark-mode h3 {
 /* Input / Textarea */
 html.dark-mode .qwenpaw-input,
 html.dark-mode .ant-input {
-  background: var(--app-surface-raised) !important;
-  border-color: var(--app-border-strong) !important;
-  color: var(--app-text) !important;
+  background: var(--app-surface-raised);
+  border-color: var(--app-border-strong);
+  color: var(--app-text);
 }
 
 /* Disabled input */
@@ -246,9 +246,9 @@ html.dark-mode .qwenpaw-input[disabled],
 html.dark-mode .ant-input[disabled],
 html.dark-mode .qwenpaw-input-disabled,
 html.dark-mode .ant-input-disabled {
-  background: var(--app-fill-faint) !important;
-  border-color: var(--app-border-subtle) !important;
-  color: var(--app-text-tertiary) !important;
+  background: var(--app-fill-faint);
+  border-color: var(--app-border-subtle);
+  color: var(--app-text-tertiary);
   cursor: not-allowed;
 }
 
@@ -527,21 +527,21 @@ html.dark-mode .ant-picker-panel + .ant-picker-panel {
 /* Modal */
 html.dark-mode .qwenpaw-modal-content,
 html.dark-mode .ant-modal-content {
-  background: var(--app-surface) !important;
-  color: var(--app-text) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-  border: 1px solid var(--app-border) !important;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--app-border);
 }
 
 html.dark-mode .qwenpaw-modal-header,
 html.dark-mode .ant-modal-header {
-  background: var(--app-surface) !important;
-  border-bottom-color: var(--app-border-subtle) !important;
+  background: var(--app-surface);
+  border-bottom-color: var(--app-border-subtle);
 }
 
 html.dark-mode .qwenpaw-modal-title,
 html.dark-mode .ant-modal-title {
-  color: var(--app-text) !important;
+  color: var(--app-text);
 }
 
 html.dark-mode .qwenpaw-modal-close,
@@ -557,14 +557,14 @@ html.dark-mode .ant-modal-close:hover {
 
 html.dark-mode .qwenpaw-modal-body,
 html.dark-mode .ant-modal-body {
-  background: var(--app-surface) !important;
-  color: var(--app-text) !important;
+  background: var(--app-surface);
+  color: var(--app-text);
 }
 
 html.dark-mode .qwenpaw-modal-footer,
 html.dark-mode .ant-modal-footer {
-  background: var(--app-surface) !important;
-  border-top-color: var(--app-border-subtle) !important;
+  background: var(--app-surface);
+  border-top-color: var(--app-border-subtle);
 }
 
 /* Modal.confirm — confirm dialog dark mode */
