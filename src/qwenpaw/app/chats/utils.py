@@ -145,7 +145,6 @@ def build_env_context(
     user_name: Optional[str] = None,
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
-    add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
@@ -160,7 +159,6 @@ def build_env_context(
             Only rendered when provided by the channel via channel_meta.
         channel: Current channel name
         working_dir: Working directory path
-        add_hint: Whether to add hint context
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
@@ -209,21 +207,6 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
-
-    if add_hint:
-        parts.append(
-            "- Important:\n"
-            "  1. Prefer using skills when completing tasks "
-            "(e.g. use the cron skill for scheduled tasks). "
-            "Consult the relevant skill documentation if unsure.\n"
-            "  2. When using write_file, if you want to avoid overwriting "
-            "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.\n"
-            "  3. Use tool calls to perform actions. A response without a "
-            "tool call indicates the task is complete. To continue a task, "
-            "you must generate a tool call or provide useful feedback if "
-            "you are blocked.\n",
-        )
 
     # Keep request-specific values after the reusable environment prefix.
     if channel is not None:

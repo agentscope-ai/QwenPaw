@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .prompt_manager import PromptManager, SyncPromptContributor
+from .protected_prompt import PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 if TYPE_CHECKING:
     from .hooks import HookContext
@@ -129,6 +130,16 @@ def _process_memory_section(
 # ---------------------------------------------------------------------------
 # Contributors
 # ---------------------------------------------------------------------------
+
+
+class ProtectedExecutionContractContributor(SyncPromptContributor):
+    """Inject the protected execution and authorization contract."""
+
+    name = "protected_execution_contract"
+    priority = 5
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        return PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 
 class AgentIdentityContributor(SyncPromptContributor):
@@ -458,6 +469,7 @@ class DriverPolicyHintContributor(SyncPromptContributor):
 # ---------------------------------------------------------------------------
 
 _ALL_CONTRIBUTORS = (
+    ProtectedExecutionContractContributor,
     AgentIdentityContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
@@ -478,6 +490,7 @@ def build_default_prompt_manager() -> PromptManager:
 
 
 __all__ = [
+    "ProtectedExecutionContractContributor",
     "AgentIdentityContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
