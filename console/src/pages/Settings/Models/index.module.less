@@ -725,6 +725,11 @@
   flex-shrink: 0;
 }
 
+:global(.dark-mode) .providerIcon[data-provider-id="kilo"],
+:global(.dark-mode) .providerIcon[data-provider-id="openrouter"] {
+  filter: invert(1);
+}
+
 /* Card Title Row */
 .cardTitleRow {
   display: flex;
