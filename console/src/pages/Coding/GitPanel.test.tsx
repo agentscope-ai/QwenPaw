@@ -50,7 +50,9 @@ function setupDefaultMocks() {
   gitMocks.stage.mockResolvedValue({});
   gitMocks.unstage.mockResolvedValue({});
   gitMocks.commit.mockResolvedValue({});
-  gitMocks.diff.mockResolvedValue({ diff: "--- a\n+++ b\n+added" });
+  gitMocks.diff.mockResolvedValue({
+    diff: "diff --git a/x b/x\nindex 123..456\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+added",
+  });
   gitMocks.commitDiff.mockResolvedValue({ diff: "commit diff", hash: "abc" });
   gitMocks.revert.mockResolvedValue({});
   gitMocks.discard.mockResolvedValue({});
@@ -504,6 +506,49 @@ describe("GitPanel", () => {
       expect(gitMocks.checkout).toHaveBeenCalledWith(
         "feature",
         false,
+        undefined,
+      ),
+    );
+  });
+
+  it("refreshes the repo via the refresh button", async () => {
+    const user = userEvent.setup();
+    render(<GitPanel />);
+    await waitFor(() =>
+      expect(screen.getByText("No changes")).toBeInTheDocument(),
+    );
+
+    const before = gitMocks.status.mock.calls.length;
+    // The refresh button is the icon button in the branch bar
+    const branchBar = screen.getByRole("combobox").closest("[class*='branchBar']") as HTMLElement;
+    await user.click(within(branchBar).getByRole("button"));
+    await waitFor(() =>
+      expect(gitMocks.status.mock.calls.length).toBeGreaterThan(before),
+    );
+  });
+
+  it("reports branch creation failures", async () => {
+    const user = userEvent.setup();
+    gitMocks.checkout.mockRejectedValue(new Error("cannot create"));
+    render(<GitPanel />);
+    await waitFor(() =>
+      expect(screen.getByText("No changes")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole("combobox"));
+    await waitFor(() =>
+      expect(screen.getByText("New branch")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByText("New branch"));
+
+    const nameInput = await screen.findByPlaceholderText("branch-name");
+    await user.type(nameInput, "my-branch");
+    await user.click(screen.getByText("Create & Switch"));
+
+    await waitFor(() =>
+      expect(gitMocks.checkout).toHaveBeenCalledWith(
+        "my-branch",
+        true,
         undefined,
       ),
     );
