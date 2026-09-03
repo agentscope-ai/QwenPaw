@@ -302,6 +302,68 @@ describe("GitPanel", () => {
     await waitFor(() => expect(gitMocks.commit).toHaveBeenCalled());
   });
 
+  it("maps nothing-added-to-commit errors to the staged-files warning", async () => {
+    const user = userEvent.setup();
+    gitMocks.status.mockResolvedValue(
+      makeStatus({
+        changes: [{ path: "a.ts", status: "M", staged: true }],
+      }),
+    );
+    gitMocks.commit.mockRejectedValue(
+      new Error("nothing added to commit but untracked files present"),
+    );
+    render(<GitPanel />);
+    await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/Commit message/);
+    await user.type(input, "my commit");
+    await user.click(screen.getByText("Commit"));
+
+    await waitFor(() => expect(gitMocks.commit).toHaveBeenCalled());
+  });
+
+  it("reports unexpected commit errors", async () => {
+    const user = userEvent.setup();
+    gitMocks.status.mockResolvedValue(
+      makeStatus({
+        changes: [{ path: "a.ts", status: "M", staged: true }],
+      }),
+    );
+    gitMocks.commit.mockRejectedValue(new Error("hook rejected"));
+    render(<GitPanel />);
+    await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/Commit message/);
+    await user.type(input, "my commit");
+    await user.click(screen.getByText("Commit"));
+
+    await waitFor(() => expect(gitMocks.commit).toHaveBeenCalled());
+  });
+
+  it("reports revert failures", async () => {
+    const user = userEvent.setup();
+    gitMocks.revert.mockRejectedValue(new Error("cannot revert"));
+    gitMocks.log.mockResolvedValue([
+      { hash: "abc123", message: "first commit", author: "me", date: "now" },
+    ]);
+    render(<GitPanel />);
+    await waitFor(() =>
+      expect(screen.getByText("No changes")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText("History"));
+    await waitFor(() =>
+      expect(screen.getByText("first commit")).toBeInTheDocument(),
+    );
+    const logEntry = screen.getByText("first commit").closest("[class*='logEntry']") as HTMLElement;
+    await user.click(within(logEntry).getAllByRole("button")[1]);
+    await waitFor(() =>
+      expect(screen.getByText("Revert")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByText("Revert"));
+    await waitFor(() => expect(gitMocks.revert).toHaveBeenCalled());
+  });
+
   it("shows the commit history with view-diff and revert actions", async () => {
     const user = userEvent.setup();
     gitMocks.log.mockResolvedValue([
