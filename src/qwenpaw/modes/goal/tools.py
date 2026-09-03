@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Goal-mode tools: get_goal, create_goal, update_goal.
 
-Modeled after Codex's goal tools. The agent calls
-``update_goal(status="complete")`` to signal completion
-rather than relying on text-based detection.
+Modeled after Codex's goal tools. The agent calls ``update_goal``
+to signal completion or a genuine blocker rather than relying on
+text-based detection.
 """
 from __future__ import annotations
 
@@ -58,9 +58,15 @@ def make_update_goal(owner: "GoalMode") -> Any:
         Args:
             status: "complete" when the objective is fully
                 achieved and no required work remains.
-                "blocked" only after the same blocking
-                condition has recurred for at least three
-                consecutive goal turns.
+                "blocked" immediately when progress requires
+                user input, approval, new authority, or
+                unavailable external state. For an otherwise
+                retryable condition, use it only after the same
+                blocker has remained unchanged for three
+                consecutive goal turns and no materially
+                different safe approach remains. Do not use it
+                for one ordinary tool failure or because the
+                token budget is nearly exhausted.
         """
         if status not in ("complete", "blocked"):
             return (

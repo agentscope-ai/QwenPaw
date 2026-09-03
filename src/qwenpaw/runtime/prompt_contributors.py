@@ -32,6 +32,25 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT_FILES = ("AGENTS.md", "SOUL.md", "PROFILE.md")
 
+TASK_EXECUTION_CONTRACT = """\
+# Task execution contract
+
+Workspace instructions may specialize workflow but not redefine task
+completion. When the user asks you to perform work, use available tools and
+keep working until the requested result is produced. A classification, plan,
+progress update, promise, partial result, or next-step list is not completion.
+
+If you say you will act and the required tool is available, call it in the
+same response. Do not yield merely to announce the next action.
+
+Do the minimum sufficient work and verify when feasible. Stop only when
+complete or blocked by required user input, approval, authority, external
+state, cancellation, or a runtime or safety limit. Report the blocker and
+remaining work. Safety, privacy, permission, destructive-action, and
+external-action approval rules take precedence; persistence grants no
+additional authority.
+"""
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -131,21 +150,14 @@ def _process_memory_section(
 # ---------------------------------------------------------------------------
 
 
-class AgentIdentityContributor(SyncPromptContributor):
-    """Prepend agent identity header when ``agent_id`` is set."""
+class ProtectedExecutionContractContributor(SyncPromptContributor):
+    """Inject the non-configurable task-completion contract."""
 
-    name = "agent_identity"
+    name = "protected_execution_contract"
     priority = 5
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
-        agent_id = getattr(ctx, "agent_id", None)
-        if not agent_id:
-            return None
-        return (
-            f"# Agent Identity\n\n"
-            f"Your agent id is `{agent_id}`. "
-            f"This is your unique identifier in the multi-agent system."
-        )
+        return TASK_EXECUTION_CONTRACT
 
 
 class AgentsMdContributor(SyncPromptContributor):
@@ -430,14 +442,25 @@ class ScrollContextContributor(SyncPromptContributor):
 
 
 class EnvContextContributor(SyncPromptContributor):
-    """Append the environment context block (time / session / OS)."""
+    """Append runtime identity and environment context."""
 
     name = "env_context"
     priority = 90
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
         extras = getattr(ctx, "extras", {}) or {}
-        return extras.get("env_context") or None
+        parts: list[str] = []
+        agent_id = getattr(ctx, "agent_id", None)
+        if agent_id:
+            parts.append(
+                f"# Agent Identity\n\n"
+                f"Your agent id is `{agent_id}`. "
+                f"This is your unique identifier in the multi-agent system.",
+            )
+        env_context = extras.get("env_context")
+        if env_context:
+            parts.append(str(env_context))
+        return "\n\n".join(parts) or None
 
 
 class DriverPolicyHintContributor(SyncPromptContributor):
@@ -458,7 +481,7 @@ class DriverPolicyHintContributor(SyncPromptContributor):
 # ---------------------------------------------------------------------------
 
 _ALL_CONTRIBUTORS = (
-    AgentIdentityContributor,
+    ProtectedExecutionContractContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
     DirectoryContextContributor,
@@ -478,7 +501,8 @@ def build_default_prompt_manager() -> PromptManager:
 
 
 __all__ = [
-    "AgentIdentityContributor",
+    "TASK_EXECUTION_CONTRACT",
+    "ProtectedExecutionContractContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",

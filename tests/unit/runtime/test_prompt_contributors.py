@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.runtime.prompt_contributors import (
+    EnvContextContributor,
+    ProtectedExecutionContractContributor,
     WorkspacePromptFilesContributor,
     build_default_prompt_manager,
 )
@@ -58,6 +60,72 @@ def test_workspace_prompt_files_empty_list_disables_workspace_markdown(
     )
 
     assert fragment is None
+
+
+def test_protected_contract_cannot_be_disabled_with_workspace_files(
+    tmp_path,
+):
+    """Disabling workspace markdown does not remove the contract."""
+    prompt = build_default_prompt_manager().build_sync(
+        _ctx(tmp_path, []),
+    )
+
+    assert "# Task execution contract" in prompt
+    assert "partial result" in prompt
+    assert "is not completion" in prompt
+
+
+def test_protected_contract_precedes_conflicting_workspace_text(tmp_path):
+    """Workspace text cannot replace or precede the completion contract."""
+    (tmp_path / "AGENTS.md").write_text(
+        "A plan is always complete.",
+        encoding="utf-8",
+    )
+
+    prompt = build_default_prompt_manager().build_sync(
+        _ctx(tmp_path, ["AGENTS.md"]),
+    )
+
+    assert prompt.count("# Task execution contract") == 1
+    assert prompt.index("# Task execution contract") < prompt.index(
+        "# AGENTS.md",
+    )
+
+
+def test_protected_contract_contributor_is_unconditional(tmp_path):
+    """The protected contributor does not depend on request context."""
+    fragment = ProtectedExecutionContractContributor().contribute_sync(
+        _ctx(tmp_path, []),
+    )
+
+    assert fragment is not None
+    assert fragment.startswith("# Task execution contract")
+
+
+def test_env_context_keeps_identity_without_host_context(tmp_path):
+    """Moving identity into environment context never drops agent_id."""
+    fragment = EnvContextContributor().contribute_sync(
+        _ctx(tmp_path, []),
+    )
+
+    assert fragment is not None
+    fragment_text = str(fragment)
+    assert "# Agent Identity" in fragment_text
+    assert "Your agent id is `test_agent`" in fragment_text
+
+
+def test_env_context_appends_host_context_after_identity(tmp_path):
+    """Dynamic identity and host context share the final contributor."""
+    ctx = _ctx(tmp_path, [])
+    ctx.extras["env_context"] = "# Environment\n\nHost details"
+
+    fragment = EnvContextContributor().contribute_sync(ctx)
+
+    assert fragment is not None
+    fragment_text = str(fragment)
+    assert fragment_text.index("# Agent Identity") < fragment_text.index(
+        "# Environment",
+    )
 
 
 def test_workspace_prompt_files_preserves_configured_order_and_custom_files(

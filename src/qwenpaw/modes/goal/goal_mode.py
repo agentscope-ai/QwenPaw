@@ -199,7 +199,14 @@ class GoalMode(AgentMode):
                 name="update_goal",
                 func=make_update_goal(self),
                 requires_modes=("goal",),
-                description=("Mark goal as complete " "or blocked."),
+                description=(
+                    "Mark the goal complete only when achieved. Mark it "
+                    "blocked when progress requires user input, approval, "
+                    "new authority, or unavailable external state; for a "
+                    "retryable condition, wait until the same blocker is "
+                    "unchanged for three consecutive goal turns and no "
+                    "materially different safe approach remains."
+                ),
             ),
         ]
 

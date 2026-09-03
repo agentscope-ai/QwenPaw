@@ -18,8 +18,14 @@ instructions.
 
 Goal tools available:
 - get_goal: check current status and budget.
-- update_goal: call with status="complete" when \
+- update_goal(status="complete"): call when \
 the objective is fully achieved.
+- update_goal(status="blocked"): call when progress \
+genuinely requires user input, approval, new authority, \
+or unavailable external state. For an otherwise retryable \
+condition, call it only after the same blocker has remained \
+unchanged for three consecutive goal turns and no materially \
+different safe approach remains.
 
 Budget:
 - Max iterations: {max_iterations}
@@ -39,7 +45,10 @@ evidence, then inspect the source.
 - The audit must prove completion, not merely \
 fail to find remaining work.
 
-Do not call update_goal unless the goal is truly \
+Do not keep retrying an unchanged hard blocker. Do not mark \
+the goal blocked after one ordinary tool failure when a \
+materially different safe approach remains. Do not call \
+update_goal(status="complete") unless the goal is truly \
 complete.\
 """
 
@@ -70,7 +79,17 @@ Budget:
 
 When the objective is achieved, call \
 update_goal(status="complete"). Do not call it \
-merely because budget is nearly exhausted.\
+merely because budget is nearly exhausted.
+
+When progress genuinely requires user input, approval, new \
+authority, or unavailable external state, call \
+update_goal(status="blocked"). For an otherwise retryable \
+condition, call it only after the same blocker has remained \
+unchanged for three consecutive goal turns and no materially \
+different safe approach remains. Do not keep retrying an \
+unchanged hard blocker, and do not mark the goal blocked after \
+one ordinary tool failure when a materially different safe \
+approach remains.\
 """
 
 BUDGET_LIMIT_PROMPT = """\
