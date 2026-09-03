@@ -284,18 +284,30 @@ jobs:
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }} - ${{ matrix.shard }}
-    needs: approval-gate
+    # Wait for the unit tier: when unit tests are red the 13 integration
+    # jobs used to burn ~30 minutes of runners for nothing. Sequencing
+    # them also cuts the per-PR concurrent-job peak (org limit is 60).
+    needs: [approval-gate, unit-tests]
     if: |
       always() &&
-      needs.approval-gate.result == 'success'
+      needs.approval-gate.result == 'success' &&
+      needs.unit-tests.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
-        shard: [p0, p1, p2, fallback]
+        shard: [p0, p1, p2]
         include:
+          # The fallback shard is the unclassified-test alarm: it only
+          # fails when some integration test lacks a p0/p1/p2 marker.
+          # One platform is enough for the alarm to ring, so it runs on
+          # ubuntu 3.11 only — the other platforms would just duplicate
+          # it and waste concurrency.
+          - os: ubuntu-latest
+            python-version: "3.11"
+            shard: fallback
           - os: macos-latest
             python-version: "3.11"
             shard: p0
@@ -305,9 +317,6 @@ jobs:
           - os: macos-latest
             python-version: "3.11"
             shard: p2
-          - os: macos-latest
-            python-version: "3.11"
-            shard: fallback
           - os: windows-latest
             python-version: "3.11"
             shard: p0
@@ -317,9 +326,6 @@ jobs:
           - os: windows-latest
             python-version: "3.11"
             shard: p2
-          - os: windows-latest
-            python-version: "3.11"
-            shard: fallback
 
     steps:
       - uses: actions/checkout@v4
@@ -562,8 +568,18 @@ jobs:
           fi
 
           # Then, combine all three tiers: unit, contract, and integration.
-          coverage combine \
-            .coverage.unit .coverage.contract .coverage.integration
+          # Integrated tests are sequenced after the unit tier, so when
+          # unit tests fail the integration data files are absent — combine
+          # whatever exists instead of going red on the missing tier.
+          DATA_FILES=""
+          for f in .coverage.unit .coverage.contract .coverage.integration; do
+            [ -f "$f" ] && DATA_FILES="$DATA_FILES $f"
+          done
+          if [ -n "$DATA_FILES" ]; then
+            coverage combine $DATA_FILES
+          else
+            echo "No coverage data files present (all tiers failed or skipped)"
+          fi
           # Tolerate fail-under (exit 2): combined number is what matters
           # and reflected in the summary regardless.
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]

@@ -118,6 +118,9 @@ class ReMeEmbedding:
             self.runtime._reindex_lock,
             self.runtime._exclusive_reme_lifecycle("reindex"),
         ):
+            reme = self.runtime._reme
+            if reme is None or not getattr(reme, "is_started", False):
+                return None
             fingerprint = None
             if rebuilds_embedding:
                 agent_config = await self.load_agent_config(
