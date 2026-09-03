@@ -6,8 +6,8 @@
 - 分支：`refactor/env-json-os-environ`
 - 范围：现有 `envs.json`、`EnvVarLoader`、环境变量 API、MCP stdio
   子进程、LLM stream timeout、Console `/environments`
-- 不包含：全局 RunningConfig、修改宿主机环境、热切换工作目录、热修改已经
-  显式保存的 Agent 配置
+- 不包含：全局 RunningConfig、Provider 凭据与模型配置、修改宿主机环境、
+  热切换工作目录、热修改已经显式保存的 Agent 配置
 
 ## 2. 最终架构结论
 
@@ -26,6 +26,10 @@
 5. 插件、Skill 和普通扩展可继续直接调用 `os.getenv()`。
 6. 环境管理上层只负责 catalog、校验、权限、来源和生效策略，不接管业务
    配置对象。
+
+Provider 的 API Key、Base URL 和模型列表继续由 `ProviderManager` 管理并保存到
+`SECRET_DIR/providers/**/*.json`。它们不是进程环境变量，不进入 `envs.json`，也
+不会由环境管理功能自动写入 `os.environ`。
 
 ```text
 system environment + .env
@@ -165,8 +169,11 @@ Windows Registry、launchd、systemd 或机器级环境。
 页面分为：
 
 1. 可实时修改的 QwenPaw 设置；
-2. 自定义插件、Skill、CLI 和子进程变量；
-3. 初始化期与启动期只读设置。
+2. 初始化期与启动期只读的 QwenPaw 设置；
+3. 用户显式添加的插件、Skill、CLI 和子进程变量。
+
+LLM 分类只表示 QwenPaw 自身的 LLM 运行参数，不表示 Provider 凭据。Provider
+凭据仍在模型服务配置页面中管理。
 
 页面使用 QwenPaw 现有语义色，保持浅色/深色主题一致；状态通过文字、边框和 Lucide
 图标表达，不引入其他图标库。所有新增文案覆盖 `en`、`zh`、`ja`、`ru`、
@@ -183,7 +190,9 @@ Windows Registry、launchd、systemd 或机器级环境。
 - [x] stream timeout 在每次新 stream 开始时通过 `EnvVarLoader` 读取
 - [x] `AgentsRunningConfig` 使用 `default_factory + EnvVarLoader`
 - [x] MCP stdio 注入受管自定义环境
+- [x] Provider 凭据与模型配置不进入环境变量 catalog 或 `os.environ`
 - [x] Console 分开展示动态、自定义和只读设置
+- [x] Console 将全部 QwenPaw 设置连续展示，自定义变量置于其后
 - [x] Console 不再调用全量 PUT 保存单项修改
 - [x] 后端单元与集成测试通过
 - [x] 前端页面与 locale 测试通过

@@ -104,8 +104,12 @@ describe("EnvironmentsPage", () => {
     expect(screen.getByText("TAVILY_API_KEY")).toBeTruthy();
     expect(screen.getByText("environments.source.default")).toBeTruthy();
     expect(screen.getByText("environments.liveSettings")).toBeTruthy();
-    expect(screen.getByText("environments.customSettings")).toBeTruthy();
-    expect(screen.getByText("environments.readonlySettings")).toBeTruthy();
+    const customHeading = screen.getByText("environments.customSettings");
+    const readonlyHeading = screen.getByText("environments.readonlySettings");
+    expect(
+      readonlyHeading.compareDocumentPosition(customHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("adds one custom variable with incremental PATCH", async () => {

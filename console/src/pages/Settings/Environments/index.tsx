@@ -286,6 +286,23 @@ function EnvironmentsPage() {
 
               <div className={styles.sectionHeading}>
                 <div>
+                  <h2>{t("environments.readonlySettings")}</h2>
+                  <p>{t("environments.readonlySettingsDescription")}</p>
+                </div>
+                <span>{readonlyCatalog.length}</span>
+              </div>
+              <div className={`${styles.table} ${styles.readonlyTable}`}>
+                {readonlyCatalog.length === 0 ? (
+                  <div className={styles.empty}>
+                    {t("environments.noReadonlyVariables")}
+                  </div>
+                ) : (
+                  renderKnownRows(readonlyCatalog)
+                )}
+              </div>
+
+              <div className={styles.sectionHeading}>
+                <div>
                   <h2>{t("environments.customSettings")}</h2>
                   <p>{t("environments.customSettingsDescription")}</p>
                 </div>
@@ -332,23 +349,6 @@ function EnvironmentsPage() {
                       </div>
                     </div>
                   ))
-                )}
-              </div>
-
-              <div className={styles.sectionHeading}>
-                <div>
-                  <h2>{t("environments.readonlySettings")}</h2>
-                  <p>{t("environments.readonlySettingsDescription")}</p>
-                </div>
-                <span>{readonlyCatalog.length}</span>
-              </div>
-              <div className={`${styles.table} ${styles.readonlyTable}`}>
-                {readonlyCatalog.length === 0 ? (
-                  <div className={styles.empty}>
-                    {t("environments.noReadonlyVariables")}
-                  </div>
-                ) : (
-                  renderKnownRows(readonlyCatalog)
                 )}
               </div>
             </>
