@@ -28,9 +28,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v2.1.0 expands agent capabilities across the board:",
-    "sub1": "Introducing QwenPaw OS Shell, a unified Files workspace, QwenPaw Creator, Codex/Qoder integration, Browser/Computer Use, checkpoint recovery, and long-task continuation.",
-    "releaseNote": "QwenPaw v2.0.0 is released",
+    "sub": "v2.2.0 expands agent applications and platform capabilities across the board:",
+    "sub1": "Introducing QwenPaw Hub, Mail, Data, and Creator 1.1, with better model routing, Extensions, and runtime experience.",
+    "releaseNote": "QwenPaw v2.2.0 is now available",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
     "quickTry": "Try Now"
@@ -65,37 +65,37 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "osShell": {
-        "title": "QwenPaw OS Shell",
-        "desc": "Bring conversations, Agent Spaces, apps, and system settings onto one freely arranged AI desktop. Multi-window workflows, the launcher, and the Dock keep chats, files, and specialist apps active in the same workspace."
+      "hub": {
+        "title": "QwenPaw Hub",
+        "desc": "Run QwenPaw for your team on infrastructure you control. Members share one sign-in address while keeping workspaces, settings, credentials, and conversations isolated, with local-process and Docker runtimes."
       },
-      "workspace": {
-        "title": "Workspace Management",
-        "desc": "The unified Files workspace brings project files, profiles, daily notes, and the knowledge base into one place. Freely choose a working directory for the current conversation, then preview, edit, diff, upload, and download files in the same interface."
+      "mail": {
+        "title": "QwenPaw Mail",
+        "desc": "Let an agent monitor, search, summarize, reply to, forward, and organize email, while evolving triage rules around your preferences. Unknown recipients and sensitive actions remain under human approval."
+      },
+      "data": {
+        "title": "QwenPaw Data",
+        "desc": "Ask business questions in natural language and receive traceable answers grounded in real enterprise data. Semantic models, graph context, and governed SQL connect the full analysis workflow."
       },
       "creator": {
-        "title": "Content Creation",
-        "desc": "QwenPaw Creator coordinates specialist agents across the production process, from ideas and source material to a finished video, while keeping precise edits to clips, subtitles, effects, and assets under your control."
+        "title": "QwenPaw Creator 1.1",
+        "desc": "Create with more mainstream image and video models, with better dialogue handling for narrative videos. Record web and desktop operation, generate with Bailian Wan3, and automate quality checks."
       },
-      "thirdPartyAgents": {
-        "title": "Third-party Agent Integration",
-        "desc": "Create and use Codex and Qoder agents directly in QwenPaw through a shared workspace, chat surface, and capability control plane, while each harness retains its own models, execution loop, and permission system."
+      "modelRouting": {
+        "title": "Unified Model Routing",
+        "desc": "Configure and select models consistently with unified provider discovery, capability-aware routing, fallback policies, thinking controls, and richer Prompt Cache insights."
       },
-      "browserUse": {
-        "title": "Browser-use",
-        "desc": "Drive a real browser to open pages, read content, click controls, and fill forms. Use a standalone browser or connect to your signed-in Chrome, with sign-in and verification steps handed back to you."
+      "backgroundWork": {
+        "title": "Console & Background Work",
+        "desc": "Follow agent collaboration and long-running work more easily. Grouped subagent conversations surface status, while a unified task list tracks progress and generated artifacts."
       },
-      "computerUse": {
-        "title": "Computer-use",
-        "desc": "Let agents operate approved desktop applications on Windows and macOS by inspecting windows, clicking, typing, scrolling, and dragging, while per-app authorization and human takeover keep you in control."
+      "extensions": {
+        "title": "Unified Extensions",
+        "desc": "Discover and manage apps, plugins, and Skills in one place. Search Skills, manage them in batches, keep built-ins updated automatically, and launch newly installed PawApps instantly."
       },
-      "checkpoint": {
-        "title": "Workspace Recovery",
-        "desc": "Checkpoint saves conversation state and can optionally include long-term memory and selected workspace files. Preview changes before restoring the right timeline without rewriting your project’s Git history."
-      },
-      "scroll": {
-        "title": "Long Task Continuation",
-        "desc": "QwenPaw Scroll preserves the complete interaction trail as a durable, searchable record, enabling agents to recover evidence, maintain task state, and keep moving through very long conversations."
+      "reliability": {
+        "title": "Faster, Safer, More Reliable",
+        "desc": "Start workspaces faster, reduce streaming overhead, and keep long conversations responsive, with stronger model-stream recovery, configuration persistence, File Guard, sandboxing, and desktop reliability."
       }
     }
   },

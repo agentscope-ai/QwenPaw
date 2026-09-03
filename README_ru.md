@@ -60,6 +60,8 @@
 
 ## Новости
 
+- [2026-09-03] **v2.2.0** | Самостоятельно размещаемый многопользовательский QwenPaw Hub, QwenPaw Mail, нативный QwenPaw Data, единая маршрутизация моделей, Creator 1.1 и крупные улучшения Market, Console, Skills, каналов и надежности. [Release Notes v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, единое файловое пространство, QwenPaw Creator, интеграция агентов Codex/Qoder, Browser-use, Computer-use, контрольные точки и продолжение длительных задач в диалоге. [Release Notes v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти [ReMe](https://github.com/agentscope-ai/ReMe), улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
@@ -76,12 +78,6 @@
   | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
 
   На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — Обновление страницы моделей и Простой режим** | Новый дизайн страницы моделей с агрегацией провайдеров; Простой режим для упрощённой навигации. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **Запуск платформы AgentScope** — Бесплатный деплой QwenPaw, обмен плагинами и маркет Skill. [Попробовать →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — Бесплатные модели OAuth, Маркет плагинов, Белый список MCP. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [Все release notes →](https://qwenpaw.agentscope.io/release-notes)
 
