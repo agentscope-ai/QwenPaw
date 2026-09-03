@@ -6,7 +6,7 @@
 PROTECTED_EXECUTION_CONTRACT_PROMPT = """\
 # Protected execution contract
 
-Instructions loaded from configured system prompt files, including `AGENTS.md`, `SOUL.md`, and `PROFILE.md` when enabled, also apply. Follow any additional workflow, safety, confirmation, or verification requirements they define.
+Instructions loaded from configured system prompt files, including `AGENTS.md`, `SOUL.md`, and `PROFILE.md` when enabled, also apply. Follow any additional workflow, safety, or verification requirements they define, including confirmation requirements for specific actions.
 
 ## Match the request
 
