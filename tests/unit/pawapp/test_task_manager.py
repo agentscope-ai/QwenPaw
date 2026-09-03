@@ -6,15 +6,15 @@ record bookkeeping and the TaskManager lifecycle: creation with the
 ``ctx._sse_channel`` injection, success/error completion events,
 streaming, and both cleanup paths.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
 import json
 import time
+from typing import Any
 from unittest.mock import patch
 
-import pytest
 
 from qwenpaw.pawapp import task as task_mod
 from qwenpaw.pawapp.task import (
@@ -29,7 +29,7 @@ class _Ctx:
     """Stand-in PawApp context receiving the injected SSE channel."""
 
 
-def _payload(text: str = "data: ") -> str:
+def _payload(text: str = "data: ") -> dict[str, Any]:
     """Strip the SSE framing and parse the JSON body."""
     return json.loads(text.removeprefix("data: ").strip())
 
@@ -225,9 +225,12 @@ class TestCreateTask:
         await manager.create_task("app", handler, ctx, {})
 
         assert isinstance(ctx._sse_channel, SSEChannel)
-        assert ctx._sse_channel is manager.get_task(
-            _only_task_id(manager),
-        ).channel
+        assert (
+            ctx._sse_channel
+            is manager.get_task(
+                _only_task_id(manager),
+            ).channel
+        )
         await asyncio.sleep(0.01)
 
     async def test_handler_receives_ctx_and_params(self):

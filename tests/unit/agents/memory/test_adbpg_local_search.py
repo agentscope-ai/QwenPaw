@@ -98,8 +98,6 @@ class TestSearchLocalMemoryFiles:
     def test_unreadable_file_skipped(self, manager, workspace, monkeypatch):
         (workspace / "MEMORY.md").write_text("keyword", encoding="utf-8")
 
-        real_read = Path.read_text
-
         def broken_read(self, *args, **kwargs):
             raise OSError("unreadable")
 

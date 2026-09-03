@@ -189,7 +189,10 @@ class TestPostPoolAutomationInbox:
         self,
         mock_inbox_append,
     ):
-        result = {"synced": [{"skill": "s1", "agents": ["a"]}], "sync_failed": []}
+        result = {
+            "synced": [{"skill": "s1", "agents": ["a"]}],
+            "sync_failed": [],
+        }
         assert await skills_module.post_pool_automation_inbox(result) is True
         kwargs = mock_inbox_append.await_args.kwargs
         assert kwargs["event_type"] == "auto_sync"

@@ -199,7 +199,10 @@ class TestResolveHtmlFileUri:
         assert uri.endswith("page.html")
 
     def test_htm_extension_accepted(self, ws_client):
-        (_project(ws_client) / "legacy.htm").write_text("<b>", encoding="utf-8")
+        (_project(ws_client) / "legacy.htm").write_text(
+            "<b>",
+            encoding="utf-8",
+        )
         response = ws_client.get(
             "/api/workspace/html-file-uri",
             params={"path": "legacy.htm"},
@@ -366,7 +369,7 @@ class TestTranscribeAudio:
         monkeypatch.setattr(
             workspace_router,
             "load_config",
-            lambda: self._disabled_config(),
+            self._disabled_config,
         )
         response = ws_client.post(
             "/api/workspace/transcribe",
@@ -379,7 +382,7 @@ class TestTranscribeAudio:
         monkeypatch.setattr(
             workspace_router,
             "load_config",
-            lambda: self._enabled_config(),
+            self._enabled_config,
         )
         response = ws_client.post(
             "/api/workspace/transcribe",
@@ -392,7 +395,7 @@ class TestTranscribeAudio:
         monkeypatch.setattr(
             workspace_router,
             "load_config",
-            lambda: self._enabled_config(),
+            self._enabled_config,
         )
 
         async def fake_transcribe(path):
@@ -414,7 +417,7 @@ class TestTranscribeAudio:
         monkeypatch.setattr(
             workspace_router,
             "load_config",
-            lambda: self._enabled_config(),
+            self._enabled_config,
         )
 
         async def failing_transcribe(path):
@@ -447,7 +450,7 @@ class TestTranscribeAudio:
         monkeypatch.setattr(
             workspace_router,
             "load_config",
-            lambda: self._enabled_config(),
+            self._enabled_config,
         )
         upload = UploadFile(filename=None, file=io.BytesIO(b"data"))
         import asyncio as _asyncio

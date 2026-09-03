@@ -321,7 +321,8 @@ class TestResetModel:
 
         with (
             patch(
-                "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
+                "qwenpaw.providers.provider_manager"
+                ".ProviderManager.get_instance",
                 return_value=manager,
             ),
             patch(
@@ -329,6 +330,6 @@ class TestResetModel:
                 fake_update,
             ),
         ):
-            result = await handler._reset_model(ctx)
+            await handler._reset_model(ctx)
         assert ctx.workspace.config.active_model is None
         assert applied["active_model"] is None

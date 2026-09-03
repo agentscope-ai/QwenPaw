@@ -369,7 +369,6 @@ class TestAgentsLlmRouting:
     def test_put_routing_saves(self, client):
         fake_cfg = MagicMock()
         calls = []
-        body = client
         from qwenpaw.config.config import AgentsLLMRoutingConfig
 
         routing = AgentsLLMRoutingConfig()
@@ -451,7 +450,8 @@ class TestFileGuard:
                 side_effect=_root_transaction(fake_cfg, calls),
             ),
             patch(
-                "qwenpaw.security.tool_guard.guardians.file_guardian.ensure_file_guard_paths",
+                "qwenpaw.security.tool_guard.guardians"
+                ".file_guardian.ensure_file_guard_paths",
                 side_effect=lambda paths: sorted(set(paths)),
             ),
             patch(

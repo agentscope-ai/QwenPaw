@@ -6,7 +6,7 @@ extraction, the four endpoint closure shapes, route registration on a
 real FastAPI app, and the slash-command spec collection including its
 argument parsing branches.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import inspect
@@ -234,9 +234,7 @@ class TestRegisterHttpRoutes:
         app = FastAPI()
         register_http_routes(app, _registry_for(_HttpManager, None))
 
-        assert not any(
-            "cli_only" in route.path for route in app.routes
-        )
+        assert not any("cli_only" in route.path for route in app.routes)
 
     def test_route_metadata_matches_spec(self):
         app = FastAPI()
@@ -246,8 +244,7 @@ class TestRegisterHttpRoutes:
         assert by_path["/custom/ping"].methods == {"GET"}
         assert by_path["/crons/list_jobs"].methods == {"POST"}
         assert (
-            by_path["/crons/list_jobs"].name
-            == "auto__HttpManager_list_jobs"
+            by_path["/crons/list_jobs"].name == "auto__HttpManager_list_jobs"
         )
 
     def test_empty_prefix_yields_double_slash_path(self):
@@ -322,9 +319,7 @@ class TestRegisterHttpRoutes:
         app = FastAPI()
         register_http_routes(app, _registry_for(_Live, recorder))
 
-        route = next(
-            r for r in app.routes if r.path == "/live/no_args"
-        )
+        route = next(r for r in app.routes if r.path == "/live/no_args")
         assert await route.endpoint() == "ok"
         assert recorder.calls == [("no_args", (), {})]
 

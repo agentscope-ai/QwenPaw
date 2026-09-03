@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from qwenpaw.app.routers import pawapps as pa
 
@@ -163,7 +162,9 @@ class TestGetPawappsFromRegistry:
             get_all_plugin_manifests=lambda: manifests,
         )
         return SimpleNamespace(
-            app=SimpleNamespace(state=SimpleNamespace(plugin_registry=registry)),
+            app=SimpleNamespace(
+                state=SimpleNamespace(plugin_registry=registry),
+            ),
         )
 
     def test_no_registry_returns_empty(self):

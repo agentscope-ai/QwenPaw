@@ -5,7 +5,7 @@ Covers _process_quoted_ref_msg across all quoted types (text, image,
 voice, file, video, unknown) with the media download stubbed, which
 previously had no coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace

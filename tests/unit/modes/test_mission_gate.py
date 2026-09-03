@@ -12,10 +12,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from qwenpaw.loop.gates.base import StopAction
-from qwenpaw.modes.mission.gates import MissionGate, _MissionState
+from qwenpaw.modes.mission.gates import MissionGate
 
 
 def _make_gate(loop_dir: Path | None = None) -> MissionGate:

@@ -13,10 +13,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
-from agentscope.message import Base64Source, DataBlock, Msg, TextBlock
+from agentscope.message import Base64Source, DataBlock, TextBlock
 
 from qwenpaw.agents.memory.proactive import proactive_utils as pu
 

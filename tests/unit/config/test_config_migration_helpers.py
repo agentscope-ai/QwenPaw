@@ -7,14 +7,11 @@ allow_from/group_allow_from whitelist import with failure tolerance)
 and _sanitize_custom_loop_modes (invalid/non-list/over-limit pruning),
 which previously had no coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from qwenpaw.config import config as cfg_mod
 
@@ -98,7 +95,11 @@ class TestMigrateAccessControlFields:
         assert migrated is True
         assert "allow_from" not in channels["dingtalk"]
 
-    def test_allow_from_import_failure_keeps_field(self, tmp_path, monkeypatch):
+    def test_allow_from_import_failure_keeps_field(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         def boom(workspace_dir):
             raise RuntimeError("store down")
 

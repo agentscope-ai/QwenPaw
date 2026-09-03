@@ -176,19 +176,28 @@ class TestRenderTextEvent:
 
 class TestRenderToolEvent:
     def test_kind_and_detail(self):
-        assert ta._render_tool_event(
-            {"kind": "execute", "detail": "ls -la"},
-        ) == "[tool_call] execute (ls -la)"
+        assert (
+            ta._render_tool_event(
+                {"kind": "execute", "detail": "ls -la"},
+            )
+            == "[tool_call] execute (ls -la)"
+        )
 
     def test_title_is_used_when_detail_missing(self):
-        assert ta._render_tool_event(
-            {"kind": "read", "title": "file.txt"},
-        ) == "[tool_call] read (file.txt)"
+        assert (
+            ta._render_tool_event(
+                {"kind": "read", "title": "file.txt"},
+            )
+            == "[tool_call] read (file.txt)"
+        )
 
     def test_detail_wins_over_title(self):
-        assert ta._render_tool_event(
-            {"kind": "read", "detail": "d", "title": "t"},
-        ) == "[tool_call] read (d)"
+        assert (
+            ta._render_tool_event(
+                {"kind": "read", "detail": "d", "title": "t"},
+            )
+            == "[tool_call] read (d)"
+        )
 
     @pytest.mark.parametrize(
         "event",
@@ -208,17 +217,23 @@ class TestRenderStatusEvent:
         assert ta._render_status_event({"status": "run_finished"}) is None
 
     def test_run_finished_suppressed_even_with_summary(self):
-        assert ta._render_status_event(
-            {"status": "run_finished", "summary": "done"},
-        ) is None
+        assert (
+            ta._render_status_event(
+                {"status": "run_finished", "summary": "done"},
+            )
+            is None
+        )
 
     def test_missing_status_becomes_unknown(self):
         assert ta._render_status_event({}) == "[status] unknown"
 
     def test_agent_thinking_uses_summary(self):
-        assert ta._render_status_event(
-            {"status": "agent_thinking", "summary": "planning"},
-        ) == "planning"
+        assert (
+            ta._render_status_event(
+                {"status": "agent_thinking", "summary": "planning"},
+            )
+            == "planning"
+        )
 
     def test_agent_thinking_fallback_without_summary(self):
         assert ta._render_status_event({"status": "agent_thinking"}) == (
@@ -226,9 +241,12 @@ class TestRenderStatusEvent:
         )
 
     def test_other_status_with_summary_is_two_lines(self):
-        assert ta._render_status_event(
-            {"status": "queued", "summary": "waiting"},
-        ) == "[status] queued\nwaiting"
+        assert (
+            ta._render_status_event(
+                {"status": "queued", "summary": "waiting"},
+            )
+            == "[status] queued\nwaiting"
+        )
 
     def test_other_status_without_summary(self):
         assert ta._render_status_event({"status": "queued"}) == (
@@ -238,14 +256,20 @@ class TestRenderStatusEvent:
 
 class TestRenderPermissionEvent:
     def test_title_from_event(self):
-        assert ta._render_permission_event(
-            {"title": "Allow shell?"},
-        ) == "[permission_request] Allow shell?"
+        assert (
+            ta._render_permission_event(
+                {"title": "Allow shell?"},
+            )
+            == "[permission_request] Allow shell?"
+        )
 
     def test_reason_is_used_when_title_missing(self):
-        assert ta._render_permission_event(
-            {"reason": "needs access"},
-        ) == "[permission_request] needs access"
+        assert (
+            ta._render_permission_event(
+                {"reason": "needs access"},
+            )
+            == "[permission_request] needs access"
+        )
 
     def test_default_title(self):
         assert ta._render_permission_event({}) == (
@@ -253,9 +277,12 @@ class TestRenderPermissionEvent:
         )
 
     def test_title_wins_over_reason(self):
-        assert ta._render_permission_event(
-            {"title": "T", "reason": "R"},
-        ) == "[permission_request] T"
+        assert (
+            ta._render_permission_event(
+                {"title": "T", "reason": "R"},
+            )
+            == "[permission_request] T"
+        )
 
     def test_options_are_rendered_with_ids(self):
         text = ta._render_permission_event(
@@ -322,19 +349,28 @@ class TestRenderEventText:
         ["tool_call", "tool_result", "tool_output", "TOOL_CALL"],
     )
     def test_tool_prefixed_events(self, event_type):
-        assert ta.render_event_text(
-            {"type": event_type, "kind": "execute", "detail": "ls"},
-        ) == "[tool_call] execute (ls)"
+        assert (
+            ta.render_event_text(
+                {"type": event_type, "kind": "execute", "detail": "ls"},
+            )
+            == "[tool_call] execute (ls)"
+        )
 
     def test_status_event(self):
-        assert ta.render_event_text(
-            {"type": "status", "status": "queued", "summary": "s"},
-        ) == "[status] queued\ns"
+        assert (
+            ta.render_event_text(
+                {"type": "status", "status": "queued", "summary": "s"},
+            )
+            == "[status] queued\ns"
+        )
 
     def test_permission_request_event(self):
-        assert ta.render_event_text(
-            {"type": "permission_request", "title": "T"},
-        ) == "[permission_request] T"
+        assert (
+            ta.render_event_text(
+                {"type": "permission_request", "title": "T"},
+            )
+            == "[permission_request] T"
+        )
 
     def test_error_event(self):
         assert ta.render_event_text({"type": "error", "message": "m"}) == (
@@ -433,9 +469,13 @@ class TestFormatStreamSnapshotResponse:
             include_header=False,
         )
 
-        assert _blocks_text(with_header) == _blocks_text(without_header) == [
-            "body",
-        ]
+        assert (
+            _blocks_text(with_header)
+            == _blocks_text(without_header)
+            == [
+                "body",
+            ]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -699,7 +739,9 @@ class TestFormatPermissionSuspendedResponse:
 
 class TestFormatCloseResponse:
     def test_closed_session(self):
-        text = _text(ta.format_close_response(runner_name="codex", closed=True))
+        text = _text(
+            ta.format_close_response(runner_name="codex", closed=True),
+        )
 
         assert text == "Closed the bound ACP session for runner 'codex'."
 
@@ -709,7 +751,8 @@ class TestFormatCloseResponse:
         )
 
         assert text == (
-            "No bound ACP session found for runner 'codex' in the current chat."
+            "No bound ACP session found for runner 'codex' "
+            "in the current chat."
         )
 
     def test_runner_name_is_interpolated(self):

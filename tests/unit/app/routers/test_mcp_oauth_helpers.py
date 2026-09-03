@@ -37,9 +37,13 @@ class TestPkce:
 
     def test_code_challenge_is_s256_of_verifier(self):
         verifier = "test-verifier-abc123"
-        expected = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode("ascii")).digest(),
-        ).rstrip(b"=").decode()
+        expected = (
+            base64.urlsafe_b64encode(
+                hashlib.sha256(verifier.encode("ascii")).digest(),
+            )
+            .rstrip(b"=")
+            .decode()
+        )
         assert mo._code_challenge(verifier) == expected
 
     def test_code_challenge_urlsafe(self):

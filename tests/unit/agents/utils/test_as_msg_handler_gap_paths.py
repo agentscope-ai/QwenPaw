@@ -5,7 +5,7 @@ Complements ``test_as_msg_handler.py`` by covering ``stat_message``
 branch dispatch (text/thinking/media/tool_call/tool_result), the
 tool-result output formatter, and the data-URL aware text counter.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
 import pytest
@@ -74,7 +74,11 @@ class TestStatMessageBlocks:
     async def test_image_block_with_base64_source(self, handler):
         block = {
             "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "AAAA",
+            },
         }
         stat = await handler.stat_message(_msg([block]))
         out = stat.content[0]

@@ -10,11 +10,8 @@ which previously had no coverage.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 
 from agentscope.message import (
-    DataBlock,
-    Base64Source,
     Msg,
     TextBlock,
     ToolResultBlock,
@@ -69,22 +66,31 @@ class TestIsMediaBlock:
     def test_data_block_image_mime_is_media(self):
         agent = _agent_with_context([])
         source = SimpleNamespace(media_type="image/png")
-        assert agent._is_media_block(
-            SimpleNamespace(type="data", source=source),
-        ) is True
+        assert (
+            agent._is_media_block(
+                SimpleNamespace(type="data", source=source),
+            )
+            is True
+        )
 
     def test_data_block_non_media_mime_not_media(self):
         agent = _agent_with_context([])
         source = SimpleNamespace(media_type="application/json")
-        assert agent._is_media_block(
-            SimpleNamespace(type="data", source=source),
-        ) is False
+        assert (
+            agent._is_media_block(
+                SimpleNamespace(type="data", source=source),
+            )
+            is False
+        )
 
     def test_data_block_without_source_not_media(self):
         agent = _agent_with_context([])
-        assert agent._is_media_block(
-            SimpleNamespace(type="data", source=None),
-        ) is False
+        assert (
+            agent._is_media_block(
+                SimpleNamespace(type="data", source=None),
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------

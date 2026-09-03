@@ -414,7 +414,11 @@ class TestUserText:
         message = Msg(
             name="user",
             role="user",
-            content=[TextBlock(text="first"), data_block(), TextBlock(text="second")],
+            content=[
+                TextBlock(text="first"),
+                data_block(),
+                TextBlock(text="second"),
+            ],
         )
         assert messages_mod.user_text(message) == "first\n\nsecond"
 
@@ -551,7 +555,9 @@ class TestContentClassification:
         assert tool_results_mod._classify_content("[1, 2, 3]") == "structured"
 
     def test_yaml_document_marker_is_structured(self):
-        assert tool_results_mod._classify_content("---\ntitle: x") == "structured"
+        assert (
+            tool_results_mod._classify_content("---\ntitle: x") == "structured"
+        )
 
     def test_diff_header_is_structured(self):
         text = "diff --git a/x b/x\n--- a/x\n+++ b/x"
@@ -801,7 +807,9 @@ class TestPlanHistory:
             role="user",
             content=[TextBlock(text="continuation stub")],
             metadata={
-                QWENPAW_MESSAGE_TAG_KEY: next(iter(SYNTHETIC_USER_MESSAGE_TAGS)),
+                QWENPAW_MESSAGE_TAG_KEY: next(
+                    iter(SYNTHETIC_USER_MESSAGE_TAGS),
+                ),
             },
         )
         active = history_mod._active_user_index(messages)
@@ -870,10 +878,17 @@ class TestCompressHistory:
     def test_long_history_collapsed_into_visual_message(self):
         messages = conversation_turns(30)
         receipt = CompressionReceipt()
-        out, left = history_mod.compress_history(list(messages), receipt, 20, LOW)
+        out, left = history_mod.compress_history(
+            list(messages),
+            receipt,
+            20,
+            LOW,
+        )
         assert left < 20
         assert receipt.image_count >= 1
-        collapsed = [message for message in out if message.name == "visual_history"]
+        collapsed = [
+            message for message in out if message.name == "visual_history"
+        ]
         assert len(collapsed) == 1
         assert receipt.recoverable[0]["region"] == "history"
         # The live tail stays native and ordered after the collapsed block.
@@ -883,7 +898,12 @@ class TestCompressHistory:
     def test_short_history_unchanged(self):
         messages = conversation_turns(4)
         receipt = CompressionReceipt()
-        out, left = history_mod.compress_history(list(messages), receipt, 20, LOW)
+        out, left = history_mod.compress_history(
+            list(messages),
+            receipt,
+            20,
+            LOW,
+        )
         assert len(out) == 4
         assert left == 20
         assert receipt.image_count == 0
@@ -944,7 +964,9 @@ class TestExtractEnvContext:
         assert "More rules." in remaining
 
     def test_no_env_block_returns_text_unchanged(self):
-        remaining, env = static_mod._extract_qwenpaw_env_context("plain prompt")
+        remaining, env = static_mod._extract_qwenpaw_env_context(
+            "plain prompt",
+        )
         assert env == ""
         assert remaining == "plain prompt"
 
@@ -973,7 +995,9 @@ class TestCompressStaticContext:
         )
         assert left < 10
         assert receipt.image_count >= 1
-        visual = [message for message in out if message.name == "visual_context"]
+        visual = [
+            message for message in out if message.name == "visual_context"
+        ]
         assert len(visual) == 1
         # The system message is replaced with the pointer text.
         system = next(message for message in out if message.role == "system")
@@ -1138,7 +1162,9 @@ class TestExternalUserDetection:
         assert request_mod._is_external_user(message) is True
 
     def test_plain_user_message_not_external(self):
-        assert request_mod._is_external_user(text_message("user", "hi")) is False
+        assert (
+            request_mod._is_external_user(text_message("user", "hi")) is False
+        )
 
 
 class TestAppendEnvTail:
@@ -1230,9 +1256,7 @@ class TestTransformModelRequest:
                 role="user",
                 content=[TextBlock(text="live request")],
                 metadata={
-                    QWENPAW_MESSAGE_TAG_KEY: (
-                        EXTERNAL_USER_QUERY_MESSAGE_TAG
-                    ),
+                    QWENPAW_MESSAGE_TAG_KEY: (EXTERNAL_USER_QUERY_MESSAGE_TAG),
                 },
             ),
         )
@@ -1271,9 +1295,7 @@ class TestTransformModelRequest:
 
     def test_image_heavy_request_gets_no_extra_pages(self):
         # Native images own the budget; a saturated request adds nothing.
-        content = [TextBlock(text="album")] + [
-            data_block() for _ in range(64)
-        ]
+        content = [TextBlock(text="album")] + [data_block() for _ in range(64)]
         messages = [
             Msg(name="user", role="user", content=content),
             text_message("user", "describe"),

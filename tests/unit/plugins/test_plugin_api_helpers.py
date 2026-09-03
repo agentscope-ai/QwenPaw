@@ -7,12 +7,11 @@ all early-return paths), ``PluginApi._get_workspace_from_info``
 ``_write_tool_config`` (no-agent-id guard), and
 ``register_prompt_section`` (registry delegation + condition wrapping).
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from qwenpaw.plugins import api as plugins_api
 from qwenpaw.plugins.api import PluginApi

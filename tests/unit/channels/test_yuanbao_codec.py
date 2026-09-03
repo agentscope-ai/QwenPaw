@@ -15,7 +15,6 @@ product fix lands.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-import pytest
 
 from qwenpaw.app.channels.yuanbao import codec
 

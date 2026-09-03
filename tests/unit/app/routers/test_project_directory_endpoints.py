@@ -15,7 +15,7 @@ import json
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -75,7 +75,7 @@ def _sse_events(response) -> list[dict]:
     events = []
     for line in response.text.splitlines():
         if line.startswith("data: "):
-            events.append(json.loads(line[len("data: "):]))
+            events.append(json.loads(line[len("data: ") :]))
     return events
 
 
@@ -142,9 +142,7 @@ class TestCreateProject:
         assert body["name"] == "fresh"
         created = Path(body["path"])
         assert created.is_dir()
-        assert created == (
-            workspace_dirs / "coding_projects" / "fresh"
-        )
+        assert created == (workspace_dirs / "coding_projects" / "fresh")
         assert mock_save_project_dir == [("pd-test", str(created))]
 
     def test_traversal_name_returns_400(self, client):

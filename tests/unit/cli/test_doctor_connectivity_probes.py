@@ -10,9 +10,8 @@ the _tcp_check / _http_get_ok boundary.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from qwenpaw.cli import doctor_connectivity as dc
 
@@ -111,7 +110,6 @@ class TestProbeMqtt:
 
         def capture(host, port, timeout):
             seen["port"] = port
-            return None
 
         monkeypatch.setattr(dc, "_tcp_check", capture)
         cfg = SimpleNamespace(host="broker", port=None)

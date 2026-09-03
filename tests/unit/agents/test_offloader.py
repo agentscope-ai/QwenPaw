@@ -20,7 +20,6 @@ import pytest
 from agentscope.message import Msg
 from agentscope.message._block import TextBlock, ToolResultBlock
 
-import qwenpaw._compat  # noqa: F401  (installs Msg.to_dict/timestamp shims)
 from qwenpaw.agents.offloader import QwenPawOffloader
 
 
@@ -88,12 +87,20 @@ class TestOffloadContext:
         )
 
         dialog = Path(offloader._dialog_path)
-        lines1 = (dialog / "2026-01-01.jsonl").read_text(
-            encoding="utf-8",
-        ).splitlines()
-        lines2 = (dialog / "2026-01-02.jsonl").read_text(
-            encoding="utf-8",
-        ).splitlines()
+        lines1 = (
+            (dialog / "2026-01-01.jsonl")
+            .read_text(
+                encoding="utf-8",
+            )
+            .splitlines()
+        )
+        lines2 = (
+            (dialog / "2026-01-02.jsonl")
+            .read_text(
+                encoding="utf-8",
+            )
+            .splitlines()
+        )
         assert len(lines1) == 2
         assert len(lines2) == 1
         assert json.loads(lines1[0])["content"][0]["text"] == "a"
@@ -271,9 +278,7 @@ class TestOffloadToolResult:
 
         assert Path(path).parent == Path(offloader._tool_results_dir)
         assert Path(path).suffix == ".txt"
-        assert Path(path).read_text(encoding="utf-8") == (
-            "line one\nline two"
-        )
+        assert Path(path).read_text(encoding="utf-8") == ("line one\nline two")
 
     async def test_non_text_blocks_are_skipped(self, offloader):
         path = await offloader.offload_tool_result(

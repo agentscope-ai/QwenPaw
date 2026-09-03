@@ -120,14 +120,20 @@ class TestFormatStreamToolOutputBody:
 
 class TestExtractTextFromEvent:
     def test_no_content_returns_empty(self):
-        assert ConsoleChannel._extract_text_from_event(
-            SimpleNamespace(content=None),
-        ) == ""
+        assert (
+            ConsoleChannel._extract_text_from_event(
+                SimpleNamespace(content=None),
+            )
+            == ""
+        )
 
     def test_content_not_list_returns_empty(self):
-        assert ConsoleChannel._extract_text_from_event(
-            SimpleNamespace(content="str"),
-        ) == ""
+        assert (
+            ConsoleChannel._extract_text_from_event(
+                SimpleNamespace(content="str"),
+            )
+            == ""
+        )
 
     def test_texts_concatenated(self):
         event = SimpleNamespace(
@@ -224,7 +230,11 @@ class TestSerializeEventForSse:
     def test_headline_stripped_when_tracked(self, channel):
         """A tracked delta content event containing a fence marker has the
         headline region removed from the serialized output."""
-        body = {"object": "content", "delta": True, "text": "before ⟦tag⟧ after"}
+        body = {
+            "object": "content",
+            "delta": True,
+            "text": "before ⟦tag⟧ after",
+        }
         event = SimpleNamespace(
             object="content",
             delta=True,

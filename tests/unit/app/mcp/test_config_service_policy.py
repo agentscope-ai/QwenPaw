@@ -107,7 +107,9 @@ class TestDriverPolicyFromMcpAccessUpdate:
     def test_empty_tool_default_name_raises_400(self):
         existing = DriverPolicy(default_effect="deny", rules=[])
         access = MCPAccessPolicy(
-            tool_defaults=[MCPToolDefaultPolicy(tool_name="  ", effect="allow")],
+            tool_defaults=[
+                MCPToolDefaultPolicy(tool_name="  ", effect="allow"),
+            ],
         )
         with pytest.raises(HTTPException) as exc_info:
             driver_policy_from_mcp_access_update(existing, access)
@@ -116,7 +118,9 @@ class TestDriverPolicyFromMcpAccessUpdate:
     def test_wildcard_tool_default_name_raises_400(self):
         existing = DriverPolicy(default_effect="deny", rules=[])
         access = MCPAccessPolicy(
-            tool_defaults=[MCPToolDefaultPolicy(tool_name="*", effect="allow")],
+            tool_defaults=[
+                MCPToolDefaultPolicy(tool_name="*", effect="allow"),
+            ],
         )
         with pytest.raises(HTTPException) as exc_info:
             driver_policy_from_mcp_access_update(existing, access)

@@ -127,11 +127,15 @@ class TestMcpAccessRuleFromRule:
 
     def test_ask_and_deny_effects_accepted(self):
         assert (
-            cs._mcp_access_rule_from_rule(_policy_rule(effect=POLICY_EFFECT_ASK))
+            cs._mcp_access_rule_from_rule(
+                _policy_rule(effect=POLICY_EFFECT_ASK),
+            )
             is not None
         )
         assert (
-            cs._mcp_access_rule_from_rule(_policy_rule(effect=POLICY_EFFECT_DENY))
+            cs._mcp_access_rule_from_rule(
+                _policy_rule(effect=POLICY_EFFECT_DENY),
+            )
             is not None
         )
 

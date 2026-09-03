@@ -161,8 +161,7 @@ class TestApplySkillStateChanges:
     def test_sorted_deterministic(self):
         calls = []
         service = SimpleNamespace(
-            enable_skill=lambda name: calls.append(name)
-            or {"success": True},
+            enable_skill=lambda name: calls.append(name) or {"success": True},
         )
         sc._apply_skill_state_changes(
             service,
@@ -227,7 +226,11 @@ class TestSetSkillsEnabled:
                 or {"success": True},
             ),
         )
-        sc._set_skills_enabled(("known", "known", "  ", ""), "a1", enabled=True)
+        sc._set_skills_enabled(
+            ("known", "known", "  ", ""),
+            "a1",
+            enabled=True,
+        )
         assert enabled_calls == ["known"]
 
     def test_disable_action(self, tmp_path, monkeypatch):
@@ -422,7 +425,11 @@ class TestListCmd:
             "SkillService",
             lambda wd: SimpleNamespace(list_all_skills=lambda: []),
         )
-        monkeypatch.setattr(sc, "read_skill_manifest", lambda wd: _manifest({}))
+        monkeypatch.setattr(
+            sc,
+            "read_skill_manifest",
+            lambda wd: _manifest({}),
+        )
         runner = CliRunner()
         result = runner.invoke(sc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0
@@ -455,7 +462,11 @@ class TestListCmd:
         )
         assert result.exit_code == 0
         assert "on" in result.output
-        assert "off" not in result.output.split("Total")[0] or True
+        # The filter drops the disabled skill from the table entirely.
+        assert "off" not in result.output
+        assert "Showing: 1 of 2 skills, 1 enabled, 0 disabled" in (
+            result.output
+        )
 
     def test_workspace_no_match(self, tmp_path, monkeypatch):
         monkeypatch.setattr(sc, "_resolve_scope", lambda a, p: "a1")
@@ -501,13 +512,21 @@ class TestUninstallCmd:
     def test_workspace_not_found(self, tmp_path, monkeypatch):
         monkeypatch.setattr(sc, "_resolve_scope", lambda a, p, **kw: "a1")
         monkeypatch.setattr(sc, "_get_agent_workspace", lambda scope: tmp_path)
-        monkeypatch.setattr(sc, "read_skill_manifest", lambda wd: _manifest({}))
+        monkeypatch.setattr(
+            sc,
+            "read_skill_manifest",
+            lambda wd: _manifest({}),
+        )
         runner = CliRunner()
         result = runner.invoke(sc.uninstall_cmd, ["ghost", "--agent-id", "a1"])
         assert result.exit_code != 0
         assert "was not found" in result.output
 
-    def test_workspace_uninstall_disabled_then_delete(self, tmp_path, monkeypatch):
+    def test_workspace_uninstall_disabled_then_delete(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         monkeypatch.setattr(sc, "_resolve_scope", lambda a, p, **kw: "a1")
         monkeypatch.setattr(sc, "_get_agent_workspace", lambda scope: tmp_path)
         monkeypatch.setattr(
@@ -531,7 +550,11 @@ class TestUninstallCmd:
         assert calls == ["disable", "delete"]
         assert "Uninstalled skill" in result.output
 
-    def test_workspace_uninstall_enabled_disable_fails(self, tmp_path, monkeypatch):
+    def test_workspace_uninstall_enabled_disable_fails(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         monkeypatch.setattr(sc, "_resolve_scope", lambda a, p, **kw: "a1")
         monkeypatch.setattr(sc, "_get_agent_workspace", lambda scope: tmp_path)
         monkeypatch.setattr(

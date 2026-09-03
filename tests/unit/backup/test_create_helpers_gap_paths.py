@@ -13,7 +13,6 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from qwenpaw.backup._ops import create_helpers as ch
 from qwenpaw.backup._utils.constants import (
@@ -208,7 +207,10 @@ class TestAddSkillPool:
         pool = tmp_path / "skill_pool"
         skill = pool / "demo"
         skill.mkdir(parents=True)
-        (skill / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
+        (skill / "SKILL.md").write_text(
+            "---\nname: demo\n---\n",
+            encoding="utf-8",
+        )
         monkeypatch.setattr(
             "qwenpaw.agents.skill_system.store.get_skill_pool_dir",
             lambda: pool,

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from qwenpaw.hooks.request_setup import contextvars_hook as cvh
 
@@ -48,7 +47,11 @@ class TestEntryPathStrings:
 
     def test_mixed_entries(self):
         entries = ["/plain", {"path": "/dict"}, ("/tuple", "l"), {"x": 1}]
-        assert cvh._entry_path_strings(entries) == ["/plain", "/dict", "/tuple"]
+        assert cvh._entry_path_strings(entries) == [
+            "/plain",
+            "/dict",
+            "/tuple",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +146,9 @@ class TestInheritedProjectDirs:
         assert cvh._inherited_project_dirs({}) is None
 
     def test_empty_list_returns_none(self):
-        assert cvh._inherited_project_dirs({"inherited_project_dirs": []}) is None
+        assert (
+            cvh._inherited_project_dirs({"inherited_project_dirs": []}) is None
+        )
 
     def test_non_list_returns_none(self):
         ctx = {"inherited_project_dirs": "not a list"}

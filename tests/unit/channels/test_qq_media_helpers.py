@@ -8,7 +8,6 @@ had no coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -79,24 +78,16 @@ class TestFindQuotedElement:
 
 class TestContentTypeToMediaType:
     def test_image(self):
-        assert (
-            QQChannel._content_type_to_media_type(ContentType.IMAGE) == 1
-        )
+        assert QQChannel._content_type_to_media_type(ContentType.IMAGE) == 1
 
     def test_video(self):
-        assert (
-            QQChannel._content_type_to_media_type(ContentType.VIDEO) == 2
-        )
+        assert QQChannel._content_type_to_media_type(ContentType.VIDEO) == 2
 
     def test_audio_maps_to_file(self):
-        assert (
-            QQChannel._content_type_to_media_type(ContentType.AUDIO) == 4
-        )
+        assert QQChannel._content_type_to_media_type(ContentType.AUDIO) == 4
 
     def test_file(self):
-        assert (
-            QQChannel._content_type_to_media_type(ContentType.FILE) == 4
-        )
+        assert QQChannel._content_type_to_media_type(ContentType.FILE) == 4
 
     def test_voice_extension_maps_to_audio(self):
         for ext in ("voice.amr", "voice.silk", "voice.slk"):
@@ -196,6 +187,8 @@ class TestResolveMediaUrlAndPath:
         )
         url, local = channel._resolve_media_url_and_path(part)
         assert local == str(target)
+        # An existing local file yields no remote URL.
+        assert url is None
         assert url is None
 
     def test_file_url_protocol(self, channel, tmp_path):
@@ -216,6 +209,8 @@ class TestResolveMediaUrlAndPath:
         )
         url, local = channel._resolve_media_url_and_path(part)
         assert url == "https://cdn.example.com/v.mp4"
+        # An http(s) URL yields no local download path.
+        assert local is None
 
     def test_audio_data(self, channel, tmp_path):
         target = tmp_path / "a.amr"
@@ -223,6 +218,8 @@ class TestResolveMediaUrlAndPath:
         part = AudioContent(type=ContentType.AUDIO, data=str(target))
         url, local = channel._resolve_media_url_and_path(part)
         assert local == str(target)
+        # An existing local file yields no remote URL.
+        assert url is None
 
     def test_nonexistent_path_treated_as_url(self, channel):
         part = AudioContent(type=ContentType.AUDIO, data="/nope/missing.amr")

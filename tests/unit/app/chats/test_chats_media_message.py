@@ -9,7 +9,6 @@ previously had no coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-import pytest
 
 from agentscope.message import Msg, TextBlock
 
@@ -262,21 +261,33 @@ class TestBuildMediaMessageFromBlock:
 
 class TestParseLegacyMemoryState:
     def test_marks_stripped(self):
-        msg_dict = Msg(name="user", role="user", content=[TextBlock(type="text", text="hi")]).to_dict()
+        msg_dict = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(type="text", text="hi")],
+        ).to_dict()
         raw = {"content": [[msg_dict, ["HINT"]]], "_compressed_summary": "sum"}
         messages, summary = parse_legacy_memory_state(raw)
         assert len(messages) == 1
         assert summary == "sum"
 
     def test_bare_payload_accepted(self):
-        msg_dict = Msg(name="user", role="user", content=[TextBlock(type="text", text="hi")]).to_dict()
+        msg_dict = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(type="text", text="hi")],
+        ).to_dict()
         raw = {"content": [msg_dict]}
         messages, summary = parse_legacy_memory_state(raw)
         assert len(messages) == 1
         assert summary == ""
 
     def test_msg_instances_passed_through(self):
-        msg = Msg(name="user", role="user", content=[TextBlock(type="text", text="hi")])
+        msg = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(type="text", text="hi")],
+        )
         raw = {"content": [msg]}
         messages, _ = parse_legacy_memory_state(raw)
         assert messages[0] is msg

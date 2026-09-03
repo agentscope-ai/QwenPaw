@@ -14,10 +14,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from qwenpaw.agents.memory.proactive import proactive_responder as pr
-from qwenpaw.agents.memory.proactive.proactive_types import ProactiveTask
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +103,13 @@ class TestExtractTasksFromMemory:
         assert await pr._extract_tasks_from_memory("c", agent) == []
 
     async def test_json_in_code_block_extracted(self):
-        payload = "```json\n" + json.dumps(
-            {"tasks": [{"task": "t", "query": "q"}]},
-        ) + "\n```"
+        payload = (
+            "```json\n"
+            + json.dumps(
+                {"tasks": [{"task": "t", "query": "q"}]},
+            )
+            + "\n```"
+        )
         agent = SimpleNamespace(
             reply=AsyncMock(return_value=_reply_with_text(payload)),
         )

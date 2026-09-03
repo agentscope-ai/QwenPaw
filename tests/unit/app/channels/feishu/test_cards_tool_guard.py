@@ -5,7 +5,7 @@ Covers the pure builders, the inbound ``parse_action_value`` guard, the
 outbound ``render`` early-exits and send path, and the synchronous
 ``handle`` re-injection (including the operator-name lookup).
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -107,7 +107,13 @@ def _action_buttons(card: dict) -> list[dict]:
 class _StubChannel:
     """Minimal FeishuChannel stand-in for render/handle."""
 
-    def __init__(self, *, enabled=True, recv=("open_id", "ou_1"), msg_id="om_1"):
+    def __init__(
+        self,
+        *,
+        enabled=True,
+        recv=("open_id", "ou_1"),
+        msg_id="om_1",
+    ):
         self.enabled = enabled
         self.channel = "feishu"
         self._recv = recv
@@ -119,7 +125,13 @@ class _StubChannel:
     async def _get_receive_for_send(self, to_handle, send_meta):
         return self._recv
 
-    async def _send_message(self, receive_id_type, receive_id, msg_type, content):
+    async def _send_message(
+        self,
+        receive_id_type,
+        receive_id,
+        msg_type,
+        content,
+    ):
         self.sent.append((receive_id_type, receive_id, msg_type, content))
         return self._msg_id
 
@@ -492,7 +504,10 @@ class TestParseActionValue:
 
         assert tg.parse_action_value(value) is None
 
-    @pytest.mark.parametrize("action", ["approve", "deny", " APPROVE ", "Deny"])
+    @pytest.mark.parametrize(
+        "action",
+        ["approve", "deny", " APPROVE ", "Deny"],
+    )
     def test_action_is_normalised(self, action):
         assert tg.parse_action_value(_value(action=action))["action"] == (
             action.strip().lower()
@@ -507,7 +522,10 @@ class TestParseActionValue:
         assert tg.parse_action_value(_value(request_id=request_id)) is None
 
     def test_request_id_is_stripped(self):
-        assert tg.parse_action_value(_value(request_id="  r1 "))["request_id"] == "r1"
+        assert (
+            tg.parse_action_value(_value(request_id="  r1 "))["request_id"]
+            == "r1"
+        )
 
     def test_optional_fields_default(self):
         parsed = tg.parse_action_value(
@@ -529,7 +547,9 @@ class TestParseActionValue:
 
     @pytest.mark.parametrize("ctx", [None, "string", 42, ["list"]])
     def test_non_dict_session_ctx_becomes_empty_dict(self, ctx):
-        assert tg.parse_action_value(_value(session_ctx=ctx))["session_ctx"] == {}
+        assert (
+            tg.parse_action_value(_value(session_ctx=ctx))["session_ctx"] == {}
+        )
 
     def test_round_trip_from_built_card(self):
         raw = tg.build_approval_card(
@@ -580,17 +600,13 @@ class TestRender:
     async def test_disabled_channel_is_skipped(self):
         channel = _StubChannel(enabled=False)
 
-        assert (
-            await tg.render(channel, "h", _event(), {}, _meta()) is False
-        )
+        assert await tg.render(channel, "h", _event(), {}, _meta()) is False
         assert channel.sent == []
 
     async def test_unresolved_receive_id_is_skipped(self):
         channel = _StubChannel(recv=None)
 
-        assert (
-            await tg.render(channel, "h", _event(), {}, _meta()) is False
-        )
+        assert await tg.render(channel, "h", _event(), {}, _meta()) is False
         assert channel.sent == []
 
     async def test_sends_interactive_card(self):
@@ -634,7 +650,13 @@ class TestRender:
             "is_group": True,
         }
 
-        await tg.render(channel, "feishu:sw:sess-9", _event(), send_meta, _meta())
+        await tg.render(
+            channel,
+            "feishu:sw:sess-9",
+            _event(),
+            send_meta,
+            _meta(),
+        )
 
         value = _action_buttons(_card(channel.sent[0][3]))[0]["value"]
         assert value["session_ctx"] == {

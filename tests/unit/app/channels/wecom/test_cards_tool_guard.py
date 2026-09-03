@@ -7,7 +7,7 @@ builders, the ``template_card_event`` parser, the outbound render path
 update plus ``/approval`` command re-injection).
 The channel and its SDK client are stubbed, so nothing hits the network.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -513,7 +513,9 @@ class TestRender:
             {"approval_request_id": "rid-1"},
         )
 
-        key = json.loads(channel._client.cards[0]["card"]["button_list"][0]["key"])
+        key = json.loads(
+            channel._client.cards[0]["card"]["button_list"][0]["key"],
+        )
         assert key["session_id"] == "wecom:session-9"
         assert key["sender_id"] == "sender-9"
         assert key["chatid"] == "chat-9"
@@ -530,7 +532,9 @@ class TestRender:
             {"approval_request_id": "rid-1"},
         )
 
-        key = json.loads(channel._client.cards[0]["card"]["button_list"][0]["key"])
+        key = json.loads(
+            channel._client.cards[0]["card"]["button_list"][0]["key"],
+        )
         assert key["session_id"] == ""
 
     async def test_oversized_tool_name_falls_back_to_text(self):
@@ -704,9 +708,9 @@ class TestHandle:
         assert channel.enqueued[0]["content_parts"][0].text.endswith(
             "rid-12345678",
         )
-        assert "tool" in channel._client.updates[0]["card"]["main_title"][
-            "desc"
-        ]
+        assert (
+            "tool" in channel._client.updates[0]["card"]["main_title"]["desc"]
+        )
 
     async def test_update_failure_does_not_block_the_command(self):
         channel = _StubChannel()

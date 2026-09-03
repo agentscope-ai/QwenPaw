@@ -5,7 +5,7 @@ Complements ``test_turn_usage.py`` (pure helpers) by covering the
 context-stats snapshot builder, the turn/ctx resolver, and the
 session-persistence writer.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 from types import SimpleNamespace

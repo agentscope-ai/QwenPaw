@@ -78,24 +78,6 @@ def _write_noisy_png(path, size=(400, 400), mode="RGB", alpha=None, seed=7):
     return path
 
 
-def _jpeg_size(image, quality: int, scale: float | None = None) -> int:
-    """Return the JPEG byte size PIL would produce for this input.
-
-    Used to derive limits that sit just above/below a specific rung of
-    the quality ladder, so the assertions stay exact even if a different
-    Pillow build produces slightly different byte counts.
-    """
-    target = image.convert("RGB")
-    if scale is not None:
-        target = target.resize(
-            (int(target.width * scale), int(target.height * scale)),
-            Image.Resampling.LANCZOS,
-        )
-    buffer = io.BytesIO()
-    target.save(buffer, format="JPEG", quality=quality, optimize=True)
-    return len(buffer.getvalue())
-
-
 # ---------------------------------------------------------------------------
 # _format_table
 # ---------------------------------------------------------------------------
@@ -254,9 +236,7 @@ class TestFormatMarkdownTables:
         )
 
     def test_two_tables_in_one_message(self):
-        text = (
-            "| name |\n| --- |\n| 1 |\n\nmid\n\n| value |\n| --- |\n| 22 |"
-        )
+        text = "| name |\n| --- |\n| 1 |\n\nmid\n\n| value |\n| --- |\n| 22 |"
 
         result = format_markdown_tables(text)
 

@@ -77,7 +77,10 @@ class TestExtractBodyText:
         assert qq_ctx.extract_body_text([{"type": "text"}]) == ""
 
     def test_non_text_dicts_are_skipped(self):
-        content = [{"type": "image", "url": "u"}, {"type": "text", "text": "k"}]
+        content = [
+            {"type": "image", "url": "u"},
+            {"type": "text", "text": "k"},
+        ]
 
         assert qq_ctx.extract_body_text(content) == "k"
 

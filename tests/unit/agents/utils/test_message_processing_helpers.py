@@ -50,11 +50,16 @@ class TestExtractSourceAndFilename:
     def test_file_block_missing_filename(self):
         block = {"source": {"x": 1}}
         source, filename = mp._extract_source_and_filename(block, "file")
+        # A "file" block returns its source dict verbatim.
+        assert source == {"x": 1}
         assert filename is None
 
     def test_media_block_url_source(self):
         block = {
-            "source": {"type": "url", "url": "https://cdn.example.com/a/b.png"},
+            "source": {
+                "type": "url",
+                "url": "https://cdn.example.com/a/b.png",
+            },
         }
         source, filename = mp._extract_source_and_filename(block, "image")
         assert filename == "b.png"

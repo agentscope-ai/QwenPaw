@@ -8,9 +8,6 @@ which previously had no coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 
 from qwenpaw.runtime.commands import daemon as dm
 

@@ -242,9 +242,7 @@ class TestParseActionValue:
         assert ct.parse_tool_guard_action_value(None) is None
 
     def test_wrong_type_returns_none(self):
-        assert (
-            ct.parse_tool_guard_action_value({"type": "other_card"}) is None
-        )
+        assert ct.parse_tool_guard_action_value({"type": "other_card"}) is None
 
     def test_missing_request_id_returns_none(self):
         assert (

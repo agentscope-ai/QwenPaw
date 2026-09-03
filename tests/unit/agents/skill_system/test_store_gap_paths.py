@@ -7,14 +7,12 @@ helpers, pool automation read/write/copy round trips, requirements and
 emoji extraction, conflict-name suggestion, zip extraction and import,
 and the skill-content validation/render helpers.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import io
 import json
 import zipfile
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,12 +27,10 @@ from qwenpaw.agents.skill_system.store import (
     classify_pool_skill_source,
     compute_skill_md_hash,
     copy_pool_skill_automation,
-    default_pool_manifest,
     extract_version,
     get_skill_mtime,
     get_workspace_skills_dir,
     import_skill_dir,
-    is_pool_builtin_entry,
     normalize_pool_manifest_payload,
     normalize_skill_dir_name,
     read_pool_skill_automation,

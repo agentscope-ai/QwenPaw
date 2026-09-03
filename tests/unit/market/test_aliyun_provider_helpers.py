@@ -9,7 +9,6 @@ no coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-import pytest
 
 from qwenpaw.market.providers import aliyun as aliyun_mod
 

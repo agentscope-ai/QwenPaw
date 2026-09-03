@@ -9,11 +9,8 @@ shutdown backfill pass left uncovered.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-import subprocess
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from qwenpaw.cli import shutdown_cmd as sc
 

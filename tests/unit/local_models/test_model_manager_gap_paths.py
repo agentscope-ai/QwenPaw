@@ -7,7 +7,7 @@ model tiers, the download worker / result finalization helpers, the
 staging-directory promotion and cleanup helpers, and the on-disk
 model discovery utilities.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import queue
@@ -199,6 +199,8 @@ class TestCheckGgufExists:
         self._install_fake_ms_hub(monkeypatch, api)
         exists, msg = manager._check_modelscope_gguf_exists("org/repo")
         assert exists is True
+        # A successful check carries no error message.
+        assert msg == ""
 
     def test_ms_gguf_present_by_path(self, manager, monkeypatch):
         api = MagicMock()
@@ -285,16 +287,11 @@ class TestProbeAndResolveSource:
         monkeypatch,
     ):
         monkeypatch.setattr(manager, "_probe_huggingface", lambda: True)
-        assert (
-            manager._resolve_download_source()
-            == DownloadSource.HUGGINGFACE
-        )
+        assert manager._resolve_download_source() == DownloadSource.HUGGINGFACE
 
     def test_resolve_falls_back_to_modelscope(self, manager, monkeypatch):
         monkeypatch.setattr(manager, "_probe_huggingface", lambda: False)
-        assert (
-            manager._resolve_download_source() == DownloadSource.MODELSCOPE
-        )
+        assert manager._resolve_download_source() == DownloadSource.MODELSCOPE
 
     def test_estimate_size_dispatch(self, manager, monkeypatch):
         monkeypatch.setattr(

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from qwenpaw.services import project_directory as pd
 from qwenpaw.services.fs_name_rules import NameRules
@@ -142,7 +141,9 @@ class TestCoerceProjectDirEntry:
         assert result == (tmp_path.resolve(), "obj")
 
     def test_blank_path_returns_none(self):
-        assert pd.coerce_project_dir_entry({"path": "  ", "label": "x"}) is None
+        assert (
+            pd.coerce_project_dir_entry({"path": "  ", "label": "x"}) is None
+        )
 
     def test_dict_without_label(self, tmp_path):
         result = pd.coerce_project_dir_entry({"path": str(tmp_path)})

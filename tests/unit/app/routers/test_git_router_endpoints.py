@@ -68,7 +68,7 @@ def repo_client(tmp_path, monkeypatch):
 
 class TestGitStatus:
     def test_clean_repo_reports_branch(self, repo_client):
-        client, project = repo_client
+        client, _project = repo_client
         response = client.get("/api/workspace/git/status")
         assert response.status_code == 200
         body = response.json()
@@ -96,7 +96,7 @@ class TestGitStatus:
 
 class TestListBranches:
     def test_lists_current_branch(self, repo_client):
-        client, project = repo_client
+        client, _project = repo_client
         response = client.get("/api/workspace/git/branches")
         assert response.status_code == 200
         branches = response.json()
@@ -107,7 +107,9 @@ class TestListBranches:
     def test_created_branch_listed(self, repo_client):
         client, project = repo_client
         _git_cli(project, "branch", "feature")
-        names = [b["name"] for b in client.get("/api/workspace/git/branches").json()]
+        names = [
+            b["name"] for b in client.get("/api/workspace/git/branches").json()
+        ]
         assert "feature" in names
 
 
@@ -121,7 +123,8 @@ class TestCheckout:
         )
         assert response.status_code == 200
         assert response.json() == {"branch": "feature"}
-        _r = _git_cli(project, "rev-parse", "--abbrev-ref", "HEAD"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "rev-parse", "--abbrev-ref", "HEAD")
+        rc, out = _r.returncode, _r.stdout
         assert rc == 0
         assert out.strip() == "feature"
 
@@ -132,7 +135,8 @@ class TestCheckout:
             json={"branch": "brand-new", "create": True},
         )
         assert response.status_code == 200
-        _r = _git_cli(project, "rev-parse", "--abbrev-ref", "HEAD"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "rev-parse", "--abbrev-ref", "HEAD")
+        out = _r.stdout
         assert out.strip() == "brand-new"
 
     def test_checkout_missing_branch_returns_400(self, repo_client):
@@ -156,7 +160,10 @@ class TestDiff:
         client, project = repo_client
         (project / "seed.txt").write_text("staged change\n", encoding="utf-8")
         _git_cli(project, "add", "seed.txt")
-        response = client.get("/api/workspace/git/diff", params={"staged": True})
+        response = client.get(
+            "/api/workspace/git/diff",
+            params={"staged": True},
+        )
         assert "staged change" in response.json()["diff"]
 
     def test_path_scoped_diff(self, repo_client):
@@ -191,7 +198,8 @@ class TestStageUnstage:
         )
         assert response.status_code == 200
         assert response.json() == {"staged": ["new.txt"]}
-        _r = _git_cli(project, "diff", "--cached", "--name-only"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "diff", "--cached", "--name-only")
+        out = _r.stdout
         assert "new.txt" in out
 
     def test_stage_all_when_empty_paths(self, repo_client):
@@ -200,7 +208,8 @@ class TestStageUnstage:
         (project / "two.txt").write_text("2", encoding="utf-8")
         response = client.post("/api/workspace/git/stage", json={"paths": []})
         assert response.status_code == 200
-        _r = _git_cli(project, "diff", "--cached", "--name-only"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "diff", "--cached", "--name-only")
+        out = _r.stdout
         assert "one.txt" in out
         assert "two.txt" in out
 
@@ -213,7 +222,8 @@ class TestStageUnstage:
             json={"paths": ["new.txt"]},
         )
         assert response.status_code == 200
-        _r = _git_cli(project, "diff", "--cached", "--name-only"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "diff", "--cached", "--name-only")
+        out = _r.stdout
         assert out.strip() == ""
 
     def test_stage_nonexistent_returns_400(self, repo_client):
@@ -236,7 +246,8 @@ class TestCommit:
         )
         assert response.status_code == 200
         assert response.json()["committed"] is True
-        _r = _git_cli(project, "log", "-1", "--format=%s"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "log", "-1", "--format=%s")
+        out = _r.stdout
         assert out.strip() == "add new.txt"
 
     def test_empty_message_returns_400(self, repo_client):
@@ -261,7 +272,10 @@ class TestDiscard:
     def test_discard_modified_tracked_file(self, repo_client):
         client, project = repo_client
         (project / "seed.txt").write_text("oops\n", encoding="utf-8")
-        response = client.post("/api/workspace/git/discard", json={"paths": []})
+        response = client.post(
+            "/api/workspace/git/discard",
+            json={"paths": []},
+        )
         assert response.status_code == 200
         assert (project / "seed.txt").read_text(encoding="utf-8") == "seed\n"
 
@@ -269,7 +283,10 @@ class TestDiscard:
         client, project = repo_client
         stray = project / "stray.txt"
         stray.write_text("junk", encoding="utf-8")
-        response = client.post("/api/workspace/git/discard", json={"paths": []})
+        response = client.post(
+            "/api/workspace/git/discard",
+            json={"paths": []},
+        )
         assert response.status_code == 200
         assert not stray.exists()
 
@@ -287,7 +304,8 @@ class TestDiscard:
 class TestCommitDiffAndRevert:
     def test_commit_diff_shows_patch(self, repo_client):
         client, project = repo_client
-        _r = _git_cli(project, "rev-parse", "HEAD"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "rev-parse", "HEAD")
+        out = _r.stdout
         head = out.strip()
         response = client.get(
             "/api/workspace/git/commit-diff",
@@ -311,7 +329,8 @@ class TestCommitDiffAndRevert:
         (project / "add.txt").write_text("added\n", encoding="utf-8")
         _git_cli(project, "add", "add.txt")
         _git_cli(project, "commit", "-m", "add file")
-        _r = _git_cli(project, "rev-parse", "HEAD"); rc, out = _r.returncode, _r.stdout
+        _r = _git_cli(project, "rev-parse", "HEAD")
+        out = _r.stdout
         head = out.strip()
         response = client.post(
             "/api/workspace/git/revert",

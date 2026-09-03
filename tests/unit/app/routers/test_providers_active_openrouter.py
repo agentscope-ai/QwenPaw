@@ -6,7 +6,7 @@ Covers ``_validate_model_slot``, ``_load_agent_model``,
 endpoints (series / discover-extended / models filter), and the
 GET/PUT ``/active`` model endpoints with their scope handling.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace

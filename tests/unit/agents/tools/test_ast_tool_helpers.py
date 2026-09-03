@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from qwenpaw.agents.tools import ast_tool as ast_mod
 
@@ -208,6 +207,8 @@ class TestRunAstGrepSync:
             tmp_path,
         )
         assert rc == -1
+        assert stdout == ""
+        assert "failed to spawn ast-grep" in stderr
 
     def test_normal_execution(self, tmp_path, monkeypatch):
         class FakeProc:

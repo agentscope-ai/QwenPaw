@@ -7,12 +7,11 @@ _build_context (agent-id priority chain), _close_dangling_tool_calls
 _inject_partial_response (dedup guard and save), using lightweight
 fakes for the agent and envelope.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 from agentscope.message import (
     Msg,
     TextBlock,
@@ -93,7 +92,6 @@ class TestNormalize:
 class TestBuildContext:
     def test_request_agent_id_wins(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
-        from qwenpaw.schemas import AgentRequest
 
         request = Runtime._normalize(
             {"session_id": "s1", "agent_id": "body-agent"},
@@ -136,7 +134,9 @@ class TestCloseDanglingToolCalls:
         assert Runtime._close_dangling_tool_calls(agent, _envelope()) == 0
 
     def test_last_message_not_assistant_returns_zero(self):
-        context = [Msg(name="user", role="user", content=[TextBlock(text="x")])]
+        context = [
+            Msg(name="user", role="user", content=[TextBlock(text="x")]),
+        ]
         agent = _agent(context=context)
         assert Runtime._close_dangling_tool_calls(agent, _envelope()) == 0
 

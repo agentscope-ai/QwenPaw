@@ -11,7 +11,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import pytest
 
 from agentscope.message import ToolResultState
 from agentscope.permission import PermissionBehavior
@@ -24,7 +23,11 @@ from qwenpaw.drivers.capabilities import (
 
 
 def _capability(name="cap", tool_name="", as_tool=True):
-    exposure = SimpleNamespace(as_tool=as_tool, tool_name=tool_name, namespace="")
+    exposure = SimpleNamespace(
+        as_tool=as_tool,
+        tool_name=tool_name,
+        namespace="",
+    )
     return DriverCapability(
         capability_id=f"id:{name}",
         driver_name="drv",
@@ -78,7 +81,12 @@ class TestStringify:
 
 class TestBlocksFromMcpContent:
     def test_text_item(self):
-        item = SimpleNamespace(text="hi", data=None, mimeType=None, resource=None)
+        item = SimpleNamespace(
+            text="hi",
+            data=None,
+            mimeType=None,
+            resource=None,
+        )
         blocks = at._blocks_from_mcp_content([item])
         assert len(blocks) == 1
         assert blocks[0].text == "hi"
@@ -96,14 +104,24 @@ class TestBlocksFromMcpContent:
 
     def test_resource_text_item(self):
         resource = SimpleNamespace(text="resource body")
-        item = SimpleNamespace(text=None, data=None, mimeType=None, resource=resource)
+        item = SimpleNamespace(
+            text=None,
+            data=None,
+            mimeType=None,
+            resource=resource,
+        )
         blocks = at._blocks_from_mcp_content([item])
         assert len(blocks) == 1
         assert blocks[0].text == "resource body"
 
     def test_resource_without_text_stringified(self):
         resource = SimpleNamespace(uri="file:///x")
-        item = SimpleNamespace(text=None, data=None, mimeType=None, resource=resource)
+        item = SimpleNamespace(
+            text=None,
+            data=None,
+            mimeType=None,
+            resource=resource,
+        )
         blocks = at._blocks_from_mcp_content([item])
         assert len(blocks) == 1
 
@@ -130,7 +148,14 @@ class TestBlocksFromValue:
 
     def test_mcp_call_result_expanded(self):
         value = SimpleNamespace(
-            content=[SimpleNamespace(text="x", data=None, mimeType=None, resource=None)],
+            content=[
+                SimpleNamespace(
+                    text="x",
+                    data=None,
+                    mimeType=None,
+                    resource=None,
+                ),
+            ],
             isError=False,
             structuredContent=None,
         )
@@ -140,7 +165,14 @@ class TestBlocksFromValue:
 
     def test_mcp_with_structured_content_appended(self):
         value = SimpleNamespace(
-            content=[SimpleNamespace(text="x", data=None, mimeType=None, resource=None)],
+            content=[
+                SimpleNamespace(
+                    text="x",
+                    data=None,
+                    mimeType=None,
+                    resource=None,
+                ),
+            ],
             isError=False,
             structuredContent={"k": "v"},
         )
@@ -148,7 +180,11 @@ class TestBlocksFromValue:
         assert len(blocks) == 2
 
     def test_mcp_empty_content_gives_placeholder(self):
-        value = SimpleNamespace(content=[], isError=False, structuredContent=None)
+        value = SimpleNamespace(
+            content=[],
+            isError=False,
+            structuredContent=None,
+        )
         blocks = at._blocks_from_value(value)
         assert len(blocks) == 1
         assert blocks[0].text == ""
@@ -168,7 +204,11 @@ class TestToolChunkFromDriverResult:
         assert chunk.content[0].text == "done"
 
     def test_ok_but_value_is_error(self):
-        value = SimpleNamespace(content=[], isError=True, structuredContent=None)
+        value = SimpleNamespace(
+            content=[],
+            isError=True,
+            structuredContent=None,
+        )
         result = DriverInvocationResult(ok=True, value=value)
         chunk = at._tool_chunk_from_driver_result(result)
         assert chunk.state == ToolResultState.ERROR

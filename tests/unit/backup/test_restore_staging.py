@@ -7,10 +7,9 @@ target probing (_restore_directory_targets), the profile merge
 and the global config staging (_stage_global_config), which had no
 direct test coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
-import io
 import json
 import zipfile
 from pathlib import Path
@@ -378,9 +377,12 @@ class TestStageGlobalConfig:
     def test_skip_when_not_requested(self, backup_zip, tmp_path):
         req = RestoreBackupRequest(include_global_config=False)
         meta = BackupMeta(name="t", version="1")
-        result = restore._stage_global_config(zf=_open_zip(backup_zip),
-                                              req=req, meta=meta,
-                                              restore_aids=set())
+        result = restore._stage_global_config(
+            zf=_open_zip(backup_zip),
+            req=req,
+            meta=meta,
+            restore_aids=set(),
+        )
         assert result is None
 
     def test_full_mode_copies_verbatim(

@@ -6,7 +6,7 @@ outbound keyboard render path and the inbound click handling
 (ack, duplicate suppression, resolved message, command re-injection).
 The channel is stubbed, so no network or token machinery is involved.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json
@@ -431,8 +431,13 @@ class TestRender:
 
         async def fake_api_request(http, token, method, path, body):
             posts.append(
-                {"http": http, "token": token, "method": method,
-                 "path": path, "body": body},
+                {
+                    "http": http,
+                    "token": token,
+                    "method": method,
+                    "path": path,
+                    "body": body,
+                },
             )
 
         monkeypatch.setattr(
@@ -653,8 +658,11 @@ class TestHandle:
         await tg.handle(channel, _click_event(ctx={"sender": "user-1"}))
 
         assert acks == [
-            {"method": "PUT", "path": "/interactions/interaction-1",
-             "body": {"code": 0}},
+            {
+                "method": "PUT",
+                "path": "/interactions/interaction-1",
+                "body": {"code": 0},
+            },
         ]
         assert len(channel.fallback_calls) == 1
         assert len(channel.enqueued) == 1
@@ -976,8 +984,13 @@ class TestAckInteraction:
         await tg._ack_interaction(channel, "inter-1", code=3)
 
         assert calls == [
-            (channel._http, "token-abc", "PUT", "/interactions/inter-1",
-             {"code": 3}),
+            (
+                channel._http,
+                "token-abc",
+                "PUT",
+                "/interactions/inter-1",
+                {"code": 3},
+            ),
         ]
 
     async def test_token_failure_is_swallowed(self, monkeypatch):

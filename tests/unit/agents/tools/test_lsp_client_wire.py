@@ -10,7 +10,6 @@ spawning stubbed out.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -118,6 +117,8 @@ class TestParseMessages:
         buffer = f"content-length: {len(body)}\r\n\r\n".encode() + body
         messages, leftover = lsp.parse_messages(buffer)
         assert messages == [payload]
+        # The buffer was consumed exactly, so nothing is left over.
+        assert leftover == b""
 
 
 # ---------------------------------------------------------------------------

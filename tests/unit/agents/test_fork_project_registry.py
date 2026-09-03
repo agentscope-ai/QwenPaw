@@ -7,13 +7,12 @@ pointer resolution, the git-root resolution (including the .git-file
 worktree exclusion), the agent workspace fallback, and the unix branch
 of the lock-file acquire helper.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
 
 from qwenpaw.agents.fork_project import (
     _lock_file_acquire,
@@ -253,7 +252,10 @@ class TestResolveGitProjectDir:
         from types import SimpleNamespace
 
         workspace = _make_git_repo(tmp_path / "ws")
-        config = SimpleNamespace(project_dir=None, workspace_dir=str(workspace))
+        config = SimpleNamespace(
+            project_dir=None,
+            workspace_dir=str(workspace),
+        )
         monkeypatch.setattr(
             "qwenpaw.config.config.load_agent_config",
             lambda aid: config,
@@ -261,7 +263,11 @@ class TestResolveGitProjectDir:
         result = resolve_git_project_dir(None, agent_id="agent-1")
         assert result == workspace
 
-    def test_explicit_workspace_not_rebound_by_agent(self, tmp_path, monkeypatch):
+    def test_explicit_workspace_not_rebound_by_agent(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         """An explicit workspace_dir wins and no agent lookup happens."""
         from types import SimpleNamespace
 
@@ -291,24 +297,17 @@ class TestResolveGitProjectDir:
 class TestLockFileAcquire:
     def test_blocking_acquire_and_release(self, tmp_path):
         lock_path = tmp_path / "test.lock"
-        fh = open(lock_path, "w+")
-        try:
+        with open(lock_path, "w+", encoding="utf-8") as fh:
             assert _lock_file_acquire(fh, blocking=True) is True
             _lock_file_release(fh)
-        finally:
-            fh.close()
 
     def test_non_blocking_fails_when_held(self, tmp_path):
         lock_path = tmp_path / "test.lock"
-        fh_first = open(lock_path, "w+")
-        fh_second = open(lock_path, "w+")
-        try:
-            assert _lock_file_acquire(fh_first, blocking=True) is True
-            assert _lock_file_acquire(fh_second, blocking=False) is False
-            _lock_file_release(fh_first)
-            # released -> second handle can now take it
-            assert _lock_file_acquire(fh_second, blocking=False) is True
-            _lock_file_release(fh_second)
-        finally:
-            fh_first.close()
-            fh_second.close()
+        with open(lock_path, "w+", encoding="utf-8") as fh_first:
+            with open(lock_path, "w+", encoding="utf-8") as fh_second:
+                assert _lock_file_acquire(fh_first, blocking=True) is True
+                assert _lock_file_acquire(fh_second, blocking=False) is False
+                _lock_file_release(fh_first)
+                # released -> second handle can now take it
+                assert _lock_file_acquire(fh_second, blocking=False) is True
+                _lock_file_release(fh_second)

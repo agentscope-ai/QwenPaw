@@ -6,13 +6,12 @@ _turn_from_stats, find_turn_closing_assistant_in_context,
 _write_turn_usage_meta, and _load_agent_state, which previously had no
 dedicated coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-import pytest
 
 from qwenpaw.token_usage import turn_usage as tu
 
@@ -40,7 +39,11 @@ class TestFmtTokens:
 
 class TestReconcileTurnCompletion:
     def test_under_reported_completion_patched(self):
-        turn = {"prompt_tokens": 100, "completion_tokens": 1, "total_tokens": 101}
+        turn = {
+            "prompt_tokens": 100,
+            "completion_tokens": 1,
+            "total_tokens": 101,
+        }
         stats = {"latest_assistant_tokens": 50}
         result = tu.reconcile_turn_completion_from_stats(turn, stats)
         assert result["completion_tokens"] == 50
@@ -49,19 +52,31 @@ class TestReconcileTurnCompletion:
         assert result["prompt_tokens"] == 100
 
     def test_zero_completion_patched(self):
-        turn = {"prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10}
+        turn = {
+            "prompt_tokens": 10,
+            "completion_tokens": 0,
+            "total_tokens": 10,
+        }
         stats = {"latest_assistant_tokens": 20}
         result = tu.reconcile_turn_completion_from_stats(turn, stats)
         assert result["completion_tokens"] == 20
 
     def test_actual_higher_than_estimate_untouched(self):
-        turn = {"prompt_tokens": 10, "completion_tokens": 100, "total_tokens": 110}
+        turn = {
+            "prompt_tokens": 10,
+            "completion_tokens": 100,
+            "total_tokens": 110,
+        }
         stats = {"latest_assistant_tokens": 50}
         result = tu.reconcile_turn_completion_from_stats(turn, stats)
         assert result == turn  # unchanged
 
     def test_zero_estimate_untouched(self):
-        turn = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        turn = {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        }
         stats = {"latest_assistant_tokens": 0}
         result = tu.reconcile_turn_completion_from_stats(turn, stats)
         assert result == turn
@@ -154,14 +169,21 @@ class TestWriteTurnUsageMeta:
         msg = SimpleNamespace(metadata={})
         ok = tu._write_turn_usage_meta(msg, {"total_tokens": 5}, None)
         assert ok is True
-        assert msg.metadata[tu.TURN_USAGE_META_KEY]["usage"]["total_tokens"] == 5
+        assert (
+            msg.metadata[tu.TURN_USAGE_META_KEY]["usage"]["total_tokens"] == 5
+        )
         assert msg.metadata[tu.TURN_USAGE_META_KEY]["context_usage"] is None
 
     def test_creates_metadata_when_missing(self):
         msg = SimpleNamespace(metadata=None)
         ok = tu._write_turn_usage_meta(msg, None, {"estimated_tokens": 9})
         assert ok is True
-        assert msg.metadata[tu.TURN_USAGE_META_KEY]["context_usage"]["estimated_tokens"] == 9
+        assert (
+            msg.metadata[tu.TURN_USAGE_META_KEY]["context_usage"][
+                "estimated_tokens"
+            ]
+            == 9
+        )
 
     def test_none_msg_returns_false(self):
         assert tu._write_turn_usage_meta(None, {"a": 1}, None) is False

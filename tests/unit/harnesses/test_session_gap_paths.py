@@ -5,7 +5,7 @@ Complements ``test_session.py`` by covering ``has_history``,
 ``hydrate`` (including the no-op when a transcript exists), ``clear``,
 and the history-kind branches of ``_history_messages``.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 from pathlib import Path
@@ -100,11 +100,14 @@ class TestHydrate:
             backend="codex",
             history=[],
         )
-        assert await bridge.has_history(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        ) is False
+        assert (
+            await bridge.has_history(
+                session_id="s",
+                user_id="u",
+                channel="c",
+            )
+            is False
+        )
 
     async def test_hydrate_persists_all_kinds(self, bridge, session):
         await bridge.hydrate(
@@ -120,7 +123,13 @@ class TestHydrate:
 
         assert len(context) == 5
         roles = [m["role"] for m in context]
-        assert roles == ["user", "assistant", "assistant", "assistant", "assistant"]
+        assert roles == [
+            "user",
+            "assistant",
+            "assistant",
+            "assistant",
+            "assistant",
+        ]
 
         blocks = [m["content"][0] for m in context]
         assert blocks[0]["type"] == "text"
@@ -193,19 +202,25 @@ class TestClear:
             response=response,
             backend="codex",
         )
-        assert await bridge.has_history(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        ) is True
+        assert (
+            await bridge.has_history(
+                session_id="s",
+                user_id="u",
+                channel="c",
+            )
+            is True
+        )
 
         await bridge.clear(session_id="s", user_id="u", channel="c")
 
-        assert await bridge.has_history(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        ) is False
+        assert (
+            await bridge.has_history(
+                session_id="s",
+                user_id="u",
+                channel="c",
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------

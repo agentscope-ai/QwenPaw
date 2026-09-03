@@ -9,8 +9,9 @@ previously had no direct coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-import time
-from pathlib import Path
+# The parent package shadows the module name with a tool function, so
+# resolve the real module object through importlib.
+from importlib import import_module
 
 import pytest
 
@@ -21,10 +22,6 @@ from qwenpaw.agents.tools.delegate_external_agent import (
     _format_timestamp,
     _resolve_execution_cwd,
 )
-
-# The parent package shadows the module name with a tool function, so
-# resolve the real module object through importlib.
-from importlib import import_module
 
 dea = import_module("qwenpaw.agents.tools.delegate_external_agent")
 

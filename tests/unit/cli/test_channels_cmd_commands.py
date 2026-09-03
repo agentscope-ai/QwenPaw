@@ -5,7 +5,7 @@ Covers list_cmd (empty config, enabled/disabled rendering, extra
 pydantic channels) and configure_cmd (interactive-config save-back and
 error handling), which were previously untested.
 """
-# pylint: disable=protected-access,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -130,7 +130,9 @@ class TestListCmd:
     def test_extra_pydantic_channel_included(self, runner, monkeypatch):
         channels = SimpleNamespace(
             console=None,
-            __pydantic_extra__={"custom": {"enabled": True, "url": "http://x"}},
+            __pydantic_extra__={
+                "custom": {"enabled": True, "url": "http://x"},
+            },
         )
         monkeypatch.setattr(
             cc,
@@ -208,7 +210,11 @@ class TestConfigureCmd:
         def fake_configure(config):
             captured["channels"] = config.channels
 
-        monkeypatch.setattr(cc, "configure_channels_interactive", fake_configure)
+        monkeypatch.setattr(
+            cc,
+            "configure_channels_interactive",
+            fake_configure,
+        )
         monkeypatch.setattr(cc, "save_agent_config", lambda a, c: None)
         result = runner.invoke(cc.configure_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0

@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from qwenpaw.runtime.commands.control import approval_handler as ah
 from qwenpaw.runtime.commands.control.base import ControlContext
-from qwenpaw.security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from qwenpaw.security.tool_guard.approval import (
+    ApprovalDecision,
+    ApprovalScope,
+)
 
 
 def _context(args=None):
@@ -119,7 +122,11 @@ class TestHandleDispatch:
 
 
 class TestHandleApprove:
-    async def test_no_pending_returns_empty_message(self, handler, mock_service):
+    async def test_no_pending_returns_empty_message(
+        self,
+        handler,
+        mock_service,
+    ):
         ctx = _context({"action": "approve"})
         result = await handler._handle_approve(ctx)
         assert "无待审批工具" in result
@@ -129,7 +136,11 @@ class TestHandleApprove:
         result = await handler._handle_approve(ctx)
         assert "审批请求不存在" in result
 
-    async def test_permission_guard_blocks_other_agent(self, handler, mock_service):
+    async def test_permission_guard_blocks_other_agent(
+        self,
+        handler,
+        mock_service,
+    ):
         pending = _pending(agent_id="agent-other")
         mock_service.get_request.return_value = pending
         ctx = _context({"action": "approve", "request_id": "req-0001"})
@@ -170,7 +181,9 @@ class TestHandleApprove:
         pending = _pending()
         mock_service.get_request.return_value = pending
         mock_service.resolve_request.return_value = pending
-        ctx = _context({"action": "approve", "request_id": "r", "pattern": True})
+        ctx = _context(
+            {"action": "approve", "request_id": "r", "pattern": True},
+        )
         await handler._handle_approve(ctx)
         call_kwargs = mock_service.resolve_request.await_args.kwargs
         assert call_kwargs.get("scope") == ApprovalScope.SIMILAR
@@ -191,12 +204,20 @@ class TestHandleApprove:
 
 
 class TestHandleDeny:
-    async def test_no_pending_returns_empty_message(self, handler, mock_service):
+    async def test_no_pending_returns_empty_message(
+        self,
+        handler,
+        mock_service,
+    ):
         ctx = _context({"action": "deny"})
         result = await handler._handle_deny(ctx)
         assert "无待审批工具" in result
 
-    async def test_success_denies_with_default_reason(self, handler, mock_service):
+    async def test_success_denies_with_default_reason(
+        self,
+        handler,
+        mock_service,
+    ):
         pending = _pending()
         mock_service.get_request.return_value = pending
         mock_service.resolve_request.return_value = pending
@@ -216,7 +237,11 @@ class TestHandleDeny:
         result = await handler._handle_deny(ctx)
         assert "太危险" in result
 
-    async def test_permission_guard_blocks_other_agent(self, handler, mock_service):
+    async def test_permission_guard_blocks_other_agent(
+        self,
+        handler,
+        mock_service,
+    ):
         pending = _pending(agent_id="agent-other")
         mock_service.get_request.return_value = pending
         ctx = _context({"action": "deny", "request_id": "r"})

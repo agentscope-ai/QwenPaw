@@ -10,7 +10,6 @@ which previously had no coverage.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -72,7 +71,11 @@ class TestGetProjectDir:
         )
         assert fork_module._get_project_dir("a1") == project.resolve()
 
-    def test_workspace_fallback_when_no_project_dir(self, tmp_path, monkeypatch):
+    def test_workspace_fallback_when_no_project_dir(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         workspace = tmp_path / "ws"
         workspace.mkdir()
         (workspace / ".git").mkdir()

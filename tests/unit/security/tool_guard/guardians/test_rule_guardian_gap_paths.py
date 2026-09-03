@@ -7,7 +7,7 @@ granting in ``_is_outside_workspace``, the quote/shlex fallbacks and
 Windows flag handling in ``_extract_rm_targets``, and the config-based
 custom rule loader.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import platform
@@ -187,9 +187,7 @@ class TestIsOutsideWorkspaceProjectRoots:
             lambda: [],
         )
         target = workspace / "f.txt"
-        assert (
-            rg._is_outside_workspace(target, path_is_resolved=True) is False
-        )
+        assert rg._is_outside_workspace(target, path_is_resolved=True) is False
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +269,8 @@ class TestCheckRmTargets:
             f"rm {workspace / 'safe.txt'}",
         )
         assert found is False
+        # A target inside the workspace is never collected.
+        assert paths == []
 
     def test_outside_target_flagged_with_arrow_format(self, workspace):
         outside = workspace.parent / "outside.txt"
