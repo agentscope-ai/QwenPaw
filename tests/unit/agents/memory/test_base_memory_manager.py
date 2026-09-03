@@ -33,9 +33,6 @@ def _make_concrete_class():
         def get_memory_prompt(self) -> str:
             return ""
 
-        def list_memory_tools(self):
-            return []
-
         # Compat: older installed versions declare these as abstract too
         async def compact_tool_result(self, **_kwargs):
             pass
@@ -51,6 +48,9 @@ def _make_concrete_class():
 
         async def memory_search(self, query, **_kwargs):
             return None
+
+        async def auto_memory(self, messages, **_kwargs):
+            return ""
 
         def get_in_memory_memory(self, **_kwargs):
             return None
@@ -90,78 +90,81 @@ class TestBaseMemoryManagerInit:
     def test_agent_id_is_stored(self, manager):
         assert manager.agent_id == "test-agent"
 
-    def test_summary_task_info_starts_empty(self, manager):
-        assert manager._summary_task_info == {}
+    def test_auto_memory_task_info_starts_empty(self, manager):
+        assert manager._auto_memory_task_info == {}
 
     def test_task_counter_starts_at_zero(self, manager):
         assert manager._task_counter == 0
 
-    def test_worker_task_is_none_initially(self, manager):
-        assert manager._worker_task is None
+    def test_auto_memory_worker_task_is_none_initially(self, manager):
+        assert manager._auto_memory_worker_task is None
+
+    def test_search_tool_is_exposed_by_default(self, manager):
+        assert manager.list_memory_tools() == [manager.memory_search]
 
 
 # ---------------------------------------------------------------------------
-# TestBaseMemoryManagerAddSummarizeTask
+# TestBaseMemoryManagerAddAutoMemoryTask
 # ---------------------------------------------------------------------------
 
 
-class TestBaseMemoryManagerAddSummarizeTask:
-    """P1: Tests for add_summarize_task."""
+class TestBaseMemoryManagerAddAutoMemoryTask:
+    """P1: Tests for add_auto_memory_task."""
 
     async def test_adds_task_info_entry(self, manager):
-        """Scheduling a task creates an entry in _summary_task_info."""
+        """Scheduling a task creates an entry in _auto_memory_task_info."""
         msgs = [MagicMock()]
-        manager.add_summarize_task(msgs)
-        assert len(manager._summary_task_info) == 1
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        manager.add_auto_memory_task(msgs)
+        assert len(manager._auto_memory_task_info) == 1
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
     async def test_task_starts_as_pending(self, manager):
         """New task has status 'pending'."""
-        manager.add_summarize_task([MagicMock()])
-        info = list(manager._summary_task_info.values())[0]
+        manager.add_auto_memory_task([MagicMock()])
+        info = list(manager._auto_memory_task_info.values())[0]
         assert info["status"] == "pending"
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
     async def test_counter_increments_per_task(self, manager):
         """Each call increments the task counter."""
-        manager.add_summarize_task([MagicMock()])
-        manager.add_summarize_task([MagicMock()])
+        manager.add_auto_memory_task([MagicMock()])
+        manager.add_auto_memory_task([MagicMock()])
         assert manager._task_counter == 2
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
-    async def test_worker_task_created(self, manager):
+    async def test_auto_memory_worker_task_created(self, manager):
         """Scheduling a task starts the background worker."""
-        manager.add_summarize_task([MagicMock()])
-        assert manager._worker_task is not None
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        manager.add_auto_memory_task([MagicMock()])
+        assert manager._auto_memory_worker_task is not None
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
     async def test_task_info_does_not_retain_worker(self, manager):
-        manager.add_summarize_task([MagicMock()])
+        manager.add_auto_memory_task([MagicMock()])
 
-        info = next(iter(manager._summary_task_info.values()))
+        info = next(iter(manager._auto_memory_task_info.values()))
         assert "task" not in info
 
-        await manager._shutdown_summarize_worker()
+        await manager._shutdown_auto_memory_worker()
 
     async def test_keeps_only_latest_terminal_tasks(
         self,
@@ -170,45 +173,45 @@ class TestBaseMemoryManagerAddSummarizeTask:
     ):
         monkeypatch.setattr(
             base_memory_manager,
-            "MAX_SUMMARY_TASK_HISTORY",
+            "MAX_AUTO_MEMORY_TASK_HISTORY",
             2,
         )
         completed = asyncio.Event()
         calls = 0
 
-        async def summarize(*_args, **_kwargs):
+        async def auto_memory(*_args, **_kwargs):
             nonlocal calls
             calls += 1
             if calls == 3:
                 completed.set()
             return f"result-{calls}"
 
-        manager.summarize = summarize
+        manager.auto_memory = auto_memory
         for _ in range(3):
-            manager.add_summarize_task([MagicMock()])
+            manager.add_auto_memory_task([MagicMock()])
 
         await asyncio.wait_for(completed.wait(), timeout=1)
         await asyncio.sleep(0)
 
-        assert list(manager._summary_task_info) == ["task_2", "task_3"]
-        await manager._shutdown_summarize_worker()
+        assert list(manager._auto_memory_task_info) == ["task_2", "task_3"]
+        await manager._shutdown_auto_memory_worker()
 
     def test_pruning_keeps_non_terminal_tasks(self, manager, monkeypatch):
         monkeypatch.setattr(
             base_memory_manager,
-            "MAX_SUMMARY_TASK_HISTORY",
+            "MAX_AUTO_MEMORY_TASK_HISTORY",
             1,
         )
-        manager._summary_task_info = {
+        manager._auto_memory_task_info = {
             "task_1": {"status": "completed"},
             "task_2": {"status": "running"},
             "task_3": {"status": "failed"},
             "task_4": {"status": "pending"},
         }
 
-        manager._prune_summary_task_info()
+        manager._prune_auto_memory_task_info()
 
-        assert list(manager._summary_task_info) == [
+        assert list(manager._auto_memory_task_info) == [
             "task_2",
             "task_3",
             "task_4",
@@ -228,14 +231,14 @@ class TestBaseMemoryManagerAddSummarizeTask:
             except asyncio.CancelledError:
                 return "completed after cancellation"
 
-        manager.summarize = swallow_cancellation
-        manager.add_summarize_task([MagicMock()])
+        manager.auto_memory = swallow_cancellation
+        manager.add_auto_memory_task([MagicMock()])
         await started.wait()
 
-        stopped = await manager._shutdown_summarize_worker(timeout=0.5)
+        stopped = await manager._shutdown_auto_memory_worker(timeout=0.5)
 
         assert stopped is True
-        assert manager._worker_task is None
+        assert manager._auto_memory_worker_task is None
 
     async def test_shutdown_timeout_is_bounded(self, manager):
         """Repeated cancellation suppression cannot hang close."""
@@ -251,10 +254,10 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     continue
 
         worker = asyncio.create_task(ignore_cancellation())
-        manager._worker_task = worker
+        manager._auto_memory_worker_task = worker
         await started.wait()
 
-        stopped = await manager._shutdown_summarize_worker(timeout=0.01)
+        stopped = await manager._shutdown_auto_memory_worker(timeout=0.01)
 
         assert stopped is False
         keep_running.set()
@@ -267,7 +270,7 @@ class TestBaseMemoryManagerAddSummarizeTask:
     ):
         manager.get_auto_memory_interval = MagicMock(return_value=5)
         long_result = "r" * (base_memory_manager.MAX_RUNTIME_RESULT_CHARS + 10)
-        manager._summary_task_info = {
+        manager._auto_memory_task_info = {
             "task_1": {
                 "task_id": "task_1",
                 "status": "completed",
@@ -470,37 +473,37 @@ class TestAutoMemorySearchSanitization:
 
 
 # ---------------------------------------------------------------------------
-# TestBaseMemoryManagerListSummarizeStatus
+# TestBaseMemoryManagerListAutoMemoryStatus
 # ---------------------------------------------------------------------------
 
 
-class TestBaseMemoryManagerListSummarizeStatus:
-    """P1: Tests for list_summarize_status."""
+class TestBaseMemoryManagerListAutoMemoryStatus:
+    """P1: Tests for list_auto_memory_status."""
 
     def test_returns_empty_when_no_tasks(self, manager):
-        result = manager.list_summarize_status()
+        result = manager.list_auto_memory_status()
         assert result == []
 
     async def test_returns_status_for_pending_task(self, manager):
-        manager.add_summarize_task([MagicMock()])
-        statuses = manager.list_summarize_status()
+        manager.add_auto_memory_task([MagicMock()])
+        statuses = manager.list_auto_memory_status()
         assert len(statuses) == 1
         assert statuses[0]["status"] == "pending"
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass
 
     async def test_status_dict_has_required_keys(self, manager):
-        manager.add_summarize_task([MagicMock()])
-        status = manager.list_summarize_status()[0]
+        manager.add_auto_memory_task([MagicMock()])
+        status = manager.list_auto_memory_status()[0]
         for key in ("task_id", "start_time", "status", "result", "error"):
             assert key in status
-        if manager._worker_task:
-            manager._worker_task.cancel()
+        if manager._auto_memory_worker_task:
+            manager._auto_memory_worker_task.cancel()
             try:
-                await manager._worker_task
+                await manager._auto_memory_worker_task
             except (asyncio.CancelledError, Exception):
                 pass

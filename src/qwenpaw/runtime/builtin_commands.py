@@ -278,9 +278,7 @@ _CONVERSATION_COMMANDS = frozenset(
         "proactive",
         "plan",
         "system_prompt",
-        "dream",
-        "memorize",
-        "reme_status",
+        "reme",
     },
 )
 

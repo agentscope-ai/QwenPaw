@@ -252,8 +252,13 @@ class AutoMemoryMsgBuilder(BaseMemoryManager):
     def get_memory_prompt(self) -> str:
         return ""
 
-    def list_memory_tools(self) -> list:
-        return []
+    async def memory_search(self, query: str, **_kwargs):
+        del query
+        return None
+
+    async def auto_memory(self, messages: list[Msg], **_kwargs) -> str:
+        del messages
+        return ""
 
 
 @pytest.fixture

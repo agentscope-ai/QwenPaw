@@ -4,7 +4,7 @@
 
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from agentscope.message import Msg, TextBlock, ToolResultState
@@ -103,3 +103,18 @@ async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
 
     assert result is None
     manager.memory_search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_adbpg_auto_memory_deduplicates_user_messages(tmp_path):
+    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    manager._client = object()
+    manager._schedule_add = MagicMock()
+    message = _user_msg("remember this")
+
+    first = await manager.auto_memory([message])
+    second = await manager.auto_memory([message])
+
+    assert first == "Persisted 1 user message(s) to ADBPG for agent 'agent-1'."
+    assert second == ""
+    manager._schedule_add.assert_called_once()

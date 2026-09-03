@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING
 
 from .agent_md_manager import AgentMdManager
+from .action_provider import MemoryActionProvider
 from .base_memory_manager import BaseMemoryManager
 from .reme_light_memory_manager import ReMeLightMemoryManager
 from .adbpg_memory_manager import (
@@ -34,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
 __all__ = [
     "AgentMdManager",
     "BaseMemoryManager",
+    "MemoryActionProvider",
     "ReMeLightMemoryManager",
     "ADBPGMemoryManager",
     "NoopMemoryManager",

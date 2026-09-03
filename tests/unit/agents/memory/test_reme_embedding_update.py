@@ -170,7 +170,7 @@ async def test_manual_reindex_clears_persisted_requirement() -> None:
             side_effect=update_config,
         ) as update_config_mock,
     ):
-        response = await manager.rebuild_index()
+        response = await manager._rebuild_index()
 
     assert response.success is True
     assert profile.running.reme_light_memory_config.needs_reindex is False
@@ -209,7 +209,7 @@ async def test_reindex_rejects_disabled_target_without_mutation() -> None:
             match="requires an enabled embedding configuration",
         ),
     ):
-        await manager.rebuild_index("embedding")
+        await manager._rebuild_index("embedding")
 
     assert memory_config.needs_reindex is True
     assert memory_config.pending_reindex_embedding_config == indexed
@@ -244,7 +244,7 @@ async def test_all_reindex_rejects_disabled_embedding() -> None:
             match="all-scope index rebuild requires an enabled",
         ),
     ):
-        await manager.rebuild_index("all")
+        await manager._rebuild_index("all")
 
     assert memory_config.needs_reindex is True
     assert memory_config.pending_reindex_embedding_config == indexed
@@ -307,7 +307,7 @@ async def test_reindex_cancellation_after_persist_still_closes_live_gate() -> (
         ),
         pytest.raises(asyncio.CancelledError),
     ):
-        await manager.rebuild_index("embedding")
+        await manager._rebuild_index("embedding")
 
     assert memory_config.needs_reindex is True
     assert memory_config.pending_reindex_embedding_config is None
@@ -349,7 +349,7 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
             side_effect=update_config,
         ),
     ):
-        response = await manager.rebuild_index()
+        response = await manager._rebuild_index()
 
     assert response.success is True
     assert memory_config.needs_reindex is True
@@ -393,7 +393,7 @@ async def test_reindex_cancel_regates_newer_vector_space() -> None:
         ),
         pytest.raises(asyncio.CancelledError),
     ):
-        await manager.rebuild_index("embedding")
+        await manager._rebuild_index("embedding")
 
     assert memory_config.embedding_model_config == newer
     assert memory_config.needs_reindex is True
@@ -435,7 +435,7 @@ async def test_reindex_regates_vectors_when_state_persistence_fails() -> None:
         ),
         pytest.raises(OSError, match="disk full"),
     ):
-        await manager.rebuild_index("embedding")
+        await manager._rebuild_index("embedding")
 
     assert memory_config.needs_reindex is True
     require_rebuild = manager._reme.file_store.require_embedding_rebuild
@@ -471,7 +471,7 @@ async def test_failed_embedding_reindex_keeps_vector_search_disabled() -> None:
             side_effect=update_config,
         ),
     ):
-        response = await manager.rebuild_index("embedding")
+        response = await manager._rebuild_index("embedding")
 
     assert response.success is False
     assert memory_config.needs_reindex is True
@@ -508,7 +508,7 @@ async def test_cancelled_embedding_reindex_keeps_restart_gate_persisted() -> (
         ),
         pytest.raises(asyncio.CancelledError),
     ):
-        await manager.rebuild_index("embedding")
+        await manager._rebuild_index("embedding")
 
     assert memory_config.needs_reindex is True
     assert memory_config.pending_reindex_embedding_config is None
@@ -758,7 +758,7 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary() -> None:
             side_effect=update_config,
         ),
     ):
-        reindex = asyncio.create_task(manager.rebuild_index())
+        reindex = asyncio.create_task(manager._rebuild_index())
         await reindex_started.wait()
         update = asyncio.create_task(
             manager.apply_tested_embedding(new_config),

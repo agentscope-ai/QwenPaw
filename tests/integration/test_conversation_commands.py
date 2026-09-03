@@ -167,10 +167,10 @@ def test_memory_status_commands(
     app_server,
     provider,  # pylint: disable=redefined-outer-name,unused-argument
 ):
-    """/reme_status and /memorize exercise the memory paths.
+    """Unified /reme status and auto_memory exercise the memory paths.
 
     Test purpose:
-      - Cover the ReMe status report and the memorize command branch
+      - Cover the ReMe status report and current-session auto-memory branch
         (which may degrade gracefully when memory is unavailable).
     """
     user = "integ-cmd-memory"
@@ -181,13 +181,13 @@ def test_memory_status_commands(
         == "finished"
     )
     assert (
-        _send(app_server, user_id=user, text="/reme_status").get(
+        _send(app_server, user_id=user, text="/reme status").get(
             "status",
         )
         == "finished"
     )
     assert (
-        _send(app_server, user_id=user, text="/memorize").get(
+        _send(app_server, user_id=user, text="/reme auto_memory").get(
             "status",
         )
         == "finished"
@@ -492,23 +492,23 @@ def test_compact_str_reports_summary_state(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_dream_command_completes(
+def test_reme_auto_dream_command_completes(
     app_server,
     provider,  # pylint: disable=redefined-outer-name,unused-argument
 ):
-    """/dream answers even when no memory manager is configured.
+    """/reme auto_dream answers without an active memory manager.
 
     Test purpose:
-      - Cover _process_dream's guard branch: this environment has no
+      - Cover _process_reme's guard branch: this environment has no
         active memory manager, so the command must report that it cannot
         run an auto-dream rather than raising into the turn.
     """
     user = "integ-cmd-dream"
     _send(app_server, user_id=user, text="seed a turn")
-    final = _send(app_server, user_id=user, text="/dream")
+    final = _send(app_server, user_id=user, text="/reme auto_dream")
     assert final.get("status") == "finished", final
     body = _reply_text(final)
-    assert "dream" in body.lower(), body[:2000]
+    assert "memory manager disabled" in body.lower(), body[:2000]
 
 
 @pytest.mark.integration

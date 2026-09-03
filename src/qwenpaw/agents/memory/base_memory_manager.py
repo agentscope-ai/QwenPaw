@@ -28,12 +28,12 @@ from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
 MAX_QUERY_CHARS = 50
-SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
-MAX_SUMMARY_TASK_HISTORY = 100
+AUTO_MEMORY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
+MAX_AUTO_MEMORY_TASK_HISTORY = 100
 MAX_RUNTIME_TASK_HISTORY = 20
 MAX_RUNTIME_RESULT_CHARS = 4000
 MAX_RUNTIME_ERROR_CHARS = 240
-SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+AUTO_MEMORY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class BaseMemoryManager(ABC):
@@ -42,7 +42,7 @@ class BaseMemoryManager(ABC):
     Lifecycle:
         1. Instantiate with ``working_dir`` and ``agent_id``.
         2. ``await start()`` – initialize storage backend.
-        3. Use ``summarize()``, ``memory_search()``, etc. during session.
+        3. Use ``auto_memory()``, ``memory_search()``, etc. during session.
         4. ``await close()`` – flush and release resources.
 
     Attributes:
@@ -55,13 +55,13 @@ class BaseMemoryManager(ABC):
     def __init__(self, working_dir: str, agent_id: str):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
-        self._summary_task_info: dict[str, dict[str, Any]] = {}
+        self._auto_memory_task_info: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
-        self._task_queue: asyncio.Queue[
+        self._auto_memory_task_queue: asyncio.Queue[
             tuple[str, list[Msg], dict]
         ] = asyncio.Queue()
-        self._worker_task: asyncio.Task | None = None
-        self._worker_stopping = False
+        self._auto_memory_worker_task: asyncio.Task | None = None
+        self._auto_memory_worker_stopping = False
 
     @abstractmethod
     async def start(self) -> None:
@@ -84,17 +84,30 @@ class BaseMemoryManager(ABC):
             Formatted memory guidance string.
         """
 
-    @abstractmethod
     def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
-        """Return tool functions exposed to the agent for memory access.
+        """Return the core memory-search tool when manually enabled."""
+        return [self.memory_search] if self.is_memory_search_enabled() else []
 
-        Each returned callable may have any signature but must return a
-        ``ToolChunk``.  Implementations register whatever memory-related
-        tools make sense for the backend (e.g. semantic search, listing).
+    def is_memory_search_enabled(self) -> bool:
+        """Return whether the search tool should be exposed to the agent."""
+        return True
 
-        Returns:
-            Ordered list of tool functions to register with the agent toolkit.
-        """
+    @abstractmethod
+    async def memory_search(
+        self,
+        query: str,
+        max_results: int = 5,
+        **kwargs: Any,
+    ) -> ToolChunk:
+        """Search long-term memory and return a tool-compatible result."""
+
+    @abstractmethod
+    async def auto_memory(
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
+        """Extract or persist memory for one prepared message batch."""
 
     def build_middlewares(self) -> list[MiddlewareBase]:
         """Return AgentScope middlewares contributed by this manager.
@@ -243,68 +256,58 @@ class BaseMemoryManager(ABC):
             return 0
         return int(len(text.encode("utf-8")) / estimate_divisor + 0.5)
 
-    # pylint: disable=unused-argument
-    async def summarize(self, messages: list[Msg], **kwargs) -> str:
-        """Summarize conversation messages and persist to memory.
-
-        NOTE: This method is optional. Subclasses may override this method
-        to implement actual summarization. Base implementation returns empty
-        string, indicating no summarization support.
-
-        Args:
-            messages: Ordered conversation messages to summarize.
-            **kwargs: Implementation-specific options.
-
-        Returns:
-            Summary string, or empty string if not implemented.
-        """
-        return ""
-
-    # pylint: disable=unused-argument
-    async def dream(self, **kwargs) -> None:
-        """Optimize memory files via a background agent pass.
-
-        NOTE: This method is optional. Subclasses may override this method
-        to implement actual memory optimization. Base implementation does
-        nothing, indicating no dream support.
-
-        Runs a lightweight ReAct agent with file-editing tools to
-        consolidate redundant or outdated memory entries.
-        """
-        return None
-
-    async def reme_status(self) -> Any | None:
-        """Return ReMe runtime status when supported by the backend."""
-        return None
-
-    async def graph_snapshot(self) -> Any | None:
-        """Return a frontend-ready memory graph when supported."""
-        return None
-
-    async def rebuild_index(self, scope: str = "all") -> Any | None:
-        """Rebuild the memory search index when supported by the backend."""
-        return None
-
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> dict | None:
-        """Auto-search memory before replying (pre_reply phase).
+        """Search memory and inject the result before the model call."""
+        del agent_name, kwargs
+        enabled, max_results, estimate_divisor = (
+            await self._get_auto_memory_search_options()
+        )
+        if not enabled:
+            return None
 
-        Implementations should check internal config to decide whether
-        auto search is enabled, and if so, retrieve relevant memory context.
+        msgs = [messages] if isinstance(messages, Msg) else list(messages)
+        query = self._build_query(msgs)
+        if not query:
+            return None
 
-        Args:
-            messages: The incoming user message(s).
-            agent_name: Name of the owning agent.
+        max_results = max(1, max_results)
+        result = await self.memory_search(
+            query=query,
+            max_results=max_results,
+        )
+        if result.state != ToolResultState.SUCCESS:
+            return None
 
-        Returns:
-            None if auto-search is disabled or no relevant memory found.
-            dict with updated kwargs if memory context should be merged.
-        """
-        return None
+        text = self._tool_chunk_text(result).strip()
+        if self._is_empty_memory_search_result(text):
+            return None
+
+        assistant_msg = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=max_results,
+            text=text,
+            estimate_divisor=estimate_divisor,
+        )
+        return {
+            "query": query,
+            "text": text,
+            "msg": msgs + [assistant_msg],
+        }
+
+    async def _get_auto_memory_search_options(
+        self,
+    ) -> tuple[bool, int, float]:
+        """Return enabled, result limit, and token estimate divisor."""
+        return False, 3, self._get_token_estimate_divisor()
+
+    def _is_empty_memory_search_result(self, text: str) -> bool:
+        """Return whether a successful search contains no memories."""
+        return not text
 
     @staticmethod
     def _build_query(messages: list[Msg]) -> str:
@@ -316,21 +319,14 @@ class BaseMemoryManager(ABC):
                 return text[:MAX_QUERY_CHARS]
         return ""
 
-    async def auto_memory(
-        self,
-        all_messages: list[Msg],
-        **kwargs,
-    ) -> None:
-        """Periodically auto-extract memory from conversation.
-
-        Called during post_reply. Implementations should check internal
-        config (e.g. auto_memory_interval) and trigger memory extraction
-        at the configured cadence.
-
-        Args:
-            all_messages: All conversation messages.
-        """
-        return None
+    @staticmethod
+    def _tool_chunk_text(chunk: ToolChunk) -> str:
+        """Join the text blocks returned by a memory-search tool."""
+        return "\n".join(
+            str(text)
+            for block in chunk.content or []
+            if (text := getattr(block, "text", ""))
+        )
 
     @classmethod
     def _messages_without_auto_memory_search(
@@ -376,48 +372,48 @@ class BaseMemoryManager(ABC):
             sanitized.metadata.pop(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY, None)
         return sanitized
 
-    async def _summarize_worker(self) -> None:
-        """Background worker that processes summarize tasks serially."""
-        while not self._worker_stopping:
-            task_id, messages, kwargs = await self._task_queue.get()
-            if self._worker_stopping:
+    async def _auto_memory_worker(self) -> None:
+        """Process queued auto-memory tasks serially."""
+        while not self._auto_memory_worker_stopping:
+            task_id, messages, kwargs = await self._auto_memory_task_queue.get()
+            if self._auto_memory_worker_stopping:
                 return
-            info = self._summary_task_info.get(task_id)
+            info = self._auto_memory_task_info.get(task_id)
             if info is None:
                 continue
 
             info["status"] = "running"
-            logger.info(f"Summary task {task_id} started")
+            logger.info("Auto-memory task %s started", task_id)
             try:
-                result = await self.summarize(messages=messages, **kwargs)
+                result = await self.auto_memory(messages=messages, **kwargs)
                 info["status"] = "completed"
                 info["result"] = result
-                logger.info(f"Summary task {task_id} completed")
+                logger.info("Auto-memory task %s completed", task_id)
             except asyncio.CancelledError:
                 info["status"] = "cancelled"
-                logger.info(f"Summary task {task_id} cancelled")
+                logger.info("Auto-memory task %s cancelled", task_id)
                 raise
             except BaseException as e:
                 info["status"] = "failed"
                 info["error"] = str(e)
-                logger.error(f"Summary task {task_id} failed: {e}")
+                logger.error("Auto-memory task %s failed: %s", task_id, e)
             finally:
                 info["finished_at"] = datetime.now(timezone.utc)
-                self._prune_summary_task_info()
+                self._prune_auto_memory_task_info()
 
-    async def _shutdown_summarize_worker(
+    async def _shutdown_auto_memory_worker(
         self,
-        timeout: float = SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS,
+        timeout: float = AUTO_MEMORY_WORKER_CLOSE_TIMEOUT_SECONDS,
     ) -> bool:
-        """Stop the summary worker without allowing shutdown to hang.
+        """Stop the auto-memory worker without allowing shutdown to hang.
 
         The stopping flag is required in addition to ``Task.cancel()``:
         cancellation may be consumed by a nested model/job call. In that
-        case the worker exits after the current summarize call returns rather
+        case the worker exits after the current auto-memory call returns rather
         than looping back to an empty queue forever.
         """
-        self._worker_stopping = True
-        worker = self._worker_task
+        self._auto_memory_worker_stopping = True
+        worker = self._auto_memory_worker_task
         if worker is None:
             return True
 
@@ -431,34 +427,44 @@ class BaseMemoryManager(ABC):
                 # bound: a coroutine is allowed to suppress cancellation.
                 worker.cancel()
                 logger.error(
-                    "Summary worker did not stop within %.1fs: agent_id=%s",
+                    "Auto-memory worker did not stop within %.1fs: "
+                    "agent_id=%s",
                     timeout,
                     self.agent_id,
                 )
                 return False
 
-        self._worker_task = None
+        self._auto_memory_worker_task = None
         return True
 
-    def add_summarize_task(self, messages: list[Msg], **kwargs):
-        """Schedule a background summarization task without blocking.
+    def add_auto_memory_task(
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
+        """Schedule an auto-memory task without blocking.
 
         Tasks are executed serially in FIFO order. If no task is running,
         execution starts immediately; otherwise the task queues.
 
         Args:
-            messages: Messages to pass to ``summarize()``.
-            **kwargs: Forwarded to ``summarize()``.
+            messages: Messages to pass to ``auto_memory()``.
+            **kwargs: Forwarded to ``auto_memory()``.
         """
         # Ensure worker is running
-        self._worker_stopping = False
-        if self._worker_task is None or self._worker_task.done():
-            self._worker_task = asyncio.create_task(self._summarize_worker())
+        self._auto_memory_worker_stopping = False
+        if (
+            self._auto_memory_worker_task is None
+            or self._auto_memory_worker_task.done()
+        ):
+            self._auto_memory_worker_task = asyncio.create_task(
+                self._auto_memory_worker(),
+            )
 
         self._task_counter += 1
         task_id = f"task_{self._task_counter}"
 
-        self._summary_task_info[task_id] = {
+        self._auto_memory_task_info[task_id] = {
             "task_id": task_id,
             "start_time": datetime.now(timezone.utc),
             "status": "pending",
@@ -469,52 +475,58 @@ class BaseMemoryManager(ABC):
         }
 
         # Enqueue for serial execution
-        self._task_queue.put_nowait((task_id, messages, kwargs))
+        self._auto_memory_task_queue.put_nowait((task_id, messages, kwargs))
+        return task_id
 
-    def _prune_summary_task_info(self) -> None:
+    def _prune_auto_memory_task_info(self) -> None:
         """Keep active tasks and only the latest terminal task history."""
         terminal_ids = [
             task_id
-            for task_id, info in self._summary_task_info.items()
-            if info["status"] in SUMMARY_TERMINAL_STATUSES
+            for task_id, info in self._auto_memory_task_info.items()
+            if info["status"] in AUTO_MEMORY_TERMINAL_STATUSES
         ]
-        for task_id in terminal_ids[:-MAX_SUMMARY_TASK_HISTORY]:
-            self._summary_task_info.pop(task_id, None)
+        for task_id in terminal_ids[:-MAX_AUTO_MEMORY_TASK_HISTORY]:
+            self._auto_memory_task_info.pop(task_id, None)
 
     def _update_task_statuses(self) -> None:
         """Update status for pending/running tasks if worker was cancelled."""
-        if self._worker_task is None:
+        if self._auto_memory_worker_task is None:
             return
-        if not self._worker_task.done():
+        if not self._auto_memory_worker_task.done():
             return
 
         # Worker finished - update any running tasks
-        for task_id, info in self._summary_task_info.items():
+        for task_id, info in self._auto_memory_task_info.items():
             if info["status"] == "running":
-                if self._worker_task.cancelled():
+                if self._auto_memory_worker_task.cancelled():
                     info["status"] = "cancelled"
                     info["finished_at"] = datetime.now(timezone.utc)
                     logger.info(
-                        f"Summary task {task_id} cancelled (worker stopped)",
+                        "Auto-memory task %s cancelled (worker stopped)",
+                        task_id,
                     )
                 else:
-                    exc = self._worker_task.exception()
+                    exc = self._auto_memory_worker_task.exception()
                     if exc is not None:
                         info["status"] = "failed"
                         info["error"] = str(exc)
                         info["finished_at"] = datetime.now(timezone.utc)
-                        logger.error(f"Summary task {task_id} failed: {exc}")
-        self._prune_summary_task_info()
+                        logger.error(
+                            "Auto-memory task %s failed: %s",
+                            task_id,
+                            exc,
+                        )
+        self._prune_auto_memory_task_info()
 
-    def list_summarize_status(self) -> list[dict]:
-        """Return status of all summary tasks as list of dicts.
+    def list_auto_memory_status(self) -> list[dict]:
+        """Return the status of all queued auto-memory tasks.
 
         Each dict contains:
             - task_id: Unique identifier
             - start_time: When the task was enqueued
             - status: "pending", "running", "completed",
                 "failed", or "cancelled"
-            - result: Summary result (if completed)
+            - result: Auto-memory result (if completed)
             - error: Error message (if failed)
 
         Returns:
@@ -523,7 +535,7 @@ class BaseMemoryManager(ABC):
         self._update_task_statuses()
 
         result = []
-        for _task_id, info in self._summary_task_info.items():
+        for _task_id, info in self._auto_memory_task_info.items():
             result.append(
                 {
                     "task_id": info["task_id"],
@@ -543,7 +555,7 @@ class BaseMemoryManager(ABC):
         """Return a sanitized operational snapshot for status UIs.
 
         Memory-capture history includes the same bounded result text used for
-        inbox notifications. The shared summarize queue contains periodic
+        inbox notifications. The shared auto-memory queue contains periodic
         auto-memory work as well as user-triggered ``/new`` and ``/compact``
         captures, so callers must not present every record as auto-memory.
         It deliberately excludes messages, session identifiers, and task
@@ -551,7 +563,7 @@ class BaseMemoryManager(ABC):
         """
         self._update_task_statuses()
 
-        task_infos = list(self._summary_task_info.values())
+        task_infos = list(self._auto_memory_task_info.values())
         pending_tasks = sum(
             info.get("status") == "pending" for info in task_infos
         )
@@ -559,8 +571,8 @@ class BaseMemoryManager(ABC):
             info.get("status") == "running" for info in task_infos
         )
 
-        worker = self._worker_task
-        if self._worker_stopping:
+        worker = self._auto_memory_worker_task
+        if self._auto_memory_worker_stopping:
             worker_status = "stopping"
         elif running_tasks:
             worker_status = "busy"
@@ -640,7 +652,7 @@ class BaseMemoryManager(ABC):
         return {
             "worker": {
                 "status": worker_status,
-                "queue_pending": self._task_queue.qsize(),
+                "queue_pending": self._auto_memory_task_queue.qsize(),
                 "tasks_running": running_tasks,
             },
             "auto_memory": {

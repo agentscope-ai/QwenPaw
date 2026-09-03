@@ -7,6 +7,7 @@ ReMe's application/job framework.
 """
 
 import asyncio
+from copy import deepcopy
 import hashlib
 import logging
 import os
@@ -16,6 +17,7 @@ from typing import Any, TYPE_CHECKING
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
+from .action_provider import MemoryActionProvider, MemoryActionSpec
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .embedding_model import EmbeddingTestResult
 from .prompts import build_memory_guidance_prompt
@@ -72,7 +74,69 @@ os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
+_REME_LLM_ACTIONS = frozenset(
+    {"auto_dream", "auto_memory", "daily_paper"},
+)
 _REQUIRED_REME_VERSION = "0.4.1.10"
+
+
+def _matches_json_schema_type(value: Any, expected: str) -> bool:
+    """Check the small JSON-Schema type subset used by ReMe jobs."""
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "null":
+        return value is None
+    return True
+
+
+def _validate_reme_job_kwargs(
+    action: str,
+    parameters: dict[str, Any],
+    kwargs: dict[str, Any],
+) -> None:
+    """Validate chat-provided kwargs against a ReMe job's public schema."""
+    properties = parameters.get("properties") or {}
+    required = set(parameters.get("required") or ())
+    missing = sorted(name for name in required if name not in kwargs)
+    if missing:
+        raise ValueError(
+            f"Missing required argument(s) for '{action}': "
+            + ", ".join(missing),
+        )
+
+    unknown = sorted(set(kwargs).difference(properties))
+    if unknown:
+        raise ValueError(
+            f"Unknown argument(s) for '{action}': " + ", ".join(unknown),
+        )
+
+    for name, value in kwargs.items():
+        schema = properties.get(name) or {}
+        expected = schema.get("type")
+        if isinstance(expected, str) and not _matches_json_schema_type(
+            value,
+            expected,
+        ):
+            raise ValueError(
+                f"Argument '{name}' for '{action}' must be {expected}",
+            )
+        choices = schema.get("enum")
+        if choices is not None and value not in choices:
+            rendered = ", ".join(repr(choice) for choice in choices)
+            raise ValueError(
+                f"Argument '{name}' for '{action}' must be one of: "
+                f"{rendered}",
+            )
 
 
 class _ReMeContractError(RuntimeError):
@@ -141,7 +205,7 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
 
 @memory_registry.register("remelight")
 # pylint: disable-next=too-many-public-methods
-class ReMeLightMemoryManager(BaseMemoryManager):
+class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     """Memory manager backed by ReMe.
 
     ReMe uses the QwenPaw workspace root as its vault.  Daily memory,
@@ -227,7 +291,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return
 
     async def close(self) -> bool:
-        """Close ReMe and clean up background summary worker state."""
+        """Close ReMe and clean up the background auto-memory worker."""
         async with self._exclusive_reme_lifecycle("close"):
             return await self._close_reme_unlocked()
 
@@ -238,7 +302,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.agent_id,
         )
 
-        worker_stopped = await self._shutdown_summarize_worker()
+        worker_stopped = await self._shutdown_auto_memory_worker()
 
         if self._reme is not None:
             try:
@@ -311,7 +375,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ServiceCronJob(
                     key="dream",
                     cron=cfg.dream_cron,
-                    callback=self.dream,
+                    callback=self._dream,
                     misfire_grace_seconds=600,
                     jitter_seconds=60,
                 ),
@@ -322,17 +386,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ServiceCronJob(
                     key="daily-paper",
                     cron=cfg.daily_paper_cron,
-                    callback=self.daily_paper,
+                    callback=self._daily_paper,
                     misfire_grace_seconds=600,
                 ),
             )
         return jobs
 
-    def list_memory_tools(self):
-        """Return memory tool functions to register with the agent toolkit."""
-        if not self.get_memory_config().memory_search_enabled:
-            return []
-        return [self.memory_search]
+    def is_memory_search_enabled(self) -> bool:
+        """Return whether ReMe search is exposed to the agent."""
+        return bool(self.get_memory_config().memory_search_enabled)
 
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
@@ -374,7 +436,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def _reload_embedding_config_unlocked(self) -> bool:
         """Recreate embedded ReMe while the caller owns the lifecycle lock."""
         await self._close_reme_unlocked()
-        self._worker_stopping = False
+        self._auto_memory_worker_stopping = False
         await run_sync_io(self._initialize_reme)
         await self.start()
         self._tested_embedding = None
@@ -664,7 +726,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> list[int] | None:
         return await call_reranker_api(query, documents, config)
 
-    async def summarize(
+    async def auto_memory(
         self,
         messages: list[Msg],
         **kwargs: Any,
@@ -672,20 +734,22 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Persist conversation messages through ReMe auto-memory."""
         if not messages:
             return ""
+        messages = self._messages_without_auto_memory_search(messages)
+        if not messages:
+            return ""
 
         session_id = str(kwargs.get("session_id") or "")
         if not session_id:
             logger.warning(
-                "ReMe summarize skipped; session_id is empty: "
+                "ReMe auto-memory skipped; session_id is empty: "
                 "agent_id=%s messages=%s",
                 self.agent_id,
                 len(messages),
             )
             return ""
 
-        response = await self._run_reme_job(
+        response = await self.run_action(
             "auto_memory",
-            needs_llm=True,
             messages=[message.model_dump(mode="json") for message in messages],
             session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
@@ -694,138 +758,95 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return ""
         return str(response.answer or "")
 
-    async def auto_memory_search(
+    async def _get_auto_memory_search_options(
         self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        """Auto-search memory and expose it as a completed tool interaction."""
-        del agent_name
-        del kwargs
+    ) -> tuple[bool, int, float]:
+        """Return ReMe automatic-search settings."""
         agent_config = await load_agent_config_async(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
-        if not memory_cfg.auto_memory_search_config.enabled:
-            return None
-
-        msgs = [messages] if isinstance(messages, Msg) else list(messages)
-        query = self._build_query(msgs)
-        if not query:
-            return None
-
         search_cfg = memory_cfg.auto_memory_search_config
-
-        cap = max(1, search_cfg.max_results)
-        reranker_config = await self._get_reranker_config()
-        # Over-fetch when reranker is enabled: take N * multiplier
-        # candidates, rerank, then return top-N.
-        effective_limit = (
-            cap * reranker_config.candidate_multiplier
-            if reranker_config
-            else cap
-        )
-        response = await self._run_reme_job(
-            "search",
-            query=query,
-            limit=effective_limit,
-            min_score=0,
-        )
-        if response is None or not response.success:
-            return None
-
-        await self._rerank_and_cap_response(
-            query,
-            response,
-            cap,
-            reranker_config,
+        return (
+            bool(search_cfg.enabled),
+            int(search_cfg.max_results),
+            self._resolve_token_estimate_divisor(agent_config),
         )
 
-        text = str(response.answer or "").strip()
-        if not text:
-            return None
+    def _is_empty_memory_search_result(self, text: str) -> bool:
+        """Recognize ReMe's successful empty-search response."""
+        return not text or text == NO_MEMORY_RESULTS
 
-        assistant_msg = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=cap,
-            text=text,
-            estimate_divisor=self._resolve_token_estimate_divisor(
-                agent_config,
-            ),
-        )
-        return {
-            "query": query,
-            "text": text,
-            "msg": msgs + [assistant_msg],
-        }
-
-    async def auto_memory(
-        self,
-        all_messages: list[Msg],
-        **kwargs: Any,
-    ) -> None:
-        """Auto-extract memory for a prepared reply batch."""
-        if not all_messages:
-            return
-        all_messages = self._messages_without_auto_memory_search(all_messages)
-        if not all_messages:
-            return
-        session_id = str(kwargs.get("session_id") or "")
-        if not session_id:
-            logger.warning(
-                "ReMe auto_memory skipped; session_id is empty: "
-                "agent_id=%s messages=%s",
-                self.agent_id,
-                len(all_messages),
-            )
-            return
-
-        self.add_summarize_task(
-            messages=all_messages,
-            session_id=session_id,
-        )
-
-    async def dream(self, **kwargs: Any) -> None:
-        """Run one ReMe auto-dream pass."""
-        response = await self._run_reme_job(
-            "auto_dream",
-            needs_llm=True,
-            date=str(kwargs.get("date") or ""),
-            hint=str(kwargs.get("hint") or ""),
-        )
+    async def _dream(self) -> None:
+        """Run the scheduled ReMe auto-dream action."""
+        response = await self.run_action("auto_dream")
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
 
-    async def daily_paper(self, **kwargs: Any) -> None:
-        """Build one Daily Paper brief and publish its result to inbox."""
+    async def _daily_paper(self) -> None:
+        """Run the scheduled ReMe Daily Paper action with config defaults."""
         cfg = await run_sync_io(self.get_memory_config)
-        response = await self._run_reme_job(
+        response = await self.run_action(
             "daily_paper",
-            needs_llm=True,
-            raise_on_error=True,
-            date=str(kwargs.get("date") or ""),
-            force=bool(kwargs.get("force", False)),
-            use_hf_mirror=bool(
-                kwargs.get(
-                    "use_hf_mirror",
-                    cfg.daily_paper_use_hf_mirror,
-                ),
-            ),
-            topics=str(kwargs.get("topics", cfg.daily_paper_topics) or ""),
+            date="",
+            force=False,
+            use_hf_mirror=bool(cfg.daily_paper_use_hf_mirror),
+            topics=str(cfg.daily_paper_topics or ""),
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")
         if not response.success:
             raise RuntimeError(str(response.answer))
 
-    async def reme_status(self) -> "Response | None":
-        """Return embedded ReMe component memory estimates and process RSS."""
-        return await self._run_reme_job("status")
+    async def list_actions(self) -> dict[str, MemoryActionSpec]:
+        """Describe the servable jobs in this Agent's embedded ReMe app."""
+        async with self._reme_job_lease():
+            reme = self._reme
+            if reme is None or not getattr(reme, "is_started", False):
+                return {}
+            jobs = getattr(getattr(reme, "context", None), "jobs", {})
+            return {
+                name: {
+                    "description": str(getattr(job, "description", "") or ""),
+                    "parameters": deepcopy(
+                        dict(getattr(job, "parameters", {}) or {}),
+                    ),
+                }
+                for name, job in jobs.items()
+                if getattr(job, "enable_serve", True)
+            }
 
-    async def graph_snapshot(self) -> "Response | None":
-        """Return the complete indexed wikilink graph for the console."""
-        return await self._run_reme_job("graph_snapshot")
+    async def run_action(
+        self,
+        action: str,
+        **kwargs: Any,
+    ) -> "Response | None":
+        """Validate and run one servable embedded ReMe job."""
+        async with self._reme_job_lease():
+            reme = self._reme
+            if reme is None or not getattr(reme, "is_started", False):
+                return None
+            jobs = getattr(getattr(reme, "context", None), "jobs", {})
+            job = jobs.get(action)
+            if job is None or not getattr(job, "enable_serve", True):
+                raise ValueError(f"Unknown or unavailable ReMe action: {action}")
+            _validate_reme_job_kwargs(
+                action,
+                dict(getattr(job, "parameters", {}) or {}),
+                kwargs,
+            )
 
-    async def rebuild_index(self, scope: str = "all") -> "Response | None":
+        # Reindex owns a stronger lifecycle transaction than an ordinary job.
+        if action == "reindex":
+            return await self._rebuild_index(str(kwargs.get("scope", "all")))
+
+        return await self._run_reme_job(
+            action,
+            needs_llm=action in _REME_LLM_ACTIONS,
+            raise_on_error=True,
+            **kwargs,
+        )
+
+    async def _rebuild_index(self, scope: str = "all") -> "Response | None":
+        """Rebuild indexes under ReMe's stronger lifecycle transaction."""
         return await self._embedding_service().rebuild_index(scope)
 
     async def undo_embedding_reindex(self) -> EmbeddingModelConfig:

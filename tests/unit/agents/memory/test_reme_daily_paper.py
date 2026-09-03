@@ -2,7 +2,6 @@
 # pylint: disable=protected-access
 """Focused tests for the embedded ReMe Daily Paper entry point."""
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -17,7 +16,7 @@ from qwenpaw.agents.memory.reme_light_memory_manager import (
 @pytest.mark.asyncio
 async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(
+    manager.run_action = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
     manager.get_memory_config = lambda: SimpleNamespace(
@@ -25,12 +24,10 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
         daily_paper_topics="",
     )
 
-    await manager.daily_paper()
+    await manager._daily_paper()
 
-    manager._run_reme_job.assert_awaited_once_with(
+    manager.run_action.assert_awaited_once_with(
         "daily_paper",
-        needs_llm=True,
-        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=False,
@@ -41,7 +38,7 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
 @pytest.mark.asyncio
 async def test_daily_paper_passes_configured_source_preferences() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(
+    manager.run_action = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
     manager.get_memory_config = lambda: SimpleNamespace(
@@ -49,12 +46,10 @@ async def test_daily_paper_passes_configured_source_preferences() -> None:
         daily_paper_topics="agent memory",
     )
 
-    await manager.daily_paper()
+    await manager._daily_paper()
 
-    manager._run_reme_job.assert_awaited_once_with(
+    manager.run_action.assert_awaited_once_with(
         "daily_paper",
-        needs_llm=True,
-        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=True,
@@ -65,35 +60,30 @@ async def test_daily_paper_passes_configured_source_preferences() -> None:
 @pytest.mark.asyncio
 async def test_daily_paper_fails_when_reme_is_unavailable() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(return_value=None)
+    manager.run_action = AsyncMock(return_value=None)
     manager.get_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=False,
         daily_paper_topics="",
     )
 
     with pytest.raises(RuntimeError, match="ReMe is not started"):
-        await manager.daily_paper()
+        await manager._daily_paper()
 
 
 @pytest.mark.asyncio
 async def test_daily_paper_reports_the_real_execution_failure() -> None:
     """An unreachable source must not be reported as "ReMe is not started"."""
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._reme = SimpleNamespace(
-        is_started=True,
-        run_job=AsyncMock(side_effect=ConnectionError("mirror unreachable")),
+    manager.run_action = AsyncMock(
+        side_effect=ConnectionError("mirror unreachable"),
     )
-    manager._lifecycle_condition = asyncio.Condition()
-    manager._lifecycle_operation = None
-    manager._active_reme_jobs = 0
-    manager._update_qwenpaw_model = AsyncMock()
     manager.get_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=True,
         daily_paper_topics="",
     )
 
     with pytest.raises(ConnectionError, match="mirror unreachable"):
-        await manager.daily_paper()
+        await manager._daily_paper()
 
 
 @pytest.mark.asyncio
@@ -229,10 +219,10 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
 
     assert [job.key for job in jobs] == ["dream", "daily-paper"]
     assert jobs[0].callback.__self__ is manager
-    assert jobs[0].callback.__func__ is ReMeLightMemoryManager.dream
+    assert jobs[0].callback.__func__ is ReMeLightMemoryManager._dream
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.__self__ is manager
-    assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper
+    assert jobs[1].callback.__func__ is ReMeLightMemoryManager._daily_paper
 
 
 @pytest.mark.asyncio

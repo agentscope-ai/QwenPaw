@@ -465,7 +465,7 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 | `/history`          | 📋 消息列表 + Token 统计 |
 | `/message`          | 📄 指定消息详情          |
 | `/compact_str`      | 📝 压缩摘要内容          |
-| `/summarize_status` | 📊 摘要任务状态          |
+| `/summarize_status` | 📊 Auto-Memory 任务状态  |
 | `/dump_history`     | 📁 历史导出文件路径      |
 | `/load_history`     | ✅ 历史加载结果          |
 
@@ -583,9 +583,9 @@ Status: in_progress
 
 ---
 
-### /summarize_status - 查看摘要任务状态
+### /summarize_status - 查看 Auto-Memory 任务状态
 
-显示所有后台摘要任务的运行状态，包括任务 ID、开始时间和执行结果。
+显示所有后台 Auto-Memory 任务的运行状态，包括任务 ID、开始时间和执行结果。命令名为兼容旧版本而保留。
 
 ```
 /summarize_status
@@ -594,7 +594,7 @@ Status: in_progress
 **返回示例：**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
@@ -606,7 +606,7 @@ Status: in_progress
   - Error: Summary generation timeout
 ```
 
-> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动摘要任务，可通过此命令查看其执行情况。
+> 💡 使用 `/compact` 或 `/new` 时会在后台提交 Auto-Memory 任务，可通过此命令查看其执行情况。
 
 ---
 
@@ -1083,6 +1083,31 @@ qwenpaw daemon version --agent-id abc123
 ```
 
 完整指南请参阅 [循环工程](./loop-engineering)。
+
+---
+
+## ReMe 记忆命令
+
+所有 ReMe 操作统一通过一个系统命令调用：
+
+```text
+/reme help
+/reme status
+/reme search query="项目决策" limit=5
+/reme auto_dream hint="重点整理 AI 芯片"
+/reme auto_memory count=2 memory_hint="记录技术决策"
+/reme reindex scope=all
+```
+
+格式与 ReMe CLI 一致：`/reme <action> key=value`。带空格的参数值需要使用
+引号。`/reme help` 会根据当前 Agent 的 ReMe 配置动态列出可用 Job。
+`auto_memory` 是 QwenPaw 托管适配：`count` 表示从当前会话选择最近几组
+回复，QwenPaw 会自动注入消息和会话 ID。
+
+操作是否可执行、接受哪些参数，由 ReMe 的实时任务目录决定。
+
+旧的 `/dream`、`/memorize` 和 `/reme_status` 已移除，分别改用
+`/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。
 
 ---
 

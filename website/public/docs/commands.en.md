@@ -465,7 +465,7 @@ Commands for viewing and managing conversation history.
 | `/history`          | 📋 Message list + Token stats |
 | `/message`          | 📄 Specified message details  |
 | `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
+| `/summarize_status` | 📊 Auto-memory task status    |
 | `/dump_history`     | 📁 Exported history file path |
 | `/load_history`     | ✅ History load result        |
 
@@ -583,9 +583,9 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /summarize_status - View Auto-Memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display all background auto-memory tasks, including task ID, start time, and execution results. The command name is retained for compatibility.
 
 ```
 /summarize_status
@@ -594,7 +594,7 @@ Display the running status of all background summary tasks, including task ID, s
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
@@ -606,7 +606,7 @@ Display the running status of all background summary tasks, including task ID, s
   - Error: Summary generation timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` submits an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 
@@ -1084,6 +1084,33 @@ Decompose large tasks into user stories and complete them through a **master →
 ```
 
 For a full guide, see [Loop Engineering](./loop-engineering).
+
+---
+
+## ReMe memory commands
+
+All ReMe operations use one system command:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme reindex scope=all
+```
+
+The syntax follows the ReMe CLI: `/reme <action> key=value`. Quote values that
+contain spaces. `/reme help` dynamically lists the jobs available in the
+current Agent's ReMe configuration. `auto_memory` is a QwenPaw-managed adapter:
+`count` selects recent reply groups from the current conversation, and QwenPaw
+injects the messages and session ID.
+
+Whether an action can run and which arguments it accepts are determined by
+ReMe's live job catalog.
+
+The old `/dream`, `/memorize`, and `/reme_status` commands have been removed;
+use `/reme auto_dream`, `/reme auto_memory`, and `/reme status` respectively.
 
 ---
 

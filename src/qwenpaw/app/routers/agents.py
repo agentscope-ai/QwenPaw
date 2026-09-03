@@ -20,6 +20,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
@@ -188,7 +189,7 @@ class MemoryWorkerRuntimeStatus(BaseModel):
 class MemoryCaptureTaskStatus(BaseModel):
     """One bounded memory-capture record, newest records returned first.
 
-    Records share the summarize queue used by periodic auto-memory and the
+    Records share the auto-memory queue used by periodic capture and the
     user-triggered ``/new`` and ``/compact`` commands.
     """
 
@@ -325,6 +326,18 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
             detail="MultiAgentManager not initialized",
         )
     return request.app.state.multi_agent_manager
+
+
+def _require_memory_action_provider(
+    memory_manager: Any,
+) -> MemoryActionProvider:
+    """Return a backend's action capability or fail explicitly."""
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=503,
+            detail="Memory backend does not expose callable actions",
+        )
+    return memory_manager
 
 
 def _normalized_agent_order(config) -> list[str]:
@@ -1345,7 +1358,9 @@ async def rebuild_agent_memory_index(
         )
 
     try:
-        response = await memory_manager.rebuild_index(scope)
+        response = await _require_memory_action_provider(
+            memory_manager,
+        ).run_action("reindex", scope=scope)
     except EmbeddingReindexUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -1485,7 +1500,9 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.reme_status()
+    response = await _require_memory_action_provider(
+        memory_manager,
+    ).run_action("status")
     if response is None:
         raise HTTPException(
             status_code=503,
@@ -1563,7 +1580,9 @@ async def get_agent_memory_graph(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.graph_snapshot()
+    response = await _require_memory_action_provider(
+        memory_manager,
+    ).run_action("graph_snapshot")
     if response is None:
         raise HTTPException(
             status_code=503,
