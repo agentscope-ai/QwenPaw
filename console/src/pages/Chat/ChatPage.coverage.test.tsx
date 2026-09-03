@@ -9,6 +9,7 @@ import { screen, waitFor, act } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import sessionApi from "./sessionApi";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -36,6 +37,7 @@ const {
 }));
 
 let capturedOptions: any = null;
+let selectedAgentForTest = "default";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -73,6 +75,7 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
+        {props.options?.sender?.actionAffix}
       </div>
     );
   }),
@@ -146,6 +149,9 @@ vi.mock("./sessionApi", () => ({
     onSessionCreated: null,
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
+    getSessionList: vi.fn(() => Promise.resolve([])),
+    getSessionMeta: vi.fn(() => ({ thinking_level: "high" })),
+    updateSessionMeta: vi.fn(() => Promise.resolve()),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
     lastActiveChatId: "last-chat-1",
@@ -190,7 +196,17 @@ vi.mock("./OptionsPanel/defaultConfig", () => ({
 }));
 
 vi.mock("./ModelSelector", () => ({
-  default: () => <div data-testid="model-selector" />,
+  default: ({
+    onThinkingSupportChange,
+  }: {
+    onThinkingSupportChange?: (supported: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="model-selector"
+      onClick={() => onThinkingSupportChange?.(true)}
+    />
+  ),
 }));
 
 vi.mock("./components/ChatActionGroup", () => ({
@@ -505,6 +521,8 @@ describe("ChatPage coverage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    selectedAgentForTest = "default";
+    mockSelectedAgent.mockImplementation(() => selectedAgentForTest);
     mockCopyText.mockClear();
     mockListProviders.mockResolvedValue([
       {
@@ -575,6 +593,49 @@ describe("ChatPage coverage", () => {
       });
       expect(fetch).toHaveBeenCalled();
     }
+  });
+
+  it("does not send stale thinking level after an agent switch", async () => {
+    const pendingSessionList = new Promise<
+      Awaited<ReturnType<typeof sessionApi.getSessionList>>
+    >(() => {});
+    vi.mocked(sessionApi.getSessionList)
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingSessionList);
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: null,
+    }) as any;
+
+    const { rerender } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/new"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    await act(async () => {
+      screen.getByTestId("model-selector").click();
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("Session thinking mode")).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Session thinking mode")).toHaveTextContent(
+      "High",
+    );
+
+    selectedAgentForTest = "agent-b";
+    rerender(<ChatPage />);
+
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "hello" }],
+      signal: undefined,
+    });
+
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find((call) => String(call[0]).includes("/console/chat"));
+    const body = JSON.parse(String(request?.[1]?.body));
+    expect(body.request_context?.thinking_level).toBeUndefined();
   });
 
   it("invokes responseParser via captured options", async () => {

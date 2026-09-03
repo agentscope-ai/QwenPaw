@@ -391,6 +391,11 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             exclude_none=True,
             exclude_unset=True,
         )
+        thinking_level = updates.pop("thinking_level", None)
+        if thinking_level is not None:
+            meta = dict(existing.meta or {})
+            meta["thinking_level"] = thinking_level
+            updates["meta"] = meta
         merged = existing.model_copy(update=updates)
         if patch.model_fields_set != {"group_id"}:
             merged.updated_at = datetime.now(timezone.utc)

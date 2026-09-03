@@ -358,7 +358,7 @@ class ProviderInfo(BaseModel):
     )
     hidden_model_ids: List[str] = Field(
         default_factory=list,
-        description="Remote model IDs hidden by the user.",
+        description="Model IDs hidden by the user.",
     )
     removed_model_ids: List[str] = Field(
         default_factory=list,
@@ -618,11 +618,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             for model in self.extra_models
             if model.id.strip() != model_id
         ]
-        self.discovered_models = [
-            model
-            for model in self.discovered_models
-            if model.id.strip() != model_id
-        ]
         return True, ""
 
     @staticmethod
@@ -744,11 +739,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     ordered_ids.append(model.id)
                 by_id[model.id] = model
         hidden = set(getattr(self, "hidden_model_ids", []))
-        removed = set(getattr(self, "removed_model_ids", []))
         return [
             by_id[model_id]
             for model_id in ordered_ids
-            if model_id not in hidden and model_id not in removed
+            if model_id not in hidden
         ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
@@ -1044,8 +1038,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def get_discovered_model_info(self, model_id: str) -> ModelInfo | None:
         """Return a discovery candidate without treating it as configured."""
-        if model_id in set(getattr(self, "removed_model_ids", [])):
-            return None
         for model in getattr(self, "discovered_models", []):
             if model.id == model_id:
                 return model
@@ -1228,9 +1220,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 if model.id not in removed
             ],
             discovered_models=[
-                serialize_model(model)
-                for model in self.discovered_models
-                if model.id not in removed
+                serialize_model(model) for model in self.discovered_models
             ],
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,

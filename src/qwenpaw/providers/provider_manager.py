@@ -699,7 +699,7 @@ class ProviderManager(
         *,
         hidden: bool,
     ) -> ProviderInfo:
-        """Persist whether one discovery candidate is hidden from the UI."""
+        """Persist whether one model is hidden from selection UI."""
         provider_id = self._normalize_provider_id(provider_id)
         if self.get_provider(provider_id) is None:
             raise ProviderError(

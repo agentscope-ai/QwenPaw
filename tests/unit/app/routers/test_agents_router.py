@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -46,6 +47,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     ChannelConfig,
     DingTalkConfig,
+    FallbackPolicyConfig,
     HeartbeatConfig,
     MCPConfig,
     ModelSlotConfig,
@@ -1301,6 +1303,130 @@ async def test_create_agent_default_workspace_under_working_dir(
     expected = (tmp_path / "workspaces" / "created").resolve()
     assert Path(result.workspace_dir).resolve() == expected
     assert expected.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_create_agent_persists_model_fallback_settings(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Creation keeps the requested fallback routing configuration."""
+    _make_create_stubs(fake_config, monkeypatch)
+    saved: list[AgentProfileConfig] = []
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._persist_created_agent",
+        lambda *_args: saved.append(_args[-1]),
+    )
+
+    await create_agent(
+        request=CreateAgentRequest(
+            id="created",
+            name="Created",
+            workspace_dir=str(tmp_path / "created"),
+            active_model=ModelSlotConfig(
+                provider_id="openai",
+                model="primary",
+            ),
+            fallback_models=[
+                ModelSlotConfig(provider_id="openai", model="fallback"),
+            ],
+            fallback_policy=FallbackPolicyConfig(
+                enabled=True,
+                target_scope="free_only",
+            ),
+            subagent_model=ModelSlotConfig(
+                provider_id="openai",
+                model="subagent",
+            ),
+        ),
+        http_request=None,
+    )
+
+    assert len(saved) == 1
+    assert saved[0].fallback_models == [
+        ModelSlotConfig(provider_id="openai", model="fallback"),
+    ]
+    assert saved[0].fallback_policy.target_scope == "free_only"
+    assert saved[0].subagent_model == ModelSlotConfig(
+        provider_id="openai",
+        model="subagent",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ("active_model", "fallback_models"))
+async def test_create_agent_rejects_unknown_model_provider(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+    field,
+):
+    """Creation rejects model routes that reference a missing provider."""
+    _make_create_stubs(fake_config, monkeypatch)
+    provider_manager = MagicMock()
+    provider_manager.get_provider.return_value = None
+    http_request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(provider_manager=provider_manager),
+        ),
+    )
+    slot = ModelSlotConfig(
+        provider_id="missing-provider",
+        model="model",
+    )
+    model_fields = {
+        field: [slot] if field == "fallback_models" else slot,
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(
+            request=CreateAgentRequest(
+                id="created",
+                name="Created",
+                workspace_dir=str(tmp_path / "created"),
+                **model_fields,
+            ),
+            http_request=http_request,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "missing-provider" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_agent_rejects_unknown_model_id(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Creation rejects model routes with an unavailable model ID."""
+    _make_create_stubs(fake_config, monkeypatch)
+    provider = SimpleNamespace(has_model=MagicMock(return_value=False))
+    provider_manager = MagicMock()
+    provider_manager.get_provider.return_value = provider
+    http_request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(provider_manager=provider_manager),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_agent(
+            request=CreateAgentRequest(
+                id="created",
+                name="Created",
+                workspace_dir=str(tmp_path / "created"),
+                subagent_model=ModelSlotConfig(
+                    provider_id="known-provider",
+                    model="missing-model",
+                ),
+            ),
+            http_request=http_request,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "missing-model" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

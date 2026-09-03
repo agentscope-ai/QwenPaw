@@ -3291,3 +3291,31 @@
   color: #a3c8be;
   background: rgba(90, 144, 128, 0.14);
 }
+.hiddenModelSection {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.hiddenModelSectionTitle {
+  margin-bottom: 6px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.hiddenModelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--ant-color-text-secondary);
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

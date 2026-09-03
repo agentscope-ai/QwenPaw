@@ -36,15 +36,6 @@
   }
 }
 
-.fallbackBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 11px;
-}
-
 .marquee {
   display: inline-block;
 }
@@ -195,6 +186,35 @@
   flex-shrink: 0;
 }
 
+.modelConfigButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ms-text-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+
+  &:hover {
+    color: var(--ms-text);
+    background: color-mix(in srgb, var(--ms-text) 9%, transparent);
+  }
+}
+
+.modelItem:hover .modelConfigButton,
+.modelItem:focus-within .modelConfigButton {
+  opacity: 1;
+}
+
 .freeTag {
   display: inline-flex;
   align-items: center;
@@ -222,36 +242,26 @@
   font-size: 14px;
 }
 
-.candidateItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 4px 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--ms-border);
-  border-radius: 9px;
-}
-
-.candidateModelSection,
 .agentModelSettings {
-  margin: 8px;
+  margin: 0;
   border: 1px solid var(--ms-border);
-  border-radius: 9px;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.candidateSectionToggle,
 .agentSettingsToggle {
   display: flex;
   align-items: center;
   gap: 7px;
   width: 100%;
-  padding: 9px 10px;
+  min-height: 44px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 8px;
-  color: var(--ms-text-muted);
+  border-radius: 0;
+  color: var(--ms-text);
   background: transparent;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 
   &:hover:not(:disabled) {
@@ -262,118 +272,10 @@
   &:disabled {
     cursor: default;
   }
-}
 
-.candidateSectionTitle {
-  flex: 1;
-  text-align: left;
-}
-
-.candidateSectionMeta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.candidateSectionBody {
-  max-height: min(300px, 42vh);
-  padding: 2px 2px 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.candidateIdentity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--ms-text);
-  font-size: 13px;
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  &[aria-expanded="true"] {
+    border-bottom: 1px solid var(--ms-border);
   }
-}
-
-.candidateSecondaryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 5px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--ms-text-faint);
-  background: transparent;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--ms-accent);
-    background: var(--ms-accent-soft);
-  }
-}
-
-.addCandidateButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 7px;
-  color: #fff;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.hiddenModels {
-  margin: 8px;
-  border-top: 1px solid var(--ms-border);
-  color: var(--ms-text-muted);
-  font-size: 12px;
-
-  summary {
-    padding: 9px 2px 5px;
-    cursor: pointer;
-  }
-}
-
-.hiddenModelItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 2px;
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  button {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 7px;
-    border: 1px solid var(--ms-border);
-    border-radius: 6px;
-    color: var(--ms-text-muted);
-    background: transparent;
-    cursor: pointer;
-  }
-}
-
-.settingsHint {
-  margin: -2px 0 4px;
-  color: var(--ms-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .srOnly {
@@ -397,24 +299,60 @@
 .agentSettingsBody {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 4px 10px 10px;
+  padding: 0 14px 12px;
 }
 
-.settingsRow {
-  display: grid;
-  grid-template-columns: 102px minmax(0, 1fr);
-  align-items: center;
+.settingsSection {
+  padding: 10px 0;
+  border-top: 1px solid var(--ms-border);
+}
+
+.settingsSection:first-child {
+  border-top: 0;
+}
+
+.settingsSectionHeader {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.settingsSectionTitle,
+.settingsFieldLabel {
+  color: var(--ms-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsControl {
+  display: block;
+}
+
+.fallbackSettings {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  margin-top: 8px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settingsFieldLabel {
   color: var(--ms-text-muted);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .agentSelect {
   width: 100%;
   min-width: 0;
 
-  :global(.ant-select-selector) {
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector) {
     min-height: 36px;
     padding: 0 11px !important;
     border-color: var(--ms-border) !important;
@@ -429,56 +367,71 @@
   }
 
   :global(.ant-select-selection-item),
-  :global(.ant-select-selection-placeholder) {
+  :global(.ant-select-selection-placeholder),
+  :global(.qwenpaw-select-selection-item),
+  :global(.qwenpaw-select-selection-placeholder) {
     padding-right: 12px !important;
     color: var(--ms-text) !important;
     font-size: 12px;
     line-height: 34px !important;
   }
 
-  :global(.ant-select-selection-search-input) {
+  :global(.ant-select-selection-search-input),
+  :global(.qwenpaw-select-selection-search-input) {
     height: 34px !important;
     color: var(--ms-text);
     font-size: 12px;
   }
 
-  :global(.ant-select-arrow) {
+  :global(.ant-select-arrow),
+  :global(.qwenpaw-select-arrow) {
     color: var(--ms-text-faint);
     transition:
       color 0.18s ease,
       transform 0.18s ease;
   }
 
-  &:hover:not(:global(.ant-select-disabled)) {
-    :global(.ant-select-selector) {
+  &:hover:not(:global(.ant-select-disabled)):not(
+      :global(.qwenpaw-select-disabled)
+    ) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       border-color: var(--ms-border-strong) !important;
       background: var(--ms-surface) !important;
     }
   }
 
   &:global(.ant-select-focused),
-  &:global(.ant-select-open) {
-    :global(.ant-select-selector) {
+  &:global(.ant-select-open),
+  &:global(.qwenpaw-select-focused),
+  &:global(.qwenpaw-select-open) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       border-color: var(--ms-accent) !important;
       box-shadow: 0 0 0 3px var(--ms-accent-soft) !important;
     }
 
-    :global(.ant-select-arrow) {
+    :global(.ant-select-arrow),
+    :global(.qwenpaw-select-arrow) {
       color: var(--ms-accent-strong);
     }
   }
 
-  &:global(.ant-select-open) :global(.ant-select-arrow) {
+  &:global(.ant-select-open) :global(.ant-select-arrow),
+  &:global(.qwenpaw-select-open) :global(.qwenpaw-select-arrow) {
     transform: rotate(180deg);
   }
 
-  &:global(.ant-select-disabled) {
-    :global(.ant-select-selector) {
+  &:global(.ant-select-disabled),
+  &:global(.qwenpaw-select-disabled) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       color: var(--ms-text-faint) !important;
       background: var(--ms-surface-muted) !important;
     }
 
-    :global(.ant-select-selection-item) {
+    :global(.ant-select-selection-item),
+    :global(.qwenpaw-select-selection-item) {
       color: var(--ms-text-faint) !important;
     }
   }
@@ -492,7 +445,8 @@
   background: var(--ms-surface);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14);
 
-  :global(.ant-select-item) {
+  :global(.ant-select-item),
+  :global(.qwenpaw-select-item) {
     min-height: 34px;
     padding: 7px 9px;
     border-radius: 7px;
@@ -501,21 +455,30 @@
     line-height: 20px;
   }
 
+  :global(.ant-select-item-option-active:not(.ant-select-item-option-disabled)),
   :global(
-      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+      .qwenpaw-select-item-option-active:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     background: var(--ms-surface-muted);
   }
 
   :global(
       .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ),
+  :global(
+      .qwenpaw-select-item-option-selected:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     color: var(--ms-accent);
     font-weight: 600;
     background: var(--ms-accent-soft);
   }
 
-  :global(.ant-select-item-option-content) {
+  :global(.ant-select-item-option-content),
+  :global(.qwenpaw-select-item-option-content) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -526,12 +489,66 @@
   }
 }
 
+.fallbackScope {
+  width: 100%;
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--ms-border);
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: var(--ms-surface);
+
+  :global(.ant-segmented-group),
+  :global(.qwenpaw-segmented-group) {
+    gap: 3px;
+  }
+
+  :global(.ant-segmented-item),
+  :global(.qwenpaw-segmented-item) {
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--ms-text-muted);
+    font-size: 12px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-label),
+  :global(.qwenpaw-segmented-item-label) {
+    min-height: 28px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-selected),
+  :global(.qwenpaw-segmented-item-selected) {
+    border-color: color-mix(in srgb, var(--ms-accent) 36%, transparent);
+    color: var(--ms-accent-text);
+    font-weight: 600;
+    background: var(--ms-accent-soft);
+    box-shadow: none;
+  }
+
+  :global(.ant-segmented-thumb),
+  :global(.qwenpaw-segmented-thumb) {
+    border: 1px solid color-mix(in srgb, var(--ms-accent) 36%, transparent);
+    border-radius: 6px;
+    background: var(--ms-accent-soft);
+    box-shadow: none;
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--ms-focus);
+    outline-offset: 2px;
+  }
+}
+
 .settingsCheckRow {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--ms-text-muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
 
   input {
     width: 15px;
@@ -551,7 +568,7 @@
     padding: 0;
     border: 1px solid var(--ms-border);
     border-radius: 8px;
-    color: var(--ms-text);
+    color: var(--ms-accent-text);
     background: var(--ms-surface);
   }
 
@@ -560,6 +577,11 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+
+    &:hover:not(:disabled) {
+      border-color: color-mix(in srgb, var(--ms-accent) 48%, transparent);
+      background: var(--ms-accent-soft);
+    }
 
     &:disabled {
       cursor: not-allowed;
@@ -606,7 +628,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 10px;
+  align-self: flex-end;
+  min-width: 132px;
+  padding: 7px 14px;
   border: 0;
   border-radius: 7px;
   color: #fff;
@@ -647,15 +671,6 @@
 
 .freeBannerIcon {
   flex-shrink: 0;
-}
-
-/* ---- Pro section hint banner ---- */
-.proBanner {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 /* ---- OAuth warning icon on model items ---- */
@@ -732,10 +747,12 @@
 .panel,
 .trigger,
 .oauthModalContent,
+.agentModelSettings,
 .agentSelectDropdown {
   --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
   --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
   --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+  --ms-accent-text: var(--qwenpaw-color-primary-active, #b84f00);
   --ms-accent-soft: var(
     --qwenpaw-color-primary-bg,
     var(--colorPrimaryBg, rgba(255, 127, 22, 0.08))
@@ -850,23 +867,15 @@
   scrollbar-color: var(--ms-border-strong) transparent;
 }
 
-.candidateSectionBody {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ms-border-strong) transparent;
-}
-
-.listContainer::-webkit-scrollbar,
-.candidateSectionBody::-webkit-scrollbar {
+.listContainer::-webkit-scrollbar {
   width: 6px;
 }
 
-.listContainer::-webkit-scrollbar-track,
-.candidateSectionBody::-webkit-scrollbar-track {
+.listContainer::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.listContainer::-webkit-scrollbar-thumb,
-.candidateSectionBody::-webkit-scrollbar-thumb {
+.listContainer::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--ms-border-strong);
 }
@@ -935,7 +944,6 @@
   }
 }
 
-.candidateSecondaryButton,
 .fallbackList button {
   min-width: 32px;
   min-height: 32px;
@@ -954,8 +962,7 @@
   border-color: var(--ms-border);
 }
 
-.freeBanner,
-.proBanner {
+.freeBanner {
   margin: 4px 2px 8px;
   padding: 8px 10px;
   border: 1px solid var(--ms-border);
@@ -1000,21 +1007,12 @@
   background: var(--ms-accent-soft);
 }
 
-.candidateItem,
-.candidateModelSection,
 .agentModelSettings {
   border-color: var(--ms-border);
-  background: var(--ms-surface-muted);
+  background: var(--ms-surface);
   box-shadow: none;
 }
 
-.candidateItem {
-  min-height: 48px;
-  border-radius: 10px;
-  background: var(--ms-surface);
-}
-
-.addCandidateButton,
 .saveAgentSettings {
   min-height: 36px;
   border-radius: 9px;
@@ -1042,12 +1040,6 @@
   }
 }
 
-.candidateSectionToggle,
-.agentSettingsToggle {
-  min-height: 40px;
-}
-
-.candidateSectionToggle:focus-visible,
 .agentSettingsToggle:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px var(--ms-border-strong);
@@ -1097,18 +1089,6 @@
   color: var(--ms-text-muted);
 }
 
-.fallbackBadge {
-  max-width: 132px;
-  color: var(--ms-text-muted);
-  background: var(--ms-surface-muted);
-
-  > span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
 .oauthModalContent {
   padding: 20px 8px 8px;
   color: var(--ms-text);
@@ -1153,13 +1133,11 @@
 .tabButton:focus-visible,
 .providerHeader:focus-visible,
 .modelSelectButton:focus-visible,
+.modelConfigButton:focus-visible,
 .viewMore:focus-visible,
 .moreToggle:focus-visible,
 .connectEntry:focus-visible,
-.candidateSecondaryButton:focus-visible,
-.addCandidateButton:focus-visible,
-.agentSettingsBody button:focus-visible,
-.hiddenModelItem button:focus-visible {
+.agentSettingsBody button:focus-visible {
   outline: 3px solid var(--ms-focus);
   outline-offset: 2px;
 }
@@ -1180,14 +1158,10 @@
     max-width: 92px;
   }
 
-  .fallbackBadge {
-    display: inline-flex;
-    max-width: 82px;
-    padding: 2px 5px;
-
-    > svg:nth-of-type(2) {
-      display: none;
-    }
+  .modelConfigButton {
+    width: 44px;
+    height: 44px;
+    opacity: 1;
   }
 }
 
@@ -1208,34 +1182,12 @@
     max-width: 68px;
   }
 
-  .fallbackBadge {
-    max-width: 64px;
-
-    > span:last-child {
-      max-width: 40px;
-    }
+  .fallbackSettings {
+    margin-top: 8px;
   }
 
-  .candidateItem {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-
-  .candidateSectionBody {
-    max-height: min(260px, 38vh);
-  }
-
-  .candidateIdentity {
+  .saveAgentSettings {
     width: 100%;
-  }
-
-  .candidateSecondaryButton {
-    margin-left: auto;
-  }
-
-  .settingsRow {
-    grid-template-columns: 1fr;
-    gap: 4px;
   }
 }
 
@@ -1264,10 +1216,12 @@
   .panel,
   .trigger,
   .oauthModalContent,
+  .agentModelSettings,
   .agentSelectDropdown {
     --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
     --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
     --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+    --ms-accent-text: var(--qwenpaw-color-primary-active, #ffb067);
     --ms-accent-soft: var(--qwenpaw-color-primary-bg, rgba(255, 127, 22, 0.14));
     --ms-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
     --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
@@ -1294,10 +1248,8 @@
     background: var(--ms-surface);
   }
 
-  .candidateItem,
-  .candidateModelSection,
   .agentModelSettings {
-    background: var(--ms-surface-muted);
+    background: var(--ms-surface);
   }
 
   .modelItem:hover,
@@ -1305,42 +1257,39 @@
     background: color-mix(in srgb, var(--ms-text) 7%, transparent);
   }
 
-  .candidateSectionToggle,
   .agentSettingsToggle,
-  .candidateIdentity,
-  .settingsRow,
   .settingsCheckRow,
-  .hiddenModels,
   .fallbackList span {
     color: var(--ms-text-muted);
   }
 
-  .candidateSectionToggle:hover:not(:disabled),
   .agentSettingsToggle:hover:not(:disabled) {
     color: var(--ms-accent-strong);
     background: var(--ms-accent-soft);
   }
 
-  .settingsHint {
-    color: var(--ms-text-muted);
-  }
-
   .agentSelect {
-    :global(.ant-select-selector) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       color: var(--ms-text) !important;
       background: var(--ms-surface) !important;
       border-color: var(--ms-border) !important;
     }
 
-    &:hover:not(:global(.ant-select-disabled)) {
-      :global(.ant-select-selector) {
+    &:hover:not(:global(.ant-select-disabled)):not(
+        :global(.qwenpaw-select-disabled)
+      ) {
+      :global(.ant-select-selector),
+      :global(.qwenpaw-select-selector) {
         background: var(--ms-surface-muted) !important;
         border-color: var(--ms-border-strong) !important;
       }
     }
 
     :global(.ant-select-selection-item),
-    :global(.ant-select-selection-search-input) {
+    :global(.ant-select-selection-search-input),
+    :global(.qwenpaw-select-selection-item),
+    :global(.qwenpaw-select-selection-search-input) {
       color: var(--ms-text) !important;
     }
   }
@@ -1349,6 +1298,17 @@
     color: var(--ms-text);
     background: var(--ms-surface);
     border-color: var(--ms-border);
+  }
+
+  .fallbackScope {
+    background: var(--ms-surface);
+
+    :global(.ant-segmented-item-selected),
+    :global(.qwenpaw-segmented-item-selected) {
+      color: var(--ms-accent-text);
+      background: var(--ms-accent-soft);
+      box-shadow: none;
+    }
   }
 
   .fallbackList > div {
@@ -1373,18 +1333,27 @@
   background: var(--ms-surface);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
 
-  :global(.ant-select-item) {
+  :global(.ant-select-item),
+  :global(.qwenpaw-select-item) {
     color: var(--ms-text);
   }
 
+  :global(.ant-select-item-option-active:not(.ant-select-item-option-disabled)),
   :global(
-      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+      .qwenpaw-select-item-option-active:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     background: var(--ms-surface-muted);
   }
 
   :global(
       .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ),
+  :global(
+      .qwenpaw-select-item-option-selected:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     color: var(--ms-accent);
     background: var(--ms-accent-soft);

@@ -536,6 +536,9 @@
     "createSuccess": "智能体创建成功",
     "createFailed": "智能体创建失败",
     "edit": "编辑",
+    "editName": "修改",
+    "saveName": "保存名称",
+    "cancelName": "取消修改",
     "editTitle": "编辑智能体 - {{name}}",
     "updateSuccess": "智能体更新成功",
     "updateFailed": "智能体更新失败",
@@ -1901,6 +1904,7 @@
     "loadingAgentSettings": "正在加载 Agent 模型设置",
     "agentSettingsSaveFailed": "保存 Agent 模型设置失败",
     "agentSettingsSaved": "Agent 模型设置已保存",
+    "saveAgentSettings": "保存路由设置",
     "thinkingLevel": "思考深度",
     "thinkingUnsupported": "当前模型未声明可配置的思考能力。",
     "thinking": {
@@ -1924,6 +1928,7 @@
     "fallbackActive": "实际处理模型：{{provider}} / {{model}}"
   },
   "models": {
+    "modelConfigTitle": "{{model}} 模型配置",
     "discoveryOriginApi": "API 检测",
     "discoveryOriginCatalog": "官方目录",
     "discoveryOriginBoth": "API + 目录",
@@ -2399,6 +2404,11 @@
     "enhancedCodeCapabilityDescription": "启用 AST、LSP、代码提示词、Git 上下文和源码管理。",
     "description": "配置智能体运行参数",
     "reactAgentTitle": "ReAct 智能体",
+    "modelTitle": "模型",
+    "modelDescription": "设置当前智能体使用的主模型，并管理故障时的备用模型。",
+    "modelSaved": "智能体模型已更新",
+    "modelSaveFailed": "保存智能体模型失败",
+    "modelLoadFailed": "加载智能体模型失败",
     "llmRetryTitle": "LLM 自动重试",
     "llmRetryEnabled": "启用自动重试",
     "llmRetryEnabledTooltip": "对限流、超时、连接中断等瞬时 LLM API 错误自动重试。保存后对新的请求生效。",
@@ -3092,6 +3102,7 @@
       "codeSnippet": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
+    "thinkingLevelTitle": "Session 思考模式",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",

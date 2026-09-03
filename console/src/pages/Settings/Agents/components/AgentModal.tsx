@@ -15,6 +15,7 @@ import {
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
+import type { AgentProfileConfig } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
@@ -23,6 +24,7 @@ import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
+import { AgentModelSettings } from "../../../Chat/ModelSelector/AgentModelSettings";
 import {
   MAIL_DOMAIN_PICKER_DOMAINS,
   MAIL_DOMAIN_WHITELIST,
@@ -74,7 +76,7 @@ const LEGACY_MAIL_PUSH_MODE_LABEL_KEYS: Record<string, string> = {
 interface EligibleProvider {
   id: string;
   name: string;
-  models: Array<{ id: string; name: string }>;
+  models: ProviderInfo["models"];
 }
 
 interface AgentModalProps {
@@ -84,6 +86,17 @@ interface AgentModalProps {
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
+  modelSettings?: Pick<
+    AgentProfileConfig,
+    "fallback_models" | "fallback_policy" | "subagent_model"
+  >;
+  onModelSettingsChange?: (
+    settings: Pick<
+      AgentProfileConfig,
+      "fallback_models" | "fallback_policy" | "subagent_model"
+    >,
+  ) => void;
+  modelSettingsResetToken?: number;
   onSave: () => Promise<void>;
   onCancel: () => void;
 }
@@ -95,6 +108,9 @@ export function AgentModal({
   selectedSkills,
   onSelectedSkillsChange,
   onInstalledSkillsLoaded,
+  modelSettings,
+  onModelSettingsChange,
+  modelSettingsResetToken,
   onSave,
   onCancel,
 }: AgentModalProps) {
@@ -311,6 +327,7 @@ export function AgentModal({
           />
         </Form.Item>
         <Form.Item
+          className={styles.modelFormItem}
           hidden={selectedBackend !== "qwenpaw"}
           label={t("agent.model")}
           help={t("agent.modelHelp")}
@@ -373,6 +390,19 @@ export function AgentModal({
             />
           </Space.Compact>
         </Form.Item>
+        {selectedBackend === "qwenpaw" && (
+          <Form.Item className={styles.agentRoutingFormItem}>
+            <AgentModelSettings
+              agentId={editingAgent?.id}
+              providers={eligibleProviders}
+              activeProviderId={selectedProviderId}
+              activeModelId={selectedModelId}
+              initialConfig={modelSettings}
+              draftResetToken={modelSettingsResetToken}
+              onDraftChange={onModelSettingsChange}
+            />
+          </Form.Item>
+        )}
         <Form.Item
           name="workspace_dir"
           label={t("agent.workspace")}

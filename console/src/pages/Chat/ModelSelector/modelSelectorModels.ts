@@ -1,4 +1,4 @@
-import type { ModelInfo, ProviderInfo } from "../../../api/types";
+import type { ProviderInfo } from "../../../api/types";
 
 export interface EligibleProvider {
   id: string;
@@ -11,11 +11,6 @@ export interface EligibleProvider {
   oauth_connected?: boolean;
   has_api_key?: boolean;
   require_api_key?: boolean;
-}
-
-export interface CandidateModel {
-  provider: ProviderInfo;
-  model: ModelInfo;
 }
 
 export function splitProvidersByTier(providers: EligibleProvider[]): {
@@ -67,7 +62,12 @@ export function buildEligibleProviders(
     .map((provider) => ({
       id: provider.id,
       name: provider.name,
-      models: [...(provider.models ?? []), ...(provider.extra_models ?? [])],
+      models: [
+        ...(provider.models ?? []),
+        ...(provider.extra_models ?? []),
+      ].filter(
+        (model) => !(provider.hidden_model_ids ?? []).includes(model.id),
+      ),
       is_free_tier: provider.is_free_tier,
       is_custom: provider.is_custom,
       is_local: provider.is_local,
@@ -76,36 +76,4 @@ export function buildEligibleProviders(
       has_api_key: Boolean(provider.api_key),
       require_api_key: provider.require_api_key,
     }));
-}
-
-export function buildDiscoveryCandidates(
-  providers: ProviderInfo[],
-): CandidateModel[] {
-  const configured = new Set(
-    providers.flatMap((provider) =>
-      [...(provider.models ?? []), ...(provider.extra_models ?? [])].map(
-        (model) => modelKey(provider.id, model.id),
-      ),
-    ),
-  );
-  return providers.flatMap((provider) =>
-    (provider.discovered_models ?? [])
-      .filter(
-        (model) =>
-          !configured.has(modelKey(provider.id, model.id)) &&
-          !(provider.hidden_model_ids ?? []).includes(model.id),
-      )
-      .map((model) => ({ provider, model })),
-  );
-}
-
-export function buildHiddenCandidates(
-  providers: ProviderInfo[],
-): CandidateModel[] {
-  return providers.flatMap((provider) => {
-    const hidden = new Set(provider.hidden_model_ids ?? []);
-    return (provider.discovered_models ?? [])
-      .filter((model) => hidden.has(model.id))
-      .map((model) => ({ provider, model }));
-  });
 }

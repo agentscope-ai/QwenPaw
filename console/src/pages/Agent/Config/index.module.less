@@ -71,6 +71,48 @@
   padding: 0 16px;
 }
 
+.modelDescription {
+  margin: 0 0 16px;
+  color: rgba(20, 20, 19, 0.54);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.modelPrimaryRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.4fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.modelField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  label {
+    color: rgba(20, 20, 19, 0.72);
+    font-size: 12px;
+    font-weight: 600;
+  }
+}
+
+.modelError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #b42318;
+}
+
+@media (max-width: 720px) {
+  .modelPrimaryRow {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
 .pageHeader {
   display: flex;
   justify-content: space-between;

@@ -82,6 +82,12 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
+  renameAgent: (agentId: string, name: string) =>
+    request<AgentProfileConfig>(`/agents/${agentId}`, {
+      method: "PUT",
+      body: JSON.stringify({ id: agentId, name }),
+    }),
+
   updateModelSettings: (agentId: string, settings: AgentModelSettingsPatch) =>
     request<AgentProfileConfig>(`/agents/${agentId}/model-settings`, {
       method: "PATCH",

@@ -182,6 +182,10 @@ class ChatUpdate(BaseModel):
         default=None,
         description="Target Console group identifier",
     )
+    thinking_level: Literal["off", "low", "medium", "high"] | None = Field(
+        default=None,
+        description="Session thinking level persisted in chat metadata",
+    )
 
 
 class ChatGroupCreate(BaseModel):

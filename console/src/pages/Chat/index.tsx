@@ -204,6 +204,9 @@ import {
   stopBackgroundWatchersNotInSession,
 } from "../../hooks/useBackgroundTaskWatcher";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import ThinkingLevelToggle, {
+  type SessionThinkingLevel,
+} from "./components/ThinkingLevelToggle";
 import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
 import HarnessModelSelector from "./components/HarnessModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
@@ -1309,6 +1312,21 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const sessionThinkingLevelRef = useRef<SessionThinkingLevel | null>(null);
+  const sessionThinkingOwnerRef = useRef({
+    agentId: selectedAgent,
+    sessionId: queueSessionId,
+  });
+  if (
+    sessionThinkingOwnerRef.current.agentId !== selectedAgent ||
+    sessionThinkingOwnerRef.current.sessionId !== queueSessionId
+  ) {
+    sessionThinkingOwnerRef.current = {
+      agentId: selectedAgent,
+      sessionId: queueSessionId,
+    };
+    sessionThinkingLevelRef.current = null;
+  }
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
@@ -1542,6 +1560,7 @@ export default function ChatPage() {
     }
   }, [queueSessionId, scheduleNextSend]);
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
+  const [supportsThinking, setSupportsThinking] = useState(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
   const prevChatLoadingRef = useRef<boolean | string>(false);
@@ -2634,6 +2653,17 @@ export default function ChatPage() {
           sessionApprovalLevelRef.current,
           runningConfigApprovalLevel,
         );
+        if (sessionThinkingLevelRef.current) {
+          const requestContext =
+            requestBody.request_context &&
+            typeof requestBody.request_context === "object"
+              ? (requestBody.request_context as Record<string, unknown>)
+              : {};
+          requestBody.request_context = {
+            ...requestContext,
+            thinking_level: sessionThinkingLevelRef.current,
+          };
+        }
         projectSessionId =
           sessionApi.lastActiveChatId ??
           chatIdRef.current ??
@@ -2711,7 +2741,13 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef, usageTurn);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      queueSessionId,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -3132,7 +3168,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             {usesQwenPawBackend ? (
-              <ModelSelector />
+              <ModelSelector onThinkingSupportChange={setSupportsThinking} />
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
@@ -3233,19 +3269,30 @@ export default function ChatPage() {
               />
             )}
             {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueSessionId}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                compact={isMobile || compactSender}
-                className={
-                  isMobile || compactSender
-                    ? styles.mobileComposerControl
-                    : undefined
-                }
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
+              <>
+                <ApprovalLevelToggle
+                  sessionId={queueSessionId}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  compact={isMobile || compactSender}
+                  className={
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : undefined
+                  }
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+                <ThinkingLevelToggle
+                  agentId={selectedAgent}
+                  sessionId={queueSessionId}
+                  compact={isMobile || compactSender}
+                  supportsThinking={supportsThinking}
+                  onChange={(level) => {
+                    sessionThinkingLevelRef.current = level;
+                  }}
+                />
+              </>
             ) : approvalPresets.length > 0 ? (
               <HarnessApprovalToggle
                 backend={selectedAgentBackend}
@@ -3542,6 +3589,7 @@ export default function ChatPage() {
     backendCommands,
     approvalPresets,
     usesQwenPawBackend,
+    supportsThinking,
     supportsAttachments,
     runningConfigApprovalLevel,
     queueSessionId,

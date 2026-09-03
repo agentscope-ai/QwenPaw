@@ -71,6 +71,16 @@ vi.mock("./OAuthConfirmModal", () => ({
     ) : null,
 }));
 
+vi.mock("../../Settings/Models/components/modals", () => ({
+  ModelConfigModal: ({
+    open,
+    model,
+  }: {
+    open: boolean;
+    model: { id: string } | null;
+  }) => (open ? <div>{`model-config-${model?.id}`}</div> : null),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, options?: { count?: number }) =>
@@ -302,6 +312,22 @@ describe("ModelSelector", () => {
         name: /modelSelector.agentModelSettings/,
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps models hidden on the Models page out of chat", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        hidden_model_ids: ["gpt-3.5-turbo"],
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+
+    expect(screen.queryByText("GPT-3.5 Turbo")).not.toBeInTheDocument();
   });
 
   it("displays i18n key when there is no active model", async () => {
@@ -906,145 +932,21 @@ describe("ModelSelector", () => {
     expect(await screen.findByText("Model 7")).toBeInTheDocument();
   });
 
-  it("adds a discovery candidate before activating it", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-new",
-      name: "GPT New",
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, discovered_models: [candidate] },
-    ]);
-    const calls: string[] = [];
-    vi.mocked(providerApi.addModel).mockImplementation(async () => {
-      calls.push("add");
-      return { ...mockProvider, extra_models: [candidate] };
-    });
-    vi.mocked(providerApi.setActiveLlm).mockImplementation(async () => {
-      calls.push("activate");
-      return { active_llm: null };
-    });
+  it("opens model configuration without selecting the model", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.type(
-      screen.getByPlaceholderText("modelSelector.searchModels"),
-      "GPT New",
-    );
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "modelSelector.addAndUse",
-      }),
-    );
-
-    await waitFor(() => expect(calls).toEqual(["add", "activate"]));
-    expect(providerApi.addModel).toHaveBeenCalledWith(
-      "openai",
-      expect.objectContaining({ id: "gpt-new" }),
-    );
-  });
-
-  it("collapses available models by default and toggles the section", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-new",
-      name: "GPT New",
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, discovered_models: [candidate] },
-    ]);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    renderWithProviders(<ModelSelector />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
 
-    const toggle = await screen.findByRole("button", {
-      name: /modelSelector.availableToAdd/,
+    const configButtons = await screen.findAllByRole("button", {
+      name: "models.modelConfigLabel",
     });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("GPT New")).not.toBeInTheDocument();
+    await user.click(configButtons[1]);
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(await screen.findByText("GPT New")).toBeInTheDocument();
-    const candidateBody = document.getElementById(
-      toggle.getAttribute("aria-controls") ?? "",
-    );
-    expect(candidateBody?.parentElement).toBe(toggle.parentElement);
-
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("GPT New")).not.toBeInTheDocument();
-  });
-
-  it("shows matching available models during search then restores collapse", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-new",
-      name: "GPT New",
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, discovered_models: [candidate] },
-    ]);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-
-    const searchInput = screen.getByPlaceholderText(
-      "modelSelector.searchModels",
-    );
-    await user.type(searchInput, "GPT New");
-
-    const toggle = await screen.findByRole("button", {
-      name: /modelSelector.availableToAdd/,
-    });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(toggle).toBeDisabled();
-    expect(await screen.findByText("GPT New")).toBeInTheDocument();
-
-    await user.clear(searchInput);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(toggle).not.toBeDisabled();
-    expect(screen.queryByText("GPT New")).not.toBeInTheDocument();
-  });
-
-  it("shows free discovery candidates without requiring search", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-free",
-      name: "GPT Free",
-      is_free: true,
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      {
-        ...mockProvider,
-        is_free_tier: true,
-        discovered_models: [candidate],
-      },
-    ]);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
-
-    const toggle = await screen.findByRole("button", {
-      name: /modelSelector.availableToAdd/,
-    });
-    expect(screen.queryByText("GPT Free")).not.toBeInTheDocument();
-    await user.click(toggle);
-
-    expect(await screen.findByText("GPT Free")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "modelSelector.addAndUse" }),
+      await screen.findByText("model-config-gpt-3.5-turbo"),
     ).toBeInTheDocument();
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
   });
 
   it("shows every free model from a configured free provider", async () => {
@@ -1109,148 +1011,7 @@ describe("ModelSelector", () => {
     expect(await screen.findByText("OpenCode Paid Model")).toBeInTheDocument();
   });
 
-  it("does not show paid discovery candidates in the free tab search", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-paid-candidate",
-      name: "GPT Paid Candidate",
-      is_free: false,
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, is_free_tier: true, discovered_models: [candidate] },
-    ]);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
-    await user.type(
-      screen.getByPlaceholderText("modelSelector.searchModels"),
-      "GPT Paid Candidate",
-    );
-
-    expect(screen.queryByText("GPT Paid Candidate")).not.toBeInTheDocument();
-  });
-
-  it("does not activate a discovery candidate when adding fails", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      {
-        ...mockProvider,
-        discovered_models: [
-          {
-            ...mockProvider.models[0],
-            id: "gpt-new",
-            name: "GPT New",
-            source: "discovered" as const,
-          },
-        ],
-      },
-    ]);
-    vi.mocked(providerApi.addModel).mockRejectedValue(new Error("blocked"));
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.type(
-      screen.getByPlaceholderText("modelSelector.searchModels"),
-      "GPT New",
-    );
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "modelSelector.addAndUse",
-      }),
-    );
-
-    await waitFor(() => expect(providerApi.addModel).toHaveBeenCalledOnce());
-    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
-  });
-
-  it("does not add a free discovery candidate when switching is cancelled", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-free",
-      name: "GPT Free",
-      is_free: true,
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, discovered_models: [candidate] },
-    ]);
-    vi.mocked(confirmFreeModelSwitch).mockResolvedValue(false);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
-    await user.type(
-      screen.getByPlaceholderText("modelSelector.searchModels"),
-      "GPT Free",
-    );
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "modelSelector.addAndUse",
-      }),
-    );
-
-    expect(confirmFreeModelSwitch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: expect.objectContaining({ id: "openai" }),
-        model: expect.objectContaining({ id: "gpt-free" }),
-      }),
-    );
-    expect(providerApi.addModel).not.toHaveBeenCalled();
-    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
-  });
-
-  it("restores a hidden discovery candidate", async () => {
-    const candidate = {
-      ...mockProvider.models[0],
-      id: "gpt-hidden",
-      name: "GPT Hidden",
-      source: "discovered" as const,
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      {
-        ...mockProvider,
-        discovered_models: [candidate],
-        hidden_model_ids: [candidate.id],
-      },
-    ]);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(await screen.findByText("modelSelector.hiddenModels"));
-    await user.click(
-      await screen.findByRole("button", {
-        name: "modelSelector.restoreModel",
-      }),
-    );
-
-    expect(providerApi.setModelVisibility).toHaveBeenCalledWith(
-      "openai",
-      "gpt-hidden",
-      false,
-    );
-  });
-
-  it("saves ordered fallback and agent-level model settings", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      {
-        ...mockProvider,
-        models: [
-          {
-            ...mockProvider.models[0],
-            thinking_enabled: true,
-            supports_agent_thinking: true,
-          },
-          mockProvider.models[1],
-        ],
-      },
-    ]);
+  it("saves ordered fallback and sub-agent model settings", async () => {
     vi.mocked(agentsApi.updateModelSettings).mockImplementation(
       async (_agentId, settings) => ({
         id: "default",
@@ -1260,22 +1021,26 @@ describe("ModelSelector", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
+    renderWithProviders(
+      <AgentModelSettings
+        agentId="default"
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
     await user.click(
-      await screen.findByRole("button", {
+      screen.getByRole("button", {
         name: /modelSelector.agentModelSettings/,
       }),
     );
-
-    await user.click(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
-      }),
-    );
-    const thinkingOptions = screen.getAllByText("modelSelector.thinking.high");
-    await user.click(thinkingOptions[thinkingOptions.length - 1]);
+    await user.click(screen.getByText("modelSelector.freeModelsOnly"));
     await user.click(
       screen.getByRole("combobox", {
         name: "modelSelector.subagentModel",
@@ -1291,9 +1056,10 @@ describe("ModelSelector", () => {
     const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
     await user.click(fallbackOptions[fallbackOptions.length - 1]);
     await user.click(
-      screen.getByRole("button", { name: "modelSelector.addFallback" }),
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
     );
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1304,15 +1070,74 @@ describe("ModelSelector", () => {
         fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
         fallback_policy: {
           enabled: true,
-          target_scope: "configured",
+          target_scope: "free_only",
         },
         subagent_model: {
           provider_id: "openai",
           model: "gpt-3.5-turbo",
         },
-        thinking_level: "high",
       }),
     );
+  });
+
+  it("reports draft settings without rendering an internal save action", async () => {
+    const onDraftChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AgentModelSettings
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+        initialConfig={{
+          fallback_models: [],
+          fallback_policy: { enabled: true, target_scope: "configured" },
+          subagent_model: null,
+        }}
+        onDraftChange={onDraftChange}
+      />,
+    );
+
+    await screen.findByLabelText("modelSelector.enableFallback");
+    expect(
+      screen.queryByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("modelSelector.freeModelsOnly"));
+
+    expect(onDraftChange).toHaveBeenLastCalledWith({
+      fallback_models: [],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "free_only",
+      },
+      subagent_model: null,
+    });
+
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.chooseFallback",
+      }),
+    );
+    const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(fallbackOptions[fallbackOptions.length - 1]);
+
+    expect(onDraftChange).toHaveBeenLastCalledWith({
+      fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
+      fallback_policy: {
+        enabled: true,
+        target_scope: "free_only",
+      },
+      subagent_model: null,
+    });
+    expect(agentsApi.updateModelSettings).not.toHaveBeenCalled();
   });
 
   it("does not send a cached active model when saving settings", async () => {
@@ -1345,7 +1170,11 @@ describe("ModelSelector", () => {
         activeModelId="gpt-3.5-turbo"
       />,
     );
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1370,16 +1199,31 @@ describe("ModelSelector", () => {
       thinking_level: "inherit",
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
+    renderWithProviders(
+      <AgentModelSettings
+        agentId="default"
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
     await user.click(
-      await screen.findByRole("button", {
+      screen.getByRole("button", {
         name: /modelSelector.agentModelSettings/,
       }),
     );
     await screen.findByText("removed-provider:removed-model");
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1497,7 +1341,11 @@ describe("ModelSelector", () => {
       }),
     );
     await screen.findByLabelText("modelSelector.enableFallback");
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     view.rerender(<AgentModelSettings agentId="agent-b" {...settingsProps} />);
     await user.click(
@@ -1537,9 +1385,20 @@ describe("ModelSelector", () => {
         thinking_level: "inherit",
       });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
+    renderWithProviders(
+      <AgentModelSettings
+        agentId="default"
+        providers={[
+          {
+            id: mockProvider.id,
+            name: mockProvider.name,
+            models: mockProvider.models,
+          },
+        ]}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
     await user.click(
       screen.getByRole("button", {
         name: /modelSelector.agentModelSettings/,
@@ -1555,147 +1414,6 @@ describe("ModelSelector", () => {
       await screen.findByLabelText("modelSelector.enableFallback"),
     ).toBeChecked();
   });
-
-  it("disables thinking controls for unsupported active models", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(
-      await screen.findByRole("button", {
-        name: /modelSelector.agentModelSettings/,
-      }),
-    );
-
-    expect(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
-      }),
-    ).toBeDisabled();
-    expect(
-      screen.getByText("modelSelector.thinkingUnsupported"),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
-    await waitFor(() =>
-      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
-    );
-    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
-      "default",
-      expect.not.objectContaining({ thinking_level: expect.anything() }),
-    );
-  });
-
-  it("keeps thinking enabled for an unknown DashScope model", async () => {
-    const dashscopeProvider = {
-      ...mockProvider,
-      id: "dashscope",
-      name: "DashScope",
-      chat_model: "DashScopeChatModel",
-      models: [
-        {
-          ...mockProvider.models[0],
-          id: "new-dashscope-model",
-          name: "New DashScope Model",
-          supports_agent_thinking: true,
-        },
-      ],
-    };
-    vi.mocked(providerApi.listProviders).mockResolvedValue([dashscopeProvider]);
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      active_llm: {
-        provider_id: "dashscope",
-        model: "new-dashscope-model",
-      },
-    });
-    vi.mocked(agentsApi.getAgent).mockResolvedValue({
-      id: "default",
-      name: "Default",
-      fallback_models: [],
-      fallback_policy: { enabled: true, target_scope: "configured" },
-      subagent_model: null,
-      thinking_level: "high",
-    });
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("New DashScope Model");
-    await user.click(screen.getAllByText("New DashScope Model")[0]);
-    await user.click(
-      await screen.findByRole("button", {
-        name: /modelSelector.agentModelSettings/,
-      }),
-    );
-
-    expect(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
-      }),
-    ).not.toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
-
-    await waitFor(() =>
-      expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
-    );
-    expect(agentsApi.updateModelSettings).toHaveBeenCalledWith(
-      "default",
-      expect.objectContaining({ thinking_level: "high" }),
-    );
-  });
-
-  it("shows the actual fallback model reported by turn usage", async () => {
-    useTurnUsageStore.getState().setSnapshot({
-      usage: {
-        provider_id: "openai",
-        model_name: "gpt-3.5-turbo",
-        total_tokens: 3,
-      },
-      context_usage: null,
-    });
-
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-
-    expect(
-      await screen.findByText(
-        (_, element) => element?.textContent === "GitBranchGPT-3.5 Turbo",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("hides the fallback badge when actual usage matches the active model", async () => {
-    useTurnUsageStore.getState().setSnapshot({
-      usage: {
-        provider_id: "openai",
-        model_name: "gpt-4",
-        total_tokens: 3,
-      },
-      context_usage: null,
-    });
-
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-
-    expect(
-      screen.queryByLabelText("modelSelector.fallbackActive"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("safely shows unknown actual provider and model ids", async () => {
-    useTurnUsageStore.getState().setSnapshot({
-      usage: {
-        provider_id: "unlisted-provider",
-        model_name: "unlisted-model",
-        total_tokens: 3,
-      },
-      context_usage: null,
-    });
-
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-
-    expect(await screen.findByText("unlisted-model")).toBeInTheDocument();
-    expect(
-      screen.getByLabelText("modelSelector.fallbackActive"),
-    ).toBeInTheDocument();
-  });
-
   // -------------------------------------------------------------------------
   // is_local provider (e.g. Ollama) — regression for #5108 / #5233
   // A local provider with no api_key must still show its models in the PRO

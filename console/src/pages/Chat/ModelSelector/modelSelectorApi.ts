@@ -50,9 +50,7 @@ export async function loadActiveModels(
 }
 
 export const modelSelectorApi = {
-  addModel: providerApi.addModel,
   loadActiveModels,
   loadModelSelectorData,
   setActiveLlm: providerApi.setActiveLlm,
-  setModelVisibility: providerApi.setModelVisibility,
 };

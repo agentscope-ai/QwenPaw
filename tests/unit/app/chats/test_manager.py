@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -319,6 +319,44 @@ async def test_patch_chat_merges_partial_updates(manager: ChatManager):
     assert patched.pinned is True
     # patch_chat refreshes updated_at.
     assert patched.updated_at >= before_updated
+
+
+@pytest.mark.asyncio
+async def test_patch_chat_merges_thinking_level_into_metadata(
+    manager: ChatManager,
+):
+    spec = _make_spec()
+    spec.meta = {"runtime_context": {"project_dir": "/workspace"}}
+    await manager.create_chat(spec)
+
+    patched = await manager.patch_chat(
+        spec.id,
+        ChatUpdate(thinking_level="low"),
+    )
+
+    assert patched is not None
+    assert patched.meta == {
+        "runtime_context": {"project_dir": "/workspace"},
+        "thinking_level": "low",
+    }
+
+
+@pytest.mark.asyncio
+async def test_patch_chat_handles_missing_metadata(
+    manager: ChatManager,
+):
+    spec = _make_spec()
+    object.__setattr__(spec, "meta", None)
+    manager._repo.get_chat = AsyncMock(return_value=spec)
+    manager._repo.upsert_chat = AsyncMock()
+
+    patched = await manager.patch_chat(
+        spec.id,
+        ChatUpdate(thinking_level="low"),
+    )
+
+    assert patched is not None
+    assert patched.meta == {"thinking_level": "low"}
 
 
 @pytest.mark.asyncio

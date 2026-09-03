@@ -58,6 +58,24 @@ function Harness({ mailMode }: { mailMode: "personal" | "dedicated" }) {
   );
 }
 
+function CreateHarness() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({ backend: "qwenpaw", mail_mode: "none" });
+  }, [form]);
+
+  return (
+    <AgentModal
+      open
+      editingAgent={null}
+      form={form}
+      selectedSkills={[]}
+      {...stableCallbacks}
+    />
+  );
+}
+
 describe.each(["personal", "dedicated"] as const)(
   "AgentModal %s mail domains",
   (mailMode) => {
@@ -80,6 +98,14 @@ describe.each(["personal", "dedicated"] as const)(
 );
 
 describe("AgentModal dedicated mailbox credential", () => {
+  it("shows a single model routing heading", () => {
+    render(<Harness mailMode="dedicated" />);
+
+    expect(
+      screen.getAllByText("modelSelector.agentModelSettings"),
+    ).toHaveLength(1);
+  });
+
   it("shows one optional provider credential and no registration secrets", async () => {
     render(<Harness mailMode="dedicated" />);
 
@@ -118,5 +144,18 @@ describe("AgentModal dedicated mailbox credential", () => {
     expect(
       await screen.findByLabelText("agent.mailCredentialOptional"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("AgentModal creation model routing", () => {
+  it("keeps fallback settings available when creating an agent", () => {
+    render(<CreateHarness />);
+
+    expect(
+      screen.getByText("modelSelector.enableFallback"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("modelSelector.chooseFallback").length,
+    ).toBeGreaterThan(0);
   });
 });

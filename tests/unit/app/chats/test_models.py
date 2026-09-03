@@ -47,7 +47,7 @@ def test_chat_spec_default_values():
     assert spec.source == SessionSource.chat
     assert spec.status == "idle"
     assert spec.last_finished_at is None
-    assert spec.meta == {}
+    assert not spec.meta
     assert spec.group_id is None
     assert spec.parent_session_id is None
     assert spec.root_session_id is None
@@ -76,6 +76,16 @@ def test_chat_update_allows_partial_fields():
     assert update.name == "Renamed"
     assert update.pinned is None
     assert update.group_id is None
+    assert update.thinking_level is None
+
+
+def test_chat_update_validates_thinking_level():
+    update = ChatUpdate(thinking_level="high")
+
+    assert update.thinking_level == "high"
+
+    with pytest.raises(ValidationError):
+        ChatUpdate(thinking_level="extreme")
 
 
 def test_chat_update_forbids_extra_fields():

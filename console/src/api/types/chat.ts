@@ -46,6 +46,7 @@ export interface ChatUpdateRequest {
   name?: string;
   pinned?: boolean;
   group_id?: string;
+  thinking_level?: "off" | "low" | "medium" | "high";
 }
 
 export interface ChatDeleteResponse {

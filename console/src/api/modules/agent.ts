@@ -3,7 +3,7 @@ import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
   AgentRequest,
-  AgentsRunningConfig,
+  AgentRunningConfigUpdate,
   EmbeddingModelConfig,
 } from "../types";
 
@@ -56,10 +56,10 @@ export const agentApi = {
     }),
 
   getAgentRunningConfig: () =>
-    request<AgentsRunningConfig>("/workspace/running-config"),
+    request<AgentRunningConfigUpdate>("/workspace/running-config"),
 
-  updateAgentRunningConfig: (config: AgentsRunningConfig) =>
-    request<AgentsRunningConfig>("/workspace/running-config", {
+  updateAgentRunningConfig: (config: AgentRunningConfigUpdate) =>
+    request<AgentRunningConfigUpdate>("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
       timeout: 10 * 60 * 1000,

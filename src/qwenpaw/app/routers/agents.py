@@ -250,6 +250,11 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] = Field(default_factory=list)
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+    )
+    subagent_model: ModelSlotConfig | None = None
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
@@ -310,6 +315,48 @@ def _get_available_third_party_provider(
             detail=f"{provider.name} is not available yet",
         )
     return provider
+
+
+def _validate_model_slot(
+    request: Request | None,
+    model: ModelSlotConfig,
+) -> None:
+    """Validate a model slot when the application provider manager exists."""
+    if request is None:
+        return
+    state = getattr(getattr(request, "app", None), "state", None)
+    manager = getattr(state, "provider_manager", None)
+    if manager is None or not hasattr(manager, "get_provider"):
+        return
+    provider = manager.get_provider(model.provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{model.provider_id}' not found.",
+        )
+    if not provider.has_model(model.model):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{model.model}' not found in provider "
+                f"'{model.provider_id}'."
+            ),
+        )
+
+
+def _validate_create_model_routing(
+    request: Request | None,
+    create_request: CreateAgentRequest,
+) -> None:
+    """Validate QwenPaw model routing before creating an agent."""
+    if request is None or create_request.backend != "qwenpaw":
+        return
+    if create_request.active_model is not None:
+        _validate_model_slot(request, create_request.active_model)
+    for model in create_request.fallback_models:
+        _validate_model_slot(request, model)
+    if create_request.subagent_model is not None:
+        _validate_model_slot(request, create_request.subagent_model)
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -769,6 +816,7 @@ async def create_agent(
     _validate_mail_backend_compatibility(request.backend, request.mail)
     if request.backend != "qwenpaw":
         _get_available_third_party_provider(request.backend)
+    _validate_create_model_routing(http_request, request)
 
     config = await run_sync_io(load_config)
     existing_ids = set(config.agents.profiles.keys())
@@ -840,6 +888,9 @@ async def create_agent(
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
         active_model=active_model,
+        fallback_models=request.fallback_models,
+        fallback_policy=request.fallback_policy,
+        subagent_model=request.subagent_model,
         mail=request.mail,
     )
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
+import { Table, Button, Space, Popconfirm, Tag, Tooltip, Input } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,19 +14,17 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { DeleteOutlined, RobotOutlined, CopyOutlined } from "@ant-design/icons";
 import {
-  EditOutlined,
-  DeleteOutlined,
-  RobotOutlined,
-  CopyOutlined,
-} from "@ant-design/icons";
-import {
+  Check,
   EyeOff,
   Eye,
   PawPrint,
+  Pencil,
   Pin,
   PinOff,
   SquareTerminal,
+  X,
 } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
@@ -45,7 +43,7 @@ interface AgentTableProps {
   agents: AgentSummary[];
   loading: boolean;
   reordering: boolean;
-  onEdit: (agent: AgentSummary) => void;
+  onRename: (agentId: string, name: string) => Promise<void>;
   onCopy: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
@@ -57,7 +55,7 @@ export function AgentTable({
   agents,
   loading,
   reordering,
-  onEdit,
+  onRename,
   onCopy,
   onDelete,
   onToggle,
@@ -70,6 +68,10 @@ export function AgentTable({
   // actual layout (classic page or OS window) instead of the viewport.
   const containerRef = useRef<HTMLDivElement>(null);
   const [bodyHeight, setBodyHeight] = useState<number>();
+  const [renamingAgentId, setRenamingAgentId] = useState<string | null>(null);
+  const [renamingName, setRenamingName] = useState("");
+  const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState(false);
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -107,6 +109,44 @@ export function AgentTable({
     onReorder(String(active.id), String(over.id));
   };
 
+  const startRename = (record: AgentSummary) => {
+    if (record.id === "default" || savingAgentId) return;
+    setRenamingAgentId(record.id);
+    setRenamingName(record.name);
+    setRenameError(false);
+  };
+
+  const cancelRename = () => {
+    if (savingAgentId) return;
+    setRenamingAgentId(null);
+    setRenamingName("");
+    setRenameError(false);
+  };
+
+  const saveRename = async (record: AgentSummary) => {
+    const nextName = renamingName.trim();
+    if (!nextName) {
+      setRenameError(true);
+      return;
+    }
+    if (nextName === record.name) {
+      cancelRename();
+      return;
+    }
+
+    setSavingAgentId(record.id);
+    try {
+      await onRename(record.id, nextName);
+      setRenamingAgentId(null);
+      setRenamingName("");
+      setRenameError(false);
+    } catch {
+      // The parent reports the save error; keep the input open for retry.
+    } finally {
+      setSavingAgentId(null);
+    }
+  };
+
   const columns: ColumnsType<AgentSummary> = [
     {
       title: "",
@@ -142,9 +182,62 @@ export function AgentTable({
               opacity: record.enabled ? 1 : 0.5,
             }}
           />
-          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
-            {getAgentDisplayName(record, t)}
-          </span>
+          {renamingAgentId === record.id ? (
+            <Space size={4}>
+              <Input
+                size="small"
+                value={renamingName}
+                autoFocus
+                status={renameError ? "error" : undefined}
+                aria-label={t("agent.name")}
+                disabled={savingAgentId === record.id}
+                onChange={(event) => {
+                  setRenamingName(event.target.value);
+                  setRenameError(false);
+                }}
+                onPressEnter={() => void saveRename(record)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") cancelRename();
+                }}
+              />
+              <Button
+                type="text"
+                size="small"
+                aria-label={t("agent.saveName")}
+                title={t("agent.saveName")}
+                icon={<Check size={14} />}
+                loading={savingAgentId === record.id}
+                onClick={() => void saveRename(record)}
+              />
+              <Button
+                type="text"
+                size="small"
+                aria-label={t("agent.cancelName")}
+                title={t("agent.cancelName")}
+                icon={<X size={14} />}
+                disabled={savingAgentId === record.id}
+                onClick={cancelRename}
+              />
+            </Space>
+          ) : (
+            <Space size={6}>
+              <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
+                {getAgentDisplayName(record, t)}
+              </span>
+              {record.id !== "default" && (
+                <Button
+                  type="text"
+                  size="small"
+                  className={styles.agentNameEditButton}
+                  aria-label={t("agent.editName")}
+                  title={t("agent.editName")}
+                  icon={<Pencil size={14} />}
+                  onClick={() => startRename(record)}
+                  disabled={Boolean(savingAgentId)}
+                />
+              )}
+            </Space>
+          )}
           {(record.id === "default" || record.pinned) && (
             <Pin size={13} aria-label={t("agent.pinned")} />
           )}
@@ -277,19 +370,6 @@ export function AgentTable({
                 style={record.id === "default" ? disabledStyle : iconStyle}
               />
             </Tooltip>
-            <Button
-              type="text"
-              size="middle"
-              icon={<EditOutlined />}
-              onClick={() => onEdit(record)}
-              disabled={record.id === "default"}
-              style={record.id === "default" ? disabledStyle : iconStyle}
-              title={
-                record.id === "default"
-                  ? t("agent.defaultNotEditable")
-                  : undefined
-              }
-            />
             <Button
               type="text"
               size="middle"

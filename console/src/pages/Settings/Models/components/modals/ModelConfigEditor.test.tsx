@@ -49,7 +49,7 @@ function createModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
   };
 }
 
-function renderEditor(model: ModelInfo, thinkingParamStyle?: "budget") {
+function renderEditor(model: ModelInfo) {
   return renderWithProviders(
     <ModelConfigEditor
       providerId="openai"
@@ -58,7 +58,6 @@ function renderEditor(model: ModelInfo, thinkingParamStyle?: "budget") {
       onProviderUpdated={vi.fn()}
       onClose={vi.fn()}
       isDark={false}
-      thinkingParamStyle={thinkingParamStyle}
     />,
   );
 }
@@ -76,7 +75,6 @@ describe("ModelConfigEditor output limits", () => {
         max_output_length: 8192,
         max_output_length_source: "api",
       }),
-      "budget",
     );
 
     await user.click(screen.getAllByRole("switch")[0]);
@@ -94,7 +92,6 @@ describe("ModelConfigEditor output limits", () => {
       createModel({
         generate_kwargs: { max_tokens: 4096, temperature: 0.2 },
       }),
-      "budget",
     );
 
     await user.click(screen.getAllByRole("switch")[0]);

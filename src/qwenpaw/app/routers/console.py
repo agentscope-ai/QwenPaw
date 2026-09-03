@@ -31,6 +31,7 @@ from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
+from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
@@ -210,6 +211,45 @@ async def _persist_pending_project_dirs(
         _leave_for_hook()
         return chat
     return updated
+
+
+SESSION_THINKING_LEVELS = {"off", "low", "medium", "high"}
+
+
+async def _apply_session_thinking_level(
+    workspace,
+    chat,
+    native_payload: dict[str, Any],
+):
+    """Persist the validated Session thinking level in Chat Metadata."""
+    request_context_value = native_payload["meta"].get("request_context")
+    request_context = (
+        dict(request_context_value)
+        if isinstance(request_context_value, dict)
+        else {}
+    )
+    level = request_context.get("thinking_level")
+    if level not in SESSION_THINKING_LEVELS:
+        level = (chat.meta or {}).get("thinking_level")
+        if level in SESSION_THINKING_LEVELS:
+            request_context["thinking_level"] = level
+        else:
+            request_context.pop("thinking_level", None)
+            if isinstance(request_context_value, dict):
+                native_payload["meta"]["request_context"] = request_context
+            return chat
+        native_payload["meta"]["request_context"] = request_context
+        return chat
+    native_payload["meta"]["request_context"] = request_context
+    meta = dict(chat.meta or {})
+    if meta.get("thinking_level") == level:
+        return chat
+    meta["thinking_level"] = level
+    updated = await workspace.chat_manager.patch_chat(
+        chat.id,
+        ChatUpdate(thinking_level=level),
+    )
+    return updated or chat
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -399,6 +439,11 @@ async def post_console_chat(
         native_payload["channel_id"],
         name=name,
         **_chat_registration_fields(native_payload),
+    )
+    chat = await _apply_session_thinking_level(
+        workspace,
+        chat,
+        native_payload,
     )
     tracker = workspace.task_tracker
     is_reconnect = _is_reconnect_request(request_data)
@@ -854,6 +899,11 @@ async def post_console_chat_task(
         native_payload["channel_id"],
         name=name,
         **_chat_registration_fields(native_payload),
+    )
+    chat = await _apply_session_thinking_level(
+        workspace,
+        chat,
+        native_payload,
     )
     chat = await _persist_pending_project_dirs(
         workspace,

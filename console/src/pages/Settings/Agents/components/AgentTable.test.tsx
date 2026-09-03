@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSummary } from "@/api/types/agents";
 import { renderWithProviders } from "@/test/common_setup";
@@ -30,7 +31,7 @@ describe("AgentTable", () => {
         agents={[agent("unpinned", false), agent("pinned", true)]}
         loading={false}
         reordering={false}
-        onEdit={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
@@ -53,7 +54,7 @@ describe("AgentTable", () => {
         agents={[agent("a", false)]}
         loading={false}
         reordering={false}
-        onEdit={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
@@ -73,7 +74,7 @@ describe("AgentTable", () => {
         agents={[agent("default", true), agent("custom", false)]}
         loading={false}
         reordering={false}
-        onEdit={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
@@ -96,7 +97,7 @@ describe("AgentTable", () => {
         ]}
         loading={false}
         reordering={false}
-        onEdit={vi.fn()}
+        onRename={vi.fn().mockResolvedValue(undefined)}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onToggle={vi.fn()}
@@ -108,5 +109,65 @@ describe("AgentTable", () => {
     expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
     expect(screen.getByText(/Codex/)).toBeInTheDocument();
     expect(screen.getByText(/Qoder/)).toBeInTheDocument();
+  });
+
+  it("edits an agent name inline without opening the edit modal", async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("custom", false)]}
+        loading={false}
+        reordering={false}
+        onRename={onRename}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "agent.editName" }),
+    );
+    const input = screen.getByRole("textbox", { name: "agent.name" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed");
+    await userEvent.click(
+      screen.getByRole("button", { name: "agent.saveName" }),
+    );
+
+    expect(onRename).toHaveBeenCalledWith("custom", "Renamed");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("cancels an inline name edit without saving", async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("custom", false)]}
+        loading={false}
+        reordering={false}
+        onRename={onRename}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "agent.editName" }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "agent.name" }),
+      "{Escape}",
+    );
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("textbox", { name: "agent.name" }),
+    ).not.toBeInTheDocument();
   });
 });

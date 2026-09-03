@@ -14,8 +14,6 @@ import {
   ChevronDown,
   ChevronUp,
   Link as LinkIcon,
-  Eye,
-  GitBranch,
   LoaderCircle,
   Search,
   Settings,
@@ -23,23 +21,24 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import type { ActiveModelsInfo } from "../../../api/types";
+import type {
+  ActiveModelsInfo,
+  ModelInfo,
+  ProviderInfo,
+} from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
+import { ModelConfigModal } from "../../Settings/Models/components/modals";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
-import { AgentModelSettings } from "./AgentModelSettings";
-import { CandidateModelSection } from "./CandidateModelSection";
 import { modelSelectorApi } from "./modelSelectorApi";
 import {
-  buildDiscoveryCandidates,
   buildEligibleProviders,
-  buildHiddenCandidates,
   modelKey,
   splitProvidersByTier,
 } from "./modelSelectorModels";
-import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
+import type { EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
 import styles from "./index.module.less";
 
@@ -66,7 +65,7 @@ const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
-  showAdvancedModelControls?: boolean;
+  onThinkingSupportChange?: (supported: boolean) => void;
 }
 
 function readStoredModelKeys(key: string): string[] {
@@ -81,12 +80,10 @@ function readStoredModelKeys(key: string): string[] {
 }
 
 export default function ModelSelector({
-  showAdvancedModelControls = false,
+  onThinkingSupportChange,
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
-  const [addingKey, setAddingKey] = useState<string | null>(null);
-  const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"pro" | "free">(
@@ -104,7 +101,6 @@ export default function ModelSelector({
   const freeTabId = useId();
   const tabPanelId = useId();
   const moreProvidersId = useId();
-  const candidateModelsId = useId();
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedAgent } = useAgentStore();
@@ -118,10 +114,13 @@ export default function ModelSelector({
   const [expandedModels, setExpandedModels] = useState<Record<string, number>>(
     {},
   );
-  const [showCandidateModels, setShowCandidateModels] = useState(false);
   const [recentModelKeys, setRecentModelKeys] = useState<string[]>(() =>
     readStoredModelKeys(RECENT_STORAGE_KEY),
   );
+  const [configTarget, setConfigTarget] = useState<{
+    provider: ProviderInfo;
+    model: ModelInfo;
+  } | null>(null);
 
   // Mobile viewport detection for dropdown placement
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -229,52 +228,19 @@ export default function ModelSelector({
 
   const activeProviderId = activeModels?.active_llm?.provider_id;
   const activeModelId = activeModels?.active_llm?.model;
-  const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
-  const fallbackModel = useMemo(() => {
-    const providerId = actualUsage?.provider_id;
-    const modelId = actualUsage?.model_name;
-    if (
-      !providerId ||
-      !modelId ||
-      (providerId === activeProviderId && modelId === activeModelId)
-    ) {
-      return null;
-    }
-    const provider = providers.find((item) => item.id === providerId);
-    const model = [
+  const activeModelInfo = useMemo(() => {
+    const provider = providers.find((item) => item.id === activeProviderId);
+    return [
       ...(provider?.models ?? []),
       ...(provider?.extra_models ?? []),
-    ].find((item) => item.id === modelId);
-    return {
-      providerId,
-      providerName: provider?.name || providerId,
-      label: model?.name || modelId,
-    };
-  }, [actualUsage, activeModelId, activeProviderId, providers]);
+    ].find((item) => item.id === activeModelId);
+  }, [activeModelId, activeProviderId, providers]);
 
-  const discoveryCandidates = useMemo(
-    () => buildDiscoveryCandidates(providers),
-    [providers],
-  );
-
-  const hiddenCandidates = useMemo(
-    () => buildHiddenCandidates(providers),
-    [providers],
-  );
-
-  const visibleCandidates = useMemo(() => {
-    const query = trimmedSearch.toLowerCase();
-    return discoveryCandidates.filter(({ provider, model }) => {
-      const matchesQuery = query
-        ? model.id.toLowerCase().includes(query) ||
-          model.name.toLowerCase().includes(query) ||
-          provider.name.toLowerCase().includes(query)
-        : true;
-      if (!matchesQuery) return false;
-      return activeTab === "free" ? Boolean(model.is_free) : !model.is_free;
-    });
-  }, [activeTab, discoveryCandidates, trimmedSearch]);
-  const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
+  useEffect(() => {
+    onThinkingSupportChange?.(
+      activeModelInfo?.supports_agent_thinking === true,
+    );
+  }, [activeModelInfo, onThinkingSupportChange]);
 
   const rankModels = useCallback(
     (list: EligibleProvider[]): EligibleProvider[] => {
@@ -466,68 +432,6 @@ export default function ModelSelector({
     await activateModel(providerId, modelId);
   };
 
-  const handleAddCandidate = async (candidate: CandidateModel) => {
-    const key = modelKey(candidate.provider.id, candidate.model.id);
-    if (addingKey) return;
-
-    const confirmed = await confirmFreeModelSwitch({
-      provider: candidate.provider,
-      model: candidate.model,
-      t,
-    });
-    if (!confirmed) return;
-
-    setAddingKey(key);
-    try {
-      await modelSelectorApi.addModel(candidate.provider.id, {
-        id: candidate.model.id,
-        name: candidate.model.name || candidate.model.id,
-        is_free: candidate.model.is_free,
-        supports_multimodal: candidate.model.supports_multimodal,
-        supports_image: candidate.model.supports_image,
-        supports_video: candidate.model.supports_video,
-        probe_source: candidate.model.probe_source,
-      });
-      await activateModel(candidate.provider.id, candidate.model.id);
-      await fetchData();
-    } catch (err) {
-      const text =
-        err instanceof Error ? err.message : t("modelSelector.addFailed");
-      message.error(text);
-    } finally {
-      setAddingKey(null);
-    }
-  };
-
-  const handleVisibility = async (
-    candidate: CandidateModel,
-    hidden: boolean,
-  ) => {
-    const key = modelKey(candidate.provider.id, candidate.model.id);
-    if (visibilityKey) return;
-    setVisibilityKey(key);
-    try {
-      const updated = await modelSelectorApi.setModelVisibility(
-        candidate.provider.id,
-        candidate.model.id,
-        hidden,
-      );
-      setProviders((current) =>
-        current.map((provider) =>
-          provider.id === updated.id ? updated : provider,
-        ),
-      );
-    } catch (err) {
-      const text =
-        err instanceof Error
-          ? err.message
-          : t("modelSelector.visibilityFailed");
-      message.error(text);
-    } finally {
-      setVisibilityKey(null);
-    }
-  };
-
   const handleOAuthSuccess = async () => {
     const { providerId, pendingModelId } = oauthModal;
     setOauthModal({
@@ -674,6 +578,27 @@ export default function ModelSelector({
                     {isActive && (
                       <Check size={14} className={styles.checkIcon} />
                     )}
+                    <Tooltip title={t("models.modelConfigLabel")}>
+                      <button
+                        type="button"
+                        className={styles.modelConfigButton}
+                        aria-label={t("models.modelConfigLabel")}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const fullProvider = providers.find(
+                            (item) => item.id === provider.id,
+                          );
+                          if (!fullProvider) return;
+                          setOpen(false);
+                          setConfigTarget({
+                            provider: fullProvider,
+                            model,
+                          });
+                        }}
+                      >
+                        <Settings size={15} />
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               );
@@ -880,11 +805,6 @@ export default function ModelSelector({
 
     return (
       <>
-        {showAdvancedModelControls && (
-          <div className={styles.proBanner}>
-            <span>{t("modelSelector.proBannerText")}</span>
-          </div>
-        )}
         {rankModels(filteredPro).map((provider) =>
           renderProviderModels(provider, true),
         )}
@@ -972,58 +892,6 @@ export default function ModelSelector({
           </div>
         )}
         {activeTab === "free" ? renderFreeTab() : renderProTab()}
-        {showAdvancedModelControls && (
-          <CandidateModelSection
-            candidates={visibleCandidates}
-            expanded={candidateModelsExpanded}
-            controlsId={candidateModelsId}
-            searchActive={Boolean(trimmedSearch)}
-            addingKey={addingKey}
-            visibilityKey={visibilityKey}
-            t={t}
-            onToggle={() => setShowCandidateModels((value) => !value)}
-            onAdd={handleAddCandidate}
-            onHide={(candidate) => handleVisibility(candidate, true)}
-          />
-        )}
-        {showAdvancedModelControls &&
-          !trimmedSearch &&
-          hiddenCandidates.length > 0 && (
-            <details className={styles.hiddenModels}>
-              <summary>
-                {t("modelSelector.hiddenModels", {
-                  count: hiddenCandidates.length,
-                })}
-              </summary>
-              {hiddenCandidates.map((candidate) => {
-                const key = modelKey(candidate.provider.id, candidate.model.id);
-                return (
-                  <div key={key} className={styles.hiddenModelItem}>
-                    <span title={candidate.model.name || candidate.model.id}>
-                      {candidate.model.name || candidate.model.id}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={t("modelSelector.restoreModel")}
-                      disabled={visibilityKey === key}
-                      onClick={() => handleVisibility(candidate, false)}
-                    >
-                      <Eye size={14} />
-                      {t("modelSelector.restore")}
-                    </button>
-                  </div>
-                );
-              })}
-            </details>
-          )}
-        {showAdvancedModelControls && (
-          <AgentModelSettings
-            agentId={selectedAgent}
-            providers={eligibleProviders}
-            activeProviderId={activeProviderId}
-            activeModelId={activeModelId}
-          />
-        )}
       </div>
     </div>
   );
@@ -1052,29 +920,6 @@ export default function ModelSelector({
             {saving && <LoaderCircle size={12} className={styles.spinning} />}
             {showActiveProviderIcon && activeProviderId && (
               <ProviderIcon providerId={activeProviderId} size={16} />
-            )}
-            {showAdvancedModelControls && fallbackModel && (
-              <Tooltip
-                title={t("modelSelector.fallbackActive", {
-                  provider: fallbackModel.providerName,
-                  model: fallbackModel.label,
-                })}
-              >
-                <span
-                  className={styles.fallbackBadge}
-                  aria-label={t("modelSelector.fallbackActive", {
-                    provider: fallbackModel.providerName,
-                    model: fallbackModel.label,
-                  })}
-                >
-                  <ProviderIcon
-                    providerId={fallbackModel.providerId}
-                    size={13}
-                  />
-                  <GitBranch size={12} />
-                  <span>{fallbackModel.label}</span>
-                </span>
-              </Tooltip>
             )}
             <span className={styles.triggerName} ref={triggerNameRef}>
               {shouldMarquee ? (
@@ -1129,6 +974,22 @@ export default function ModelSelector({
         providerName={oauthModal.providerName}
         onSuccess={handleOAuthSuccess}
         onCancel={handleOAuthCancel}
+      />
+      <ModelConfigModal
+        open={configTarget !== null}
+        provider={configTarget?.provider ?? null}
+        model={configTarget?.model ?? null}
+        onClose={() => setConfigTarget(null)}
+        onSaved={async () => {
+          await fetchData();
+        }}
+        onProviderUpdated={(updated) => {
+          setProviders((current) =>
+            current.map((provider) =>
+              provider.id === updated.id ? updated : provider,
+            ),
+          );
+        }}
       />
     </>
   );

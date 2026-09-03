@@ -10,6 +10,7 @@ import {
   ToolExecutionLevelCard,
   AgentLoopCard,
   EmbeddingModelCard,
+  ModelRoutingCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -53,6 +54,9 @@ function AgentConfigPage() {
     savingTimezone,
     approvalLevel,
     setApprovalLevel,
+    modelRouting,
+    setModelRouting,
+    modelRoutingResetToken,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -126,6 +130,11 @@ function AgentConfigPage() {
     };
   }, [refreshEffectiveContextWindow]);
 
+  const handleSaveAndRefresh = useCallback(async () => {
+    await handleSave();
+    await refreshEffectiveContextWindow();
+  }, [handleSave, refreshEffectiveContextWindow]);
+
   const dynamicTabs = useMemo(() => {
     const baseTabs = [
       {
@@ -158,6 +167,21 @@ function AgentConfigPage() {
         children: (
           <div className={styles.tabContent}>
             <AgentLoopCard />
+          </div>
+        ),
+      },
+      {
+        key: "model",
+        label: (
+          <span className={styles.tabLabel}>{t("agentConfig.modelTitle")}</span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <ModelRoutingCard
+              modelRouting={modelRouting}
+              onModelRoutingChange={setModelRouting}
+              draftResetToken={modelRoutingResetToken}
+            />
           </div>
         ),
       },
@@ -276,6 +300,9 @@ function AgentConfigPage() {
     approvalLevel,
     setApprovalLevel,
     saving,
+    modelRouting,
+    setModelRouting,
+    modelRoutingResetToken,
   ]);
 
   useEffect(() => {
@@ -347,7 +374,7 @@ function AgentConfigPage() {
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button type="primary" onClick={handleSaveAndRefresh} loading={saving}>
           {t("common.save")}
         </Button>
       </div>

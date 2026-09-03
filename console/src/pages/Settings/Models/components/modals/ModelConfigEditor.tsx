@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
-import { Segmented } from "antd";
+import { Button, InputNumber, Switch } from "@agentscope-ai/design";
 import { RotateCcw } from "lucide-react";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
@@ -28,9 +27,6 @@ export function ModelConfigEditor({
   onProviderUpdated,
   onClose,
   isDark,
-  thinkingParamStyle,
-  reasoningEffortOptions,
-  thinkingBudgetRange = [1, 81920],
   chatModel,
 }: {
   providerId: string;
@@ -39,9 +35,6 @@ export function ModelConfigEditor({
   onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
   isDark: boolean;
-  thinkingParamStyle?: "budget" | "effort" | null;
-  reasoningEffortOptions?: string[];
-  thinkingBudgetRange?: [number, number];
   chatModel?: string;
 }) {
   const { t } = useTranslation();
@@ -58,15 +51,6 @@ export function ModelConfigEditor({
   const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
     model.relay_reasoning ?? true,
-  );
-  const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
-    model.thinking_enabled ?? null,
-  );
-  const [thinkingBudget, setThinkingBudget] = useState<number | null>(
-    model.thinking_budget ?? null,
-  );
-  const [reasoningEffort, setReasoningEffort] = useState<string | null>(
-    model.reasoning_effort ?? null,
   );
 
   const initialText = useMemo(() => {
@@ -85,18 +69,12 @@ export function ModelConfigEditor({
     setMaxInputLength(model.max_input_length ?? 131072);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
-    setThinkingEnabled(model.thinking_enabled ?? null);
-    setThinkingBudget(model.thinking_budget ?? null);
-    setReasoningEffort(model.reasoning_effort ?? null);
     setDirty(false);
   }, [
     initialText,
     configuredMaxTokens,
     model.max_input_length,
     model.relay_reasoning,
-    model.thinking_enabled,
-    model.thinking_budget,
-    model.reasoning_effort,
   ]);
 
   const effectiveMaxInputLength = maxInputLength ?? 131072;
@@ -146,9 +124,6 @@ export function ModelConfigEditor({
           : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
-        thinking_enabled: thinkingEnabled,
-        thinking_budget: thinkingBudget,
-        reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
@@ -249,154 +224,6 @@ export function ModelConfigEditor({
           </div>
         </div>
       </div>
-      {/* Enable Thinking (only for providers that support thinking config) */}
-      {thinkingParamStyle && (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              padding: "6px 0",
-            }}
-          >
-            <div>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-                }}
-              >
-                {t("models.thinkingModeLabel")}
-              </span>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                  marginTop: 2,
-                }}
-              >
-                {t("models.thinkingModeHint")}
-              </div>
-            </div>
-            <Switch
-              checked={thinkingEnabled === true}
-              onChange={(checked) => {
-                setThinkingEnabled(checked);
-                setDirty(true);
-              }}
-            />
-          </div>
-
-          {thinkingEnabled === true && (
-            <div style={{ marginBottom: 12 }}>
-              {thinkingParamStyle === "budget" ? (
-                <div>
-                  <div
-                    style={{
-                      ...labelStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>{t("models.thinkingBudgetLabel")}</span>
-                    <a
-                      style={{ fontSize: 11, cursor: "pointer" }}
-                      onClick={() => {
-                        setThinkingBudget(
-                          thinkingBudget === null
-                            ? thinkingBudgetRange[0]
-                            : null,
-                        );
-                        setDirty(true);
-                      }}
-                    >
-                      {thinkingBudget === null
-                        ? t("models.switchToManual")
-                        : t("models.switchToAuto")}
-                    </a>
-                  </div>
-                  {thinkingBudget !== null ? (
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 12 }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <Slider
-                          min={thinkingBudgetRange[0]}
-                          max={thinkingBudgetRange[1]}
-                          step={1024}
-                          value={thinkingBudget}
-                          onChange={(val: number) => {
-                            setThinkingBudget(val);
-                            setDirty(true);
-                          }}
-                        />
-                      </div>
-                      <InputNumber
-                        style={{ width: 100 }}
-                        min={thinkingBudgetRange[0]}
-                        max={thinkingBudgetRange[1]}
-                        step={1024}
-                        value={thinkingBudget}
-                        onChange={(val) => {
-                          setThinkingBudget(val);
-                          setDirty(true);
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                        marginTop: 2,
-                      }}
-                    >
-                      {t("models.thinkingBudgetHint")}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div style={labelStyle}>
-                    {t("models.reasoningEffortLabel")}
-                  </div>
-                  <Segmented
-                    block
-                    value={reasoningEffort ?? "__auto__"}
-                    onChange={(val) => {
-                      const v = val as string;
-                      setReasoningEffort(v === "__auto__" ? null : v);
-                      setDirty(true);
-                    }}
-                    options={[
-                      { label: t("models.switchToAuto"), value: "__auto__" },
-                      ...(
-                        reasoningEffortOptions ?? [
-                          "none",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                        ]
-                      ).map((v) => ({
-                        label: v.charAt(0).toUpperCase() + v.slice(1),
-                        value: v,
-                      })),
-                    ]}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-      {/* Responses API models handle reasoning via native reasoning items
-         that the API requires to be echoed back; relay_reasoning has no
-         effect, so hide the toggle to avoid confusion. */}
       {chatModel !== "OpenAIResponseModel" && (
         <div
           style={{
@@ -448,7 +275,7 @@ export function ModelConfigEditor({
       <JsonConfigEditor
         value={text}
         onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
+        placeholder={`Example:\n{\n  "top_p": 0.9,\n  "temperature": 0.7\n}`}
       />
       <div
         style={{

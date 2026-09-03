@@ -257,6 +257,58 @@ def test_no_override_uses_active_model():
     assert model.identifier == "default-provider/default-model"
 
 
+@pytest.mark.parametrize("thinking_level", ["off", "high"])
+def test_global_active_model_applies_thinking_override(
+    monkeypatch,
+    thinking_level,
+):
+    """Global active models honor per-session thinking overrides."""
+    config = _patched_load_agent_config("agent-1")
+    config.active_model = None
+    monkeypatch.setattr(
+        config_module,
+        "load_agent_config",
+        lambda _agent_id: config,
+    )
+    global_slot = ModelSlotConfig(
+        provider_id="global-provider",
+        model="global-model",
+    )
+    observed_levels = []
+
+    def build_global_model(_model_name):
+        observed_levels.append(provider_module._AGENT_THINKING_LEVEL.get())
+        return _FakeChatModel("global-provider/global-model")
+
+    global_provider = SimpleNamespace(
+        id="global-provider",
+        get_chat_model_instance=build_global_model,
+    )
+    manager = SimpleNamespace(
+        get_provider=lambda _provider_id: global_provider,
+        get_active_model=lambda: global_slot,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: manager,
+            get_active_chat_model=lambda: build_global_model(
+                global_slot.model,
+            ),
+        ),
+    )
+
+    with patch.object(model_factory, "RetryConfig") as retry_cls:
+        retry_cls.return_value = "rc"
+        model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+            thinking_level_override=thinking_level,
+        )
+
+    assert observed_levels == [thinking_level]
+
+
 async def test_async_factory_builds_model_in_worker_thread(monkeypatch):
     """The public async factory offloads the complete model build."""
     caller_thread = threading.get_ident()
@@ -373,6 +425,15 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     assert [item.max_concurrent for item in rate_limit_configs] == [2, 2]
     assert compact_thresholds == [0.75, 0.75]
     assert thinking_levels == ["high", "high"]
+
+    thinking_levels.clear()
+    model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+        thinking_level_override="medium",
+    )
+
+    assert thinking_levels == ["medium", "medium"]
 
 
 def test_each_fallback_model_gets_its_own_formatter(monkeypatch):

@@ -135,6 +135,12 @@
   }
 }
 
+.agentNameEditButton {
+  padding: 0;
+  width: 24px;
+  height: 24px;
+}
+
 .backendTag {
   display: inline-flex;
   max-width: 100%;
@@ -184,6 +190,28 @@
 
 .sortableRowDragging {
   background: rgba(24, 144, 255, 0.08);
+}
+
+.modelFormItem {
+  margin-bottom: 14px;
+
+  :global(.ant-form-item-explain),
+  :global(.qwenpaw-form-item-explain) {
+    margin-top: 6px;
+    color: var(--qwenpaw-color-text-secondary, rgba(0, 0, 0, 0.62));
+    font-size: 13px;
+    line-height: 20px;
+  }
+}
+
+.agentRoutingFormItem {
+  padding-top: 12px;
+  margin-bottom: 20px;
+
+  :global(.ant-form-item-control-input),
+  :global(.qwenpaw-form-item-control-input) {
+    min-height: 0;
+  }
 }
 
 /* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
@@ -279,6 +307,13 @@
 
   .sortableRowDragging {
     background: rgba(255, 127, 22, 0.12);
+  }
+
+  .modelFormItem {
+    :global(.ant-form-item-explain),
+    :global(.qwenpaw-form-item-explain) {
+      color: rgba(255, 255, 255, 0.62);
+    }
   }
 
   .backendTag {
