@@ -751,9 +751,14 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(_tc("Bash", command))
 
         assert decision.action == expected
-        if custom_rule:
-            assert decision.findings
-            assert decision.findings[0].rule_id == "CRITICAL_CUSTOM"
+        assert decision.findings
+        finding_ids = {finding.rule_id for finding in decision.findings}
+        expected_rule_id = (
+            "CRITICAL_CUSTOM"
+            if custom_rule
+            else "TOOL_CMD_PRIVILEGE_ESCALATION"
+        )
+        assert expected_rule_id in finding_ids
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""
