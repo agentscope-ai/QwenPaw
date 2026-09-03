@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -172,7 +173,7 @@ def validate_env_value(key: str, value: str) -> None:
     try:
         if spec.value_type == "float":
             parsed = float(value)
-            if parsed < 0 or parsed in (float("inf"), float("-inf")):
+            if parsed < 0 or not math.isfinite(parsed):
                 raise ValueError
         elif spec.value_type == "integer":
             int(value)

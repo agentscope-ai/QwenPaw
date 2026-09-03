@@ -7,6 +7,8 @@ DELETE /api/envs/{key} (delete single).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from helpers import default_http_timeout
 
@@ -243,6 +245,26 @@ def test_envs_catalog_exposes_runtime_and_readonly_settings(
         specs["QWENPAW_LLM_MAX_RETRIES"]["readonly_reason_code"]
         == "initial_default"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_envs_reset_removes_persisted_readonly_setting(app_server) -> None:
+    """A persisted known setting remains removable after becoming read-only."""
+    envs_path = app_server.working_dir.parent / "working.secret" / "envs.json"
+    envs_path.write_text(
+        json.dumps({"QWENPAW_WORKING_DIR": "/not/active"}),
+        encoding="utf-8",
+    )
+
+    response = app_server.api_request(
+        "POST",
+        "/api/envs/QWENPAW_WORKING_DIR/reset",
+        timeout=_ENVS_TIMEOUT,
+    )
+
+    assert response.status_code == 200, app_server.logs_tail()
+    assert response.json() == []
 
 
 # ------------------------------------------------------------------ #

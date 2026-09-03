@@ -65,13 +65,13 @@ def _validate_updates(body: Dict[str, str]) -> dict[str, str]:
 
 
 @router.get("", response_model=List[EnvVar])
-async def list_envs() -> List[EnvVar]:
+def list_envs() -> List[EnvVar]:
     """Return values explicitly configured through QwenPaw."""
     return _items(load_envs())
 
 
 @router.get("/catalog", response_model=List[EnvSpecResponse])
-async def list_env_catalog() -> List[EnvSpecResponse]:
+def list_env_catalog() -> List[EnvSpecResponse]:
     """Return dynamic, initialization-default, and startup settings."""
     configured = load_envs()
     result = []
@@ -109,13 +109,13 @@ async def list_env_catalog() -> List[EnvSpecResponse]:
 
 
 @router.patch("", response_model=List[EnvVar])
-async def patch_envs(body: Dict[str, str]) -> List[EnvVar]:
+def patch_envs(body: Dict[str, str]) -> List[EnvVar]:
     """Merge submitted values without deleting omitted variables."""
     return _items(update_env_vars(_validate_updates(body)))
 
 
 @router.put("", response_model=List[EnvVar])
-async def batch_save_envs(body: Dict[str, str]) -> List[EnvVar]:
+def batch_save_envs(body: Dict[str, str]) -> List[EnvVar]:
     """Replace all persisted values through the legacy batch endpoint."""
     cleaned = _validate_updates(body)
     save_envs(cleaned)
@@ -123,10 +123,10 @@ async def batch_save_envs(body: Dict[str, str]) -> List[EnvVar]:
 
 
 @router.post("/{key}/reset", response_model=List[EnvVar])
-async def reset_env(key: str) -> List[EnvVar]:
+def reset_env(key: str) -> List[EnvVar]:
     """Remove a known global override and restore its inherited value."""
     spec = ENV_VAR_SPECS_BY_KEY.get(key)
-    if spec is None or not spec.editable:
+    if spec is None:
         raise HTTPException(400, detail=f"Variable cannot be reset: {key}")
     envs = load_envs()
     if key not in envs:
@@ -135,7 +135,7 @@ async def reset_env(key: str) -> List[EnvVar]:
 
 
 @router.delete("/{key}", response_model=List[EnvVar])
-async def delete_env(key: str) -> List[EnvVar]:
+def delete_env(key: str) -> List[EnvVar]:
     """Delete one custom variable."""
     if key in ENV_VAR_SPECS_BY_KEY:
         raise HTTPException(400, detail=f"Known variable must be reset: {key}")
