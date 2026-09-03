@@ -211,7 +211,10 @@ def build_env_context(
         parts.append(f"- Working directory: {working_dir}")
 
     if agent_id:
-        parts.append(f"- Agent ID: {agent_id}")
+        parts.append(
+            f"- Agent Identity: Your agent id is `{agent_id}`. "
+            f"This is your unique identifier in the multi-agent system.",
+        )
 
     # Keep request-specific values after the reusable environment prefix.
     if channel is not None:
