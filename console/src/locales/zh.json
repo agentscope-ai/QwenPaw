@@ -2033,7 +2033,6 @@
       "high": "高"
     },
     "subagentModel": "Sub-agent 模型",
-    "subagentModelAdvisorHint": "顾问模式：在顾问对话中 Worker 使用该模型运行，主模型担任顾问（顾问循环模板里可以另外指定模型）。",
     "sameAsPrimary": "与主模型相同",
     "enableFallback": "启用模型降级",
     "fallbackScope": "降级范围",

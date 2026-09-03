@@ -1638,7 +1638,6 @@
     "retry": "再試行"
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "アドバイザーモード：アドバイザー会話ではワーカーがこのモデルで動作し、メインモデルがアドバイザーを務めます（アドバイザーのループテンプレートで別のモデルを指定できます）。",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
     "noFreeModels": "利用可能な無料モデルがありません",

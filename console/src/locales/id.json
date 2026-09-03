@@ -841,7 +841,6 @@
     "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Mode Penasihat: dalam percakapan Penasihat, pekerja berjalan pada model ini sementara model utama menjadi penasihat (templat loop Penasihat dapat menentukan model lain).",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
     "noFreeModels": "Tidak ada model gratis tersedia",

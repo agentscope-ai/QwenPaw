@@ -1799,7 +1799,6 @@
     }
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Modo Conselheiro: em conversas do Conselheiro o trabalhador roda neste modelo enquanto o modelo principal aconselha (o template de loop Conselheiro pode indicar outros modelos).",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",

@@ -2109,7 +2109,6 @@
       "high": "High"
     },
     "subagentModel": "Sub-agent model",
-    "subagentModelAdvisorHint": "Advisor Mode: in Advisor conversations the worker runs on this model while the main model advises (the Advisor loop template can name other models).",
     "sameAsPrimary": "Same as primary",
     "enableFallback": "Enable model fallback",
     "fallbackScope": "Fallback scope",

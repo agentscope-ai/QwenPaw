@@ -1553,7 +1553,6 @@
     "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },
   "modelSelector": {
-    "subagentModelAdvisorHint": "Chế độ cố vấn: trong các cuộc trò chuyện Cố vấn, worker chạy trên mô hình này còn mô hình chính làm cố vấn (mẫu vòng lặp Cố vấn có thể chỉ định mô hình khác).",
     "placeholder": "Chọn mô hình",
     "searchPlaceholder": "Tìm kiếm mô hình...",
     "noModels": "Không có mô hình nào",
