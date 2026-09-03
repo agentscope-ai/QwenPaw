@@ -62,6 +62,7 @@ class PendingApproval:
     # treated as EXACT by the governance consumer. Only meaningful when the
     # decision is APPROVED.
     scope: ApprovalScope | None = None
+    description: str = ""
 
 
 def _is_spawn_child_approval(pending: PendingApproval) -> bool:
@@ -157,6 +158,7 @@ class ApprovalService:
         tool_name: str,
         result: "ToolGuardResult",
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        description: str = "",
         extra: dict[str, Any] | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
@@ -180,6 +182,7 @@ class ApprovalService:
             created_at=time.time(),
             future=loop.create_future(),
             timeout_seconds=timeout_seconds,
+            description=str(description or "").strip(),
             result_summary=format_findings_summary(result),
             findings_count=result.findings_count,
             severity=result.max_severity.value,
@@ -250,6 +253,7 @@ class ApprovalService:
             created_at=time.time(),
             future=loop.create_future(),
             timeout_seconds=timeout_seconds,
+            description=str(summary.description or "").strip(),
             result_summary=summary.result_summary,
             findings_count=summary.findings_count,
             severity=summary.severity,

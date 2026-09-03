@@ -4085,6 +4085,7 @@
     "ownerAgent": "Owner Agent",
     "executingAgent": "Executing Agent",
     "tool": "Tool",
+    "purpose": "Purpose",
     "severity": "Severity",
     "findings": "Findings",
     "reason": "Reason",

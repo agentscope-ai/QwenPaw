@@ -17,3 +17,4 @@ class ApprovalRequestSummary:
     findings_count: int = 1
     result_summary: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
+    description: str = ""

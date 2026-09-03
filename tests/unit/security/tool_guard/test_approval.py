@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from qwenpaw.security.tool_guard.approval import (
     ApprovalDecision,
+    build_approval_description,
     format_findings_summary,
 )
 from qwenpaw.security.tool_guard.models import (
@@ -40,6 +41,29 @@ class TestApprovalDecision:
         """ApprovalDecision is a str Enum."""
         assert ApprovalDecision.APPROVED == "approved"
         assert isinstance(ApprovalDecision.DENIED, str)
+
+
+class TestBuildApprovalDescription:
+    """Approval requests expose a concise user-facing purpose."""
+
+    def test_prefers_explicit_description(self):
+        assert (
+            build_approval_description(
+                "Bash",
+                requested_description="Check the repository status.",
+            )
+            == "Check the repository status."
+        )
+
+    def test_falls_back_to_safe_tool_purpose(self):
+        assert build_approval_description("Bash") == (
+            "Use Bash to complete the current task."
+        )
+
+    def test_localizes_fallback_to_chinese(self):
+        assert build_approval_description("Bash", language="zh") == (
+            "使用 Bash 完成当前任务。"
+        )
 
 
 # ---------------------------------------------------------------------------

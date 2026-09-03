@@ -25,9 +25,11 @@ function renderApprovalCard() {
 
 function renderCard({
   isGeneralized = true,
+  description,
   onApprove = async () => {},
 }: {
   isGeneralized?: boolean;
+  description?: string;
   onApprove?: ApprovalCardProps["onApprove"];
 } = {}) {
   renderWithProviders(
@@ -35,6 +37,7 @@ function renderCard({
       requestId="approval-1"
       toolName="shell"
       toolSource="tool"
+      description={description}
       severity="medium"
       findingsCount={0}
       findingsSummary=""
@@ -54,6 +57,17 @@ function renderCard({
 }
 
 describe("ApprovalCard generalized approval", () => {
+  it("shows the request purpose when provided", () => {
+    renderCard({
+      description: "Check the repository status before making changes.",
+    });
+
+    expect(screen.getByText("Purpose:")).toBeInTheDocument();
+    expect(
+      screen.getByText("Check the repository status before making changes."),
+    ).toBeInTheDocument();
+  });
+
   it("prioritizes one-time approval without changing approval scopes", async () => {
     const onApprove = renderApprovalCard();
     const user = userEvent.setup();

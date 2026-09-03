@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.runtime.prompt_contributors import (
+    ApprovalDescriptionContributor,
     WorkspacePromptFilesContributor,
     build_default_prompt_manager,
 )
@@ -108,3 +109,22 @@ def test_workspace_prompt_files_skips_symlink_escape(tmp_path):
     )
 
     assert fragment is None
+
+
+def test_approval_description_prompt_requires_short_purpose(tmp_path):
+    fragment = ApprovalDescriptionContributor().contribute_sync(
+        _ctx(tmp_path, []),
+    )
+
+    assert fragment is not None
+    assert "description" in fragment
+    assert "one short sentence" in fragment
+
+
+def test_default_prompt_manager_includes_approval_description_guidance(
+    tmp_path,
+):
+    prompt = build_default_prompt_manager().build_sync(_ctx(tmp_path, []))
+
+    assert "description" in prompt
+    assert "one short sentence" in prompt

@@ -29,6 +29,47 @@ class ApprovalScope(str, Enum):
     SIMILAR = "similar"  # record the generalized pattern
 
 
+_APPROVAL_DESCRIPTION_FALLBACKS = (
+    ("zh", "使用 {name} 完成当前任务。"),
+    ("ja", "現在のタスクを完了するために {name} を使用します。"),
+    ("ru", "Использовать {name} для выполнения текущей задачи."),
+    ("pt", "Usar {name} para concluir a tarefa atual."),
+    ("id", "Gunakan {name} untuk menyelesaikan tugas saat ini."),
+    ("vi", "Dùng {name} để hoàn thành tác vụ hiện tại."),
+)
+
+
+def _fallback_approval_description(name: str, language_key: str) -> str:
+    for prefix, template in _APPROVAL_DESCRIPTION_FALLBACKS:
+        if language_key.startswith(prefix):
+            return template.format(name=name)
+    return f"Use {name} to complete the current task."
+
+
+def build_approval_description(
+    tool_name: str,
+    *,
+    requested_description: str | None = None,
+    language: str | None = None,
+    max_length: int = 240,
+) -> str:
+    """Return a concise, user-facing purpose for an approval request.
+
+    Callers may provide the model's short purpose through request context.
+    Older callers do not have that field, so the fallback stays generic and
+    avoids exposing a raw command as the approval summary.
+    """
+    description = " ".join(str(requested_description or "").split())
+    if description:
+        if len(description) > max_length:
+            description = description[: max_length - 3].rstrip() + "..."
+        return description
+
+    name = " ".join(str(tool_name or "tool").split()) or "tool"
+    language_key = str(language or "en").lower().replace("_", "-")
+    return _fallback_approval_description(name, language_key)
+
+
 def format_findings_summary(
     result: "ToolGuardResult",
     *,
