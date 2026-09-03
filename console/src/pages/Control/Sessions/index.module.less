@@ -13,7 +13,7 @@
       .qwenpaw-table-thead
       > tr
       > th {
-      background: #f9f8f4 !important;
+      background: var(--app-surface-sunken) !important;
     }
   }
 }
@@ -24,7 +24,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
@@ -37,17 +37,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -67,11 +67,11 @@
 .title {
   font-size: 20px;
   font-weight: 600;
-  color: #333;
+  color: var(--app-text);
 }
 
 .description {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
   margin: 0;
   display: none;
@@ -103,14 +103,14 @@
 
 .mobileSessionCard {
   border-radius: var(--border-radius, 8px);
-  background: #ffffff;
-  border: 1px solid #eae8e7;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-sm);
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    border-color: #d9d9d9;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -125,7 +125,7 @@
 .mobileSessionName {
   font-weight: 600;
   font-size: 16px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -143,7 +143,7 @@
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.55);
+  color: var(--app-text-secondary);
   margin-bottom: 16px;
   line-height: 20px;
 
@@ -160,34 +160,35 @@
   align-items: center;
   flex-wrap: wrap;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 
   .mobileActionBtn {
     font-size: 13px;
     height: 28px;
     padding: 0 10px;
-    color: #666;
+    color: var(--app-text-secondary);
     background: transparent;
-    border: 1px solid #d9d9d9;
+    border: 1px solid var(--app-border-strong);
     border-radius: 7px;
 
     &:hover:not(:disabled) {
-      color: #333;
-      border-color: #bfbfbf;
+      color: var(--app-text);
+      border-color: var(--app-border-hover);
     }
 
     &:disabled {
-      color: #d9d9d9;
+      color: var(--app-text-quaternary);
+      border-color: var(--app-border-subtle);
       cursor: not-allowed;
     }
 
     &.danger {
-      color: #ff4d4f;
-      border-color: #ff4d4f;
+      color: var(--app-error-text);
+      border-color: var(--app-error-text);
 
       &:hover:not(:disabled) {
-        color: #ff7875;
-        border-color: #ff7875;
+        color: var(--app-error);
+        border-color: var(--app-error);
       }
     }
   }
@@ -222,43 +223,6 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .sessionsPage {
-    /* Override the light-mode table header background */
-    :global {
-      .qwenpaw-table-wrapper
-        .qwenpaw-table-container
-        .qwenpaw-table-thead
-        > tr
-        > th {
-        background: #2a2a2a !important;
-      }
-    }
-  }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .title {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .description {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
   /* Selected row styling */
   .selectedRow > td {
     background-color: var(--app-accent-faint) !important;
@@ -270,12 +234,12 @@
   :global(.sessions-filter-input) {
     :global(.qwenpaw-input),
     :global(.ant-input) {
-      background: #2a2a2a !important;
-      border-color: rgba(255, 255, 255, 0.15) !important;
-      color: rgba(255, 255, 255, 0.85) !important;
+      background: var(--app-surface-raised) !important;
+      border-color: var(--app-border-strong) !important;
+      color: var(--app-text) !important;
 
       &::placeholder {
-        color: rgba(255, 255, 255, 0.25) !important;
+        color: var(--app-text-quaternary) !important;
       }
     }
   }
@@ -283,68 +247,19 @@
   :global(.sessions-filter-select) {
     :global(.qwenpaw-select-selector),
     :global(.ant-select-selector) {
-      background: #2a2a2a !important;
-      border-color: rgba(255, 255, 255, 0.15) !important;
-      color: rgba(255, 255, 255, 0.85) !important;
+      background: var(--app-surface-raised) !important;
+      border-color: var(--app-border-strong) !important;
+      color: var(--app-text) !important;
     }
 
     :global(.qwenpaw-select-selection-placeholder),
     :global(.ant-select-selection-placeholder) {
-      color: rgba(255, 255, 255, 0.25) !important;
+      color: var(--app-text-quaternary) !important;
     }
 
     :global(.qwenpaw-select-arrow),
     :global(.ant-select-arrow) {
-      color: rgba(255, 255, 255, 0.3) !important;
-    }
-  }
-
-  .mobileSessionCard {
-    background: #2d2d2d;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    }
-  }
-
-  .mobileSessionName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .mobileSessionMeta {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .mobileSessionActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-
-    .mobileActionBtn {
-      color: rgba(255, 255, 255, 0.65);
-      background: transparent;
-      border-color: rgba(255, 255, 255, 0.2);
-
-      &:hover:not(:disabled) {
-        color: rgba(255, 255, 255, 0.85);
-        border-color: rgba(255, 255, 255, 0.35);
-      }
-
-      &:disabled {
-        color: rgba(255, 255, 255, 0.25);
-        border-color: rgba(255, 255, 255, 0.1);
-      }
-
-      &.danger {
-        color: #ff7875;
-        border-color: #ff7875;
-
-        &:hover:not(:disabled) {
-          color: #ffa39e;
-          border-color: #ffa39e;
-        }
-      }
+      color: var(--app-text-tertiary) !important;
     }
   }
 }
