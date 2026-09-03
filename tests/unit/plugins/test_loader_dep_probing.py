@@ -5,7 +5,7 @@ Covers the static helpers that decide whether a requirement is already
 satisfied (metadata probe + import probe) and locate the ``uv`` binary,
 which previously had no unit coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from pathlib import Path

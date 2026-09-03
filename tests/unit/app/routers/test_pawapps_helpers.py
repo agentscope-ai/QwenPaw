@@ -5,7 +5,7 @@ Covers _build_app_info normalization, _load_plugin_json (missing /
 malformed), _scan_installed_apps_fallback directory scanning, and
 _get_pawapps_from_registry, which previously had no coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json

@@ -7,7 +7,7 @@ request-context readers (_trusted_request_project_dir,
 _inherited_project_dirs, _pending_project_dirs), which were previously
 untested.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from pathlib import Path
@@ -98,7 +98,8 @@ class TestValidatedDirEntries:
             [{"path": str(a), "label": "My Project"}],
             kind="test",
         )
-        assert result[0]["label"] == "My Project"
+        assert result is not None
+        assert result == [{"path": str(a), "label": "My Project"}]
 
 
 # ---------------------------------------------------------------------------

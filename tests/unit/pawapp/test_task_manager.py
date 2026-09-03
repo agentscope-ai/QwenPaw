@@ -6,7 +6,7 @@ record bookkeeping and the TaskManager lifecycle: creation with the
 ``ctx._sse_channel`` injection, success/error completion events,
 streaming, and both cleanup paths.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio

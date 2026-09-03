@@ -6,7 +6,7 @@ _wait_for_pid_exit, _child_pids_unix (pgrep parsing), and
 _listening_pids_for_port (lsof/fuser fallback), which the first
 shutdown backfill pass left uncovered.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace

@@ -5,7 +5,7 @@ Complements ``test_project_directory.py`` by covering the lexical
 containment / identity helpers, entry coercion, and the normalize-list
 dedupe & cap logic. All helpers are filesystem-free by design.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from pathlib import Path

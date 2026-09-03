@@ -10,7 +10,7 @@ The secret-field encryption helpers are stubbed with identity
 functions and AUTH_FILE is redirected to a temp dir so no real secret
 store is touched.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import base64

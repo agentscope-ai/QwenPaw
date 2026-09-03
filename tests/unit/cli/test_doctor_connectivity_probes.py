@@ -6,7 +6,7 @@ Covers _tcp_check, _http_get_ok, and the per-channel probe functions
 wechat), which previously had no coverage. Network access is stubbed at
 the _tcp_check / _http_get_ok boundary.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace

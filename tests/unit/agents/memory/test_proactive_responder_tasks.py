@@ -6,7 +6,7 @@ Covers _create_tasks_from_data (pure), _extract_tasks_from_memory
 (busy-agent and chat-update detection), which were previously
 uncovered.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json

@@ -12,7 +12,7 @@ they are broken under protobuf >= 6.33.5 because
 current ``None`` return would pin the defect; they are covered when the
 product fix lands.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 

@@ -8,7 +8,7 @@ cap), ``GET /workspace/binary-files`` (MIME gating, size cap),
 ``_list_all_files`` walker with skip pruning, the merge-style zip
 extractor, and ``POST /workspace/transcribe`` guards.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import io

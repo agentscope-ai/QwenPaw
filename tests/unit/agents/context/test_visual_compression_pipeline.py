@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access,unused-import,unused-variable
+# pylint: disable=protected-access,unused-import,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for the visual compression pipeline modules.
 
 Covers the deterministic, in-process pipeline stages that turn native

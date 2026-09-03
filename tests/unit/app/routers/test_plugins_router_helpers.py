@@ -5,7 +5,7 @@ discovery, disk-based plugin listing, and plugin UI file serving.
 These cover the path-traversal guards and the pre-loader fallback
 paths that previously had no test coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import io

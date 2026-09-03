@@ -5,7 +5,7 @@ Covers GFM table normalisation for the WeCom renderer (including the
 code-fence passthrough) and the image compression pipeline that keeps
 uploads under the WeCom size limit.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import builtins

@@ -6,7 +6,7 @@ and base64 sources), parse_legacy_memory_state (marks stripping, summary
 extraction), and the nested _resolve_media_type classification, which
 previously had no coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 

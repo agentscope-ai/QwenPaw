@@ -5,7 +5,7 @@ Covers _stringify, _blocks_from_mcp_content, _blocks_from_value,
 _tool_chunk_from_driver_result, DriverCapabilityTool, and
 build_driver_agent_tools, which previously sat at 0% coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace

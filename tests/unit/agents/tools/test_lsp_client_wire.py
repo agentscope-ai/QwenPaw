@@ -6,7 +6,7 @@ malformed headers/bodies), _client_capabilities shape, and the
 pool-keyed get_client/shutdown_all lifecycle with the subprocess
 spawning stubbed out.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json

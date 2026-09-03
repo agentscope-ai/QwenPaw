@@ -7,7 +7,7 @@ granting in ``_is_outside_workspace``, the quote/shlex fallbacks and
 Windows flag handling in ``_extract_rm_targets``, and the config-based
 custom rule loader.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import platform

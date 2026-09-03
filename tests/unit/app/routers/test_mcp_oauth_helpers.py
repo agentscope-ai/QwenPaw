@@ -5,7 +5,7 @@ Covers _generate_code_verifier, _code_challenge, OAuthSession expiry,
 _purge_expired, _redirect_uri, _popup_html, and _make_error_page, which
 previously had no coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import base64

@@ -5,7 +5,7 @@ Covers the install-selection helper, the state-change applier, the
 exact-name enable/disable setter, and the info/list/uninstall commands
 (workspace and pool scopes), which were previously untested.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from pathlib import Path

@@ -5,7 +5,7 @@ Covers load/dump round trips, mapping-to-model conversion error paths
 (card / policy / condition / time-range), the filesystem snapshot with
 duplicate-name detection, and the card deletion helpers.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from pathlib import Path

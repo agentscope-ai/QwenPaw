@@ -7,7 +7,7 @@ helpers, pool automation read/write/copy round trips, requirements and
 emoji extraction, conflict-name suggestion, zip extraction and import,
 and the skill-content validation/render helpers.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import io
