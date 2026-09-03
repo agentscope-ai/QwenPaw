@@ -168,9 +168,9 @@ Windows Registry、launchd、systemd 或机器级环境。
 
 页面分为：
 
-1. 可实时修改的 QwenPaw 设置；
-2. 初始化期与启动期只读的 QwenPaw 设置；
-3. 用户显式添加的插件、Skill、CLI 和子进程变量。
+1. 用户显式添加的插件、Skill、CLI 和子进程变量；
+2. 可实时修改的 QwenPaw 设置；
+3. 初始化期与启动期只读的 QwenPaw 设置。
 
 页面不提供按 LLM、存储、安全或运行时分类的二级筛选，API 和 catalog 元数据也
 不保留分类字段。三段式内容结构已经表达生命周期和所有权，额外分类会与用户
@@ -194,7 +194,7 @@ Windows Registry、launchd、systemd 或机器级环境。
 - [x] MCP stdio 注入受管自定义环境
 - [x] Provider 凭据与模型配置不进入环境变量 catalog 或 `os.environ`
 - [x] Console 分开展示动态、自定义和只读设置
-- [x] Console 将全部 QwenPaw 设置连续展示，自定义变量置于其后
+- [x] Console 将用户自定义变量置顶，其后连续展示 QwenPaw 设置
 - [x] 移除与三段式结构重复的分类筛选、API 字段和 catalog 元数据
 - [x] Console 不再调用全量 PUT 保存单项修改
 - [x] 后端单元与集成测试通过

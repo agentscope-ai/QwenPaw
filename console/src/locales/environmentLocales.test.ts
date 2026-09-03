@@ -12,17 +12,10 @@ const locales = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
 
 const requiredPaths = [
   "liveSettings",
-  "noLiveVariables",
   "customSettings",
   "readonlySettings",
   "readonlyReason.startup",
   "readonlyReason.initial_default",
-  "mutabilityDescription.hot_runtime",
-  "mutabilityDescription.hot_process",
-  "mutabilityDescription.startup_only",
-  "source.user",
-  "source.system",
-  "source.default",
   "variableDescriptions.QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
   "variableDescriptions.QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
 ];

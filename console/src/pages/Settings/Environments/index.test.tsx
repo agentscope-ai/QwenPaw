@@ -102,11 +102,15 @@ describe("EnvironmentsPage", () => {
     ).toBeTruthy();
     expect(screen.getByText("TAVILY_API_KEY")).toBeTruthy();
     expect(screen.getByText("environments.source.default")).toBeTruthy();
-    expect(screen.getByText("environments.liveSettings")).toBeTruthy();
     const customHeading = screen.getByText("environments.customSettings");
+    const liveHeading = screen.getByText("environments.liveSettings");
     const readonlyHeading = screen.getByText("environments.readonlySettings");
     expect(
-      readonlyHeading.compareDocumentPosition(customHeading) &
+      customHeading.compareDocumentPosition(liveHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      liveHeading.compareDocumentPosition(readonlyHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -130,6 +134,7 @@ describe("EnvironmentsPage", () => {
         MY_MCP_TOKEN: "new-value",
       }),
     );
+    expect(mockMessage.success).toHaveBeenCalled();
     expect(mockApi.listEnvCatalog).toHaveBeenCalledTimes(2);
   });
 
@@ -168,17 +173,5 @@ describe("EnvironmentsPage", () => {
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
     );
     expect(mockApi.deleteEnv).not.toHaveBeenCalled();
-  });
-
-  it("reports a successful process-local update", async () => {
-    renderWithProviders(<EnvironmentsPage />);
-    await screen.findByText("QWENPAW_LLM_STREAM_IDLE_TIMEOUT");
-    fireEvent.click(screen.getByText("environments.addVariable"));
-    fireEvent.change(screen.getByPlaceholderText("VARIABLE_NAME"), {
-      target: { value: "SEARCH_KEY" },
-    });
-    fireEvent.click(screen.getByText("confirm-modal"));
-
-    await waitFor(() => expect(mockMessage.success).toHaveBeenCalled());
   });
 });

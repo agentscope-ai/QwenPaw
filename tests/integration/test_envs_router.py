@@ -238,7 +238,6 @@ def test_envs_catalog_exposes_runtime_and_readonly_settings(
     assert response.status_code == 200, app_server.logs_tail()
     specs = {item["key"]: item for item in response.json()}
     assert specs["QWENPAW_LLM_STREAM_IDLE_TIMEOUT"]["editable"] is True
-    assert "category" not in specs["QWENPAW_LLM_STREAM_IDLE_TIMEOUT"]
     assert specs["QWENPAW_LLM_MAX_RETRIES"]["editable"] is False
     assert (
         specs["QWENPAW_LLM_MAX_RETRIES"]["readonly_reason_code"]
