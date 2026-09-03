@@ -136,7 +136,7 @@ class ProtectedExecutionContractContributor(SyncPromptContributor):
     """Inject the protected execution and authorization contract."""
 
     name = "protected_execution_contract"
-    priority = 6
+    priority = 5
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
         return PROTECTED_EXECUTION_CONTRACT_PROMPT
