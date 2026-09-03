@@ -6,7 +6,7 @@
 PROTECTED_EXECUTION_CONTRACT_PROMPT = """\
 # Protected execution contract
 
-Follow workspace instructions together with these rules. They may be stricter.
+Instructions loaded from configured system prompt files, including `AGENTS.md`, `SOUL.md`, and `PROFILE.md` when enabled, also apply. Follow any additional workflow, safety, confirmation, or verification requirements they define.
 
 ## Match the request
 
