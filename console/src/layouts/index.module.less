@@ -97,9 +97,9 @@
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
     flex-shrink: 0;
-    background: rgba(43, 18, 0, 0.02);
+    background: var(--app-accent-faint);
     border-radius: 12px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--app-border-subtle);
     padding: 4px;
 
     :global {
@@ -115,7 +115,7 @@
     z-index: 10;
     margin-bottom: 4px;
     // Opaque background so scrolled content is hidden behind
-    background: #f9f7f3;
+    background: var(--app-surface-subtle);
     border-radius: 12px 12px 0 0;
   }
 
@@ -130,7 +130,7 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(0, 0, 0, 0.88);
+    color: var(--app-text);
     font-size: 14px;
     cursor: pointer;
     transition: background 0.2s;
@@ -258,13 +258,13 @@
       font-weight: 500 !important;
       line-height: 32px !important;
       letter-spacing: normal !important;
-      color: rgba(26, 23, 22, 0.25) !important;
+      color: var(--app-text-quaternary) !important;
       padding-left: 8px !important;
 
       /* No hover effect for group titles */
       &:hover {
         background: transparent !important;
-        color: rgba(26, 23, 22, 0.25) !important;
+        color: var(--app-text-quaternary) !important;
       }
     }
 
@@ -292,7 +292,7 @@
 
     /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: rgba(43, 18, 0, 0.08) !important;
+      background: var(--app-fill) !important;
       color: inherit !important;
       display: flex !important;
       align-items: center !important;
@@ -307,77 +307,6 @@
     /* Selected submenu item - keep text color unchanged */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
       color: inherit !important;
-    }
-  }
-}
-
-.siderDark {
-  background: #1a1a1a !important;
-  border-right-color: rgba(255, 255, 255, 0.08) !important;
-
-  // Agent-scoped section (dark mode)
-  .agentScopedSection {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  // Sticky container background (dark mode)
-  .agentSelectorContainer {
-    background: #1e1e1e;
-  }
-
-  // Sticky bottom bar background (dark mode)
-  .collapseToggleContainer {
-    background: #1a1a1a;
-  }
-
-  // Chat button (dark mode)
-  .stickyChatButton {
-    color: rgba(255, 255, 255, 0.75);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.95);
-    }
-  }
-
-  .stickyChatButtonActive {
-    background: rgba(255, 127, 22, 0.5);
-    color: #ff7f16;
-  }
-
-  :global {
-    .qwenpaw-menu {
-      background: #1a1a1a !important;
-      border-inline-end: 0 !important;
-    }
-
-    /* Group title (sub-menu label) */
-    .qwenpaw-menu-submenu-title {
-      color: rgba(255, 255, 255, 0.45) !important;
-
-      /* No hover effect for group titles in dark mode */
-      &:hover {
-        background: transparent !important;
-        color: rgba(255, 255, 255, 0.45) !important;
-      }
-    }
-
-    /* Regular menu item */
-    .qwenpaw-menu-item {
-      color: rgba(255, 255, 255, 0.75) !important;
-    }
-
-    /* Hover state - only for menu items, not group titles */
-    .qwenpaw-menu-item:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(255, 255, 255, 0.95) !important;
-    }
-
-    /* Selected item */
-    .qwenpaw-menu-item-selected {
-      background: rgba(255, 127, 22, 0.5) !important;
-      color: #ff7f16 !important;
     }
   }
 }
@@ -397,7 +326,7 @@
   width: 16px;
   height: 0px;
   transform: rotate(90deg);
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
   margin: 0 8px;
 }
 
@@ -406,7 +335,7 @@
   height: 0px;
   transform: rotate(90deg);
   z-index: 4;
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
 }
 
 .versionBadge {
@@ -564,7 +493,9 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  background: #f9f8f4; // match sider background so scrolled content is hidden
+  background: var(
+    --app-bg
+  ); // match sider background so scrolled content is hidden
 }
 
 .collapseToggle {

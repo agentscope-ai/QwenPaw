@@ -141,9 +141,9 @@
 }
 
 .marketFilterActive {
-  border-color: var(--app-fill-strong);
-  background: var(--app-fill-strong);
-  color: var(--app-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-weight: 500;
 }
 
@@ -505,16 +505,8 @@
   }
 }
 
-/* Dark-only exceptions: the active filter reads as accent-tinted and the tab
- * labels are dimmed only in dark mode. Both differ from the light design on
- * purpose, so they cannot be folded into the base rules. */
+/* Dark-only exception: tabs need an explicit contrast adjustment for antd. */
 :global(.dark-mode) {
-  .marketFilterActive {
-    border-color: var(--app-accent-border);
-    background: var(--app-accent-soft);
-    color: var(--app-accent-hover);
-  }
-
   .viewTabs {
     :global(.ant-tabs-tab),
     :global(.qwenpaw-tabs-tab) {

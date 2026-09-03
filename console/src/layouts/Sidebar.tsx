@@ -309,8 +309,8 @@ export default function Sidebar({
   // ── Inbox badge dot & wobble ─────────────────────────────────────────────
   const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
   const inboxDotColor = hasPendingApprovals
-    ? "#e04848"
-    : "rgba(255, 157, 77, 1)";
+    ? "var(--app-error)"
+    : "var(--app-accent-hover)";
   const effectiveShake = shakeInbox && wobbleEnabled;
 
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
@@ -563,8 +563,8 @@ export default function Sidebar({
         title={item.label}
         placement="right"
         overlayInnerStyle={{
-          background: "rgba(0,0,0,0.75)",
-          color: "#fff",
+          background: "var(--app-text)",
+          color: "var(--app-text-inverse)",
         }}
       >
         <button
@@ -613,9 +613,7 @@ export default function Sidebar({
       width={siderWidth}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
-      }${isDark ? ` ${styles.siderDark}` : ""}${
-        isSimpleExpanded ? ` ${styles.siderSimple}` : ""
-      }`}
+      }${isSimpleExpanded ? ` ${styles.siderSimple}` : ""}`}
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>

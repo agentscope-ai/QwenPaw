@@ -93,9 +93,9 @@
 }
 
 .categoryChipActive {
-  border-color: var(--app-fill-strong);
-  background: var(--app-fill-strong);
-  color: var(--app-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-weight: 500;
 }
 
@@ -284,15 +284,5 @@
   .queueDrawer {
     left: 16px;
     width: auto;
-  }
-}
-
-/* Dark-only: the active chip reads as accent-tinted here, while the light
- * design keeps it neutral grey. Same exception as AppCenter's filter. */
-:global(.dark-mode) {
-  .categoryChipActive {
-    border-color: var(--app-accent-border);
-    background: var(--app-accent-soft);
-    color: var(--app-accent-hover);
   }
 }
