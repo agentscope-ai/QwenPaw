@@ -12,6 +12,7 @@ sub-agent delegation, etc.).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -457,13 +458,10 @@ class QwenPawACPAgent(Agent):
             )
             app_services = await self._ensure_app_services()
             bootstrap_kwargs = self._build_bootstrap_kwargs(app_services)
-            if bootstrap_kwargs:
-                await asyncio.to_thread(
-                    workspace.bootstrap_plugins,
-                    **bootstrap_kwargs,
-                )
-            else:
-                await asyncio.to_thread(workspace.bootstrap_plugins)
+            await asyncio.to_thread(
+                workspace.bootstrap_plugins,
+                **bootstrap_kwargs,
+            )
             workspace.set_app_services(app_services)
             await workspace.start()
 
@@ -1562,8 +1560,12 @@ def _sync_stdout_write(data: bytes) -> None:
     """Synchronous stdout write, safe to call from a worker thread."""
     import sys
 
-    sys.stdout.buffer.write(data)
-    sys.stdout.buffer.flush()
+    try:
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+    except OSError:
+        logger.debug("ACP stdout write failed (pipe closed?)", exc_info=True)
+        raise
 
 
 def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
@@ -1579,16 +1581,35 @@ def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
     from acp.task.sender import MessageSender
 
     class _ThreadedMessageSender(MessageSender):
+        def __init__(self, writer: Any, supervisor: Any) -> None:
+            super().__init__(writer, supervisor)
+            self._pending: set[asyncio.Future[None]] = set()
+
         async def send(self, payload: dict[str, Any]) -> None:
             data = (json.dumps(payload, separators=(",", ":")) + "\n").encode(
                 "utf-8",
             )
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _sync_stdout_write, data)
+            future = loop.run_in_executor(None, _sync_stdout_write, data)
+            self._pending.add(future)
+            future.add_done_callback(self._pending.discard)
+            await future
 
         async def _loop(self) -> None:  # type: ignore[override]
             # All writes happen in send(); nothing to drain here.
             return
+
+        async def close(self) -> None:
+            if self._closed:
+                return
+            self._closed = True
+            # Wait for in-flight executor writes instead of relying on the
+            # inherited queue-sentinel shutdown (nothing drains that queue).
+            if self._pending:
+                await asyncio.gather(*self._pending, return_exceptions=True)
+            if self._task is not None and not self._task.done():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._task
 
     return _ThreadedMessageSender(writer, supervisor)
 
