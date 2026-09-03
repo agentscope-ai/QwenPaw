@@ -4233,6 +4233,19 @@
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
       }
+    },
+    "advisorSetup": {
+      "title": "Modelos do conselheiro",
+      "hint": "Os padrões seguem o modelo principal do agente (conselheiro) e o modelo de subagente (trabalhador). A escolha aqui é salva para este agente.",
+      "advisorModel": "Modelo do conselheiro",
+      "workerModel": "Modelo do trabalhador",
+      "mainModelDefault": "Modelo principal ({{model}})",
+      "subagentDefault": "Modelo de subagente ({{model}})",
+      "noSubagent": "Igual ao conselheiro (sem modelo de subagente)",
+      "sameAsAdvisor": "igual ao conselheiro",
+      "summary": "Em vigor — conselheiro: {{advisor}} · trabalhador: {{worker}}",
+      "openAria": "Modelos do conselheiro",
+      "button": "Modelos"
     }
   }
 }

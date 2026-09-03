@@ -4669,6 +4669,19 @@
         "name": "Mission",
         "description": "Run a structured, persistent multi-step task."
       }
+    },
+    "advisorSetup": {
+      "title": "Advisor models",
+      "hint": "Defaults follow the agent's main model (advisor) and sub-agent model (worker). A choice here is saved for this agent.",
+      "advisorModel": "Advisor model",
+      "workerModel": "Worker model",
+      "mainModelDefault": "Main model ({{model}})",
+      "subagentDefault": "Sub-agent model ({{model}})",
+      "noSubagent": "Same as the advisor (no sub-agent model set)",
+      "sameAsAdvisor": "same as the advisor",
+      "summary": "In effect — advisor: {{advisor}} · worker: {{worker}}",
+      "openAria": "Advisor models",
+      "button": "Models"
     }
   }
 }

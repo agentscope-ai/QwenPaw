@@ -4171,6 +4171,19 @@
         "name": "ミッション",
         "description": "構造化された複数ステップのタスクを継続的に実行します。"
       }
+    },
+    "advisorSetup": {
+      "title": "アドバイザーのモデル",
+      "hint": "デフォルトはエージェントのメインモデル（アドバイザー）とサブエージェントモデル（ワーカー）に従います。ここでの選択はこのエージェントに保存されます。",
+      "advisorModel": "アドバイザーモデル",
+      "workerModel": "ワーカーモデル",
+      "mainModelDefault": "メインモデル（{{model}}）",
+      "subagentDefault": "サブエージェントモデル（{{model}}）",
+      "noSubagent": "アドバイザーと同じ（サブエージェントモデル未設定）",
+      "sameAsAdvisor": "アドバイザーと同じ",
+      "summary": "適用中 — アドバイザー：{{advisor}} · ワーカー：{{worker}}",
+      "openAria": "アドバイザーのモデル",
+      "button": "モデル"
     }
   }
 }

@@ -3554,6 +3554,19 @@
         "name": "Misi",
         "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
       }
+    },
+    "advisorSetup": {
+      "title": "Model penasihat",
+      "hint": "Default mengikuti model utama agen (penasihat) dan model sub-agen (pekerja). Pilihan di sini disimpan untuk agen ini.",
+      "advisorModel": "Model penasihat",
+      "workerModel": "Model pekerja",
+      "mainModelDefault": "Model utama ({{model}})",
+      "subagentDefault": "Model sub-agen ({{model}})",
+      "noSubagent": "Sama dengan penasihat (model sub-agen belum diatur)",
+      "sameAsAdvisor": "sama dengan penasihat",
+      "summary": "Berlaku — penasihat: {{advisor}} · pekerja: {{worker}}",
+      "openAria": "Model penasihat",
+      "button": "Model"
     }
   }
 }

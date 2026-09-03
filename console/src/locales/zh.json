@@ -4687,6 +4687,19 @@
         "name": "任务",
         "description": "运行结构化、可持续的多步骤任务。"
       }
+    },
+    "advisorSetup": {
+      "title": "顾问模型",
+      "hint": "默认跟随智能体的主模型（顾问）和 Sub-agent 模型（Worker）。这里的选择会为该智能体保存。",
+      "advisorModel": "顾问模型",
+      "workerModel": "Worker 模型",
+      "mainModelDefault": "主模型（{{model}}）",
+      "subagentDefault": "Sub-agent 模型（{{model}}）",
+      "noSubagent": "与顾问相同（未设置 Sub-agent 模型）",
+      "sameAsAdvisor": "与顾问相同",
+      "summary": "当前生效 — 顾问：{{advisor}} · Worker：{{worker}}",
+      "openAria": "顾问模型",
+      "button": "模型"
     }
   }
 }

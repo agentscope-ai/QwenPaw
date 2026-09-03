@@ -2765,6 +2765,19 @@
         "name": "Nhiệm vụ",
         "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
       }
+    },
+    "advisorSetup": {
+      "title": "Mô hình cố vấn",
+      "hint": "Mặc định theo mô hình chính của agent (cố vấn) và mô hình sub-agent (worker). Lựa chọn ở đây được lưu cho agent này.",
+      "advisorModel": "Mô hình cố vấn",
+      "workerModel": "Mô hình worker",
+      "mainModelDefault": "Mô hình chính ({{model}})",
+      "subagentDefault": "Mô hình sub-agent ({{model}})",
+      "noSubagent": "Giống cố vấn (chưa đặt mô hình sub-agent)",
+      "sameAsAdvisor": "giống cố vấn",
+      "summary": "Đang áp dụng — cố vấn: {{advisor}} · worker: {{worker}}",
+      "openAria": "Mô hình cố vấn",
+      "button": "Mô hình"
     }
   }
 }
