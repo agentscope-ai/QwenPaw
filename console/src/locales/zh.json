@@ -1901,6 +1901,7 @@
     "loadingAgentSettings": "正在加载 Agent 模型设置",
     "agentSettingsSaveFailed": "保存 Agent 模型设置失败",
     "agentSettingsSaved": "Agent 模型设置已保存",
+    "saveAgentSettings": "保存路由设置",
     "thinkingLevel": "思考深度",
     "thinkingUnsupported": "当前模型未声明可配置的思考能力。",
     "thinking": {
@@ -1917,7 +1918,6 @@
     "configuredModels": "已配置模型",
     "freeModelsOnly": "仅免费模型",
     "chooseFallback": "选择备用模型",
-    "addFallback": "添加备用模型",
     "moveFallbackUp": "上移 {{model}}",
     "moveFallbackDown": "下移 {{model}}",
     "removeFallback": "移除 {{model}}",
