@@ -27,6 +27,8 @@
   --app-surface-raised: #ffffff;
   /* Inset strips such as table headers, which sit lower than the card. */
   --app-surface-sunken: #f9f8f4;
+  /* Persistent application chrome: header, sidebar, and sticky sidebar areas. */
+  --app-shell-bg: #f9f8f4;
 
   /* Fills (hover / selected / inline chips) */
   --app-fill-strong: rgba(0, 0, 0, 0.09);
@@ -59,6 +61,11 @@
   --app-accent-soft-hover: rgba(255, 127, 22, 0.16);
   --app-accent-border: rgba(255, 127, 22, 0.42);
   --app-accent-ring: rgba(255, 127, 22, 0.2);
+
+  /* Navigation selection stays neutral in the light shell. */
+  --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
+  --app-nav-selected-bg-hover: rgba(43, 18, 0, 0.1);
+  --app-nav-selected-text: var(--app-text);
 
   /* Selected row / active item. Still antd blue: kept as-is so the token
    * extraction stays visually neutral. Switching selection to the brand
@@ -115,6 +122,7 @@ html.dark-mode {
   --app-surface-subtle: #1a1a1a;
   --app-surface-raised: #262626;
   --app-surface-sunken: #262626;
+  --app-shell-bg: #1a1a1a;
 
   /* Fills */
   --app-fill-strong: rgba(255, 255, 255, 0.16);
@@ -140,6 +148,11 @@ html.dark-mode {
   --app-accent-soft: rgba(255, 127, 22, 0.16);
   --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
   --app-accent-border: rgba(255, 127, 22, 0.5);
+
+  /* Dark navigation uses the brand accent for a clear active state. */
+  --app-nav-selected-bg: var(--app-accent-soft);
+  --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-nav-selected-text: var(--app-accent-text);
 
   /* Selection */
   --app-selected-bg: rgba(22, 119, 255, 0.12);

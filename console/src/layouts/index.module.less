@@ -20,7 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--app-surface-subtle);
+  background: var(--app-shell-bg);
   border-bottom-color: var(--app-border-subtle);
   color: var(--app-text);
 
@@ -67,7 +67,7 @@
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
-  background: var(--app-surface-subtle) !important;
+  background: var(--app-shell-bg) !important;
   border-right-color: var(--app-border-subtle) !important;
   overflow: auto;
   height: calc(100vh - 64px) !important;
@@ -97,7 +97,7 @@
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
     flex-shrink: 0;
-    background: var(--app-accent-faint);
+    background: var(--app-shell-bg);
     border-radius: 12px;
     border: 1px solid var(--app-border-subtle);
     padding: 4px;
@@ -115,7 +115,7 @@
     z-index: 10;
     margin-bottom: 4px;
     // Opaque background so scrolled content is hidden behind
-    background: var(--app-surface-subtle);
+    background: var(--app-shell-bg);
     border-radius: 12px 12px 0 0;
   }
 
@@ -142,7 +142,13 @@
   }
 
   .stickyChatButtonActive {
-    background: var(--app-fill);
+    background: var(--app-nav-selected-bg);
+    color: var(--app-nav-selected-text);
+
+    &:hover {
+      background: var(--app-nav-selected-bg-hover);
+      color: var(--app-nav-selected-text);
+    }
   }
 
   // Menu takes remaining space
@@ -292,11 +298,16 @@
 
     /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: var(--app-fill) !important;
-      color: inherit !important;
+      background: var(--app-nav-selected-bg) !important;
+      color: var(--app-nav-selected-text) !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
+
+      &:hover {
+        background: var(--app-nav-selected-bg-hover) !important;
+        color: var(--app-nav-selected-text) !important;
+      }
 
       .qwenpaw-menu-title-content {
         display: flex !important;
@@ -304,9 +315,9 @@
       }
     }
 
-    /* Selected submenu item - keep text color unchanged */
+    /* Keep nested selected items on the same navigation treatment. */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
-      color: inherit !important;
+      color: var(--app-nav-selected-text) !important;
     }
   }
 }
@@ -494,7 +505,7 @@
   justify-content: flex-end;
   gap: 4px;
   background: var(
-    --app-bg
+    --app-shell-bg
   ); // match sider background so scrolled content is hidden
 }
 
@@ -700,8 +711,13 @@
 }
 
 .simpleNavItemActive {
-  background: var(--app-fill);
-  color: var(--app-text);
+  background: var(--app-nav-selected-bg);
+  color: var(--app-nav-selected-text);
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover);
+    color: var(--app-nav-selected-text);
+  }
 }
 
 // Session list container
@@ -877,8 +893,13 @@
 }
 
 .collapsedNavItemActive {
-  background: var(--app-fill) !important;
-  color: var(--app-text) !important;
+  background: var(--app-nav-selected-bg) !important;
+  color: var(--app-nav-selected-text) !important;
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover) !important;
+    color: var(--app-nav-selected-text) !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1118,12 +1139,6 @@
   .versionBadge {
     color: var(--app-accent);
   }
-
-  /* Light uses a subtle neutral fill for the active collapsed item; dark wants a
-   * solid accent block. Unifying the two is a design decision, not a cleanup. */
-  .collapsedNavItemActive {
-    background: rgba(255, 127, 22, 0.5) !important;
-  }
 }
 
 // ─── Simple mode: flat nav + session list ─────────────────────────────────────
@@ -1182,8 +1197,13 @@
 }
 
 .simpleNavItemActive {
-  background: var(--app-fill);
-  color: var(--app-text);
+  background: var(--app-nav-selected-bg);
+  color: var(--app-nav-selected-text);
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover);
+    color: var(--app-nav-selected-text);
+  }
 }
 
 // Session list container
@@ -1303,8 +1323,7 @@
 
 .siderSimple {
   /* Dark-only exceptions: the accent-tinted divider reads as neutral here, the
-   * glass handle has no light-glass equivalent, and the active item is a solid
-   * accent block instead of the light neutral fill. */
+   * glass handle has no light-glass equivalent. */
   :global(.dark-mode) & {
     .simpleAgentDisclosureLine {
       background: linear-gradient(90deg, transparent, var(--app-fill));
@@ -1313,11 +1332,6 @@
     .simpleAgentDisclosureHandle {
       background: var(--app-fill-faint);
       box-shadow: none;
-    }
-
-    .simpleNavItemActive {
-      background: rgba(255, 127, 22, 0.5);
-      color: var(--app-accent);
     }
   }
 }
