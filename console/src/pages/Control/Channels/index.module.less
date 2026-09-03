@@ -17,7 +17,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .breadcrumbHeader {
@@ -29,17 +29,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -47,11 +47,11 @@
 .title {
   font-size: 20px;
   font-weight: 600;
-  color: #333;
+  color: var(--app-text);
 }
 
 .description {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
   margin: 0;
   display: none;
@@ -61,7 +61,7 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-fill);
   border-radius: 10px;
   align-self: center;
 }
@@ -72,21 +72,21 @@
   border: none;
   background: transparent;
   font-size: 13px;
-  color: #666;
+  color: var(--app-text-secondary);
   cursor: pointer;
   transition: all 0.18s ease;
 
   &:hover {
-    color: #333;
-    background: rgba(0, 0, 0, 0.04);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
   }
 }
 
 .filterTabActive {
-  background: #fff;
-  color: rgba(38, 36, 76, 0.88);
+  background: var(--app-surface-raised);
+  color: var(--app-accent-text);
   font-weight: 500;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .loading {
@@ -95,7 +95,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .channelsGrid {
@@ -108,8 +108,8 @@
 /* ---- Panel Section Styles ---- */
 
 .panelSection {
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: color-mix(in srgb, var(--app-surface) 50%, transparent);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
   padding: 16px;
   margin: 16px 16px 0;
@@ -117,7 +117,7 @@
 
 .panelSectionDashed {
   background: transparent;
-  border: 1px dashed rgba(0, 0, 0, 0.15);
+  border: 1px dashed var(--app-border-strong);
   border-radius: 12px;
   padding: 16px;
   margin: 16px;
@@ -129,7 +129,7 @@
   gap: 8px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--app-text-secondary);
   margin-bottom: 16px;
 }
 
@@ -144,7 +144,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--app-fill-strong);
 }
 
 .panelCount {
@@ -155,7 +155,7 @@
 .emptyConfigured {
   text-align: center;
   padding: 48px 24px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 
   p {
     margin: 0 0 16px;
@@ -179,20 +179,20 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: rgba(0, 0, 0, 0.01);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--app-fill-faint);
+  border: 1px solid var(--app-border);
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    border-color: rgba(0, 0, 0, 0.1);
+    background: var(--app-fill);
+    border-color: var(--app-border-hover);
 
     .availableItemAction {
-      color: rgba(0, 0, 0, 0.88);
+      color: var(--app-text);
     }
   }
 
   &:focus-visible {
-    outline: 2px solid #1677ff;
+    outline: 2px solid var(--app-selected-border);
     outline-offset: 1px;
   }
 }
@@ -201,7 +201,7 @@
   flex: 1;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -209,7 +209,7 @@
 
 .availableItemAction {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   flex-shrink: 0;
 }
 
@@ -284,8 +284,8 @@
   padding: 16px;
   gap: 12px;
   border-radius: var(--border-radius, 8px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
   cursor: pointer;
   transition: all 0.2s ease-in-out;
@@ -301,8 +301,8 @@
   }
 
   &.hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-sm);
   }
 }
 
@@ -320,7 +320,7 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  color: #f07e26;
+  color: var(--app-accent);
   font-size: 24px;
   flex-shrink: 0;
 
@@ -350,7 +350,7 @@
   }
 
   &.disabled {
-    color: rgba(20, 20, 19, 0.45);
+    color: var(--app-text-tertiary);
   }
 }
 
@@ -365,7 +365,7 @@
   }
 
   &.disabled {
-    background-color: #d9d9d9;
+    background-color: var(--app-text-quaternary);
   }
 }
 
@@ -377,7 +377,7 @@
 }
 
 .cardTitle {
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
@@ -386,8 +386,8 @@
 }
 
 .builtinTag {
-  color: #8e8c99;
-  background: rgba(239, 240, 243, 0.8);
+  color: var(--app-text-tertiary);
+  background: var(--app-fill);
   border-radius: 2px;
   padding: 0px 4px;
   font-size: 12px;
@@ -398,8 +398,8 @@
 }
 
 .customTag {
-  color: #8e8c99;
-  background: rgba(239, 240, 243, 0.8);
+  color: var(--app-text-tertiary);
+  background: var(--app-fill);
   border-radius: 2px;
   padding: 0px 4px;
   font-size: 12px;
@@ -418,7 +418,7 @@
 
 .cardDescription {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -440,7 +440,7 @@
 
 .cardHint {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.25);
+  color: var(--app-text-quaternary);
 }
 
 /* ---- Channel Drawer Styles ---- */
@@ -477,180 +477,32 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
+  .channelCard.normal {
+    box-shadow: var(--app-shadow-sm);
   }
 
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .title {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .description {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .filterTabs {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .filterTab {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.75);
-      background: rgba(255, 255, 255, 0.06);
-    }
-  }
-
-  .filterTabActive {
-    background: #2a2a2a;
-    color: #ff7f16;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Card background and text */
-  .channelCard {
-    background: #2d2d2d;
-
-    &.normal {
-      border-color: rgba(255, 255, 255, 0.08);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    &.hover {
-      border-color: rgba(255, 255, 255, 0.15);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    }
-  }
-
-  .channelIcon {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .cardTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .builtinTag,
-  .customTag {
-    color: rgba(255, 255, 255, 0.45);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .statusIndicator {
-    &.enabled {
-      color: rgba(20, 184, 166, 1);
-    }
-
-    &.disabled {
-      color: rgba(255, 255, 255, 0.65);
-    }
-  }
-
-  .statusText {
-    &.enabled {
-      color: rgba(20, 184, 166, 1);
-    }
-
-    &.disabled {
-      color: rgba(255, 255, 255, 0.65);
-    }
-  }
-
-  .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .cardDescription {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .cardHint {
-    color: rgba(255, 255, 255, 0.25);
+  .statusIndicator.enabled,
+  .statusText.enabled {
+    color: #34d399;
   }
 
   .drawerHeaderActions {
     .cancelBtn {
-      color: rgba(255, 255, 255, 0.65);
+      color: var(--app-text-secondary);
     }
-  }
-
-  .panelSection {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-
-  .panelSectionDashed {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .panelTitle {
-    color: rgba(255, 255, 255, 0.5);
   }
 
   .panelDotGreen {
     background: #34d399;
   }
 
-  .panelDotGray {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
   .panelCount {
     color: #34d399;
-  }
-
-  .emptyConfigured {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .availableItem {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.08);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.15);
-
-      .availableItemAction {
-        color: rgba(255, 255, 255, 0.85);
-      }
-    }
-
-    &:focus-visible {
-      outline-color: #ff7f16;
-    }
-  }
-
-  .availableItemName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .availableItemAction {
-    color: rgba(255, 255, 255, 0.45);
   }
 }
 
 .schemaDescription {
   margin-bottom: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
