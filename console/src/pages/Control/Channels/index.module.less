@@ -137,7 +137,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
 }
 
 .panelDotGray {
@@ -148,7 +148,7 @@
 }
 
 .panelCount {
-  color: #10b981;
+  color: var(--app-success-text);
   font-weight: 500;
 }
 
@@ -346,7 +346,7 @@
   letter-spacing: normal;
 
   &.enabled {
-    color: rgba(20, 184, 166, 1);
+    color: var(--app-success-text);
   }
 
   &.disabled {
@@ -361,7 +361,7 @@
   flex-shrink: 0;
 
   &.enabled {
-    background-color: rgba(20, 184, 166, 1);
+    background-color: var(--app-success);
   }
 
   &.disabled {
@@ -481,23 +481,10 @@
     box-shadow: var(--app-shadow-sm);
   }
 
-  .statusIndicator.enabled,
-  .statusText.enabled {
-    color: #34d399;
-  }
-
   .drawerHeaderActions {
     .cancelBtn {
       color: var(--app-text-secondary);
     }
-  }
-
-  .panelDotGreen {
-    background: #34d399;
-  }
-
-  .panelCount {
-    color: #34d399;
   }
 }
 

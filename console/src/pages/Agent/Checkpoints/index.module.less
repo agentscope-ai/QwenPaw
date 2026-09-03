@@ -80,13 +80,13 @@
 }
 
 .autoDot {
-  background: #3178c6;
+  background: var(--app-info-text);
 }
 .snapshotDot {
-  background: #2d8a68;
+  background: var(--app-success);
 }
 .safetyDot {
-  background: #b26a1b;
+  background: var(--app-warning);
 }
 
 .toolbar {
@@ -272,16 +272,16 @@
   line-height: 19px;
 }
 .kind_auto {
-  color: #2768a8;
-  background: #edf5fc;
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
 }
 .kind_snap {
-  color: #247458;
-  background: #eaf7f1;
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
 }
 .kind_pre_restore {
-  color: #985b16;
-  background: #fff5e8;
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
 }
 .headTag {
   min-height: 20px;
@@ -291,7 +291,7 @@
   padding: 0 7px;
   border-radius: 3px;
   color: var(--app-text-inverse);
-  background: #6754ad;
+  background: var(--app-accent-active);
   box-shadow: var(--app-shadow-sm);
   font-weight: 700;
 }
@@ -391,7 +391,7 @@
   height: 6px;
   margin-right: 7px;
   border-radius: 50%;
-  background: #2d8a68;
+  background: var(--app-success);
   vertical-align: 1px;
 }
 .fileSelection {
@@ -423,35 +423,17 @@
   white-space: nowrap;
 }
 .deleteStatus {
-  color: #b33e3e;
+  color: var(--app-error-text);
   font-size: 11px;
 }
 .restoreStatus {
-  color: #247458;
+  color: var(--app-success-text);
   font-size: 11px;
 }
 .muted {
   display: block;
   padding: 18px 0;
   color: var(--app-text-tertiary);
-}
-
-:global(.dark-mode) {
-  .kind_auto {
-    color: #83b9e8;
-    background: rgba(49, 120, 198, 0.17);
-  }
-  .kind_snap {
-    color: #78c5a7;
-    background: rgba(45, 138, 104, 0.17);
-  }
-  .kind_pre_restore {
-    color: #e1ab69;
-    background: rgba(178, 106, 27, 0.17);
-  }
-  .headTag {
-    background: #8068cc;
-  }
 }
 
 @media (max-width: 900px) {

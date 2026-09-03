@@ -66,7 +66,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -80,7 +80,7 @@
 
 .panelCount {
   font-size: 11px;
-  color: #10b981;
+  color: var(--app-success-text);
   font-weight: 400;
   margin-left: auto;
 }
@@ -162,11 +162,11 @@
 
   &.enabledCard {
     .statusDot {
-      background-color: rgba(20, 184, 166, 1);
+      background-color: var(--app-success);
     }
 
     .statusText {
-      color: rgba(20, 184, 166, 1);
+      color: var(--app-success-text);
     }
   }
 
@@ -260,7 +260,7 @@
   font-size: 12px;
 
   .configured {
-    color: rgba(20, 184, 166, 1);
+    color: var(--app-success-text);
     font-weight: 500;
   }
 
