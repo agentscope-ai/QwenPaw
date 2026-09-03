@@ -76,6 +76,7 @@ export interface ReMeLightMemoryConfig {
   auto_memory_inbox_push_enabled: boolean;
   auto_dream_inbox_push_enabled: boolean;
   daily_paper_inbox_push_enabled: boolean;
+  auto_fin_inbox_push_enabled: boolean;
   auto_memory_interval: number;
   dream_cron_enabled: boolean;
   dream_cron: string;
@@ -83,6 +84,10 @@ export interface ReMeLightMemoryConfig {
   daily_paper_cron: string;
   daily_paper_use_hf_mirror: boolean;
   daily_paper_topics: string;
+  auto_fin_cron_enabled: boolean;
+  auto_fin_cron: string;
+  auto_fin_topics: string;
+  auto_fin_window_hours: number;
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;

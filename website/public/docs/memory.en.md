@@ -161,7 +161,9 @@ Inbox is only a run-status surface. The reusable, editable memory remains in wor
 
 An analyst's knowledge comes not only from conversation but also from papers, news, and data feeds. **Auto Resource** is the umbrella for this external-material pipeline. It is currently in Beta and continues to expand.
 
-The built-in capability today is **Daily Paper**. When enabled, QwenPaw selects popular papers related to your interests from the Hugging Face Papers weekly and monthly rankings, saves the source PDFs, and produces three detailed readings plus a daily brief. Setting topics such as `battery, lithium, energy storage`, for example, can continuously add research on battery materials, life prediction, and energy-storage technology.
+The current built-in capabilities are **Daily Paper** and **Auto Fin**.
+
+When Daily Paper is enabled, QwenPaw selects popular papers related to your interests from the Hugging Face Papers weekly and monthly rankings, saves the source PDFs, and produces three detailed readings plus a daily brief. Setting topics such as `battery, lithium, energy storage`, for example, can continuously add research on battery materials, life prediction, and energy-storage technology.
 
 - PDFs go to `resource/papers/`;
 - readings and the brief go to `memory/YYYY-MM-DD/`;
@@ -171,7 +173,9 @@ The built-in capability today is **Daily Paper**. When enabled, QwenPaw selects 
   <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper schedule and topic settings" />
 </p>
 
-Daily Paper is the currently built-in resource entry point. Merely placing an arbitrary file in `resource/` does not process or index it. Automatically collecting financial news you follow and adding it to the knowledge base is still planned (TODO); Auto Resource should not yet be treated as a general-purpose file importer.
+Auto Fin fetches CLS telegraph news from a rolling time window (the preceding 24 hours by default), selects items related to configured topics, and searches ReMe memory for useful historical context. It writes one Chinese research report with validated Wikilinks to `memory/YYYY-MM-DD/auto_fin.md`. Current news and topic-selection results remain in runtime memory; only the final report is persisted. A same-day rerun atomically replaces the existing report with a revision. If no current news is relevant, the job succeeds as a skip without writing a report or sending an Inbox notification.
+
+Auto Fin has no reliable market-price feed, does not calculate returns, targets, or entry points, and is not investment advice. Merely placing an arbitrary file in `resource/` still does not process or index it, so Auto Resource is not a general-purpose file importer. See the [ReMe Auto Fin guide](https://github.com/agentscope-ai/ReMe/blob/main/plugins/auto-fin/README.md) for the complete pipeline and boundaries.
 
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 
@@ -270,7 +274,7 @@ Returning to the financial-analyst example:
 
 1. In `MEMORY.md`, you record the stable coverage area: EVs, lithium-ion batteries, and lithium resources.
 2. Auto-Memory summarizes the day's CATL and lithium-price session into one note under the date directory, then refreshes the day index.
-3. Auto Resource adds readings from supported external paper sources to daily memory.
+3. Auto Resource adds supported paper readings and financial-research reports to daily memory.
 4. Markdown AST chunking, BM25, vector indexes, and the file graph update in the background.
 5. Auto-Dream consolidates notes across days into linked `personal`, `procedure`, and `wiki` nodes.
 6. Memory Search retrieves the best excerpt for the next report, then expands through paths, outlinks, and inlinks only as needed.
@@ -315,6 +319,11 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
       "daily_paper_use_hf_mirror": false,
       "daily_paper_topics": "",
       "daily_paper_inbox_push_enabled": true,
+      "auto_fin_cron_enabled": false,
+      "auto_fin_cron": "0 18 * * *",
+      "auto_fin_topics": "gold,robotics,semiconductors",
+      "auto_fin_window_hours": 24,
+      "auto_fin_inbox_push_enabled": true,
       "memory_search_enabled": true,
       "auto_memory_search_config": {
         "enabled": false,
@@ -325,21 +334,26 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
 }
 ```
 
-| Field                                   | Default        | Description                                                                       |
-| --------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
-| `auto_memory_interval`                  | `5`            | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
-| `auto_memory_inbox_push_enabled`        | `true`         | Push Auto-Memory changes and failures to Inbox                                    |
-| `dream_cron_enabled`                    | `true`         | Enable scheduled Auto-Dream                                                       |
-| `dream_cron`                            | `"0 23 * * *"` | Five-field cron; execution starts after a random 0–60 second delay                |
-| `auto_dream_inbox_push_enabled`         | `true`         | Push Auto-Dream changes and failures to Inbox                                     |
-| `daily_paper_cron_enabled`              | `false`        | Enable scheduled Daily Paper                                                      |
-| `daily_paper_cron`                      | `"0 9 * * *"`  | Five-field Daily Paper cron expression                                            |
-| `daily_paper_use_hf_mirror`             | `false`        | Fetch paper information through the Hugging Face mirror                           |
-| `daily_paper_topics`                    | `""`           | Topics to prioritize during paper selection                                       |
-| `daily_paper_inbox_push_enabled`        | `true`         | Push Daily Paper results to Inbox                                                 |
-| `memory_search_enabled`                 | `true`         | Expose the manual `memory_search` tool to the Agent                               |
-| `auto_memory_search_config.enabled`     | `false`        | Search memory before every normal user request                                    |
-| `auto_memory_search_config.max_results` | `2`            | Maximum results injected by automatic search                                      |
+| Field                                   | Default                          | Description                                                                       |
+| --------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| `auto_memory_interval`                  | `5`                              | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
+| `auto_memory_inbox_push_enabled`        | `true`                           | Push Auto-Memory changes and failures to Inbox                                    |
+| `dream_cron_enabled`                    | `true`                           | Enable scheduled Auto-Dream                                                       |
+| `dream_cron`                            | `"0 23 * * *"`                   | Five-field cron; execution starts after a random 0–60 second delay                |
+| `auto_dream_inbox_push_enabled`         | `true`                           | Push Auto-Dream changes and failures to Inbox                                     |
+| `daily_paper_cron_enabled`              | `false`                          | Enable scheduled Daily Paper                                                      |
+| `daily_paper_cron`                      | `"0 9 * * *"`                    | Five-field Daily Paper cron expression                                            |
+| `daily_paper_use_hf_mirror`             | `false`                          | Fetch paper information through the Hugging Face mirror                           |
+| `daily_paper_topics`                    | `""`                             | Topics to prioritize during paper selection                                       |
+| `daily_paper_inbox_push_enabled`        | `true`                           | Push Daily Paper results to Inbox                                                 |
+| `auto_fin_cron_enabled`                 | `false`                          | Enable scheduled Auto Fin                                                         |
+| `auto_fin_cron`                         | `"0 18 * * *"`                   | Five-field Auto Fin cron expression                                               |
+| `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | Comma-separated topics used to filter CLS news                                    |
+| `auto_fin_window_hours`                 | `24`                             | Rolling number of hours of CLS telegraph news to fetch; must be between 1 and 168 |
+| `auto_fin_inbox_push_enabled`           | `true`                           | Push generated Auto Fin reports or failures to Inbox                              |
+| `memory_search_enabled`                 | `true`                           | Expose the manual `memory_search` tool to the Agent                               |
+| `auto_memory_search_config.enabled`     | `false`                          | Search memory before every normal user request                                    |
+| `auto_memory_search_config.max_results` | `2`                              | Maximum results injected by automatic search                                      |
 
 Automatic results are injected only into the current request. They are excluded from persistent conversation history and Auto-Memory. Automation-originated requests do not trigger automatic search.
 
@@ -356,7 +370,7 @@ Automatic results are injected only into the current request. They are excluded 
 | `embedding_model_config` | Disabled         | Optional vector model; see [Embedding Models](./embedding)          |
 | `needs_reindex`          | `false`          | Runtime-maintained pending-rebuild flag after a vector-space change |
 
-Legacy `inbox_push_enabled` is migration input only. It initializes any missing per-job Inbox switches but is not serialized back into validated configuration.
+Legacy `inbox_push_enabled` is migration input only. It initializes any missing switches for the four Inbox-producing memory jobs but is not serialized back into validated configuration.
 
 ### Runtime Status and Rebuilding the Index
 
@@ -366,13 +380,23 @@ The long-term memory page shows background jobs, the waiting queue, resource use
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
 </p>
 
-Normal Markdown additions and edits are indexed incrementally. Use **Rebuild Memory Index** only when the Console reports a vector-space change, the index is damaged, or search is clearly abnormal. You can also call:
+Normal Markdown additions and edits are indexed incrementally. Use **Rebuild Memory Index** only when the Console reports a vector-space change, the index is damaged, or search is clearly abnormal. The maintenance API supports scoped rebuilds:
 
 ```http
-POST /api/agents/{agentId}/memory/reindex
+POST /api/agents/{agentId}/memory/reindex?scope=all
+POST /api/agents/{agentId}/memory/reindex?scope=bm25
+POST /api/agents/{agentId}/memory/reindex?scope=embedding
 ```
 
-A rebuild clears derived index data and recreates it from Markdown in `memory/` and `digest/`; it does not delete source memory. CPU and memory use may rise during the rebuild, and only one rebuild can run per Agent.
+`bm25` rebuilds only the keyword index, `embedding` rebuilds only vectors, and the default `all` rebuilds BM25 first and Embedding second. The `embedding` and `all` scopes require an enabled Embedding configuration and return HTTP `409` otherwise; use `bm25` when no vector model is configured. A rebuild uses the already-ingested chunks from `memory/` and `digest/`; it does not reparse or delete source memory and does not rebuild the Wikilink graph. CPU and memory use may rise, and only one rebuild can run per Agent.
+
+After an Embedding change, vector search remains unavailable until an `embedding` or `all` rebuild succeeds; BM25 remains available. To abandon a pending vector-space change before rebuilding, use the Console undo action or call:
+
+```http
+POST /api/agents/{agentId}/memory/reindex/undo
+```
+
+Undo restores the previous Embedding configuration that matches the existing vectors. It does not delete memory files and is available only while a rebuild-requiring change is pending.
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Resource-usage confirmation before rebuilding the memory index" />
