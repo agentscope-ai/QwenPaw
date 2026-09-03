@@ -12,13 +12,14 @@
  * rejected, while same-epoch results keep working.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ChatSpec, ChatHistory } from "../../../api";
+import type { ChatSpec, ChatMessagesPage } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useSessionListStore } from "../../../stores/sessionListStore";
 import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,8 +58,8 @@ function makeChatSpec(
   } as unknown as ChatSpec;
 }
 
-function makeHistory(): ChatHistory {
-  return { messages: [], status: "idle" } as unknown as ChatHistory;
+function makeHistory(): ChatMessagesPage {
+  return toMessagesPage({ messages: [], status: "idle" });
 }
 
 const A_CHAT = "11111111-aaaa-4aaa-8aaa-111111111111";
@@ -124,7 +125,7 @@ describe("agent session ownership epochs", () => {
 
   it("rejects SDK calls made by an unmounted Agent before starting any request", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
-    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    const getSpy = vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
     const deleteSpy = vi
       .spyOn(api, "deleteChat")
       .mockResolvedValue({ success: true, chat_id: A_CHAT });
@@ -162,7 +163,7 @@ describe("agent session ownership epochs", () => {
     const listSpy = vi
       .spyOn(api, "listChats")
       .mockResolvedValue([makeChatSpec(A_CHAT, "console:a")]);
-    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    const getSpy = vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
     sessionApi.setActiveAgent("agent-a");
 
     await sessionApi.getSessionList();
@@ -172,10 +173,11 @@ describe("agent session ownership epochs", () => {
       archived: false,
       include_app_owned: false,
     });
-    expect(getSpy).toHaveBeenCalledWith(A_CHAT, {
-      signal: undefined,
-      include_app_owned: false,
-    });
+    expect(getSpy).toHaveBeenCalledWith(
+      A_CHAT,
+      { limit: 50, include_app_owned: false },
+      { signal: undefined },
+    );
   });
 
   it("Test A: an old agent's list request cannot replace the new agent's list", async () => {
@@ -271,7 +273,7 @@ describe("agent session ownership epochs", () => {
 
   it("Test D: same-owner list, selection, and temp-id resolution still work", async () => {
     const listSpy = vi.spyOn(api, "listChats");
-    vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
     const onSessionSelected = vi.fn();
     const onSessionIdResolved = vi.fn();
     sessionApi.onSessionSelected = onSessionSelected;
@@ -374,8 +376,8 @@ describe("agent session ownership epochs", () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
-    const dChat = deferred<ChatHistory>();
-    vi.spyOn(api, "getChat").mockReturnValueOnce(dChat.promise);
+    const dChat = deferred<ChatMessagesPage>();
+    vi.spyOn(api, "getMessages").mockReturnValueOnce(dChat.promise);
     const onSessionSelected = vi.fn();
     sessionApi.onSessionSelected = onSessionSelected;
 
@@ -403,9 +405,9 @@ describe("agent session ownership epochs", () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
-    const dA = deferred<ChatHistory>();
+    const dA = deferred<ChatMessagesPage>();
     const getChatSpy = vi
-      .spyOn(api, "getChat")
+      .spyOn(api, "getMessages")
       .mockReturnValueOnce(dA.promise)
       .mockResolvedValue(makeHistory());
 
@@ -434,8 +436,8 @@ describe("agent session ownership epochs", () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
-    const dChat = deferred<ChatHistory>();
-    vi.spyOn(api, "getChat").mockReturnValueOnce(dChat.promise);
+    const dChat = deferred<ChatMessagesPage>();
+    vi.spyOn(api, "getMessages").mockReturnValueOnce(dChat.promise);
 
     // Agent A starts a preload whose fetch is still pending at switch time.
     sessionApi.setActiveAgent("agent-a");
@@ -465,7 +467,7 @@ describe("agent session ownership epochs", () => {
 
   it("keeps a prepared blank session ahead of agent history", async () => {
     const listSpy = vi.spyOn(api, "listChats");
-    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    const getSpy = vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
     sessionApi.setActiveAgent("agent-b");
     // SDK 1.2 leaves New Chat blank until send; existing legacy drafts still
     // need to stay ahead of fetched history.
