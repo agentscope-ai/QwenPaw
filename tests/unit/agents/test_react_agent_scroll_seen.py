@@ -28,6 +28,7 @@ class SeenTracker:
 
     def __init__(self) -> None:
         self.acknowledged: list[set[str]] = []
+        self.thinking_acknowledged: list[set[str]] = []
 
     @staticmethod
     def model_input_tool_result_ids(agent) -> set[str]:
@@ -35,6 +36,13 @@ class SeenTracker:
 
     def acknowledge_model_input_tool_results(self, ids: set[str]) -> None:
         self.acknowledged.append(set(ids))
+
+    @staticmethod
+    def model_input_thinking_block_ids(agent) -> set[str]:
+        return {"thinking-seen"}
+
+    def acknowledge_model_input_thinking_blocks(self, ids: set[str]) -> None:
+        self.thinking_acknowledged.append(set(ids))
 
 
 class CompressionTracker:
@@ -99,6 +107,7 @@ async def test_successful_model_call_acknowledges_input_results(monkeypatch):
     events = [event async for event in agent._reasoning()]
 
     assert tracker.acknowledged == [{"call-seen"}]
+    assert tracker.thinking_acknowledged == [{"thinking-seen"}]
     assert isinstance(events[-1], Msg)
 
 
@@ -119,6 +128,7 @@ async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
             pass
 
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_interrupted_model_call_does_not_acknowledge_results(
@@ -141,6 +151,7 @@ async def test_interrupted_model_call_does_not_acknowledge_results(
 
     assert len(events) == 1
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_compress_context_forwards_one_shot_instructions():
