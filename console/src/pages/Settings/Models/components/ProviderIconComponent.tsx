@@ -58,7 +58,7 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#fff",
+        color: "var(--app-text-inverse)",
         fontSize,
         fontWeight: 600,
         fontFamily: "Inter, sans-serif",

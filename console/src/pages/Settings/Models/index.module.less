@@ -17,10 +17,21 @@
   --models-accent: var(--app-accent);
   --models-accent-strong: var(--app-accent-text);
   --models-accent-soft: var(--app-accent-soft);
-  --models-positive: #3f7450;
-  --models-positive-soft: #edf5ee;
+  --models-positive: var(--app-success-text);
+  --models-positive-soft: var(--app-success-bg);
   background: var(--models-bg);
   color: var(--models-text);
+}
+
+.settingsPage
+  :global(
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th
+  ) {
+  background: var(--app-fill-faint) !important;
 }
 
 .settingsPage .content {
@@ -90,7 +101,7 @@
 }
 
 .settingsPage .llmPillOn {
-  border-color: rgba(63, 116, 80, 0.32);
+  border-color: var(--app-success-border);
   background: var(--models-positive-soft);
 }
 
@@ -179,7 +190,7 @@
   border: 1px solid var(--models-border);
   border-radius: 10px;
   background: var(--models-surface);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--app-shadow-sm);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -187,7 +198,7 @@
 .settingsPage .groupCardGlass:hover,
 .settingsPage .providerCard:hover {
   border-color: var(--models-border-strong);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--app-shadow-md);
 }
 
 .settingsPage .groupCardName,
@@ -218,7 +229,7 @@
 .settingsPage .groupSegBtnActive {
   color: var(--models-accent-strong);
   background: var(--models-surface);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .settingsPage .groupSegDotOn {
@@ -268,20 +279,20 @@
 }
 
 .settingsPage .groupCardActBtn:hover {
-  border-color: rgba(194, 101, 47, 0.42);
+  border-color: var(--app-accent-border);
   color: var(--models-accent-strong);
   background: var(--models-accent-soft);
 }
 
 .settingsPage .groupCardActBtnDanger {
-  color: #a34e4e;
-  border-color: rgba(163, 78, 78, 0.24);
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
 }
 
 .settingsPage .groupCardActBtnDanger:hover {
-  color: #8d3d3d;
-  border-color: rgba(163, 78, 78, 0.42);
-  background: rgba(163, 78, 78, 0.07);
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
+  background: var(--app-error-bg);
 }
 
 .settingsPage .builtinTag {
@@ -292,7 +303,7 @@
 .settingsPage .customTag {
   color: var(--models-accent-strong);
   background: var(--models-accent-soft);
-  border-color: rgba(194, 101, 47, 0.22);
+  border-color: var(--app-accent-border);
 }
 
 .settingsPage .freeTag {
@@ -302,8 +313,8 @@
 }
 
 .settingsPage .localTag {
-  color: #55736b;
-  background: #edf4f1;
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
 }
 
 .settingsPage .availableGrid {
@@ -320,7 +331,7 @@
 }
 
 .settingsPage .availableItem:hover {
-  border-color: rgba(194, 101, 47, 0.42);
+  border-color: var(--app-accent-border);
   background: var(--models-accent-soft);
   box-shadow: none;
 }
@@ -392,27 +403,6 @@
   }
 }
 
-:global(.dark-mode) .settingsPage {
-  --models-positive: #8ec49a;
-  --models-positive-soft: rgba(76, 175, 96, 0.14);
-}
-
-:global(.dark-mode) .settingsPage .groupCardActBtnDanger {
-  color: #e89a9a;
-  border-color: rgba(232, 154, 154, 0.24);
-}
-
-:global(.dark-mode) .settingsPage .groupCardActBtnDanger:hover {
-  color: #f0b0b0;
-  border-color: rgba(232, 154, 154, 0.44);
-  background: rgba(232, 154, 154, 0.09);
-}
-
-:global(.dark-mode) .settingsPage .localTag {
-  color: #a3c8be;
-  background: rgba(90, 144, 128, 0.14);
-}
-
 .localAdvancedConfigLabelRow {
   display: flex;
   align-items: center;
@@ -435,7 +425,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   margin-bottom: 0;
   flex-shrink: 0;
 }
@@ -456,17 +446,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -477,7 +467,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 /* ---- Sections ---- */
@@ -498,7 +488,7 @@
 
 .sectionDesc {
   margin: 0 0 24px;
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
 }
 
@@ -521,7 +511,7 @@
 .providerGroupTitle {
   font-size: 14px;
   font-weight: 600;
-  color: #666;
+  color: var(--app-text-secondary);
   margin: 0 0 12px;
   letter-spacing: 0.02em;
 }
@@ -529,7 +519,7 @@
 .subSectionTitle {
   font-size: 12px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin: 16px 0 10px;
   display: flex;
   align-items: center;
@@ -539,7 +529,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: #e5e7eb;
+  background: var(--app-border-subtle);
 }
 
 /* ---- Provider Cards ---- */
@@ -554,14 +544,14 @@
 .configuredCount {
   font-size: 12px;
   font-weight: 400;
-  color: #10b981;
+  color: var(--app-success-text);
   margin-left: 8px;
 }
 
 .availableHint {
   font-size: 12px;
   font-weight: 400;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin-left: 8px;
 }
 
@@ -571,14 +561,14 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  border: 2px dashed #e5e7eb;
+  border: 2px dashed var(--app-border-strong);
   border-radius: 12px;
   margin-bottom: 24px;
   text-align: center;
 }
 .emptyConfigured p {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   margin-bottom: 16px;
 }
 
@@ -593,9 +583,9 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -609,7 +599,7 @@
   font-size: 13px;
   font-weight: 500;
   flex: 1;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .availableItemAction {
@@ -631,7 +621,7 @@
   gap: 10px;
   padding: 12px 16px;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--app-surface-subtle);
   cursor: pointer;
   transition: all 0.2s;
 
@@ -644,16 +634,16 @@
 .variantItemName {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--app-text);
   flex: 1;
 }
 
 .providerCard {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--app-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   transition: all 0.2s;
   cursor: pointer;
   position: relative;
@@ -696,15 +686,15 @@
   font-weight: 500;
 
   &.enabled {
-    color: rgba(20, 184, 166, 1);
+    color: var(--app-success-text);
   }
 
   &.partial {
-    color: #faad14;
+    color: var(--app-warning-text);
   }
 
   &.disabled {
-    color: #999;
+    color: var(--app-text-tertiary);
   }
 }
 
@@ -741,7 +731,7 @@
 .cardName {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 /* Tags */
@@ -752,8 +742,8 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.65);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
 }
 
 .customTag {
@@ -763,9 +753,9 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.8);
-  color: #ff7f16;
-  border: 1px solid rgba(255, 127, 22, 0.2);
+  background-color: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  border: 1px solid var(--app-accent-border);
 }
 
 .freeTag {
@@ -776,8 +766,8 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: #fff;
+  background: var(--app-success);
+  color: var(--app-text-inverse);
 }
 
 .localTag {
@@ -787,8 +777,8 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(29, 212, 215, 0.15);
-  color: rgba(29, 212, 215, 1);
+  background-color: var(--app-info-bg);
+  color: var(--app-info-text);
 }
 
 .statusContainer {
@@ -801,15 +791,15 @@
     font-weight: 500;
 
     &.enabled {
-      color: rgba(20, 184, 166, 1);
+      color: var(--app-success-text);
     }
 
     &.partial {
-      color: #faad14;
+      color: var(--app-warning-text);
     }
 
     &.disabled {
-      color: #999;
+      color: var(--app-text-tertiary);
     }
   }
 }
@@ -826,11 +816,11 @@
 
   :global {
     .ant-badge-status-success .ant-badge-status-text {
-      color: #52c41a !important;
+      color: var(--app-success-text) !important;
     }
 
     .ant-badge-status-error .ant-badge-status-text {
-      color: #ff4d4f !important;
+      color: var(--app-error-text) !important;
     }
   }
 }
@@ -838,7 +828,7 @@
 .cardName {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .cardInfo {
@@ -856,14 +846,14 @@
 }
 
 .infoLabel {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   min-width: 60px;
   flex-shrink: 0;
   font-weight: 400;
 }
 
 .infoValue {
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 12px;
   overflow: hidden;
@@ -874,7 +864,7 @@
 }
 
 .infoEmpty {
-  color: rgba(0, 0, 0, 0.25);
+  color: var(--app-text-quaternary);
   font-style: italic;
 }
 
@@ -896,7 +886,7 @@
   bottom: 16px;
   left: 16px;
   right: 16px;
-  background: #fff;
+  background: var(--app-surface);
   z-index: 10;
 }
 
@@ -910,11 +900,11 @@
 /* ---- Provider Group Card (Glass + Segmented) ---- */
 
 .groupCardGlass {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--app-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   padding: 22px;
   transition: all 0.2s;
   cursor: default;
@@ -935,7 +925,7 @@
   font-size: 17px;
   font-weight: 600;
   flex: 1;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .groupCardLiveBadge {
@@ -943,7 +933,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: #14b8a6;
+  color: var(--app-success-text);
   font-weight: 500;
 }
 
@@ -951,7 +941,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #14b8a6;
+  background: var(--app-success);
   animation: groupPulse 2s infinite;
 }
 
@@ -969,7 +959,7 @@
 /* Segmented Control */
 .groupSegmented {
   display: flex;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-fill-subtle);
   border-radius: 10px;
   padding: 3px;
   gap: 2px;
@@ -983,7 +973,7 @@
   text-align: center;
   font-size: 11px;
   font-weight: 500;
-  color: #888;
+  color: var(--app-text-tertiary);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -994,7 +984,7 @@
   gap: 4px;
 
   &:hover {
-    color: #555;
+    color: var(--app-text-secondary);
   }
 }
 
@@ -1011,11 +1001,11 @@
 }
 
 .groupSegDotOn {
-  background: #14b8a6;
+  background: var(--app-success);
 }
 
 .groupSegDotOff {
-  background: #ef4444;
+  background: var(--app-error);
 }
 
 /* Content */
@@ -1034,24 +1024,24 @@
 
 .groupCardFieldLabel {
   font-size: 10px;
-  color: #888;
+  color: var(--app-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .groupCardFieldValue {
   font-size: 13px;
-  color: #333;
+  color: var(--app-text);
 }
 
 .groupCardMono {
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
-  color: #666;
-  background: rgba(0, 0, 0, 0.03);
+  color: var(--app-text-secondary);
+  background: var(--app-fill-faint);
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--app-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1086,15 +1076,15 @@
   display: flex;
   gap: 8px;
   padding-top: 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .groupCardActBtn {
   padding: 7px 14px;
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--app-fill-faint);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  color: #666;
+  color: var(--app-text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
@@ -1107,13 +1097,13 @@
 }
 
 .groupCardActBtnDanger {
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
 
   &:hover {
-    border-color: rgba(239, 68, 68, 0.5);
-    color: #dc2626;
-    background: rgba(239, 68, 68, 0.04);
+    border-color: var(--app-error-border);
+    color: var(--app-error-text);
+    background: var(--app-error-bg);
   }
 }
 
@@ -1280,22 +1270,22 @@
 }
 
 .llmPillOn {
-  background: linear-gradient(135deg, #ecfdf5, #d1fae5, #fff);
-  border-color: #6ee7b7;
-  box-shadow: 0 1px 6px rgba(16, 185, 129, 0.12);
+  background: var(--app-success-bg);
+  border-color: var(--app-success-border);
+  box-shadow: var(--app-shadow-sm);
 
   &:hover {
-    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
 .llmPillOff {
-  background: linear-gradient(135deg, #fef2f2, #fee2e2, #fff);
-  border-color: #fca5a5;
-  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.12);
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+  box-shadow: var(--app-shadow-sm);
 
   &:hover {
-    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -1303,7 +1293,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -1311,20 +1301,20 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: var(--app-error);
   flex-shrink: 0;
 }
 
 .llmPillLabel {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
 .llmPillValue {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--app-text);
   white-space: nowrap;
 }
 
@@ -1342,7 +1332,7 @@
 
 .llmDescription {
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin: 0 0 16px;
   line-height: 1.5;
 }
@@ -1350,16 +1340,16 @@
 /* ---- Panel Section (grouped containers) ---- */
 
 .panelSection {
-  background: #fafbfc;
-  border: 1px solid #f3f4f6;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 12px;
   padding: 18px;
   margin: 0 16px 16px;
 }
 
 .panelSectionDashed {
-  background: #fff;
-  border: 1px dashed #e5e7eb;
+  background: var(--app-surface);
+  border: 1px dashed var(--app-border-strong);
   border-radius: 12px;
   padding: 18px;
   margin: 0 16px 16px;
@@ -1368,7 +1358,7 @@
 .panelTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   margin-bottom: 14px;
   display: flex;
   align-items: center;
@@ -1379,7 +1369,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -1387,13 +1377,13 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #d1d5db;
+  background: var(--app-status-idle);
   flex-shrink: 0;
 }
 
 .panelCount {
   font-size: 11px;
-  color: #10b981;
+  color: var(--app-success-text);
   font-weight: 400;
   margin-left: auto;
 }
@@ -1403,7 +1393,7 @@
 .tabsNav {
   display: flex;
   gap: 0;
-  border-bottom: 2px solid #f3f4f6;
+  border-bottom: 2px solid var(--app-border-subtle);
   margin: 0 16px 16px;
 }
 
@@ -1411,7 +1401,7 @@
   padding: 10px 20px;
   font-size: 13px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
@@ -1421,7 +1411,7 @@
   user-select: none;
 }
 .tabItem:hover {
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 .tabItemActive {
   color: var(--models-accent-strong);
@@ -1433,15 +1423,15 @@
 .slotSection {
   padding: 24px;
   margin: 20px;
-  background: #ffffff;
+  background: var(--app-surface-raised);
   border-radius: 6px;
-  border: 1px solid #e8e8e8;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-sm);
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    border-color: #d9d9d9;
+    box-shadow: var(--app-shadow-md);
+    border-color: var(--app-border-hover);
   }
 }
 
@@ -1451,30 +1441,30 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .slotTitle {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .slotDescription {
   margin: 8px 0 0;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
 
 .slotCurrent {
   font-size: 13px;
-  color: #52c41a;
+  color: var(--app-success-text);
   font-family: "SF Mono", "Menlo", monospace;
-  background: #f6ffed;
+  background: var(--app-success-bg);
   padding: 4px 12px;
   border-radius: 20px;
-  border: 1px solid #b7eb8f;
+  border: 1px solid var(--app-success-border);
 }
 
 .slotForm {
@@ -1510,7 +1500,7 @@
 
 .slotLabel {
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-secondary);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -1526,7 +1516,7 @@
   justify-content: flex-end;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 /* ---- Section Header Row (title + button) ---- */
@@ -2226,138 +2216,6 @@
   line-height: 1.6;
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .settingsPage {
-    :global {
-      .qwenpaw-table-wrapper
-        .qwenpaw-table-container
-        .qwenpaw-table-thead
-        > tr
-        > th {
-        background: rgba(255, 255, 255, 0.04) !important;
-      }
-    }
-  }
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-  .sectionDesc {
-    color: rgba(255, 255, 255, 0.35);
-  }
-  .providerGroupTitle {
-    color: rgba(255, 255, 255, 0.4);
-  }
-  .subSectionTitle {
-    color: rgba(255, 255, 255, 0.35);
-  }
-  .subSectionTitle::after {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  /* Provider card */
-  .providerCard {
-    box-shadow: none !important;
-  }
-  .builtinTag {
-    background-color: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-  .customTag {
-    background-color: rgba(255, 127, 22, 0.15);
-    border-color: rgba(255, 127, 22, 0.25);
-  }
-  .configuredCount {
-    color: #34d399;
-  }
-  .availableHint {
-    color: rgba(255, 255, 255, 0.4);
-  }
-  .variantItemName {
-    color: rgba(255, 255, 255, 0.9);
-  }
-  .localTag {
-    background-color: rgba(29, 212, 215, 0.15);
-    color: rgba(29, 212, 215, 1);
-  }
-  .infoRow {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .infoEmpty {
-    color: rgba(255, 255, 255, 0.2);
-  }
-  .cardActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-    background: #2a2a2a;
-  }
-  .groupCardActBtnDanger {
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.2);
-    &:hover {
-      border-color: rgba(248, 113, 113, 0.5);
-      color: #ef4444;
-      background: rgba(248, 113, 113, 0.08);
-    }
-  }
-  .configBtn {
-    color: rgba(255, 255, 255, 0.65) !important;
-    &:hover {
-      color: #ff7f16 !important;
-    }
-  }
-  .statusContainer .statusText.disabled {
-    color: rgba(255, 255, 255, 0.3);
-  }
-  .llmPillOn {
-    border-color: rgba(16, 185, 129, 0.4);
-    box-shadow: 0 1px 6px rgba(16, 185, 129, 0.15);
-    &:hover {
-      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
-    }
-  }
-  .llmPillOff {
-    box-shadow: 0 1px 6px rgba(239, 68, 68, 0.15);
-    &:hover {
-      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
-    }
-  }
-  .llmDescription {
-    color: rgba(255, 255, 255, 0.45);
-  }
-  .tabsNav {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-  /* Slot section (LLM 顶部选择区) */
-  .slotSection {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    &:hover {
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-      border-color: rgba(255, 255, 255, 0.15);
-    }
-  }
-  .slotHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-  .slotTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-  .slotCurrent {
-    color: #52c41a;
-    background: rgba(82, 196, 26, 0.1);
-    border-color: rgba(82, 196, 26, 0.3);
-  }
-  .slotLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .slotActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-  .infoEmpty {
-    color: rgba(255, 255, 255, 0.3);
-  }
-}
-
 /* ---- Custom Headers Editor ---- */
 .customHeadersSection {
   margin-bottom: 8px;
@@ -2379,12 +2237,12 @@
 
   .customHeaderDelete {
     flex: 0 0 auto;
-    color: #999;
+    color: var(--app-text-tertiary);
     cursor: pointer;
     transition: color 0.2s;
 
     &:hover {
-      color: #ff4d4f;
+      color: var(--app-error-text);
     }
   }
 }
@@ -2396,7 +2254,7 @@
   padding: 0;
   height: auto;
   font-size: 13px;
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--app-accent-text);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -2616,7 +2474,7 @@
   .cardActions {
     position: static;
     padding-top: 12px;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    border-top: 1px solid var(--app-border-subtle);
     background: transparent;
   }
 
@@ -2766,103 +2624,4 @@
       }
     }
   }
-}
-
-/* Keep the refreshed dark surfaces after the legacy theme rules above. */
-:global(.dark-mode) .settingsPage {
-  background: var(--models-bg);
-}
-
-:global(.dark-mode) .settingsPage .pageHeader {
-  background: var(--models-bg);
-}
-
-:global(.dark-mode) .settingsPage .sectionHeaderRow,
-:global(.dark-mode) .settingsPage .content {
-  background: var(--models-bg);
-}
-
-:global(.dark-mode) .settingsPage .panelSection,
-:global(.dark-mode) .settingsPage .panelSectionDashed,
-:global(.dark-mode) .settingsPage .groupCardGlass,
-:global(.dark-mode) .settingsPage .providerCard,
-:global(.dark-mode) .settingsPage .availableItem,
-:global(.dark-mode) .settingsPage .llmPill {
-  background: var(--models-surface);
-  border-color: var(--models-border);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
-}
-
-:global(.dark-mode) .settingsPage .panelSection {
-  background: var(--models-surface-muted);
-}
-
-:global(.dark-mode) .settingsPage .groupSegmented,
-:global(.dark-mode) .settingsPage .groupCardMono,
-:global(.dark-mode) .settingsPage .variantItem {
-  background: var(--models-surface-muted);
-  border-color: var(--models-border);
-}
-
-:global(.dark-mode) .settingsPage .groupSegBtnActive,
-:global(.dark-mode) .settingsPage .availableItem:hover,
-:global(.dark-mode) .settingsPage .groupCardActBtn:hover,
-:global(.dark-mode) .settingsPage .variantItem:hover {
-  background: var(--models-accent-soft);
-}
-
-:global(.dark-mode) .settingsPage .groupCardActBtn {
-  color: var(--models-text-muted);
-  background: var(--models-surface);
-  border-color: var(--models-border);
-}
-
-:global(.dark-mode) .settingsPage .tabItemActive,
-:global(.dark-mode) .settingsPage .groupSegBtnActive {
-  color: var(--models-accent-strong);
-  border-bottom-color: var(--models-accent);
-}
-
-:global(.dark-mode) .settingsPage .groupSegBtn,
-:global(.dark-mode) .settingsPage .groupCardFieldLabel,
-:global(.dark-mode) .settingsPage .infoLabel,
-:global(.dark-mode) .settingsPage .panelTitle {
-  color: var(--models-text-muted);
-}
-
-:global(.dark-mode) .settingsPage .groupCardFieldValue,
-:global(.dark-mode) .settingsPage .groupCardName,
-:global(.dark-mode) .settingsPage .cardName,
-:global(.dark-mode) .settingsPage .availableItemName {
-  color: var(--models-text);
-}
-
-:global(.dark-mode) .settingsPage .groupCardMono {
-  color: var(--models-text-muted);
-}
-
-:global(.dark-mode) .settingsPage .groupSegDotOff {
-  background: var(--models-text-faint);
-}
-
-:global(.dark-mode) .settingsPage .availableItemAction,
-:global(.dark-mode) .settingsPage .groupCardChangeBtn {
-  color: var(--models-accent-strong);
-}
-
-:global(.dark-mode) .settingsPage .freeTag {
-  color: var(--models-positive);
-  background: var(--models-positive-soft);
-  background-image: none;
-}
-
-:global(.dark-mode) .settingsPage .customTag {
-  color: var(--models-accent-strong);
-  background: var(--models-accent-soft);
-  border-color: rgba(237, 146, 93, 0.24);
-}
-
-:global(.dark-mode) .settingsPage .localTag {
-  color: #a3c8be;
-  background: rgba(90, 144, 128, 0.14);
 }
