@@ -212,7 +212,8 @@ def build_env_context(
 
     if agent_id:
         parts.append(
-            f"- Agent Identity: Your agent id is `{agent_id}`. "
+            f"- Agent Identity: Your agent id is "
+            f"{json.dumps(str(agent_id))}. "
             f"This is your unique identifier in the multi-agent system.",
         )
 
