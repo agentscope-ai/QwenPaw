@@ -1584,6 +1584,7 @@ def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
         def __init__(self, writer: Any, supervisor: Any) -> None:
             super().__init__(writer, supervisor)
             self._pending: set[asyncio.Future[None]] = set()
+            self._shutdown = False
 
         async def send(self, payload: dict[str, Any]) -> None:
             data = (json.dumps(payload, separators=(",", ":")) + "\n").encode(
@@ -1600,9 +1601,9 @@ def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
             return
 
         async def close(self) -> None:
-            if self._closed:
+            if self._shutdown:
                 return
-            self._closed = True
+            self._shutdown = True
             # Wait for in-flight executor writes instead of relying on the
             # inherited queue-sentinel shutdown (nothing drains that queue).
             if self._pending:
