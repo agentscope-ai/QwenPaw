@@ -57,6 +57,8 @@ from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
+AUTO_FIN_MAX_WINDOW_HOURS = 168
+
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
 # lifetime.  The migration reminder is useful once, but repeating it for
@@ -971,16 +973,18 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
     auto_fin_topics: str = Field(
-        default="黄金,机器人,半导体",
+        default="gold,robotics,semiconductors",
         description="Comma-separated topics used to filter CLS news",
     )
 
     auto_fin_window_hours: float = Field(
         default=24,
         ge=1,
+        le=AUTO_FIN_MAX_WINDOW_HOURS,
+        allow_inf_nan=False,
         description=(
             "Rolling number of hours of CLS news to analyze; "
-            "must be at least 1"
+            f"must be between 1 and {AUTO_FIN_MAX_WINDOW_HOURS}"
         ),
     )
 

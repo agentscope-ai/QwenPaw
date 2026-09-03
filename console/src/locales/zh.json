@@ -2770,6 +2770,7 @@
     "autoFinWindowHoursPlaceholder": "24",
     "autoFinWindowHoursRequired": "请输入新闻时间窗口",
     "autoFinWindowHoursMin": "新闻时间窗口不能少于 1 小时",
+    "autoFinWindowHoursMax": "新闻时间窗口不能超过 {{max}} 小时",
     "autoFinNotifyDescription": "Auto Fin 完成后发送结果到收件箱",
     "autoFinDisclaimer": "Auto Fin 不提供行情、收益、目标价、买卖点或投资建议。",
     "autoMemorySearch": "自动记忆搜索(Beta)",

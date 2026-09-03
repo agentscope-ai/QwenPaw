@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
 import {
   AlertTriangle,
@@ -16,6 +16,8 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+
+const AUTO_FIN_MAX_WINDOW_HOURS = 168;
 
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
@@ -64,7 +66,11 @@ export function ReMeLightMemoryCard() {
     null,
   );
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
-  const [autoFinExpanded, setAutoFinExpanded] = useState(false);
+  const [autoFinExpanded, setAutoFinExpanded] = useState(() =>
+    Boolean(
+      form.getFieldValue(["reme_light_memory_config", "auto_fin_cron_enabled"]),
+    ),
+  );
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
@@ -161,6 +167,13 @@ export function ReMeLightMemoryCard() {
   const autoFinCronEnabled = remeConfig?.auto_fin_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
+
+  useEffect(() => {
+    if (autoFinCronEnabled) {
+      setAutoFinExpanded(true);
+    }
+  }, [autoFinCronEnabled]);
+
   const toggleAutoMemory = (enabled: boolean) => {
     form.setFieldValue(
       ["reme_light_memory_config", "auto_memory_interval"],
@@ -598,6 +611,13 @@ export function ReMeLightMemoryCard() {
                             min: 1,
                             message: t("agentConfig.autoFinWindowHoursMin"),
                           },
+                          {
+                            type: "number",
+                            max: AUTO_FIN_MAX_WINDOW_HOURS,
+                            message: t("agentConfig.autoFinWindowHoursMax", {
+                              max: AUTO_FIN_MAX_WINDOW_HOURS,
+                            }),
+                          },
                         ]
                       : []
                   }
@@ -605,6 +625,7 @@ export function ReMeLightMemoryCard() {
                   <InputNumber
                     style={{ width: "100%" }}
                     min={1}
+                    max={AUTO_FIN_MAX_WINDOW_HOURS}
                     step={1}
                     disabled={!autoFinCronEnabled}
                     placeholder={t("agentConfig.autoFinWindowHoursPlaceholder")}

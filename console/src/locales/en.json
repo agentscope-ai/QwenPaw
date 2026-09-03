@@ -2912,6 +2912,7 @@
     "autoFinWindowHoursPlaceholder": "24",
     "autoFinWindowHoursRequired": "Enter the news window",
     "autoFinWindowHoursMin": "The news window must be at least 1 hour",
+    "autoFinWindowHoursMax": "The news window cannot exceed {{max}} hours",
     "autoFinNotifyDescription": "Send Auto Fin results to the inbox",
     "autoFinDisclaimer": "Auto Fin does not provide market prices, returns, targets, trading signals, or investment advice.",
     "autoMemorySearch": "Auto Memory Search (Beta)",

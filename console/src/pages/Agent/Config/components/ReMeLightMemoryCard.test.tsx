@@ -123,8 +123,10 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
 
 function MemoryForm({
   withRuntimeStatus = false,
+  autoFinEnabled = false,
 }: {
   withRuntimeStatus?: boolean;
+  autoFinEnabled?: boolean;
 }) {
   const [form] = Form.useForm();
   const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
@@ -136,7 +138,7 @@ function MemoryForm({
           reme_light_memory_config: {
             auto_memory_interval: 0,
             dream_cron_enabled: false,
-            auto_fin_cron_enabled: false,
+            auto_fin_cron_enabled: autoFinEnabled,
             auto_fin_cron: "0 18 * * *",
             auto_fin_topics: "黄金,机器人,半导体",
             auto_fin_window_hours: 24,
@@ -698,6 +700,24 @@ describe("long-term memory defaults", () => {
     expect(
       screen.getByText("agentConfig.autoFinDisclaimer"),
     ).toBeInTheDocument();
+  });
+
+  it("expands Auto Fin settings when the initial config is enabled", async () => {
+    await act(async () => {
+      renderWithProviders(<MemoryForm autoFinEnabled />);
+    });
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryAutoFinTitle/,
+    });
+    await waitFor(() => {
+      expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    const windowInput = screen.getByDisplayValue("24");
+    expect(windowInput).toBeEnabled();
+    expect(windowInput).toHaveAttribute("aria-valuemin", "1");
+    expect(windowInput).toHaveAttribute("aria-valuemax", "168");
   });
 });
 

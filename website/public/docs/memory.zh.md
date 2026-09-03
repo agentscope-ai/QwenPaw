@@ -320,7 +320,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
       "daily_paper_inbox_push_enabled": true,
       "auto_fin_cron_enabled": false,
       "auto_fin_cron": "0 18 * * *",
-      "auto_fin_topics": "黄金,机器人,半导体",
+      "auto_fin_topics": "gold,robotics,semiconductors",
       "auto_fin_window_hours": 24,
       "auto_fin_inbox_push_enabled": true,
       "memory_search_enabled": true,
@@ -333,26 +333,26 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 }
 ```
 
-| 配置项                                  | 默认值                 | 说明                                                               |
-| --------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
-| `auto_memory_interval`                  | `5`                    | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
-| `auto_memory_inbox_push_enabled`        | `true`                 | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
-| `dream_cron_enabled`                    | `true`                 | 启用定时 Auto-Dream                                                |
-| `dream_cron`                            | `"0 23 * * *"`         | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
-| `auto_dream_inbox_push_enabled`         | `true`                 | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
-| `daily_paper_cron_enabled`              | `false`                | 启用定时 Daily Paper                                               |
-| `daily_paper_cron`                      | `"0 9 * * *"`          | Daily Paper 的五段式 cron                                          |
-| `daily_paper_use_hf_mirror`             | `false`                | 通过 Hugging Face 镜像获取论文信息                                 |
-| `daily_paper_topics`                    | `""`                   | 选论文时优先考虑的主题                                             |
-| `daily_paper_inbox_push_enabled`        | `true`                 | 把 Daily Paper 结果推送到 Inbox                                    |
-| `auto_fin_cron_enabled`                 | `false`                | 启用定时 Auto Fin                                                  |
-| `auto_fin_cron`                         | `"0 18 * * *"`         | Auto Fin 的五段式 cron                                             |
-| `auto_fin_topics`                       | `"黄金,机器人,半导体"` | 用逗号分隔的财联社新闻筛选主题                                     |
-| `auto_fin_window_hours`                 | `24`                   | 每次向前抓取财联社电报的滚动小时数，至少为 1                       |
-| `auto_fin_inbox_push_enabled`           | `true`                 | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
-| `memory_search_enabled`                 | `true`                 | 向 Agent 提供手动 `memory_search` 工具                             |
-| `auto_memory_search_config.enabled`     | `false`                | 每次普通用户请求前自动搜索记忆                                     |
-| `auto_memory_search_config.max_results` | `2`                    | 自动搜索时最多注入的结果数                                         |
+| 配置项                                  | 默认值                           | 说明                                                               |
+| --------------------------------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `auto_memory_interval`                  | `5`                              | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
+| `auto_memory_inbox_push_enabled`        | `true`                           | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
+| `dream_cron_enabled`                    | `true`                           | 启用定时 Auto-Dream                                                |
+| `dream_cron`                            | `"0 23 * * *"`                   | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
+| `auto_dream_inbox_push_enabled`         | `true`                           | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
+| `daily_paper_cron_enabled`              | `false`                          | 启用定时 Daily Paper                                               |
+| `daily_paper_cron`                      | `"0 9 * * *"`                    | Daily Paper 的五段式 cron                                          |
+| `daily_paper_use_hf_mirror`             | `false`                          | 通过 Hugging Face 镜像获取论文信息                                 |
+| `daily_paper_topics`                    | `""`                             | 选论文时优先考虑的主题                                             |
+| `daily_paper_inbox_push_enabled`        | `true`                           | 把 Daily Paper 结果推送到 Inbox                                    |
+| `auto_fin_cron_enabled`                 | `false`                          | 启用定时 Auto Fin                                                  |
+| `auto_fin_cron`                         | `"0 18 * * *"`                   | Auto Fin 的五段式 cron                                             |
+| `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | 用逗号分隔的财联社新闻筛选主题                                     |
+| `auto_fin_window_hours`                 | `24`                             | 每次向前抓取财联社电报的滚动小时数，范围为 1–168                   |
+| `auto_fin_inbox_push_enabled`           | `true`                           | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
+| `memory_search_enabled`                 | `true`                           | 向 Agent 提供手动 `memory_search` 工具                             |
+| `auto_memory_search_config.enabled`     | `false`                          | 每次普通用户请求前自动搜索记忆                                     |
+| `auto_memory_search_config.max_results` | `2`                              | 自动搜索时最多注入的结果数                                         |
 
 自动搜索结果只注入当前请求，不写入正式会话历史，也不会再次被 Auto-Memory 保存。自动化产生的请求不会触发自动搜索。
 

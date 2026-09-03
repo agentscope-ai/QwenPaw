@@ -321,7 +321,7 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
       "daily_paper_inbox_push_enabled": true,
       "auto_fin_cron_enabled": false,
       "auto_fin_cron": "0 18 * * *",
-      "auto_fin_topics": "黄金,机器人,半导体",
+      "auto_fin_topics": "gold,robotics,semiconductors",
       "auto_fin_window_hours": 24,
       "auto_fin_inbox_push_enabled": true,
       "memory_search_enabled": true,
@@ -334,26 +334,26 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
 }
 ```
 
-| Field                                   | Default                | Description                                                                       |
-| --------------------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| `auto_memory_interval`                  | `5`                    | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
-| `auto_memory_inbox_push_enabled`        | `true`                 | Push Auto-Memory changes and failures to Inbox                                    |
-| `dream_cron_enabled`                    | `true`                 | Enable scheduled Auto-Dream                                                       |
-| `dream_cron`                            | `"0 23 * * *"`         | Five-field cron; execution starts after a random 0–60 second delay                |
-| `auto_dream_inbox_push_enabled`         | `true`                 | Push Auto-Dream changes and failures to Inbox                                     |
-| `daily_paper_cron_enabled`              | `false`                | Enable scheduled Daily Paper                                                      |
-| `daily_paper_cron`                      | `"0 9 * * *"`          | Five-field Daily Paper cron expression                                            |
-| `daily_paper_use_hf_mirror`             | `false`                | Fetch paper information through the Hugging Face mirror                           |
-| `daily_paper_topics`                    | `""`                   | Topics to prioritize during paper selection                                       |
-| `daily_paper_inbox_push_enabled`        | `true`                 | Push Daily Paper results to Inbox                                                 |
-| `auto_fin_cron_enabled`                 | `false`                | Enable scheduled Auto Fin                                                         |
-| `auto_fin_cron`                         | `"0 18 * * *"`         | Five-field Auto Fin cron expression                                               |
-| `auto_fin_topics`                       | `"黄金,机器人,半导体"` | Comma-separated topics used to filter CLS news                                    |
-| `auto_fin_window_hours`                 | `24`                   | Rolling number of hours of CLS telegraph news to fetch; must be at least 1        |
-| `auto_fin_inbox_push_enabled`           | `true`                 | Push generated Auto Fin reports or failures to Inbox                              |
-| `memory_search_enabled`                 | `true`                 | Expose the manual `memory_search` tool to the Agent                               |
-| `auto_memory_search_config.enabled`     | `false`                | Search memory before every normal user request                                    |
-| `auto_memory_search_config.max_results` | `2`                    | Maximum results injected by automatic search                                      |
+| Field                                   | Default                          | Description                                                                       |
+| --------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| `auto_memory_interval`                  | `5`                              | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
+| `auto_memory_inbox_push_enabled`        | `true`                           | Push Auto-Memory changes and failures to Inbox                                    |
+| `dream_cron_enabled`                    | `true`                           | Enable scheduled Auto-Dream                                                       |
+| `dream_cron`                            | `"0 23 * * *"`                   | Five-field cron; execution starts after a random 0–60 second delay                |
+| `auto_dream_inbox_push_enabled`         | `true`                           | Push Auto-Dream changes and failures to Inbox                                     |
+| `daily_paper_cron_enabled`              | `false`                          | Enable scheduled Daily Paper                                                      |
+| `daily_paper_cron`                      | `"0 9 * * *"`                    | Five-field Daily Paper cron expression                                            |
+| `daily_paper_use_hf_mirror`             | `false`                          | Fetch paper information through the Hugging Face mirror                           |
+| `daily_paper_topics`                    | `""`                             | Topics to prioritize during paper selection                                       |
+| `daily_paper_inbox_push_enabled`        | `true`                           | Push Daily Paper results to Inbox                                                 |
+| `auto_fin_cron_enabled`                 | `false`                          | Enable scheduled Auto Fin                                                         |
+| `auto_fin_cron`                         | `"0 18 * * *"`                   | Five-field Auto Fin cron expression                                               |
+| `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | Comma-separated topics used to filter CLS news                                    |
+| `auto_fin_window_hours`                 | `24`                             | Rolling number of hours of CLS telegraph news to fetch; must be between 1 and 168 |
+| `auto_fin_inbox_push_enabled`           | `true`                           | Push generated Auto Fin reports or failures to Inbox                              |
+| `memory_search_enabled`                 | `true`                           | Expose the manual `memory_search` tool to the Agent                               |
+| `auto_memory_search_config.enabled`     | `false`                          | Search memory before every normal user request                                    |
+| `auto_memory_search_config.max_results` | `2`                              | Maximum results injected by automatic search                                      |
 
 Automatic results are injected only into the current request. They are excluded from persistent conversation history and Auto-Memory. Automation-originated requests do not trigger automatic search.
 
