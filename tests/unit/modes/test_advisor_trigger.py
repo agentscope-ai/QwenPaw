@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import pytest
 
+from qwenpaw.config.config import AdvisorInterventionConfig
 from qwenpaw.modes.advisor import trigger as advisor_trigger
 from qwenpaw.modes.advisor.trigger import (
     FailureDetector,
     InterventionTrigger,
-    TriggerConfig,
 )
 
 
@@ -144,7 +144,7 @@ def _feed(trigger, outputs, tool="execute_shell_command", args=None):
 
 def test_consecutive_fires_on_third_failure():
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     events = _feed(trigger, [FAIL, FAIL, FAIL])
     assert len(events) == 1
@@ -154,7 +154,7 @@ def test_consecutive_fires_on_third_failure():
 
 def test_two_failures_do_not_fire():
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     assert not _feed(trigger, [FAIL, FAIL, OK])
 
@@ -162,7 +162,7 @@ def test_two_failures_do_not_fire():
 def test_window_fires_on_scattered_failures():
     """edit(ok) → build(fail), repeatedly. Never 3 in a row."""
     trigger = InterventionTrigger(
-        TriggerConfig(
+        AdvisorInterventionConfig(
             consecutive_failures=3,
             window_size=10,
             window_failures=4,
@@ -175,7 +175,7 @@ def test_window_fires_on_scattered_failures():
 
 def test_window_forgets_old_failures():
     trigger = InterventionTrigger(
-        TriggerConfig(
+        AdvisorInterventionConfig(
             consecutive_failures=99,
             window_size=4,
             window_failures=3,
@@ -188,7 +188,7 @@ def test_counters_reset_after_firing():
     """A fresh run of trouble is required — no re-firing on the same
     evidence."""
     trigger = InterventionTrigger(
-        TriggerConfig(
+        AdvisorInterventionConfig(
             consecutive_failures=3,
             window_failures=99,
             max_interventions=99,
@@ -202,7 +202,7 @@ def test_counters_reset_after_firing():
 
 def test_max_interventions_cap():
     trigger = InterventionTrigger(
-        TriggerConfig(
+        AdvisorInterventionConfig(
             consecutive_failures=3,
             window_failures=99,
             max_interventions=2,
@@ -215,7 +215,7 @@ def test_max_interventions_cap():
 
 def test_cooldown_suppresses_immediate_refire():
     trigger = InterventionTrigger(
-        TriggerConfig(
+        AdvisorInterventionConfig(
             consecutive_failures=3,
             window_failures=99,
             cooldown_steps=5,
@@ -232,7 +232,7 @@ def test_cooldown_suppresses_immediate_refire():
 def test_severity_stuck_when_the_call_repeats_verbatim():
     """write_file emitted three times with identical args, no content."""
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     same = {"file_path": "backtest.py"}
     events = [
@@ -245,7 +245,7 @@ def test_severity_stuck_when_the_call_repeats_verbatim():
 
 def test_severity_struggling_when_calls_differ():
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     events = _feed(trigger, [FAIL, FAIL, FAIL])  # distinct commands
     assert events[0].severity == "struggling"
@@ -253,7 +253,7 @@ def test_severity_struggling_when_calls_differ():
 
 def test_event_carries_recent_calls_for_the_advisor():
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     events = _feed(trigger, [OK, FAIL, FAIL, FAIL])
     recent = events[0].recent
@@ -265,21 +265,21 @@ def test_event_carries_recent_calls_for_the_advisor():
 # ── Config ──────────────────────────────────────────────────────────────
 
 
-def test_config_defaults_to_the_module_constants():
-    cfg = TriggerConfig()
-    assert cfg.consecutive_failures == advisor_trigger._CONSECUTIVE_FAILURES
-    assert cfg.window_size == advisor_trigger._WINDOW_SIZE
-    assert cfg.window_failures == advisor_trigger._WINDOW_FAILURES
-    assert cfg.cooldown_steps == advisor_trigger._COOLDOWN_STEPS
-    assert cfg.max_interventions == advisor_trigger._MAX_INTERVENTIONS
+def test_trigger_defaults_to_the_config_thresholds():
+    trigger = advisor_trigger.InterventionTrigger()
+    assert trigger.config == AdvisorInterventionConfig()
+    assert trigger.config.consecutive_failures == 3
+    assert trigger.config.window_size == 10
+    assert trigger.config.window_failures == 4
+    assert trigger.config.max_interventions == 3
 
 
 def test_trigger_without_config_uses_defaults():
-    assert InterventionTrigger().config == TriggerConfig()
+    assert InterventionTrigger().config == AdvisorInterventionConfig()
 
 
 def test_config_is_overridable_per_instance():
-    cfg = TriggerConfig(
+    cfg = AdvisorInterventionConfig(
         consecutive_failures=5,
         window_size=20,
         max_interventions=1,
@@ -305,7 +305,7 @@ def test_recent_exposes_the_last_steps_oldest_first():
 
 def test_reset_counters_forgets_the_current_run_but_not_the_budget():
     trigger = InterventionTrigger(
-        TriggerConfig(consecutive_failures=3, window_failures=99),
+        AdvisorInterventionConfig(consecutive_failures=3, window_failures=99),
     )
     _feed(trigger, [FAIL, FAIL])
     trigger.reset_counters()

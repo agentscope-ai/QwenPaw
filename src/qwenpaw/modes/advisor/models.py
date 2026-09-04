@@ -42,7 +42,7 @@ def slot_label(slot: Any) -> str:
     """Human-readable ``provider:model`` label for logs and status."""
     data = slot_to_dict(slot)
     if data is None:
-        return "active model"
+        return "primary model"
     return f"{data['provider_id']}:{data['model']}"
 
 
@@ -53,45 +53,41 @@ def _override(agent_config: Any, field: str) -> Any:
     return slot if slot_to_dict(slot) is not None else None
 
 
-def resolve_advisor_slot(agent_config: Any) -> tuple[Any, str]:
-    """The model slot that answers as the advisor, and where it comes from.
-
-    Precedence: the ``advisor_mode.advisor_model`` override
-    (``"override"``), the agent's own ``active_model`` (``"main_model"``),
-    then the global active model from :class:`ProviderManager`
-    (``"global"``) — the same fallback the model factory applies when
-    building the agent's main model.
-    """
-    override = _override(agent_config, "advisor_model")
-    if override is not None:
-        return override, "override"
+def default_advisor_slot(agent_config: Any) -> Any:
+    """The advisor's default model slot: the agent's ``active_model``,
+    else the global active model from :class:`ProviderManager` (the same
+    fallback the model factory applies for the agent's primary model)."""
     slot = getattr(agent_config, "active_model", None)
     if slot_to_dict(slot) is not None:
-        return slot, "main_model"
+        return slot
     try:
         from ...providers import ProviderManager
 
-        return ProviderManager.get_instance().get_active_model(), "global"
+        return ProviderManager.get_instance().get_active_model()
     except Exception:
         logger.debug("AdvisorClient: no global active model", exc_info=True)
-        return None, "global"
+        return None
 
 
-def resolve_worker_slot(agent_config: Any) -> tuple[Any, str]:
-    """The model slot the agent itself runs on, and where it comes from.
+def resolve_advisor_slot(agent_config: Any) -> Any:
+    """The model slot that answers as the advisor: the
+    ``advisor_mode.advisor_model`` override, else the default slot."""
+    override = _override(agent_config, "advisor_model")
+    if override is not None:
+        return override
+    return default_advisor_slot(agent_config)
 
-    Precedence: the ``advisor_mode.worker_model`` override
-    (``"override"``), then ``subagent_model`` (``"subagent_model"``).
-    ``(None, "main_model")`` means the agent keeps its main model, i.e. it
-    shares the advisor's model and Advisor Mode saves no tokens.
-    """
+
+def resolve_worker_slot(agent_config: Any) -> Any:
+    """The model slot the agent itself runs on: the
+    ``advisor_mode.worker_model`` override, else ``subagent_model``.
+    ``None`` means the agent keeps its primary model, so it shares the
+    advisor's model and Advisor Mode saves no tokens."""
     override = _override(agent_config, "worker_model")
     if override is not None:
-        return override, "override"
+        return override
     slot = getattr(agent_config, "subagent_model", None)
-    if slot_to_dict(slot) is not None:
-        return slot, "subagent_model"
-    return None, "main_model"
+    return slot if slot_to_dict(slot) is not None else None
 
 
 def _with_thinking(agent_config: Any, thinking: str) -> Any:
@@ -112,16 +108,6 @@ def _with_thinking(agent_config: Any, thinking: str) -> Any:
                 exc_info=True,
             )
     return agent_config
-
-
-def effective_advisor_slot(agent_config: Any) -> Any:
-    """The model slot that answers as the advisor."""
-    return resolve_advisor_slot(agent_config)[0]
-
-
-def effective_worker_slot(agent_config: Any) -> Any:
-    """The model slot the agent runs on, or ``None`` for the main model."""
-    return resolve_worker_slot(agent_config)[0]
 
 
 class AdvisorClient:
@@ -208,9 +194,8 @@ class AdvisorClient:
 
 __all__ = [
     "AdvisorClient",
-    "effective_worker_slot",
-    "effective_advisor_slot",
     "resolve_worker_slot",
+    "default_advisor_slot",
     "resolve_advisor_slot",
     "slot_label",
     "slot_to_dict",

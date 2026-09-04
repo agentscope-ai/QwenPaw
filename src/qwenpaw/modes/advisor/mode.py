@@ -20,11 +20,11 @@ from .middleware import (
     AdvisorMiddleware,
     default_log_dir,
 )
-from .trigger import InterventionTrigger, TriggerConfig
+from .trigger import InterventionTrigger
 from .models import (
     AdvisorClient,
-    effective_worker_slot,
-    effective_advisor_slot,
+    resolve_worker_slot,
+    resolve_advisor_slot,
     slot_label,
     slot_to_dict,
 )
@@ -35,22 +35,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _LOOP_DESCRIPTION = (
-    "A stronger model plans and steps in while a cheaper one does the "
-    "work. Send /advisor off to leave."
+    "Let a stronger model plan and step in while a cheaper one does the "
+    "work."
 )
 
-# How many chat sessions' advisor state to keep per mode instance.
+# How many chat sessions' advisor state to keep per mode instance. Nothing
+# else removes a session, so the cap bounds memory on a long-running server.
 _MAX_SESSIONS = 64
 
 
 _UNAVAILABLE_NOTICE = (
     "Advisor Mode is switched off for this agent. Turn it on in "
     "Configuration → Agent Loop Settings → Advisor, then pick Advisor in "
-    "the Loop mode menu or send /advisor on."
+    "the Loop mode menu or send `/advisor on`."
 )
 
 
-def _system_reply(text: str) -> Msg:
+def _system_message(text: str) -> Msg:
     return Msg(
         name="system",
         role="system",
@@ -96,7 +97,7 @@ class AdvisorMode(AgentMode):
     * ``hooks`` swaps the agent onto ``subagent_model`` before the build
       (:class:`WorkerModelHook`).
     * ``middlewares`` contributes :class:`AdvisorMiddleware`, which asks
-      the advisor (the main model) for a plan and re-consults it mid-run.
+      the advisor (the primary model) for a plan and re-consults it mid-run.
     * ``tools`` registers the real ``consult_advisor`` tool so the agent
       can ask on its own.
     * ``commands`` registers ``/advisor``, which also makes the mode
@@ -163,7 +164,7 @@ class AdvisorMode(AgentMode):
 
         Conversations start in the default loop. Advisor Mode is on only
         after it was picked for the conversation (the composer's mode
-        menu sends ``/advisor <task>``; ``/advisor on`` does the same
+        menu sends ``/advisor <task>``. ``/advisor on`` does the same
         anywhere slash commands work) — and only while the agent has the
         mode switched on in Configuration.
         """
@@ -210,7 +211,7 @@ class AdvisorMode(AgentMode):
                 handler=self._command_handler,
                 category="builtin",
                 help_text=_LOOP_DESCRIPTION,
-                metadata={"builtin": True, "loop_name": "Advisor"},
+                metadata={"builtin": True},
             ),
         ]
 
@@ -240,7 +241,7 @@ class AdvisorMode(AgentMode):
         advisor = AdvisorClient(
             agent_id=agent_id,
             agent_config=cfg,
-            model_slot=effective_advisor_slot(cfg),
+            model_slot=resolve_advisor_slot(cfg),
             thinking=am.advisor_thinking,
         )
         env_root = getattr(cfg, "project_dir", None) or getattr(
@@ -250,9 +251,7 @@ class AdvisorMode(AgentMode):
         )
         middleware = AdvisorMiddleware(
             advisor=advisor,
-            trigger=InterventionTrigger(
-                config=TriggerConfig(**am.intervention.model_dump()),
-            ),
+            trigger=InterventionTrigger(config=am.intervention),
             plan_enabled=am.plan_enabled,
             followup_enabled=am.followup_enabled,
             on_demand_enabled=am.on_demand_enabled,
@@ -283,26 +282,24 @@ class AdvisorMode(AgentMode):
         * ``/advisor on`` / ``/advisor off``: switch this conversation.
         * ``/advisor`` / ``/advisor status``: report the current state.
         """
-        from ...config.config import load_agent_config
-
-        agent_id = getattr(ctx, "agent_id", None) or "default"
         text = (args or "").strip()
         word = text.lower()
         key = self._session_key(ctx)
-        try:
-            cfg = load_agent_config(agent_id)
-        except Exception as exc:
-            return _system_reply(f"Advisor Mode: config unavailable ({exc})")
+        cfg = resolve_agent_config(ctx)
+        if cfg is None:
+            return _system_message(
+                "Advisor Mode: could not load the agent configuration.",
+            )
 
         if word in ("", "status", "help"):
-            return _system_reply(self._status_text(cfg, self._override(key)))
+            return _system_message(self._status_text(cfg, self._override(key)))
 
         if word != "off" and not is_enabled(cfg):
-            return _system_reply(_UNAVAILABLE_NOTICE)
+            return _system_message(_UNAVAILABLE_NOTICE)
 
         conflict = None if word == "off" else find_active_explicit_mode(ctx)
         if conflict is not None and conflict != self.name:
-            return _system_reply(
+            return _system_message(
                 f"End the active {conflict} mode before starting /advisor.",
             )
 
@@ -310,11 +307,7 @@ class AdvisorMode(AgentMode):
             enabled = word == "on"
             if key:
                 self.session_state(key).override = enabled
-            state = "enabled" if enabled else "disabled"
-            return _system_reply(
-                f"Advisor Mode {state} for this conversation.\n"
-                f"{self._status_text(cfg, enabled if key else None)}",
-            )
+            return _system_message(self._status_text(cfg, enabled))
 
         # Anything else is a task: start the mode and let the agent run it.
         if key:
@@ -335,24 +328,27 @@ class AdvisorMode(AgentMode):
     def _status_text(cfg: Any, override: bool | None = None) -> str:
         am = cfg.advisor_mode
         active = am.enabled and bool(override)
-        advisor = slot_label(effective_advisor_slot(cfg))
-        worker_slot = slot_to_dict(effective_worker_slot(cfg))
+        advisor = slot_label(resolve_advisor_slot(cfg))
+        worker_slot = slot_to_dict(resolve_worker_slot(cfg))
         worker = (
             slot_label(worker_slot)
             if worker_slot is not None
             else f"{advisor} (no sub-agent model configured)"
         )
         if not am.enabled:
-            scope = "switched off for this agent in Configuration"
+            headline = (
+                "Advisor Mode: off, switched off for this agent in "
+                "Configuration."
+            )
         elif active:
-            scope = "this conversation"
+            headline = "Advisor Mode: on for this conversation."
         else:
-            scope = (
-                "not selected for this conversation. Pick Advisor in the "
-                "Loop mode menu or send /advisor on"
+            headline = (
+                "Advisor Mode: off, not selected for this conversation. "
+                "Pick Advisor in the Loop mode menu or send `/advisor on`."
             )
         return (
-            f"Advisor Mode: {'on' if active else 'off'} ({scope})\n"
+            f"{headline}\n"
             f"- advisor model: {advisor}\n"
             f"- worker model: {worker}\n"
             f"- opening plan: {'on' if am.plan_enabled else 'off'}\n"

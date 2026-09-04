@@ -8,15 +8,15 @@ Three separable pieces, so each can be tuned without touching the others:
   per-tool semantic check (the tool "succeeded" but the outcome is a
   failure — a compile that ran fine yet printed ``[FAIL]``, a fetch that
   returned a 404 page, a search that matched nothing).
-* ``TriggerConfig`` — the thresholds, defaulting to the module constants.
+* ``AdvisorInterventionConfig`` (from the agent config) — the thresholds.
 * ``InterventionTrigger`` — the counters and the fire/reset policy.
 
-The two conditions are OR'd: the window (4 failures in 10 steps) tells
-struggling runs from healthy ones, and a consecutive streak (3 in a row)
-fires earlier when the agent is stuck on one call. A streak also marks the
-harder failure — the same call repeated verbatim rather than an edit→build
-oscillation — exposed as ``TriggerEvent.severity`` so the caller can
-escalate its wording.
+The two conditions are OR'd: the window (by default 4 failures in 10
+steps) tells struggling runs from healthy ones, and a consecutive streak
+(by default 3 in a row) fires earlier when the agent is stuck on one call.
+A streak also marks the harder failure — the same call repeated verbatim
+rather than an edit→build oscillation — exposed as
+``TriggerEvent.severity`` so the caller can escalate its wording.
 """
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+
+from ...config.config import AdvisorInterventionConfig
 
 # ── Layer 1: structured failure signals ─────────────────────────────────
 # Substring matches over the WHOLE tool output are unsafe: a browser
@@ -173,23 +175,6 @@ class FailureDetector:
 
 # ── Trigger policy ──────────────────────────────────────────────────────
 
-_CONSECUTIVE_FAILURES = 3
-_WINDOW_SIZE = 10  # steps
-_WINDOW_FAILURES = 4
-_COOLDOWN_STEPS = 0  # extra damping after a fire; counters already reset
-_MAX_INTERVENTIONS = 3
-
-
-@dataclass
-class TriggerConfig:
-    """Thresholds for calling the advisor back in."""
-
-    consecutive_failures: int = _CONSECUTIVE_FAILURES
-    window_size: int = _WINDOW_SIZE
-    window_failures: int = _WINDOW_FAILURES
-    cooldown_steps: int = _COOLDOWN_STEPS
-    max_interventions: int = _MAX_INTERVENTIONS
-
 
 @dataclass
 class ObservedStep:
@@ -226,11 +211,11 @@ class InterventionTrigger:
 
     def __init__(
         self,
-        config: TriggerConfig | None = None,
+        config: AdvisorInterventionConfig | None = None,
         detector: FailureDetector | None = None,
         history_size: int = 3,
     ) -> None:
-        self.config = config or TriggerConfig()
+        self.config = config or AdvisorInterventionConfig()
         self.detector = detector or FailureDetector()
         self._history_size = history_size
         self._consecutive = 0
@@ -282,7 +267,7 @@ class InterventionTrigger:
         args: Any,
         output: Any,
     ) -> TriggerEvent | None:
-        """Record one tool result; return an event if the advisor should
+        """Record one tool result and return an event if the advisor should
         run."""
         cfg = self.config
         verdict = self.detector.classify(tool, output)
@@ -345,6 +330,5 @@ __all__ = [
     "STRUCTURED_FAILURE_PATTERNS",
     "STRUCTURED_FAILURE_PREFIXES",
     "SemanticRule",
-    "TriggerConfig",
     "TriggerEvent",
 ]

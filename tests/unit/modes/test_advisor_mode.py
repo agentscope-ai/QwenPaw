@@ -12,7 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 from agentscope.message import TextBlock
 
-from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.config.config import (
+    AdvisorInterventionConfig,
+    AgentProfileConfig,
+    ModelSlotConfig,
+)
 from qwenpaw.modes.advisor import AdvisorMiddleware, AdvisorMode
 from qwenpaw.modes.advisor import mode as mode_module
 from qwenpaw.modes.advisor import models as models_module
@@ -24,7 +28,6 @@ from qwenpaw.modes.advisor.models import (
     slot_label,
     slot_to_dict,
 )
-from qwenpaw.modes.advisor.trigger import TriggerConfig
 from qwenpaw.runtime.phases import Phase
 
 
@@ -244,12 +247,12 @@ async def test_command_status_reports_models(monkeypatch):
     )
     mode = AdvisorMode()
     text = _text(await mode._command_handler(_ctx(), "status"))
-    assert "Advisor Mode: off (not selected for this conversation" in text
+    assert "Advisor Mode: off, not selected for this conversation" in text
     mode.session_state("sess-1").override = True
     reply = await mode._command_handler(_ctx(), "status")
     text = _text(reply)
     assert reply.role == "system"
-    assert "Advisor Mode: on (this conversation)" in text
+    assert "Advisor Mode: on for this conversation." in text
     assert "dash:qwen3-max" in text and "dash:qwen3-8b" in text
 
 
@@ -259,7 +262,7 @@ async def test_command_status_without_subagent_model(monkeypatch):
         lambda _agent_id: _config(enabled=False, sub=None),
     )
     text = _text(await AdvisorMode()._command_handler(_ctx(), ""))
-    assert "Advisor Mode: off (switched off for this agent" in text
+    assert "Advisor Mode: off, switched off for this agent" in text
     assert "no sub-agent model configured" in text
 
 
@@ -283,7 +286,7 @@ async def test_command_refuses_to_start_when_switched_off(monkeypatch):
     assert mode._override("sess-1") is None
     assert ctx.input_msgs[-1].content[0].text == "/advisor build it"
     # ``off`` always works, so a stale override can be cleared.
-    assert "disabled for this conversation" in _text(
+    assert "Advisor Mode: off" in _text(
         await mode._command_handler(ctx, "off"),
     )
 
@@ -309,7 +312,7 @@ async def test_command_refuses_while_another_mode_is_active(monkeypatch):
 
     ctx.workspace.plugins.modes = [mode]
     mode.session_state("sess-1").override = True
-    assert "enabled for this conversation" in _text(
+    assert "on for this conversation" in _text(
         await mode._command_handler(ctx, "on"),
     )
 
@@ -334,8 +337,11 @@ async def test_command_on_off_switches_this_conversation(
     assert mode.is_active(ctx) is expected
     assert mode.session_state("sess-1").override is expected
     text = _text(reply)
-    assert ("enabled" if expected else "disabled") in text
-    assert "this conversation" in text
+    assert (
+        "Advisor Mode: on for this conversation"
+        if expected
+        else "Advisor Mode: off, not selected for this conversation"
+    ) in text
 
 
 async def test_command_with_a_task_starts_the_mode_and_runs_it(
@@ -394,7 +400,7 @@ def test_slot_helpers():
     assert slot_to_dict(None) is None
     assert slot_to_dict(ModelSlotConfig()) is None
     assert slot_label(slot) == "p:m"
-    assert slot_label(None) == "active model"
+    assert slot_label(None) == "primary model"
 
 
 async def test_advisor_builds_model_once_and_sends_msgs(monkeypatch):
@@ -449,38 +455,37 @@ def test_mode_module_exports():
     assert models_module.AdvisorClient is AdvisorClient
 
 
-def test_advisor_override_beats_the_main_model():
+def test_advisor_override_beats_the_primary_model():
     from qwenpaw.modes.advisor.models import (
         resolve_worker_slot,
         resolve_advisor_slot,
     )
 
     cfg = _config()
-    assert resolve_advisor_slot(cfg) == (cfg.active_model, "main_model")
-    assert resolve_worker_slot(cfg) == (cfg.subagent_model, "subagent_model")
+    assert resolve_advisor_slot(cfg) is cfg.active_model
+    assert resolve_worker_slot(cfg) is cfg.subagent_model
     cfg.advisor_mode.advisor_model = ModelSlotConfig(
         provider_id="big",
         model="b-max",
     )
-    slot, source = resolve_advisor_slot(cfg)
-    assert (slot.provider_id, slot.model, source) == (
-        "big",
-        "b-max",
-        "override",
-    )
+    slot = resolve_advisor_slot(cfg)
+    assert (slot.provider_id, slot.model) == ("big", "b-max")
     # An override with an empty model name does not count.
     cfg.advisor_mode.advisor_model = ModelSlotConfig(provider_id="big")
-    assert resolve_advisor_slot(cfg)[1] == "main_model"
-    assert resolve_worker_slot(_config(sub=None)) == (None, "main_model")
+    assert resolve_advisor_slot(cfg) is cfg.active_model
+    assert resolve_worker_slot(_config(sub=None)) is None
     mw = _picked().middlewares(_ctx(cfg), cfg)[0]
     assert mw._advisor.label == "dash:qwen3-max"
 
 
-def test_effective_advisor_falls_back_to_global_active_model(monkeypatch):
-    from qwenpaw.modes.advisor.models import effective_advisor_slot
+def test_advisor_falls_back_to_the_global_active_model(monkeypatch):
+    from qwenpaw.modes.advisor.models import (
+        default_advisor_slot,
+        resolve_advisor_slot,
+    )
 
     cfg = _config()
-    assert effective_advisor_slot(cfg) is cfg.active_model
+    assert resolve_advisor_slot(cfg) is cfg.active_model
 
     cfg.active_model = None
     global_slot = ModelSlotConfig(provider_id="glob", model="g-max")
@@ -489,9 +494,8 @@ def test_effective_advisor_falls_back_to_global_active_model(monkeypatch):
         "qwenpaw.providers.ProviderManager.get_instance",
         lambda: manager,
     )
-    assert effective_advisor_slot(cfg) is global_slot
-    mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
-    assert mw._advisor.label == "glob:g-max"
+    assert default_advisor_slot(cfg) is global_slot
+    assert resolve_advisor_slot(cfg) is global_slot
 
 
 # ── consult_advisor tool + session state ────────────────────────────────
@@ -688,7 +692,7 @@ def test_intervention_thresholds_come_from_the_config():
         AdvisorMode()
         .build_middleware(_ctx(_config()), _config())
         ._trigger.config
-        == TriggerConfig()
+        == AdvisorInterventionConfig()
     )
 
 
@@ -742,8 +746,8 @@ async def test_status_mentions_the_consult_tool(monkeypatch):
 
 def test_command_metadata_exposes_the_loop_mode_entry():
     spec = AdvisorMode().commands()[0]
-    assert spec.metadata == {"builtin": True, "loop_name": "Advisor"}
-    assert "plans" in spec.help_text and "/advisor off" in spec.help_text
+    assert spec.metadata == {"builtin": True}
+    assert spec.help_text.startswith("Let a stronger model plan")
 
 
 def test_consult_tool_is_registered_with_governance():
