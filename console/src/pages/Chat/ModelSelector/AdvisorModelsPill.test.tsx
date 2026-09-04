@@ -9,13 +9,15 @@ import {
   useAdvisorModeStore,
 } from "@/stores/advisorModeStore";
 import { useLoopStore } from "@/stores/loopStore";
+import { advisorModeApi } from "@/api/modules/advisorMode";
 import { providerApi } from "@/api/modules/provider";
 import {
   AdvisorModelsPill,
   useIsAdvisorConversation,
 } from "./AdvisorModelsPill";
 
-vi.mock("@/api/modules/advisorMode", () => ({
+vi.mock("@/api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("@/api/modules/advisorMode")),
   advisorModeApi: { get: vi.fn(), update: vi.fn() },
 }));
 vi.mock("@/api/modules/provider", () => ({
@@ -39,19 +41,19 @@ const ADVISOR = {
 beforeEach(() => {
   vi.clearAllMocks();
   useAgentStore.setState({ selectedAgent: "a1", agents: [] });
+  const state = {
+    ...DISABLED_ADVISOR_MODE,
+    enabled: true,
+    advisor_model: { provider_id: "dash", model: "qwen3-max" },
+    worker_model: { provider_id: "dash", model: "qwen-plus" },
+    main_model: { provider_id: "dash", model: "qwen3-max" },
+    subagent_model: { provider_id: "dash", model: "qwen-plus" },
+    advisor_model_override: null,
+    worker_model_override: null,
+  };
+  vi.mocked(advisorModeApi.get).mockResolvedValue(state);
   useAdvisorModeStore.setState({
-    advisorModeByAgent: {
-      a1: {
-        ...DISABLED_ADVISOR_MODE,
-        enabled: true,
-        advisor_model: { provider_id: "dash", model: "qwen3-max" },
-        worker_model: { provider_id: "dash", model: "qwen-plus" },
-        main_model: { provider_id: "dash", model: "qwen3-max" },
-        subagent_model: { provider_id: "dash", model: "qwen-plus" },
-        advisor_model_override: null,
-        worker_model_override: null,
-      },
-    },
+    advisorModeByAgent: { a1: state },
     advisorModeRevisionByAgent: {},
   });
   useLoopStore.getState().resetSessionMode();

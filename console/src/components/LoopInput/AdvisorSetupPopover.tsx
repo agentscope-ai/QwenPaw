@@ -3,14 +3,19 @@ import type { TooltipPlacement } from "antd/es/tooltip";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { advisorModeApi } from "../../api/modules/advisorMode";
+import {
+  advisorModeApi,
+  slotKey,
+  slotLabel,
+  type Slot,
+} from "../../api/modules/advisorMode";
 import { providerApi } from "../../api/modules/provider";
-import type { ModelSlotConfig } from "../../api/types";
 import {
   buildEligibleProviders,
   type EligibleProvider,
 } from "../../pages/Chat/ModelSelector/modelSelectorModels";
 import { useAdvisorMode } from "../../stores/advisorModeStore";
+import { useSyncAdvisorMode } from "../../stores/useSyncAdvisorMode";
 import styles from "./index.module.less";
 
 /** Loop-catalog id of Advisor Mode (bundled, listed with the built-ins). */
@@ -18,45 +23,13 @@ export const ADVISOR_LOOP_MODE_ID = "advisor";
 
 const DEFAULT_KEY = "";
 
-type Slot = ModelSlotConfig | null | undefined;
-
-function slotKey(slot: Slot): string {
-  return slot ? `${slot.provider_id}:${slot.model}` : DEFAULT_KEY;
-}
-
-function slotLabel(slot: Slot): string {
-  return slot ? `${slot.provider_id} / ${slot.model}` : "";
-}
-
-interface AdvisorSetupPopoverProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** The element the panel is anchored to (an invisible anchor by default). */
-  children?: ReactNode;
-  placement?: TooltipPlacement;
-}
-
-/**
- * The two models of an Advisor conversation. The composer opens this
- * right after Advisor is picked from the loop-mode menu; in an Advisor
- * conversation the chat header's model pill shows the pair and reopens
- * it. Defaults follow the agent's main model (advisor) and sub-agent
- * model (worker); a choice here is saved for the agent through
- * /api/advisor-mode, the same setting the Advisor loop template shows.
- */
-export function AdvisorSetupPopover({
-  open,
-  onOpenChange,
-  children,
-  placement = "topLeft",
-}: AdvisorSetupPopoverProps) {
-  const { t } = useTranslation();
-  const { state, setAdvisorMode } = useAdvisorMode();
+/** The providers and models a slot can be set to, fetched once. */
+export function useEligibleProviders(
+  enabled: boolean,
+): EligibleProvider[] | null {
   const [providers, setProviders] = useState<EligibleProvider[] | null>(null);
-  const [saving, setSaving] = useState(false);
-
   useEffect(() => {
-    if (!open || providers !== null) return;
+    if (!enabled || providers !== null) return;
     let cancelled = false;
     providerApi
       .listProviders()
@@ -69,7 +42,37 @@ export function AdvisorSetupPopover({
     return () => {
       cancelled = true;
     };
-  }, [open, providers]);
+  }, [enabled, providers]);
+  return providers;
+}
+
+interface AdvisorSetupPopoverProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The element the panel is anchored to (an invisible anchor by default). */
+  children?: ReactNode;
+  placement?: TooltipPlacement;
+}
+
+/**
+ * The two models of an Advisor conversation. The chat input opens this
+ * right after Advisor is picked from the Loop mode menu. In an Advisor
+ * conversation the chat header's model pill shows the pair and reopens
+ * it. Defaults follow the agent's primary model (advisor) and sub-agent
+ * model (worker). A choice here is saved for the agent through
+ * /api/advisor-mode, the same setting the Advisor loop template shows.
+ */
+export function AdvisorSetupPopover({
+  open,
+  onOpenChange,
+  children,
+  placement = "topLeft",
+}: AdvisorSetupPopoverProps) {
+  const { t } = useTranslation();
+  useSyncAdvisorMode();
+  const { state, setAdvisorMode } = useAdvisorMode();
+  const providers = useEligibleProviders(open);
+  const [saving, setSaving] = useState(false);
 
   const options = useMemo(
     () =>
@@ -121,7 +124,7 @@ export function AdvisorSetupPopover({
       options.find((option) => option.value === key)?.label ?? slotLabel(slot)
     );
   };
-  const advisorDefault = t("loop.advisorSetup.mainModelDefault", {
+  const advisorDefault = t("loop.advisorSetup.primaryModelDefault", {
     model: displayName(state.main_model),
   });
   const workerDefault = state.subagent_model
@@ -131,7 +134,7 @@ export function AdvisorSetupPopover({
     : t("loop.advisorSetup.noSubagent");
 
   const content = (
-    // Escape closes it like the mode menu; clicking the composer does too.
+    // Escape closes it like the mode menu. Clicking the chat input does too.
     <div
       className={styles.advisorSetup}
       data-testid="advisor-setup"

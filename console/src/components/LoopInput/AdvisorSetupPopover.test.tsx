@@ -9,7 +9,8 @@ import { advisorModeApi } from "@/api/modules/advisorMode";
 import { providerApi } from "@/api/modules/provider";
 import { AdvisorSetupPopover } from "./AdvisorSetupPopover";
 
-vi.mock("@/api/modules/advisorMode", () => ({
+vi.mock("@/api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("@/api/modules/advisorMode")),
   advisorModeApi: { get: vi.fn(), update: vi.fn() },
 }));
 vi.mock("@/api/modules/provider", () => ({
@@ -39,9 +40,7 @@ const STATE = {
   advisor_thinking: "inherit" as const,
   agent_id: "a1",
   advisor_model: { provider_id: "dash", model: "qwen3-max" },
-  advisor_source: "main_model" as const,
   worker_model: null,
-  worker_source: "main_model" as const,
   advisor_model_override: null,
   worker_model_override: null,
   main_model: { provider_id: "dash", model: "qwen3-max" },
@@ -66,6 +65,7 @@ const PROVIDERS = [
 ];
 
 beforeEach(() => {
+  vi.mocked(advisorModeApi.get).mockResolvedValue(STATE);
   vi.clearAllMocks();
   useAgentStore.setState({ selectedAgent: "a1", agents: [] });
   useAdvisorModeStore.setState({
@@ -92,7 +92,7 @@ describe("AdvisorSetupPopover", () => {
     // (provider display name + model name), model first.
     await waitFor(() =>
       expect(setup).toHaveTextContent(
-        "loop.advisorSetup.mainModelDefault:DashScope / Qwen3 Max",
+        "loop.advisorSetup.primaryModelDefault:DashScope / Qwen3 Max",
       ),
     );
     expect(setup).toHaveTextContent("loop.advisorSetup.noSubagent");

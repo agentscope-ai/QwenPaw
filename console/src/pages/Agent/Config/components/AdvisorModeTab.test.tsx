@@ -11,7 +11,8 @@ import { AdvisorModeTab } from "./AdvisorModeTab";
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
-vi.mock("@/api/modules/advisorMode", () => ({
+vi.mock("@/api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("@/api/modules/advisorMode")),
   advisorModeApi: { get: vi.fn(), update: vi.fn() },
 }));
 
@@ -31,9 +32,7 @@ const STATE = {
   },
   agent_id: "a1",
   advisor_model: { provider_id: "dash", model: "qwen3-max" },
-  advisor_source: "main_model" as const,
   worker_model: { provider_id: "dash", model: "qwen-plus" },
-  worker_source: "subagent_model" as const,
   advisor_model_override: null,
   worker_model_override: null,
   main_model: { provider_id: "dash", model: "qwen3-max" },
@@ -61,15 +60,15 @@ describe("AdvisorModeTab", () => {
     await waitFor(() => expect(advisorModeApi.get).toHaveBeenCalled());
     // Tests run without translations: t() returns the key.
     expect(
-      screen.getByText("agentConfig.advisorModeTooltip"),
+      screen.getByText("agentConfig.loopMode.advisorDescription"),
     ).toBeInTheDocument();
     // Keys that carry a fallback render the fallback.
     expect(screen.getByText("Advisor pipeline")).toBeInTheDocument();
     for (const key of [
-      "agentConfig.advisorModeModelsTitle",
-      "agentConfig.advisorModePlanTitle",
-      "agentConfig.advisorModeFollowupTitle",
-      "agentConfig.advisorModeOnDemandTitle",
+      "agentConfig.loopMode.advisorModelsTitle",
+      "agentConfig.loopMode.advisorPlanTitle",
+      "agentConfig.loopMode.advisorFollowupTitle",
+      "agentConfig.loopMode.advisorOnDemandTitle",
     ]) {
       expect(screen.getByText(key)).toBeInTheDocument();
     }
@@ -86,16 +85,20 @@ describe("AdvisorModeTab", () => {
     await waitFor(() => expect(advisorModeApi.get).toHaveBeenCalled());
     expect(await screen.findAllByRole("switch")).toHaveLength(1);
     expect(screen.queryByText("Advisor pipeline")).toBeNull();
-    expect(screen.queryByText("agentConfig.advisorModeModelsTitle")).toBeNull();
+    expect(
+      screen.queryByText("agentConfig.loopMode.advisorModelsTitle"),
+    ).toBeNull();
   });
 
   it("saves an intervention threshold when the field is left", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AdvisorModeTab />);
-    await screen.findByText("agentConfig.advisorModeFollowupTitle");
-    await user.click(screen.getByText("agentConfig.advisorModeFollowupTitle"));
+    await screen.findByText("agentConfig.loopMode.advisorFollowupTitle");
+    await user.click(
+      screen.getByText("agentConfig.loopMode.advisorFollowupTitle"),
+    );
     const field = await screen.findByRole("spinbutton", {
-      name: "agentConfig.advisorIntervention.consecutive_failures",
+      name: "agentConfig.loopMode.advisorIntervention.consecutive_failures",
     });
     await user.clear(field);
     await user.type(field, "2");
@@ -112,7 +115,7 @@ describe("AdvisorModeTab", () => {
     const user = userEvent.setup();
     renderWithProviders(<AdvisorModeTab />);
     const followup = await screen.findByRole("switch", {
-      name: "agentConfig.advisorModeFollowupTitle",
+      name: "agentConfig.loopMode.advisorFollowupTitle",
     });
     expect(followup).not.toBeChecked();
     await user.click(followup);
