@@ -2015,6 +2015,20 @@ export default function ChatPage() {
         userId: enqueueIdentity.userId,
         channel: enqueueIdentity.channel,
       });
+
+  // Refresh chat when a channel message arrives for the current session
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const targetSid = detail?.sessionId;
+      if (!targetSid || targetSid === chatIdRef.current) {
+        setRefreshKey((prev) => prev + 1);
+      }
+    };
+    window.addEventListener("channel-session-updated", handler);
+    return () =>
+      window.removeEventListener("channel-session-updated", handler);
+  }, []);
       // Clear tracked attachments after enqueuing
       pendingFileListRef.current = [];
       setTextareaValue(textarea, "");
