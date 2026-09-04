@@ -572,6 +572,25 @@ class BaseChannel(ABC):
             on_finished=self._workspace.chat_manager.mark_chat_finished,
         )
 
+        if not is_new:
+            # A leftover producer (cancelled consumer, MCP hang) stays
+            # registered as running. Steal it when it is stale so the
+            # session queue can recover. Recent concurrent attaches
+            # (e.g. console reconnect) keep the ignore path.
+            is_new = await self._steal_stale_tracker_run(chat.id)
+            if is_new:
+                queue, is_new = (
+                    await self._workspace.task_tracker.attach_or_start(
+                        chat.id,
+                        payload,
+                        self._stream_with_tracker,
+                        owner=self._workspace,
+                        on_finished=(
+                            self._workspace.chat_manager.mark_chat_finished
+                        ),
+                    )
+                )
+
         if is_new:
             try:
                 async for _ in self._workspace.task_tracker.stream_from_queue(
@@ -584,6 +603,16 @@ class BaseChannel(ABC):
                     f"Task cancelled: chat_id={chat.id} "
                     f"session={sanitize_log_value(session_id[:30])}",
                 )
+                try:
+                    await self._workspace.task_tracker.request_stop(
+                        chat.id,
+                        timeout=5.0,
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    logger.debug(
+                        "request_stop after consume cancel failed",
+                        exc_info=True,
+                    )
                 raise
         else:
             logger.warning(
@@ -592,6 +621,48 @@ class BaseChannel(ABC):
                 f"session={sanitize_log_value(session_id[:30])}. "
                 f"This should not happen with UnifiedQueueManager.",
             )
+
+    _STALE_TRACKER_RUN_SECONDS = 1800.0
+
+    async def _steal_stale_tracker_run(self, chat_id: str) -> bool:
+        """Stop a leftover TaskTracker run when it has been running too long.
+
+        Returns ``True`` if a stale run was stopped and the caller should
+        retry ``attach_or_start``. Recent concurrent attaches are left
+        alone (return ``False``).
+        """
+        tracker = getattr(self._workspace, "task_tracker", None)
+        if tracker is None:
+            return False
+        get_age = getattr(tracker, "get_run_age_seconds", None)
+        if get_age is None:
+            return False
+        try:
+            age = await get_age(chat_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "get_run_age_seconds failed: chat_id=%s",
+                chat_id,
+                exc_info=True,
+            )
+            return False
+        if age is None or age < self._STALE_TRACKER_RUN_SECONDS:
+            return False
+        logger.warning(
+            "Stopping stale tracker run: chat_id=%s age=%.1fs",
+            chat_id,
+            age,
+        )
+        try:
+            await tracker.request_stop(chat_id, timeout=5.0)
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "request_stop of stale tracker run failed: chat_id=%s",
+                chat_id,
+                exc_info=True,
+            )
+            return False
+        return True
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
     _STREAM_DELTA_MIN_INTERVAL_S: float = 0.0

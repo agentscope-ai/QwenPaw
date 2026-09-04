@@ -851,8 +851,13 @@ class TestConsumeWithTracker:
         async def mock_attach_or_start(*args, **kwargs):
             return (MagicMock(), False)  # (queue, is_new) - is_new=False
 
+        async def mock_get_age(*args, **kwargs):
+            return 1.0  # recent run: keep ignore path
+
         mock_task_tracker = MagicMock()
         mock_task_tracker.attach_or_start = mock_attach_or_start
+        mock_task_tracker.get_run_age_seconds = mock_get_age
+        mock_task_tracker.request_stop = AsyncMock(return_value=True)
 
         mock_workspace.chat_manager = mock_chat_manager
         mock_workspace.task_tracker = mock_task_tracker
@@ -880,6 +885,7 @@ class TestConsumeWithTracker:
             )
 
         # Test passed if we reach here (warning was logged for is_new=False)
+        mock_task_tracker.request_stop.assert_not_called()
 
 
 @pytest.mark.asyncio

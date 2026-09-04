@@ -37,6 +37,12 @@ OnLastDispatch = Optional[Callable[[str, str, str], Awaitable[None]]]
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
 
+# A single handle must not block its session queue forever. 30 minutes
+# covers long agent turns; cleanup also reaps stuck consumers as a
+# backstop. Tests may lower ChannelManager._handle_timeout.
+_HANDLE_TIMEOUT_SECONDS = 1800.0
+_HANDLE_CANCEL_GRACE_SECONDS = 5.0
+
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
     """Merge if needed and process one payload (native or request)."""
@@ -67,6 +73,27 @@ async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
         await ch.consume_one(batch[0])
 
 
+async def _await_or_abandon(
+    coro: Any,
+    timeout: float,
+    cancel_grace: float,
+) -> None:
+    """Wait for *coro*; on timeout cancel it and continue if it hangs.
+
+    ``asyncio.wait_for`` waits for a cancelled task to finish, so a
+    handle that swallows ``CancelledError`` would block the consumer
+    forever. This helper abandons the task after *cancel_grace*.
+    """
+    task = asyncio.create_task(coro)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if task in done:
+        task.result()
+        return
+    task.cancel()
+    await asyncio.wait({task}, timeout=cancel_grace)
+    raise asyncio.TimeoutError
+
+
 class ChannelManager:
     """Owns queues and consumer loops; channels define how to consume via
     consume_one(). Enqueue via enqueue(channel_id, payload) (thread-safe).
@@ -90,6 +117,9 @@ class ChannelManager:
 
         # Track channel-start tasks for graceful shutdown
         self._start_tasks: set[asyncio.Task] = set()
+
+        self._handle_timeout = _HANDLE_TIMEOUT_SECONDS
+        self._handle_cancel_grace = _HANDLE_CANCEL_GRACE_SECONDS
 
     @classmethod
     def from_env(
@@ -327,7 +357,11 @@ class ChannelManager:
                 f"query={query[:40] if query else '(empty)'}",
             )
         except asyncio.TimeoutError:
-            pass
+            logger.warning(
+                f"Enqueue timed out: channel={channel_id} "
+                f"session={session_id[:30]} "
+                f"priority={priority_level}",
+            )
         except asyncio.CancelledError:
             logger.debug(
                 f"Enqueue cancelled: channel={channel_id} "
@@ -417,8 +451,34 @@ class ChannelManager:
                     except asyncio.QueueEmpty:
                         break
 
-                # Process batch (with merge logic)
-                await _process_batch(ch, batch)
+                # Process batch (with merge logic). A wedged handle
+                # (e.g. MCP reconnect that never returns) must not
+                # permanently block later messages on this QueueKey.
+                if self._queue_manager is not None:
+                    await self._queue_manager.touch_progress(
+                        channel_id,
+                        session_id,
+                        priority_level,
+                    )
+                try:
+                    await _await_or_abandon(
+                        _process_batch(ch, batch),
+                        timeout=self._handle_timeout,
+                        cancel_grace=self._handle_cancel_grace,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Handle timed out: "
+                        f"channel={channel_id} "
+                        f"session={session_id[:30]} "
+                        f"priority={priority_level} "
+                        f"timeout={self._handle_timeout:.1f}s",
+                    )
+                    await self._stop_stale_session_tracker(
+                        ch,
+                        session_id,
+                        channel_id,
+                    )
 
                 # Update processed count
                 if self._queue_manager is not None:
@@ -449,6 +509,49 @@ class ChannelManager:
                     f"session={session_id[:30]} "
                     f"priority={priority_level}",
                 )
+
+    async def _stop_stale_session_tracker(
+        self,
+        ch: BaseChannel,
+        session_id: str,
+        channel_id: str,
+    ) -> None:
+        """Best-effort stop of a leftover TaskTracker run for *session_id*.
+
+        A timed-out handle may have left the producer task running. Later
+        ``_consume_with_tracker`` calls would then hit "already running"
+        and drop the message.
+        """
+        workspace = getattr(ch, "_workspace", None) or self._workspace
+        if workspace is None:
+            return
+        tracker = getattr(workspace, "task_tracker", None)
+        chat_manager = getattr(workspace, "chat_manager", None)
+        if tracker is None or chat_manager is None:
+            return
+        try:
+            chat_id = await chat_manager.get_chat_id_by_session(
+                session_id,
+                channel_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "get_chat_id_by_session failed after handle timeout",
+                exc_info=True,
+            )
+            return
+        if not chat_id:
+            return
+        try:
+            await tracker.request_stop(
+                chat_id,
+                timeout=self._handle_cancel_grace,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "request_stop after handle timeout failed",
+                exc_info=True,
+            )
 
     async def start_all(self) -> None:
         """Start all channels and queue manager."""
