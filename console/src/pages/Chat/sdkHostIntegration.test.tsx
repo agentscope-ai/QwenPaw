@@ -28,6 +28,7 @@ const {
   mockQueueEnqueue,
   mockOwnershipState,
   mockCopyText,
+  mockClearSubmittedSenderInput,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -40,6 +41,7 @@ const {
   mockQueueEnqueue: vi.fn(),
   mockOwnershipState: { acquire: true },
   mockCopyText: vi.fn().mockResolvedValue(undefined),
+  mockClearSubmittedSenderInput: vi.fn(),
 }));
 
 let capturedOptions: any = null;
@@ -537,7 +539,7 @@ vi.mock("./utils", async () => {
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
-    clearSubmittedSenderInput: vi.fn(),
+    clearSubmittedSenderInput: mockClearSubmittedSenderInput,
   };
 });
 
@@ -2280,6 +2282,10 @@ describe("ChatPage coverage", () => {
       const { getDraftStorageKey } = await import("./chatInputDraft");
       const key = getDraftStorageKey("default");
       localStorage.setItem(key, "submitted-draft");
+      await capturedOptions.sender.beforeSubmit({
+        query: "hello",
+        fileList: [],
+      });
       let finish!: (response: any) => void;
       global.fetch = vi.fn(
         () =>
@@ -2300,6 +2306,12 @@ describe("ChatPage coverage", () => {
       expect(localStorage.getItem(key)).toBe(
         ok ? "newer-draft" : "submitted-draft",
       );
+      if (ok) {
+        expect(mockClearSubmittedSenderInput).toHaveBeenCalledOnce();
+        expect(mockClearSubmittedSenderInput).toHaveBeenCalledWith("hello");
+      } else {
+        expect(mockClearSubmittedSenderInput).not.toHaveBeenCalled();
+      }
       localStorage.removeItem(key);
     },
   );

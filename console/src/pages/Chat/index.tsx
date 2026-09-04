@@ -206,6 +206,7 @@ import {
   getActiveSenderTextarea,
   getSenderTextareaFromTarget,
   setTextareaValue,
+  clearSubmittedSenderInput,
   formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
@@ -1430,6 +1431,13 @@ export default function ChatPage() {
       size?: number;
     }[]
   >([]);
+  // Keep the original composer text across new-session allocation. Creating a
+  // Chat can replace the SDK Input before its acceptance callback runs, so the
+  // callback may clear an unmounted instance instead of the visible composer.
+  const pendingDirectInputRef = useRef<{
+    original: string;
+    prepared: string;
+  } | null>(null);
 
   // Build SDK fileList from QueueItem.attachments
   // SDK reads file.response.url for image_url / file_url (see AgentScopeRuntimeRequestBuilder)
@@ -3185,6 +3193,10 @@ export default function ChatPage() {
       );
       const directSubmission =
         !data.submission || data.submission.source === "direct";
+      const pendingDirectInput = directSubmission
+        ? pendingDirectInputRef.current
+        : null;
+      if (directSubmission) pendingDirectInputRef.current = null;
       const draftStorageKey = getDraftStorageKey(entrySnapshot.agentId);
       const submittedDraft = directSubmission
         ? localStorage.getItem(draftStorageKey)
@@ -3230,6 +3242,13 @@ export default function ChatPage() {
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
+      const submittedSenderValue =
+        directSubmission &&
+        pendingDirectInput &&
+        lastMsg?.role === "user" &&
+        extractUserMessageText(lastMsg) === pendingDirectInput.prepared
+          ? pendingDirectInput.original
+          : null;
       const clientMessageId =
         lastMsg?.role === "user"
           ? data.clientRequestId ||
@@ -3375,9 +3394,13 @@ export default function ChatPage() {
         sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
       }
 
-      // The SDK clears the visible input after acceptance. Only retire the
-      // corresponding host cache; preserve anything typed/uploaded meanwhile.
+      // Session allocation can replace the SDK Input before its own acceptance
+      // callback clears it. Clear the current composer only when it still holds
+      // this submission, then retire the matching host draft and attachments.
       if (response.ok && directSubmission) {
+        if (submittedSenderValue !== null) {
+          clearSubmittedSenderInput(submittedSenderValue);
+        }
         if (
           submittedDraft !== null &&
           localStorage.getItem(draftStorageKey) === submittedDraft
@@ -3611,6 +3634,10 @@ export default function ChatPage() {
       const prepared = usesQwenPawBackend
         ? beginLoopModeSubmission(data.query)
         : data.query;
+      pendingDirectInputRef.current = {
+        original: data.query,
+        prepared,
+      };
       // beforeSubmit runs before the SDK allocates a new session. An empty
       // route therefore has no runtime identity yet; let the SDK supply the
       // new local ID instead of freezing a stale history/global identity.
