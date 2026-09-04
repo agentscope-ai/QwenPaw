@@ -14,7 +14,10 @@
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, { useDeferredValue, useMemo } from "react";
+import React, { useContext, useDeferredValue, useMemo } from "react";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkReplaceLine } from "@agentscope-ai/icons";
+import { ChatRegenerateContext } from "./ChatRegenerateContext";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -199,6 +202,7 @@ function DefaultHostResponseCard({
   contentAppend?: React.ReactNode;
 }) {
   const { t } = useTranslation();
+  const regenerate = useContext(ChatRegenerateContext);
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
   const nickNode =
@@ -273,11 +277,25 @@ function DefaultHostResponseCard({
         );
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
+      {!messages.length && data.status === "canceled" ? (
+        <Bubble.Interrupted title={t("chat.turnCanceled")} />
+      ) : null}
       {contentAppend}
       {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
         <ResponseArtifactList messages={messages} />
       ) : null}
       <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      {regenerate &&
+      isLast &&
+      AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <IconButton
+          aria-label={t("chat.regenerate")}
+          title={t("chat.regenerate")}
+          bordered={false}
+          icon={<SparkReplaceLine />}
+          onClick={() => regenerate(messageId)}
+        />
+      ) : null}
     </>
   );
 }

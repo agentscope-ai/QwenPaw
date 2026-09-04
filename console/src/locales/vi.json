@@ -761,7 +761,10 @@
       "today": "Hôm nay",
       "recent": "7 ngày qua",
       "earlier": "Trước đó"
-    }
+    },
+    "regenerate": "Tạo lại",
+    "regenerateUnavailable": "Lượt cũ này không có mã yêu cầu. Hãy gửi tin nhắn mới để tiếp tục.",
+    "turnCanceled": "Đã dừng"
   },
   "debug": {
     "title": "Gỡ lỗi",

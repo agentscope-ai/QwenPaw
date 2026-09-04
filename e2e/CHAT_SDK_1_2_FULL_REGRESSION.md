@@ -3,7 +3,7 @@
 ## 1. 测试对象
 
 - 宿主：CoPaw / QwenPaw Console Chat
-- SDK：`@agentscope-ai/chat@1.2.0-beta.1788310495948`
+- SDK：`@agentscope-ai/chat@1.2.0-beta.1788428294123`
 - 重点变更：会话级消息与 Loading 隔离、受控会话加载、异步取消协议、响应卡 `messageId`、函数/组件调用渲染和新版请求数据结构
 - 队列边界：不启用 AgentScopeRuntimeWebUI 延迟队列；继续使用 CoPaw 既有输入队列、后台发送和多标签页 ownership
 - 执行原则：自动化、真实浏览器、真实后端/模型三层证据分开记录；未执行项不得标记为通过
@@ -36,18 +36,18 @@
 2. 通过普通 Enter 或发送按钮直接提交；不使用 Ctrl/Cmd+Enter，不在非 owner 标签页操作。
 3. 准备唯一标记 `CHAIN-<timestamp>`，所有轮次均使用该标记定位请求、SSE 事件和持久化消息。
 4. 记录三类不可混用的标识：
-   - `localId`：SDK 创建的本地临时 ID，形如 `^\d+-[a-z0-9]+$`。
+   - `localId`：旧数据兼容场景中的临时 ID，形如 `^\d+-[a-z0-9]+$`；当前创建接口先返回后端 Chat UUID，再交给 SDK。
    - `chatUuid`：后端 `ChatSpec.id`，用于 URL、历史会话选中、`GET /api/chats/<chatUuid>` 和 Stop。
    - `runtimeSessionId`：`ChatSpec.session_id` / Runtime `session_id`，用于对话上下文和 reconnect；它不得被当作 Chat UUID。
-5. 工具链路使用测试 Agent 已开启的一个只读、可重复执行工具，并在记录中写明工具名。真实模型无法稳定触发时，先用可控 SSE fixture 验证协议和渲染，再单独记录真实 Runtime 结果；fixture 不能代替真实后端证据。
+5. 工具链路使用测试 Agent 已开启的一个只读、可重复执行工具，并在记录中写明工具名。协议细节可由单元测试覆盖；功能验收必须使用浏览器工具和真实模型，不以 Playwright 脚本、chat-mock 或伪造响应替代。
 
 ### 3.3 串行执行步骤
 
 | 阶段              | 操作                                                                                    | 必须观察的结果                                                                                                                                                                              |
 | ----------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. 初始化         | 打开 `/chat`，确认输入区和欢迎页可用，新建空白会话                                      | 页面不自动选中旧 Chat；SDK 仅在内存中创建 `localId`，无用户消息、无 Loading、无 `/api/console/chat` 请求                                                                                    |
+| A. 初始化         | 打开 `/chat`，确认输入区和欢迎页可用，新建空白会话                                      | 页面不自动选中旧 Chat；显式创建先调用 `POST /api/chats`，返回 Chat UUID 后 SDK 才接受该会话；无用户消息、无 `/api/console/chat` 请求                                                        |
 | B. 首轮直发       | 输入“记住 `CHAIN-<timestamp>`，调用指定只读工具，最终回答原样返回标记”并普通发送        | 只出现一条用户卡，只发起一个 `POST /api/console/chat`；body 为 `stream:true`，仅包含本轮用户输入，`session_id/user_id/channel` 来自当前 Session 快照，`X-Agent-Id` 为当前 Agent             |
-| C. ID 解析        | 在首轮 SSE 仍在进行时观察会话列表和 URL                                                 | 后端列表返回 `chatUuid + runtimeSessionId`；URL 仅从 `/chat` 变为 `/chat/<chatUuid>` 一次，历史抽屉中该 Chat 为 active；正在流式生成的消息不闪空、不重挂载，不得请求 `/api/chats/<localId>` |
+| C. ID 解析        | 在创建完成及首轮 SSE 进行时观察会话列表和 URL                                           | 后端列表返回 `chatUuid + runtimeSessionId`；URL 仅从 `/chat` 变为 `/chat/<chatUuid>` 一次，历史抽屉中该 Chat 为 active；正在流式生成的消息不闪空、不重挂载，不得请求 `/api/chats/<localId>` |
 | D. SSE 与卡片     | 等待 reasoning/message 增量、工具调用及工具结果                                         | 文本只增长不重复；tool call/output 合并到同一工具卡，可展开查看，不出现 `Unknown type`；工具卡、Loading 和操作按钮只属于当前 `chatUuid`                                                     |
 | E. 首轮完成       | 等待 completed response 和本轮 `turn_usage`                                             | 最终回答包含一次唯一标记；Loading 结束，回复操作区出现，`turn_usage` 不产生空卡；`GET /api/chats/<chatUuid>` 为 `idle`，持久化历史中用户输入和完成回复各一份                                |
 | F. 生成中刷新     | 第二轮发送一个可稳定持续输出的请求；出现至少 3 段增量后刷新 `/chat/<chatUuid>`          | 刷新后先通过历史读取到 `status:running`，再且仅发起一个 `POST /api/console/chat`，body 为 `reconnect:true`、`session_id:runtimeSessionId`，不携带新用户 input，不开启第二个 run             |
@@ -141,36 +141,38 @@
 | SDK-SES-012 | P1     | 删除当前/非当前会话                                      | 列表、缓存、队列、审批级别与文件工作区同步清理                            | 自动化/浏览器 |
 | SDK-SES-013 | P0     | A、B 使用不同 `id` 但共享 `sessionId`，先打开 A 再点击 B | URL 切到 B，调用 B 的详情接口，只显示 B 消息，不能把共享别名当作同一 Chat | 浏览器/API    |
 | SDK-SES-014 | P0     | 历史会话→新建→返回历史→再次新建                          | 两次均单击一次即进入空白页，旧消息不因 URL/会话列表竞态重新出现           | 浏览器        |
+| SDK-SES-015 | P0     | 深链中的 Runtime `session_id` 也具有 UUID 外形           | 唯一匹配时加载真实 Chat UUID 并规范化 URL；重复别名时不猜测、不串 Chat    | 自动化/浏览器 |
 
 ## 8. CoPaw 既有输入队列、后台发送与多标签页
 
 > 本节验证宿主原有队列在 SDK 1.2 下没有回归，不代表接入 AgentScopeRuntimeWebUI 的 `sender.queue` 延迟队列。
 
-| ID          | 优先级 | 前置与步骤                                           | 预期结果                                                          | 建议层级      |
-| ----------- | ------ | ---------------------------------------------------- | ----------------------------------------------------------------- | ------------- |
-| SDK-QUE-001 | P0     | 空闲时 Ctrl/Cmd+Enter                                | 消息先入队，再按自动发送策略处理；不得绕过队列或重复提交          | 浏览器/API    |
-| SDK-QUE-002 | P0     | 生成中按 Enter                                       | 新输入入队，当前流不中断                                          | 浏览器        |
-| SDK-QUE-003 | P0     | 连续入队 3 条                                        | 严格 FIFO，任一条只发送一次                                       | 自动化/浏览器 |
-| SDK-QUE-004 | P0     | 带附件/mention/quote 入队                            | 序列化后内容完整，刷新后仍可恢复                                  | 自动化/浏览器 |
-| SDK-QUE-005 | P0     | 入队后检查请求                                       | 固化 session/user/channel/agent/context/submission identity       | 自动化/API    |
-| SDK-QUE-006 | P0     | Agent A 入队后切 B                                   | 条目仍发送给 A，不污染 B                                          | 自动化/浏览器 |
-| SDK-QUE-007 | P0     | 会话 A 入队后切 B                                    | 条目仍发送给 A，会话 B 无新增消息                                 | 自动化/浏览器 |
-| SDK-QUE-008 | P0     | 当前回复完成                                         | 自动发送队首，完成后继续下一条                                    | 浏览器/API    |
-| SDK-QUE-009 | P1     | 暂停/恢复队列                                        | 暂停不出队；恢复从队首继续                                        | 自动化/浏览器 |
-| SDK-QUE-010 | P1     | 编辑待发送条目                                       | 仅文本更新，身份和附件快照保留                                    | 自动化/浏览器 |
-| SDK-QUE-011 | P1     | 删除待发送条目                                       | 目标删除，其他顺序不变                                            | 自动化/浏览器 |
-| SDK-QUE-012 | P1     | 拖拽重排                                             | 新顺序持久化并按新顺序发送                                        | 自动化/浏览器 |
-| SDK-QUE-013 | P0     | 点击“立即发送”                                       | 当前流被正确停止，目标仍存在校验后再发送                          | 浏览器/API    |
-| SDK-QUE-014 | P0     | 模拟发送失败后重试                                   | 同一条目 retryCount 更新，不复制用户消息                          | 自动化/浏览器 |
-| SDK-QUE-015 | P1     | 跳过失败项                                           | 失败项移除，下一条继续                                            | 自动化/浏览器 |
-| SDK-QUE-016 | P1     | 入队达到上限再加一条                                 | 明确提示队列已满，原队列不变                                      | 自动化/浏览器 |
-| SDK-QUE-017 | P0     | `new` 队列在首发后迁移 UUID                          | 无丢失、无重复、FIFO 不变                                         | 自动化        |
-| SDK-QUE-018 | P0     | 两标签页打开同一会话                                 | 单一 owner；非 owner 显示只入队提示                               | 浏览器        |
-| SDK-QUE-019 | P0     | 关闭 owner 标签页                                    | 另一标签页接管后续发送，不重复当前项                              | 浏览器        |
-| SDK-QUE-020 | P0     | ChatPage 卸载但队列未空                              | 后台 drain 使用快照继续，不读取当前页面 Agent                     | 自动化/API    |
-| SDK-QUE-021 | P0     | 后端已 accepted 后页面切换/卸载                      | 条目不恢复、不重复提交                                            | 自动化/API    |
-| SDK-QUE-022 | P1     | 后端运行态 unknown / 查询失败                        | 不越过正在执行项；按策略退避重试                                  | 自动化/API    |
-| SDK-QUE-023 | P0     | 两标签页分别使用 Agent A/B，各自在流式中追加队列消息 | 两边流均持续增量渲染并各自排空队列；消息、响应和 Agent 身份不串页 | 浏览器/API    |
+| ID          | 优先级 | 前置与步骤                                                   | 预期结果                                                                         | 建议层级      |
+| ----------- | ------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------- |
+| SDK-QUE-001 | P0     | 空闲时 Ctrl/Cmd+Enter                                        | 消息先入队，再按自动发送策略处理；不得绕过队列或重复提交                         | 浏览器/API    |
+| SDK-QUE-002 | P0     | 生成中按 Enter                                               | 新输入入队，当前流不中断                                                         | 浏览器        |
+| SDK-QUE-003 | P0     | 连续入队 3 条                                                | 严格 FIFO，任一条只发送一次                                                      | 自动化/浏览器 |
+| SDK-QUE-004 | P0     | 带附件/mention/quote 入队                                    | 序列化后内容完整，刷新后仍可恢复                                                 | 自动化/浏览器 |
+| SDK-QUE-005 | P0     | 入队后检查请求                                               | 固化 session/user/channel/agent/context/submission identity                      | 自动化/API    |
+| SDK-QUE-006 | P0     | Agent A 入队后切 B                                           | 条目仍发送给 A，不污染 B                                                         | 自动化/浏览器 |
+| SDK-QUE-007 | P0     | 会话 A 入队后切 B                                            | 条目仍发送给 A，会话 B 无新增消息                                                | 自动化/浏览器 |
+| SDK-QUE-008 | P0     | 当前回复完成                                                 | 自动发送队首，完成后继续下一条                                                   | 浏览器/API    |
+| SDK-QUE-009 | P1     | 暂停/恢复队列                                                | 暂停不出队；恢复从队首继续                                                       | 自动化/浏览器 |
+| SDK-QUE-010 | P1     | 编辑待发送条目                                               | 仅文本更新，身份和附件快照保留                                                   | 自动化/浏览器 |
+| SDK-QUE-011 | P1     | 删除待发送条目                                               | 目标删除，其他顺序不变                                                           | 自动化/浏览器 |
+| SDK-QUE-012 | P1     | 拖拽重排                                                     | 新顺序持久化并按新顺序发送                                                       | 自动化/浏览器 |
+| SDK-QUE-013 | P0     | 点击“立即发送”                                               | 当前流被正确停止，目标仍存在校验后再发送                                         | 浏览器/API    |
+| SDK-QUE-014 | P0     | 模拟发送失败后重试                                           | 同一条目 retryCount 更新，不复制用户消息                                         | 自动化/浏览器 |
+| SDK-QUE-015 | P1     | 跳过失败项                                                   | 失败项移除，下一条继续                                                           | 自动化/浏览器 |
+| SDK-QUE-016 | P1     | 入队达到上限再加一条                                         | 明确提示队列已满，原队列不变                                                     | 自动化/浏览器 |
+| SDK-QUE-017 | P0     | `new` 队列在首发后迁移 UUID                                  | 无丢失、无重复、FIFO 不变                                                        | 自动化        |
+| SDK-QUE-018 | P0     | 两标签页打开同一会话                                         | 单一 owner；非 owner 显示只入队提示                                              | 浏览器        |
+| SDK-QUE-019 | P0     | 关闭 owner 标签页                                            | 另一标签页接管后续发送，不重复当前项                                             | 浏览器        |
+| SDK-QUE-020 | P0     | ChatPage 卸载但队列未空                                      | 后台 drain 使用快照继续，不读取当前页面 Agent                                    | 自动化/API    |
+| SDK-QUE-021 | P0     | 后端已 accepted 后页面切换/卸载                              | 条目不恢复、不重复提交                                                           | 自动化/API    |
+| SDK-QUE-022 | P1     | 后端运行态 unknown / 查询失败                                | 不越过正在执行项；按策略退避重试                                                 | 自动化/API    |
+| SDK-QUE-023 | P0     | 两标签页分别使用 Agent A/B，各自在流式中追加队列消息         | 两边流均持续增量渲染并各自排空队列；消息、响应和 Agent 身份不串页                | 浏览器/API    |
+| SDK-QUE-024 | P0     | Runtime ID 深链已有失败队列，另一个 Agent 标签页也有独立队列 | URL 规范化时队列与会话资源迁移到 Chat UUID；恢复后 FIFO 排空，另一标签页不受影响 | 自动化/浏览器 |
 
 ## 9. 输入、附件与快捷交互
 
@@ -279,8 +281,8 @@
 - 已通过：生产构建（19348 modules）、Monaco CSS、368 个静态资源预压缩及首包门禁（9.51 MiB raw / 2.39 MiB Brotli）。
 - 已通过：SDK 源码侧 Response/Execution 生命周期、Chat submission、Session 创建与身份、InputQueue reducer/持久化/ownership 等 25 条 Node 测试；`IQ-A*` 覆盖的 FIFO、失败恢复、编辑/删除/重排、临时 ID→真实 ID、附件-only 和多标签页 key 隔离均无失败。
 - 已通过：当前运行中的 Chromium 只读回归；`/chat` 欢迎页与输入区正常，输入 `/` 展示 `/skills` 等快捷命令，恢复 `/chat/<uuid>` 后历史内容完整且对应历史项带 active 样式；当前会话只有 2 条用户消息，验证了默认 `minCount=3` 以下不展示用户消息定位器。
-- 已通过：`1.2.0-beta.1788310495948` + 隔离后端 Chromium 新会话首发回归；首次点击新建即清空上一会话，URL 从 `/chat` 写入真实 UUID，历史抽屉对应会话带 active 选中态，深链刷新后仍恢复正确会话且无相关 console error。
-- 已通过：`1.2.0-beta.1788310495948` + 隔离后端 Chromium 双标签页双 Agent 回归；tab1/scwD8P 与 tab2/PeXFEB 均处于真实模型运行态且各有 1 条 CoPaw 队列，tab1 切换到 PeXFEB 后恢复 tab2 的 URL、会话、Loading 与队列，切回 scwD8P 后也恢复原会话；两边队列均自动出队且各发送一次，没有跨 Agent 串消息。
+- 已通过：`1.2.0-beta.1788428294123` + 隔离后端 Chromium 新会话首发回归；首次点击新建即清空上一会话，URL 从 `/chat` 写入真实 UUID，历史抽屉对应会话带 active 选中态，深链刷新后仍恢复正确会话且无相关 console error。
+- 已通过：`1.2.0-beta.1788428294123` + 隔离后端 Chromium 双标签页双 Agent 回归；tab1/scwD8P 与 tab2/PeXFEB 均处于真实模型运行态且各有 1 条 CoPaw 队列，tab1 切换到 PeXFEB 后恢复 tab2 的 URL、会话、Loading 与队列，切回 scwD8P 后也恢复原会话；两边队列均自动出队且各发送一次，没有跨 Agent 串消息。
 - 本轮真实 Chromium 完整链路：同一 Chat `4680db77-696b-4b00-8cc8-172843acd5d2` 的新会话首发、真实 UUID 路由、流式完成、生成中刷新、同 Run reconnect、历史 active、上下文续问均通过；重连前后用户消息、工具卡和最终回复没有重复。
 - 本轮真实 Chromium 用户消息定位：第 4 条用户消息后 navigator 出现；上一条/下一条、目录 4/5 条计数、点击目录项定位及首尾 disabled 状态均通过；少于 3 条时保持隐藏。
 - 本轮真实 Chromium 文件：上传、预览、删除、重新上传、文本+附件发送及刷新恢复通过；超过 10000 字符自动生成 `prompt-*.txt` 并替换为上传提示通过。
@@ -295,6 +297,36 @@
 ### PR #7382 历史证据与本次同步边界
 
 - 保留原 PR 在 SDK `1.2.0-beta.1788236202658` 下记录的 `SDK-SES-013`、`SDK-SES-014`、`SDK-QUE-023` 隔离 Chromium 验证结果；这些是旧版本的历史证据，不代表当前 SDK 已重新通过这三个浏览器场景。
-- 本次同步到 SDK `1.2.0-beta.1788310495948`，保留 CoPaw 后台队列的 foreground ownership 门禁及其 3 个单元测试；移除已由新 SDK 接管的 session API 原型转接和新建会话定时器补丁。
+- 本次同步到 SDK `1.2.0-beta.1788428294123`，保留 CoPaw 后台队列的 foreground ownership 门禁及其 3 个单元测试；移除已由新 SDK 接管的 session API 原型转接和新建会话定时器补丁。
 - 前述 Fail/Pending 为此前全量场景执行记录，不能由单元测试或构建通过自动改成 Pass；本次 PR 同步没有执行完整真实模型对话/队列 E2E。
 - 2026-09-02 本次同步验证：Console 全量 Vitest 327 文件 / 3107 用例通过，类型与格式检查通过，生产构建、Monaco CSS、369 资源预压缩及首包门禁通过。Python 源码、测试和依赖声明与已全量验证的 `47c72331` 完全一致，复用该版本的单元 10271、契约 406、集成 1885 项通过记录，本次未重复运行 Python 测试。
+
+## 2026-09-03 接入边界补充
+
+- `/chat` 是独立的新草稿，不回退到 `lastActiveChatId`。新草稿队列/锁 key 为 `draft:<Agent>`，已创建会话使用 Chat UUID；这些 key 不能替代 Runtime `session_id`。
+- CoPaw 的 `createSession` 返回 `{ sessions, session }`，其中 `session.id` 已经是后端 Chat UUID。普通创建不再依赖发送后从列表猜测 UUID；临时 ID 迁移只用于旧数据兼容。
+- SDK 会话加载就绪由 Session API 适配层观测。SDK 内部输入桥接组件订阅就绪状态，队列调度读取状态，宿主不能因就绪变化重建整个 SDK options 而反复触发加载。
+- SDK 管理发送接受后的输入快照清理。宿主不在请求前清空输入；失败保留草稿，成功也不能删除用户期间新写入的草稿或新上传的附件。
+- 审批设置只随确认的创建/ID 解析迁移；普通 Agent/历史会话切换不能迁移，也不能覆盖目标已有设置。
+
+| ID          | 前置与操作                                                    | 必须满足                                                              |
+| ----------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| SDK-INT-001 | 暂停历史加载，在输入区尝试直接发送、Ctrl/Cmd+Enter 和队列发送 | 加载完成前不提交、不丢草稿；完成后可发送，不重复加载、不出现渲染循环  |
+| SDK-INT-002 | 两个标签页分别打开不同 Agent 的 `/chat` 并入队                | draft key、ownership、FIFO 各自独立；任一方创建 UUID 不带走另一方条目 |
+| SDK-INT-003 | 恢复包含两个 Agent、附件及暂停状态的旧 `new` 队列             | 迁移串行且可重复执行，保留各方条目、顺序和暂停状态                    |
+| SDK-INT-004 | 模型未配置或请求拒绝；发送途中继续编辑/上传                   | 原请求未接受时保留输入；接受后仅清理其对应快照                        |
+| SDK-INT-005 | transport 输入为空                                            | 在模型查找及 POST 之前拒绝，不创建空请求、不清空草稿                  |
+| SDK-INT-006 | 新草稿设置审批级别，随后打开历史/切换 Agent/真正创建会话      | 普通切换不迁移；确认创建只迁移当前 Agent 的设置，保留目标已有设置     |
+| SDK-INT-007 | 对历史会话打开重命名并键盘提交                                | 输入框可访问、可编辑；提交不触发会话误选，名称正确保存                |
+
+这些条目是验收要求，不表示已全部执行。报告必须分别记录单元测试、真实浏览器及真实模型的完成情况。
+
+## 2026-09-04 Runtime ID 深链队列修复回归
+
+- 本节记录上述历史执行状态之后的修复结果；第 12 节中的早期 Fail/Pending 是修复前证据，当前最终结果以本节为准。
+- 根因：QA Chat 的后端 `id` 为 `33b8b00e-012e-448d-ba12-5563952c45ba`，Runtime `session_id` 为 `9a8f4757-69c8-4179-b8a4-f02471bba385`。旧深链把后者当作 Chat UUID 请求状态，得到 404 后将队列置为失败。
+- 修复后 Session API 对任意外形的 Runtime ID 做唯一匹配；历史、状态与项目目录使用 Chat UUID；Runtime 身份继续用于模型上下文。重复 Runtime ID 不自动选择，避免串 Chat。
+- URL 从 Runtime ID 规范化到 Chat UUID 前，CoPaw 会迁移该 Agent 的队列、项目目录、文件作用域和会话偏好；SDK readiness 同时确认请求 ID、会话 ID 与 Chat UUID，迁移后输入和队列不会停在禁用状态。
+- Chrome CUA + 真实 Kilo `kilo-auto/free`：QA 标签页保留原失败队列 `a/b/c/d/e`，恢复后按 `a → b → c → d → e` 自动发送并逐条收到回复，队列 `5 → 3 → 0`；Default 标签页保持自己的 Agent、Chat UUID 和历史，不串页。
+- 后端证据：五轮均进入 `QwenPaw_QA_Agent_0.2` 工作区的 Runtime session；状态查询持续使用 Chat UUID，Chat 最终为 `idle`，服务端每轮均记录 `console stream done` 且 `has_response=True`。
+- 自动化：Runtime 别名聚焦套件 4 文件 / 179 用例通过；Console 全量 Vitest 328 文件 / 3141 用例通过；生产构建、Monaco CSS、370 个资源预压缩和首包检查通过。

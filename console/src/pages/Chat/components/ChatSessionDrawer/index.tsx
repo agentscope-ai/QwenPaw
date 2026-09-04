@@ -298,6 +298,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { message } = useAppMessage();
   const navigate = useNavigate();
   const location = useLocation();
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
   const sdkState = useChatAnywhereSessionsState();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const createNewSession = useCreateNewSession();
@@ -503,8 +505,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       // Both embedded and non-embedded modes use the same switching logic
       // as simple mode's SidebarSessionList: just navigate to the session
-      // URL. ChatSessionInitializer's useEffect will pick up the URL change
-      // and call setCurrentSessionId(matching.id) to notify the SDK.
+      // URL. ChatPage passes that UUID to the SDK's controlled session option;
+      // no second writer selects a local alias after history/list updates.
       // This avoids the preload / isSessionSwitching complexity that caused
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
@@ -575,7 +577,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // refreshed list, the deleted session was the one being viewed.
       // This approach avoids all ID-format mismatch issues (timestamp vs UUID,
       // realId vs id, multiple backend UUIDs for the same session).
-      const urlChatId = getSessionIdFromPath(location.pathname);
+      const urlChatId = getSessionIdFromPath(pathnameRef.current);
       if (urlChatId) {
         const stillExists = freshList.some(
           (s) =>

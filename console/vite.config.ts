@@ -68,46 +68,43 @@ export default defineConfig(({ command, mode }) => {
       testTimeout: 15_000,
       setupFiles: ["./src/test/setup.ts"],
       css: true,
-      // all @agentscope-ai/* packages excluded from inline — they are large / have CSS imports
-      // aliases below redirect each to a stub or compiled entry
+      // Keep large vendor packages external to the unit-test transform.
+      // Chat resolves to the installed SDK; real integration is verified in
+      // the browser against the configured backend and model.
       deps: {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
-      alias: {
-        // Preserve vendor deep imports before aliasing the package entrypoint.
-        "@agentscope-ai/chat/lib": path.resolve(
-          __dirname,
-          "node_modules/@agentscope-ai/chat/lib",
-        ),
-        // chat is aliased to a tiny stub to avoid OOM from the 2.3MB real package
-        // Tests that need specific behavior override with vi.mock('@agentscope-ai/chat', factory)
-        "@agentscope-ai/chat": path.resolve(__dirname, "src/test/chat-mock.ts"),
-        // design is aliased to a stub to avoid hanging from its 3MB lib
-        "@agentscope-ai/design": path.resolve(
-          __dirname,
-          "src/test/design-mock.ts",
-        ),
-        "@agentscope-ai/icons": path.resolve(
-          __dirname,
-          "src/test/icons-mock.ts",
-        ),
-        "@tauri-apps/api/core": path.resolve(
-          __dirname,
-          "src/test/tauri-mock.ts",
-        ),
-        "@tauri-apps/plugin-dialog": path.resolve(
-          __dirname,
-          "src/test/tauri-mock.ts",
-        ),
-      },
+      alias: [
+        // Resolve the beta's real ESM entry for Vitest, without masking SDK subpaths.
+        {
+          find: /^@agentscope-ai\/chat$/,
+          replacement: path.resolve(
+            __dirname,
+            "node_modules/@agentscope-ai/chat/lib/index.js",
+          ),
+        },
+        {
+          find: "@agentscope-ai/design",
+          replacement: path.resolve(__dirname, "src/test/design-mock.ts"),
+        },
+        {
+          find: "@agentscope-ai/icons",
+          replacement: path.resolve(__dirname, "src/test/icons-mock.ts"),
+        },
+        {
+          find: "@tauri-apps/api/core",
+          replacement: path.resolve(__dirname, "src/test/tauri-mock.ts"),
+        },
+        {
+          find: "@tauri-apps/plugin-dialog",
+          replacement: path.resolve(__dirname, "src/test/tauri-mock.ts"),
+        },
+      ],
       exclude: [
         "**/node_modules/**",
         "**/dist/**",
         // legacy tests use node:test, which is incompatible with vitest (pending migration)
         "**/testConnectionMessage.test.ts",
-        // ChatPage test causes worker crash - pre-existing issue, needs more mock setup
-        // Replaced by ChatPage.coverage.test.tsx which has working mocks
-        "**/pages/Chat/ChatPage.test.tsx",
         // Tauri modules require @tauri-apps/api which only exists in desktop builds
         "**/src/tauri/**",
       ],

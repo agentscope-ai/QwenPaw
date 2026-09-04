@@ -1,4 +1,4 @@
-import type { IAgentScopeRuntimeWebUIInputData } from "@agentscope-ai/chat";
+import type { IAgentScopeRuntimeWebUITransportContext } from "@agentscope-ai/chat";
 
 export interface ChatSessionIdentity {
   sessionId?: string;
@@ -12,12 +12,8 @@ interface LegacyMessageSession {
   channel?: unknown;
 }
 
-export type ChatRequestSnapshotData = Partial<
-  Pick<
-    IAgentScopeRuntimeWebUIInputData,
-    "session_id" | "user_id" | "channel" | "agent_id" | "context"
-  >
->;
+export type ChatRequestSnapshotData =
+  Partial<IAgentScopeRuntimeWebUITransportContext>;
 
 function firstString(...values: unknown[]): string {
   for (const value of values) {
@@ -35,12 +31,16 @@ export function resolveChatRequestSnapshot(
 ) {
   const context = data.context ?? {};
   return {
-    // SDK session_id identifies the rendered chat. CoPaw's backend runtime
-    // session is frozen in context by beforeSubmit / the host queue.
+    // New SDK transports carry runtime session_id separately from chatSessionId.
+    // After remount the SDK has no request snapshot and falls back to the Chat
+    // key; only that fallback needs resolution through the host session list.
     sessionId: firstString(
+      data.chatSessionId && data.session_id !== data.chatSessionId
+        ? data.session_id
+        : undefined,
       context.session_id,
-      data.session_id,
       fallbackIdentity.sessionId,
+      data.session_id,
       messageSession.session_id,
     ),
     userId: firstString(

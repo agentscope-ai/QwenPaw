@@ -2797,7 +2797,10 @@
       "today": "今日",
       "recent": "過去7日間",
       "earlier": "それ以前"
-    }
+    },
+    "regenerate": "再生成",
+    "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
+    "turnCanceled": "停止済み"
   },
   "security": {
     "parent": "設定",

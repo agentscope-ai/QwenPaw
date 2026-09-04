@@ -12,6 +12,9 @@ import {
   withAvailableOwnershipLock,
   withBackgroundSendLock,
   holdOwnershipLock,
+  getQueueKey,
+  isDraftQueueKey,
+  recoverLegacyDraftQueue,
   type QueueItem,
 } from "./messageQueueStore";
 
@@ -65,6 +68,64 @@ describe("messageQueueStore", () => {
 
   it("MAX_QUEUE_SIZE is 50", () => {
     expect(MAX_QUEUE_SIZE).toBe(50);
+  });
+
+  it("isolates draft queues and locks without changing backend Chat UUIDs", () => {
+    expect(getQueueKey("a")).not.toBe(getQueueKey("b"));
+    expect(getQueueKey("a", "new")).toBe(getQueueKey("a"));
+    expect(getQueueKey("a", "chat-uuid")).toBe("chat-uuid");
+    expect(isDraftQueueKey(getQueueKey("a"))).toBe(true);
+    expect(
+      getLatestQueuedSessionIdForAgent(
+        { [getQueueKey("a")]: [{ agentId: "a", createdAt: 1 } as QueueItem] },
+        "a",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("recovers legacy drafts once per Agent without dropping attachments or paused state", async () => {
+    const store = useMessageQueueStore.getState();
+    store.enqueue("new", {
+      text: "A",
+      agentId: "a",
+      attachments: [{ url: "/file-a" }],
+    });
+    store.enqueue("new", { text: "B", agentId: "b" });
+    store.setRunState("new", "paused");
+    await recoverLegacyDraftQueue(getQueueKey("a"));
+    await recoverLegacyDraftQueue(getQueueKey("b"));
+    await recoverLegacyDraftQueue(getQueueKey("a"));
+    expect(store.getQueue(getQueueKey("a"))).toHaveLength(1);
+    expect(store.getQueue(getQueueKey("a"))[0].attachments).toEqual([
+      { url: "/file-a" },
+    ]);
+    expect(store.getQueue(getQueueKey("b"))[0].text).toBe("B");
+    expect(store.getRunState(getQueueKey("a"))).toBe("paused");
+    expect(localStorage.getItem(getStorageKey("new"))).toBeNull();
+  });
+
+  it("migrates only the creating Agent's legacy draft and preserves the other Agent's FIFO", () => {
+    const store = useMessageQueueStore.getState();
+    store.enqueue("new", { text: "B first", agentId: "agent-b" });
+    store.enqueue("new", { text: "A first", agentId: "agent-a" });
+    store.enqueue("new", { text: "B second", agentId: "agent-b" });
+    store.setRunState("new", "paused");
+    store.migrateQueue("new", "chat-a", "agent-a");
+    expect(store.getQueue("chat-a").map((item) => item.text)).toEqual([
+      "A first",
+    ]);
+    expect(store.getQueue("new").map((item) => item.text)).toEqual([
+      "B first",
+      "B second",
+    ]);
+    expect(store.getRunState("new")).toBe("paused");
+    expect(store.getRunState("chat-a")).toBe("paused");
+    store.migrateQueue("new", "chat-b", "agent-b");
+    expect(store.getQueue("chat-b").map((item) => item.text)).toEqual([
+      "B first",
+      "B second",
+    ]);
+    expect(store.getQueue("new")).toEqual([]);
   });
 
   it("nextQueueId returns unique monotonically increasing ids", () => {
@@ -226,14 +287,14 @@ describe("messageQueueStore", () => {
     expect(item.agentId).toBe("agent-x");
   });
 
-  it("enqueue captures backendSessionId from window.currentSessionId when set", () => {
+  it("enqueue does not inherit a stale global runtime session", () => {
     (window as unknown as { currentSessionId?: string }).currentSessionId =
       "backend-42";
 
     useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hi" });
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.backendSessionId).toBe("backend-42");
+    expect(item.backendSessionId).toBeUndefined();
 
     delete (window as unknown as { currentSessionId?: string })
       .currentSessionId;
@@ -382,6 +443,41 @@ describe("messageQueueStore", () => {
     expect(useMessageQueueStore.getState().lastMigratedTo).toBeNull();
   });
 
+  it("retains later messages through new-to-local-to-UUID migration and first acceptance", () => {
+    const store = useMessageQueueStore.getState();
+    for (const text of ["A", "B", "C"]) store.enqueue("new", { text });
+    const first = store.getQueue("new")[0];
+    store.setRunState("new", "paused");
+    store.setItemStatus("new", first.id, "sending");
+
+    store.migrateQueue("new", "1788357954784-1iwrrlb");
+    store.migrateQueue("1788357954784-1iwrrlb", "chat-uuid");
+    const owner = findQueueItemSessionId(
+      useMessageQueueStore.getState().queues,
+      first.id,
+      "new",
+    );
+    expect(owner).toBe("chat-uuid");
+    store.remove(owner!, first.id);
+
+    expect(store.getQueue("chat-uuid").map((item) => item.text)).toEqual([
+      "B",
+      "C",
+    ]);
+    expect(store.getRunState("chat-uuid")).toBe("paused");
+    expect(localStorage.getItem(getStorageKey("new"))).toBeNull();
+    expect(
+      localStorage.getItem(getStorageKey("1788357954784-1iwrrlb")),
+    ).toBeNull();
+    resetStore();
+    store.loadFromStorage("chat-uuid");
+    expect(store.getQueue("chat-uuid").map((item) => item.text)).toEqual([
+      "B",
+      "C",
+    ]);
+    expect(store.getRunState("chat-uuid")).toBe("paused");
+  });
+
   it("migrateQueue sets lastMigratedTo to the destination", () => {
     useMessageQueueStore.getState().enqueue("src", { text: "s1" });
 
@@ -434,7 +530,34 @@ describe("messageQueueStore", () => {
     expect(item.status).toBe("failed");
     expect(item.retryCount).toBe(1);
     expect(item.errorMessage).toBe("boom");
+    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe(
+      "error",
+    );
+    expect(
+      JSON.parse(localStorage.getItem(getStorageKey(SESSION_ID))!).runState,
+    ).toBe("error");
   });
+
+  it.each(["error", "idle"] as const)(
+    "keeps a failed head stopped after reload even when its saved run state is %s",
+    (runState) => {
+      const store = useMessageQueueStore.getState();
+      store.enqueue(SESSION_ID, { text: "failed-first" });
+      store.enqueue(SESSION_ID, { text: "later" });
+      const first = store.getQueue(SESSION_ID)[0];
+      store.setItemStatus(SESSION_ID, first.id, "failed", "offline");
+      store.setRunState(SESSION_ID, runState);
+      resetStore();
+      store.loadFromStorage(SESSION_ID);
+      expect(store.getRunState(SESSION_ID)).toBe("error");
+      expect(store.getQueue(SESSION_ID)[0].status).toBe("failed");
+
+      store.setItemStatus(SESSION_ID, first.id, "pending");
+      store.setRunState(SESSION_ID, "running");
+      expect(store.getRunState(SESSION_ID)).toBe("running");
+      expect(store.getQueue(SESSION_ID)[0].status).toBe("pending");
+    },
+  );
 
   it("setItemStatus to a non-failed status does not increment retryCount", () => {
     useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });

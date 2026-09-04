@@ -1,11 +1,14 @@
 /**
- * ChatPage coverage tests
+ * CoPaw ↔ AgentScope Chat SDK host-contract tests.
  *
- * Goal: cover as many statements in Chat/index.tsx as possible.
- * Strategy: render ChatPage with comprehensive mocks, exercise callbacks.
+ * Treat `AgentScopeRuntimeWebUI` as the public SDK boundary and exercise the
+ * options/callback contract that CoPaw owns: session identity, history
+ * readiness, queue hand-off, request snapshots, attachments, response parsing
+ * and host UI extensions. Browser E2E covers SDK rendering and transport.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, act } from "@testing-library/react";
+import { useSyncExternalStore, useEffect } from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
@@ -40,6 +43,12 @@ const {
 }));
 
 let capturedOptions: any = null;
+const mockSdkHistoryLoad = vi.fn(async (id: string) => ({
+  id,
+  name: id,
+  messages: [],
+}));
+let observedSdkSessions: Array<{ agent: string; sessionId?: string }> = [];
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -73,6 +82,14 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: vi.fn((props: any) => {
     capturedOptions = props.options;
+    useEffect(() => {
+      const id = props.options?.session?.currentSessionId;
+      if (id) void props.options.session.api.getSession(id);
+    }, [props.options?.session?.api, props.options?.session?.currentSessionId]);
+    observedSdkSessions.push({
+      agent: mockSelectedAgent(),
+      sessionId: props.options?.session?.currentSessionId,
+    });
     return (
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
@@ -87,12 +104,22 @@ vi.mock("@agentscope-ai/chat", () => ({
     setSessions: vi.fn(),
   })),
   useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
-  useChatAnywhereInput: vi.fn(() => ({
-    loading: false,
-    setLoading: vi.fn(),
-    getLoading: vi.fn(() => false),
-  })),
+  useChatAnywhereInput: vi.fn((select: any) =>
+    select({
+      loading: false,
+      setLoading: vi.fn(),
+      getLoading: vi.fn(() => false),
+      setDisabled: vi.fn(),
+    }),
+  ),
 }));
+
+vi.mock(
+  "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereI18nContext",
+  () => ({
+    useChatAnywhereI18n: (select: any) => select({ setLocale: vi.fn() }),
+  }),
+);
 
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
@@ -122,13 +149,16 @@ vi.mock("@/api/config", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => {
+  const setLastChatId = vi.fn();
+  const getLastChatId = vi.fn(() => null);
+  const removeLastChatId = vi.fn();
   const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
     agents: [{ id: "default", name: "Default", backend: "qwenpaw" }],
-    setLastChatId: vi.fn(),
-    getLastChatId: vi.fn(() => null),
-    removeLastChatId: vi.fn(),
+    setLastChatId,
+    getLastChatId,
+    removeLastChatId,
   });
   const store = Object.assign(vi.fn(makeState), {
     subscribe: vi.fn(() => vi.fn()),
@@ -148,6 +178,13 @@ vi.mock("./sessionApi", () => ({
     onSessionRemoved: null,
     onSessionSelected: null,
     onSessionCreated: null,
+    bindToOwner: vi.fn(() => ({
+      getSession: (id: string) => mockSdkHistoryLoad(id),
+      getSessionList: vi.fn(async () => []),
+      createSession: vi.fn(),
+      updateSession: vi.fn(),
+      removeSession: vi.fn(),
+    })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
     setLastUserMessage: vi.fn(),
@@ -276,7 +313,8 @@ vi.mock("@/hooks/useAgentRunningConfigApprovalLevel", () => ({
   useAgentRunningConfigApprovalLevel: vi.fn(() => "standard"),
 }));
 
-vi.mock("@/stores/messageQueueStore", () => ({
+vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/stores/messageQueueStore")>()),
   useMessageQueueStore: Object.assign(
     vi.fn((selector?: any) => {
       const state = {
@@ -320,6 +358,7 @@ vi.mock("@/stores/messageQueueStore", () => ({
   ),
   MAX_QUEUE_SIZE: 100,
   STORAGE_PREFIX: "chat.queue.",
+  getLatestQueuedSessionIdForAgent: vi.fn(() => undefined),
   withSendLock: vi.fn(async (_key: string, fn: () => any) => fn()),
   holdOwnershipLock: vi.fn((_key: string, cb: () => void, _signal: any) => {
     if (mockOwnershipState.acquire) cb();
@@ -509,6 +548,8 @@ describe("ChatPage coverage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    observedSdkSessions = [];
+    mockSelectedAgent.mockReturnValue("default");
     mockOwnershipState.acquire = true;
     mockCopyText.mockClear();
     mockListProviders.mockResolvedValue([
@@ -1055,12 +1096,12 @@ describe("ChatPage coverage", () => {
     expect(typeof beforeSubmit).toBe("function");
     const result = await beforeSubmit({
       query: "hello",
+      session_id: "sdk-chat-uuid",
       context: { source: "sender" },
     });
     expect(result).toMatchObject({
       proceed: true,
       query: "hello",
-      session_id: "test-session",
       context: {
         source: "sender",
         session_id: "test-session",
@@ -1069,6 +1110,185 @@ describe("ChatPage coverage", () => {
         agent_id: "default",
       },
     });
+    expect(result).toHaveProperty("session_id", "test-session");
+  });
+
+  it("does not render or load host loop status for the previous Chat under the new Agent", async () => {
+    const { fetchActiveLoopMode } = await import("@/stores/loopStore");
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/old-agent-chat"],
+    });
+    await screen.findByTestId("chat-ui");
+    vi.mocked(fetchActiveLoopMode).mockClear();
+    mockSelectedAgent.mockReturnValue("another-agent");
+    view.rerender(<ChatPage />);
+    await waitFor(() => {
+      expect(
+        observedSdkSessions.some((entry) => entry.agent === "another-agent"),
+      ).toBe(true);
+    });
+    expect(
+      observedSdkSessions.filter((entry) => entry.agent === "another-agent"),
+    ).not.toContainEqual({
+      agent: "another-agent",
+      sessionId: "old-agent-chat",
+    });
+    expect(fetchActiveLoopMode).not.toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: "old-agent-chat" }),
+    );
+  });
+
+  it("keeps the old Chat gated when saving its Agent triggers an urgent store render", async () => {
+    const { useAgentStore } = await import("@/stores/agentStore");
+    const { fetchActiveLoopMode } = await import("@/stores/loopStore");
+    const storeHook = vi.mocked(useAgentStore);
+    const originalHook = storeHook.getMockImplementation()!;
+    let revision = 0;
+    const listeners = new Set<() => void>();
+    const subscribe = (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
+    const notify = () => {
+      revision += 1;
+      for (const listener of listeners) listener();
+    };
+    const savePreviousChat = vi.fn(notify);
+    const getLastChatId = vi.fn(() => undefined);
+    const removeLastChatId = vi.fn();
+    storeHook.mockImplementation(() => {
+      useSyncExternalStore(subscribe, () => revision);
+      return {
+        ...useAgentStore.getState(),
+        setLastChatId: savePreviousChat,
+        getLastChatId,
+        removeLastChatId,
+      };
+    });
+
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/old-agent-chat"],
+    });
+    try {
+      await screen.findByTestId("chat-ui");
+      vi.mocked(fetchActiveLoopMode).mockClear();
+      act(() => {
+        mockSelectedAgent.mockReturnValue("another-agent");
+        notify();
+      });
+      await waitFor(() => {
+        expect(
+          observedSdkSessions.some((entry) => entry.agent === "another-agent"),
+        ).toBe(true);
+      });
+      expect(savePreviousChat).toHaveBeenCalledWith(
+        "default",
+        "old-agent-chat",
+      );
+      expect(observedSdkSessions).not.toContainEqual({
+        agent: "another-agent",
+        sessionId: "old-agent-chat",
+      });
+      expect(fetchActiveLoopMode).not.toHaveBeenCalledWith(
+        expect.objectContaining({ chatId: "old-agent-chat" }),
+      );
+    } finally {
+      view.unmount();
+      storeHook.mockImplementation(originalHook);
+    }
+  });
+
+  it("migrates only this Agent draft when the SDK creates a Chat UUID", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const session = (await import("./sessionApi")).default;
+    const queueStore = (await import("@/stores/messageQueueStore"))
+      .useMessageQueueStore;
+    const migrateQueue = vi.fn();
+    const clear = vi.fn();
+    vi.mocked(queueStore.getState).mockReturnValueOnce({
+      ...queueStore.getState(),
+      migrateQueue,
+      clear,
+    });
+    act(() => session.onSessionCreated?.("1788357954784-1iwrrlb"));
+    expect(migrateQueue).toHaveBeenCalledWith(
+      "draft:default",
+      "1788357954784-1iwrrlb",
+      "default",
+    );
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("migrates a queued runtime alias before selecting its Chat UUID", async () => {
+    const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${runtimeId}`],
+    });
+    await screen.findByTestId("chat-ui");
+    const session = (await import("./sessionApi")).default;
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) =>
+      id === runtimeId ? chatId : id,
+    );
+    const queueStore = (await import("@/stores/messageQueueStore"))
+      .useMessageQueueStore;
+    const migrateQueue = vi.fn();
+    vi.mocked(queueStore.getState).mockReturnValueOnce({
+      ...queueStore.getState(),
+      migrateQueue,
+    });
+
+    act(() => session.onSessionSelected?.(runtimeId, chatId));
+
+    expect(migrateQueue).toHaveBeenCalledWith(runtimeId, chatId, "default");
+    expect(session.trackNavigatedSession).toHaveBeenCalledWith(
+      chatId,
+      expect.any(Function),
+      "default",
+    );
+  });
+
+  it("enqueues an uploaded attachment with empty text on busy Enter", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await capturedOptions.sender.attachments.customRequest({
+      file: new File(["attachment"], "attachment.txt", { type: "text/plain" }),
+      onSuccess: vi.fn(),
+      onError: vi.fn(),
+    });
+    const utils = await import("./utils");
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValueOnce(textarea);
+    const queueStore = (await import("@/stores/messageQueueStore"))
+      .useMessageQueueStore;
+    vi.mocked(queueStore.getState).mockReturnValueOnce({
+      ...queueStore.getState(),
+      currentSendingId: "busy-turn",
+    });
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => textarea.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      "test-session",
+      expect.objectContaining({
+        text: "",
+        attachments: [
+          expect.objectContaining({
+            name: "attachment.txt",
+            url: "/preview/uploaded.png",
+          }),
+        ],
+      }),
+    );
+    textarea.remove();
   });
 
   it("queues an attachment-only submission in a non-owner tab", async () => {
@@ -1092,7 +1312,7 @@ describe("ChatPage coverage", () => {
       ],
     });
 
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ proceed: false, clear: true });
     expect(mockQueueEnqueue).toHaveBeenCalledWith(
       "test-session",
       expect.objectContaining({
@@ -1107,6 +1327,29 @@ describe("ChatPage coverage", () => {
         ],
       }),
     );
+  });
+
+  it("queues from /chat under this Agent draft despite a remembered history Chat", async () => {
+    const session = (await import("./sessionApi")).default;
+    const previous = session.lastActiveChatId;
+    session.lastActiveChatId = "remembered-history";
+    mockOwnershipState.acquire = false;
+    try {
+      renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+      await screen.findByTestId("chat-ui");
+      expect(
+        await capturedOptions.sender.beforeSubmit({
+          query: "fresh draft",
+          fileList: [],
+        }),
+      ).toEqual({ proceed: false, clear: true });
+      expect(mockQueueEnqueue).toHaveBeenCalledWith(
+        "draft:default",
+        expect.objectContaining({ text: "fresh draft", agentId: "default" }),
+      );
+    } finally {
+      session.lastActiveChatId = previous;
+    }
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────
@@ -1339,6 +1582,40 @@ describe("ChatPage coverage", () => {
     );
   });
 
+  it("uses the runtime for the API but only the submitted Chat ID for pending storage", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/sdk-chat-uuid"],
+    });
+    await screen.findByTestId("chat-ui");
+    const session = (await import("./sessionApi")).default;
+    await capturedOptions.api.fetch({
+      session_id: "sdk-chat-uuid",
+      context: {
+        session_id: "shared-runtime",
+        user_id: "user-a",
+        channel: "console",
+      },
+      input: [
+        { role: "user", content: [{ type: "text", text: "private input" }] },
+      ],
+    });
+    const cacheIds = vi
+      .mocked(session.setLastUserMessage)
+      .mock.calls.slice(-1)[0]?.[0];
+    expect(cacheIds).toContain("sdk-chat-uuid");
+    expect(cacheIds).not.toContain("shared-runtime");
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+      session_id: "shared-runtime",
+      user_id: "user-a",
+    });
+  });
+
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {
     const mockResponse = { ok: true, status: 200, body: null };
@@ -1523,13 +1800,13 @@ describe("ChatPage coverage", () => {
   });
 
   // ── actions config ─────────────────────────────────────────────────────
-  it("actions config has replace true and right false", async () => {
+  it("extends SDK actions and hides the right action group", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
-    expect(capturedOptions?.actions?.replace).toBe(true);
+    expect(capturedOptions?.actions?.replace).toBe(false);
     expect(capturedOptions?.actions?.right).toBe(false);
   });
 
@@ -1949,23 +2226,83 @@ describe("ChatPage coverage", () => {
   });
 
   // ── customFetch with empty input ───────────────────────────────────────
-  it("customFetch handles empty input array", async () => {
-    const mockResponse = { ok: true, status: 200, body: null };
-    global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
-
+  it("rejects an empty request before transport or model lookup", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.fetch) {
-      const result = await capturedOptions.api.fetch({
-        input: [],
-        signal: undefined,
-      });
-      expect(result).toBeTruthy();
-    }
+    const modelCalls = mockGetActiveModels.mock.calls.length;
+    const fetchCalls = vi.mocked(fetch).mock.calls.length;
+    await expect(capturedOptions.api.fetch({ input: [] })).rejects.toThrow(
+      "Chat submission has no input",
+    );
+    expect(mockGetActiveModels).toHaveBeenCalledTimes(modelCalls);
+    expect(fetch).toHaveBeenCalledTimes(fetchCalls);
   });
+
+  it("blocks input and queue submission while SDK history is pending", async () => {
+    let resolve!: (session: any) => void;
+    mockSdkHistoryLoad.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/history-loading"],
+    });
+    await screen.findByTestId("chat-ui");
+    const store = (await import("@/stores/messageQueueStore"))
+      .useMessageQueueStore;
+    const count = vi.mocked(store.getState().enqueue).mock.calls.length;
+    const input = { query: "keep this draft", fileList: [] };
+    expect(await capturedOptions.sender.beforeSubmit(input)).toBe(false);
+    expect(store.getState().enqueue).toHaveBeenCalledTimes(count);
+    const optionsWhileLoading = capturedOptions;
+    await act(async () =>
+      resolve({ id: "history-loading", name: "Loaded", messages: [] }),
+    );
+    expect(capturedOptions).toBe(optionsWhileLoading);
+    await waitFor(async () => {
+      expect(await capturedOptions.sender.beforeSubmit(input)).toMatchObject({
+        proceed: true,
+      });
+    });
+  });
+
+  it.each([false, true])(
+    "preserves the draft until acceptance and keeps later edits (ok=%s)",
+    async (ok) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+      const { getDraftStorageKey } = await import("./chatInputDraft");
+      const key = getDraftStorageKey("default");
+      localStorage.setItem(key, "submitted-draft");
+      let finish!: (response: any) => void;
+      global.fetch = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ) as any;
+      const request = capturedOptions.api.fetch({
+        input: [{ role: "user", content: "hello" }],
+      });
+      await waitFor(() => expect(finish).toBeDefined());
+      expect(localStorage.getItem(key)).toBe("submitted-draft");
+      if (ok) localStorage.setItem(key, "newer-draft");
+      await act(async () => {
+        finish({ ok, status: ok ? 200 : 503, body: null });
+        await request;
+      });
+      expect(localStorage.getItem(key)).toBe(
+        ok ? "newer-draft" : "submitted-draft",
+      );
+      localStorage.removeItem(key);
+    },
+  );
 
   // ── customFetch with session in input ──────────────────────────────────
   it("customFetch extracts session from input", async () => {

@@ -45,6 +45,7 @@ class ToolCallContext:
     offload_reason: OffloadReason | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     governance_metadata: dict[str, Any] = field(default_factory=dict)
+    root_agent_id: str = ""
 
     @property
     def is_cancelled(self) -> bool:

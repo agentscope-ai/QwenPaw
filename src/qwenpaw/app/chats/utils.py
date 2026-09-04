@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from pydantic import ValidationError
 from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
     Message,
@@ -21,6 +22,7 @@ from qwenpaw.schemas import (
     FunctionCall,
     FunctionCallOutput,
     MessageType,
+    ContentType,
 )
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
@@ -29,6 +31,7 @@ from qwenpaw.exceptions import (
 from ...config import load_config
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
+    QWENPAW_USER_CONTENT_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
@@ -511,6 +514,36 @@ def clean_display_text(text: str, role: str) -> str:
     return strip_injected_skill_block(strip_headline(text) or "", role)
 
 
+def _original_user_message(msg: Msg, metadata: dict) -> Message | None:
+    """Restore attachment input without exposing model-only file hints."""
+    if msg.role != "user" or not isinstance(msg.metadata, dict):
+        return None
+    content = msg.metadata.get(QWENPAW_USER_CONTENT_KEY)
+    if not isinstance(content, list) or not content:
+        return None
+    try:
+        message = Message(
+            type=MessageType.MESSAGE,
+            role=msg.role,
+            content=content,
+            metadata=metadata,
+        ).completed()
+    except ValidationError:
+        logger.debug("Invalid original user content for message %s", msg.id)
+        return None
+    if not all(
+        isinstance(getattr(part, "type", None), ContentType)
+        for part in message.content
+    ):
+        return None
+    message.content = [
+        part
+        for part in message.content
+        if not (isinstance(part, TextContent) and not part.text)
+    ]
+    return message
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -569,10 +602,19 @@ def agentscope_msg_to_message(
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
-            "metadata": msg.metadata,
+            "metadata": {
+                key: value
+                for key, value in (msg.metadata or {}).items()
+                if key != QWENPAW_USER_CONTENT_KEY
+            },
             "timestamp": ts_value,
             "finished_at": finished_value or None,
         }
+
+        original_message = _original_user_message(msg, metadata)
+        if original_message is not None:
+            results.append(original_message)
+            continue
 
         if isinstance(msg.content, str):
             message = Message(type=MessageType.MESSAGE, role=role)

@@ -14,23 +14,25 @@ from qwenpaw.app.routers import console as console_mod
 from qwenpaw.tool_calls import CancelReason
 
 
-@pytest.fixture
-def stop_workspace(workspace_mock):
+@pytest.fixture(name="stop_workspace")
+def fixture_stop_workspace(workspace_mock):
+    workspace_mock.agent_id = "agent-a"
     workspace_mock.task_tracker = MagicMock()
     workspace_mock.task_tracker.request_stop = AsyncMock(return_value=True)
     workspace_mock.chat_manager = MagicMock()
     return workspace_mock
 
 
-@pytest.fixture
-def coordinator() -> MagicMock:
+@pytest.fixture(name="coordinator")
+def fixture_coordinator() -> MagicMock:
     value = MagicMock()
     value.cancel_running_for_session = AsyncMock(return_value=1)
     return value
 
 
-@pytest.fixture
-def app(manager_mock, stop_workspace, coordinator) -> FastAPI:
+@pytest.fixture(name="app")
+def fixture_app(manager_mock, stop_workspace, coordinator) -> FastAPI:
+    manager_mock.get_agent.return_value = stop_workspace
     application = FastAPI()
     application.state.multi_agent_manager = manager_mock
     application.state.app_services = SimpleNamespace(
@@ -76,6 +78,7 @@ async def test_stop_uuid_cancels_tools_before_chat_run(
     assert call_order == ["tools", "run"]
     coordinator.cancel_running_for_session.assert_awaited_once_with(
         "runtime-session",
+        agent_id="agent-a",
         reason=CancelReason.USER,
     )
     stop_workspace.task_tracker.request_stop.assert_awaited_once_with(
@@ -109,12 +112,14 @@ async def test_stop_runtime_session_resolves_uuid_and_reports_tool_stop(
 
     assert response.status_code == 200
     assert response.json() == {"stopped": True}
-    stop_workspace.chat_manager.get_chat_id_by_session.assert_awaited_once_with(
+    resolve_session = stop_workspace.chat_manager.get_chat_id_by_session
+    resolve_session.assert_awaited_once_with(
         session_id="runtime-session",
         channel="console",
     )
     coordinator.cancel_running_for_session.assert_awaited_once_with(
         "runtime-session",
+        agent_id="agent-a",
         reason=CancelReason.USER,
     )
     stop_workspace.task_tracker.request_stop.assert_awaited_once_with(

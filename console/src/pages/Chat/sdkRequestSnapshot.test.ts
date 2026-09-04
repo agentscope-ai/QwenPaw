@@ -13,7 +13,7 @@ describe("SDK 1.2 request snapshots", () => {
           user_id: "snapshot-user",
           channel: "snapshot-channel",
           agent_id: "snapshot-agent",
-          context: { source: "queue" },
+          context: { source: "queue", session_id: "snapshot-session" },
         },
         {
           sessionId: "stale-session",
@@ -32,7 +32,7 @@ describe("SDK 1.2 request snapshots", () => {
       userId: "snapshot-user",
       channel: "snapshot-channel",
       agentId: "snapshot-agent",
-      context: { source: "queue" },
+      context: { source: "queue", session_id: "snapshot-session" },
     });
   });
 

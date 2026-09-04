@@ -317,6 +317,7 @@ async def test_middleware_caller_observes_coordinator_response():
                 "session_id": "session-1",
                 "agent_id": "agent-1",
                 "root_session_id": "root-1",
+                "root_agent_id": "parent-agent",
             },
         },
     )()
@@ -336,6 +337,9 @@ async def test_middleware_caller_observes_coordinator_response():
     )
 
     assert _tool_response_text_bytes(events[-1]) == 2000
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert entry.ctx.root_agent_id == "parent-agent"
 
 
 @pytest.mark.asyncio
@@ -369,7 +373,9 @@ async def test_background_completion_emits_hint():
     assert events[-1].metadata["offloaded"] is True
     assert hint.role == "assistant"
     text_block = next(
-        block for block in hint.content if getattr(block, "type", None) == "text"
+        block
+        for block in hint.content
+        if getattr(block, "type", None) == "text"
     )
     assert "slow_tool" in text_block.text
 
@@ -517,7 +523,9 @@ async def test_completed_cache_keeps_final_response():
     )
 
     # Hot table should not list it as in-flight
-    assert all(e.ctx.tool_call_id != "call-cache" for e in coordinator.list_entries())
+    assert all(
+        e.ctx.tool_call_id != "call-cache" for e in coordinator.list_entries()
+    )
 
     entry = coordinator.get("call-cache")
     assert entry is not None
@@ -1151,6 +1159,9 @@ async def test_cancel_running_for_session_is_scoped_and_skips_offloaded():
         call_id: str,
         session_id: str,
         root_session_id: str,
+        *,
+        agent_id: str = "agent-1",
+        root_agent_id: str = "",
     ) -> asyncio.Task[list[Any]]:
         task = asyncio.create_task(
             _collect(
@@ -1158,8 +1169,9 @@ async def test_cancel_running_for_session_is_scoped_and_skips_offloaded():
                     tool_call=_ToolCall(id=call_id),
                     next_handler=next_handler,
                     session_id=session_id,
-                    agent_id="agent-1",
+                    agent_id=agent_id,
                     root_session_id=root_session_id,
+                    root_agent_id=root_agent_id,
                 ),
             ),
         )
@@ -1168,13 +1180,35 @@ async def test_cancel_running_for_session_is_scoped_and_skips_offloaded():
         return task
 
     direct = await start("call-direct", "session-a", "session-a")
-    child = await start("call-child", "session-a-child", "session-a")
+    child = await start(
+        "call-child",
+        "session-a-child",
+        "session-a",
+        agent_id="child-agent",
+        root_agent_id="agent-1",
+    )
     other = await start("call-other", "session-b", "session-b")
+    same_session = await start(
+        "call-same-session",
+        "session-a",
+        "session-a",
+        agent_id="other-agent",
+    )
+    other_child = await start(
+        "call-other-child",
+        "session-a-child",
+        "session-a",
+        agent_id="child-agent",
+        root_agent_id="other-agent",
+    )
     offloaded = await start("call-offloaded", "session-a", "session-a")
     assert await coordinator.request_offload("call-offloaded") is True
     await asyncio.wait_for(offloaded, timeout=2)
 
-    count = await coordinator.cancel_running_for_session("session-a")
+    count = await coordinator.cancel_running_for_session(
+        "session-a",
+        agent_id="agent-1",
+    )
     assert count == 2
     await asyncio.wait_for(asyncio.gather(direct, child), timeout=2)
 
@@ -1185,10 +1219,19 @@ async def test_cancel_running_for_session_is_scoped_and_skips_offloaded():
     assert direct_entry is not None and direct_entry.force_cancelled is True
     assert child_entry is not None and child_entry.force_cancelled is True
     assert other_entry is not None and other_entry.force_cancelled is False
-    assert offloaded_entry is not None and offloaded_entry.force_cancelled is False
+    assert (
+        offloaded_entry is not None
+        and offloaded_entry.force_cancelled is False
+    )
+    for call_id in ("call-same-session", "call-other-child"):
+        entry = coordinator.get(call_id)
+        assert entry is not None and entry.force_cancelled is False
 
     release.set()
-    await asyncio.wait_for(other, timeout=2)
+    await asyncio.wait_for(
+        asyncio.gather(other, same_session, other_child),
+        timeout=2,
+    )
     assert offloaded_entry.background_task is not None
     await asyncio.wait_for(offloaded_entry.background_task, timeout=2)
 
@@ -1299,7 +1342,9 @@ async def test_extend_kill_allows_tool_past_original_budget():
     await ext_task
     assert any(
         getattr(evt, "content", None)
-        and any(getattr(b, "text", "") == "survived-extend" for b in evt.content)
+        and any(
+            getattr(b, "text", "") == "survived-extend" for b in evt.content
+        )
         for evt in events
     )
 
@@ -1357,7 +1402,10 @@ async def test_extend_kill_keeps_chat_style_async_collect_alive():
     await ext_task
     assert any(
         getattr(evt, "content", None)
-        and any(getattr(b, "text", "") == "chat-survived-extend" for b in evt.content)
+        and any(
+            getattr(b, "text", "") == "chat-survived-extend"
+            for b in evt.content
+        )
         for evt in events
     )
 
@@ -1474,7 +1522,9 @@ async def test_extend_kill_refuses_past_max_internal_and_no_deadline():
     ok_small = await coordinator.extend_kill_deadline("call-cap", seconds=0.5)
     assert ok_small is True
     assert entry.ctx.kill_deadline <= (
-        entry.ctx.started_at + float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS) + 1e-6
+        entry.ctx.started_at
+        + float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+        + 1e-6
     )
     assert entry.ctx.kill_deadline > loop.time()
 

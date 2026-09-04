@@ -103,6 +103,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        root_agent_id: str = "",
         deadline_override: float | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
@@ -112,6 +113,7 @@ class ToolCoordinator:
             agent_id,
             root_session_id,
             deadline_override,
+            root_agent_id,
         )
         ctx = entry.ctx
 
@@ -230,6 +232,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None,
+        root_agent_id: str,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -250,6 +253,7 @@ class ToolCoordinator:
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            root_agent_id=root_agent_id or agent_id,
             started_at=now,
             offload_deadline=offload_deadline,
             cancel_event=asyncio.Event(),
@@ -287,7 +291,9 @@ class ToolCoordinator:
                     exc_info=True,
                 )
 
-        bg_task_name = entry.background_task.get_name() if entry.background_task else ""
+        bg_task_name = (
+            entry.background_task.get_name() if entry.background_task else ""
+        )
         reason = ctx.offload_reason.value if ctx.offload_reason else "unknown"
         if ctx.offload_reason == OffloadReason.USER:
             text = (
@@ -441,6 +447,7 @@ class ToolCoordinator:
         self,
         session_id: str,
         *,
+        agent_id: str,
         reason: CancelReason = CancelReason.USER,
     ) -> int:
         """Force-cancel foreground tool calls owned by one conversation.
@@ -451,18 +458,19 @@ class ToolCoordinator:
         Stop. Explicitly offloaded work is excluded because it is no longer
         part of the foreground response lifecycle.
 
-        ``root_session_id`` is included so stopping a parent conversation also
-        reaches foreground tool calls currently executing in a child agent.
+        Match both session and Agent ownership: session IDs are not globally
+        unique. Root ownership also reaches foreground child-agent tools.
         """
-        if not session_id:
+        if not session_id or not agent_id:
             return 0
         entries = [
             entry
             for entry in self._entries.values()
             if entry.status == ToolCallStatus.RUNNING
-            and (
-                entry.ctx.session_id == session_id
-                or entry.ctx.root_session_id == session_id
+            and (session_id, agent_id)
+            in (
+                (entry.ctx.session_id, entry.ctx.agent_id),
+                (entry.ctx.root_session_id, entry.ctx.root_agent_id),
             )
         ]
         cancelled = 0
@@ -632,10 +640,14 @@ class ToolCoordinator:
         ctx = entry.ctx
 
         remaining_offload = (
-            (ctx.offload_deadline - now) if ctx.offload_deadline is not None else None
+            (ctx.offload_deadline - now)
+            if ctx.offload_deadline is not None
+            else None
         )
         remaining_kill = (
-            (ctx.kill_deadline - now) if ctx.kill_deadline is not None else None
+            (ctx.kill_deadline - now)
+            if ctx.kill_deadline is not None
+            else None
         )
 
         # kill takes priority — execution limit supersedes offload
@@ -644,7 +656,9 @@ class ToolCoordinator:
         if remaining_offload is not None and remaining_offload <= 0:
             return _NextEvent(type="deadline_reached")
 
-        candidates = [r for r in (remaining_offload, remaining_kill) if r is not None]
+        candidates = [
+            r for r in (remaining_offload, remaining_kill) if r is not None
+        ]
         remaining = min(candidates) if candidates else None
 
         waiters: dict[str, asyncio.Task[Any]] = {}
@@ -679,7 +693,9 @@ class ToolCoordinator:
 
         if "chunk" in waiters and waiters["chunk"] in done:
             item = waiters["chunk"].result()
-            event_type = "stream_closed" if item is _STREAM_SENTINEL else "chunk"
+            event_type = (
+                "stream_closed" if item is _STREAM_SENTINEL else "chunk"
+            )
             return _NextEvent(
                 type=event_type,
                 chunk=item if event_type == "chunk" else None,

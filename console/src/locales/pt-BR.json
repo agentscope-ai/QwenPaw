@@ -3041,7 +3041,10 @@
       "today": "Hoje",
       "recent": "Últimos 7 dias",
       "earlier": "Anteriores"
-    }
+    },
+    "regenerate": "Gerar novamente",
+    "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
+    "turnCanceled": "Interrompido"
   },
   "security": {
     "parent": "Configuracoes",

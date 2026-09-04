@@ -199,7 +199,7 @@ export default function Sidebar({
       ...flattenMenu(agentMenu, routes, 16),
       ...flattenMenu(settingsMenu, routes, 16),
     ];
-  }, [agentMenu, settingsMenu, routes, sidebarMode]);
+  }, [agentMenu, settingsMenu, routes, sidebarMode, t]);
   const simpleInboxEntry = simpleFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
@@ -364,12 +364,13 @@ export default function Sidebar({
       hasUnreadMessages,
       hasPendingApprovals,
       effectiveShake,
+      t,
     ],
   );
 
   const settingsMenuItems = useMemo(
     () => toAntdItems(settingsMenu, { collapsed }),
-    [settingsMenu, collapsed],
+    [settingsMenu, collapsed, t],
   );
 
   const openKeys = useMemo(

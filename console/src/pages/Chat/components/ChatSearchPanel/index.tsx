@@ -3,11 +3,10 @@ import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
 import type { InputRef } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
-import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { chatApi } from "../../../../api/modules/chat";
-import sessionApi from "../../sessionApi";
+import { buildChatPath } from "../../../../utils/sessionRoute";
 import styles from "./index.module.less";
 
 interface ChatSearchPanelProps {
@@ -58,7 +57,6 @@ const formatTimestamp = (raw: string | null | undefined): string => {
 const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { sessions, setCurrentSessionId } = useChatAnywhereSessionsState();
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -239,25 +237,12 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   // Navigate to chat when clicking result
   const handleResultClick = useCallback(
     (result: SearchResult) => {
-      // Find the session in the local list
-      const session = sessions.find((s) => {
-        const realId = sessionApi.getRealIdForSession(s.id || "");
-        return realId === result.chatId || s.id === result.chatId;
-      });
-
-      if (session?.id) {
-        // Switch to that session
-        setCurrentSessionId(session.id);
-        // Navigate to the chat URL
-        navigate(`/chat/${session.id}`);
-      } else {
-        // Session not in local list, navigate by chat ID directly
-        navigate(`/chat/${result.chatId}`);
-      }
-
+      // Search results already carry the backend Chat UUID. Keep route and
+      // controlled SDK selection on that identity, even for a local alias.
+      navigate(buildChatPath(result.chatId));
       onClose();
     },
-    [sessions, setCurrentSessionId, navigate, onClose],
+    [navigate, onClose],
   );
 
   return (

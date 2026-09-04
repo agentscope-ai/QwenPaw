@@ -240,7 +240,7 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-legacy`)).toBe(null);
   });
 
-  it("restores a pending turn cached by runtime session_id through its chat UUID", async () => {
+  it("ignores legacy runtime-only pending entries instead of assigning them to a Chat", async () => {
     seedSessionList("chat-uuid", "runtime-session-id");
     sessionApi.setLastUserMessage(
       "runtime-session-id",
@@ -254,12 +254,40 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     } as ChatHistory);
 
     const session = await sessionApi.getSession("chat-uuid");
-    expect(userCardTexts(session)).toContain("cross-tab in flight");
-    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-uuid`)).not.toBe(null);
+    expect(userCardTexts(session)).not.toContain("cross-tab in flight");
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-uuid`)).toBe(null);
   });
 
-  it("persists and discards every known conversation identity alias", () => {
-    const aliases = ["chat-alias", "runtime-alias"];
+  it("isolates pending content when another user creates a Chat with the same runtime", async () => {
+    seedSessionList("chat-a", "shared-runtime");
+    sessionApi.setLastUserMessage(
+      ["chat-a", "shared-runtime"],
+      "PRIVATE-A-ONLY",
+      undefined,
+      "client-a",
+    );
+    // Simulates a legacy runtime alias already on disk before B is created.
+    testApi.sessionList.push({
+      id: "chat-b",
+      sessionId: "shared-runtime",
+      userId: "another-user",
+      channel: "c",
+      name: "B",
+    });
+    await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-b");
+    expect(userCardTexts(session)).toEqual([]);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-b`)).toBeNull();
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-a`)).toContain(
+      "client-a",
+    );
+    const original = await sessionApi.getSession("chat-a");
+    expect(userCardTexts(original)).toEqual(["PRIVATE-A-ONLY"]);
+  });
+
+  it("persists and discards both canonical and local draft aliases", () => {
+    const aliases = ["chat-alias", "1788357954784-1iwrrlb"];
     sessionApi.setLastUserMessage(
       aliases,
       "same pending turn",
@@ -268,13 +296,15 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
 
     expect(localStorage.getItem(`${STORAGE_PREFIX}chat-alias`)).not.toBe(null);
-    expect(localStorage.getItem(`${STORAGE_PREFIX}runtime-alias`)).not.toBe(
-      null,
-    );
+    expect(
+      localStorage.getItem(`${STORAGE_PREFIX}1788357954784-1iwrrlb`),
+    ).not.toBe(null);
 
     sessionApi.discardLastUserMessage(aliases, "client-alias");
     expect(localStorage.getItem(`${STORAGE_PREFIX}chat-alias`)).toBe(null);
-    expect(localStorage.getItem(`${STORAGE_PREFIX}runtime-alias`)).toBe(null);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}1788357954784-1iwrrlb`)).toBe(
+      null,
+    );
   });
 
   it("attaches the client id without dropping existing metadata", () => {

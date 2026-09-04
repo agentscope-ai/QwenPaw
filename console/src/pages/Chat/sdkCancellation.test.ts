@@ -18,7 +18,7 @@ describe("cancelSdkChatRequest", () => {
     expect(stopChat).toHaveBeenCalledWith("backend-session");
   });
 
-  it("keeps local cancellation complete if backend stop fails", async () => {
+  it("reports backend stop failure while retaining local cancellation", async () => {
     const abort = vi.fn();
     const onError = vi.fn();
     const error = new Error("stop failed");
@@ -32,7 +32,7 @@ describe("cancelSdkChatRequest", () => {
           onError,
         },
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toBe(error);
 
     expect(abort).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(error);

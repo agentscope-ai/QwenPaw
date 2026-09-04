@@ -33,6 +33,7 @@ from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
+from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
@@ -187,7 +188,8 @@ async def _persist_pending_project_dirs(
         for path, label in normalize_project_dir_list(pending):
             if not path.is_dir():
                 logger.warning(
-                    "Ignoring pending project dir that is not a " "directory: %s",
+                    "Ignoring pending project dir that is not a "
+                    "directory: %s",
                     path,
                 )
                 continue
@@ -246,7 +248,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
-                    _coerce_content_item(c) for c in (content_part["content"] or [])
+                    _coerce_content_item(c)
+                    for c in (content_part["content"] or [])
                 )
                 if isinstance(content_part.get("metadata"), dict):
                     message_metadata = content_part["metadata"]
@@ -411,6 +414,21 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
+        # The web UI allocates a Chat UUID before its first message. Give
+        # that explicit placeholder the same first-turn naming behavior as
+        # get_or_create_chat, without overwriting a user's renamed Chat.
+        if (
+            first_text
+            and not chat.last_finished_at
+            and chat.meta.get("console_placeholder_name") == chat.name
+        ):
+            renamed = await workspace.chat_manager.patch_chat_if_name_matches(
+                chat.id,
+                chat.name,
+                ChatUpdate(name=name),
+            )
+            if renamed is not None:
+                chat = renamed
         chat = await _persist_pending_project_dirs(
             workspace,
             chat,
@@ -520,6 +538,7 @@ async def post_console_chat_stop(
         # down the process tree deterministically.
         tool_cancelled = await cancel_session(
             runtime_session_id,
+            agent_id=workspace.agent_id,
             reason=CancelReason.USER,
         )
 
@@ -557,6 +576,38 @@ async def post_console_upload(
     data = await file.read()
     check_upload_size(data)
     safe_name = _safe_filename(file.filename or "file")
+    if file.content_type in {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    } or Path(
+        safe_name,
+    ).suffix.lower() in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+    }:
+        from io import BytesIO
+        from PIL import Image
+
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.verify()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The image is damaged or unsupported. "
+                    "Please upload it again."
+                ),
+            ) from exc
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
 
     path = (media_dir / stored_name).resolve()

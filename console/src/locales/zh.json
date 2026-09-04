@@ -3278,7 +3278,10 @@
       "today": "今天",
       "recent": "近 7 天",
       "earlier": "更早"
-    }
+    },
+    "regenerate": "重新生成",
+    "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
+    "turnCanceled": "已停止"
   },
   "security": {
     "parent": "设置",

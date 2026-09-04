@@ -1,5 +1,6 @@
 export interface SdkCancellationInput {
   session_id: string;
+  chatSessionId?: string;
   abort?: () => void;
 }
 
@@ -14,8 +15,9 @@ export async function cancelSdkChatRequest(
   input: SdkCancellationInput,
   options: CancelSdkChatRequestOptions,
 ): Promise<void> {
-  const backendSessionId =
-    options.resolveBackendSessionId(input.session_id) || input.session_id;
+  // Stop addresses the backend Chat resource (UUID), not its runtime session_id.
+  const chatId = input.chatSessionId || input.session_id;
+  const backendSessionId = options.resolveBackendSessionId(chatId) || chatId;
 
   input.abort?.();
   if (!backendSessionId) return;
@@ -24,5 +26,6 @@ export async function cancelSdkChatRequest(
     await options.stopChat(backendSessionId);
   } catch (error) {
     options.onError?.(error);
+    throw error;
   }
 }
