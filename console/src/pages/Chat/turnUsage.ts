@@ -3,6 +3,7 @@ import type {
   IAgentScopeRuntimeWebUIRef,
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
+import { parseSseDataEvents } from "./sse";
 import { useTurnUsageStore } from "./turnUsageStore";
 import type { TurnUsageToken } from "./turnUsageStore";
 
@@ -286,26 +287,6 @@ export function patchContextMaxInputLength(
   }
 }
 
-function parseSseDataLines(buffer: string): {
-  events: string[];
-  rest: string;
-} {
-  const events: string[] = [];
-  let rest = buffer;
-  for (;;) {
-    const sep = rest.indexOf("\n\n");
-    if (sep < 0) break;
-    const block = rest.slice(0, sep);
-    rest = rest.slice(sep + 2);
-    for (const line of block.split("\n")) {
-      if (line.startsWith("data: ")) {
-        events.push(line.slice(6));
-      }
-    }
-  }
-  return { events, rest };
-}
-
 function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
   // Fast path: skip the (second) JSON.parse for the vast majority of SSE
   // events — only `type: "turn_usage"` payloads are relevant here.
@@ -340,7 +321,7 @@ export function wrapChatResponseUsageStream(
       transform(chunk, controller) {
         controller.enqueue(chunk);
         buffer += decoder.decode(chunk, { stream: true });
-        const parsed = parseSseDataLines(buffer);
+        const parsed = parseSseDataEvents(buffer);
         buffer = parsed.rest;
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
@@ -349,7 +330,7 @@ export function wrapChatResponseUsageStream(
       },
       flush() {
         buffer += decoder.decode();
-        const parsed = parseSseDataLines(`${buffer}\n\n`);
+        const parsed = parseSseDataEvents(buffer, true);
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
           if (snap) pendingUsage = snap;

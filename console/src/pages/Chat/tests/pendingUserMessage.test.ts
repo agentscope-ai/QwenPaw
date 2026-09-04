@@ -191,6 +191,39 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-failed`)).toBe(null);
   });
 
+  it("discards both local and resolved cache keys after ID migration", () => {
+    testApi.sessionList = [
+      {
+        id: "1720000000000-local",
+        realId: "7f6627d4-2514-4f38-a3e8-423e32640691",
+        sessionId: "1720000000000-local",
+      },
+    ];
+    sessionApi.setLastUserMessage(
+      "1720000000000-local",
+      "failed request",
+      undefined,
+      "client-failed",
+    );
+    sessionApi.setLastUserMessage(
+      "7f6627d4-2514-4f38-a3e8-423e32640691",
+      "failed request",
+      undefined,
+      "client-failed",
+    );
+
+    sessionApi.discardLastUserMessage("1720000000000-local", "client-failed");
+
+    expect(sessionStorage.getItem(`${STORAGE_PREFIX}1720000000000-local`)).toBe(
+      null,
+    );
+    expect(
+      sessionStorage.getItem(
+        `${STORAGE_PREFIX}7f6627d4-2514-4f38-a3e8-423e32640691`,
+      ),
+    ).toBe(null);
+  });
+
   it("clears the cache on idle when history already contains the text", async () => {
     seedSessionList("chat-done");
     sessionApi.setLastUserMessage("chat-done", "persisted question");

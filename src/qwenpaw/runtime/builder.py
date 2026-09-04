@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..providers.model_selection import require_effective_model
+from .configuration import load_runtime_agent_config
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 
@@ -269,12 +271,12 @@ class AgentBuilder:
             ensure_skills_initialized,
             resolve_effective_skills,
         )
-        from ..config.config import load_agent_config
         from ..constant import WORKING_DIR
-        from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = await run_sync_io(load_agent_config, agent_id)
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = await load_runtime_agent_config(agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,
@@ -282,18 +284,7 @@ class AgentBuilder:
         )
         ctx.agent_config = agent_config
 
-        # Validate model availability.
-        active = agent_config.active_model
-        if not (active and active.provider_id and active.model):
-            active = ProviderManager.get_instance().get_active_model()
-        if active is None or not active.provider_id or not active.model:
-            from ..exceptions import ConfigurationException
-
-            raise ConfigurationException(
-                "No active model configured; pick one in the UI",
-                config_key="active_model",
-                error_code="MODEL_NOT_CONFIGURED",
-            )
+        active = await run_sync_io(require_effective_model, agent_config)
 
         workspace_dir = getattr(ctx, "workspace_dir", None)
 

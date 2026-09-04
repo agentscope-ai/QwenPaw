@@ -2,7 +2,7 @@ import { describe, it, test, expect, vi } from "vitest";
 import {
   extractCopyableText,
   extractUserMessageText,
-  buildModelError,
+  hasModelConfigurationError,
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
@@ -207,24 +207,33 @@ describe("clearSubmittedSenderInput", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildModelError
+// hasModelConfigurationError
 // ---------------------------------------------------------------------------
-describe("buildModelError", () => {
-  it("returns 400 status code", () => {
-    const response = buildModelError();
-    expect(response.status).toBe(400);
+describe("hasModelConfigurationError", () => {
+  it("matches the backend model-not-configured error code", () => {
+    expect(
+      hasModelConfigurationError({
+        error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+      }),
+    ).toBe(true);
   });
 
-  it("response body contains error and message fields", async () => {
-    const response = buildModelError();
-    const body = await response.json();
-    expect(body).toHaveProperty("error");
-    expect(body).toHaveProperty("message");
+  it("matches a structured HTTP error detail", () => {
+    expect(
+      hasModelConfigurationError({
+        detail: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+      }),
+    ).toBe(true);
   });
 
-  it("Content-Type is application/json", () => {
-    const response = buildModelError();
-    expect(response.headers.get("Content-Type")).toBe("application/json");
+  test.each([
+    null,
+    {},
+    { error: "network" },
+    { error: { code: "AGENT_CONFIG_UNAVAILABLE" } },
+    { error: { code: "UNAUTHORIZED" } },
+  ])("does not misclassify other failures: %j", (payload) => {
+    expect(hasModelConfigurationError(payload)).toBe(false);
   });
 });
 

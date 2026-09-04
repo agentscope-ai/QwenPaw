@@ -5,7 +5,12 @@ import { createClientMessageId } from "../utils/clientMessageId";
 // Types
 // ---------------------------------------------------------------------------
 
-export type QueueItemStatus = "pending" | "sending" | "failed" | "sent";
+export type QueueItemStatus =
+  | "pending"
+  | "sending"
+  | "unknown"
+  | "failed"
+  | "sent";
 
 export type QueueRunState = "idle" | "running" | "paused" | "error";
 

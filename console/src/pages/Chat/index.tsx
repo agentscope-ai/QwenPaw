@@ -164,7 +164,6 @@ import {
   toStoredName,
   copyText,
   extractCopyableText,
-  buildModelError,
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
@@ -176,6 +175,14 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import {
+  getChatResponseOutcome,
+  isModelNotConfiguredError,
+  isPreExecutionConfigurationError,
+  readChatResponseOutcome,
+  terminalizeChatResponse,
+  type ChatResponseOutcome,
+} from "./chatResponseOutcome";
 import {
   CHAT_BASE_PATH,
   buildChatPath,
@@ -283,6 +290,36 @@ async function waitForChatIdle(
   return false;
 }
 
+/** Reattach to a queue item whose previous stream ended without a terminal. */
+async function reconnectBackgroundQueueItem(
+  item: QueueItem,
+  backendSessionId: string,
+  signal: AbortSignal,
+): Promise<ChatResponseOutcome | null> {
+  try {
+    const headers = buildAuthHeaders();
+    if (item.agentId) headers["X-Agent-Id"] = item.agentId;
+    const response = await fetch(getApiUrl("/console/chat"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({
+        reconnect: true,
+        session_id: item.backendSessionId || backendSessionId,
+        user_id: item.userId || DEFAULT_USER_ID,
+        channel: item.channel || DEFAULT_CHANNEL,
+      }),
+      signal,
+    });
+    if (!response.ok) return null;
+    return await readChatResponseOutcome(response.body);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Convert a queue item's attachments array into the content-item format
  * expected by the backend POST body and by patchLastUserMessage.
@@ -357,6 +394,46 @@ async function startBackgroundQueue(
       const item = current[0];
       const clientMessageId = item.clientMessageId ?? item.id;
 
+      if (item.status === "unknown" || item.status === "sending") {
+        // A previous HTTP 200 was accepted by the server, but the stream did
+        // not prove completion (or is still in flight). Reconnect before
+        // considering a new send; a direct retry here could execute the same
+        // request twice after the page remounts.
+        const recovered = await reconnectBackgroundQueueItem(
+          item,
+          backendSessionId,
+          ctrl.signal,
+        );
+        if (ctrl.signal.aborted) break;
+        if (recovered?.status === "completed") {
+          useMessageQueueStore.getState().remove(queueKey, item.id);
+          continue;
+        }
+        if (recovered?.status === "failed") {
+          sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
+          useMessageQueueStore
+            .getState()
+            .setItemStatus(
+              queueKey,
+              item.id,
+              "failed",
+              recovered.errorMessage || i18n.t("chat.queue.sendFailed"),
+            );
+          break;
+        }
+        useMessageQueueStore
+          .getState()
+          .setItemStatus(
+            queueKey,
+            item.id,
+            "unknown",
+            i18n.t("chat.queue.reconnectNeeded", {
+              defaultValue: "Reconnect and check status",
+            }),
+          );
+        break;
+      }
+
       // Wait until the backend finishes the currently running task before
       // sending the next one. This preserves order task1 → task2 → task3
       // and prevents firing while task1 is still generating.
@@ -396,7 +473,7 @@ async function startBackgroundQueue(
         );
       }
 
-      let fetchSucceeded = false;
+      let responseOutcome: ChatResponseOutcome | null = null;
       // True once fetch() has resolved with an HTTP response. For a streaming
       // chat endpoint, this means the backend has already accepted the
       // request and started generating — the backend keeps producing the turn
@@ -449,48 +526,54 @@ async function startBackgroundQueue(
           sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
           throw new Error(`HTTP ${res.status}`);
         }
-        if (pendingRequest.projectDir) {
-          setPendingProjectDirectory(queueAgentId, queueKey, null);
-        }
         fetchStarted = true;
 
-        // Drain the stream; reaching `done` means the backend persisted the
-        // turn. Only then is it safe to remove the item from the queue.
-        const reader = res.body?.getReader();
-        if (reader) {
-          while (!ctrl.signal.aborted) {
-            const r = await reader.read();
-            if (r.done) break;
-          }
+        // Once accepted, keep draining even if the page takes foreground
+        // ownership. The queue item is removed only for an explicit completed
+        // terminal, never merely because the HTTP stream reached EOF.
+        responseOutcome = await readChatResponseOutcome(res.body);
+        if (
+          responseOutcome?.status === "completed" &&
+          pendingRequest.projectDir
+        ) {
+          setPendingProjectDirectory(queueAgentId, queueKey, null);
         }
-        fetchSucceeded = !ctrl.signal.aborted;
       } catch {
-        fetchSucceeded = false;
+        responseOutcome = null;
       }
 
-      if (ctrl.signal.aborted) {
-        if (fetchStarted) {
-          // Server connection was NOT aborted (no signal on fetch), so the
-          // backend will finish generating and persist this turn. Safe to
-          // remove — the foreground SDK will see it in history on reconnect.
-          useMessageQueueStore.getState().remove(queueKey, item.id);
-        } else {
-          // Request never made it out (aborted while waiting for status idle
-          // or before the response head arrived). Restore to pending so the
-          // foreground sender can pick it up.
-          useMessageQueueStore
-            .getState()
-            .setItemStatus(queueKey, item.id, "pending");
-        }
+      if (ctrl.signal.aborted && !fetchStarted) {
+        // Request never made it out (aborted while waiting for status idle
+        // or before the response head arrived). Restore to pending so the
+        // foreground sender can pick it up.
+        useMessageQueueStore
+          .getState()
+          .setItemStatus(queueKey, item.id, "pending");
         break;
       }
 
-      if (fetchSucceeded) {
-        // Backend finished generating → safe to remove from queue.
+      if (responseOutcome?.status === "completed") {
+        // The backend explicitly confirmed successful completion.
         useMessageQueueStore.getState().remove(queueKey, item.id);
+      } else if (fetchStarted && responseOutcome === null) {
+        // HTTP 200 means the backend accepted the request. A stream that ends
+        // without a terminal cannot be retried safely because the producer may
+        // still be running or may already have persisted the turn.
+        useMessageQueueStore
+          .getState()
+          .setItemStatus(
+            queueKey,
+            item.id,
+            "unknown",
+            i18n.t("chat.queue.reconnectNeeded", {
+              defaultValue: "Reconnect and check status",
+            }),
+          );
+        break;
       } else {
-        // Network/HTTP failure: keep the item visible with `failed` status
-        // so the user can retry from the queue panel on next visit.
+        // HTTP/network errors before acceptance and explicit failed terminals
+        // remain visible for an explicit user retry.
+        sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
         useMessageQueueStore
           .getState()
           .setItemStatus(
@@ -501,11 +584,15 @@ async function startBackgroundQueue(
           );
         break;
       }
+      if (ctrl.signal.aborted) break;
     }
-    useMessageQueueStore.getState().setCurrentSendingId(null);
+    if (_bgAborts.get(queueKey) === ctrl) {
+      useMessageQueueStore.getState().setCurrentSendingId(null);
+      _bgAborts.delete(queueKey);
+    }
   });
 
-  if (_bgAborts.get(queueKey) === ctrl) _bgAborts.delete(queueKey);
+  // A superseding sender owns cleanup after it replaces this controller.
 }
 
 /**
@@ -531,7 +618,11 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
       if (!items || items.length === 0) continue;
       // Only start if there are actionable items
       const hasPending = items.some(
-        (it) => it.status === "pending" || it.status === "failed",
+        (it) =>
+          it.status === "pending" ||
+          it.status === "failed" ||
+          it.status === "unknown" ||
+          it.status === "sending",
       );
       if (!hasPending) continue;
       // Check runState: respect paused queues
@@ -625,10 +716,37 @@ function payloadRequestsHistoryClear(payload: unknown): boolean {
 }
 
 function payloadCompletesResponse(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
+  return getChatResponseOutcome(payload)?.status === "completed";
+}
 
-  const record = payload as Record<string, unknown>;
-  return record.object === "response" && record.status === "completed";
+function reconcileBackgroundQueueResponse(
+  queueSessionId: string,
+  outcome: ChatResponseOutcome,
+): void {
+  const queue = useMessageQueueStore.getState().getQueue(queueSessionId);
+  const activeItem = queue.find(
+    (item) => item.status === "sending" || item.status === "unknown",
+  );
+  if (!activeItem) return;
+
+  if (outcome.status === "completed") {
+    useMessageQueueStore.getState().remove(queueSessionId, activeItem.id);
+    useMessageQueueStore.getState().setCurrentSendingId(null);
+    return;
+  }
+
+  useMessageQueueStore
+    .getState()
+    .setItemStatus(
+      queueSessionId,
+      activeItem.id,
+      outcome.errorCode === "CHAT_STREAM_INCOMPLETE" ? "unknown" : "failed",
+      outcome.errorCode === "CHAT_STREAM_INCOMPLETE"
+        ? i18n.t("chat.queue.reconnectNeeded", {
+            defaultValue: "Reconnect and check status",
+          })
+        : outcome.errorMessage || i18n.t("chat.queue.sendFailed"),
+    );
 }
 
 function renderSuggestionLabel(command: string, description?: string) {
@@ -1018,6 +1136,14 @@ interface DraftState {
   value: string;
   selectionStart: number;
   selectionEnd: number;
+}
+
+interface PendingSubmission {
+  agentId: string;
+  clientMessageId: string | undefined;
+  draftKey: string;
+  sessionId?: string;
+  text: string;
 }
 
 function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
@@ -1501,6 +1627,20 @@ export default function ChatPage() {
       const q = messageQueueRef.current;
       if (q.length === 0) return;
       const next = q[0];
+      if (next.status === "unknown") {
+        const backendSessionId =
+          next.backendSessionId ||
+          sessionApi.getBackendSessionId(queueSessionId) ||
+          queueSessionId;
+        const chatIdForStatus =
+          sessionApi.getRealIdForSession(queueSessionId) || queueSessionId;
+        void startBackgroundQueue(
+          queueSessionId,
+          backendSessionId,
+          chatIdForStatus,
+        );
+        return;
+      }
       // Acquire the per-session send lock so concurrent tabs don't both fire
       // the same item. If another tab holds the lock, drop this attempt; the
       // cross-tab broadcast will refresh our queue and the next loading→idle
@@ -1869,6 +2009,7 @@ export default function ChatPage() {
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingSenderClearRef = useRef<string | null>(null);
+  const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2105,6 +2246,24 @@ export default function ChatPage() {
       useMessageQueueStore.getState().setRunState(queueSessionId, "running");
       // Try to resume sending immediately
       if (!chatLoadingRef.current && isOwnerRef.current) {
+        const queue = useMessageQueueStore
+          .getState()
+          .getQueue(queueSessionId);
+        const head = queue[0];
+        if (head?.status === "unknown" || head?.status === "sending") {
+          const backendSessionId =
+            head.backendSessionId ||
+            sessionApi.getBackendSessionId(queueSessionId) ||
+            queueSessionId;
+          const chatIdForStatus =
+            sessionApi.getRealIdForSession(queueSessionId) || queueSessionId;
+          void startBackgroundQueue(
+            queueSessionId,
+            backendSessionId,
+            chatIdForStatus,
+          );
+          return;
+        }
         void withSendLock(queueSessionId, () => {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
@@ -2124,6 +2283,32 @@ export default function ChatPage() {
 
   const handleQueueRetry = useCallback(
     (id: string) => {
+      const currentQueue = useMessageQueueStore
+        .getState()
+        .getQueue(queueSessionId);
+      const target = currentQueue.find((it) => it.id === id);
+      if (!target) return;
+
+      if (target.status === "unknown" || target.status === "sending") {
+        // Recovery must reconnect first. Removing the item and submitting it
+        // directly would turn an uncertain server state into a duplicate run.
+        useMessageQueueStore.getState().setRunState(queueSessionId, "running");
+        if (!chatLoadingRef.current && isOwnerRef.current) {
+          const backendSessionId =
+            target.backendSessionId ||
+            sessionApi.getBackendSessionId(queueSessionId) ||
+            queueSessionId;
+          const chatIdForStatus =
+            sessionApi.getRealIdForSession(queueSessionId) || queueSessionId;
+          void startBackgroundQueue(
+            queueSessionId,
+            backendSessionId,
+            chatIdForStatus,
+          );
+        }
+        return;
+      }
+
       useMessageQueueStore
         .getState()
         .setItemStatus(queueSessionId, id, "pending");
@@ -2132,13 +2317,13 @@ export default function ChatPage() {
       if (!chatLoadingRef.current && isOwnerRef.current) {
         void withSendLock(queueSessionId, () => {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
-          const target = q.find((it) => it.id === id);
-          if (!target) return;
+          const retryTarget = q.find((it) => it.id === id);
+          if (!retryTarget) return;
           useMessageQueueStore.getState().setCurrentSendingId(id);
           useMessageQueueStore.getState().remove(queueSessionId, id);
           chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(target.text),
-            fileList: buildFileList(target),
+            query: beginLoopModeSubmission(retryTarget.text),
+            fileList: buildFileList(retryTarget),
           });
         });
       }
@@ -2538,6 +2723,28 @@ export default function ChatPage() {
     [t],
   );
 
+  const restorePendingSubmission = useCallback((clientMessageId?: string) => {
+    const pending = pendingSubmissionRef.current;
+    if (!pending || pending.clientMessageId !== clientMessageId) return;
+    pendingSubmissionRef.current = null;
+    draftSuppressed = false;
+
+    const textarea = getActiveSenderTextarea();
+    const draft: DraftState = {
+      value: pending.text,
+      selectionStart: pending.text.length,
+      selectionEnd: pending.text.length,
+    };
+    if (pending.agentId !== selectedAgentRef.current) {
+      localStorage.setItem(pending.draftKey, JSON.stringify(draft));
+      return;
+    }
+    if (textarea?.value) return;
+    if (textarea) setTextareaValue(textarea, pending.text);
+
+    localStorage.setItem(pending.draftKey, JSON.stringify(draft));
+  }, []);
+
   const customFetch = useCallback(
     async (data: {
       input?: Array<Record<string, unknown>>;
@@ -2551,40 +2758,24 @@ export default function ChatPage() {
         ...buildAuthHeaders(),
       };
 
-      if (usesQwenPawBackend) {
-        try {
-          const activeModels = await providerApi.getActiveModels({
-            scope: "effective",
-            agent_id: selectedAgent,
-          });
-          if (
-            !activeModels?.active_llm?.provider_id ||
-            !activeModels?.active_llm?.model
-          ) {
-            pendingSenderClearRef.current = null;
-            setShowModelPrompt(true);
-            return buildModelError();
-          }
-        } catch {
-          pendingSenderClearRef.current = null;
-          setShowModelPrompt(true);
-          return buildModelError();
-        }
-      }
-
-      const submittedValue = pendingSenderClearRef.current;
-      if (submittedValue !== null) {
-        clearSubmittedSenderInput(submittedValue);
-        pendingSenderClearRef.current = null;
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
-      }
-
       const { input = [], biz_params } = data;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const clientMessageId =
         lastMsg?.role === "user" ? createClientMessageId() : undefined;
+      const submittedValue = pendingSenderClearRef.current;
+      pendingSenderClearRef.current = null;
+      if (submittedValue !== null) {
+        pendingSubmissionRef.current = {
+          agentId: selectedAgent,
+          clientMessageId,
+          draftKey: getDraftStorageKey(selectedAgent),
+          text: submittedValue,
+        };
+        clearSubmittedSenderInput(submittedValue);
+        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+      }
       const rewrittenLastMsg: Record<string, unknown> | undefined = lastMsg
         ? clientMessageId
           ? attachClientMessageId(lastMsg, clientMessageId)
@@ -2681,6 +2872,13 @@ export default function ChatPage() {
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
         String(requestBody.session_id || "");
+      const pendingSubmission = pendingSubmissionRef.current;
+      if (
+        pendingSubmission &&
+        pendingSubmission.clientMessageId === clientMessageId
+      ) {
+        pendingSubmission.sessionId = backendChatId;
+      }
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m) => m.role === "user")
@@ -2710,15 +2908,60 @@ export default function ChatPage() {
 
       headlineStreamFilterRef.current = createHeadlineFilterState();
 
-      const response = await fetch(getApiUrl("/console/chat"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: data.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: data.signal,
+        });
+      } catch (error) {
+        if (backendChatId) {
+          sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+        }
+        if (data.signal?.aborted) {
+          if (
+            pendingSubmissionRef.current?.clientMessageId === clientMessageId
+          ) {
+            pendingSubmissionRef.current = null;
+          }
+          throw error;
+        }
+        restorePendingSubmission(clientMessageId);
+        return wrapChatResponseUsageStream(
+          new Response(
+            JSON.stringify({
+              detail: {
+                code: "CHAT_REQUEST_FAILED",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Chat request failed",
+              },
+            }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+          chatRef,
+          usageTurn,
+        );
+      }
 
-      if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+      if (!response.ok) {
+        if (backendChatId) {
+          sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+        }
+        restorePendingSubmission(clientMessageId);
+        const errorPayload = await response
+          .clone()
+          .json()
+          .catch(() => null);
+        if (isModelNotConfiguredError(errorPayload)) {
+          setShowModelPrompt(true);
+        }
       }
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
@@ -2729,9 +2972,18 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
+      const streamResponse = response.ok
+        ? terminalizeChatResponse(response)
+        : response;
+      return wrapChatResponseUsageStream(streamResponse, chatRef, usageTurn);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      restorePendingSubmission,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -3323,6 +3575,33 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          const responseOutcome = getChatResponseOutcome(payload);
+          if (responseOutcome && !pendingSubmissionRef.current) {
+            // A foreground turn can overlap a background queue turn while the
+            // page is remounting. Its terminal must not remove the unrelated
+            // background item; the background sender will reconcile its own
+            // response or the next reconnect attempt will do so.
+            reconcileBackgroundQueueResponse(queueSessionId, responseOutcome);
+          }
+          if (
+            responseOutcome?.status === "failed" &&
+            isPreExecutionConfigurationError(responseOutcome.errorCode)
+          ) {
+            const pending = pendingSubmissionRef.current;
+            if (pending?.sessionId) {
+              sessionApi.discardLastUserMessage(
+                pending.sessionId,
+                pending.clientMessageId,
+              );
+            }
+            if (responseOutcome.errorCode === "MODEL_NOT_CONFIGURED") {
+              setShowModelPrompt(true);
+            }
+            restorePendingSubmission(pending?.clientMessageId);
+          } else if (responseOutcome) {
+            pendingSubmissionRef.current = null;
+          }
+
           for (const event of parseModelFallbackEvents(payload)) {
             const key = modelFallbackEventKey(event);
             if (pendingFallbackEventKeysRef.current.has(key)) continue;
@@ -3445,8 +3724,12 @@ export default function ChatPage() {
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
+          const replayResponse = wrapReplayFastForward(response);
+          const streamResponse = response.ok
+            ? terminalizeChatResponse(replayResponse)
+            : replayResponse;
           return wrapChatResponseUsageStream(
-            wrapReplayFastForward(response),
+            streamResponse,
             chatRef,
             usageTurn,
           );
@@ -3527,6 +3810,7 @@ export default function ChatPage() {
     customFetch,
     copyResponse,
     handleFileUpload,
+    restorePendingSubmission,
     t,
     i18n.language,
     isDark,

@@ -115,28 +115,29 @@ class ContextVarsSetupHook(LifecycleHook):
         set_current_approval_route(approval_route)
 
         agent_project_dir = None
-        try:
-            from ...config.config import load_agent_config
-
-            cfg = load_agent_config(ctx.agent_id)
-            running = cfg.running
-            pruning_cfg = (
-                running.light_context_config.tool_result_pruning_config
-            )
-            set_current_recent_max_bytes(
-                pruning_cfg.pruning_recent_msg_max_bytes,
-            )
-            set_current_shell_command_timeout(running.shell_command_timeout)
-            set_current_shell_command_executable(
-                running.shell_command_executable or None,
-            )
-            agent_project_dir = cfg.project_dir
-        except Exception:
-            logger.warning(
-                "contextvars_setup: config-derived vars failed; "
-                "tools may see defaults",
-                exc_info=True,
-            )
+        cfg = ctx.agent_config
+        if cfg is not None:
+            try:
+                running = cfg.running
+                pruning_cfg = (
+                    running.light_context_config.tool_result_pruning_config
+                )
+                set_current_recent_max_bytes(
+                    pruning_cfg.pruning_recent_msg_max_bytes,
+                )
+                set_current_shell_command_timeout(
+                    running.shell_command_timeout,
+                )
+                set_current_shell_command_executable(
+                    running.shell_command_executable or None,
+                )
+                agent_project_dir = cfg.project_dir
+            except Exception:
+                logger.warning(
+                    "contextvars_setup: config-derived vars failed; "
+                    "tools may see defaults",
+                    exc_info=True,
+                )
 
         from ...constant import WORKING_DIR
 

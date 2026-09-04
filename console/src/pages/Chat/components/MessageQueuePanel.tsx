@@ -256,6 +256,8 @@ export default function MessageQueuePanel({
         const statusColor =
           item.status === "failed"
             ? "#ff4d4f"
+            : item.status === "unknown"
+            ? "#faad14"
             : item.status === "sending"
             ? "#1890ff"
             : "#52c41a";
@@ -349,6 +351,8 @@ export default function MessageQueuePanel({
                     color:
                       item.status === "failed"
                         ? "#ff4d4f"
+                        : item.status === "unknown"
+                        ? "#d48806"
                         : item.status === "sending"
                         ? "#1890ff"
                         : isDark
@@ -459,10 +463,17 @@ export default function MessageQueuePanel({
                     />
                   </Tooltip>
 
-                  {item.status === "failed" && (
+                  {(item.status === "failed" || item.status === "unknown") && (
                     <>
                       <Tooltip
-                        title={t("chat.queue.retry")}
+                        title={
+                          item.status === "unknown"
+                            ? t(
+                                "chat.queue.reconnect",
+                                "Reconnect and check status",
+                              )
+                            : t("chat.queue.retry")
+                        }
                         mouseEnterDelay={0.5}
                       >
                         <IconButton

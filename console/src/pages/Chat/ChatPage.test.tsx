@@ -28,6 +28,7 @@ const {
   mockSelectedAgent,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
+  mockDiscardLastUserMessage,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -37,6 +38,7 @@ const {
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
+  mockDiscardLastUserMessage: vi.fn(),
 }));
 
 vi.mock("../../hooks/useAppMessage", () => ({
@@ -69,7 +71,14 @@ vi.mock("@agentscope-ai/chat", () => ({
   // render rightHeader so child components appear in the DOM
   AgentScopeRuntimeWebUI: vi.fn((props: any) => {
     capturedOptions = props.options;
-    return <div data-testid="chat-ui">{props.options?.theme?.rightHeader}</div>;
+    return (
+      <div data-testid="chat-ui">
+        {props.options?.theme?.rightHeader}
+        <div className="sender">
+          <textarea data-testid="sender-input" />
+        </div>
+      </div>
+    );
   }),
   useChatAnywhereSessionsState: vi.fn(() => ({
     sessions: [],
@@ -111,6 +120,16 @@ vi.mock("@/api/modules/agent", () => ({
   TranscriptionError: class TranscriptionError extends Error {},
 }));
 
+vi.mock("@/api/modules/skill", () => ({
+  skillApi: { listSkills: vi.fn(() => Promise.resolve([])) },
+}));
+
+vi.mock("@/stores/uploadLimitStore", () => ({
+  useUploadLimitStore: {
+    getState: vi.fn(() => ({ uploadMaxSizeMb: 10 })),
+  },
+}));
+
 vi.mock("antd", async (importOriginal) => {
   const actual = await importOriginal<typeof import("antd")>();
   return {
@@ -131,10 +150,20 @@ vi.mock("@/api/config", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
-    selectedAgent: mockSelectedAgent(),
-    setSelectedAgent: mockSetSelectedAgent,
-  })),
+  useAgentStore: Object.assign(
+    vi.fn(() => ({
+      agents: [{ id: "default", backend: "qwenpaw" }],
+      getLastChatId: vi.fn(() => undefined),
+      removeLastChatId: vi.fn(),
+      selectedAgent: mockSelectedAgent(),
+      setLastChatId: vi.fn(),
+      setSelectedAgent: mockSetSelectedAgent,
+    })),
+    {
+      getState: vi.fn(() => ({ selectedAgent: mockSelectedAgent() })),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
 }));
 
 vi.mock("@/contexts/ThemeContext", () => ({
@@ -148,14 +177,39 @@ vi.mock("./sessionApi", () => ({
     onSessionSelected: null,
     onSessionCreated: null,
     getRealIdForSession: vi.fn(() => null),
+    getBackendSessionId: vi.fn((sessionId: string) => sessionId),
+    getEffectiveSessionId: vi.fn((sessionId: string) => sessionId),
+    getSessionIdentity: vi.fn(() => ({
+      sessionId: "",
+      userId: "console-user",
+      channel: "console",
+    })),
+    discardLastUserMessage: mockDiscardLastUserMessage,
+    isUnresolvedLocalSession: vi.fn(() => false),
+    resetWindowIdentity: vi.fn(),
     setLastUserMessage: vi.fn(),
+    trackNavigatedSession: vi.fn(),
+    triggerResolve: vi.fn(),
+    isSessionSwitching: false,
+    lastActiveChatId: null,
+    preferredChatId: null,
   },
 }));
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
-  default: { theme: { leftHeader: {} }, api: {} },
+  default: {
+    theme: {
+      leftHeader: {},
+      bubbleList: { userMessageAnchors: { variant: "navigator" } },
+    },
+    api: {},
+  },
   getDefaultConfig: vi.fn(() => ({
-    theme: { leftHeader: {} },
+    theme: {
+      leftHeader: {},
+      bubbleList: { userMessageAnchors: { variant: "navigator" } },
+    },
+    api: {},
     welcome: {},
     sender: {},
   })),
@@ -203,6 +257,7 @@ describe("ChatPage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    localStorage.clear();
     mockListProviders.mockResolvedValue(mockProviders);
     mockGetActiveModels.mockResolvedValue(mockActiveModel);
     mockUploadFile.mockResolvedValue({
@@ -229,7 +284,6 @@ describe("ChatPage", () => {
   it("renders child components ModelSelector / ChatActionGroup / ChatHeaderTitle", async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     await screen.findByTestId("chat-ui");
-    console.log("DOM:", document.body.innerHTML.substring(0, 500));
     expect(screen.getByTestId("model-selector")).toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
@@ -237,55 +291,98 @@ describe("ChatPage", () => {
 
   // ── customFetch: model not configured → show modal ────────────────────────
 
-  it("customFetch returns 400 and shows modal when model is not configured", async () => {
-    mockGetActiveModels.mockResolvedValue({ active_llm: undefined });
+  it("sends chat when the active-model refresh fails", async () => {
+    mockGetActiveModels.mockRejectedValue(new Error("network"));
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     await screen.findByTestId("chat-ui");
 
-    // directly invoke capturedOptions.api.fetch (openclaw pattern)
     const response = await capturedOptions.api.fetch({
-      input: [],
+      input: [{ role: "user", content: "hello" }],
       signal: undefined,
     });
-    expect(response.status).toBe(400);
-    expect(
-      await screen.findByText("modelConfig.promptTitle"),
-    ).toBeInTheDocument();
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/console/chat",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(screen.queryByText("modelConfig.promptTitle")).toBeNull();
   });
 
-  it("shows model config modal when provider API throws", async () => {
-    mockGetActiveModels.mockRejectedValue(new Error("network"));
+  it("shows the modal for an explicit backend model error", async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     await screen.findByTestId("chat-ui");
 
-    const response = await capturedOptions.api.fetch({
-      input: [],
-      signal: undefined,
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      );
     });
-    expect(response.status).toBe(400);
-    expect(
-      await screen.findByText("modelConfig.promptTitle"),
-    ).toBeInTheDocument();
+
+    expect(await screen.findByTestId("modal")).toBeInTheDocument();
+  });
+
+  it("does not show the modal for other backend errors", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "AGENT_CONFIG_UNAVAILABLE", message: "offline" },
+        }),
+      );
+    });
+
+    expect(screen.queryByTestId("modal")).toBeNull();
+  });
+
+  it("terminates an empty reconnect stream for the SDK", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    const response = await capturedOptions.api.reconnect({
+      session_id: "chat-1",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("CHAT_STREAM_INCOMPLETE");
   });
 
   // ── modal interaction ─────────────────────────────────────────────────────
 
   it("clicking Skip button closes the modal", async () => {
-    mockGetActiveModels.mockResolvedValue({ active_llm: undefined });
     const user = userEvent.setup();
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     await screen.findByTestId("chat-ui");
 
-    await capturedOptions.api.fetch({ input: [], signal: undefined });
-    await screen.findByText("modelConfig.promptTitle");
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      );
+    });
+    await screen.findByTestId("modal");
 
-    await user.click(screen.getByText("modelConfig.skipButton"));
+    await user.click(screen.getByRole("button", { name: "Skip" }));
     // antd Modal has animations; wait for DOM removal
     await waitFor(
-      () =>
-        expect(
-          screen.queryByText("modelConfig.skipButton"),
-        ).not.toBeInTheDocument(),
+      () => expect(screen.queryByTestId("modal")).not.toBeInTheDocument(),
       { timeout: 3000 },
     );
   });
@@ -341,13 +438,226 @@ describe("ChatPage", () => {
       signal: undefined,
     });
 
-    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const chatCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => url === "/api/console/chat");
+    const init = chatCall?.[1] as RequestInit;
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    expect(body.request_context).toEqual({
-      session_id: "session-1",
-      agent_id: "default",
-      datasource_id: "ds-123",
+    expect(body.request_context).toEqual(
+      expect.objectContaining({
+        session_id: "session-1",
+        agent_id: "default",
+        datasource_id: "ds-123",
+      }),
+    );
+  });
+
+  it("restores submitted text and draft after a network failure", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("network"));
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "keep this message";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+
+    const response = await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "keep this message" }],
+      signal: undefined,
     });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      detail: { code: "CHAT_REQUEST_FAILED", message: "network" },
+    });
+    expect(textarea.value).toBe("keep this message");
+    expect(
+      JSON.parse(
+        localStorage.getItem("qwenpaw_chat_input_draft_default") || "{}",
+      ).value,
+    ).toBe("keep this message");
+  });
+
+  it("preserves cancellation semantics for an aborted chat request", async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException("aborted", "AbortError");
+    global.fetch = vi.fn().mockRejectedValue(abortError);
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "cancel this message";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+    controller.abort();
+
+    await expect(
+      capturedOptions.api.fetch({
+        input: [{ role: "user", content: "cancel this message" }],
+        signal: controller.signal,
+      }),
+    ).rejects.toBe(abortError);
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      );
+    });
+    expect(textarea.value).toBe("");
+    expect(localStorage.getItem("qwenpaw_chat_input_draft_default")).toBeNull();
+  });
+
+  it("restores submitted text and opens the modal after an HTTP model error", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      clone: () => ({
+        json: vi.fn().mockResolvedValue({
+          detail: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      }),
+    } as unknown as Response);
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "retry me";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "retry me" }],
+      signal: undefined,
+    });
+
+    expect(textarea.value).toBe("retry me");
+    expect(await screen.findByTestId("modal")).toBeInTheDocument();
+  });
+
+  it("restores submitted text for an SSE model configuration error", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "configure then retry";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "configure then retry" }],
+      signal: undefined,
+    });
+    expect(textarea.value).toBe("");
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      );
+    });
+
+    expect(textarea.value).toBe("configure then retry");
+  });
+
+  it("restores and clears pending state for unavailable agent config", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/chat-config"],
+    });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "retry after config recovers";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "retry after config recovers" }],
+      signal: undefined,
+    });
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "AGENT_CONFIG_UNAVAILABLE", message: "offline" },
+        }),
+      );
+    });
+
+    expect(textarea.value).toBe("retry after config recovers");
+    expect(mockDiscardLastUserMessage).toHaveBeenCalledWith(
+      "chat-config",
+      expect.any(String),
+    );
+    expect(screen.queryByTestId("modal")).toBeNull();
+  });
+
+  it("does not restore a submission that failed during execution", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/chat-execution"],
+    });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "do not run twice";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "do not run twice" }],
+      signal: undefined,
+    });
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_EXECUTION_ERROR", message: "upstream" },
+        }),
+      );
+    });
+
+    expect(textarea.value).toBe("");
+    expect(mockDiscardLastUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite newer input when restoring a failed submission", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = screen.getByTestId("sender-input") as HTMLTextAreaElement;
+    textarea.value = "old submission";
+    await capturedOptions.sender.beforeSubmit();
+    textarea.value = "";
+    await capturedOptions.api.fetch({
+      input: [{ role: "user", content: "old submission" }],
+      signal: undefined,
+    });
+    textarea.value = "newer input";
+
+    act(() => {
+      capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "failed",
+          error: { code: "MODEL_NOT_CONFIGURED", message: "missing" },
+        }),
+      );
+    });
+
+    expect(textarea.value).toBe("newer input");
   });
 
   it("renders fallback metadata as an in-chat system message", async () => {
@@ -488,7 +798,7 @@ describe("ChatPage", () => {
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions.sender.allowSpeech).toBe(false);
-    expect(capturedOptions.sender.prefix).toBeUndefined();
+    expect(capturedOptions.sender.prefix.props.children[0]).toBeNull();
 
     act(() => {
       resolveProviderType({ transcription_provider_type: "disabled" });
@@ -505,7 +815,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => {
       expect(capturedOptions.sender.allowSpeech).toBe(false);
-      expect(capturedOptions.sender.prefix).toBeTruthy();
+      expect(capturedOptions.sender.prefix.props.children[0]).toBeTruthy();
     });
   });
 
@@ -519,7 +829,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => {
       expect(capturedOptions.sender.allowSpeech).toBe(true);
-      expect(capturedOptions.sender.prefix).toBeUndefined();
+      expect(capturedOptions.sender.prefix.props.children[0]).toBeNull();
     });
   });
 

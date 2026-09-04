@@ -21,6 +21,10 @@ from typing import Any, AsyncGenerator
 
 from ..exceptions import ConfigurationException
 from .builder import AgentBuilder
+from .configuration import (
+    is_config_independent_command,
+    load_runtime_agent_config,
+)
 from .envelope import Envelope
 from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
@@ -43,9 +47,13 @@ class Runtime:
         *,
         workspace: Any,
         app_services: Any,
+        agent_config: Any | None = None,
+        config_error: ConfigurationException | None = None,
     ) -> None:
         self.workspace = workspace
         self.app_services = app_services
+        self.agent_config = agent_config
+        self.config_error = config_error
 
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -61,6 +69,35 @@ class Runtime:
         skip_agent = False
 
         try:
+            workspace_agent_id = getattr(self.workspace, "agent_id", None)
+            request_agent_id = getattr(request, "agent_id", None)
+            if (
+                workspace_agent_id
+                and request_agent_id
+                and workspace_agent_id != request_agent_id
+            ):
+                raise ConfigurationException(
+                    "Request agent does not match the selected workspace",
+                    config_key="agent_id",
+                    error_code="AGENT_ID_MISMATCH",
+                )
+
+            if ctx.agent_config is None:
+                if self.config_error is not None:
+                    if not is_config_independent_command(request):
+                        raise self.config_error
+                    ctx.extras["agent_config_error"] = self.config_error
+                else:
+                    try:
+                        ctx.agent_config = await load_runtime_agent_config(
+                            ctx.agent_id,
+                        )
+                    except ConfigurationException as exc:
+                        if not is_config_independent_command(request):
+                            raise
+                        self.config_error = exc
+                        ctx.extras["agent_config_error"] = exc
+
             # --- [phase 1] PRE_DISPATCH ---
             r = await hooks.run(Phase.PRE_DISPATCH, ctx)
             if r.action == HookAction.SHORT_CIRCUIT:
@@ -482,8 +519,8 @@ class Runtime:
         # Prefer the workspace's resolved agent id over a bare "default", so an
         # agent selected by header (no body agent_id) loads its own config.
         agent_id = (
-            getattr(request, "agent_id", None)
-            or getattr(self.workspace, "agent_id", None)
+            getattr(self.workspace, "agent_id", None)
+            or getattr(request, "agent_id", None)
             or "default"
         )
         session_id = request.session_id
@@ -500,6 +537,7 @@ class Runtime:
             workspace=self.workspace,
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
+            agent_config=self.agent_config,
         )
 
     @staticmethod

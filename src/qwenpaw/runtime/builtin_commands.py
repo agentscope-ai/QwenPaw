@@ -219,6 +219,10 @@ def _make_control_adapter(
             user_id=(getattr(request, "user_id", "") if request else "") or "",
             agent_id=getattr(ctx, "agent_id", "") or "",
             args=parsed_args,
+            agent_config=getattr(ctx, "agent_config", None),
+            agent_config_error=(getattr(ctx, "extras", {}) or {}).get(
+                "agent_config_error",
+            ),
         )
 
         try:

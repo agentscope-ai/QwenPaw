@@ -33,6 +33,13 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...exceptions import ConfigurationException
+from ...runtime.configuration import (
+    is_config_independent_command,
+    load_runtime_agent_config,
+)
+from ...runtime.envelope import Envelope
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -322,7 +329,53 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        config = load_agent_config(self.agent_id)
+        request_agent_id = (
+            request.get("agent_id")
+            if isinstance(request, dict)
+            else getattr(request, "agent_id", None)
+        )
+        if request_agent_id and request_agent_id != self.agent_id:
+            session_id = (
+                request.get("session_id", "")
+                if isinstance(request, dict)
+                else getattr(request, "session_id", None) or ""
+            )
+            envelope = Envelope(session_id=session_id)
+            async for item in envelope.error_envelope(
+                "Request agent does not match the selected workspace",
+                "AGENT_ID_MISMATCH",
+            ):
+                yield item
+            return
+
+        try:
+            config = await load_runtime_agent_config(self.agent_id)
+        except ConfigurationException as exc:
+            if is_config_independent_command(request):
+                from ...runtime import Runtime
+
+                rt = Runtime(
+                    workspace=self,
+                    app_services=self._app_services,
+                    config_error=exc,
+                )
+                async for item in rt.run(request):
+                    yield item
+                return
+            session_id = (
+                request.get("session_id", "")
+                if isinstance(request, dict)
+                else getattr(request, "session_id", None) or ""
+            )
+            envelope = Envelope(
+                session_id=session_id,
+            )
+            async for item in envelope.error_envelope(
+                exc.message or str(exc),
+                exc.error_code or "CONFIGURATION_REQUIRED",
+            ):
+                yield item
+            return
         backend = config.backend
         if backend != "qwenpaw":
             settings = dict(getattr(config, "backend_settings", {}))
@@ -345,7 +398,7 @@ class Workspace:
             async for item in self.harness_runtime.stream(
                 backend=backend,
                 request=request,
-                cwd=self.workspace_dir.resolve(),
+                cwd=await run_sync_io(self.workspace_dir.resolve),
                 settings=settings,
             ):
                 yield item
@@ -353,7 +406,11 @@ class Workspace:
 
         from ...runtime import Runtime
 
-        rt = Runtime(workspace=self, app_services=self._app_services)
+        rt = Runtime(
+            workspace=self,
+            app_services=self._app_services,
+            agent_config=config,
+        )
         async for item in rt.run(request):
             yield item
 

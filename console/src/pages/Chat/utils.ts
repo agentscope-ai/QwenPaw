@@ -2,6 +2,7 @@
 // Types
 // ---------------------------------------------------------------------------
 import { chatApi } from "../../api/modules/chat";
+import { isModelNotConfiguredError } from "./chatResponseOutcome";
 export type CopyableContent = {
   type?: string;
   text?: string;
@@ -111,19 +112,9 @@ export function formatMessageTime(ts: number): string {
   return `${date.getFullYear()}-${month}-${day} ${time}`;
 }
 
-// ---------------------------------------------------------------------------
-// Error response utilities
-// ---------------------------------------------------------------------------
-
-/** Build a 400 error response when model is not configured. */
-export function buildModelError(): Response {
-  return new Response(
-    JSON.stringify({
-      error: "Model not configured",
-      message: "Please configure a model first",
-    }),
-    { status: 400, headers: { "Content-Type": "application/json" } },
-  );
+/** Check whether the backend explicitly reported a missing model. */
+export function hasModelConfigurationError(payload: unknown): boolean {
+  return isModelNotConfiguredError(payload);
 }
 
 // ---------------------------------------------------------------------------
