@@ -30,6 +30,7 @@ describe("SidebarSettingsPanel", () => {
     localStorage.removeItem("qwenpaw_tool_display_mode");
     localStorage.removeItem("qwenpaw_assistant_message_display_mode");
     localStorage.removeItem("qwenpaw_show_thinking");
+    localStorage.removeItem("qwenpaw_chat_wide_mode");
   });
 
   it("keeps Settings as an action and displays the current version", async () => {
@@ -92,6 +93,28 @@ describe("SidebarSettingsPanel", () => {
     expect(languages.getByText("Português")).toBeInTheDocument();
   });
 
+  it("opens cascading controls on hover", async () => {
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "Appearance" }));
+    const language = last(
+      await screen.findAllByRole("button", { name: "Language" }),
+    );
+    await userEvent.hover(language);
+
+    const simplifiedChinese = last(await screen.findAllByText("简体中文"));
+    expect(simplifiedChinese.closest(".ant-popover")).not.toHaveClass(
+      "ant-popover-hidden",
+    );
+  });
+
   it("opens desktop mode from appearance", async () => {
     const onClose = vi.fn();
     const onOpenDesktopMode = vi.fn();
@@ -137,6 +160,31 @@ describe("SidebarSettingsPanel", () => {
     expect(
       messageDisplay.getByText("Assistant message collapse"),
     ).toBeInTheDocument();
+  });
+
+  it("persists message width changes from quick settings", async () => {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onClose={onClose}
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    await userEvent.hover(
+      screen.getByRole("button", { name: "Message display" }),
+    );
+    const messageWidth = last(
+      await screen.findAllByRole("button", { name: "Message width" }),
+    );
+    await userEvent.hover(messageWidth);
+    await userEvent.click(last(await screen.findAllByText("Wide")));
+
+    expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBe("true");
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("shows the compact documentation links", () => {

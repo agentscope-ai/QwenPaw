@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
   restartRuntime: vi.fn().mockResolvedValue({}),
+  setSelectedAgent: vi.fn(),
+  refreshAgents: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -51,10 +53,13 @@ vi.mock("../stores/agentStore", () => ({
       {
         id: "agent-1",
         name: "Primary",
+        enabled: true,
         backend: "qwenpaw",
         backend_capabilities: { workspace_ui: true },
       },
     ],
+    setSelectedAgent: mocks.setSelectedAgent,
+    refreshAgents: mocks.refreshAgents,
   }),
 }));
 
@@ -214,6 +219,7 @@ vi.mock("lucide-react", () => {
   const stub = ({ size }: { size?: number }) =>
     React.createElement("span", { "data-testid": "lucide-icon" }, size ?? 16);
   return {
+    Check: stub,
     ChevronDown: stub,
     History: stub,
     MessageSquareText: stub,
@@ -274,6 +280,8 @@ const modelsItem = {
 
 describe("Sidebar", () => {
   beforeEach(() => {
+    mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
+    mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
     mocks.routes = [
       { id: "core.workspace", path: "/workspace" },
@@ -288,9 +296,11 @@ describe("Sidebar", () => {
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
     mocks.restartRuntime.mockClear().mockResolvedValue({});
+    mocks.setSelectedAgent.mockClear();
+    mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
   });
 
-  it("renders the full desktop sidebar with agent and settings menus", async () => {
+  it("renders the unified desktop sidebar with agent and settings menus", async () => {
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByTestId("agent-selector")).toBeTruthy();
@@ -350,6 +360,56 @@ describe("Sidebar", () => {
     });
   });
 
+  it("opens session history in a popover while collapsed", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "chat.chatHistoryTooltip" }),
+    );
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain(
+        "real-s-1",
+      );
+    });
+  });
+
+  it("switches agents from the collapsed popover", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "agent.selectAgent" }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Primary/ }));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("renders registered plugin shortcuts unless the user hides them", async () => {
+    const pluginItem = {
+      id: "plugin.cloud.dashboard",
+      location: "primary.settings",
+      label: "Cloud dashboard",
+      route: "plugin.cloud.dashboard",
+    };
+    mocks.menuItems = [...mocks.menuItems, pluginItem];
+    mocks.routes = [
+      ...mocks.routes,
+      { id: "plugin.cloud.dashboard", path: "/cloud-dashboard" },
+    ];
+
+    const view = renderSidebar();
+    expect(await screen.findByText("Cloud dashboard")).toBeVisible();
+
+    view.unmount();
+    mocks.sidebar.hiddenPluginItemIds = ["plugin.cloud.dashboard"];
+    renderSidebar();
+    expect(screen.queryByText("Cloud dashboard")).not.toBeInTheDocument();
+  });
+
   it("shows the unified panel with the session list", async () => {
     renderSidebar();
     await waitFor(() => {
@@ -370,6 +430,19 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(mocks.updateProfile).not.toHaveBeenCalled();
     });
+  });
+
+  it("opens quick settings from the authenticated user area", async () => {
+    mocks.authStatus = { enabled: true, mode: "normal" };
+    renderSidebar();
+
+    const username = await screen.findByText("testuser");
+    fireEvent.click(username.closest("button")!);
+
+    const settingsPanel = await screen.findByTestId("settings-panel");
+    expect(settingsPanel.closest(".ant-popover")).not.toHaveClass(
+      "ant-popover-hidden",
+    );
   });
 
   it("flags a whitespace-only new password", async () => {
