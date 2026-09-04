@@ -281,6 +281,10 @@ interface ProviderConfigModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  /** Called after a successful save so the parent can chain straight into the
+   *  provider's model-management modal — the "configure then add a model"
+   *  flow used to require closing this modal and reopening another one. (#4036) */
+  onOpenModels?: () => void;
 }
 
 export function ProviderConfigModal({
@@ -289,6 +293,7 @@ export function ProviderConfigModal({
   open,
   onClose,
   onSaved,
+  onOpenModels,
 }: ProviderConfigModalProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
@@ -536,6 +541,12 @@ export function ProviderConfigModal({
           name: (provider.is_custom && values.name?.trim()) || provider.name,
         }),
       );
+      // Chain straight into the model-management modal so "configure the
+      // provider" and "add a model" don't require closing this modal and
+      // reopening another one (#4036).
+      if (onOpenModels) {
+        onOpenModels();
+      }
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =
