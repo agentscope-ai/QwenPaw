@@ -1,10 +1,6 @@
 import { request } from "../request";
 import type { ModelSlotConfig } from "../types";
 
-/** Where an effective advisor/agent model comes from. */
-export type AdvisorSource = "override" | "main_model" | "global";
-export type WorkerSource = "override" | "subagent_model" | "main_model";
-
 /** Thresholds of the mid-run auto intervention. */
 export interface AdvisorInterventionConfig {
   consecutive_failures: number;
@@ -31,10 +27,8 @@ export interface AdvisorModeState {
   agent_id: string;
   /** The advisor model actually used. */
   advisor_model: ModelSlotConfig | null;
-  advisor_source: AdvisorSource;
-  /** The worker model actually used; null = the agent keeps the main model. */
+  /** The worker model actually used. null means the agent keeps the primary model. */
   worker_model: ModelSlotConfig | null;
-  worker_source: WorkerSource;
   /** Overrides stored in agent.json (null = default slot). */
   advisor_model_override: ModelSlotConfig | null;
   worker_model_override: ModelSlotConfig | null;
@@ -52,9 +46,20 @@ export interface AdvisorModeUpdate {
   /** Fields left out keep their value. */
   intervention?: Partial<AdvisorInterventionConfig>;
   advisor_thinking?: AdvisorThinking;
-  /** A slot sets the override; `null` clears it; omitted = unchanged. */
+  /** A slot sets the override, `null` clears it and an omitted field is unchanged. */
   advisor_model?: ModelSlotConfig | null;
   worker_model?: ModelSlotConfig | null;
+}
+
+export type Slot = ModelSlotConfig | null | undefined;
+
+/** `provider:model`, or "" for the default slot. */
+export function slotKey(slot: Slot): string {
+  return slot ? `${slot.provider_id}:${slot.model}` : "";
+}
+
+export function slotLabel(slot: Slot): string {
+  return slot ? `${slot.provider_id} / ${slot.model}` : "";
 }
 
 export const advisorModeApi = {

@@ -18,8 +18,9 @@ vi.mock("../../hooks/useIsMobile", () => ({
   useIsMobile: mockUseIsMobile,
 }));
 
-vi.mock("../../api/modules/advisorMode", () => ({
-  advisorModeApi: { get: vi.fn(), update: vi.fn() },
+vi.mock("../../api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("../../api/modules/advisorMode")),
+  advisorModeApi: { get: vi.fn(async () => ({}) as never), update: vi.fn() },
 }));
 vi.mock("../../api/modules/provider", () => ({
   providerApi: { listProviders: vi.fn(async () => []) },

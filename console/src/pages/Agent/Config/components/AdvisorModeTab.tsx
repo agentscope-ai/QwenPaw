@@ -11,11 +11,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   advisorModeApi,
+  slotLabel,
   type AdvisorInterventionConfig,
   type AdvisorModeUpdate,
   type AdvisorThinking,
 } from "../../../../api/modules/advisorMode";
-import type { ModelSlotConfig } from "../../../../api/types";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { fetchAvailableLoopModes } from "../../../../stores/loopStore";
 import {
@@ -25,12 +25,6 @@ import {
 import styles from "../index.module.less";
 import loopStyles from "./AgentLoopCard.module.less";
 import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
-
-type Slot = ModelSlotConfig | null | undefined;
-
-function slotLabel(slot: Slot): string {
-  return slot ? `${slot.provider_id} / ${slot.model}` : "";
-}
 
 /**
  * A number field that saves when the user is done (blur / Enter) rather
@@ -137,11 +131,11 @@ export function AdvisorModeTab() {
   };
 
   const busy = loading || saving;
-  const modelSummary = t("agentConfig.advisorModeModels", {
+  const modelSummary = t("agentConfig.loopMode.advisorModels", {
     advisor: slotLabel(state.advisor_model) || "-",
     worker:
       slotLabel(state.worker_model) ||
-      t("agentConfig.advisorModeSameAsAdvisor"),
+      t("agentConfig.loopMode.advisorSameAsAdvisor"),
   });
 
   const toggle = (
@@ -163,15 +157,17 @@ export function AdvisorModeTab() {
 
   return (
     <div className={loopStyles.modeEditor}>
-      <BuiltInIntro description={t("agentConfig.advisorModeTooltip")} />
+      <BuiltInIntro
+        description={t("agentConfig.loopMode.advisorDescription")}
+      />
       <LockedGateCard
         icon={<Sparkles size={15} />}
-        title={t("agentConfig.advisorMode")}
-        description={t("agentConfig.advisorModeDescription")}
-        extra={toggle("enabled", t("agentConfig.advisorMode"))}
+        title={t("agentConfig.loopMode.advisor")}
+        description={t("agentConfig.loopMode.advisorEnableDescription")}
+        extra={toggle("enabled", t("agentConfig.loopMode.advisor"))}
       >
         <p className={loopStyles.readOnlyCopy}>
-          {t("agentConfig.advisorModeEnableHelp")}
+          {t("agentConfig.loopMode.advisorEnableHelp")}
         </p>
       </LockedGateCard>
       {!loading && state.enabled ? (
@@ -183,24 +179,24 @@ export function AdvisorModeTab() {
           </div>
           <LockedGateCard
             icon={<Bot size={15} />}
-            title={t("agentConfig.advisorModeModelsTitle")}
+            title={t("agentConfig.loopMode.advisorModelsTitle")}
             description={modelSummary}
           >
             <p className={loopStyles.readOnlyCopy}>
-              {t("agentConfig.advisorModeModelsHelp")}
+              {t("agentConfig.loopMode.advisorModelsHelp")}
             </p>
             <div
               className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
             >
               <Form.Item
-                label={t("agentConfig.advisorModeThinking")}
-                tooltip={t("agentConfig.advisorModeThinkingTooltip")}
+                label={t("agentConfig.loopMode.advisorThinking")}
+                tooltip={t("agentConfig.loopMode.advisorThinkingTooltip")}
               >
                 <Select
-                  aria-label={t("agentConfig.advisorModeThinking")}
+                  aria-label={t("agentConfig.loopMode.advisorThinking")}
                   data-testid="advisor-thinking"
                   disabled={busy}
-                  value={state.advisor_thinking ?? "off"}
+                  value={state.advisor_thinking}
                   options={THINKING_LEVELS.map((level) => ({
                     value: level,
                     label: t(`modelSelector.thinking.${level}`),
@@ -214,77 +210,77 @@ export function AdvisorModeTab() {
           </LockedGateCard>
           <LockedGateCard
             icon={<ListChecks size={15} />}
-            title={t("agentConfig.advisorModePlanTitle")}
-            description={t("agentConfig.advisorModePlanDescription")}
+            title={t("agentConfig.loopMode.advisorPlanTitle")}
+            description={t("agentConfig.loopMode.advisorPlanDescription")}
             extra={toggle(
               "plan_enabled",
-              t("agentConfig.advisorModePlanTitle"),
+              t("agentConfig.loopMode.advisorPlanTitle"),
             )}
           >
             <p className={loopStyles.readOnlyCopy}>
-              {t("agentConfig.advisorModePlanHelp")}
+              {t("agentConfig.loopMode.advisorPlanHelp")}
             </p>
           </LockedGateCard>
           <LockedGateCard
             icon={<LifeBuoy size={15} />}
-            title={t("agentConfig.advisorModeFollowupTitle")}
-            description={t("agentConfig.advisorModeFollowupDescription")}
+            title={t("agentConfig.loopMode.advisorFollowupTitle")}
+            description={t("agentConfig.loopMode.advisorFollowupDescription")}
             extra={toggle(
               "followup_enabled",
-              t("agentConfig.advisorModeFollowupTitle"),
+              t("agentConfig.loopMode.advisorFollowupTitle"),
             )}
           >
             <p className={loopStyles.readOnlyCopy}>
-              {t("agentConfig.advisorModeFollowupHelp")}
+              {t("agentConfig.loopMode.advisorFollowupHelp")}
             </p>
-            {intervention ? (
-              <div
-                className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
-              >
-                {INTERVENTION_FIELDS.map(({ key, min, max }) => (
-                  <Form.Item
-                    key={key}
-                    label={t(`agentConfig.advisorIntervention.${key}`)}
-                    tooltip={t(`agentConfig.advisorIntervention.${key}Tooltip`)}
-                  >
-                    <CommittedNumber
-                      value={intervention[key]}
-                      min={min}
-                      max={max}
-                      label={t(`agentConfig.advisorIntervention.${key}`)}
-                      testId={`advisor-intervention-${key}`}
-                      disabled={busy}
-                      onCommit={(value) =>
-                        void update({ intervention: { [key]: value } })
-                      }
-                    />
-                  </Form.Item>
-                ))}
-              </div>
-            ) : null}
+            <div
+              className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
+            >
+              {INTERVENTION_FIELDS.map(({ key, min, max }) => (
+                <Form.Item
+                  key={key}
+                  label={t(`agentConfig.loopMode.advisorIntervention.${key}`)}
+                  tooltip={t(
+                    `agentConfig.loopMode.advisorIntervention.${key}Tooltip`,
+                  )}
+                >
+                  <CommittedNumber
+                    value={intervention[key]}
+                    min={min}
+                    max={max}
+                    label={t(`agentConfig.loopMode.advisorIntervention.${key}`)}
+                    testId={`advisor-intervention-${key}`}
+                    disabled={busy}
+                    onCommit={(value) =>
+                      void update({ intervention: { [key]: value } })
+                    }
+                  />
+                </Form.Item>
+              ))}
+            </div>
           </LockedGateCard>
           <LockedGateCard
             icon={<HelpCircle size={15} />}
-            title={t("agentConfig.advisorModeOnDemandTitle")}
-            description={t("agentConfig.advisorModeOnDemandDescription")}
+            title={t("agentConfig.loopMode.advisorOnDemandTitle")}
+            description={t("agentConfig.loopMode.advisorOnDemandDescription")}
             extra={toggle(
               "on_demand_enabled",
-              t("agentConfig.advisorModeOnDemandTitle"),
+              t("agentConfig.loopMode.advisorOnDemandTitle"),
             )}
           >
             <p className={loopStyles.readOnlyCopy}>
-              {t("agentConfig.advisorModeOnDemandHelp")}
+              {t("agentConfig.loopMode.advisorOnDemandHelp")}
             </p>
             <Form.Item
-              label={t("agentConfig.advisorModeMaxConsults")}
-              tooltip={t("agentConfig.advisorModeMaxConsultsTooltip")}
+              label={t("agentConfig.loopMode.advisorMaxConsults")}
+              tooltip={t("agentConfig.loopMode.advisorMaxConsultsTooltip")}
             >
               <div style={{ maxWidth: 220 }}>
                 <CommittedNumber
-                  value={state.max_consults ?? 32}
+                  value={state.max_consults}
                   min={0}
                   max={200}
-                  label={t("agentConfig.advisorModeMaxConsults")}
+                  label={t("agentConfig.loopMode.advisorMaxConsults")}
                   testId="advisor-max-consults"
                   disabled={busy}
                   onCommit={(value) => void update({ max_consults: value })}
