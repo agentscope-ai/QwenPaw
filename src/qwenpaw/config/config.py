@@ -42,14 +42,7 @@ from ..constant import (
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
     HEARTBEAT_MAX_TIMEOUT_SECONDS,
-    LLM_ACQUIRE_TIMEOUT,
-    LLM_BACKOFF_BASE,
-    LLM_BACKOFF_CAP,
-    LLM_MAX_CONCURRENT,
-    LLM_MAX_RETRIES,
-    LLM_MAX_QPM,
-    LLM_RATE_LIMIT_JITTER,
-    LLM_RATE_LIMIT_PAUSE,
+    EnvVarLoader,
     WORKING_DIR,
 )
 from ..utils.io_utils import write_json_atomic
@@ -1803,24 +1796,41 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_retry_enabled: bool = Field(
-        default=LLM_MAX_RETRIES > 0,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=0,
+        )
+        > 0,
         description="Whether to auto-retry transient LLM API errors",
     )
 
     llm_max_retries: int = Field(
-        default=max(LLM_MAX_RETRIES, 1),
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=1,
+        ),
         ge=1,
         description="Maximum retry attempts for transient LLM API errors",
     )
 
     llm_backoff_base: float = Field(
-        default=LLM_BACKOFF_BASE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_BASE",
+            1.0,
+            min_value=0.1,
+        ),
         ge=0.1,
         description="Base delay in seconds for exponential LLM retry backoff",
     )
 
     llm_backoff_cap: float = Field(
-        default=LLM_BACKOFF_CAP,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_CAP",
+            10.0,
+            min_value=0.5,
+        ),
         ge=0.5,
         description=(
             "Maximum delay cap in seconds for LLM retry backoff; "
@@ -1829,7 +1839,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_concurrent: int = Field(
-        default=LLM_MAX_CONCURRENT,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_CONCURRENT",
+            10,
+            min_value=1,
+        ),
         ge=1,
         description=(
             "Maximum number of concurrent in-flight LLM calls. "
@@ -1838,7 +1852,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_qpm: int = Field(
-        default=LLM_MAX_QPM,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_QPM",
+            600,
+            min_value=0,
+        ),
         ge=0,
         description=(
             "Maximum queries per minute (60-second sliding window). "
@@ -1848,7 +1866,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_pause: float = Field(
-        default=LLM_RATE_LIMIT_PAUSE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_PAUSE",
+            5.0,
+            min_value=1.0,
+        ),
         ge=1.0,
         description=(
             "Default pause duration (seconds) applied globally when a 429 "
@@ -1857,7 +1879,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_jitter: float = Field(
-        default=LLM_RATE_LIMIT_JITTER,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_JITTER",
+            1.0,
+            min_value=0.0,
+        ),
         ge=0.0,
         description=(
             "Random jitter range (seconds) added on top of the pause so "
@@ -1866,7 +1892,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_acquire_timeout: float = Field(
-        default=LLM_ACQUIRE_TIMEOUT,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_ACQUIRE_TIMEOUT",
+            300.0,
+            min_value=10.0,
+        ),
         ge=10.0,
         description=(
             "Maximum time (seconds) a caller waits to acquire a rate-limiter "

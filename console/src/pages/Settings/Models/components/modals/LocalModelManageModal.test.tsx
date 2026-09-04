@@ -350,13 +350,9 @@ describe("LocalModelManageModal", () => {
     it("显示推荐的本地模型列表", async () => {
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
       // model names must be shown
-      expect(screen.getByText("Llama 2 7B")).toBeInTheDocument();
-      expect(screen.getByText("Mistral 7B")).toBeInTheDocument();
+      expect(await screen.findByText("Llama 2 7B")).toBeInTheDocument();
+      expect(await screen.findByText("Mistral 7B")).toBeInTheDocument();
     });
 
     it("当没有推荐模型时显示提示", async () => {

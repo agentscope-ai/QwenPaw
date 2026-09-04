@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 
 const hoisted = vi.hoisted(() => ({
-  apiMocks: { listEnvs: vi.fn() },
+  apiMocks: {
+    listEnvs: vi.fn(),
+    listEnvCatalog: vi.fn(),
+  },
 }));
 
 vi.mock("../../../api", () => ({
@@ -17,6 +20,7 @@ const { apiMocks } = hoisted;
 describe("useEnvVars", () => {
   beforeEach(() => {
     apiMocks.listEnvs.mockReset();
+    apiMocks.listEnvCatalog.mockReset().mockResolvedValue([]);
   });
 
   it("loads env vars on mount and sets loading false on success", async () => {

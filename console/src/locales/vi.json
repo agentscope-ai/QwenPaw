@@ -1311,7 +1311,52 @@
     "loading": "Đang tải…",
     "retry": "Thử lại",
     "of": "trong",
-    "selected": "đã chọn"
+    "selected": "đã chọn",
+    "variable": "biến",
+    "variables": "biến",
+    "showValue": "Hiện giá trị",
+    "hideValue": "Ẩn giá trị",
+    "searchPlaceholder": "Tìm biến",
+    "liveSettings": "Cài đặt thời gian thực",
+    "noLiveVariables": "Không có cài đặt cập nhật tức thời phù hợp với bộ lọc.",
+    "customSettings": "Biến tùy chỉnh",
+    "noCustomVariables": "Chưa có biến tùy chỉnh.",
+    "editVariable": "Sửa biến",
+    "applyNow": "Áp dụng ngay",
+    "applyHint": "Tiến trình QwenPaw hiện tại được cập nhật ngay. MCP đang chạy cần được tải lại.",
+    "applied": "Đã áp dụng biến môi trường",
+    "appliedWithFailures": "Đã lưu nhưng {{count}} tiến trình MCP không thể tải lại",
+    "resetVariable": "Đặt lại biến",
+    "resetSuccess": "Đã khôi phục giá trị hệ thống hoặc mặc định",
+    "readonlySettings": "Cài đặt chỉ đọc",
+    "noReadonlyVariables": "Không có cài đặt chỉ đọc phù hợp với bộ lọc.",
+    "impactTitle": "Ảnh hưởng tới tiến trình",
+    "explicitConsumers": "{{count}} tiến trình MCP sử dụng biến này trực tiếp",
+    "implicitConsumers": "{{count}} tiến trình stdio MCP có thể kế thừa biến này",
+    "restartMode": "MCP đang chạy",
+    "restartAffected": "Tải lại MCP bị ảnh hưởng",
+    "restartNone": "Không tải lại",
+    "restartAllStdio": "Tải lại toàn bộ MCP stdio",
+    "readonlyReason": {
+      "startup": "Được xác định khi QwenPaw khởi động",
+      "agent_owned": "Do cấu hình của từng Agent quản lý",
+      "initial_default": "Chỉ là giá trị khởi tạo cấu hình Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Được đọc từ tiến trình QwenPaw hiện tại khi bắt đầu mỗi thao tác.",
+      "hot_process": "Có thể đọc bằng os.getenv() và được các tiến trình con mới kế thừa.",
+      "startup_only": "Chỉ để tham khảo; không thể sửa khi QwenPaw đang chạy.",
+      "internal": "Do QwenPaw quản lý nội bộ."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Thời gian chờ tối đa cho nội dung stream đầu tiên; đặt 0 để tắt giám sát.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Thời gian chờ tối đa giữa các phần stream; đặt 0 để tắt giám sát."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Hệ thống",
+      "default": "Mặc định"
+    }
   },
   "tools": {
     "title": "Công cụ tích hợp",

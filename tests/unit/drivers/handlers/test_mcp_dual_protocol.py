@@ -689,6 +689,46 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
     assert built == ["auto", "stateful"]
 
 
+async def test_stdio_driver_injects_managed_environment(monkeypatch) -> None:
+    """Managed values bypass the MCP SDK inherited-env allowlist."""
+    from qwenpaw.drivers.contracts import DriverCard
+    from qwenpaw.drivers.credentials.providers import NoneProvider
+    from qwenpaw.drivers.handlers import mcp as mcp_mod
+
+    captured: dict[str, str] = {}
+
+    class Track:
+        def __init__(self, **kwargs):
+            captured.update(kwargs["env"])
+
+        async def connect(self):
+            return None
+
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+
+    monkeypatch.setattr(mcp_mod, "StdIOStatefulClient", Track)
+    monkeypatch.setattr(
+        mcp_mod,
+        "load_envs",
+        lambda: {"MANAGED_TOKEN": "managed", "LOCAL": "global"},
+    )
+    card = DriverCard(
+        name="mcp-stdio-env",
+        protocol="mcp",
+        endpoint={
+            "transport": "stdio",
+            "command": "example",
+            "env": {"LOCAL": "card"},
+        },
+    )
+
+    handler = mcp_mod.MCPDriverHandler(card, NoneProvider())
+    await handler._setup()
+
+    assert captured == {"MANAGED_TOKEN": "managed", "LOCAL": "card"}
+
+
 def _modern_rpc(call_result: Any):
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content)

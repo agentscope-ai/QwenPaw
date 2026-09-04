@@ -2158,7 +2158,48 @@
     "variable": "variabel",
     "variables": "variabel",
     "showValue": "Tampilkan nilai",
-    "hideValue": "Sembunyikan nilai"
+    "hideValue": "Sembunyikan nilai",
+    "searchPlaceholder": "Cari variabel",
+    "liveSettings": "Pengaturan waktu nyata",
+    "noLiveVariables": "Tidak ada pengaturan waktu nyata yang cocok dengan filter.",
+    "customSettings": "Variabel kustom",
+    "noCustomVariables": "Belum ada variabel khusus.",
+    "editVariable": "Edit variabel",
+    "applyNow": "Terapkan sekarang",
+    "applyHint": "Proses QwenPaw saat ini langsung diperbarui. Proses MCP yang berjalan perlu dimuat ulang.",
+    "applied": "Variabel lingkungan diterapkan",
+    "appliedWithFailures": "Tersimpan, tetapi {{count}} proses MCP gagal dimuat ulang",
+    "resetVariable": "Atur ulang variabel",
+    "resetSuccess": "Nilai sistem atau nilai bawaan dipulihkan",
+    "readonlySettings": "Pengaturan hanya-baca",
+    "noReadonlyVariables": "Tidak ada pengaturan hanya-baca yang cocok dengan filter.",
+    "impactTitle": "Dampak proses",
+    "explicitConsumers": "{{count}} proses MCP menggunakan variabel ini secara eksplisit",
+    "implicitConsumers": "{{count}} proses stdio MCP mungkin mewarisinya secara implisit",
+    "restartMode": "Proses MCP yang berjalan",
+    "restartAffected": "Muat ulang MCP terdampak",
+    "restartNone": "Jangan muat ulang",
+    "restartAllStdio": "Muat ulang semua MCP stdio",
+    "readonlyReason": {
+      "startup": "Ditentukan saat QwenPaw dimulai",
+      "agent_owned": "Dikelola oleh konfigurasi setiap Agent",
+      "initial_default": "Hanya nilai awal konfigurasi Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Dibaca dari proses QwenPaw saat ini pada awal setiap operasi.",
+      "hot_process": "Tersedia melalui os.getenv() dan diwarisi oleh subproses berikutnya.",
+      "startup_only": "Hanya untuk referensi; tidak dapat diubah saat QwenPaw berjalan.",
+      "internal": "Dikelola secara internal oleh QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Waktu tunggu maksimum untuk konten stream pertama; nol menonaktifkan pemantauan.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Waktu tunggu maksimum antarbagian stream; nol menonaktifkan pemantauan."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistem",
+      "default": "Bawaan"
+    }
   },
   "tokenUsage": {
     "title": "Penggunaan Token",

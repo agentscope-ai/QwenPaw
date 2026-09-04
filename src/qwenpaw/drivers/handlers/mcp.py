@@ -44,6 +44,8 @@ from ..errors import (
 )
 from ..handler import DriverHandler
 from ..policy import PolicyContext
+from ...envs import load_envs
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 _CAPABILITY_CACHE_TTL_SECONDS = 10.0
@@ -68,14 +70,16 @@ class MCPDriverHandler(DriverHandler):
         credentials = await self._resolve_credentials()
 
         if transport == "stdio":
+            managed_env = await run_sync_io(load_envs)
+            card_env = resolve_binding(
+                endpoint.get("env") or {},
+                credentials,
+            )
             self._client = StdIOStatefulClient(
                 name=self._card.name,
                 command=str(endpoint.get("command") or ""),
                 args=list(endpoint.get("args") or []),
-                env=resolve_binding(
-                    endpoint.get("env") or {},
-                    credentials,
-                ),
+                env={**managed_env, **card_env},
                 cwd=endpoint.get("cwd") or None,
             )
         else:

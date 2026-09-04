@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../../../api";
-import type { EnvVar } from "../../../api/types";
+import type { EnvSpec, EnvVar } from "../../../api/types";
 
 export function useEnvVars() {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
+  const [catalog, setCatalog] = useState<EnvSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -11,8 +12,12 @@ export function useEnvVars() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.listEnvs();
+      const [data, specs] = await Promise.all([
+        api.listEnvs(),
+        api.listEnvCatalog(),
+      ]);
       if (data) setEnvVars(data);
+      if (specs) setCatalog(specs);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -29,5 +34,5 @@ export function useEnvVars() {
     fetchAll();
   }, [fetchAll]);
 
-  return { envVars, loading, error, fetchAll };
+  return { envVars, catalog, loading, error, fetchAll };
 }

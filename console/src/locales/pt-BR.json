@@ -1752,7 +1752,48 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Mostrar value",
-    "hideValue": "Ocultar value"
+    "hideValue": "Ocultar valor",
+    "searchPlaceholder": "Buscar variáveis",
+    "liveSettings": "Configurações em tempo real",
+    "noLiveVariables": "Nenhuma configuração em tempo real corresponde ao filtro.",
+    "customSettings": "Variáveis personalizadas",
+    "noCustomVariables": "Nenhuma variável personalizada adicionada.",
+    "editVariable": "Editar variável",
+    "applyNow": "Aplicar agora",
+    "applyHint": "O processo atual do QwenPaw é atualizado imediatamente. Processos MCP em execução precisam ser recarregados.",
+    "applied": "Variável de ambiente aplicada",
+    "appliedWithFailures": "Salvo, mas {{count}} processo(s) MCP não puderam ser recarregados",
+    "resetVariable": "Redefinir variável",
+    "resetSuccess": "Valor do sistema ou padrão restaurado",
+    "readonlySettings": "Configurações somente leitura",
+    "noReadonlyVariables": "Nenhuma configuração somente leitura corresponde ao filtro.",
+    "impactTitle": "Impacto nos processos",
+    "explicitConsumers": "{{count}} processo(s) MCP usam esta variável explicitamente",
+    "implicitConsumers": "{{count}} processo(s) stdio MCP podem herdá-la implicitamente",
+    "restartMode": "Processos MCP em execução",
+    "restartAffected": "Recarregar MCPs afetados",
+    "restartNone": "Não recarregar",
+    "restartAllStdio": "Recarregar todos os MCPs stdio",
+    "readonlyReason": {
+      "startup": "Definido quando o QwenPaw inicia",
+      "agent_owned": "Gerenciado pela configuração de cada Agent",
+      "initial_default": "Usado apenas como padrão inicial do Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Lido do processo QwenPaw atual no início de cada operação.",
+      "hot_process": "Disponível por os.getenv() e herdado por futuros subprocessos.",
+      "startup_only": "Somente para referência; não pode ser alterado durante a execução.",
+      "internal": "Gerenciado internamente pelo QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Espera máxima pelo primeiro conteúdo relevante do stream; zero desativa o monitoramento.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Espera máxima entre partes relevantes do stream; zero desativa o monitoramento."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistema",
+      "default": "Padrão"
+    }
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",

@@ -1930,7 +1930,51 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Show value",
-    "hideValue": "Hide value"
+    "hideValue": "Hide value",
+    "searchPlaceholder": "Search variables",
+    "qwenpawSettings": "QwenPaw settings",
+    "qwenpawSettingsDescription": "Known settings include defaults and locked startup values.",
+    "liveSettings": "Live settings",
+    "noLiveVariables": "No live settings match the current filter.",
+    "customSettings": "Custom variables",
+    "noCustomVariables": "No custom child-process variables yet.",
+    "editVariable": "Edit variable",
+    "applyNow": "Apply now",
+    "applyHint": "The current QwenPaw process updates immediately. Existing MCP processes must be reloaded.",
+    "applied": "Environment variable applied",
+    "appliedWithFailures": "Saved, but {{count}} MCP process could not be reloaded",
+    "resetVariable": "Reset variable",
+    "resetSuccess": "Variable reset to its system or default value",
+    "startupOnly": "Read only",
+    "readonlySettings": "Read-only settings",
+    "noReadonlyVariables": "No read-only settings match the current filter.",
+    "impactTitle": "Process impact",
+    "explicitConsumers": "{{count}} MCP process explicitly uses this variable",
+    "implicitConsumers": "{{count}} stdio MCP process may inherit it implicitly",
+    "restartMode": "Existing MCP processes",
+    "restartAffected": "Reload affected MCP processes",
+    "restartNone": "Do not reload",
+    "restartAllStdio": "Reload every stdio MCP process",
+    "readonlyReason": {
+      "startup": "Resolved when QwenPaw starts",
+      "agent_owned": "Managed by each Agent configuration",
+      "initial_default": "Used only as an Agent configuration default"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Read from the current QwenPaw process at the start of each operation.",
+      "hot_process": "Available through os.getenv() and inherited by future child processes.",
+      "startup_only": "Displayed for reference; it cannot be changed while QwenPaw is running.",
+      "internal": "Managed internally by QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Maximum wait for the first meaningful stream content; zero disables the watchdog.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Maximum wait between meaningful stream chunks; zero disables the watchdog."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "System",
+      "default": "Default"
+    }
   },
   "modelSelector": {
     "selectModel": "Select model",
