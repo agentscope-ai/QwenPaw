@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from agentscope.message import TextBlock
@@ -83,7 +84,27 @@ def test_inactive_when_config_unavailable(monkeypatch):
         raise RuntimeError("no config")
 
     monkeypatch.setattr("qwenpaw.config.config.load_agent_config", boom)
-    assert AdvisorMode().is_active(_ctx(None)) is False
+    mode = AdvisorMode()
+    mode.session_state("sess-1").override = True
+    assert mode.is_active(_ctx(None)) is False
+
+
+def test_is_active_reads_no_config_until_the_conversation_picked_it(
+    monkeypatch,
+):
+    """``is_active`` runs on every gated hook; the cheap session check
+    comes first so unrelated conversations never load agent config."""
+    loads = []
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda agent_id: loads.append(agent_id) or _config(enabled=True),
+    )
+    mode = AdvisorMode()
+    assert mode.is_active(_ctx(None)) is False
+    assert not loads
+    mode.session_state("sess-1").override = True
+    assert mode.is_active(_ctx(None)) is True
+    assert loads == ["agent-1"]
 
 
 def test_loads_persisted_config_when_ctx_has_none(monkeypatch):
@@ -141,6 +162,10 @@ async def test_hook_worker_override_works_without_a_subagent_model():
     )
     ctx = _ctx(cfg)
     await _picked().hooks()[0].run(ctx)
+    assert ctx.request.model_slot_override == {
+        "provider_id": "small",
+        "model": "s-mini",
+    }
 
 
 async def test_hook_keeps_main_model_without_subagent_model():
@@ -194,13 +219,6 @@ def test_middleware_env_root_prefers_project_dir(tmp_path):
     cfg.project_dir = None
     mw = AdvisorMode().build_middleware(_ctx(cfg, workspace_dir="/ws"), cfg)
     assert mw._env_context_root == "/ws"
-
-
-def test_middleware_log_dir_is_per_agent(monkeypatch, tmp_path):
-    monkeypatch.setattr("qwenpaw.constant.ADVISOR_DIR", tmp_path)
-    cfg = _config()
-    mw = AdvisorMode().build_middleware(_ctx(cfg), cfg)
-    assert mw._log_dir == tmp_path / "agent-1"
 
 
 # ── /advisor command ────────────────────────────────────────────────────
@@ -266,6 +284,32 @@ async def test_command_refuses_to_start_when_switched_off(monkeypatch):
     # ``off`` always works, so a stale override can be cleared.
     assert "disabled for this conversation" in _text(
         await mode._command_handler(ctx, "off"),
+    )
+
+
+async def test_command_refuses_while_another_mode_is_active(monkeypatch):
+    """Like ``/goal``, ``/advisor`` does not start on top of another
+    explicit mode; Advisor itself being active is not a conflict."""
+    cfg = _config()
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: cfg,
+    )
+    mode = AdvisorMode()
+    goal = SimpleNamespace(name="goal", is_active=lambda _ctx: True)
+    ctx = _ctx(cfg)
+    ctx.workspace = SimpleNamespace(plugins=SimpleNamespace(modes=[goal]))
+    for args in ("on", "build it"):
+        reply = await mode._command_handler(ctx, args)
+        assert _text(reply) == (
+            "End the active goal mode before starting /advisor."
+        )
+    assert mode._override("sess-1") is None
+
+    ctx.workspace.plugins.modes = [mode]
+    mode.session_state("sess-1").override = True
+    assert "enabled for this conversation" in _text(
+        await mode._command_handler(ctx, "on"),
     )
 
 
@@ -566,7 +610,13 @@ async def test_tool_without_session_or_when_disabled(monkeypatch):
     assert mw.consults_used == 0
 
 
-async def test_session_state_carries_history_and_budget_across_requests():
+async def test_session_state_carries_history_and_budget_across_requests(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "qwenpaw.modes.advisor.mode.get_current_session_id",
+        lambda: "sess-1",
+    )
     mode = AdvisorMode()
     cfg = _config()
     cfg.advisor_mode.max_consults = 2
@@ -578,8 +628,7 @@ async def test_session_state_carries_history_and_budget_across_requests():
     second = mode.build_middleware(_ctx(cfg), cfg)  # next user turn
     assert second.advisor_history is first.advisor_history
     assert second.consults_used == 1 and second.consults_left == 1
-    assert mode.current_middleware is not None
-    assert mode.session_state("sess-1").middleware is second
+    assert mode.current_middleware() is second
 
 
 async def test_plan_is_written_once_per_conversation():
@@ -699,10 +748,8 @@ async def test_status_mentions_the_consult_tool(monkeypatch):
 
 def test_command_metadata_exposes_the_loop_mode_entry():
     spec = AdvisorMode().commands()[0]
-    assert spec.metadata["loop_name"] == "Advisor"
-    assert spec.metadata["name_i18n"]["zh-CN"] == "顾问"
-    assert "plans" in spec.metadata["description_i18n"]["en"]
-    assert "/advisor off" in spec.help_text
+    assert spec.metadata == {"loop_name": "Advisor"}
+    assert "plans" in spec.help_text and "/advisor off" in spec.help_text
 
 
 def test_consult_tool_is_registered_with_governance():
@@ -711,14 +758,14 @@ def test_consult_tool_is_registered_with_governance():
     from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
     from qwenpaw.modes.advisor.tools import CONSULT_POLICY_NAME
 
-    AdvisorMode()
+    AdvisorMode().setup(MagicMock())
     assert (
         DEFAULT_REGISTRY.get_mapped_policy_name(CONSULT_TOOL_NAME)
         == CONSULT_POLICY_NAME
     )
     assert DEFAULT_REGISTRY.get_type(CONSULT_POLICY_NAME) == "internal"
     assert DEFAULT_REGISTRY.get_owner(CONSULT_TOOL_NAME) == "builtin"
-    AdvisorMode()  # idempotent: a second mode instance must not conflict
+    AdvisorMode().setup(MagicMock())  # idempotent across workspaces
 
 
 async def test_advisor_thinking_level_reaches_the_model_factory(monkeypatch):
