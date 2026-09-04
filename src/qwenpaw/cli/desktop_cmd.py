@@ -24,6 +24,7 @@ import click
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
+from ..utils.self_invoke import qwenpaw_cli_command
 
 try:
     import webview
@@ -239,6 +240,22 @@ def desktop_cmd(
     else:
         logger.warning("SSL_CERT_FILE not set on environment")
 
+    # Resolve the child argv before releasing the held socket: a packaged
+    # build with no CLI binary to re-invoke should fail with a clean message
+    # rather than after giving up the port.
+    try:
+        server_argv = qwenpaw_cli_command(
+            "app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--log-level",
+            log_level,
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
     is_windows = sys.platform == "win32"
     proc = None
     manually_terminated = (
@@ -252,18 +269,7 @@ def desktop_cmd(
             held_socket.close()
 
         proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "qwenpaw",
-                "app",
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--log-level",
-                log_level,
-            ],
+            server_argv,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE if is_windows else sys.stdout,
             stderr=subprocess.PIPE if is_windows else sys.stderr,
