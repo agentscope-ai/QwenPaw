@@ -1306,7 +1306,7 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
-        4. VisualCompressionMiddleware — innermost pre-provider transform
+        4. VisualCompressionMiddleware — pre-provider transform
         5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
            Advisor Mode (innermost)
         """

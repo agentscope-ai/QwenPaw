@@ -22,7 +22,7 @@ from qwenpaw.agents.react_agent import QwenPawAgent
 
 
 def _bare_agent() -> QwenPawAgent:
-    agent = QwenPawAgent.__new__(QwenPawAgent)
+    agent = object.__new__(QwenPawAgent)
     agent._injected_events = None
     agent.state = SimpleNamespace(reply_id="reply-1")
     return agent

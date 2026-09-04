@@ -117,6 +117,7 @@ def test_advisor_middleware_is_last_when_mode_enabled(agent_config):
     advisors = [m for m in middlewares if isinstance(m, AdvisorMiddleware)]
     assert len(advisors) == 1
     assert middlewares[-1] is advisors[0], "mode middlewares sit innermost"
+    assert advisors[0].emits_injected_exchanges, "the agent arms its queue"
 
 
 def test_advisor_middleware_absent_when_mode_disabled(agent_config):

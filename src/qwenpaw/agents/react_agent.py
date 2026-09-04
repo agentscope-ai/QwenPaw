@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-
 import logging
 import re
 import uuid
@@ -196,9 +195,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
         # Events a middleware wants shown in the chat stream (an injected
-        # advisor plan, for example). ``_reasoning`` merges them live into
-        # the events it forwards, see ``_with_live_injections``.
-        self._injected_events: asyncio.Queue[Any] | None = None
+        # advisor plan, for example). Armed only when a middleware says it
+        # emits them; ``_reasoning`` then merges them live into the events
+        # it forwards, see ``_with_live_injections``.
+        self._injected_events: asyncio.Queue[Any] | None = (
+            asyncio.Queue()
+            if any(
+                getattr(mw, "emits_injected_exchanges", False)
+                for mw in middlewares
+            )
+            else None
+        )
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
         # native AgentScope compression (see compress_context /
@@ -957,9 +964,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
 
         try:
-            async for evt in self._with_live_injections(
-                super()._reasoning(tool_choice=tool_choice),
-            ):
+            async for evt in self._reasoning_events(tool_choice):
                 acknowledge_seen_inputs(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
@@ -1008,9 +1013,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._strip_media_blocks_from_memory()
 
             try:
-                async for evt in self._with_live_injections(
-                    super()._reasoning(tool_choice=tool_choice),
-                ):
+                async for evt in self._reasoning_events(tool_choice):
                     acknowledge_seen_inputs(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
@@ -1195,6 +1198,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # ------------------------------------------------------------------
     # Middleware-injected exchanges, surfaced to the UI as tool calls
     # ------------------------------------------------------------------
+
+    def _reasoning_events(self, tool_choice: Any) -> Any:
+        """The base reasoning stream, with injected exchanges merged in
+        when a middleware emits them (otherwise the stream is untouched)."""
+        inner = super()._reasoning(tool_choice=tool_choice)
+        # ``getattr``: tests build agents without ``__init__``.
+        if getattr(self, "_injected_events", None) is None:
+            return inner
+        return self._with_live_injections(inner)
 
     def _injected_queue(self) -> "asyncio.Queue[Any]":
         queue = getattr(self, "_injected_events", None)
