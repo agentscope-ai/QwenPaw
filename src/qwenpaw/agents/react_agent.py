@@ -12,7 +12,6 @@ as constructor parameters and does not build them internally.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
 import uuid
@@ -25,19 +24,14 @@ from agentscope.event import (
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
-    ToolResultEndEvent,
-    ToolResultStartEvent,
-    ToolResultTextDeltaEvent,
 )
-from agentscope.message import HintBlock, Msg, TextBlock, ToolResultState
+from agentscope.message import HintBlock, Msg, TextBlock
 from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
+from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import _is_media_block
@@ -196,8 +190,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._workspace_dir = workspace_dir
         # Events a middleware wants shown in the chat stream (an injected
         # advisor plan, for example). Armed only when a middleware says it
-        # emits them; ``_reasoning`` then merges them live into the events
-        # it forwards, see ``_with_live_injections``.
+        # emits them. ``_reasoning`` then merges them live into the events
+        # it forwards.
         self._injected_events: asyncio.Queue[Any] | None = (
             asyncio.Queue()
             if any(
@@ -1203,157 +1197,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """The base reasoning stream, with injected exchanges merged in
         when a middleware emits them (otherwise the stream is untouched)."""
         inner = super()._reasoning(tool_choice=tool_choice)
-        # ``getattr``: tests build agents without ``__init__``.
-        if getattr(self, "_injected_events", None) is None:
-            return inner
-        return self._with_live_injections(inner)
-
-    def _injected_queue(self) -> "asyncio.Queue[Any]":
         queue = getattr(self, "_injected_events", None)
         if queue is None:
-            queue = self._injected_events = asyncio.Queue()
-        return queue
+            return inner
+        return merge_injected_events(inner, queue)
 
-    def _reply_id(self) -> str:
-        return getattr(self.state, "reply_id", "") or ""
-
-    def emit_injected_event(self, event: Any) -> None:
+    def emit_injected_event(self, event: Any) -> bool:
         """Show ``event`` in the chat stream as soon as possible.
 
-        Middlewares run *inside* a model call while the UI only sees what
-        ``_reasoning`` yields; this queue is the bridge. Events queued
-        while the reasoning generator is blocked (waiting on an advisor,
-        say) are yielded right away, see ``_with_live_injections``.
+        Middlewares run inside a model call while the UI only sees what
+        ``_reasoning`` yields, so this queue is the bridge. Returns False
+        when no middleware armed the queue (the event is dropped).
         """
-        self._injected_queue().put_nowait(event)
-
-    def begin_injected_exchange(
-        self,
-        *,
-        call_id: str,
-        name: str,
-        arguments: str,
-    ) -> None:
-        """Open a tool call + result pair whose output is still being
-        written. Follow with ``stream_injected_output`` for the text and
-        ``finish_injected_exchange`` to close it."""
-        reply_id = self._reply_id()
-        self.emit_injected_event(
-            ToolCallStartEvent(
-                reply_id=reply_id,
-                tool_call_id=call_id,
-                tool_call_name=name,
-            ),
-        )
-        if arguments:
-            self.emit_injected_event(
-                ToolCallDeltaEvent(
-                    reply_id=reply_id,
-                    tool_call_id=call_id,
-                    delta=arguments,
-                ),
-            )
-        self.emit_injected_event(
-            ToolCallEndEvent(reply_id=reply_id, tool_call_id=call_id),
-        )
-        self.emit_injected_event(
-            ToolResultStartEvent(
-                reply_id=reply_id,
-                tool_call_id=call_id,
-                tool_call_name=name,
-            ),
-        )
-
-    def stream_injected_output(self, *, call_id: str, delta: str) -> None:
-        """Append ``delta`` to the output of an open injected exchange."""
-        if not delta:
-            return
-        self.emit_injected_event(
-            ToolResultTextDeltaEvent(
-                reply_id=self._reply_id(),
-                tool_call_id=call_id,
-                delta=delta,
-            ),
-        )
-
-    def finish_injected_exchange(
-        self,
-        *,
-        call_id: str,
-        state: ToolResultState = ToolResultState.SUCCESS,
-    ) -> None:
-        """Close an injected exchange opened by ``begin_injected_exchange``."""
-        self.emit_injected_event(
-            ToolResultEndEvent(
-                reply_id=self._reply_id(),
-                tool_call_id=call_id,
-                state=state,
-            ),
-        )
-
-    def _drain_injected_exchange_events(self) -> Any:
-        """Yield every event queued so far, without waiting for more."""
         queue = getattr(self, "_injected_events", None)
-        while queue is not None and not queue.empty():
-            yield queue.get_nowait()
-
-    async def _with_live_injections(self, inner: Any) -> Any:
-        """Yield ``inner``'s events, interleaving injected events live.
-
-        A plain ``async for`` over the reasoning generator only regains
-        control when it yields, so anything a middleware queued during a
-        long ``await`` (the advisor writing its plan) stayed invisible
-        until the model produced its first token. Here the next inner
-        event and the next queued event are awaited together and whichever
-        arrives first is yielded. Queued events are always flushed before
-        an inner event, so an injected exchange precedes the model output
-        it shaped.
-        """
-        queue = self._injected_queue()
-        next_task: asyncio.Task[Any] | None = None
-        get_task: asyncio.Task[Any] | None = None
-        try:
-            while True:
-                for queued in self._drain_injected_exchange_events():
-                    yield queued
-                if next_task is None:
-                    next_task = asyncio.ensure_future(inner.__anext__())
-                if get_task is None:
-                    get_task = asyncio.ensure_future(queue.get())
-                done, _pending = await asyncio.wait(
-                    {next_task, get_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if get_task in done:
-                    evt, get_task = get_task.result(), None
-                    yield evt
-                if next_task in done:
-                    task, next_task = next_task, None
-                    try:
-                        evt = task.result()
-                    except StopAsyncIteration:
-                        return
-                    for queued in self._drain_injected_exchange_events():
-                        yield queued
-                    yield evt
-        finally:
-            if get_task is not None:
-                get_task.cancel()
-            if next_task is not None and not next_task.done():
-                # Torn down mid-step (interrupted, or the consumer stopped
-                # early): pass the cancellation on so the inner
-                # generator's own cleanup runs, as it would have under a
-                # plain ``async for``.
-                next_task.cancel()
-                with contextlib.suppress(BaseException):
-                    await next_task
-            if get_task is not None:
-                with contextlib.suppress(BaseException):
-                    await get_task
-            # Close the inner generator eagerly (a plain ``async for`` that
-            # is left early relies on garbage collection for this).
-            with contextlib.suppress(BaseException):
-                await inner.aclose()
+        if queue is None:
+            return False
+        queue.put_nowait(event)
+        return True
 
     # ------------------------------------------------------------------
     # Tool call enhancement: hint injection + hook registration

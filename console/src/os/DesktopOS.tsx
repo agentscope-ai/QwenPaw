@@ -19,7 +19,6 @@ import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAgentStore } from "../stores/agentStore";
 import { useSyncCodingMode } from "../stores/useSyncCodingMode";
-import { useSyncAdvisorMode } from "../stores/useSyncAdvisorMode";
 import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import { useOsPlugins } from "./osPluginStore";
@@ -105,7 +104,6 @@ export default function DesktopOS() {
   const { uninstall } = useOsPlugins();
   const { selectedAgent, refreshAgents } = useAgentStore();
   useSyncCodingMode();
-  useSyncAdvisorMode();
   // Single app registry: desktop icons, window chrome and the launcher all
   // read from the same source (catalog + system + dynamic plugin apps).
   const { apps: visibleApps, appById } = useOsApps();
