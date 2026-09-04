@@ -9,6 +9,7 @@ from agentscope.model import OpenAIChatModel
 import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
+from qwenpaw.app.agent_context import scoped_session_id
 from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
     KiloProvider,
@@ -185,6 +186,47 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
     ]
     assert all(model.is_free for model in models)
     close.assert_awaited_once()
+
+
+def test_opencode_sends_current_session_header() -> None:
+    provider = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        base_url="https://opencode.ai/zen/go/v1",
+        require_api_key=False,
+    )
+
+    with scoped_session_id("session-123"):
+        headers = provider._build_default_headers()
+
+    assert headers["x-opencode-session"] == "session-123"
+
+
+def test_opencode_sends_fallback_session_header() -> None:
+    provider = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        base_url="https://opencode.ai/zen/go/v1",
+        require_api_key=False,
+    )
+
+    assert provider._build_default_headers()["x-opencode-session"] == (
+        "qwenpaw"
+    )
+
+
+def test_opencode_session_header_can_be_overridden() -> None:
+    provider = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        base_url="https://opencode.ai/zen/go/v1",
+        require_api_key=False,
+        custom_headers={"x-opencode-session": "custom-session"},
+    )
+
+    assert provider._build_default_headers()["x-opencode-session"] == (
+        "custom-session"
+    )
 
 
 async def test_custom_list_model_error_propagates(monkeypatch) -> None:

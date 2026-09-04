@@ -913,6 +913,15 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
         },
     )
 
+    def _build_default_headers(self) -> dict:
+        """Add the session header required by OpenCode."""
+        from ..app.agent_context import get_current_session_id
+
+        headers = {
+            "x-opencode-session": get_current_session_id() or "qwenpaw",
+        }
+        return {**headers, **self.custom_headers}
+
     async def fetch_models(
         self,
         timeout: float = 5,
