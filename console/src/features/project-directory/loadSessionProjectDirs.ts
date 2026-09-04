@@ -46,7 +46,7 @@ export async function loadSessionProjectDirs(
   chatId?: string,
 ): Promise<SessionProjectDirsSnapshot> {
   if (chatId) {
-    const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
+    const next = await chatProjectDirectoryApi.getProjectDirs(chatId, agentId);
     if (next.project_dirs.length > 0) {
       return {
         dirs: next.project_dirs,
@@ -56,7 +56,7 @@ export async function loadSessionProjectDirs(
     }
     // Nothing bound (workspace fallback): the plural endpoint reports an empty
     // list, so fall back to the singular view for the directory to display.
-    const single = await chatProjectDirectoryApi.get(chatId);
+    const single = await chatProjectDirectoryApi.get(chatId, agentId);
     return {
       dirs: [
         {

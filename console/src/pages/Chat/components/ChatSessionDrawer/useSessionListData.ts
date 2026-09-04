@@ -129,7 +129,7 @@ export interface SessionListData {
  * Both ChatSessionDrawer and SidebarSessionList use this hook.
  *
  * The `onSessionClick` callback is injected by the caller so that:
- * - ChatSessionDrawer can call setCurrentSessionId directly (inside context).
+ * - ChatSessionDrawer can navigate to the Chat UUID (inside context).
  * - SidebarSessionList can dispatch a DOM event (outside context).
  */
 export function useSessionListData(

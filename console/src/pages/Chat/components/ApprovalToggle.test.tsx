@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { migrateChatSessionPreferences } from "../chatSessionPreferences";
 import { renderWithProviders } from "@/test/common_setup";
 import ApprovalLevelToggle from "./ApprovalLevelToggle";
 import HarnessApprovalToggle from "./HarnessApprovalToggle";
@@ -18,6 +19,49 @@ describe("compact approval controls", () => {
   beforeEach(() => {
     localStorage.clear();
     mockUseIsMobile.mockReturnValue(false);
+  });
+
+  it("keeps draft preferences isolated when navigating to another Agent or existing Chat", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-draft:a", "OFF");
+    localStorage.setItem(
+      "approval_level-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "STRICT",
+    );
+    const props = {
+      runningConfigApprovalLevel: "AUTO" as const,
+      onChange: changed,
+    };
+    const view = renderWithProviders(
+      <ApprovalLevelToggle {...props} sessionId="draft:a" />,
+    );
+    expect(changed).toHaveBeenLastCalledWith("OFF");
+    view.rerender(
+      <ApprovalLevelToggle
+        {...props}
+        sessionId="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      />,
+    );
+    expect(changed).toHaveBeenLastCalledWith("STRICT");
+    expect(localStorage.getItem("approval_level-draft:a")).toBe("OFF");
+    view.rerender(<ApprovalLevelToggle {...props} sessionId="draft:b" />);
+    expect(changed).toHaveBeenLastCalledWith(null);
+  });
+
+  it("moves both approval settings only on confirmed creation and preserves destination overrides", () => {
+    localStorage.setItem("approval_level-draft:a", "SMART");
+    localStorage.setItem("approval_level-draft:b", "STRICT");
+    localStorage.setItem("harness-approval-codex-draft:a", "manual");
+    migrateChatSessionPreferences("draft:a", "created-chat", "codex");
+    expect(localStorage.getItem("approval_level-created-chat")).toBe("SMART");
+    expect(localStorage.getItem("harness-approval-codex-created-chat")).toBe(
+      "manual",
+    );
+    expect(localStorage.getItem("approval_level-draft:a")).toBeNull();
+    expect(localStorage.getItem("approval_level-draft:b")).toBe("STRICT");
+    localStorage.setItem("approval_level-draft:a", "OFF");
+    migrateChatSessionPreferences("draft:a", "created-chat", "codex");
+    expect(localStorage.getItem("approval_level-created-chat")).toBe("SMART");
   });
 
   it("renders only the QwenPaw approval icon", () => {

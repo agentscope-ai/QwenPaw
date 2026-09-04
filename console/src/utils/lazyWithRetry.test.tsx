@@ -19,6 +19,10 @@ vi.mock("../plugins/moduleRegistry", () => ({
   moduleRegistry: registryMock,
 }));
 
+vi.mock("../pages/Settings/Debug", () => ({
+  default: () => React.createElement("div", null, "base-debug-page"),
+}));
+
 import { lazyWithRetry, lazyImportWithRetry } from "./lazyWithRetry";
 
 const Dummy = () => React.createElement("div", null, "loaded-page");
@@ -125,8 +129,7 @@ describe("lazyImportWithRetry", () => {
   });
 
   it("resolves a registry override for a glob-backed path", async () => {
-    // Use a lightweight real page module path so the glob lookup succeeds,
-    // but the registry override wins without executing the heavy chunk.
+    // Keep the real glob path while isolating the page's application dependencies.
     const Patched = () => React.createElement("div", null, "glob-patched");
     registryMock.get.mockImplementation((_key: string, name: string) =>
       name === "default" ? Patched : undefined,

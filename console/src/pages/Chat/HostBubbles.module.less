@@ -1,6 +1,7 @@
 .collapsedSteps {
-  width: calc(100% + 8px);
-  margin-left: -8px;
+  // Stay inside the bubble's paint boundary: content-visibility on the SDK
+  // bubble clips a negatively offset header, including its left border.
+  width: 100%;
 
   /* Closed headers add a 1px border; keep both content baselines equal. */
   :global([class$="-accordion-group-header-close"]) {

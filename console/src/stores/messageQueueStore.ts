@@ -1,5 +1,8 @@
 import { create } from "zustand";
-import { createClientMessageId } from "../utils/clientMessageId";
+import {
+  createClientMessageId,
+  extractClientMessageId,
+} from "../utils/clientMessageId";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +54,8 @@ export interface QueueItem {
   backendSessionId?: string;
   userId?: string;
   channel?: string;
+  requestContext?: Record<string, unknown>;
+  bizParams?: Record<string, unknown>;
   status: QueueItemStatus;
   retryCount: number;
   errorMessage?: string;
@@ -64,8 +69,69 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  /** Explicit route snapshot. Callers should provide these when available. */
+  agentId?: string;
+  backendSessionId?: string;
   userId?: string;
   channel?: string;
+  requestContext?: Record<string, unknown>;
+  bizParams?: Record<string, unknown>;
+}
+
+/** Chat UUIDs are globally unique. Drafts have no UUID and must be Agent-scoped.
+ * These keys belong only to storage/locks; never send them to the Chat API. */
+export function getQueueKey(agentId: string, chatId?: string | null): string {
+  return !chatId || chatId === "new"
+    ? `draft:${encodeURIComponent(agentId || "default")}`
+    : chatId;
+}
+
+export function isDraftQueueKey(key: string): boolean {
+  return key === "new" || key.startsWith("draft:");
+}
+
+/** Locate an item after a `new` queue has migrated to its backend chat id. */
+export function findQueueItemSessionId(
+  queues: Record<string, QueueItem[]>,
+  itemId: string,
+  preferredSessionId?: string,
+): string | undefined {
+  if (
+    preferredSessionId &&
+    queues[preferredSessionId]?.some((item) => item.id === itemId)
+  ) {
+    return preferredSessionId;
+  }
+  return Object.entries(queues).find(([, items]) =>
+    items.some((item) => item.id === itemId),
+  )?.[0];
+}
+
+/**
+ * Return the session that most recently received a queued item for an agent.
+ *
+ * Queue state is synchronized across tabs, so it is the authoritative host
+ * signal when another tab is actively working in an agent session. Legacy
+ * queue items without an agentId belong to the default agent.
+ */
+export function getLatestQueuedSessionIdForAgent(
+  queues: Record<string, QueueItem[]>,
+  agentId: string,
+): string | undefined {
+  let latestSessionId: string | undefined;
+  let latestCreatedAt = Number.NEGATIVE_INFINITY;
+
+  for (const [sessionId, items] of Object.entries(queues)) {
+    if (isDraftQueueKey(sessionId)) continue;
+    for (const item of items) {
+      if ((item.agentId ?? "default") !== agentId) continue;
+      if (item.createdAt <= latestCreatedAt) continue;
+      latestCreatedAt = item.createdAt;
+      latestSessionId = sessionId;
+    }
+  }
+
+  return latestSessionId;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +243,7 @@ type BroadcastPayload = {
   runState?: QueueRunState;
   // For migrate: target session id (sessionId is the source)
   toSessionId?: string;
+  sourceItems?: QueueItem[];
 };
 
 let _channel: BroadcastChannel | null = null;
@@ -236,6 +303,45 @@ export async function withSendLock<T>(
   } catch {
     return null;
   }
+}
+
+/**
+ * Run a background queue sender only when no mounted foreground tab owns the
+ * conversation. Unlike `holdOwnershipLock`, this never waits: a missing lock
+ * means the foreground owner is responsible for consuming the queue and
+ * rendering its stream.
+ */
+export async function withAvailableOwnershipLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  const locks = getLockManager();
+  if (!locks) {
+    return await fn();
+  }
+  try {
+    const result = (await locks.request(
+      `qwenpaw:queue-owner:${sessionId}`,
+      { mode: "exclusive", ifAvailable: true },
+      async (lock: unknown) => {
+        if (!lock) return null;
+        return await fn();
+      },
+    )) as T | null;
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/** Acquire both the foreground ownership gate and the short-lived send lock. */
+export function withBackgroundSendLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  return withAvailableOwnershipLock(sessionId, () =>
+    withSendLock(sessionId, fn),
+  );
 }
 
 /**
@@ -311,7 +417,11 @@ interface MessageQueueStore {
   reorder: (sessionId: string, items: QueueItem[]) => void;
   clear: (sessionId: string) => void;
   /** Move all items from one session id to another (and clear the source). */
-  migrateQueue: (fromSessionId: string, toSessionId: string) => void;
+  migrateQueue: (
+    fromSessionId: string,
+    toSessionId: string,
+    agentId?: string,
+  ) => void;
   setItemStatus: (
     sessionId: string,
     id: string,
@@ -326,6 +436,12 @@ interface MessageQueueStore {
   consumeMigratedTo: () => string | null;
   /** Get queue for a session (read-only) */
   getQueue: (sessionId: string) => QueueItem[];
+  /** Remove only messages whose unique receipt is present in backend history. */
+  reconcileHistory: (
+    sessionId: string,
+    agentId: string,
+    messages: Array<{ role?: string; metadata?: unknown }>,
+  ) => void;
   /** Persist queue to localStorage */
   persistToStorage: (sessionId: string) => void;
   /** Load queue from localStorage into memory */
@@ -353,23 +469,23 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     }
     // Capture the current selected agent at enqueue time so that
     // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
+    let agentId = input.agentId;
     try {
-      const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
-      if (agentStorage) {
-        const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
+      if (!agentId) {
+        const agentStorage =
+          sessionStorage.getItem("qwenpaw-agent-storage") ||
+          localStorage.getItem("qwenpaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          agentId = parsed?.state?.selectedAgent || undefined;
+        }
       }
     } catch {
       // ignore
     }
     // Capture backend session_id so background sender targets the correct
     // session even if the session list is cleared after agent switch.
-    const backendSessionId =
-      (window as unknown as { currentSessionId?: string }).currentSessionId ||
-      undefined;
+    const backendSessionId = input.backendSessionId;
     const item: QueueItem = {
       id: nextQueueId(),
       clientMessageId: createClientMessageId(),
@@ -382,6 +498,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       backendSessionId,
       userId: input.userId,
       channel: input.channel,
+      requestContext: input.requestContext,
+      bizParams: input.bizParams,
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),
@@ -456,29 +574,51 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     });
   },
 
-  migrateQueue: (fromSessionId: string, toSessionId: string) => {
+  migrateQueue: (
+    fromSessionId: string,
+    toSessionId: string,
+    agentId?: string,
+  ) => {
     if (fromSessionId === toSessionId) return;
     set((state) => {
       const fromItems = state.queues[fromSessionId] ?? [];
+      const moving = agentId
+        ? fromItems.filter((item) => (item.agentId || "default") === agentId)
+        : fromItems;
+      if (moving.length === 0 && (agentId || !state.runStates[fromSessionId]))
+        return state;
+      const movingIds = new Set(moving.map((item) => item.id));
+      const remaining = fromItems.filter((item) => !movingIds.has(item.id));
       const toItems = state.queues[toSessionId] ?? [];
       // Preserve order: existing destination items first, migrated source items appended.
-      const merged = [...toItems, ...fromItems];
+      const existingIds = new Set(toItems.map((item) => item.id));
+      const merged = [
+        ...toItems,
+        ...moving.filter((item) => !existingIds.has(item.id)),
+      ];
       const queues = { ...state.queues, [toSessionId]: merged };
-      delete queues[fromSessionId];
+      if (remaining.length) queues[fromSessionId] = remaining;
+      else delete queues[fromSessionId];
       // Carry over the from-session's runState to the destination if not already set.
       const runStates = { ...state.runStates };
       if (!runStates[toSessionId] && runStates[fromSessionId]) {
         runStates[toSessionId] = runStates[fromSessionId];
       }
-      delete runStates[fromSessionId];
+      if (!remaining.length) delete runStates[fromSessionId];
       const destRunState = runStates[toSessionId] ?? "idle";
       writeQueueToStorage(toSessionId, merged, destRunState);
-      writeQueueToStorage(fromSessionId, [], "idle");
+      writeQueueToStorage(
+        fromSessionId,
+        remaining,
+        runStates[fromSessionId] ?? "idle",
+      );
       broadcast({
         type: "migrate",
         sessionId: fromSessionId,
         toSessionId,
         items: merged,
+        sourceItems: remaining,
+        runState: destRunState,
       });
       return { queues, runStates, lastMigratedTo: toSessionId };
     });
@@ -503,13 +643,17 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
           : it,
       );
       const next = { ...state.queues, [sessionId]: nextItems };
-      writeQueueToStorage(
+      const failed = status === "failed" && current.some((it) => it.id === id);
+      const runState = failed ? "error" : state.runStates[sessionId] ?? "idle";
+      const runStates = { ...state.runStates, [sessionId]: runState };
+      writeQueueToStorage(sessionId, nextItems, runState);
+      broadcast({
+        type: "setItemStatus",
         sessionId,
-        nextItems,
-        get().runStates[sessionId] ?? "idle",
-      );
-      broadcast({ type: "setItemStatus", sessionId, items: nextItems });
-      return { queues: next };
+        items: nextItems,
+        runState,
+      });
+      return { queues: next, runStates };
     });
   },
 
@@ -545,6 +689,36 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     return get().queues[sessionId] ?? [];
   },
 
+  reconcileHistory: (sessionId, agentId, messages) => {
+    const received = new Set(
+      messages
+        .filter((message) => message.role === "user")
+        .map((message) => extractClientMessageId(message.metadata))
+        .filter(Boolean),
+    );
+    if (received.size === 0) return;
+    const saved = readQueueFromStorage(sessionId);
+    const current = get().queues[sessionId] ?? saved?.items ?? [];
+    const items = current.filter(
+      (item) =>
+        (item.agentId || "default") !== agentId ||
+        !item.clientMessageId ||
+        !received.has(item.clientMessageId),
+    );
+    if (items.length === current.length) return;
+    const previous = get().runStates[sessionId] ?? saved?.runState ?? "idle";
+    const runState =
+      previous === "error" && !items.some((item) => item.status === "failed")
+        ? "idle"
+        : previous;
+    writeQueueToStorage(sessionId, items, runState);
+    set((state) => ({
+      queues: { ...state.queues, [sessionId]: items },
+      runStates: { ...state.runStates, [sessionId]: runState },
+    }));
+    broadcast({ type: "setItemStatus", sessionId, items, runState });
+  },
+
   persistToStorage: (sessionId: string) => {
     const items = get().queues[sessionId] ?? [];
     writeQueueToStorage(sessionId, items, get().runStates[sessionId] ?? "idle");
@@ -555,11 +729,17 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     if (saved) {
       set((state) => ({
         queues: { ...state.queues, [sessionId]: saved.items },
-        // Restore persisted runState per-session (avoids auto-send after refresh
-        // when the queue was paused). Default to "idle" if not paused.
+        // A failed head requires an explicit retry, including for older saves
+        // that recorded its item status without recording the error run state.
         runStates: {
           ...state.runStates,
-          [sessionId]: saved.runState === "paused" ? "paused" : "idle",
+          [sessionId]:
+            saved.runState === "paused"
+              ? "paused"
+              : saved.runState === "error" ||
+                saved.items[0]?.status === "failed"
+              ? "error"
+              : "idle",
         },
       }));
     } else {
@@ -592,6 +772,42 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
   },
 }));
 
+/** Recover legacy drafts before acquiring foreground ownership. A separate
+ * exclusive lock serializes the shared legacy read/partition/write across tabs. */
+export async function recoverLegacyDraftQueue(
+  queueKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (
+    !queueKey.startsWith("draft:") ||
+    !readQueueFromStorage("new")?.items.length
+  )
+    return;
+  const recover = () => {
+    if (signal?.aborted) return;
+    const legacy = readQueueFromStorage("new");
+    if (!legacy?.items.length) return;
+    const store = useMessageQueueStore.getState();
+    store.loadFromStorage("new");
+    store.loadFromStorage(queueKey);
+    store.migrateQueue("new", queueKey, decodeURIComponent(queueKey.slice(6)));
+  };
+  const locks = getLockManager();
+  if (!locks) {
+    recover();
+    return;
+  }
+  try {
+    await locks.request(
+      "qwenpaw:queue-migrate:legacy-new",
+      { mode: "exclusive", signal },
+      recover,
+    );
+  } catch (error) {
+    if (!signal?.aborted) throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Cross-tab listeners. These mutate in-memory state only; they never re-write
 // storage or re-broadcast (which would loop).
@@ -607,8 +823,11 @@ if (typeof window !== "undefined") {
       const store = useMessageQueueStore.getState();
       if (data.type === "migrate") {
         // Source cleared, destination set with merged items.
-        store.applyRemoteItems(data.sessionId, []);
+        store.applyRemoteItems(data.sessionId, data.sourceItems ?? []);
         if (data.toSessionId && data.items) {
+          if (data.runState) {
+            store.applyRemoteRunState(data.toSessionId, data.runState);
+          }
           store.applyRemoteItems(data.toSessionId, data.items);
         }
         return;
@@ -618,6 +837,9 @@ if (typeof window !== "undefined") {
           .getState()
           .applyRemoteRunState(data.sessionId, data.runState);
         return;
+      }
+      if (data.runState) {
+        store.applyRemoteRunState(data.sessionId, data.runState);
       }
       if (data.items) {
         store.applyRemoteItems(data.sessionId, data.items);
@@ -643,11 +865,11 @@ if (typeof window !== "undefined") {
       store.applyRemoteItems(sessionId, items);
       if (
         !Array.isArray(parsed) &&
-        (parsed as PersistedQueue).runState === "paused"
+        ["paused", "error"].includes((parsed as PersistedQueue).runState)
       ) {
         useMessageQueueStore
           .getState()
-          .applyRemoteRunState(sessionId, "paused");
+          .applyRemoteRunState(sessionId, (parsed as PersistedQueue).runState);
       }
     } catch {
       // ignore

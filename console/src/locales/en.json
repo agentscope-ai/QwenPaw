@@ -3452,7 +3452,10 @@
       "today": "Today",
       "recent": "Last 7 days",
       "earlier": "Earlier"
-    }
+    },
+    "regenerate": "Regenerate",
+    "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
+    "turnCanceled": "Canceled"
   },
   "security": {
     "parent": "Settings",

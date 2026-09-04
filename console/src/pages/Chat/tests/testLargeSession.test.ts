@@ -702,6 +702,50 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     expect((session as any).id).toBe("uuid-missing");
   });
 
+  it("loads a UUID-looking runtime session_id through its unique Chat UUID", async () => {
+    const apiImport = await import("../../../api");
+    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+    } as ChatHistory);
+    const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
+    const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    (sessionApiDefaultExport as any).sessionList = [
+      {
+        id: chatId,
+        sessionId: runtimeId,
+        userId: "u",
+        channel: "console",
+        name: "runtime alias",
+      },
+    ];
+
+    const session = (await sessionApiDefaultExport.getSession(
+      runtimeId,
+    )) as any;
+
+    expect(getChat).toHaveBeenCalledWith(
+      chatId,
+      expect.objectContaining({ include_app_owned: false }),
+    );
+    expect(session).toMatchObject({
+      id: runtimeId,
+      realId: chatId,
+      sessionId: runtimeId,
+    });
+    expect(sessionApiDefaultExport.getRealIdForSession(runtimeId)).toBe(chatId);
+  });
+
+  it("does not guess when multiple Chats share one runtime session_id", () => {
+    const runtimeId = "shared-runtime-id";
+    (sessionApiDefaultExport as any).sessionList = [
+      { id: "chat-a", sessionId: runtimeId },
+      { id: "chat-b", sessionId: runtimeId },
+    ];
+
+    expect(sessionApiDefaultExport.getRealIdForSession(runtimeId)).toBeNull();
+  });
+
   it("does NOT cache generating sessions (avoids stale large payload being shown after reconnect)", async () => {
     const { messages } = buildLargeMessages(300 * 1024);
 

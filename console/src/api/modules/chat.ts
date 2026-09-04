@@ -169,9 +169,10 @@ export const chatApi = {
       { method: "DELETE" },
     ),
 
-  stopChat: (chatId: string) =>
+  stopChat: (chatId: string, agentId?: string) =>
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
       method: "POST",
+      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
     }),
 };
 

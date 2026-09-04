@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import React, { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
-import {
-  buildChatPath,
-  getSessionIdFromPath,
-} from "../../../../utils/sessionRoute";
+import { buildChatPath } from "../../../../utils/sessionRoute";
 import {
   useSessionListStore,
   type ExtendedSession,
@@ -13,32 +10,14 @@ import {
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 
 /**
- * URL chatId → context currentSessionId (one direction of bidirectional sync).
- *
- * Extracts the session ID from the canonical `/chat/<id>` URL.
- *
- * Only reacts to URL or session list changes. currentSessionId is read via ref
- * to avoid triggering the effect when the context changes from the other direction
- * (context → URL via onSessionSelected), which would cause circular re-loads.
- *
- * IMPORTANT: sessions array reference changes (e.g. from polling in pinned drawer)
- * must NOT re-trigger setCurrentSessionId when the chatId hasn't changed, otherwise
- * it causes an infinite loop of getSession calls bouncing between two chat IDs.
- *
- * Also handles sidebar events:
- *  - qwenpaw:sidebar-select-session → switch to the given sessionId
- *  - qwenpaw:sidebar-new-chat       → create a new session
+ * Mirror SDK sessions for the sidebar and translate sidebar intents to routes.
+ * ChatPage's controlled session.currentSessionId is the only route-to-SDK
+ * writer. A list refresh must never select an old local alias after the route
+ * and completed response have moved to a Chat UUID.
  */
 const ChatSessionInitializer: React.FC = () => {
-  const location = useLocation();
   const navigate = useNavigate();
-  const chatId = useMemo(
-    () => getSessionIdFromPath(location.pathname),
-    [location.pathname],
-  );
-
-  const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
-    useChatAnywhereSessionsState();
+  const { sessions, setSessions } = useChatAnywhereSessionsState();
   const createNewSession = useCreateNewSession();
   const { syncFromLibrary } = useSessionListStore();
 
@@ -53,9 +32,6 @@ const ChatSessionInitializer: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions]);
 
-  const currentSessionIdRef = useRef(currentSessionId);
-  currentSessionIdRef.current = currentSessionId;
-
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
@@ -65,69 +41,6 @@ const ChatSessionInitializer: React.FC = () => {
   /** AbortController for embedded session switch — aborted when a new switch starts. */
   const switchControllerRef = useRef<AbortController | null>(null);
 
-  /** Track the last chatId for which we called setCurrentSessionId, so that
-   *  subsequent sessions array reference changes (from polling in pinned drawer)
-   *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
-  const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!chatId || !sessions.length) return;
-
-    // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
-    // session switch is in progress. This breaks the infinite loop where
-    // onSessionSelected → navigate → this effect → setCurrentSessionId →
-    // library getSession → onSessionSelected → …
-    if (sessionApi.isSessionSwitching) return;
-
-    // If onSessionSelected already navigated to this chatId, skip.
-    // This prevents the displayId→realId URL change from triggering
-    // an unnecessary setCurrentSessionId(realId) that would cause
-    // a redundant getSession call (issue #4557).
-    if (sessionApi.lastNavigatedChatId === chatId) {
-      lastAppliedChatIdRef.current = chatId;
-      sessionApi.lastNavigatedChatId = null;
-      return;
-    }
-
-    // Match by multiple criteria in order of specificity:
-    // 1) Library id (localId or UUID)
-    let matching = sessions.find((s) => s.id === chatId);
-
-    // 2) realId: URL contains a UUID but the session's library id is still a
-    //    local timestamp (e.g. during SSE before onSessionIdResolved fires).
-    if (!matching) {
-      matching = sessions.find((s) => (s as ExtendedSession).realId === chatId);
-    }
-
-    // 3) sessionId field: URL contains the backend session_id format
-    if (!matching) {
-      matching = sessions.find(
-        (s) => (s as ExtendedSession).sessionId === chatId,
-      );
-    }
-
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // Comparing both values lets a blank new chat reopen the same URL later,
-    // while still ignoring polling-only session list updates.
-    if (
-      matching &&
-      chatId === lastAppliedChatIdRef.current &&
-      currentSessionIdRef.current === matching.id
-    ) {
-      return;
-    }
-
-    if (matching && currentSessionIdRef.current !== matching.id) {
-      lastAppliedChatIdRef.current = chatId;
-      setCurrentSessionId(matching.id);
-    } else if (matching) {
-      // Already in sync, just record that we've handled this chatId
-      lastAppliedChatIdRef.current = chatId;
-    }
-    // Intentionally exclude currentSessionId from deps: only react to URL / session list changes.
-    // currentSessionId is read via ref to avoid circular triggers.
-  }, [chatId, sessions, setCurrentSessionId]);
-
   // ── Sidebar event handlers ────────────────────────────────────────────────
 
   useEffect(() => {
@@ -135,7 +48,7 @@ const ChatSessionInitializer: React.FC = () => {
      * Handle sidebar session selection.
      * The sidebar dispatches this event when the user clicks a session item,
      * since the sidebar is outside the AgentScopeRuntimeWebUI context tree
-     * and cannot call setCurrentSessionId directly.
+     * and changes the route through this bridge.
      */
     const handleSelectSession = (e: Event) => {
       const sessionId = (e as CustomEvent<{ sessionId: string }>).detail
@@ -143,15 +56,16 @@ const ChatSessionInitializer: React.FC = () => {
       if (!sessionId) return;
 
       const currentSessions = sessionsRef.current;
-      const matching = currentSessions.find((s) => s.id === sessionId);
+      const matching = currentSessions.find(
+        (s) =>
+          s.id === sessionId || (s as ExtendedSession).realId === sessionId,
+      );
 
       if (matching) {
         // Abort any previous embedded switch
-        switchControllerRef.current?.abort();
-        const controller = new AbortController();
+        const controller = sessionApi.startNewSwitch();
         switchControllerRef.current = controller;
 
-        sessionApi.isSessionSwitching = true;
         sessionApi
           .preloadSession(sessionId, controller.signal)
           .then(({ realId }) => {
@@ -164,11 +78,16 @@ const ChatSessionInitializer: React.FC = () => {
             sessionApi.trackNavigatedSession(effectiveId);
             sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });
-            setCurrentSessionId(sessionId);
           })
           .catch((err) => {
             if (err?.name === "AbortError") return;
-            setCurrentSessionId(sessionId);
+            if (controller.signal.aborted) return;
+            navigate(
+              buildChatPath(sessionApi.getEffectiveSessionId(sessionId)),
+              {
+                replace: true,
+              },
+            );
           })
           .finally(() => {
             if (!controller.signal.aborted) {
@@ -182,6 +101,7 @@ const ChatSessionInitializer: React.FC = () => {
     };
 
     const handleNewChat = () => {
+      switchControllerRef.current?.abort();
       if (sessionApi.isSessionSwitching) {
         sessionApi.finishSessionSwitch();
       }
@@ -220,7 +140,7 @@ const ChatSessionInitializer: React.FC = () => {
       );
       window.removeEventListener("qwenpaw:sidebar-new-chat", handleNewChat);
     };
-  }, [navigate, setCurrentSessionId]);
+  }, [navigate]);
 
   return null;
 };

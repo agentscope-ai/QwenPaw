@@ -103,6 +103,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        root_agent_id: str = "",
         deadline_override: float | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
@@ -112,6 +113,7 @@ class ToolCoordinator:
             agent_id,
             root_session_id,
             deadline_override,
+            root_agent_id,
         )
         ctx = entry.ctx
 
@@ -230,6 +232,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None,
+        root_agent_id: str,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -250,6 +253,7 @@ class ToolCoordinator:
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            root_agent_id=root_agent_id or agent_id,
             started_at=now,
             offload_deadline=offload_deadline,
             cancel_event=asyncio.Event(),
@@ -438,6 +442,46 @@ class ToolCoordinator:
             return True
         entry.ctx.cancel_event.set()
         return True
+
+    async def cancel_running_for_session(
+        self,
+        session_id: str,
+        *,
+        agent_id: str,
+        reason: CancelReason = CancelReason.USER,
+    ) -> int:
+        """Force-cancel foreground tool calls owned by one conversation.
+
+        A chat run and its tool task have separate asyncio owners. Cancelling
+        the chat producer therefore must explicitly reach the coordinator;
+        otherwise a subprocess-backed tool can continue after the user presses
+        Stop. Explicitly offloaded work is excluded because it is no longer
+        part of the foreground response lifecycle.
+
+        Match both session and Agent ownership: session IDs are not globally
+        unique. Root ownership also reaches foreground child-agent tools.
+        """
+        if not session_id or not agent_id:
+            return 0
+        entries = [
+            entry
+            for entry in self._entries.values()
+            if entry.status == ToolCallStatus.RUNNING
+            and (session_id, agent_id)
+            in (
+                (entry.ctx.session_id, entry.ctx.agent_id),
+                (entry.ctx.root_session_id, entry.ctx.root_agent_id),
+            )
+        ]
+        cancelled = 0
+        for entry in entries:
+            if await self.cancel(
+                entry.ctx.tool_call_id,
+                reason=reason,
+                force=True,
+            ):
+                cancelled += 1
+        return cancelled
 
     async def extend_offload_deadline(
         self,

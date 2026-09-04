@@ -34,9 +34,9 @@ vi.mock("@agentscope-ai/chat", () => ({
 vi.mock("../../sessionApi", () => ({
   default: {
     finishSessionSwitch: vi.fn(),
+    startNewSwitch: () => new AbortController(),
     getEffectiveSessionId: vi.fn((sessionId: string) => sessionId),
     isSessionSwitching: false,
-    lastNavigatedChatId: null,
     preferredChatId: null,
     preloadSession: vi.fn(),
     trackNavigatedSession: vi.fn(),
@@ -72,7 +72,7 @@ describe("ChatSessionInitializer", () => {
     });
   });
 
-  it("reopens the only history session after starting a blank chat", async () => {
+  it("leaves route selection to the controlled SDK option after a blank chat", async () => {
     const user = userEvent.setup();
     renderWithProviders(<NavigationHarness />, {
       initialEntries: [`/chat/${HISTORY_SESSION_ID}`],
@@ -86,17 +86,15 @@ describe("ChatSessionInitializer", () => {
     await user.click(screen.getByRole("button", { name: "New chat" }));
     await user.click(screen.getByRole("button", { name: "History session" }));
 
-    await waitFor(() => {
-      expect(mockSetCurrentSessionId).toHaveBeenCalledWith(HISTORY_SESSION_ID);
-    });
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // Session restore after page refresh — regression for #5142
   // (in Coding Mode a refresh lost the active session and fell back to the
-  // first one; the initializer must re-select the session from the URL)
+  // first one; ChatPage's controlled option now owns the URL selection)
   // -------------------------------------------------------------------------
-  it("restores the session from the URL on mount when context is empty (#5142)", async () => {
+  it("syncs the sidebar without competing with URL restore (#5142)", async () => {
     // Fresh app state: sessions arrived from the list but nothing selected.
     mockSessionState.sessions = [{ id: HISTORY_SESSION_ID }];
     mockSessionState.currentSessionId = undefined;
@@ -106,11 +104,14 @@ describe("ChatSessionInitializer", () => {
     });
 
     await waitFor(() => {
-      expect(mockSetCurrentSessionId).toHaveBeenCalledWith(HISTORY_SESSION_ID);
+      expect(useSessionListStore.getState().sessions).toEqual(
+        mockSessionState.sessions,
+      );
     });
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
 
-  it("matches by realId when the URL carries the backend UUID (#4987)", async () => {
+  it("never selects a local alias when the URL carries the backend UUID", async () => {
     // During switching the URL already holds the backend UUID while the
     // library session still has its local id.
     const LOCAL_ID = "1787000000000-local";
@@ -122,9 +123,7 @@ describe("ChatSessionInitializer", () => {
       initialEntries: [`/chat/${BACKEND_UUID}`],
     });
 
-    await waitFor(() => {
-      expect(mockSetCurrentSessionId).toHaveBeenCalledWith(LOCAL_ID);
-    });
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
 
   it("does not re-select while a session switch is in progress (#4987)", async () => {
@@ -144,9 +143,7 @@ describe("ChatSessionInitializer", () => {
     sessionApi.isSessionSwitching = false;
   });
 
-  it("skips re-application right after onSessionSelected navigated (#4987)", async () => {
-    const sessionApi = (await import("../../sessionApi")).default;
-    sessionApi.lastNavigatedChatId = HISTORY_SESSION_ID;
+  it("does not need a navigation marker to avoid duplicate selection", async () => {
     mockSessionState.sessions = [{ id: HISTORY_SESSION_ID }];
     mockSessionState.currentSessionId = undefined;
 
@@ -155,8 +152,6 @@ describe("ChatSessionInitializer", () => {
     });
 
     await new Promise((r) => setTimeout(r, 50));
-    // The navigation marker is consumed and no duplicate selection fires.
-    expect(sessionApi.lastNavigatedChatId).toBeNull();
     expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
 

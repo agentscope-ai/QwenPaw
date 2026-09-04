@@ -139,6 +139,7 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
         session_id = request_context.get("session_id", "")
         agent_id = request_context.get("agent_id", "")
         root_session_id = request_context.get("root_session_id", "")
+        root_agent_id = request_context.get("root_agent_id", "")
 
         # Fallback refresh (e.g. flows that bypass on_reasoning).
         _capture_f1_reasoning(agent)
@@ -149,6 +150,7 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            root_agent_id=root_agent_id,
             background_result_processor=self._background_result_processor,
         ):
             yield item

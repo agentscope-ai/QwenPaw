@@ -780,7 +780,10 @@
       "today": "Hari ini",
       "recent": "7 hari terakhir",
       "earlier": "Sebelumnya"
-    }
+    },
+    "regenerate": "Buat ulang",
+    "regenerateUnavailable": "Giliran lama ini tidak memiliki ID permintaan. Kirim pesan baru untuk melanjutkan.",
+    "turnCanceled": "Dihentikan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",

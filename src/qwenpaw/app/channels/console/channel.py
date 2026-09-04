@@ -101,6 +101,9 @@ class ConsoleChannel(BaseChannel):
             process,
             on_reply_sent=on_reply_sent,
             display_config=display_config,
+            # Each console HTTP submission is a complete user message.
+            # Attachments must run without waiting for a later text message.
+            no_text_debounce=False,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
