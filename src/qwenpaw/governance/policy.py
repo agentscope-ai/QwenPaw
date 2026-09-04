@@ -725,7 +725,9 @@ class GovernancePolicy:
                 reason="internal",
             )
 
-        # execution_level == OFF → skip Phase 1, go to Phase 2
+        # execution_level == OFF skips general deep scanning, but sensitive
+        # path protection is a mandatory safety boundary and must remain
+        # active at every execution level.
         skip_deep_scan = self.execution_level.lower() == "off"
 
         # ── Phase 1: Deep security scan ──
@@ -754,12 +756,41 @@ class GovernancePolicy:
                     findings=findings,
                     source=_findings_source(auto_denied_findings),
                 )
+        else:
+            try:
+                findings = self._sensitive_path_scan(tc_spec, tool_type)
+            except Exception:
+                # Sensitive-path protection is mandatory in OFF mode. A
+                # detector failure must not be treated as a clean scan.
+                logger.exception(
+                    "mandatory sensitive path scan failed; denying tool call",
+                )
+                return GovernanceDecision(
+                    action=GovernanceAction.DENY,
+                    reason=(
+                        "Sensitive path protection unavailable; "
+                        "tool call denied"
+                    ),
+                    source="sensitive_paths",
+                )
 
         sensitive_path_findings = [
             finding
             for finding in findings
             if getattr(finding, "rule_id", "") == "SENSITIVE_FILE_BLOCK"
         ]
+
+        # OFF disables optional approval checks, but a sensitive-path hit is
+        # a hard safety boundary: reject it directly instead of creating an
+        # approval request that OFF mode is not allowed to surface.
+        if skip_deep_scan and sensitive_path_findings:
+            top = sensitive_path_findings[0]
+            return GovernanceDecision(
+                action=GovernanceAction.DENY,
+                reason=getattr(top, "description", "") or top.title,
+                findings=findings,
+                source="sensitive_paths",
+            )
 
         # ── Phase 1.5: Shell danger keyword detection ──
         # Regex-based check that catches command variants missed by
@@ -783,6 +814,20 @@ class GovernancePolicy:
                 tool_type=tool_type,
             ):
                 action = GovernanceAction(rule.action.value)
+                # Resource-protection builtin rules (the wildcard tool
+                # patterns) are hard boundaries in OFF mode. Other builtin
+                # ASK rules retain OFF's non-interactive behavior.
+                if (
+                    skip_deep_scan
+                    and action is GovernanceAction.ASK
+                    and rule.match.startswith("*(")
+                ):
+                    return GovernanceDecision(
+                        action=GovernanceAction.DENY,
+                        reason=rule.reason,
+                        findings=findings or None,
+                        source="builtin_rules",
+                    )
                 # STRICT mode: override ALLOW → ASK so every tool
                 # call requires approval (DENY still honoured).
                 if action == GovernanceAction.ALLOW and is_strict:
@@ -905,6 +950,28 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _sensitive_path_scan(
+        self,
+        tc_spec: ToolCallSpec,
+        tool_type: str,
+    ) -> list[Any]:
+        """Run the mandatory sensitive-path detector in OFF mode.
+
+        OFF disables optional deep detectors, but it must not disable the
+        file guard. Keeping this narrow avoids changing OFF's behavior for
+        unrelated pattern/evasion findings while preserving the security
+        boundary for configured and built-in sensitive paths. Exceptions
+        propagate to :meth:`evaluate`, which fails closed.
+        """
+        from .detectors import detect_sensitive_paths
+
+        return detect_sensitive_paths(
+            tool_name=tc_spec.tool_name,
+            target=tc_spec.target,
+            tool_type=tool_type,
+            sensitive_paths=self._resolve_sensitive_paths(),
+        )
 
     def _resolve_sensitive_paths(self) -> list[str]:
         """Return the effective sensitive paths for the active file guard."""

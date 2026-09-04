@@ -35,30 +35,6 @@ _NO_RETRY_INSTRUCTION = (
 )
 
 
-def _is_execution_level_off() -> bool:
-    """Check if execution_level is 'off' (dev mode pass-through).
-
-    Reads directly from policy.yaml (without needing a governor) to
-    support the case where governor initialization failed but the user
-    explicitly configured execution_level=off for development.
-    """
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        from ..constant import WORKING_DIR
-
-        policy_path = Path(WORKING_DIR) / ".qwenpaw" / "policy.yaml"
-        if not policy_path.exists():
-            return False
-        with open(policy_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        return isinstance(data, dict) and data.get("execution_level") == "off"
-    except Exception:
-        return False
-
-
 def _resolve_effective_approval_level(
     request_context: dict[str, str] | None,
 ) -> Optional[Any]:
@@ -216,11 +192,11 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
 def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
 
-    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
-    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
-    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
-    provisioning and user approval are independent concerns: skipping "ask the
-    user" must not skip "run it in a sandbox".
+    ``approval_level=OFF`` skips approval for clean calls, which normally also
+    skips the ``SANDBOX_FALLBACK`` branch that compiles a ``sandbox_config``
+    (see :func:`_policy_tool_check_permissions`). Sandbox provisioning and
+    user approval are independent concerns: skipping "ask the user" must not
+    skip "run it in a sandbox".
 
     Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
     the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
@@ -269,6 +245,8 @@ def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
 
 
 # pylint: disable=too-many-return-statements,too-many-branches
+# pylint: disable=too-many-statements
+# pylint: disable=too-many-nested-blocks
 async def _policy_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -313,18 +291,27 @@ async def _policy_tool_check_permissions(
         effective_level = ToolExecutionLevel.STRICT
 
     if effective_level is not None and effective_level.is_disabled():
-        # OFF means "never ask the user" — it does NOT mean "skip the
-        # sandbox". Sandbox isolation is an execution mechanism, not an
-        # approval gate. Fail-closed tools (the REPL) return DENIED without
-        # a sandbox_config, which the guard layer then misreads as a sandbox
-        # violation and escalates to a recurring approval prompt OFF can
-        # never resolve. So we still compile+attach the sandbox here; only
-        # the "ask the user" step is skipped.
-        _prepare_off_mode_sandbox(self, governor)
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="governance: approval_level=off, all tools allowed.",
-        )
+        # OFF suppresses approval for ordinary calls, but mandatory
+        # sensitive-path rules still need policy evaluation.  Evaluate and
+        # audit first so builtin/file-guard ASK and DENY decisions cannot be
+        # bypassed by the mode short-circuit.
+        if governor is None or not hasattr(governor, "policy"):
+            # Sensitive-path protection cannot be guaranteed without a
+            # policy object, so OFF mode fails closed here as well.
+            logger.error(
+                "PolicyGuardedTool: OFF-mode governance unavailable for "
+                "tool '%s' — denying.",
+                getattr(self, "name", "Unknown"),
+            )
+            return PermissionDecision(
+                behavior=PermissionBehavior.DENY,
+                message=(
+                    "governance: approval_level=off, " "governor unavailable."
+                ),
+            )
+        # Keep the remainder of this function's unified decision flow. The
+        # policy engine skips optional deep scans in OFF while retaining
+        # builtin and sensitive-path protections.
 
     # Sync effective approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
@@ -334,13 +321,6 @@ async def _policy_tool_check_permissions(
         governor.policy.execution_level = effective_level.value
 
     if governor is None:
-        # Check if execution_level is "off" (dev mode) — allow pass-through
-        if _is_execution_level_off():
-            return PermissionDecision(
-                behavior=PermissionBehavior.ALLOW,
-                message="governance: execution_level=off (dev mode), "
-                "governor unavailable — pass-through.",
-            )
         # Fail-closed: if governance layer failed to initialize, deny all
         # tool calls rather than silently allowing unguarded execution.
         logger.error(
@@ -379,9 +359,18 @@ async def _policy_tool_check_permissions(
     self._qp_sandbox_mode = False
 
     if decision.action is GovernanceAction.ALLOW:
+        if effective_level is not None and effective_level.is_disabled():
+            # Clean OFF-mode calls remain approval-free, while fail-closed
+            # tools still receive their sandbox configuration.
+            _prepare_off_mode_sandbox(self, governor)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message="governance: tool allowed.",
+            message=(
+                "governance: approval_level=off, clean tool allowed."
+                if effective_level is not None
+                and effective_level.is_disabled()
+                else "governance: tool allowed."
+            ),
         )
     elif decision.action is GovernanceAction.DENY:
         return PermissionDecision(
@@ -389,6 +378,17 @@ async def _policy_tool_check_permissions(
             message=f"governance: '{tc_spec.tool_name}' is denied by policy",
         )
     elif decision.action is GovernanceAction.SANDBOX_FALLBACK:
+        if effective_level is not None and effective_level.is_disabled():
+            # OFF preserves the historical fail-open behavior of shell
+            # tools.  Only fail-closed tools are sandboxed by the helper in
+            # the ALLOW branch above.
+            self._qp_sandbox_mode = False
+            if hasattr(self, "_qp_sandbox_config"):
+                del self._qp_sandbox_config
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: approval_level=off, clean tool allowed.",
+            )
         # Bash tool with no rule match → allow execution in sandbox
         self._qp_sandbox_mode = True
         self._qp_sandbox_config = decision.sandbox_config
@@ -397,6 +397,24 @@ async def _policy_tool_check_permissions(
             message="governance: sandbox fallback.",
         )
     elif decision.action is GovernanceAction.ASK:
+        if effective_level is not None and effective_level.is_disabled():
+            # OFF never opens an approval window. Mandatory protection ASK
+            # decisions are converted to a direct denial.
+            if decision.source == "sensitive_paths":
+                return PermissionDecision(
+                    behavior=PermissionBehavior.DENY,
+                    message=(
+                        "governance: "
+                        f"'{getattr(tc_spec, 'tool_name', self.name)}' "
+                        "access denied "
+                        "by mandatory protection"
+                    ),
+                )
+            _prepare_off_mode_sandbox(self, governor)
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: approval_level=off, clean tool allowed.",
+            )
         # Requires user confirmation
         self._qp_policy_decision = decision
 
