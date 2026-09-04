@@ -64,6 +64,14 @@ def _guarded_tool_init(
 ) -> None:
     from agentscope.tool import FunctionTool
 
+    from ..utils.tool_annotations import resolve_tool_annotations
+
+    # Resolve PEP 563 stringified annotations to real types before agentscope
+    # builds the tool's input schema (QwenPaw #7082). Mirrors
+    # ``PolicyGuardedTool`` — this degraded-governance fallback wraps the
+    # same tool functions and would hit the identical schema-extraction
+    # failure without it.
+    resolve_tool_annotations(func)
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_agent_id = agent_id  # pylint: disable=protected-access
     # pylint: disable=protected-access

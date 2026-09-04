@@ -150,6 +150,14 @@ def _policy_tool_init(
 ) -> None:
     from agentscope.tool import FunctionTool
 
+    from ..utils.tool_annotations import resolve_tool_annotations
+
+    # Resolve PEP 563 stringified annotations to real types before agentscope
+    # builds the tool's input schema. Tools defined in modules using
+    # ``from __future__ import annotations`` otherwise expose string
+    # annotations (e.g. "Optional[Path]") that agentscope cannot resolve,
+    # aborting registration with a PydanticUserError (QwenPaw #7082).
+    resolve_tool_annotations(func)
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_governor = governor
     self._qp_request_context = request_context or {}
