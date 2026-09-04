@@ -2096,7 +2096,7 @@
     "llmAcquireTimeoutGtPauseJitter": "スロット取得タイムアウトはレート制限一時停止とジッターの合計より大きい必要があります",
     "contextManagementTitle": "コンテキスト管理",
     "memoryManagerBackend": "長期記憶管理バックエンド",
-    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）または adbpg（クラウドデータベース）から選択できます。",
+    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）、adbpg（クラウドデータベース）、PowerContext（リモートメモリサービス）、または none（メモリを無効化）から選択できます。",
     "memoryManagerBackendRestartWarning": "長期記憶管理バックエンドの切り替えはホットリロードに対応していません。変更を反映するには保存後に QwenPaw を再起動してください。",
     "maxIters": "最大反復回数",
     "maxItersTooltip": "ReActエージェントの推論・行動サイクルの最大反復回数",
@@ -2518,6 +2518,18 @@
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext メモリ",
+    "powercontextConfig": {
+      "title": "PowerContext メモリ設定",
+      "baseUrl": "サーバー URL",
+      "token": "Bearer トークン",
+      "scopeId": "メモリスコープ",
+      "scopeIdPlaceholder": "空欄の場合、このインストール固有のエージェントスコープを使用します",
+      "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
+      "timeout": "リクエストタイムアウト",
+      "maxContextBytes": "注入するコンテキストの最大量（バイト）",
+      "maxContextBytesTooltip": "1回のモデル呼び出しに追加される PowerContext 検索結果の合計量を制限します。"
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

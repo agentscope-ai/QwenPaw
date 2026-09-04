@@ -2589,7 +2589,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Long-term Memory Management Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), or none (disable memory).",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), PowerContext (remote memory service), or none (disable memory).",
     "memoryManagerBackendRestartWarning": "Switching the long-term memory management backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
@@ -3175,6 +3175,18 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext Memory",
+    "powercontextConfig": {
+      "title": "PowerContext Memory Configuration",
+      "baseUrl": "Server URL",
+      "token": "Bearer Token",
+      "scopeId": "Memory Scope",
+      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
+      "scopeIdInvalid": "Memory scope must not contain only whitespace.",
+      "timeout": "Request Timeout",
+      "maxContextBytes": "Maximum injected context (bytes)",
+      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

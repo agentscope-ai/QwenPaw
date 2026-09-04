@@ -2111,7 +2111,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Таймаут получения слота должен быть больше суммы паузы и джиттера",
     "contextManagementTitle": "Управление контекстом",
     "memoryManagerBackend": "Бэкенд управления долговременной памятью",
-    "memoryManagerBackendTooltip": "Тип бэкенда менеджера памяти. Выберите remelight (локальные файлы) или adbpg (облачная база данных).",
+    "memoryManagerBackendTooltip": "Тип бэкенда менеджера памяти. Выберите remelight (локальные файлы), adbpg (облачная база данных), PowerContext (удалённый сервис памяти) или none (отключить память).",
     "memoryManagerBackendRestartWarning": "Смена бэкенда управления долговременной памятью не поддерживает горячую перезагрузку. Сохраните и перезапустите QwenPaw для применения изменений.",
     "maxIters": "Макс. итераций",
     "maxItersTooltip": "Максимальное число итераций рассуждение-действие для агента ReAct",
@@ -2533,6 +2533,18 @@
     "saveLevelSuccess": "Режим одобрения инструментов сохранён",
     "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "Память PowerContext",
+    "powercontextConfig": {
+      "title": "Конфигурация памяти PowerContext",
+      "baseUrl": "URL сервера",
+      "token": "Bearer-токен",
+      "scopeId": "Область памяти",
+      "scopeIdPlaceholder": "Оставьте пустым, чтобы использовать уникальную область агента для этой установки",
+      "scopeIdInvalid": "Область памяти не может состоять только из пробелов.",
+      "timeout": "Тайм-аут запроса",
+      "maxContextBytes": "Максимальный объём внедряемого контекста (байт)",
+      "maxContextBytesTooltip": "Ограничивает общий объём результатов поиска PowerContext, добавляемых за один ход модели."
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

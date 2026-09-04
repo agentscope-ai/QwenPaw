@@ -7,9 +7,10 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from qwenpaw.config import utils as config_utils
 from qwenpaw.config.config import (
@@ -46,6 +47,41 @@ def test_load_config_returns_detached_cache_copy(isolated_config):
     loaded.user_timezone = "Asia/Shanghai"
 
     assert config_utils.load_config().user_timezone == "UTC"
+
+
+def test_powercontext_installation_id_is_generated_once_and_persisted(
+    isolated_config,
+):
+    first = config_utils.get_or_create_powercontext_installation_id()
+    second = config_utils.get_or_create_powercontext_installation_id()
+
+    assert first == second
+    assert len(first) == 32
+    assert config_utils.load_config().powercontext_installation_id == first
+
+
+def test_powercontext_existing_installation_id_does_not_require_write(
+    isolated_config,
+    monkeypatch,
+):
+    """A persisted ID must remain usable when root config is read-only."""
+    installation_id = "a" * 32
+    config_utils.save_config(
+        Config(powercontext_installation_id=installation_id),
+    )
+    save_config = Mock(side_effect=OSError("read-only config"))
+    monkeypatch.setattr(config_utils, "save_config", save_config)
+
+    assert (
+        config_utils.get_or_create_powercontext_installation_id()
+        == installation_id
+    )
+    save_config.assert_not_called()
+
+
+def test_powercontext_installation_id_rejects_invalid_persisted_value():
+    with pytest.raises(ValidationError, match="installation_id"):
+        Config(powercontext_installation_id="not-an-installation-id")
 
 
 def test_concurrent_root_mutations_retain_both_changes(isolated_config):

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from qwenpaw.config.config import (
     ADBPGMemoryConfig,
     EmbeddingModelConfig,
+    PowerContextMemoryConfig,
     ReMeLightMemoryConfig,
 )
 
@@ -16,6 +17,67 @@ def test_adbpg_auto_memory_search_defaults():
 
     assert cfg.auto_memory_search_config.enabled is True
     assert cfg.auto_memory_search_config.max_results == 3
+
+
+def test_powercontext_memory_defaults():
+    cfg = PowerContextMemoryConfig()
+    assert cfg.scope_id == ""
+    assert cfg.auto_memory_search_config.enabled is True
+    assert cfg.auto_memory_search_config.max_context_bytes == 12000
+
+
+def test_powercontext_memory_ignores_removed_fallback_backend():
+    cfg = PowerContextMemoryConfig.model_validate(
+        {"fallback_backend": "remelight"},
+    )
+    assert "fallback_backend" not in cfg.model_dump()
+
+
+def test_powercontext_memory_rejects_more_than_fifty_auto_results():
+    with pytest.raises(ValidationError, match="less than or equal to 50"):
+        PowerContextMemoryConfig(
+            auto_memory_search_config={"enabled": True, "max_results": 51},
+        )
+
+
+@pytest.mark.parametrize("timeout", [0.99, 60.01, float("inf"), float("nan")])
+def test_powercontext_memory_rejects_out_of_range_timeout(timeout):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(timeout=timeout)
+
+
+@pytest.mark.parametrize("max_context_bytes", [1023, 32769])
+def test_powercontext_memory_rejects_invalid_context_budget(
+    max_context_bytes,
+):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(
+            auto_memory_search_config={
+                "enabled": True,
+                "max_context_bytes": max_context_bytes,
+            },
+        )
+
+
+@pytest.mark.parametrize("timeout", [1.0, 60.0])
+@pytest.mark.parametrize("max_context_bytes", [1024, 32768])
+def test_powercontext_memory_accepts_timeout_and_budget_boundaries(
+    timeout,
+    max_context_bytes,
+):
+    cfg = PowerContextMemoryConfig(
+        timeout=timeout,
+        auto_memory_search_config={"max_context_bytes": max_context_bytes},
+    )
+
+    assert cfg.timeout == timeout
+    assert cfg.auto_memory_search_config.max_context_bytes == max_context_bytes
+
+
+@pytest.mark.parametrize("scope_id", ["   ", "scope-" + "x" * 256])
+def test_powercontext_memory_rejects_invalid_explicit_scope(scope_id):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(scope_id=scope_id)
 
 
 def test_reme_light_job_notifications_default_to_enabled():

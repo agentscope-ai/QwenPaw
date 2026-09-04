@@ -15,6 +15,48 @@ In plain language, it works like a research assistant that remembers how an anal
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="The complete QwenPaw long-term memory loop" />
 </p>
 
+## Optional PowerContext Backend
+
+`remelight` remains the default long-term-memory backend. To use the optional
+`powercontext` backend, first deploy or start a PowerContext Server separately;
+QwenPaw does not download or start it automatically. For a local server, the
+default endpoint is `http://127.0.0.1:8000`. Install and start it with:
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run
+```
+
+In **Agent Config**, select **PowerContext**, then set its Server URL, optional
+Bearer token, memory scope, timeout, automatic-search result limit, and
+injected-context budget. Save
+and restart QwenPaw for the backend change to take effect. When selected,
+QwenPaw sends the current turn's bounded task state to that configured service
+and retrieves relevant memories before later turns. Treat the endpoint and
+scope as a data boundary: choose a service and scope that are appropriate for
+the conversation data you intend to persist. Leave the memory scope empty to
+use the persisted per-installation default
+`qwenpaw:<installation_id>:agent:<agent_id>`, which isolates independently
+created QwenPaw installations even when they use the same Agent ID and
+PowerContext service. Enter the same explicit scope for multiple agents only
+when you intend to share their memories. Cloning a QwenPaw working directory
+also copies its installation identity; configure an explicit distinct scope
+after cloning when the clone must not share memory. Automatic retrieval also
+has a configurable total injected-context budget (12,000 UTF-8 bytes by
+default), and the request timeout is limited to 1–60 seconds.
+
+### Network and approval boundary
+
+When this backend is enabled, automatic recall and bounded post-turn
+persistence are configuration-driven background network operations: they send
+the query or bounded turn state to the configured PowerContext service without
+an Agent tool call. Disable automatic search or select another backend when
+that transmission is not appropriate. In contrast, the Agent-visible
+`memory_search` and `memory_remember` tools are governed operations. The
+PowerContext search tool is classified as network I/O, so strict governance can
+require approval before its query is sent; `memory_remember` is likewise a
+network write governed by the active policy.
+
 ## Understand the Memory Loop First
 
 Imagine you are a financial analyst researching the electric-vehicle supply chain. Over several weeks, you discuss CATL's product mix, battery-cell pricing, lithium-carbonate supply and demand, and whether falling lithium prices help battery makers or create inventory write-downs.

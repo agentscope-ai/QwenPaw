@@ -695,14 +695,70 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
-    def test_sudo_deny(self, policy):
-        """Bash(sudo ...) is DENY — caught by TOOL_CMD_PRIVILEGE_ESCALATION
-        (CRITICAL) in Phase 1 deep-security scanning. Users can disable
-        this detection rule in the frontend to fall back to the Phase 2
-        builtin ASK rule."""
-        tc = _tc("Bash", "sudo apt-get install something")
-        decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.DENY
+    @pytest.mark.parametrize(
+        ("command", "custom_rule", "auto_denied", "expected"),
+        [
+            (
+                "sudo apt-get install something",
+                False,
+                set(),
+                GovernanceAction.ASK,
+            ),
+            (
+                "echo critical_marker",
+                True,
+                set(),
+                GovernanceAction.ASK,
+            ),
+            (
+                "echo critical_marker",
+                True,
+                {"CRITICAL_CUSTOM"},
+                GovernanceAction.DENY,
+            ),
+        ],
+    )
+    def test_critical_finding_respects_explicit_auto_deny(
+        self,
+        policy,
+        monkeypatch,
+        command,
+        custom_rule,
+        auto_denied,
+        expected,
+    ):
+        """CRITICAL asks unless its rule is explicitly auto-denied."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        def resolve_auto_denied_rules():
+            return auto_denied
+
+        monkeypatch.setattr(
+            "qwenpaw.security.tool_guard.utils.resolve_auto_denied_rules",
+            resolve_auto_denied_rules,
+        )
+        if custom_rule:
+            policy.detection_rules = [
+                DetectionRuleConfig(
+                    id="CRITICAL_CUSTOM",
+                    tools=["execute_shell_command"],
+                    patterns=[r"\bcritical_marker\b"],
+                    severity="CRITICAL",
+                    description="critical custom rule",
+                ),
+            ]
+
+        decision = policy.evaluate(_tc("Bash", command))
+
+        assert decision.action == expected
+        assert decision.findings
+        finding_ids = {finding.rule_id for finding in decision.findings}
+        expected_rule_id = (
+            "CRITICAL_CUSTOM"
+            if custom_rule
+            else "TOOL_CMD_PRIVILEGE_ESCALATION"
+        )
+        assert expected_rule_id in finding_ids
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""

@@ -15,6 +15,11 @@ from qwenpaw.app.workspace.service_manager import (
     ServiceManager,
 )
 from qwenpaw.app.workspace.workspace import Workspace
+from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
+from qwenpaw.config.config import PowerContextMemoryConfig
+from qwenpaw.agents.memory.powercontext_memory_manager import (
+    PowerContextMemoryManager,
+)
 
 
 async def _wait_for(event: threading.Event) -> None:
@@ -65,6 +70,54 @@ async def test_required_clean_stop_failure_is_propagated():
 
     with pytest.raises(RuntimeError, match="worker is still alive"):
         await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_reused_service_can_be_rejected_by_configuration():
+    workspace = SimpleNamespace(agent_id="agent-1", marker="new")
+    manager = ServiceManager(workspace)
+
+    class Service:
+        marker = "old"
+
+    service = Service()
+    manager.register(
+        ServiceDescriptor(
+            name="memory_manager",
+            service_class=Service,
+            reusable=True,
+            reuse_compatibility=lambda ws, instance: (
+                ws.marker == instance.marker
+            ),
+        ),
+    )
+    manager.services["memory_manager"] = service
+    manager.reused_services.add("memory_manager")
+
+    await manager.start_all()
+
+    assert "memory_manager" not in manager.reused_services
+    assert manager.services["memory_manager"] is not service
+
+
+def test_powercontext_reuse_requires_identical_configuration():
+    config = PowerContextMemoryConfig(
+        base_url="http://old.example",
+        scope_id="agent:one",
+    )
+    instance = object.__new__(PowerContextMemoryManager)
+    instance._config = config
+    workspace = SimpleNamespace(
+        _config=SimpleNamespace(
+            running=SimpleNamespace(
+                powercontext_memory_config=config.model_copy(
+                    update={"base_url": "http://new.example"},
+                ),
+            ),
+        ),
+    )
+
+    assert not _memory_manager_reuse_compatible(workspace, instance)
 
 
 @pytest.mark.asyncio
