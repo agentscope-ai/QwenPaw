@@ -122,10 +122,9 @@ TRIGGER_NOTES = {
     "window": "Failures keep recurring over the last several steps.",
 }
 
-# Introduces the workspace listing to the advisor. Wording matters beyond
-# style: an earlier phrasing ("The worker explored the workspace and
-# found:") was rejected by a provider's content filter for weeks, and every
-# rejected call cost that task its plan. This wording passes.
+# Introduces the workspace listing to the advisor. Keep the wording
+# neutral: a previous phrasing tripped a provider's content filter and
+# every rejected call cost that task its plan.
 ENV_SECTION_HEADER = (
     "Workspace file listing. Paths are relative to the workspace root, "
     "sizes are in bytes, and a trailing slash marks a directory:"

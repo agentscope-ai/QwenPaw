@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
 from ...modes.advisor.models import (
+    slot_to_dict,
     resolve_worker_slot,
     resolve_advisor_slot,
 )
@@ -63,15 +64,6 @@ class AdvisorModeUpdateRequest(BaseModel):
     worker_model: Optional[ModelSlotBody] = None
 
 
-def _slot(slot: object) -> dict | None:
-    """``{"provider_id", "model"}`` for a configured model slot."""
-    provider_id = getattr(slot, "provider_id", "") or ""
-    model = getattr(slot, "model", "") or ""
-    if not provider_id or not model:
-        return None
-    return {"provider_id": provider_id, "model": model}
-
-
 def _state(config) -> dict:
     """The Advisor Mode state the Console renders.
 
@@ -92,18 +84,18 @@ def _state(config) -> dict:
         "max_consults": int(am.max_consults),
         "intervention": am.intervention.model_dump(),
         "agent_id": config.id,
-        "advisor_model": _slot(advisor),
+        "advisor_model": slot_to_dict(advisor),
         "advisor_source": advisor_source,
-        "worker_model": _slot(worker),
+        "worker_model": slot_to_dict(worker),
         "worker_source": worker_source,
-        "advisor_model_override": _slot(am.advisor_model),
-        "worker_model_override": _slot(am.worker_model),
+        "advisor_model_override": slot_to_dict(am.advisor_model),
+        "worker_model_override": slot_to_dict(am.worker_model),
         "advisor_thinking": am.advisor_thinking,
         # The defaults the overrides fall back to, for the Console labels.
-        "main_model": _slot(
+        "main_model": slot_to_dict(
             resolve_advisor_slot(_without_overrides(config))[0],
         ),
-        "subagent_model": _slot(config.subagent_model),
+        "subagent_model": slot_to_dict(config.subagent_model),
     }
 
 
