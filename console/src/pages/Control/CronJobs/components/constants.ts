@@ -7,7 +7,7 @@ export const DEFAULT_FORM_VALUES = {
   schedule: {
     type: "cron" as const,
     cron: "0 9 * * *",
-    timezone: "UTC",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   },
   onceRunAt: dayjs().add(1, "hour"),
   onceRepeatEnabled: false,

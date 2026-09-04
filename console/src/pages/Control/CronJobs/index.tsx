@@ -430,6 +430,7 @@ function CronJobsPage() {
     onEdit: handleEdit,
     onDelete: handleDelete,
     t,
+    userTimezone,
   });
 
   const HISTORY_ERROR_PREVIEW_LINES = 4;
