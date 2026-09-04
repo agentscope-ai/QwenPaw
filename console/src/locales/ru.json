@@ -2675,6 +2675,8 @@
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
+    "hideToolCallsTooltip": "Скрыть вызовы инструментов",
+    "showToolCallsTooltip": "Показать вызовы инструментов",
     "wideModeTooltip": "Широкий режим",
     "normalModeTooltip": "Обычный режим",
     "messageDisplay": {

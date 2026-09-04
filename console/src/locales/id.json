@@ -629,6 +629,8 @@
     "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
+    "hideToolCallsTooltip": "Sembunyikan panggilan alat",
+    "showToolCallsTooltip": "Tampilkan panggilan alat",
     "wideModeTooltip": "Mode lebar",
     "normalModeTooltip": "Mode normal",
     "messageDisplay": {

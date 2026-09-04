@@ -651,6 +651,8 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
+    "hideToolCallsTooltip": "Ẩn lệnh gọi công cụ",
+    "showToolCallsTooltip": "Hiện lệnh gọi công cụ",
     "allChats": "Tất cả cuộc trò chuyện",
     "createNewChat": "Tạo cuộc trò chuyện mới",
     "pinDrawer": "Ghim",

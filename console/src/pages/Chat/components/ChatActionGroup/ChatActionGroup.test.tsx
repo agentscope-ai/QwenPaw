@@ -77,4 +77,23 @@ describe("ChatActionGroup", () => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggleWorkspace).toHaveBeenCalledOnce();
   });
+
+  it("renders and toggles the tool call visibility button", () => {
+    const onToggleToolCalls = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup
+        showToolCalls={false}
+        onToggleToolCalls={onToggleToolCalls}
+      />,
+    );
+
+    const button = document.querySelector(
+      'button[aria-label="chat.showToolCallsTooltip"]',
+    ) as HTMLButtonElement | null;
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute("aria-pressed", "false");
+
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleToolCalls).toHaveBeenCalledOnce();
+  });
 });

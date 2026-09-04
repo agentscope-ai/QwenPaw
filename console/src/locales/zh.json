@@ -3128,6 +3128,8 @@
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
+    "hideToolCallsTooltip": "隐藏工具调用",
+    "showToolCallsTooltip": "显示工具调用",
     "wideModeTooltip": "宽屏模式",
     "normalModeTooltip": "正常模式",
     "messageDisplay": {

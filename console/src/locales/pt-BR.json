@@ -2904,6 +2904,8 @@
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
+    "hideToolCallsTooltip": "Hide tool calls",
+    "showToolCallsTooltip": "Show tool calls",
     "wideModeTooltip": "Modo amplo",
     "normalModeTooltip": "Modo normal",
     "messageDisplay": {

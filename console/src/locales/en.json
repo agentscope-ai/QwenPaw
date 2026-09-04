@@ -3271,6 +3271,8 @@
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
+    "hideToolCallsTooltip": "Hide tool calls",
+    "showToolCallsTooltip": "Show tool calls",
     "wideModeTooltip": "Wide mode",
     "normalModeTooltip": "Normal mode",
     "messageDisplay": {

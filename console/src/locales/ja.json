@@ -2660,6 +2660,8 @@
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
+    "hideToolCallsTooltip": "ツール呼び出しを非表示",
+    "showToolCallsTooltip": "ツール呼び出しを表示",
     "wideModeTooltip": "ワイドモード",
     "normalModeTooltip": "標準モード",
     "messageDisplay": {

@@ -9,7 +9,7 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Dropdown, Flex, Tooltip } from "antd";
-import { Files } from "lucide-react";
+import { Eye, EyeOff, Files } from "lucide-react";
 import type { MenuProps } from "antd";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
@@ -24,6 +24,8 @@ interface ChatActionGroupProps {
   workspaceOpen?: boolean;
   isWideMode?: boolean;
   onToggleWideMode?: () => void;
+  showToolCalls?: boolean;
+  onToggleToolCalls?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
@@ -33,6 +35,8 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   workspaceOpen = false,
   isWideMode = false,
   onToggleWideMode,
+  showToolCalls = true,
+  onToggleToolCalls,
 }) => {
   const { t } = useTranslation();
 
@@ -109,6 +113,50 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
                 : {}),
             }}
             onClick={onToggleWorkspace}
+          />
+        </Tooltip>
+      )}
+      {onToggleToolCalls && (
+        <Tooltip
+          title={t(
+            showToolCalls
+              ? "chat.hideToolCallsTooltip"
+              : "chat.showToolCallsTooltip",
+          )}
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            aria-label={t(
+              showToolCalls
+                ? "chat.hideToolCallsTooltip"
+                : "chat.showToolCallsTooltip",
+            )}
+            aria-pressed={showToolCalls}
+            icon={
+              showToolCalls ? (
+                <Eye
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              ) : (
+                <EyeOff
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              )
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(showToolCalls
+                ? undefined
+                : { color: "var(--color-primary, #ff9d4d)" }),
+            }}
+            onClick={onToggleToolCalls}
           />
         </Tooltip>
       )}
