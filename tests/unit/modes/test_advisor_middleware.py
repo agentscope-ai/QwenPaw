@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from agentscope.event import ToolResultTextDeltaEvent
 from agentscope.message import (
     TextBlock,
     ToolCallBlock,
@@ -17,6 +18,7 @@ from agentscope.message import (
 )
 
 from qwenpaw.modes.advisor.middleware import (
+    _LiveExchange,
     CONSULT_BUDGET_EXHAUSTED,
     DEFAULT_MAX_CONSULTS,
     FOLLOWUP_TOOL_NAME,
@@ -796,24 +798,72 @@ async def test_agents_without_the_hook_are_fine():
 
 
 class _LiveAgent(_Agent):
-    """Agent with the live hooks; records every UI update in order."""
+    """Agent that takes injected events; records them in order."""
 
     def __init__(self):
         super().__init__()
-        self.events: list[tuple] = []
+        self.state.reply_id = "reply-1"
+        self.events: list = []
 
-    def begin_injected_exchange(self, **kw):
-        self.events.append(("begin", kw))
+    def emit_injected_event(self, event):
+        self.events.append(event)
+        return True
 
-    def stream_injected_output(self, **kw):
-        self.events.append(("delta", kw))
 
-    def finish_injected_exchange(self, **kw):
-        self.events.append(("finish", kw))
+def _kinds(agent):
+    return [type(e).__name__ for e in agent.events]
 
 
 def _streamed(agent):
-    return "".join(kw["delta"] for kind, kw in agent.events if kind == "delta")
+    return "".join(
+        e.delta
+        for e in agent.events
+        if isinstance(e, ToolResultTextDeltaEvent)
+    )
+
+
+def test_live_exchange_emits_a_complete_tool_call_and_result():
+    agent = _LiveAgent()
+    live = _LiveExchange(agent, "c1", PLAN_TOOL_NAME, {"question": "plan?"})
+    assert live.active
+    live.on_text("THE ")
+    live.on_text("THE PLAN")
+    live.finish("THE PLAN")
+    assert not live.active
+    assert _kinds(agent) == [
+        "ToolCallStartEvent",
+        "ToolCallDeltaEvent",
+        "ToolCallEndEvent",
+        "ToolResultStartEvent",
+        "ToolResultTextDeltaEvent",
+        "ToolResultTextDeltaEvent",
+        "ToolResultEndEvent",
+    ]
+    assert all(e.reply_id == "reply-1" for e in agent.events)
+    assert all(e.tool_call_id == "c1" for e in agent.events)
+    assert agent.events[0].tool_call_name == PLAN_TOOL_NAME
+    assert json.loads(agent.events[1].delta) == {"question": "plan?"}
+    assert _streamed(agent) == "THE PLAN"
+    assert agent.events[-1].state == ToolResultState.SUCCESS
+
+
+def test_live_exchange_fail_closes_with_an_error():
+    agent = _LiveAgent()
+    live = _LiveExchange(agent, "c2", PLAN_TOOL_NAME, {})
+    live.fail("advisor down")
+    assert _kinds(agent)[-2:] == [
+        "ToolResultTextDeltaEvent",
+        "ToolResultEndEvent",
+    ]
+    assert agent.events[-1].state == ToolResultState.ERROR
+    assert _streamed(agent) == "advisor down"
+
+
+def test_live_exchange_is_inert_for_agents_without_the_queue():
+    live = _LiveExchange(_Agent(), "c3", PLAN_TOOL_NAME, {})
+    assert not live.active
+    live.on_text("x")
+    live.finish("x")  # no error
 
 
 async def test_plan_is_opened_before_the_advisor_answers_and_streamed():
@@ -825,30 +875,28 @@ async def test_plan_is_opened_before_the_advisor_answers_and_streamed():
     real_ask = mw.advisor.ask
 
     async def ask(messages, *, on_text=None):
-        opened_before_reply.append(
-            agent.events[0][0] if agent.events else None,
-        )
+        opened_before_reply.append(_kinds(agent)[:1])
         return await real_ask(messages, on_text=on_text)
 
     mw.advisor.ask = ask
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
 
     assert opened_before_reply == [
-        "begin",
+        ["ToolCallStartEvent"],
     ], "call shown before the advisor ran"
-    kinds = [kind for kind, _ in agent.events]
-    assert kinds[0] == "begin" and kinds[-1] == "finish"
-    assert kinds.count("delta") >= 2, "reply relayed in pieces"
+    kinds = _kinds(agent)
+    assert kinds[0] == "ToolCallStartEvent"
+    assert kinds[-1] == "ToolResultEndEvent"
+    assert kinds.count("ToolResultTextDeltaEvent") >= 2, "relayed in pieces"
     assert _streamed(agent) == "THE PLAN, in full"
-    begin = agent.events[0][1]
-    assert begin["name"] == PLAN_TOOL_NAME
-    assert json.loads(begin["arguments"]) == _PLAN_CALL_ARGS
-    call_id = begin["call_id"]
-    assert all(kw["call_id"] == call_id for _, kw in agent.events)
+    assert agent.events[0].tool_call_name == PLAN_TOOL_NAME
+    assert json.loads(agent.events[1].delta) == _PLAN_CALL_ARGS
+    call_id = agent.events[0].tool_call_id
+    assert all(e.tool_call_id == call_id for e in agent.events)
     assert (
         agent.state.context[-1].content[0].id == call_id
     ), "same id in context"
-    assert agent.events[-1][1]["state"] == ToolResultState.SUCCESS
+    assert agent.events[-1].state == ToolResultState.SUCCESS
 
 
 async def test_plan_failure_closes_the_exchange_as_an_error(monkeypatch):
@@ -859,11 +907,12 @@ async def test_plan_failure_closes_the_exchange_as_an_error(monkeypatch):
     agent = _LiveAgent()
     agent.state.context.append(UserMsg(name="user", content="do it"))
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    kinds = [kind for kind, _ in agent.events]
-    assert kinds[0] == "begin" and kinds[-1] == "finish"
-    assert agent.events[-1][1]["state"] == ToolResultState.ERROR
+    kinds = _kinds(agent)
+    assert kinds[0] == "ToolCallStartEvent"
+    assert kinds[-1] == "ToolResultEndEvent"
+    assert agent.events[-1].state == ToolResultState.ERROR
     assert "advisor down" in _streamed(agent)
-    assert "retrying" in _streamed(agent), "retries are narrated"
+    assert "Retrying" in _streamed(agent), "retries are narrated"
     assert mw.plan_injected is False
 
 
@@ -874,9 +923,10 @@ async def test_followup_continue_is_shown_but_not_injected():
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
     assert followups(agent) == [], "CONTINUE adds nothing to the context"
-    kinds = [kind for kind, _ in agent.events]
-    assert kinds[0] == "begin" and kinds[-1] == "finish"
-    assert agent.events[0][1]["name"] == FOLLOWUP_TOOL_NAME
+    kinds = _kinds(agent)
+    assert kinds[0] == "ToolCallStartEvent"
+    assert kinds[-1] == "ToolResultEndEvent"
+    assert agent.events[0].tool_call_name == FOLLOWUP_TOOL_NAME
     assert _streamed(agent) == "CONTINUE\nLooks fine, carry on."
 
 
@@ -888,36 +938,8 @@ async def test_followup_adjust_streams_and_injects_the_body():
         await mw._check_and_intervene(agent)
     assert [f.output for f in followups(agent)] == ["Switch."]
     assert _streamed(agent) == "ADJUST\nSwitch."
-    call_id = agent.events[0][1]["call_id"]
+    call_id = agent.events[0].tool_call_id
     assert agent.state.context[-1].content[0].id == call_id
-
-
-async def test_advisor_without_streaming_support_still_works():
-    """A advisor whose ``ask`` takes no ``on_text`` (older plugin, test
-    double) gets a plain call: the exchange is opened live and completed
-    with the whole reply at the end."""
-
-    class _PlainAdvisor:
-        label = "plain"
-
-        async def ask(self, messages):
-            return "PLAN"
-
-    mw = _plan_mw(["ignored"])
-    mw._advisor = _PlainAdvisor()
-    agent = _LiveAgent()
-    agent.state.context.append(UserMsg(name="user", content="do it"))
-    # ``_call_advisor`` passes ``on_text`` only when it is not None; make
-    # the live path hand over None for this advisor.
-    real = mw._call_advisor
-
-    async def call(message, stateful=False, on_text=None):
-        return await real(message, stateful=stateful, on_text=None)
-
-    mw._call_advisor = call
-    await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert _streamed(agent) == "PLAN"
-    assert agent.events[-1][0] == "finish"
 
 
 # ── consult_stream: the on-demand answer as deltas ──────────────────────

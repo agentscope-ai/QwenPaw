@@ -8,7 +8,6 @@ import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
-import { useSyncAdvisorMode } from "../../stores/useSyncAdvisorMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
@@ -25,7 +24,6 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   // Backend is the source of truth for Coding Mode state — refill the
   // in-memory store every time the selected agent changes.
   useSyncCodingMode();
-  useSyncAdvisorMode();
 
   const selectedKey = useMemo(
     () => pickSelectedKey(currentPath, routes),

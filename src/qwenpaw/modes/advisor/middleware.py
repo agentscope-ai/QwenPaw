@@ -21,8 +21,8 @@ result pair so the agent reads them as something it asked for:
    the recent calls and answers CONTINUE or ADJUST; only an ADJUST body is
    injected, as a ``consult_advisor_followup`` pair.
 
-3. **On-demand consultation.** :meth:`consult` answers a question the
-   agent asks through the real ``consult_advisor`` tool (see
+3. **On-demand consultation.** :meth:`consult_stream` answers a question
+   the agent asks through the real ``consult_advisor`` tool (see
    ``tools.py``), with the same advisor and the recent calls attached.
 
 The advisor conversation (``advisor_history``) is shared across the turns
@@ -42,6 +42,14 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
+from agentscope.event import (
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolResultEndEvent,
+    ToolResultStartEvent,
+    ToolResultTextDeltaEvent,
+)
 from agentscope.message import (
     AssistantMsg,
     Msg,
@@ -133,8 +141,8 @@ _LISTING_SKIP_DIRS = frozenset(
 # Tools irrelevant for task planning — excluded from the advisor's view.
 _EXCLUDED_TOOLS = frozenset(
     {
-        # The advisor's own entry point: listing it made the advisor open
-        # every plan with "first, call consult_advisor".
+        # The advisor's own entry points, so it does not plan around
+        # calling itself.
         PLAN_TOOL_NAME,
         FOLLOWUP_TOOL_NAME,
         "list_agents",
@@ -320,10 +328,10 @@ class _LiveExchange:
 
     The tool call is opened the moment the advisor is asked, the reply is
     relayed as it streams in and the call is closed once the answer (or
-    the failure) is in — so the user watches the plan being written
-    instead of a spinner. Agents without the live hooks (plain AgentScope
-    agents, test doubles) leave ``active`` False and every update is a
-    no-op; the exchange still lands in their context.
+    the failure) is in, so the user watches the plan being written
+    instead of a spinner. Agents that do not take injected events (plain
+    AgentScope agents, test doubles) leave ``active`` False and every
+    update is a no-op. The exchange still lands in their context.
     """
 
     def __init__(
@@ -335,31 +343,69 @@ class _LiveExchange:
     ) -> None:
         self._agent = agent
         self.call_id = call_id
+        self._reply_id = (
+            getattr(getattr(agent, "state", None), "reply_id", "") or ""
+        )
         self._sent = ""
-        self.active = False
-        begin = getattr(agent, "begin_injected_exchange", None)
-        if not callable(begin):
-            return
-        try:
-            begin(call_id=call_id, name=tool, arguments=json.dumps(args))
-            self.active = True
-        except Exception:
-            logger.debug(
-                "AdvisorMiddleware: could not open the live exchange",
-                exc_info=True,
+        self.active = callable(getattr(agent, "emit_injected_event", None))
+        self._emit(
+            ToolCallStartEvent(
+                reply_id=self._reply_id,
+                tool_call_id=call_id,
+                tool_call_name=tool,
+            ),
+        )
+        arguments = json.dumps(args)
+        if arguments:
+            self._emit(
+                ToolCallDeltaEvent(
+                    reply_id=self._reply_id,
+                    tool_call_id=call_id,
+                    delta=arguments,
+                ),
             )
+        self._emit(
+            ToolCallEndEvent(reply_id=self._reply_id, tool_call_id=call_id),
+        )
+        self._emit(
+            ToolResultStartEvent(
+                reply_id=self._reply_id,
+                tool_call_id=call_id,
+                tool_call_name=tool,
+            ),
+        )
 
-    def _emit(self, method: str, **kwargs: Any) -> None:
-        fn = getattr(self._agent, method, None)
-        if not callable(fn):
+    def _emit(self, event: Any) -> None:
+        if not self.active:
             return
         try:
-            fn(call_id=self.call_id, **kwargs)
+            if self._agent.emit_injected_event(event) is False:
+                self.active = False
         except Exception:
             logger.debug(
                 "AdvisorMiddleware: live exchange update failed",
                 exc_info=True,
             )
+            self.active = False
+
+    def _delta(self, text: str) -> None:
+        self._emit(
+            ToolResultTextDeltaEvent(
+                reply_id=self._reply_id,
+                tool_call_id=self.call_id,
+                delta=text,
+            ),
+        )
+
+    def _end(self, state: ToolResultState) -> None:
+        self._emit(
+            ToolResultEndEvent(
+                reply_id=self._reply_id,
+                tool_call_id=self.call_id,
+                state=state,
+            ),
+        )
+        self.active = False
 
     def on_text(self, text: str) -> None:
         """Relay the cumulative advisor reply ``text`` as a delta."""
@@ -369,14 +415,14 @@ class _LiveExchange:
         if not delta:
             return
         self._sent = text
-        self._emit("stream_injected_output", delta=delta)
+        self._delta(delta)
 
     def note(self, text: str) -> None:
-        """Append a harness note (a retry, say) and start a fresh reply."""
+        """Append a note (a retry, say) and start a fresh reply."""
         if not self.active:
             return
         prefix = "\n\n" if self._sent else ""
-        self._emit("stream_injected_output", delta=f"{prefix}{text}\n\n")
+        self._delta(f"{prefix}{text}\n\n")
         self._sent = ""
 
     def finish(self, output: str) -> None:
@@ -385,20 +431,17 @@ class _LiveExchange:
         if not self.active:
             return
         self.on_text(output)
-        self._emit("finish_injected_exchange", state=ToolResultState.SUCCESS)
-        self.active = False
+        self._end(ToolResultState.SUCCESS)
 
     def fail(self, message: str) -> None:
         """Close the exchange as failed, with ``message`` as the output."""
         if not self.active:
             return
         prefix = "\n\n" if self._sent else ""
-        self._emit("stream_injected_output", delta=f"{prefix}{message}")
-        self._emit("finish_injected_exchange", state=ToolResultState.ERROR)
-        self.active = False
+        self._delta(f"{prefix}{message}")
+        self._end(ToolResultState.ERROR)
 
 
-# pylint: disable=too-many-instance-attributes
 class AdvisorMiddleware(MiddlewareBase):
     """Inject an advisor plan up front, again when the agent gets stuck,
     and answer the agent's own questions."""
@@ -837,7 +880,7 @@ class AdvisorMiddleware(MiddlewareBase):
                 # The rejected sample must not shape the next answer (or
                 # later consultations): drop it from the advisor history.
                 del self._advisor_history[-2:]
-                live.note("(no CONTINUE/ADJUST verdict; asking again)")
+                live.note("(no CONTINUE/ADJUST verdict, asking again)")
         else:
             # Still unparseable: treat as ADJUST rather than drop the
             # advice, so a advisor that ignored the format is not silently
@@ -941,7 +984,7 @@ class AdvisorMiddleware(MiddlewareBase):
                     exc,
                 )
                 if attempt < _PLAN_ATTEMPTS:
-                    live.note(f"(advisor call failed: {exc}; retrying)")
+                    live.note(f"(advisor call failed: {exc}. Retrying)")
                     await asyncio.sleep(_PLAN_RETRY_DELAY_S * attempt)
         else:
             # Every attempt failed. Say so loudly: a silent miss here turns
@@ -995,10 +1038,7 @@ class AdvisorMiddleware(MiddlewareBase):
         if stateful:
             messages.extend(self._advisor_history)
         messages.append({"role": "user", "content": message})
-        if on_text is None:
-            reply = await self._advisor.ask(messages)
-        else:
-            reply = await self._advisor.ask(messages, on_text=on_text)
+        reply = await self._advisor.ask(messages, on_text=on_text)
         # Remember the exchange so later questions build on it.
         self._advisor_history.append({"role": "user", "content": message})
         self._advisor_history.append({"role": "assistant", "content": reply})
@@ -1105,13 +1145,15 @@ class AdvisorMiddleware(MiddlewareBase):
 
 
 def default_log_dir(agent_id: str) -> Path:
-    """Where advisor transcripts for ``agent_id`` are written."""
-    from ...constant import ADVISOR_DIR
+    """Where advisor transcripts for ``agent_id`` are written. They sit
+    outside agent workspaces so the agent's own file searches never
+    surface them."""
+    from ...constant import WORKING_DIR
 
     safe = "".join(
         ch if ch.isalnum() or ch in "-_." else "_" for ch in (agent_id or "")
     )
-    return ADVISOR_DIR / (safe or "default")
+    return WORKING_DIR / "advisor" / (safe or "default")
 
 
 __all__ = [
