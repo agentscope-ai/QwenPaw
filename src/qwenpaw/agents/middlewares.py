@@ -275,7 +275,10 @@ class MemoryMiddleware(MiddlewareBase):
                         turn_markers=pending_markers,
                     )
                     if not automation_request:
-                        await self._flush_auto_memory(agent)
+                        await self._flush_auto_memory(
+                            agent,
+                            trigger="compact",
+                        )
             except Exception:
                 logger.exception(
                     "MemoryMiddleware post-compression auto-memory flush "
@@ -287,6 +290,7 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         *,
         count: int | None = None,
+        trigger: str = "periodic",
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -330,8 +334,9 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            await self._memory_manager.auto_memory(
+            self._memory_manager.submit_auto_memory(
                 messages,
+                trigger=trigger,
                 session_id=self._agent_session_id(agent),
             )
         except Exception:

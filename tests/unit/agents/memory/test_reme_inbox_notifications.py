@@ -16,7 +16,7 @@ from qwenpaw.agents.memory.reme_inbox import build_payload
 def _manager() -> ReMeLightMemoryManager:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager.agent_id = "agent-1"
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         auto_memory_inbox_push_enabled=True,
         auto_dream_inbox_push_enabled=True,
         auto_fin_inbox_push_enabled=True,

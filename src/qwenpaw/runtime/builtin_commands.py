@@ -271,7 +271,7 @@ _CONVERSATION_COMMANDS = frozenset(
         "clear",
         "history",
         "compact_str",
-        "summarize_status",
+        "auto_memory_status",
         "message",
         "dump_history",
         "load_history",

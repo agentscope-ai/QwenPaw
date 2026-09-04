@@ -4,6 +4,12 @@
 from typing import TYPE_CHECKING
 
 from .agent_md_manager import AgentMdManager
+from .action_provider import (
+    MemoryActionProvider,
+    MemoryActionResponse,
+    MemoryActionResult,
+    MemoryActionSpec,
+)
 from .base_memory_manager import BaseMemoryManager
 from .reme_light_memory_manager import ReMeLightMemoryManager
 from .adbpg_memory_manager import (
@@ -34,6 +40,10 @@ if TYPE_CHECKING:  # pragma: no cover
 # pylint: disable=undefined-all-variable
 __all__ = [
     "AgentMdManager",
+    "MemoryActionProvider",
+    "MemoryActionResponse",
+    "MemoryActionResult",
+    "MemoryActionSpec",
     "BaseMemoryManager",
     "ReMeLightMemoryManager",
     "ADBPGMemoryManager",
