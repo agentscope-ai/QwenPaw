@@ -108,6 +108,29 @@ class TestEnqueueAndCreate:
         assert first is second
 
     @pytest.mark.asyncio
+    async def test_dead_consumer_is_replaced_on_enqueue(self):
+        async def wait_forever(q, *_args):
+            await asyncio.Event().wait()
+
+        mgr = UnifiedQueueManager(
+            consumer_fn=wait_forever,
+            queue_maxsize=10,
+        )
+        await mgr.enqueue("feishu", "feishu:sess", 10, "card")
+        state = mgr._queues[("feishu", "feishu:sess", 10)]
+        orphan = state.consumer_task
+        # Simulate a done task whose finally failed to pop the key.
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(None)
+        state.consumer_task = done  # type: ignore[assignment]
+        await mgr.enqueue("feishu", "feishu:sess", 10, "next")
+        replaced = mgr._queues[("feishu", "feishu:sess", 10)]
+        assert replaced.consumer_task is not done
+        assert not replaced.consumer_task.done()
+        orphan.cancel()
+        await mgr.stop_all()
+
+    @pytest.mark.asyncio
     async def test_different_keys_create_different_queues(
         self,
         manager: UnifiedQueueManager,
@@ -223,6 +246,68 @@ class TestCleanupLoop:
         await asyncio.sleep(0.4)
         assert ("console", "console:u1", 0) not in manager._queues
         await manager.stop_all()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_replaces_stuck_consumer_with_waiting_items(self):
+        started = asyncio.Event()
+        seen: list[str] = []
+
+        async def get_then_hang(q, *_args):
+            item = await q.get()
+            seen.append(item)
+            started.set()
+            await asyncio.Event().wait()
+
+        mgr = UnifiedQueueManager(
+            consumer_fn=get_then_hang,
+            queue_maxsize=10,
+            idle_timeout=60.0,
+            cleanup_interval=0.02,
+            stuck_timeout=0.05,
+            cancel_timeout=0.05,
+        )
+        mgr.start_cleanup_loop()
+        await mgr.enqueue("feishu", "feishu:sess", 10, "card")
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await mgr.enqueue("feishu", "feishu:sess", 10, "later")
+        first = mgr._queues[("feishu", "feishu:sess", 10)]
+        await asyncio.sleep(0.25)
+        assert ("feishu", "feishu:sess", 10) in mgr._queues
+        replaced = mgr._queues[("feishu", "feishu:sess", 10)]
+        assert replaced is not first
+        assert replaced.consumer_task is not first.consumer_task
+        assert "later" in seen or replaced.queue.qsize() >= 1
+        await mgr.stop_all()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancel_timeout_does_not_block_loop(self):
+        started = asyncio.Event()
+
+        async def ignore_cancel(q, *_args):
+            await q.get()
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.Event().wait()
+
+        mgr = UnifiedQueueManager(
+            consumer_fn=ignore_cancel,
+            queue_maxsize=10,
+            idle_timeout=0.05,
+            cleanup_interval=0.02,
+            stuck_timeout=60.0,
+            cancel_timeout=0.05,
+        )
+        mgr.start_cleanup_loop()
+        await mgr.enqueue("feishu", "feishu:sess", 10, "card")
+        await asyncio.wait_for(started.wait(), timeout=1)
+        # Queue is empty (item already taken) and last_activity is stale
+        # → idle cleanup must not hang the loop on uncancellable cancel.
+        await asyncio.sleep(0.3)
+        assert mgr._cleanup_task is not None
+        assert not mgr._cleanup_task.done()
+        await mgr.stop_all()
 
     @pytest.mark.asyncio
     async def test_cleanup_loop_survives_exceptions(

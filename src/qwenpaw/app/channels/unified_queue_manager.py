@@ -46,7 +46,8 @@ class QueueState:
         queue: The asyncio.Queue for this QueueKey
         consumer_task: The asyncio.Task running the consumer
         created_at: Timestamp when queue was created
-        last_activity: Timestamp of last message (enqueue or dequeue)
+        last_activity: Timestamp of last enqueue (or completed handle)
+        last_progress: Timestamp of last handle start/finish
         processed_count: Number of messages processed
     """
 
@@ -54,6 +55,7 @@ class QueueState:
     consumer_task: asyncio.Task[None]
     created_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
+    last_progress: float = field(default_factory=time.time)
     processed_count: int = 0
 
 
@@ -83,6 +85,8 @@ class UnifiedQueueManager:
         queue_maxsize: int = 1000,
         idle_timeout: float = 600.0,  # 10 minutes
         cleanup_interval: float = 60.0,  # 1 minute
+        stuck_timeout: float = 1800.0,  # 30 minutes
+        cancel_timeout: float = 5.0,
     ):
         """Initialize queue manager.
 
@@ -91,11 +95,16 @@ class UnifiedQueueManager:
             queue_maxsize: Max size per queue (0 = unbounded)
             idle_timeout: Cleanup idle queues after N seconds
             cleanup_interval: Run cleanup every N seconds
+            stuck_timeout: Replace a consumer that has not progressed
+                for N seconds while the queue still has waiting items
+            cancel_timeout: Max seconds to wait for a cancelled consumer
         """
         self._consumer_fn = consumer_fn
         self._queue_maxsize = queue_maxsize
         self._idle_timeout = idle_timeout
         self._cleanup_interval = cleanup_interval
+        self._stuck_timeout = stuck_timeout
+        self._cancel_timeout = cancel_timeout
 
         # QueueKey → QueueState
         self._queues: Dict[QueueKey, QueueState] = {}
@@ -172,27 +181,32 @@ class UnifiedQueueManager:
             QueueState with queue and consumer task
         """
         async with self._lock:
-            # Check if already exists
-            if queue_key in self._queues:
-                return self._queues[queue_key]
+            existing = self._queues.get(queue_key)
+            if existing is not None:
+                if not existing.consumer_task.done():
+                    return existing
+                # Consumer exited but the key was not reaped (race with
+                # finally, or a replaced task that died). Respawn on the
+                # same queue so waiting items are not dropped.
+                channel_id, session_id, priority_level = queue_key
+                existing.consumer_task = self._spawn_consumer(
+                    existing.queue,
+                    queue_key,
+                )
+                existing.last_progress = time.time()
+                logger.warning(
+                    "Replaced dead consumer: "
+                    f"channel={channel_id} "
+                    f"session={session_id[:30]} "
+                    f"priority={priority_level}",
+                )
+                return existing
 
             # Create new queue
             queue = asyncio.Queue(maxsize=self._queue_maxsize)
 
-            # Create consumer task
             channel_id, session_id, priority_level = queue_key
-            consumer_task = asyncio.create_task(
-                self._run_consumer(
-                    queue,
-                    channel_id,
-                    session_id,
-                    priority_level,
-                ),
-                name=(
-                    f"consumer_{channel_id}_"
-                    f"{session_id[:20]}_{priority_level}"
-                ),
-            )
+            consumer_task = self._spawn_consumer(queue, queue_key)
 
             # Create state
             state = QueueState(
@@ -210,6 +224,26 @@ class UnifiedQueueManager:
             )
 
             return state
+
+    def _spawn_consumer(
+        self,
+        queue: asyncio.Queue,
+        queue_key: QueueKey,
+    ) -> asyncio.Task[None]:
+        """Create a consumer task for *queue_key*."""
+        channel_id, session_id, priority_level = queue_key
+        return asyncio.create_task(
+            self._run_consumer(
+                queue,
+                channel_id,
+                session_id,
+                priority_level,
+            ),
+            name=(
+                f"consumer_{channel_id}_"
+                f"{session_id[:20]}_{priority_level}"
+            ),
+        )
 
     async def _run_consumer(
         self,
@@ -261,9 +295,14 @@ class UnifiedQueueManager:
                 f"priority={priority_level}",
             )
         finally:
-            # Remove from queues dict when consumer exits
+            # Only drop the key if we are still the registered consumer.
+            # A replacement consumer for the same key must not be removed
+            # when this (old) task exits.
+            me = asyncio.current_task()
             async with self._lock:
-                self._queues.pop(queue_key, None)
+                current = self._queues.get(queue_key)
+                if current is not None and current.consumer_task is me:
+                    self._queues.pop(queue_key, None)
 
             logger.info(
                 f"Consumer stopped: channel={channel_id} "
@@ -374,10 +413,12 @@ class UnifiedQueueManager:
         logger.info(f"Stopped all queues: total={queue_count}")
 
     async def _cleanup_idle_queues(self) -> None:
-        """Background task to cleanup idle queues.
+        """Background task to cleanup idle and stuck queues.
 
-        Runs every cleanup_interval seconds and removes queues
-        that have been empty and idle for longer than idle_timeout.
+        Runs every cleanup_interval seconds. Removes queues that have
+        been empty and idle for longer than idle_timeout. Also replaces
+        consumers that died while items remain, or that have not made
+        progress for stuck_timeout while later messages are waiting.
         """
         logger.info("Cleanup loop running")
 
@@ -387,17 +428,33 @@ class UnifiedQueueManager:
 
                 now = time.time()
                 to_cleanup: list[QueueKey] = []
+                to_replace: list[QueueKey] = []
 
-                # Find idle queues
                 async with self._lock:
                     for key, state in self._queues.items():
-                        # Check if queue is empty and idle
-                        if state.queue.empty():
+                        if state.consumer_task.done():
+                            if state.queue.empty():
+                                to_cleanup.append(key)
+                            else:
+                                to_replace.append(key)
+                            continue
+                        progress_age = now - state.last_progress
+                        if (
+                            not state.queue.empty()
+                            and progress_age > self._stuck_timeout
+                        ):
+                            # Waiting items + no handle progress: the
+                            # current consumer is wedged and is blocking
+                            # later messages on this QueueKey.
+                            to_replace.append(key)
+                        elif state.queue.empty():
                             idle_time = now - state.last_activity
                             if idle_time > self._idle_timeout:
                                 to_cleanup.append(key)
 
-                # Cancel idle consumers (outside lock)
+                for key in to_replace:
+                    await self._replace_consumer(key, reason="stuck")
+
                 for key in to_cleanup:
                     cleanup_state: QueueState | None = None
                     async with self._lock:
@@ -405,11 +462,9 @@ class UnifiedQueueManager:
                             cleanup_state = self._queues.pop(key)
 
                     if cleanup_state is not None:
-                        cleanup_state.consumer_task.cancel()
-                        try:
-                            await cleanup_state.consumer_task
-                        except asyncio.CancelledError:
-                            pass
+                        await self._cancel_task(
+                            cleanup_state.consumer_task,
+                        )
 
                         channel_id, session_id, priority_level = key
                         logger.info(
@@ -462,6 +517,7 @@ class UnifiedQueueManager:
                         "processed_count": state.processed_count,
                         "age_seconds": now - state.created_at,
                         "idle_seconds": now - state.last_activity,
+                        "progress_idle_seconds": now - state.last_progress,
                     },
                 )
 
@@ -494,4 +550,105 @@ class UnifiedQueueManager:
             state = self._queues.get(queue_key)
             if state is not None:
                 state.processed_count += count
-                state.last_activity = time.time()
+                now = time.time()
+                state.last_activity = now
+                state.last_progress = now
+
+    async def touch_progress(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+    ) -> None:
+        """Mark that a consumer started processing a handle.
+
+        Separates "messages keep arriving" (last_activity) from "the
+        consumer is actually making progress" so a wedged handle cannot
+        hide behind fresh enqueues.
+        """
+        queue_key = (channel_id, session_id, priority_level)
+
+        async with self._lock:
+            state = self._queues.get(queue_key)
+            if state is not None:
+                state.last_progress = time.time()
+
+    async def _cancel_task(self, task: asyncio.Task[None]) -> None:
+        """Cancel *task* without letting a wedged handle block cleanup."""
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=self._cancel_timeout)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+
+    async def _replace_consumer(
+        self,
+        queue_key: QueueKey,
+        reason: str,
+    ) -> None:
+        """Cancel a wedged/dead consumer and respawn on leftover items.
+
+        Pending queue items are moved onto a new queue so a handle that
+        ignores cancellation cannot keep later messages trapped.
+        """
+        async with self._lock:
+            state = self._queues.get(queue_key)
+            if state is None:
+                return
+            old_task = state.consumer_task
+            old_queue = state.queue
+            processed = state.processed_count
+
+        await self._cancel_task(old_task)
+
+        leftover: list[Any] = []
+        while True:
+            try:
+                leftover.append(old_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        async with self._lock:
+            current = self._queues.get(queue_key)
+            if current is not None and current.consumer_task is not old_task:
+                for item in leftover:
+                    try:
+                        current.queue.put_nowait(item)
+                    except asyncio.QueueFull:
+                        logger.warning(
+                            "Dropped leftover item during replace: "
+                            f"key={queue_key}",
+                        )
+                        break
+                return
+
+            channel_id, session_id, priority_level = queue_key
+            new_queue = asyncio.Queue(maxsize=self._queue_maxsize)
+            for item in leftover:
+                try:
+                    new_queue.put_nowait(item)
+                except asyncio.QueueFull:
+                    logger.warning(
+                        "Dropped leftover item during replace: "
+                        f"channel={channel_id} "
+                        f"session={session_id[:30]} "
+                        f"priority={priority_level}",
+                    )
+                    break
+
+            new_state = QueueState(
+                queue=new_queue,
+                consumer_task=self._spawn_consumer(new_queue, queue_key),
+                processed_count=processed,
+            )
+            self._queues[queue_key] = new_state
+
+        logger.warning(
+            f"Replaced consumer ({reason}): "
+            f"channel={channel_id} "
+            f"session={session_id[:30]} "
+            f"priority={priority_level} "
+            f"leftover={len(leftover)}",
+        )
