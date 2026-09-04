@@ -198,7 +198,7 @@ export function AdvisorModeTab() {
                   aria-label={t("agentConfig.advisorModeThinking")}
                   data-testid="advisor-thinking"
                   disabled={busy}
-                  value={state.advisor_thinking ?? "inherit"}
+                  value={state.advisor_thinking ?? "off"}
                   options={THINKING_LEVELS.map((level) => ({
                     value: level,
                     label: t(`modelSelector.thinking.${level}`),

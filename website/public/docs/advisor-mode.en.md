@@ -23,7 +23,7 @@ When no sub-agent model is configured the worker keeps running on the main model
 
 Either role can be pinned to another model: when you pick **Advisor** in the composer's loop-mode menu, an **Advisor models** panel opens next to the mode pill (the **Models** button reopens it while the conversation runs) with an *Advisor model* and a *Worker model* pick, prefilled with the defaults above. The choice is saved for the agent (`advisor_mode.advisor_model` / `advisor_mode.worker_model` in `agent.json`, also accepted by `POST /api/advisor-mode`) and does not touch the main or sub-agent slots; pick the default entry again to go back to them. The **Advisor and worker models** card of the Advisor loop template and `/advisor status` show the models in effect.
 
-The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `inherit` (default) follows the agent and model defaults, `off` / `low` / `medium` / `high` override it for the advisor only. With a thinking model such as qwen3-max most of the time before the plan's first token is the model thinking, so lowering this is the first thing to try when the plan feels slow.
+The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `off` by default, because with a thinking model such as qwen3-max most of the time before the plan's first token is the model thinking (35 s vs 2 s in our runs); `inherit` follows the agent and model defaults, `low` / `medium` / `high` set a level for the advisor only. Turn it up when plan quality matters more than latency.
 
 The advisor is called through the same model factory as every other QwenPaw model call, so provider routing, retries, rate limiting and token accounting all apply.
 
@@ -60,7 +60,7 @@ The setting is stored per agent in `agent.json`:
     "max_consults": 32,
     "advisor_model": null,
     "worker_model": null,
-    "advisor_thinking": "inherit"
+    "advisor_thinking": "off"
   }
 }
 ```
