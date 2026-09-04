@@ -273,7 +273,7 @@ describe("LoopModeSelector", () => {
 
 describe("advisor setup", () => {
   const advisor: LoopModeInfo = {
-    id: "plugin:advisor",
+    id: "advisor",
     name: "Advisor",
     slash_command: "advisor",
     description: "Advisor mode",

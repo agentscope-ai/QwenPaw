@@ -445,7 +445,7 @@ def test_loop_catalog_lists_advisor_mode(client, workspace) -> None:
     response = client[0].get("/api/loops")
 
     assert response.status_code == 200
-    advisor = next(m for m in response.json() if m["id"] == "plugin:advisor")
+    advisor = next(m for m in response.json() if m["id"] == "advisor")
     assert advisor["slash_command"] == "advisor"
     assert advisor["name"] == "Advisor"
     assert (
@@ -469,8 +469,8 @@ def test_loop_catalog_hides_modes_switched_off_for_the_agent(
     workspace.plugins.modes = [AdvisorMode()]
 
     ids = [m["id"] for m in client[0].get("/api/loops").json()]
-    assert "plugin:advisor" not in ids, "off by default"
+    assert "advisor" not in ids, "off by default"
 
     cfg.advisor_mode.enabled = True
     ids = [m["id"] for m in client[0].get("/api/loops").json()]
-    assert "plugin:advisor" in ids
+    assert "advisor" in ids

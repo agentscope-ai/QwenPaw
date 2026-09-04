@@ -12,7 +12,7 @@ import { buildEligibleProviders } from "./modelSelectorModels";
 
 import styles from "./index.module.less";
 
-export const ADVISOR_LOOP_MODE_ID = "plugin:advisor";
+export const ADVISOR_LOOP_MODE_ID = "advisor";
 
 /** Whether the current chat is an Advisor conversation (running, or a new
  * one with Advisor picked in the composer). */

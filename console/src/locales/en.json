@@ -4775,6 +4775,10 @@
       "mission": {
         "name": "Mission",
         "description": "Run a structured, persistent multi-step task."
+      },
+      "advisor": {
+        "name": "Advisor",
+        "description": "A stronger model plans and steps in; a cheaper one does the work."
       }
     },
     "advisorSetup": {
