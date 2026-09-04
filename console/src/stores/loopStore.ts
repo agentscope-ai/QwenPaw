@@ -229,12 +229,7 @@ export async function fetchActiveLoopMode({
     );
     if (requestId === statusRequestId) {
       if (status.state === "idle") {
-        // A mode we just started may not be visible to the backend yet
-        // (the slash command runs inside the request); keep "starting"
-        // and let the post-response sync settle it.
-        if (useLoopStore.getState().sessionState !== "starting") {
-          useLoopStore.getState().resetSessionMode();
-        }
+        useLoopStore.getState().resetSessionMode();
       } else if (status.mode) {
         useLoopStore.getState().setSessionMode(status.mode, status.state);
       }
