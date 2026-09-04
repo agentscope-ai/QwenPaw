@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Button, Input, Modal } from "@agentscope-ai/design";
+import { Tooltip } from "antd";
 import {
+  CircleHelp,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -174,8 +176,18 @@ function EnvironmentsPage() {
       return (
         <div className={styles.row} key={item.key}>
           <div className={styles.identity}>
-            <code>{item.key}</code>
-            <p>{describeSpec(item)}</p>
+            <div className={styles.variableName}>
+              <code>{item.key}</code>
+              <Tooltip title={describeSpec(item)}>
+                <button
+                  type="button"
+                  className={`${styles.iconButton} ${styles.helpButton}`}
+                  aria-label={describeSpec(item)}
+                >
+                  <CircleHelp size={15} />
+                </button>
+              </Tooltip>
+            </div>
           </div>
           <ValueText value={value} />
           <SourceBadge source={item.source} />
@@ -205,7 +217,7 @@ function EnvironmentsPage() {
               </>
             ) : (
               <span className={styles.locked} title={readonlyReason}>
-                <LockKeyhole size={15} /> {readonlyReason}
+                <LockKeyhole size={15} /> {t("environments.startupOnly")}
               </span>
             )}
           </div>
@@ -222,13 +234,7 @@ function EnvironmentsPage() {
       />
       <main className={styles.content}>
         <section className={styles.hero}>
-          <div>
-            <div className={styles.eyebrow}>
-              <Zap size={14} /> {t("environments.liveEyebrow")}
-            </div>
-            <h1>{t("environments.title")}</h1>
-            <p>{t("environments.liveDescription")}</p>
-          </div>
+          <h1>{t("environments.title")}</h1>
           <Button
             type="primary"
             icon={<Plus size={16} />}
@@ -264,10 +270,7 @@ function EnvironmentsPage() {
           ) : (
             <>
               <div className={styles.sectionHeading}>
-                <div>
-                  <h2>{t("environments.customSettings")}</h2>
-                  <p>{t("environments.customSettingsDescription")}</p>
-                </div>
+                <h2>{t("environments.customSettings")}</h2>
                 <span>{customVariables.length}</span>
               </div>
               <div className={styles.table}>
@@ -315,10 +318,7 @@ function EnvironmentsPage() {
               </div>
 
               <div className={styles.sectionHeading}>
-                <div>
-                  <h2>{t("environments.liveSettings")}</h2>
-                  <p>{t("environments.liveSettingsDescription")}</p>
-                </div>
+                <h2>{t("environments.liveSettings")}</h2>
                 <span>{editableCatalog.length}</span>
               </div>
               <div className={`${styles.table} ${styles.editableTable}`}>
@@ -332,10 +332,7 @@ function EnvironmentsPage() {
               </div>
 
               <div className={styles.sectionHeading}>
-                <div>
-                  <h2>{t("environments.readonlySettings")}</h2>
-                  <p>{t("environments.readonlySettingsDescription")}</p>
-                </div>
+                <h2>{t("environments.readonlySettings")}</h2>
                 <span>{readonlyCatalog.length}</span>
               </div>
               <div className={`${styles.table} ${styles.readonlyTable}`}>

@@ -190,6 +190,9 @@ Windows Registry、launchd、systemd 或机器级环境。
 图标表达，不引入其他图标库。所有新增文案覆盖 `en`、`zh`、`ja`、`ru`、
 `pt-BR`、`id` 和 `vi`。
 
+页面不常驻展示实现说明。变量用途通过变量名旁的帮助按钮按需展示，只读原因保留为
+悬浮提示，避免重复解释干扰设置操作。
+
 ## 8. 验收 checklist
 
 - [x] 回退此前新增的 version 2 schema、typed access 和 apply service
@@ -211,6 +214,7 @@ Windows Registry、launchd、systemd 或机器级环境。
 - [x] Console 不再调用全量 PUT 保存单项修改
 - [x] Console 新增模式拒绝覆盖已有变量
 - [x] 删除 catalog 中固定且未使用的响应字段并收紧类型
+- [x] 移除常驻说明，将变量用途收纳到帮助提示
 - [x] 后端单元与集成测试通过
 - [x] 前端页面与 locale 测试通过
 - [x] Python pre-commit、前端 lint 和生产构建通过

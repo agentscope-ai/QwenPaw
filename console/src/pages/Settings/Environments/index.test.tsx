@@ -147,9 +147,7 @@ describe("EnvironmentsPage", () => {
     renderWithProviders(<EnvironmentsPage />);
 
     await screen.findByText("QWENPAW_WORKING_DIR");
-    expect(
-      screen.getByText("environments.readonlyReason.startup"),
-    ).toBeTruthy();
+    expect(screen.getByText("environments.startupOnly")).toBeTruthy();
     expect(screen.queryByLabelText("common.edit")).toBeNull();
   });
 
