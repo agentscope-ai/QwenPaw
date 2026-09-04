@@ -33,7 +33,7 @@ The advisor is called through the same model factory as every other QwenPaw mode
 
 ## Turning it on
 
-**Switch it on for the agent**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the Loop mode menu takes you there). The first switch makes Advisor Mode available for the agent: it adds **Advisor** to the Loop mode menu and enables `/advisor`. It does not change how conversations start — they still begin in the default loop. Three more cards below it switch each capability on its own, so each can be evaluated separately: **Opening plan** (the advisor writes a plan before the agent's first step), **Mid-run auto intervention** (QwenPaw watches tool results and calls the advisor when the agent keeps failing) and **On-demand consultation** (the `consult_advisor` tool).
+**Switch it on for the agent**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the Loop mode menu takes you there). The first switch makes Advisor Mode available for the agent: it adds **Advisor** to the Loop mode menu and enables `/advisor`. It does not change how conversations start — they still begin in the default loop. Below it, the **Advisor and worker models** card shows the models in effect, and three more cards switch each capability on its own, so each can be evaluated separately: **Opening plan** (the advisor writes a plan before the agent's first step), **Mid-run auto intervention** (QwenPaw watches tool results and calls the advisor when the agent keeps failing) and **On-demand consultation** (the `consult_advisor` tool).
 
 **Use it in a conversation (chat input)**: open the Loop mode menu in the chat input bar (the pill that shows `default`) and pick **Advisor**, then send the task as usual. The first message is sent as `/advisor <task>`: the conversation switches into Advisor Mode and the agent runs the task right away. The conversation stays in Advisor Mode for its later messages until you leave it. While it is active the chat input shows it like any other loop mode, and the other loop modes (`/goal`, mission) cannot be started in the same conversation.
 
@@ -43,7 +43,7 @@ The same works anywhere slash commands do (chat, TUI, channels, cron prompts):
 /advisor <task>   # start Advisor Mode for this conversation and run the task
 /advisor on       # switch it on for this conversation
 /advisor off      # leave it (or /new, /clear)
-/advisor status   # show advisor / agent models and the current state
+/advisor status   # show the advisor and worker models and the current state
 ```
 
 While the agent switch is off, `/advisor on` and `/advisor <task>` reply with where to turn it on instead of starting the mode.
@@ -76,7 +76,9 @@ The setting is stored per agent in `agent.json`:
 }
 ```
 
-`max_consults` caps the agent's own questions per conversation (default 32). Past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (`max_interventions`, see below). With the opening plan switched off, the advisor is only consulted automatically (auto intervention) or by the agent (`consult_advisor`). The follow-up and consultation requests always carry the task itself, so they work without a plan. Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
+`max_consults` caps the agent's own questions per conversation (default 32). Past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (`max_interventions`, see below). With the opening plan switched off, the advisor is only consulted automatically (auto intervention) or by the agent (`consult_advisor`). The follow-up and consultation requests always carry the task itself, so they work without a plan.
+
+Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
 
 It takes effect on the next message. No restart is needed.
 
