@@ -129,7 +129,14 @@ export function AdvisorSetupPopover({
     : t("loop.advisorSetup.noSubagent");
 
   const content = (
-    <div className={styles.advisorSetup} data-testid="advisor-setup">
+    // Escape closes it like the mode menu; clicking the composer does too.
+    <div
+      className={styles.advisorSetup}
+      data-testid="advisor-setup"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onOpenChange(false);
+      }}
+    >
       <div className={styles.advisorSetupTitle}>
         {t("loop.advisorSetup.title")}
       </div>
