@@ -77,6 +77,16 @@ const messages = {
     nativeHost: "Local connection helper",
     config: "Local settings file",
     bridgeEndpoint: "Connection endpoint",
+    endpointLocal: "Local",
+    endpointRemote: "Remote",
+    endpointInsecureWarning:
+      "The endpoint uses ws:// on a non-loopback address; the bridge token crosses the network in plaintext. Prefer wss:// or a trusted LAN.",
+    endpointInvalid: "Invalid endpoint override: {error}",
+    remoteSetupTitle: "Connect a browser on another machine",
+    remoteSetupDescription:
+      "Copy the plugin's chrome folder to the browser machine, then run its setup CLI there with this endpoint and the server token (see ~/.qwenpaw/nm-bridge.json on the server).",
+    remoteSetupCommandLabel: "Setup command",
+    copyCommand: "Copy command",
     checksTitle: "Connection checks",
     checkExtensionBridge: "Extension bridge",
     checkNmHost: "Native Messaging host",
@@ -186,6 +196,16 @@ const messages = {
     nativeHost: "本机连接助手",
     config: "本地设置文件",
     bridgeEndpoint: "连接端点",
+    endpointLocal: "本机",
+    endpointRemote: "远程",
+    endpointInsecureWarning:
+      "当前端点在非回环地址上使用 ws://，桥接 token 会以明文经过网络。建议改用 wss:// 或仅在可信局域网内使用。",
+    endpointInvalid: "端点覆盖配置无效：{error}",
+    remoteSetupTitle: "连接其他机器上的浏览器",
+    remoteSetupDescription:
+      "把插件的 chrome 目录拷到浏览器所在机器，在该机器上运行其自带 setup CLI，并填入此端点与服务端 token（见服务端 ~/.qwenpaw/nm-bridge.json）。",
+    remoteSetupCommandLabel: "安装命令",
+    copyCommand: "复制命令",
     checksTitle: "连接检查",
     checkExtensionBridge: "扩展桥接",
     checkNmHost: "Native Messaging 宿主",

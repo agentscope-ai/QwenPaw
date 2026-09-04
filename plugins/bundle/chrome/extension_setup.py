@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import secrets
@@ -14,6 +15,7 @@ import sys
 import webbrowser
 from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import urlparse
 
 from qwenpaw.config.utils import read_last_api
 from qwenpaw.utils.io_utils import write_json_atomic
@@ -54,6 +56,11 @@ CWS_COMING_SOON_MESSAGE = (
     "Developer Preview"
 )
 DEFAULT_WS_URL = "ws://127.0.0.1:8088/api/ws/chrome"
+# Environment variable that overrides the bridge WebSocket endpoint. Set this
+# when the browser (extension + Native Messaging host) runs on a different
+# machine than the QwenPaw server, e.g. QwenPaw in Docker or a LAN browser:
+#   QWENPAW_CHROME_BRIDGE_WS_URL=ws://192.168.31.4:8088/api/ws/chrome
+BRIDGE_WS_URL_ENV = "QWENPAW_CHROME_BRIDGE_WS_URL"
 CHROME_EXTENSIONS_URL = "chrome://extensions"
 LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
 LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
@@ -311,16 +318,81 @@ class BridgeEndpointUnavailable(RuntimeError):
     """Raised when the local API bind cannot safely host the bridge token."""
 
 
+class BridgeEndpointError(ValueError):
+    """Raised when a configured bridge endpoint override is invalid."""
+
+
 class InstallModeError(ValueError):
     """Raised when the requested extension install mode cannot be used."""
 
 
-def require_bridge_endpoint() -> str:
-    """Derive a loopback-only bridge endpoint from the running server bind."""
+def validate_bridge_ws_url(url: str) -> str:
+    """Validate and normalize an explicit bridge WebSocket endpoint."""
+    candidate = url.strip()
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"ws", "wss"}:
+        raise BridgeEndpointError(
+            "Chrome bridge endpoint must use ws:// or wss:// "
+            f"(got {candidate!r}).",
+        )
+    if not parsed.hostname:
+        raise BridgeEndpointError(
+            f"Chrome bridge endpoint must include a host (got {candidate!r}).",
+        )
+    if parsed.username or parsed.password:
+        raise BridgeEndpointError(
+            "Chrome bridge endpoint must not embed credentials; "
+            "the bridge token is sent separately.",
+        )
+    return candidate
+
+
+def bridge_endpoint_override() -> str | None:
+    """Return the env-configured bridge endpoint override, when present."""
+    raw = os.environ.get(BRIDGE_WS_URL_ENV, "").strip()
+    if not raw:
+        return None
+    return validate_bridge_ws_url(raw)
+
+
+def endpoint_is_loopback(url: str) -> bool:
+    """Return whether the endpoint host is a loopback address or localhost."""
+    hostname = (urlparse(url.strip()).hostname or "").strip()
+    if hostname == "localhost":
+        return True
     try:
-        api_info = read_last_api()
-    except Exception:
-        api_info = None
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _safe_read_last_api() -> tuple[str, int] | None:
+    """Read the running server bind, tolerating a missing/unreadable state."""
+    try:
+        return read_last_api()
+    except Exception:  # noqa: BLE001 - state file shape is not guaranteed
+        return None
+
+
+def bridge_endpoint_source() -> str:
+    """Classify where the effective bridge endpoint comes from."""
+    if os.environ.get(BRIDGE_WS_URL_ENV, "").strip():
+        return "override"
+    return "server-bind" if _safe_read_last_api() else "default"
+
+
+def require_bridge_endpoint() -> str:
+    """Resolve the bridge endpoint the Native Messaging host should dial.
+
+    An explicit override (env var) wins so browsers on other machines can
+    reach the bridge; otherwise derive a loopback-only endpoint from the
+    running server bind.
+    """
+    override = bridge_endpoint_override()
+    if override is not None:
+        return override
+
+    api_info = _safe_read_last_api()
 
     if not api_info:
         return DEFAULT_WS_URL
@@ -356,16 +428,18 @@ def _copy_extension(qwenpaw_home: Path) -> Path:
 def _write_local_extension_config(
     extension_dir: Path,
     build: dict[str, str | None] | None = None,
+    ws_url: str | None = None,
 ) -> Path:
     config_path = extension_dir / LOCAL_BRIDGE_CONFIG_JS
+    effective_url = ws_url or resolve_default_ws_url()
+    parsed = urlparse(effective_url)
+    default_port = 443 if parsed.scheme == "wss" else 80
     config = {
         "initialReconnectBackoffSeconds": (
             LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS
         ),
         "maxReconnectBackoffSeconds": LOCAL_MAX_RECONNECT_BACKOFF_SECONDS,
-        "localPort": int(
-            resolve_default_ws_url().rsplit(":", 1)[1].split("/")[0],
-        ),
+        "localPort": parsed.port or default_port,
         "build": build or _build_fingerprint(),
     }
     config_path.write_text(
@@ -554,7 +628,7 @@ def _write_host(
         )
     else:
         host.write_text(
-            "#!/usr/bin/env sh\n" f'exec "{interpreter}" "{host_impl}" "$@"\n',
+            f'#!/usr/bin/env sh\nexec "{interpreter}" "{host_impl}" "$@"\n',
             encoding="utf-8",
         )
         host.chmod(
@@ -623,8 +697,15 @@ def setup_extension_files(
     home: Path | None = None,
     platform: str | None = None,
     registry: object | None = None,
+    ws_url: str | None = None,
+    token: str | None = None,
 ) -> dict[str, str | bool]:
-    """Install extension files and Native Messaging registration."""
+    """Install extension files and Native Messaging registration.
+
+    ``ws_url``/``token`` override the resolved bridge endpoint and the
+    generated token; both are primarily used by the standalone CLI when
+    setting up a browser machine that is remote from the QwenPaw server.
+    """
     if install_mode == "cws":
         raise InstallModeError(CWS_COMING_SOON_MESSAGE)
     if install_mode != "unpacked":
@@ -633,7 +714,11 @@ def setup_extension_files(
     home = home or Path.home()
     platform = platform or sys.platform
     native_host_registry = _native_host_registry(platform, registry)
-    ws_url = require_bridge_endpoint()
+    ws_url = (
+        validate_bridge_ws_url(ws_url)
+        if ws_url is not None
+        else require_bridge_endpoint()
+    )
     qwenpaw_home = _qwenpaw_home(home)
     if reset:
         _uninstall(
@@ -643,13 +728,16 @@ def setup_extension_files(
             registry=native_host_registry,
         )
 
-    token = None if reset else _read_existing_nm_token(qwenpaw_home)
+    if token is not None and not token.strip():
+        raise ValueError("Native Messaging bridge token must not be empty")
+    if token is None and not reset:
+        token = _read_existing_nm_token(qwenpaw_home)
     token = token or secrets.token_urlsafe(32)
     build = _build_fingerprint()
     extension_dir = None
     if install_mode == "unpacked":
         extension_dir = _copy_extension(qwenpaw_home)
-        _write_local_extension_config(extension_dir, build)
+        _write_local_extension_config(extension_dir, build, ws_url=ws_url)
     config_path = _write_nm_config(qwenpaw_home, token, ws_url)
     host_path = _write_host(qwenpaw_home, platform=platform, build=build)
     manifest_path = _write_native_manifest(
@@ -934,3 +1022,82 @@ def open_chrome_extensions_page(
             "error": str(exc),
         }
     return {"opened": bool(opened), "url": CHROME_EXTENSIONS_URL}
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="qwenpaw-chrome-setup",
+        description=(
+            "Install the QwenPaw Chrome extension files and Native Messaging "
+            "host on this machine. Run directly on the machine that hosts the "
+            "browser; for a browser remote from the QwenPaw server, pass the "
+            "server-side bridge endpoint and token explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--ws-url",
+        default=None,
+        help=(
+            "Bridge WebSocket endpoint the Native Messaging host dials, e.g. "
+            "ws://192.168.1.10:8088/api/ws/chrome. Defaults to the "
+            f"{BRIDGE_WS_URL_ENV} override or the local server bind."
+        ),
+    )
+    parser.add_argument(
+        "--token",
+        default=None,
+        help=(
+            "Bridge bearer token. Must match the token configured on the "
+            "QwenPaw server (see ~/.qwenpaw/nm-bridge.json there). Defaults "
+            "to the existing local token, or a freshly generated one."
+        ),
+    )
+    parser.add_argument(
+        "--install-mode",
+        default="unpacked",
+        choices=["unpacked"],
+        help="Extension install mode (only unpacked is supported).",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Remove the existing installation before reinstalling.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Standalone setup CLI for the machine that runs the browser."""
+    args = _build_cli_parser().parse_args(argv)
+    try:
+        result = setup_extension_files(
+            install_mode=args.install_mode,
+            reset=args.reset,
+            ws_url=args.ws_url,
+            token=args.token,
+        )
+    except (
+        InstallModeError,
+        BridgeEndpointError,
+        BridgeEndpointUnavailable,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if not endpoint_is_loopback(str(result["ws_url"])):
+        print(
+            "note: the bridge endpoint is remote; the token here must match "
+            "the QwenPaw server token (~/.qwenpaw/nm-bridge.json there).",
+            file=sys.stderr,
+        )
+    print(
+        "next: open chrome://extensions, enable Developer mode, then "
+        f"'Load unpacked' from {result['extension_dir']}",
+        file=sys.stderr,
+    )
+    return 0 if result["installed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 import threading
 from pathlib import Path
 
@@ -11,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from plugins.bundle.chrome import extension_setup
 from plugins.bundle.chrome.api import routes
 from plugins.bundle.chrome.api.routes import api_router
 from plugins.bundle.chrome.extension_setup import (
@@ -134,3 +137,160 @@ def test_uninstall_removes_config_and_extension_dir(
 
 
 # test_chrome_setup_repair.py
+
+
+# test_chrome_remote_bridge_endpoint.py
+
+REMOTE_WS_URL = "ws://192.168.31.4:8088/api/ws/chrome"
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_require_bridge_endpoint_prefers_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(extension_setup.BRIDGE_WS_URL_ENV, REMOTE_WS_URL)
+
+    assert extension_setup.require_bridge_endpoint() == REMOTE_WS_URL
+    assert extension_setup.bridge_endpoint_source() == "override"
+    assert extension_setup.endpoint_is_loopback(REMOTE_WS_URL) is False
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "http://192.168.31.4:8088/api/ws/chrome",
+        "ws:///no-host",
+        "ws://user:pass@192.168.31.4:8088/api/ws/chrome",
+        "not-a-url",
+    ],
+)
+def test_validate_bridge_ws_url_rejects_invalid(bad_url: str) -> None:
+    with pytest.raises(extension_setup.BridgeEndpointError):
+        extension_setup.validate_bridge_ws_url(bad_url)
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_endpoint_is_loopback_classification() -> None:
+    assert extension_setup.endpoint_is_loopback(
+        "ws://127.0.0.1:8088/api/ws/chrome",
+    )
+    assert extension_setup.endpoint_is_loopback(
+        "ws://localhost:8088/api/ws/chrome",
+    )
+    assert extension_setup.endpoint_is_loopback(
+        "ws://[::1]:8088/api/ws/chrome",
+    )
+    assert not extension_setup.endpoint_is_loopback(REMOTE_WS_URL)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_setup_writes_explicit_remote_endpoint_and_token(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", sys.executable)
+
+    result = extension_setup.setup_extension_files(
+        home=isolated_home,
+        ws_url=REMOTE_WS_URL,
+        token="shared-token",
+    )
+
+    assert result["installed"] is True
+    assert result["ws_url"] == REMOTE_WS_URL
+    config = json.loads(
+        (isolated_home / ".qwenpaw" / "nm-bridge.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert config == {"ws_url": REMOTE_WS_URL, "token": "shared-token"}
+    bridge_config = (
+        isolated_home
+        / ".qwenpaw"
+        / "chrome-extension"
+        / "qwenpaw-chrome"
+        / "bridge_config.js"
+    ).read_text(encoding="utf-8")
+    assert '"localPort":8088' in bridge_config
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_setup_rejects_blank_explicit_token(isolated_home: Path) -> None:
+    with pytest.raises(ValueError, match="token"):
+        extension_setup.setup_extension_files(
+            home=isolated_home,
+            ws_url=REMOTE_WS_URL,
+            token="   ",
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_cli_main_sets_up_remote_machine(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DESKTOP_PY_RUNTIME", sys.executable)
+
+    rc = extension_setup.main(
+        ["--ws-url", REMOTE_WS_URL, "--token", "cli-token"],
+    )
+
+    assert rc == 0
+    config = json.loads(
+        (isolated_home / ".qwenpaw" / "nm-bridge.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert config == {"ws_url": REMOTE_WS_URL, "token": "cli-token"}
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_cli_main_rejects_invalid_ws_url(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    rc = extension_setup.main(["--ws-url", "http://example.com/ws"])
+
+    assert rc == 2
+    assert "ws://" in capsys.readouterr().err
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_install_status_marks_remote_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(extension_setup.BRIDGE_WS_URL_ENV, REMOTE_WS_URL)
+    app = FastAPI()
+    app.include_router(api_router)
+
+    body = TestClient(app).get("/install-status").json()
+
+    assert body["bridge_endpoint"] == REMOTE_WS_URL
+    assert body["endpoint_source"] == "override"
+    assert body["remote"] is True
+    assert body["secure_transport"] is False
+    assert body["endpoint_error"] is None
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_install_status_surfaces_invalid_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(extension_setup.BRIDGE_WS_URL_ENV, "not-a-url")
+    app = FastAPI()
+    app.include_router(api_router)
+
+    body = TestClient(app).get("/install-status").json()
+
+    assert body["bridge_endpoint"] is None
+    assert body["endpoint_error"]
+    assert body["remote"] is False
