@@ -45,18 +45,13 @@ _USAGE = (
 )
 
 _LOOP_DESCRIPTION = (
-    "Advisor: the main model plans the task, answers the agent's questions "
-    "and steps in when it keeps failing; the agent runs on the sub-agent "
-    "model. /advisor off leaves the mode."
+    "A stronger model plans and steps in; a cheaper one does the work. "
+    "/advisor off leaves the mode."
 )
 _LOOP_NAME_I18N = {"en": "Advisor", "zh-CN": "顾问"}
 _LOOP_DESCRIPTION_I18N = {
-    "en": (
-        "**Advisor**: the main model plans the task, answers the agent's "
-        "questions and steps in when it keeps failing; the agent runs on "
-        "the sub-agent model."
-    ),
-    "zh-CN": ("**顾问**：主模型先写计划、回答智能体的提问，并在其反复失败时" "介入；智能体本身使用 Sub-agent 模型运行。"),
+    "en": "A stronger model plans and steps in; a cheaper one does the work.",
+    "zh-CN": "更强的模型规划并在卡住时介入，便宜的模型干活。",
 }
 
 # How many chat sessions' advisor state to keep per mode instance.

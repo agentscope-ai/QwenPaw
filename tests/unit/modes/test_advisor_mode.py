@@ -701,7 +701,7 @@ def test_command_metadata_exposes_the_loop_mode_entry():
     spec = AdvisorMode().commands()[0]
     assert spec.metadata["loop_name"] == "Advisor"
     assert spec.metadata["name_i18n"]["zh-CN"] == "顾问"
-    assert "Advisor" in spec.metadata["description_i18n"]["en"]
+    assert "plans" in spec.metadata["description_i18n"]["en"]
     assert "/advisor off" in spec.help_text
 
 
