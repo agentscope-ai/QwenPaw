@@ -229,6 +229,7 @@ export const workspaceApi = {
     chatId?: string,
     root: WorkspaceRoot = "project",
     projectDirOverride?: string,
+    createDirectory = false,
   ): Promise<{
     files: Array<{
       name: string;
@@ -245,6 +246,7 @@ export const workspaceApi = {
           path,
           conflict,
           root,
+          create_directory: createDirectory ? "true" : undefined,
         }),
       ),
       {
