@@ -299,7 +299,7 @@
 
 .advisorSetup {
   display: flex;
-  width: 320px;
+  width: 400px;
   max-width: calc(100vw - 32px);
   flex-direction: column;
   gap: 10px;
@@ -319,11 +319,14 @@
 }
 
 .advisorRow {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-size: 12px;
+}
+
+.advisorRow > span {
+  color: var(--ant-color-text-secondary);
 }
 
 .advisorSelect {
