@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from ..base import AgentMode
+from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import get_current_session_id
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
@@ -48,11 +48,6 @@ _LOOP_DESCRIPTION = (
     "A stronger model plans and steps in; a cheaper one does the work. "
     "/advisor off leaves the mode."
 )
-_LOOP_NAME_I18N = {"en": "Advisor", "zh-CN": "顾问"}
-_LOOP_DESCRIPTION_I18N = {
-    "en": "A stronger model plans and steps in; a cheaper one does the work.",
-    "zh-CN": "更强的模型规划并在卡住时介入，便宜的模型干活。",
-}
 
 # How many chat sessions' advisor state to keep per mode instance.
 _MAX_SESSIONS = 64
@@ -153,9 +148,12 @@ class AdvisorMode(AgentMode):
     name = "advisor"
 
     def __init__(self) -> None:
+        self._sessions: "OrderedDict[str, AdvisorSessionState]" = OrderedDict()
+
+    def setup(self, workspace: object) -> None:
         from .tools import register_advisor_tools_governance
 
-        self._sessions: "OrderedDict[str, AdvisorSessionState]" = OrderedDict()
+        super().setup(workspace)
         # Without this the governor denies the tool by policy.
         register_advisor_tools_governance()
 
@@ -211,11 +209,11 @@ class AdvisorMode(AgentMode):
         anywhere slash commands work) — and only while the agent has the
         mode switched on in Configuration.
         """
-        if not is_enabled(resolve_agent_config(ctx)):
-            return False
         key = self._session_key(ctx)
         state = self._sessions.get(key) if key else None
-        return bool(state is not None and state.override)
+        if state is None or not state.override:
+            return False
+        return is_enabled(resolve_agent_config(ctx))
 
     def hooks(self) -> list[HookBase]:
         from .hooks import WorkerModelHook
@@ -256,12 +254,7 @@ class AdvisorMode(AgentMode):
                 handler=self._command_handler,
                 category="builtin",
                 help_text=_LOOP_DESCRIPTION,
-                metadata={
-                    "builtin": True,
-                    "loop_name": "Advisor",
-                    "name_i18n": dict(_LOOP_NAME_I18N),
-                    "description_i18n": dict(_LOOP_DESCRIPTION_I18N),
-                },
+                metadata={"loop_name": "Advisor"},
             ),
         ]
 
@@ -350,6 +343,12 @@ class AdvisorMode(AgentMode):
 
         if word != "off" and not is_enabled(cfg):
             return _system_reply(_UNAVAILABLE_NOTICE)
+
+        conflict = None if word == "off" else find_active_explicit_mode(ctx)
+        if conflict is not None and conflict != self.name:
+            return _system_reply(
+                f"End the active {conflict} mode before starting /advisor.",
+            )
 
         if word in ("on", "off"):
             enabled = word == "on"

@@ -535,14 +535,18 @@ async def test_exhausted_retries_report_failure(monkeypatch):
 
 
 async def test_failed_plan_does_not_consume_the_injected_flag(monkeypatch):
-    """A rejected call must not disable advisor mode for the run."""
+    """A rejected call leaves the flag clear (the next turn tries again),
+    but this run stops retrying once the attempts are used up."""
     monkeypatch.setattr(
         "qwenpaw.modes.advisor.middleware.asyncio.sleep",
         _no_sleep,
     )
     mw, agent = _plan_mw([RuntimeError("boom")]), _agent_with_task()
     await mw.on_model_call(agent, {"messages": []}, _next_handler)
-    assert mw.plan_injected is False, "a later step must try again"
+    assert mw.plan_injected is False
+    assert len(mw.advisor.calls) == 3
+    await mw.on_model_call(agent, {"messages": []}, _next_handler)
+    assert len(mw.advisor.calls) == 3, "no new round of retries per step"
 
 
 async def test_on_model_call_injects_plan_into_the_request_in_flight():

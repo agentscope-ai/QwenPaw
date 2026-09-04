@@ -403,6 +403,9 @@ class AdvisorMiddleware(MiddlewareBase):
     """Inject an advisor plan up front, again when the agent gets stuck,
     and answer the agent's own questions."""
 
+    # Tells ``QwenPawAgent`` to merge injected exchanges into its stream.
+    emits_injected_exchanges = True
+
     def __init__(
         self,
         *,
@@ -533,11 +536,16 @@ class AdvisorMiddleware(MiddlewareBase):
         self._task = (
             self._extract_instruction(agent.state.context) or self._task
         )
-        if not self._plan_injected and self._plan_enabled:
-            # Only consume the flag once a plan is actually in context.
-            # Setting it first meant a rejected advisor call silently
-            # downgraded the run to a plain run, with no retry on this or
-            # any later step.
+        if (
+            self._plan_enabled
+            and not self._plan_injected
+            and self._plan_error is None
+        ):
+            # Only consume the flag once a plan is actually in context; a
+            # rejected advisor call must not silently downgrade the run.
+            # Once every attempt has failed (``_plan_error``), the rest of
+            # this run goes without a plan and gets the watcher below
+            # instead of another round of retries on every step.
             injected = await self._inject_plan(
                 agent,
                 tools=input_kwargs.get("tools"),

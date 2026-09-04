@@ -451,7 +451,6 @@ def test_loop_catalog_lists_advisor_mode(client, workspace) -> None:
     assert (
         advisor["source"] == "builtin"
     ), "bundled mode, listed with built-ins"
-    assert advisor["name_i18n"]["zh-CN"] == "顾问"
 
 
 def test_loop_catalog_hides_modes_switched_off_for_the_agent(
