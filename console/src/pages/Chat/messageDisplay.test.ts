@@ -5,6 +5,7 @@ import {
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
 import {
   countCollapsedSteps,
+  filterThinkingMessages,
   findActiveStepBlockIndex,
   findLastStepBlockIndex,
   getCollapsedGroupStatus,
@@ -29,6 +30,19 @@ function message(
 }
 
 describe("message display mode", () => {
+  it("filters only reasoning messages when thinking is hidden", () => {
+    const messages = [
+      message("reasoning", AgentScopeRuntimeMessageType.REASONING),
+      message("text", AgentScopeRuntimeMessageType.MESSAGE),
+      message("tool", AgentScopeRuntimeMessageType.TOOL_CALL),
+    ];
+
+    const filtered = filterThinkingMessages(messages, false);
+    expect(filtered.map((item) => item.id)).toEqual(["text", "tool"]);
+    expect(countCollapsedSteps(filtered)).toBe(1);
+    expect(filterThinkingMessages(messages, true)).toBe(messages);
+  });
+
   it("keeps text, approvals, and errors in text-only mode", () => {
     const messages = [
       message("reasoning", AgentScopeRuntimeMessageType.REASONING),
@@ -78,6 +92,43 @@ describe("message display mode", () => {
     expect(
       getResponseMessageDisplayMode(AgentScopeRuntimeRunStatus.Failed),
     ).toBe("result-only");
+  });
+
+  it("keeps the selected expanded and process modes across statuses", () => {
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "expanded",
+      ),
+    ).toBe("all");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "process-collapsed",
+      ),
+    ).toBe("text-only");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.InProgress,
+        "result-collapsed",
+      ),
+    ).toBe("text-only");
+  });
+
+  it("shows every non-heartbeat message in expanded mode", () => {
+    const messages = [
+      message("reasoning", AgentScopeRuntimeMessageType.REASONING),
+      message("first", AgentScopeRuntimeMessageType.MESSAGE),
+      message("tool", AgentScopeRuntimeMessageType.TOOL_CALL),
+      message("heartbeat", AgentScopeRuntimeMessageType.HEARTBEAT),
+      message("last", AgentScopeRuntimeMessageType.MESSAGE),
+    ];
+
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["reasoning", "first", "tool", "last"]);
   });
 
   it("remounts collapsed steps when streaming enters the result phase", () => {

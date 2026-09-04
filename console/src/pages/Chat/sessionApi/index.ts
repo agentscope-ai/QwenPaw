@@ -1071,7 +1071,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * Centralizes state tracking after navigating to a session.
    * Reduces repeated `lastActiveChatId + lastNavigatedChatId + persist` scattered
-   * across onSessionIdResolved, onSessionSelected, drawer, and initializer.
+   * across onSessionIdResolved, onSessionSelected, sidebar, and initializer.
    */
   trackNavigatedSession(
     effectiveId: string,

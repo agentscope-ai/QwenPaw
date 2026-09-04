@@ -14,7 +14,7 @@
  * Vendor response primitives are deep-imported because the SDK does not expose
  * a message-renderer seam. If their paths change, update the imports below.
  */
-import React, { useDeferredValue, useMemo } from "react";
+import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
 import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -53,6 +53,7 @@ import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 import {
   countCollapsedSteps,
+  filterThinkingMessages,
   findActiveStepBlockIndex,
   findLastStepBlockIndex,
   getCollapsedGroupStatus,
@@ -63,6 +64,11 @@ import {
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
 import LazyAccordion from "./LazyAccordion";
+import {
+  getMessageDisplayPreferenceSnapshot,
+  subscribeChatDisplayPreference,
+  type AssistantMessageDisplayPreference,
+} from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -213,11 +219,28 @@ function DefaultHostResponseCard({
   const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
-  const messages = useMemo(
+  const mergedMessages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
-  const messageDisplayMode = getResponseMessageDisplayMode(data.status);
+  const messageDisplayPreferenceSnapshot = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getMessageDisplayPreferenceSnapshot,
+    () => "true:result-collapsed",
+  );
+  const [showThinkingValue, assistantDisplayPreferenceValue] =
+    messageDisplayPreferenceSnapshot.split(":");
+  const showThinking = showThinkingValue === "true";
+  const assistantDisplayPreference =
+    assistantDisplayPreferenceValue as AssistantMessageDisplayPreference;
+  const messages = useMemo(
+    () => filterThinkingMessages(mergedMessages, showThinking),
+    [mergedMessages, showThinking],
+  );
+  const messageDisplayMode = getResponseMessageDisplayMode(
+    data.status,
+    assistantDisplayPreference,
+  );
   const messageBlocks = useMemo(
     () => groupResponseMessages(messages, messageDisplayMode),
     [messageDisplayMode, messages],

@@ -244,10 +244,6 @@ vi.mock("@/stores/loopStore", () => ({
   prepareLoopModeMessage: vi.fn((text: string) => text),
 }));
 
-vi.mock("@/stores/sidebarModeStore", () => ({
-  useSidebarModeStore: vi.fn(() => ({ mode: "full" })),
-}));
-
 vi.mock("@/stores/uploadLimitStore", () => ({
   useUploadLimitStore: Object.assign(
     vi.fn(() => ({ uploadLimit: 10, uploadMaxSizeMb: null })),
@@ -343,10 +339,6 @@ vi.mock("@/plugins/registry/useChatExtensions", () => ({
         },
       ),
   ),
-}));
-
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => <div data-testid="session-drawer" />,
 }));
 
 vi.mock("./components/ContextUsageIndicator", () => ({
@@ -448,10 +440,6 @@ vi.mock("./turnUsageStore", () => ({
 vi.mock("./HostBubbles", () => ({
   HostRequestCard: () => null,
   HostResponseCard: () => null,
-}));
-
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => null,
 }));
 
 vi.mock("../../plugins/registry/PluginSlotBoundary", () => ({

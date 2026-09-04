@@ -146,7 +146,8 @@
     "debug": "Depuracao",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Gerenciador de Plugins"
+    "pluginManager": "Gerenciador de Plugins",
+    "moreSettings": "Mais configurações"
   },
   "os": {
     "console": "Console",
@@ -2885,14 +2886,86 @@
     "settings": {
       "language": "Idioma",
       "theme": "Tema",
-      "mode": "Modo",
       "desktopMode": "Modo Desktop"
     },
-    "simpleMode": "Modo simples",
-    "fullMode": "Modo completo",
+    "quickMenu": {
+      "settings": "Configurações",
+      "appearance": "Aparência",
+      "about": "Sobre o QwenPaw"
+    },
+    "collapse": "Recolher barra lateral",
+    "expand": "Expandir barra lateral",
+    "more": "Mais",
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
+  "settingsCenter": {
+    "backToApp": "Voltar ao aplicativo",
+    "searchPlaceholder": "Pesquisar configurações",
+    "noResults": "Nenhuma configuração correspondente",
+    "groups": {
+      "application": "Configurações do aplicativo",
+      "agentConfiguration": "Configuração do agente",
+      "global": "Configurações globais",
+      "extensions": "Extensões"
+    },
+    "pages": { "general": "Geral", "navigation": "Barra lateral" },
+    "descriptions": {
+      "general": "Idioma, tema e comportamento do aplicativo",
+      "navigation": "Visibilidade da barra lateral",
+      "agents": "Perfis do QwenPaw, Codex e Qoder",
+      "models": "Provedores, credenciais e catálogo de modelos",
+      "skillPool": "Skills e extensões reutilizáveis",
+      "channels": "Conectar canais de mensagens e IM",
+      "skills": "Gerenciar skills do agente",
+      "tools": "Configurar ferramentas disponíveis",
+      "mcp": "Configurar serviços MCP",
+      "acp": "Configurar agentes ACP",
+      "agentConfig": "Configurar o comportamento de execução do agente",
+      "voice": "Entrada de voz e transcrição",
+      "heartbeat": "Disponibilidade do agente e ativação periódica",
+      "environments": "Variáveis de execução e segredos",
+      "security": "Políticas de execução e regras de proteção",
+      "offloadPolicy": "Política de execução em segundo plano",
+      "tokenUsage": "Estatísticas e tendências de uso",
+      "backups": "Exportar, restaurar e migrar dados",
+      "debug": "Logs e diagnóstico",
+      "extension": "Configurações fornecidas por uma extensão"
+    },
+    "appearanceAndLanguage": "Aparência e idioma",
+    "desktopApplication": "Aplicativo desktop",
+    "languageHint": "Altera o idioma da interface neste dispositivo.",
+    "themeHint": "Use aparência clara, escura ou de acordo com o sistema.",
+    "contentWidth": "Largura da mensagem",
+    "contentWidthHint": "Use a largura padrão ou expanda as conversas para a largura disponível.",
+    "contentWidthStandard": "Padrão",
+    "contentWidthWide": "Ampla",
+    "chatDisplay": "Exibição de mensagens",
+    "thinkingDisplay": "Mostrar raciocínio",
+    "thinkingDisplayHint": "Mostra o raciocínio do modelo nas conversas sem alterar seu comportamento.",
+    "toolDisplay": "Exibição de ferramentas",
+    "toolDisplayHint": "Escolha o que será exibido ao abrir um cartão de ferramenta.",
+    "toolDisplayCurrent": "Visualização em cartão",
+    "toolDisplayRaw": "Parâmetros brutos",
+    "assistantDisplay": "Recolhimento das mensagens do assistente",
+    "assistantDisplayHint": "Controle como textos intermediários, raciocínio e ferramentas são recolhidos.",
+    "displayExpanded": "Expandir tudo",
+    "displayProcessCollapsed": "Recolher processo",
+    "displayResultCollapsed": "Recolher resultados",
+    "closeBehaviorHint": "Escolha o que acontece quando a janela do desktop é fechada.",
+    "desktopModeHint": "Abra o espaço de trabalho desktop com várias janelas.",
+    "open": "Abrir",
+    "fixedEntries": "Entradas fixas",
+    "selectAll": "Selecionar tudo",
+    "invertSelection": "Inverter seleção",
+    "sidebarGroups": {
+      "agentConfiguration": "Configuração do agente",
+      "global": "Configurações globais",
+      "plugins": "Recursos de plugins"
+    },
+    "alwaysVisible": "Sempre visível"
+  },
   "chat": {
+    "newTask": "Nova tarefa",
     "groups": {
       "cronShort": "Agendado",
       "subagentShort": "Subagente"
@@ -2901,21 +2974,13 @@
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },
     "modelSelectTooltip": "Selecionar Modelo",
-    "newChatTooltip": "Novo Chat",
-    "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
-    "wideModeTooltip": "Modo amplo",
-    "normalModeTooltip": "Modo normal",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",
       "stepsFailed": "Falhou · {{count}} etapas",
       "stepsCompleted": "{{count}} etapas concluídas"
     },
-    "allChats": "Todos Chats",
-    "createNewChat": "Criar Novo Chat",
-    "pinDrawer": "Fixar",
-    "unpinDrawer": "Desafixar",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",
@@ -3043,19 +3108,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noResults": "Nenhum resultado",
-      "noConversations": "Sem conversas",
-      "loadingConversations": "Carregando…"
+      "noConversations": "Sem conversas"
     },
-    "conversationHistory": "Histórico de conversas",
-    "history": {
-      "empty": "Sem histórico de conversas"
-    },
-    "sessionGroup": {
-      "today": "Hoje",
-      "recent": "Últimos 7 dias",
-      "earlier": "Anteriores"
-    }
+    "conversationHistory": "Histórico de conversas"
   },
   "security": {
     "parent": "Configuracoes",

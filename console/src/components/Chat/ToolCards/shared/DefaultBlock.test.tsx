@@ -81,6 +81,19 @@ describe("DefaultBlock large output", () => {
     expect(screen.getByTestId("syntax")).toBeInTheDocument();
   });
 
+  it("pretty-prints JSON strings through the syntax highlighter", () => {
+    render(
+      <DefaultBlock
+        title="Output"
+        content={'[{"type":"data","source":{"type":"base64"}}]'}
+      />,
+    );
+
+    expect(screen.getByTestId("syntax")).toHaveTextContent(
+      /"source": \{\s+"type": "base64"/,
+    );
+  });
+
   it("renders many-line output as plain text with head and tail", () => {
     const content = makeLines(2001);
     render(<DefaultBlock title="Output" content={content} />);

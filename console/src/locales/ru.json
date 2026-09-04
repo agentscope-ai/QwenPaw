@@ -144,7 +144,8 @@
     "plugins": "Плагины",
     "acp": "ACP",
     "backups": "Резервные копии",
-    "pluginManager": "Менеджер плагинов"
+    "pluginManager": "Менеджер плагинов",
+    "moreSettings": "Дополнительные настройки"
   },
   "os": {
     "console": "Консоль",
@@ -2656,14 +2657,86 @@
     "settings": {
       "language": "Язык",
       "theme": "Тема",
-      "mode": "Режим",
       "desktopMode": "Режим рабочего стола"
     },
-    "simpleMode": "Простой режим",
-    "fullMode": "Полный режим",
+    "quickMenu": {
+      "settings": "Настройки",
+      "appearance": "Внешний вид",
+      "about": "О QwenPaw"
+    },
+    "collapse": "Свернуть боковую панель",
+    "expand": "Развернуть боковую панель",
+    "more": "Ещё",
     "toggleAgentNavigation": "Развернуть или свернуть навигацию агента"
   },
+  "settingsCenter": {
+    "backToApp": "Вернуться в приложение",
+    "searchPlaceholder": "Поиск настроек",
+    "noResults": "Подходящие настройки не найдены",
+    "groups": {
+      "application": "Настройки приложения",
+      "agentConfiguration": "Конфигурация агента",
+      "global": "Глобальные настройки",
+      "extensions": "Расширения"
+    },
+    "pages": { "general": "Общие", "navigation": "Боковая панель" },
+    "descriptions": {
+      "general": "Язык, тема и поведение приложения",
+      "navigation": "Отображение элементов боковой панели",
+      "agents": "Профили QwenPaw, Codex и Qoder",
+      "models": "Поставщики, учётные данные и каталог моделей",
+      "skillPool": "Повторно используемые навыки и расширения",
+      "channels": "Подключение IM и каналов сообщений",
+      "skills": "Управление навыками агента",
+      "tools": "Настройка доступных инструментов",
+      "mcp": "Настройка сервисов MCP",
+      "acp": "Настройка агентов ACP",
+      "agentConfig": "Настройка поведения среды выполнения агента",
+      "voice": "Голосовой ввод и транскрипция",
+      "heartbeat": "Доступность агента и периодический запуск",
+      "environments": "Переменные среды выполнения и секреты",
+      "security": "Политики выполнения и правила защиты",
+      "offloadPolicy": "Политика фонового выполнения",
+      "tokenUsage": "Статистика и тенденции использования",
+      "backups": "Экспорт, восстановление и перенос данных",
+      "debug": "Журналы и диагностика",
+      "extension": "Настройки, предоставленные расширением"
+    },
+    "appearanceAndLanguage": "Внешний вид и язык",
+    "desktopApplication": "Настольное приложение",
+    "languageHint": "Изменяет язык интерфейса на этом устройстве.",
+    "themeHint": "Используйте светлую, тёмную или системную тему.",
+    "contentWidth": "Ширина сообщения",
+    "contentWidthHint": "Используйте стандартную ширину или растяните диалог на доступную ширину.",
+    "contentWidthStandard": "Стандартная",
+    "contentWidthWide": "Широкая",
+    "chatDisplay": "Отображение сообщений",
+    "thinkingDisplay": "Показывать ход рассуждений",
+    "thinkingDisplayHint": "Показывать рассуждения модели в диалогах, не меняя её поведение.",
+    "toolDisplay": "Отображение инструментов",
+    "toolDisplayHint": "Выберите содержимое, показываемое после открытия карточки инструмента.",
+    "toolDisplayCurrent": "Карточка",
+    "toolDisplayRaw": "Исходные параметры",
+    "assistantDisplay": "Сворачивание сообщений ассистента",
+    "assistantDisplayHint": "Настройте сворачивание промежуточного текста, рассуждений и инструментов.",
+    "displayExpanded": "Развернуть всё",
+    "displayProcessCollapsed": "Свернуть процесс",
+    "displayResultCollapsed": "Свернуть результаты",
+    "closeBehaviorHint": "Выберите действие при закрытии окна настольного приложения.",
+    "desktopModeHint": "Открыть многооконное рабочее пространство.",
+    "open": "Открыть",
+    "fixedEntries": "Закреплённые пункты",
+    "selectAll": "Выбрать всё",
+    "invertSelection": "Инвертировать",
+    "sidebarGroups": {
+      "agentConfiguration": "Конфигурация агента",
+      "global": "Глобальные настройки",
+      "plugins": "Функции плагинов"
+    },
+    "alwaysVisible": "Всегда отображать"
+  },
   "chat": {
+    "newTask": "Новая задача",
     "groups": {
       "cronShort": "Расписание",
       "subagentShort": "Субагент"
@@ -2672,21 +2745,13 @@
       "codeSnippet": "Фрагмент кода · {{count}} строк"
     },
     "modelSelectTooltip": "Выбор модели",
-    "newChatTooltip": "Новый чат",
-    "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
-    "wideModeTooltip": "Широкий режим",
-    "normalModeTooltip": "Обычный режим",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",
       "stepsFailed": "Ошибка · шагов: {{count}}",
       "stepsCompleted": "Выполнено шагов: {{count}}"
     },
-    "allChats": "Все чаты",
-    "createNewChat": "Создать новый чат",
-    "pinDrawer": "Закрепить",
-    "unpinDrawer": "Открепить",
     "statusIdle": "Ожидание",
     "statusInProgress": "Выполняется",
     "disclaimer": "Работает для вас, растёт вместе с вами",
@@ -2814,19 +2879,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Поиск…",
-      "noResults": "Результатов нет",
-      "noConversations": "Нет диалогов",
-      "loadingConversations": "Загрузка…"
+      "noConversations": "Нет диалогов"
     },
-    "conversationHistory": "История диалогов",
-    "history": {
-      "empty": "Нет истории чатов"
-    },
-    "sessionGroup": {
-      "today": "Сегодня",
-      "recent": "За 7 дней",
-      "earlier": "Ранее"
-    }
+    "conversationHistory": "История диалогов"
   },
   "security": {
     "parent": "Настройки",

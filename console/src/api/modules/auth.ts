@@ -1,4 +1,4 @@
-import { getApiUrl } from "../config";
+import { getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
 
 export interface LoginResponse {
@@ -13,6 +13,11 @@ export interface AuthStatusResponse {
   mode?: "hub";
   bootstrap_required?: boolean;
   registration_enabled?: boolean;
+}
+
+export interface AuthUserResponse {
+  valid: boolean;
+  username: string;
 }
 
 export const authApi = {
@@ -46,6 +51,18 @@ export const authApi = {
   getStatus: async (): Promise<AuthStatusResponse> => {
     const res = await fetch(getApiUrl("/auth/status"));
     if (!res.ok) throw new Error("Failed to check auth status");
+    return res.json();
+  },
+
+  getCurrentUser: async (): Promise<AuthUserResponse> => {
+    const res = await fetch(getApiUrl("/auth/verify"), {
+      headers: { Authorization: `Bearer ${getApiToken()}` },
+    });
+    if (!res.ok) {
+      throw new Error(
+        await responseErrorMessage(res, "Failed to load current user"),
+      );
+    }
     return res.json();
   },
 

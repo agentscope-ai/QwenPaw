@@ -50,7 +50,7 @@ interface SessionListStore {
     setLibrarySessions: (s: ExtendedSession[]) => void,
   ) => void;
 
-  /** Called by anyone (sidebar, drawer) after a CRUD operation */
+  /** Called after a session CRUD operation to refresh the sidebar. */
   syncSessions: (sessions: ExtendedSession[]) => void;
 }
 

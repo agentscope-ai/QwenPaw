@@ -144,7 +144,8 @@
     "plugins": "プラグイン",
     "acp": "ACP",
     "backups": "バックアップ",
-    "pluginManager": "プラグインマネージャー"
+    "pluginManager": "プラグインマネージャー",
+    "moreSettings": "その他の設定"
   },
   "os": {
     "console": "コンソール",
@@ -2641,14 +2642,86 @@
     "settings": {
       "language": "言語",
       "theme": "テーマ",
-      "mode": "モード",
       "desktopMode": "デスクトップモード"
     },
-    "simpleMode": "シンプルモード",
-    "fullMode": "フルモード",
+    "quickMenu": {
+      "settings": "設定",
+      "appearance": "外観",
+      "about": "QwenPaw について"
+    },
+    "collapse": "サイドバーを折りたたむ",
+    "expand": "サイドバーを展開する",
+    "more": "その他",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
+  "settingsCenter": {
+    "backToApp": "アプリに戻る",
+    "searchPlaceholder": "設定を検索",
+    "noResults": "一致する設定はありません",
+    "groups": {
+      "application": "アプリ設定",
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "extensions": "拡張機能"
+    },
+    "pages": { "general": "一般", "navigation": "サイドバー" },
+    "descriptions": {
+      "general": "言語、テーマ、アプリの動作",
+      "navigation": "サイドバーの表示項目",
+      "agents": "QwenPaw、Codex、Qoder のプロファイル",
+      "models": "プロバイダー、認証情報、モデルカタログ",
+      "skillPool": "再利用可能なスキルと拡張機能",
+      "channels": "IM とメッセージチャンネルを接続",
+      "skills": "エージェントのスキルを管理",
+      "tools": "利用可能なツールを設定",
+      "mcp": "MCP サービスを設定",
+      "acp": "ACP エージェントを設定",
+      "agentConfig": "エージェントの実行動作を設定",
+      "voice": "音声入力と文字起こし",
+      "heartbeat": "エージェントの稼働状況と定期起動",
+      "environments": "実行時変数とシークレット",
+      "security": "実行ポリシーと保護ルール",
+      "offloadPolicy": "バックグラウンド実行ポリシー",
+      "tokenUsage": "使用状況の統計と推移",
+      "backups": "データのエクスポート、復元、移行",
+      "debug": "ログと診断",
+      "extension": "拡張機能が提供する設定"
+    },
+    "appearanceAndLanguage": "外観と言語",
+    "desktopApplication": "デスクトップアプリ",
+    "languageHint": "このデバイスの表示言語を変更します。",
+    "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
+    "contentWidth": "メッセージ幅",
+    "contentWidthHint": "標準幅を使用するか、会話を利用可能な幅まで広げます。",
+    "contentWidthStandard": "標準",
+    "contentWidthWide": "ワイド",
+    "chatDisplay": "メッセージ表示",
+    "thinkingDisplay": "思考過程を表示",
+    "thinkingDisplayHint": "モデルの動作を変えずに、会話内の推論過程を表示します。",
+    "toolDisplay": "ツール表示",
+    "toolDisplayHint": "ツールカードを開いたときに表示する内容を選択します。",
+    "toolDisplayCurrent": "カード表示",
+    "toolDisplayRaw": "生のパラメータ",
+    "assistantDisplay": "アシスタントメッセージの折りたたみ",
+    "assistantDisplayHint": "中間テキスト、推論、ツールの折りたたみ方を設定します。",
+    "displayExpanded": "すべて展開",
+    "displayProcessCollapsed": "プロセスを折りたたむ",
+    "displayResultCollapsed": "結果を折りたたむ",
+    "closeBehaviorHint": "デスクトップウィンドウを閉じたときの動作を選択します。",
+    "desktopModeHint": "マルチウィンドウのデスクトップワークスペースを開きます。",
+    "open": "開く",
+    "fixedEntries": "固定項目",
+    "selectAll": "すべて選択",
+    "invertSelection": "選択を反転",
+    "sidebarGroups": {
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "plugins": "プラグイン機能"
+    },
+    "alwaysVisible": "常に表示"
+  },
   "chat": {
+    "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント"
@@ -2657,21 +2730,13 @@
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
-    "newChatTooltip": "新しいチャット",
-    "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
-    "wideModeTooltip": "ワイドモード",
-    "normalModeTooltip": "標準モード",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",
       "stepsFailed": "実行失敗 · {{count}} ステップ",
       "stepsCompleted": "{{count}} ステップ完了"
     },
-    "allChats": "すべてのチャット",
-    "createNewChat": "新しいチャットを作成",
-    "pinDrawer": "固定",
-    "unpinDrawer": "固定解除",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
@@ -2799,19 +2864,9 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noResults": "結果なし",
-      "noConversations": "会話なし",
-      "loadingConversations": "読み込み中…"
+      "noConversations": "会話なし"
     },
-    "conversationHistory": "会話履歴",
-    "history": {
-      "empty": "チャット履歴なし"
-    },
-    "sessionGroup": {
-      "today": "今日",
-      "recent": "過去7日間",
-      "earlier": "それ以前"
-    }
+    "conversationHistory": "会話履歴"
   },
   "security": {
     "parent": "設定",

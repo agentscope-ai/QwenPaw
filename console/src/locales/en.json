@@ -140,6 +140,7 @@
     "agentConfig": "Configuration",
     "agents": "Agent Management",
     "settings": "Settings",
+    "moreSettings": "More settings",
     "models": "Models",
     "environments": "Environments",
     "offloadPolicy": "Tool Offload",
@@ -258,12 +259,86 @@
     "settings": {
       "language": "Language",
       "theme": "Theme",
-      "mode": "Mode",
       "desktopMode": "Desktop Mode"
     },
-    "simpleMode": "Simple Mode",
-    "fullMode": "Full Mode",
+    "quickMenu": {
+      "settings": "Settings",
+      "appearance": "Appearance",
+      "about": "About QwenPaw"
+    },
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "more": "More",
     "toggleAgentNavigation": "Expand or collapse agent navigation"
+  },
+  "settingsCenter": {
+    "backToApp": "Back to app",
+    "searchPlaceholder": "Search settings",
+    "noResults": "No matching settings",
+    "groups": {
+      "application": "Application",
+      "agentConfiguration": "Agent configuration",
+      "global": "Global settings",
+      "extensions": "Extensions"
+    },
+    "pages": {
+      "general": "General",
+      "navigation": "Sidebar"
+    },
+    "descriptions": {
+      "general": "Language, theme and application behavior",
+      "navigation": "Sidebar visibility",
+      "agents": "QwenPaw, Codex and Qoder profiles",
+      "models": "Providers, credentials and model catalog",
+      "skillPool": "Reusable skills and extensions",
+      "channels": "Connect IM and message channels",
+      "skills": "Manage agent skills",
+      "tools": "Configure available tools",
+      "mcp": "Configure MCP services",
+      "acp": "Configure ACP agents",
+      "agentConfig": "Configure agent runtime behavior",
+      "voice": "Speech input and transcription",
+      "heartbeat": "Agent availability and periodic wake-up",
+      "environments": "Runtime variables and secrets",
+      "security": "Execution policies and protection rules",
+      "offloadPolicy": "Background execution policy",
+      "tokenUsage": "Usage statistics and trends",
+      "backups": "Export, restore and migrate data",
+      "debug": "Logs and diagnostics",
+      "extension": "Settings provided by an extension"
+    },
+    "appearanceAndLanguage": "Appearance & language",
+    "desktopApplication": "Desktop app",
+    "languageHint": "Changes the interface language on this device.",
+    "themeHint": "Use a light, dark or system-matched appearance.",
+    "contentWidth": "Message width",
+    "contentWidthHint": "Use the standard width or expand conversations to the available width.",
+    "contentWidthStandard": "Standard",
+    "contentWidthWide": "Wide",
+    "chatDisplay": "Message display",
+    "thinkingDisplay": "Show thinking",
+    "thinkingDisplayHint": "Show model reasoning in conversations without changing model behavior.",
+    "toolDisplay": "Tool display",
+    "toolDisplayHint": "Choose what appears after opening a tool card.",
+    "toolDisplayCurrent": "Card view",
+    "toolDisplayRaw": "Raw parameters",
+    "assistantDisplay": "Assistant message collapse",
+    "assistantDisplayHint": "Control how intermediate text, reasoning and tools collapse.",
+    "displayExpanded": "Expanded",
+    "displayProcessCollapsed": "Collapse process",
+    "displayResultCollapsed": "Collapse results",
+    "closeBehaviorHint": "Choose what happens when the desktop window closes.",
+    "desktopModeHint": "Open the multi-window desktop workspace.",
+    "open": "Open",
+    "fixedEntries": "Fixed entries",
+    "selectAll": "Select all",
+    "invertSelection": "Invert",
+    "sidebarGroups": {
+      "agentConfiguration": "Agent configuration",
+      "global": "Global settings",
+      "plugins": "Plugin features"
+    },
+    "alwaysVisible": "Always visible"
   },
   "debug": {
     "title": "Debug",
@@ -3268,21 +3343,14 @@
       "codeSnippet_other": "Code snippet · {{count}} lines"
     },
     "modelSelectTooltip": "Select model",
-    "newChatTooltip": "New chat",
-    "searchTooltip": "Search all chats",
+    "newTask": "New task",
     "chatHistoryTooltip": "Chat history",
-    "wideModeTooltip": "Wide mode",
-    "normalModeTooltip": "Normal mode",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",
       "stepsFailed": "Failed · {{count}} steps",
       "stepsCompleted": "Completed {{count}} steps"
     },
-    "allChats": "All Chats",
-    "createNewChat": "Create New Chat",
-    "pinDrawer": "Pin",
-    "unpinDrawer": "Unpin",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "statusUnseenResult": "New result",
@@ -3442,19 +3510,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
-      "noResults": "No results",
-      "noConversations": "No conversations yet",
-      "loadingConversations": "Loading…"
+      "noConversations": "No conversations yet"
     },
-    "conversationHistory": "Conversation History",
-    "history": {
-      "empty": "No chat history"
-    },
-    "sessionGroup": {
-      "today": "Today",
-      "recent": "Last 7 days",
-      "earlier": "Earlier"
-    }
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",

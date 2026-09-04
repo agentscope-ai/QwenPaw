@@ -72,6 +72,7 @@ describe("lazyWithRetry", () => {
     const Comp = lazyWithRetry(factory, "../../pages/Settings/Debug");
     const { findByText } = renderLazy(Comp);
     await expect(findByText("patched-by-plugin")).resolves.toBeTruthy();
+    expect(factory).not.toHaveBeenCalled();
     expect(registryMock.get).toHaveBeenCalledWith(
       "Settings/Debug/index",
       "default",

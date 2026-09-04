@@ -146,7 +146,8 @@
     "debug": "Debug",
     "plugins": "Plugin",
     "pluginManager": "Manajer Plugin",
-    "backups": "Cadangan"
+    "backups": "Cadangan",
+    "moreSettings": "Pengaturan lainnya"
   },
   "os": {
     "console": "Konsol",
@@ -269,12 +270,86 @@
     "settings": {
       "language": "Bahasa",
       "theme": "Tema",
-      "mode": "Mode",
       "desktopMode": "Mode Desktop"
     },
-    "simpleMode": "Mode sederhana",
-    "fullMode": "Mode lengkap",
+    "quickMenu": {
+      "settings": "Pengaturan",
+      "appearance": "Tampilan",
+      "about": "Tentang QwenPaw"
+    },
+    "collapse": "Ciutkan bilah samping",
+    "expand": "Luaskan bilah samping",
+    "more": "Lainnya",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
+  },
+  "settingsCenter": {
+    "backToApp": "Kembali ke aplikasi",
+    "searchPlaceholder": "Cari pengaturan",
+    "noResults": "Tidak ada pengaturan yang cocok",
+    "groups": {
+      "application": "Pengaturan aplikasi",
+      "agentConfiguration": "Konfigurasi agen",
+      "global": "Pengaturan global",
+      "extensions": "Ekstensi"
+    },
+    "pages": {
+      "general": "Umum",
+      "navigation": "Bilah samping"
+    },
+    "descriptions": {
+      "general": "Bahasa, tema, dan perilaku aplikasi",
+      "navigation": "Visibilitas bilah samping",
+      "agents": "Profil QwenPaw, Codex, dan Qoder",
+      "models": "Penyedia, kredensial, dan katalog model",
+      "skillPool": "Keterampilan dan ekstensi yang dapat digunakan kembali",
+      "channels": "Hubungkan IM dan kanal pesan",
+      "skills": "Kelola keterampilan agen",
+      "tools": "Konfigurasikan alat yang tersedia",
+      "mcp": "Konfigurasikan layanan MCP",
+      "acp": "Konfigurasikan agen ACP",
+      "agentConfig": "Konfigurasikan perilaku runtime agen",
+      "voice": "Input suara dan transkripsi",
+      "heartbeat": "Ketersediaan agen dan aktivasi berkala",
+      "environments": "Variabel runtime dan rahasia",
+      "security": "Kebijakan eksekusi dan aturan keamanan",
+      "offloadPolicy": "Kebijakan eksekusi latar belakang",
+      "tokenUsage": "Statistik dan tren penggunaan",
+      "backups": "Ekspor, pulihkan, dan migrasikan data",
+      "debug": "Log dan diagnostik",
+      "extension": "Pengaturan yang disediakan oleh ekstensi"
+    },
+    "appearanceAndLanguage": "Tampilan & bahasa",
+    "desktopApplication": "Aplikasi desktop",
+    "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
+    "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
+    "contentWidth": "Lebar pesan",
+    "contentWidthHint": "Gunakan lebar standar atau perluas percakapan ke ruang yang tersedia.",
+    "contentWidthStandard": "Standar",
+    "contentWidthWide": "Lebar",
+    "chatDisplay": "Tampilan pesan",
+    "thinkingDisplay": "Tampilkan proses berpikir",
+    "thinkingDisplayHint": "Tampilkan penalaran model dalam percakapan tanpa mengubah perilaku model.",
+    "toolDisplay": "Tampilan alat",
+    "toolDisplayHint": "Pilih konten yang ditampilkan setelah membuka kartu alat.",
+    "toolDisplayCurrent": "Tampilan kartu",
+    "toolDisplayRaw": "Parameter mentah",
+    "assistantDisplay": "Pelipatan pesan asisten",
+    "assistantDisplayHint": "Atur cara teks perantara, penalaran, dan alat dilipat.",
+    "displayExpanded": "Tampilkan semua",
+    "displayProcessCollapsed": "Lipat proses",
+    "displayResultCollapsed": "Lipat hasil",
+    "closeBehaviorHint": "Pilih tindakan saat jendela desktop ditutup.",
+    "desktopModeHint": "Buka ruang kerja desktop multi-jendela.",
+    "open": "Buka",
+    "fixedEntries": "Entri tetap",
+    "selectAll": "Pilih semua",
+    "invertSelection": "Balik pilihan",
+    "sidebarGroups": {
+      "agentConfiguration": "Konfigurasi agen",
+      "global": "Pengaturan global",
+      "plugins": "Fitur plugin"
+    },
+    "alwaysVisible": "Selalu ditampilkan"
   },
   "hub": {
     "brand": {
@@ -618,6 +693,7 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
       "subagentShort": "Subagen"
@@ -626,21 +702,13 @@
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },
     "modelSelectTooltip": "Pilih model",
-    "newChatTooltip": "Chat baru",
-    "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
-    "wideModeTooltip": "Mode lebar",
-    "normalModeTooltip": "Mode normal",
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",
       "stepsCanceled": "Dibatalkan · {{count}} langkah",
       "stepsFailed": "Gagal · {{count}} langkah",
       "stepsCompleted": "Selesai {{count}} langkah"
     },
-    "allChats": "Semua Chat",
-    "createNewChat": "Buat Chat Baru",
-    "pinDrawer": "Sematkan",
-    "unpinDrawer": "Lepas sematan",
     "statusIdle": "Idle",
     "statusInProgress": "Sedang berjalan",
     "disclaimer": "Bekerja untuk Anda, berkembang bersama Anda",
@@ -768,19 +836,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Cari…",
-      "noResults": "Tidak ada hasil",
-      "noConversations": "Tidak ada percakapan",
-      "loadingConversations": "Memuat…"
+      "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan",
-    "history": {
-      "empty": "Tidak ada riwayat obrolan"
-    },
-    "sessionGroup": {
-      "today": "Hari ini",
-      "recent": "7 hari terakhir",
-      "earlier": "Sebelumnya"
-    }
+    "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",

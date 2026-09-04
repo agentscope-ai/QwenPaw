@@ -1,143 +1,172 @@
-/* SidebarSettingsPanel — quick-access settings panel */
+.panel,
+.flyoutPanel,
+.choicePanel {
+  width: 208px;
+  padding: 5px;
+  overflow: hidden;
+  border-radius: 13px;
+  background: #faf9f6;
+  box-shadow: 0 10px 28px rgba(24, 20, 18, 0.11);
+}
 
-.panel {
+.menuItem,
+.choiceItem {
+  width: 100%;
+  min-height: 36px;
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 210px;
-  padding: 2px 0;
-}
-
-/* ── Section row ────────────────────────────────────────────────────────── */
-
-.row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
-  user-select: none;
-}
-
-/* ── Options group ──────────────────────────────────────────────────────── */
-
-.options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-/* ── Individual option button ───────────────────────────────────────────── */
-
-.optBtn {
-  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
-  border-radius: 6px;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
   background: transparent;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  color: rgba(26, 23, 22, 0.82);
+  font: inherit;
   font-size: 13px;
+  line-height: 1.25;
+  text-align: left;
   cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
 
-  &:hover {
-    background: var(--color-fill-tertiary, rgba(0, 0, 0, 0.04));
-    border-color: var(--colorBorder, rgba(0, 0, 0, 0.15));
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  > svg {
+    flex: 0 0 auto;
+    color: rgba(26, 23, 22, 0.62);
   }
 
-  &Active {
-    background: var(--colorPrimaryBg, #fff7e6);
-    border-color: var(--colorPrimary, #ff9d4d);
-    color: var(--colorPrimary, #ff9d4d);
+  &:hover,
+  &:focus-visible,
+  &:global(.ant-popover-open) {
+    outline: none;
+    background: rgba(255, 127, 22, 0.08);
+    color: rgba(26, 23, 22, 0.94);
 
-    &:hover {
-      background: var(--colorPrimaryBg, #fff7e6);
+    > svg {
+      color: #e96f0b;
     }
   }
+}
 
-  /* Full-width block variant for mode toggle */
-  &Block {
-    width: 100%;
-    justify-content: flex-start;
+.chevron,
+.menuMeta,
+.check {
+  margin-left: auto;
+}
+
+.chevron {
+  color: rgba(26, 23, 22, 0.34) !important;
+}
+
+.menuMeta {
+  color: rgba(26, 23, 22, 0.34);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.divider {
+  height: 1px;
+  margin: 5px 8px;
+  background: rgba(26, 23, 22, 0.08);
+}
+
+.choicePanel {
+  width: 190px;
+}
+
+.choiceItemSelected {
+  color: rgba(26, 23, 22, 0.94);
+}
+
+.check {
+  color: #e96f0b !important;
+}
+
+.dangerItem {
+  color: #d94a42;
+
+  > svg {
+    color: currentColor;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: rgba(217, 74, 66, 0.08);
+    color: #c83d36;
+
+    > svg {
+      color: currentColor;
+    }
   }
 }
 
-.optLabel {
-  font-size: 13px;
-  line-height: 1;
-}
+.nestedPopover {
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 0;
+    border-radius: 13px;
+    background: transparent !important;
+    box-shadow: none;
+  }
 
-.modeActions {
-  display: flex;
-  flex-direction: row;
-  gap: 4px;
+  :global(.ant-popover-inner-content),
+  :global(.qwenpaw-popover-inner-content) {
+    overflow: hidden;
+    border-radius: inherit;
+  }
 
-  .optBtnBlock {
-    flex: 1;
-    width: auto;
-    justify-content: center;
+  :global(.ant-popover-arrow),
+  :global(.qwenpaw-popover-arrow) {
+    display: none;
   }
 }
-
-.desktopModeBtn {
-  border-color: rgba(255, 127, 22, 0.36);
-  color: #d95f00;
-  background: rgba(255, 127, 22, 0.06);
-
-  &:hover {
-    border-color: #ff7f16;
-    color: #d95f00;
-    background: rgba(255, 127, 22, 0.12);
-  }
-}
-
-/* ── Dark mode ──────────────────────────────────────────────────────────── */
 
 :global(.dark-mode) {
-  .label {
-    color: rgba(255, 255, 255, 0.2);
+  .panel,
+  .flyoutPanel,
+  .choicePanel {
+    background: #242321;
   }
 
-  .optBtn {
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.55);
+  .menuItem,
+  .choiceItem {
+    color: rgba(255, 255, 255, 0.82);
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.2);
-      color: rgba(255, 255, 255, 0.88);
+    > svg {
+      color: rgba(255, 255, 255, 0.58);
     }
 
-    &Active {
-      background: rgba(255, 127, 22, 0.12);
-      border-color: #ff7f16;
-      color: #ff7f16;
-
-      &:hover {
-        background: rgba(255, 127, 22, 0.18);
-      }
+    &:hover,
+    &:focus-visible,
+    &:global(.ant-popover-open) {
+      background: rgba(255, 127, 22, 0.13);
+      color: rgba(255, 255, 255, 0.96);
     }
   }
 
-  .desktopModeBtn {
-    border-color: rgba(255, 127, 22, 0.38);
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.08);
+  .divider {
+    background: rgba(255, 255, 255, 0.1);
+  }
 
-    &:hover {
-      border-color: #ff7f16;
-      color: #ffad6b;
-      background: rgba(255, 127, 22, 0.15);
+  .chevron,
+  .menuMeta {
+    color: rgba(255, 255, 255, 0.34) !important;
+  }
+
+  .dangerItem {
+    color: #ff7770;
+
+    > svg {
+      color: currentColor;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(255, 104, 96, 0.12);
+      color: #ff8d87;
     }
   }
 }

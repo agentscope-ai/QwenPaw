@@ -148,7 +148,8 @@
     "debug": "Gỡ lỗi",
     "plugins": "Plugin",
     "backups": "Sao lưu",
-    "pluginManager": "Quản lý Plugin"
+    "pluginManager": "Quản lý Plugin",
+    "moreSettings": "Cài đặt khác"
   },
   "os": {
     "console": "Bảng điều khiển",
@@ -240,12 +241,83 @@
     "settings": {
       "language": "Ngôn ngữ",
       "theme": "Giao diện",
-      "mode": "Chế độ",
       "desktopMode": "Chế độ Màn hình nền"
     },
-    "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ",
+    "quickMenu": {
+      "settings": "Cài đặt",
+      "appearance": "Giao diện",
+      "about": "Giới thiệu QwenPaw"
+    },
+    "collapse": "Thu gọn thanh bên",
+    "expand": "Mở rộng thanh bên",
+    "more": "Thêm",
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
+  },
+  "settingsCenter": {
+    "backToApp": "Quay lại ứng dụng",
+    "searchPlaceholder": "Tìm kiếm cài đặt",
+    "noResults": "Không có cài đặt phù hợp",
+    "groups": {
+      "application": "Cài đặt ứng dụng",
+      "agentConfiguration": "Cấu hình tác tử",
+      "global": "Cài đặt toàn cục",
+      "extensions": "Tiện ích mở rộng"
+    },
+    "pages": { "general": "Chung", "navigation": "Thanh bên" },
+    "descriptions": {
+      "general": "Ngôn ngữ, giao diện và hành vi ứng dụng",
+      "navigation": "Khả năng hiển thị của thanh bên",
+      "agents": "Hồ sơ QwenPaw, Codex và Qoder",
+      "models": "Nhà cung cấp, thông tin xác thực và danh mục mô hình",
+      "skillPool": "Kỹ năng và tiện ích mở rộng có thể tái sử dụng",
+      "channels": "Kết nối IM và các kênh nhắn tin",
+      "skills": "Quản lý kỹ năng của tác tử",
+      "tools": "Cấu hình các công cụ khả dụng",
+      "mcp": "Cấu hình dịch vụ MCP",
+      "acp": "Cấu hình tác tử ACP",
+      "agentConfig": "Cấu hình hành vi chạy của tác tử",
+      "voice": "Nhập liệu bằng giọng nói và phiên âm",
+      "heartbeat": "Trạng thái sẵn sàng và kích hoạt định kỳ của tác tử",
+      "environments": "Biến môi trường chạy và khóa bí mật",
+      "security": "Chính sách thực thi và quy tắc bảo vệ",
+      "offloadPolicy": "Chính sách thực thi trong nền",
+      "tokenUsage": "Thống kê và xu hướng sử dụng",
+      "backups": "Xuất, khôi phục và di chuyển dữ liệu",
+      "debug": "Nhật ký và chẩn đoán",
+      "extension": "Cài đặt do tiện ích mở rộng cung cấp"
+    },
+    "appearanceAndLanguage": "Giao diện và ngôn ngữ",
+    "desktopApplication": "Ứng dụng máy tính",
+    "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",
+    "themeHint": "Dùng giao diện sáng, tối hoặc theo hệ thống.",
+    "contentWidth": "Độ rộng tin nhắn",
+    "contentWidthHint": "Dùng chiều rộng tiêu chuẩn hoặc mở rộng cuộc trò chuyện theo không gian khả dụng.",
+    "contentWidthStandard": "Tiêu chuẩn",
+    "contentWidthWide": "Rộng",
+    "chatDisplay": "Hiển thị tin nhắn",
+    "thinkingDisplay": "Hiển thị quá trình suy nghĩ",
+    "thinkingDisplayHint": "Hiển thị suy luận của mô hình trong cuộc trò chuyện mà không thay đổi hành vi của mô hình.",
+    "toolDisplay": "Hiển thị công cụ",
+    "toolDisplayHint": "Chọn nội dung hiển thị sau khi mở thẻ công cụ.",
+    "toolDisplayCurrent": "Chế độ thẻ",
+    "toolDisplayRaw": "Tham số thô",
+    "assistantDisplay": "Thu gọn tin nhắn của trợ lý",
+    "assistantDisplayHint": "Điều chỉnh cách thu gọn văn bản trung gian, phần suy luận và công cụ.",
+    "displayExpanded": "Mở rộng tất cả",
+    "displayProcessCollapsed": "Thu gọn quá trình",
+    "displayResultCollapsed": "Thu gọn kết quả",
+    "closeBehaviorHint": "Chọn hành động khi đóng cửa sổ ứng dụng.",
+    "desktopModeHint": "Mở không gian làm việc nhiều cửa sổ.",
+    "open": "Mở",
+    "fixedEntries": "Mục cố định",
+    "selectAll": "Chọn tất cả",
+    "invertSelection": "Đảo lựa chọn",
+    "sidebarGroups": {
+      "agentConfiguration": "Cấu hình tác tử",
+      "global": "Cài đặt toàn cục",
+      "plugins": "Tính năng plugin"
+    },
+    "alwaysVisible": "Luôn hiển thị"
   },
   "theme": {
     "dark": "Tối",
@@ -634,6 +706,7 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "newTask": "Tác vụ mới",
     "groups": {
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con"
@@ -642,8 +715,6 @@
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
     "modelSelectTooltip": "Chọn mô hình",
-    "newChatTooltip": "Cuộc trò chuyện mới",
-    "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
@@ -651,10 +722,6 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
-    "allChats": "Tất cả cuộc trò chuyện",
-    "createNewChat": "Tạo cuộc trò chuyện mới",
-    "pinDrawer": "Ghim",
-    "unpinDrawer": "Bỏ ghim",
     "statusIdle": "Rảnh",
     "statusInProgress": "Đang xử lý",
     "disclaimer": "Làm việc cho bạn, lớn lên cùng bạn",
@@ -749,19 +816,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Tìm kiếm…",
-      "noResults": "Không có kết quả",
-      "noConversations": "Không có hội thoại",
-      "loadingConversations": "Đang tải…"
+      "noConversations": "Không có hội thoại"
     },
-    "conversationHistory": "Lịch sử hội thoại",
-    "history": {
-      "empty": "Không có lịch sử trò chuyện"
-    },
-    "sessionGroup": {
-      "today": "Hôm nay",
-      "recent": "7 ngày qua",
-      "earlier": "Trước đó"
-    }
+    "conversationHistory": "Lịch sử hội thoại"
   },
   "debug": {
     "title": "Gỡ lỗi",

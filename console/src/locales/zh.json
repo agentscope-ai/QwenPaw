@@ -140,6 +140,7 @@
     "agentConfig": "运行配置",
     "agents": "智能体管理",
     "settings": "设置",
+    "moreSettings": "更多设置",
     "models": "模型",
     "environments": "环境变量",
     "offloadPolicy": "工具后台策略",
@@ -258,12 +259,86 @@
     "settings": {
       "language": "语言",
       "theme": "主题",
-      "mode": "模式",
       "desktopMode": "桌面模式"
     },
-    "simpleMode": "精简模式",
-    "fullMode": "完整模式",
+    "quickMenu": {
+      "settings": "设置",
+      "appearance": "外观",
+      "about": "关于 QwenPaw"
+    },
+    "collapse": "收起侧边栏",
+    "expand": "展开侧边栏",
+    "more": "更多",
     "toggleAgentNavigation": "展开或收起智能体导航"
+  },
+  "settingsCenter": {
+    "backToApp": "返回应用",
+    "searchPlaceholder": "搜索设置",
+    "noResults": "没有匹配的设置",
+    "groups": {
+      "application": "应用设置",
+      "agentConfiguration": "智能体配置",
+      "global": "全局设置",
+      "extensions": "扩展设置"
+    },
+    "pages": {
+      "general": "通用",
+      "navigation": "侧边栏"
+    },
+    "descriptions": {
+      "general": "语言、主题和应用行为",
+      "navigation": "侧边栏显示内容",
+      "agents": "QwenPaw、Codex 和 Qoder 配置",
+      "models": "服务商、凭据和模型目录",
+      "skillPool": "可复用技能和扩展",
+      "channels": "连接 IM 与消息频道",
+      "skills": "管理智能体技能",
+      "tools": "配置可用工具",
+      "mcp": "配置 MCP 服务",
+      "acp": "配置 ACP 智能体",
+      "agentConfig": "配置智能体运行行为",
+      "voice": "语音输入与转写",
+      "heartbeat": "智能体在线状态与周期唤醒",
+      "environments": "运行变量和密钥",
+      "security": "执行策略与安全规则",
+      "offloadPolicy": "工具后台执行策略",
+      "tokenUsage": "用量统计与趋势",
+      "backups": "导出、恢复和迁移数据",
+      "debug": "日志与问题诊断",
+      "extension": "插件提供的设置"
+    },
+    "appearanceAndLanguage": "外观与语言",
+    "desktopApplication": "桌面应用",
+    "languageHint": "更改当前设备上的界面语言。",
+    "themeHint": "使用浅色、深色或跟随系统外观。",
+    "contentWidth": "消息宽度",
+    "contentWidthHint": "设置对话内容使用标准宽度或扩展到可用宽度。",
+    "contentWidthStandard": "标准",
+    "contentWidthWide": "加宽",
+    "chatDisplay": "消息展示",
+    "thinkingDisplay": "思考过程展示",
+    "thinkingDisplayHint": "在对话中展示模型思考过程，不影响模型实际推理。",
+    "toolDisplay": "工具展示",
+    "toolDisplayHint": "选择点击工具卡片后展示的内容。",
+    "toolDisplayCurrent": "卡片视图",
+    "toolDisplayRaw": "原始参数",
+    "assistantDisplay": "助手消息折叠",
+    "assistantDisplayHint": "设置中间文本、思考和工具消息的折叠方式。",
+    "displayExpanded": "全部展开",
+    "displayProcessCollapsed": "过程折叠",
+    "displayResultCollapsed": "结果折叠",
+    "closeBehaviorHint": "选择关闭桌面窗口时的行为。",
+    "desktopModeHint": "打开多窗口桌面工作空间。",
+    "open": "打开",
+    "fixedEntries": "固定入口",
+    "selectAll": "全选",
+    "invertSelection": "反选",
+    "sidebarGroups": {
+      "agentConfiguration": "智能体配置",
+      "global": "全局设置",
+      "plugins": "插件功能"
+    },
+    "alwaysVisible": "始终展示"
   },
   "debug": {
     "title": "调试",
@@ -3125,21 +3200,14 @@
       "codeSnippet": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
-    "newChatTooltip": "新建聊天",
-    "searchTooltip": "搜索所有聊天",
+    "newTask": "新建任务",
     "chatHistoryTooltip": "聊天历史",
-    "wideModeTooltip": "宽屏模式",
-    "normalModeTooltip": "正常模式",
     "messageDisplay": {
       "stepsRunning": "正在执行中… · {{count}} 个步骤",
       "stepsCanceled": "已取消 · {{count}} 个步骤",
       "stepsFailed": "执行失败 · {{count}} 个步骤",
       "stepsCompleted": "已完成 {{count}} 个步骤"
     },
-    "allChats": "全部聊天",
-    "createNewChat": "创建新聊天",
-    "pinDrawer": "固定",
-    "unpinDrawer": "取消固定",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
     "statusUnseenResult": "有新结果",
@@ -3299,19 +3367,9 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
-      "noResults": "无匹配结果",
-      "noConversations": "暂无对话",
-      "loadingConversations": "加载中…"
+      "noConversations": "暂无对话"
     },
-    "conversationHistory": "历史对话",
-    "history": {
-      "empty": "暂无聊天记录"
-    },
-    "sessionGroup": {
-      "today": "今天",
-      "recent": "近 7 天",
-      "earlier": "更早"
-    }
+    "conversationHistory": "历史对话"
   },
   "security": {
     "parent": "设置",
