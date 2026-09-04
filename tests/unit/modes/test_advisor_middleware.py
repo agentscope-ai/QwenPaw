@@ -973,3 +973,16 @@ async def test_rejected_followup_samples_do_not_enter_the_history():
         m for m in mw.advisor_history if m["role"] == "assistant"
     ]
     assert [m["content"] for m in assistant_turns] == ["ADJUST\nSwitch."]
+
+
+def test_advisor_never_sees_its_own_tool():
+    """Listing ``consult_advisor`` made the advisor open every plan with
+    "first, call consult_advisor"."""
+    schemas = [
+        {"function": {"name": PLAN_TOOL_NAME, "description": "ask"}},
+        {"function": {"name": FOLLOWUP_TOOL_NAME, "description": "x"}},
+        {"function": {"name": "write_file", "description": "Write a file"}},
+    ]
+    listing = AdvisorMiddleware._format_tool_list(schemas)
+    assert "consult_advisor" not in listing
+    assert "- write_file: Write a file" in listing
