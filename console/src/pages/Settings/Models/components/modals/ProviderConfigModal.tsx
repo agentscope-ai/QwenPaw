@@ -500,6 +500,7 @@ export function ProviderConfigModal({
           api_key: values.api_key,
           base_url: values.base_url,
           chat_model: values.chat_model,
+          generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
           custom_headers: testHeaders,
           auth_mode: isAnthropicProvider ? authMode : undefined,
         });
@@ -553,7 +554,9 @@ export function ProviderConfigModal({
         "api_key",
         "base_url",
         "chat_model",
+        "generate_kwargs_text",
       ]);
+      const generateConfig = parseGenerateConfig(values.generate_kwargs_text);
       const testHeaders = customHeaders
         .filter((h) => h.key.trim())
         .reduce<Record<string, string>>((acc, h) => {
@@ -564,6 +567,7 @@ export function ProviderConfigModal({
         api_key: values.api_key,
         base_url: values.base_url,
         chat_model: values.chat_model,
+        generate_kwargs: generateConfig ?? {},
         custom_headers: testHeaders,
         auth_mode: isAnthropicProvider ? authMode : undefined,
       });
