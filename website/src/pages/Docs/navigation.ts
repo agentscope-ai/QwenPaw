@@ -41,7 +41,6 @@ export const DOC_GROUPS: DocGroup[] = [
     children: [
       { slug: "persona", titleKey: "docs.agentPersona" },
       { slug: "multi-agent", titleKey: "docs.multiAgent" },
-      { slug: "advisor-mode", titleKey: "docs.advisorMode" },
       { slug: "skills", titleKey: "docs.skills" },
       { slug: "mcp", titleKey: "docs.mcp" },
       { slug: "context", titleKey: "docs.context" },
@@ -49,6 +48,7 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "loop-engineering",
         titleKey: "docs.loopEngineering",
       },
+      { slug: "advisor-mode", titleKey: "docs.advisorMode" },
       { slug: "config", titleKey: "docs.config" },
     ],
   },

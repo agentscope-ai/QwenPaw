@@ -10,6 +10,8 @@ This is how a cheap model gets most of the benefit of an expensive one: the expe
 
 > Advisor Mode is experimental. It is off by default.
 
+---
+
 ## Which models are used
 
 By default Advisor Mode reuses the two model slots an agent already has:
@@ -23,13 +25,15 @@ When no sub-agent model is configured the worker keeps running on the main model
 
 Either role can be pinned to another model: when you pick **Advisor** in the composer's loop-mode menu, an **Advisor models** panel opens next to the mode pill with an *Advisor model* and a *Worker model* pick, prefilled with the defaults above. In an Advisor conversation the model pill in the chat header shows the pair (advisor → worker) instead of a single model and reopens the same panel. The choice is saved for the agent (`advisor_mode.advisor_model` / `advisor_mode.worker_model` in `agent.json`, also accepted by `POST /api/advisor-mode`) and does not touch the main or sub-agent slots; pick the default entry again to go back to them. The **Advisor and worker models** card of the Advisor loop template and `/advisor status` show the models in effect.
 
-The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `off` by default, because with a thinking model such as qwen3-max most of the time before the plan's first token is the model thinking (35 s vs 2 s in our runs); `inherit` follows the agent and model defaults, `low` / `medium` / `high` set a level for the advisor only. Turn it up when plan quality matters more than latency.
+The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `off` by default, because with a thinking model most of the wait before the plan is the model thinking; `inherit` follows the agent and model defaults, `low` / `medium` / `high` set a level for the advisor only. Turn it up when plan quality matters more than latency.
 
 The advisor is called through the same model factory as every other QwenPaw model call, so provider routing, retries, rate limiting and token accounting all apply.
 
+---
+
 ## Turning it on
 
-**Switch it on for the agent**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the composer's mode menu takes you there). The first switch makes Advisor Mode available for the agent: it adds **Advisor** to the composer's mode menu and enables `/advisor`. It does not change how conversations start — they still begin in the default loop. The same card has three more switches, one per capability, so each can be evaluated on its own: _Opening plan_ (the advisor writes a plan before the agent's first step), _Mid-run auto intervention_ (the harness watches tool results and calls the advisor when the agent keeps failing) and _Let the agent proactively ask the advisor via the `consult_advisor` tool_.
+**Switch it on for the agent**: Agent → Configuration → **Agent Loop Settings** → the **Advisor** loop template (the gear icon in the composer's mode menu takes you there). The first switch makes Advisor Mode available for the agent: it adds **Advisor** to the composer's mode menu and enables `/advisor`. It does not change how conversations start — they still begin in the default loop. The same card has three more switches, one per capability, so each can be evaluated on its own: _Opening plan_ (the advisor writes a plan before the agent's first step), _Mid-run auto intervention_ (QwenPaw watches tool results and calls the advisor when the agent keeps failing) and _Let the agent proactively ask the advisor via the `consult_advisor` tool_.
 
 **Use it in a conversation (chat composer)**: open the mode menu in the chat input bar (the pill that shows `default`) and pick **Advisor**, then send the task as usual. The first message is sent as `/advisor <task>`: the conversation switches into Advisor Mode and the agent runs the task right away. The conversation stays in Advisor Mode for its later messages until you leave it; while it is active the composer shows it like any other loop mode, and the other loop modes (`/goal`, mission) cannot be started in the same conversation.
 
@@ -65,9 +69,11 @@ The setting is stored per agent in `agent.json`:
 }
 ```
 
-`max_consults` caps the agent's own questions per conversation (default 32); past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (3 per run). With the opening plan switched off, the advisor is only consulted by the harness (auto intervention) or by the agent (`consult_advisor`); the follow-up and consultation requests always carry the task itself, so they work without a plan. Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
+`max_consults` caps the agent's own questions per conversation (default 32); past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (3 per run). With the opening plan switched off, the advisor is only consulted automatically (auto intervention) or by the agent (`consult_advisor`); the follow-up and consultation requests always carry the task itself, so they work without a plan. Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
 
 It takes effect on the next message; no restart is needed.
+
+---
 
 ## What the agent sees
 
@@ -77,6 +83,8 @@ In a multi-turn chat the plan is written once, for the first message of the conv
 
 The advisor's request includes the agent's tool list and a shallow listing of the working directory (the Coding Mode project directory when one is set, otherwise the agent workspace), so its plan is grounded in what is actually there.
 
+---
+
 ## When the advisor steps in
 
 The intervention trigger looks only at signals the tool layer itself emits (`Command failed …`, `Input validation failed …`, `Error: …`, tool-not-found, denied or timed-out approvals) plus a few tool-scoped checks (a shell run that printed `[FAIL]` or a traceback, a search with no matches, a fetch that landed on an error page). Page _content_ that merely mentions "Not Found" does not count.
@@ -84,6 +92,8 @@ The intervention trigger looks only at signals the tool layer itself emits (`Com
 By default it fires on three failures in a row, or four failures within the last ten steps; counters reset after each intervention and there are at most three interventions per run. When the same call is repeated verbatim the advisor is told the agent is looping and asked to be directive.
 
 The thresholds are per agent: the **Mid-run auto intervention** card of the Advisor loop template exposes _failures in a row_, _failures in the window_, _window size_, _max interventions per run_ and _cooldown_, stored as `advisor_mode.intervention` in `agent.json` (`consecutive_failures`, `window_failures`, `window_size`, `max_interventions`, `cooldown_steps`) and accepted as a partial object by `POST /api/advisor-mode`.
+
+---
 
 ## Transcripts
 
