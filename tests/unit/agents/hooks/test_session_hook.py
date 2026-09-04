@@ -10,6 +10,7 @@ import pytest
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw.runtime.runtime import Runtime
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -60,6 +61,18 @@ async def test_ephemeral_request_skips_session_load_and_save():
     assert session.loaded is False
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+async def test_ephemeral_request_skips_cancel_path_session_save():
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=True)
+
+    await Runtime._try_save_on_cancel(  # pylint: disable=protected-access
+        SimpleNamespace(),
+        ctx,
+    )
+
+    assert session.saved is False
 
 
 async def test_normal_request_loads_and_saves_session_state():

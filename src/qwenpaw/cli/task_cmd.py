@@ -9,7 +9,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import click
 
@@ -84,29 +84,71 @@ def _read_instruction(raw: str) -> str:
     return raw
 
 
-async def _run_task(
+def _response_text(response: Any) -> str:
+    """Extract the final assistant text from a runtime response."""
+    output = getattr(response, "output", None) or []
+    if not output:
+        return ""
+    content = getattr(output[-1], "content", None) or []
+    text_parts = []
+    for item in content:
+        item_type = getattr(item, "type", None)
+        if getattr(item_type, "value", item_type) != "text":
+            continue
+        if text := getattr(item, "text", ""):
+            text_parts.append(text)
+    return "\n".join(text_parts).strip()
+
+
+def _response_usage(response: Any) -> dict:
+    """Return the runtime's token usage as a plain dictionary."""
+    usage = getattr(response, "usage", None)
+    if isinstance(usage, dict):
+        return dict(usage)
+    if hasattr(usage, "model_dump"):
+        return usage.model_dump()
+    return {}
+
+
+async def _run_task(  # pylint: disable=too-many-statements
     instruction: str,
     agent_config,
-    request_context: dict[str, str],
+    request_context: dict[str, Any],
     max_iters: int,
     timeout: int,
     output_dir: str | None,
     skills_dir: str | None = None,
 ) -> dict:
-    from types import SimpleNamespace
+    from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
+    from ..app.app_services import AppServiceManager
+    from ..app.workspace.bootstrap_factory import WorkspaceBootstrapFactory
+    from ..app.workspace.workspace import Workspace
+    from ..constant import WORKING_DIR
+    from ..runtime import Runtime
+    from ..schemas import AgentRequest, AgentResponse, RunStatus
 
-    from agentscope.message import UserMsg
-
-    from ..runtime.builder import AgentBuilder
-    from ..schemas import AgentRequest
-
-    agent_config.running.max_iters = max_iters
+    runtime_config = agent_config.model_copy(deep=True)
+    runtime_config.running.max_iters = max_iters
+    runtime_config.running.loop.iteration.max_iterations = max_iters
 
     base_workspace: Path | None = None
     if agent_config.workspace_dir:
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
-    with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
+    app_services = None
+    workspace_instance = None
+    app_services_started = False
+    workspace_started = False
+    t0 = time.monotonic()
+
+    with _isolated_skills_workspace(
+        skills_dir,
+        base_workspace,
+    ) as workspace_dir:
+        resolved_workspace_dir = workspace_dir or base_workspace or WORKING_DIR
+        runtime_request_context = dict(request_context)
+        runtime_request_context[ACP_EPHEMERAL_META_KEY] = True
+
         req = AgentRequest(
             input=[
                 {
@@ -117,35 +159,57 @@ async def _run_task(
             session_id=request_context.get("session_id", "headless-task"),
             user_id=request_context.get("user_id", "headless"),
             channel=request_context.get("channel", "console"),
-        )
-        ctx = SimpleNamespace(
-            request=req,
-            session_id=req.session_id,
             agent_id=request_context.get("agent_id", "default"),
-            root_session_id=req.session_id,
-            root_agent_id=request_context.get("agent_id", "default"),
-            workspace_dir=workspace,
-            workspace=None,
-            app_services=None,
-            agent_config=None,
-            session_state=None,
+            request_context=runtime_request_context,
         )
-        builder = AgentBuilder()
-        agent = await builder.build(ctx)
-
-        t0 = time.monotonic()
         try:
-            response = await asyncio.wait_for(
-                agent.reply(
-                    [UserMsg(name="user", content=instruction)],
+            app_services = AppServiceManager()
+            await app_services.start()
+            app_services_started = True
+
+            workspace_instance = Workspace(
+                agent_id=request_context.get("agent_id", "default"),
+                workspace_dir=str(resolved_workspace_dir),
+            )
+            workspace_instance.bootstrap_plugins(
+                **WorkspaceBootstrapFactory.build_bootstrap_kwargs(
+                    app_services,
                 ),
+            )
+            workspace_instance.set_app_services(app_services)
+            await workspace_instance.start(headless=True)
+            workspace_started = True
+
+            runtime = Runtime(
+                workspace=workspace_instance,
+                app_services=app_services,
+                agent_config_override=runtime_config,
+            )
+
+            async def _consume_response() -> AgentResponse:
+                final_response = None
+                async for event in runtime.run(req):
+                    if isinstance(event, AgentResponse) and event.status in {
+                        RunStatus.Completed,
+                        RunStatus.Failed,
+                    }:
+                        final_response = event
+                if final_response is None:
+                    raise RuntimeError(
+                        "Task runtime produced no final response",
+                    )
+                return final_response
+
+            response = await asyncio.wait_for(
+                _consume_response(),
                 timeout=timeout,
             )
             elapsed = time.monotonic() - t0
             result: dict = {
                 "status": "success",
                 "elapsed_seconds": round(elapsed, 2),
-                "response": (response.get_text_content() if response else ""),
+                "response": _response_text(response),
+                "usage": _response_usage(response),
             }
         except asyncio.TimeoutError:
             elapsed = time.monotonic() - t0
@@ -163,24 +227,25 @@ async def _run_task(
                 "error": str(exc),
                 "response": "",
             }
+        finally:
+            if workspace_started and workspace_instance is not None:
+                try:
+                    await workspace_instance.stop(final=True)
+                except Exception:
+                    logger.warning(
+                        "Failed to stop headless task workspace",
+                        exc_info=True,
+                    )
+            if app_services_started and app_services is not None:
+                try:
+                    await app_services.stop()
+                except Exception:
+                    logger.warning(
+                        "Failed to stop headless task services",
+                        exc_info=True,
+                    )
 
-    usage: dict = {}
-    try:
-        model = getattr(agent, "model", None)
-        if model is not None:
-            monitor = getattr(model, "monitor", None)
-            if monitor is not None:
-                metrics = (
-                    monitor.get_metrics()
-                    if callable(getattr(monitor, "get_metrics", None))
-                    else {}
-                )
-                usage["input_tokens"] = metrics.get("prompt_tokens", 0)
-                usage["output_tokens"] = metrics.get("completion_tokens", 0)
-                usage["cost_usd"] = metrics.get("cost_usd")
-    except Exception:
-        logger.debug("Failed to extract token usage", exc_info=True)
-    result["usage"] = usage
+    result.setdefault("usage", {})
 
     if output_dir:
         out = Path(output_dir)
@@ -287,14 +352,14 @@ def task_cmd(
                 model=model,
             )
 
-    request_context: dict[str, str] = {
+    request_context: dict[str, Any] = {
         "session_id": "headless-task",
         "user_id": "headless",
         "channel": "console",
         "agent_id": agent_id,
     }
     if no_guard:
-        request_context["_headless_tool_guard"] = "false"
+        request_context["approval_level"] = "off"
 
     result = asyncio.run(
         _run_task(

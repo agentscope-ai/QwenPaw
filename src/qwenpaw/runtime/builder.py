@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
+from .request_context import is_ephemeral_request
 
 if TYPE_CHECKING:
     from ..agents.context.visual_compression.runtime.recovery import (
@@ -312,7 +313,9 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = await run_sync_io(load_agent_config, agent_id)
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,
@@ -1041,11 +1044,15 @@ class AgentBuilder:
     ) -> Any:
         """Build the scroll context strategy, or None when not selected.
 
-        Returns ``None`` for the native strategy (the default) so nothing
-        changes unless ``light_context_config.strategy == "scroll"``. The
-        shared ``offloader`` is forwarded so scroll can archive evicted turns
-        to ``dialog/*.jsonl`` (``offload_dialog``, on by default).
+        Returns ``None`` for ephemeral requests. For other requests, the
+        underlying factory returns ``None`` unless the scroll strategy is
+        selected. The shared ``offloader`` lets scroll archive evicted turns
+        to ``dialog/*.jsonl`` when ``offload_dialog`` is enabled.
         """
+        if is_ephemeral_request(ctx):
+            _logger.debug("scroll: disabled for ephemeral request")
+            return None
+
         workspace = getattr(ctx, "workspace", None)
         workspace_dir = (
             str(getattr(workspace, "workspace_dir", ""))

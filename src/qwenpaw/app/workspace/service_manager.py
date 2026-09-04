@@ -56,6 +56,8 @@ class ServiceDescriptor:
         concurrent_init: Whether this can be initialized concurrently
         optional: If True, a failure during start logs but does not abort
             the workspace; the service is simply absent.
+        enabled_in_headless: Whether one-shot headless runtimes should start
+            this service. Disable for long-lived background integrations.
         require_clean_stop: If True, a stop failure is propagated after the
             manager has attempted to stop every service.  Use for services
             whose live worker would conflict with a replacement workspace.
@@ -81,6 +83,7 @@ class ServiceDescriptor:
     priority: int = 100
     concurrent_init: bool = True
     optional: bool = False
+    enabled_in_headless: bool = True
     require_clean_stop: bool = False
 
 
@@ -181,10 +184,11 @@ class ServiceManager:
             groups[descriptor.priority].append(descriptor)
         return groups
 
-    async def start_all(self) -> None:
+    async def start_all(self, *, headless: bool = False) -> None:
         """Start all registered services in priority order.
 
         Services with same priority are started concurrently if allowed.
+        Headless startup skips long-lived background integrations.
         Reused services are skipped.  Between priority groups and after each
         sequential service, the event loop is yielded so HTTP requests can
         be served during background startup.
@@ -198,7 +202,11 @@ class ServiceManager:
         priority_groups = self._group_by_priority()
 
         for priority in sorted(priority_groups.keys()):
-            descriptors = priority_groups[priority]
+            descriptors = [
+                descriptor
+                for descriptor in priority_groups[priority]
+                if not headless or descriptor.enabled_in_headless
+            ]
 
             # Separate concurrent and sequential services
             concurrent = [d for d in descriptors if d.concurrent_init]

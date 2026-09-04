@@ -57,6 +57,44 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_build_uses_preloaded_request_config(monkeypatch):
+    """A standalone runtime may seed a request-scoped config copy."""
+    config = SimpleNamespace(
+        id="agent-1",
+        active_model=None,
+        coding_mode=None,
+    )
+
+    def unexpected_load(_agent_id):
+        raise AssertionError("preloaded config was ignored")
+
+    monkeypatch.setattr(
+        config_module,
+        "load_agent_config",
+        unexpected_load,
+    )
+    monkeypatch.setattr(
+        provider_manager,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_active_model=lambda: None,
+            ),
+        ),
+    )
+
+    ctx = SimpleNamespace(agent_id="agent-1", agent_config=config)
+
+    with pytest.raises(
+        ConfigurationException,
+        match="No active model configured",
+    ):
+        await AgentBuilder.__new__(AgentBuilder).build(ctx)
+
+    assert ctx.agent_config is config
+
+
+@pytest.mark.asyncio
 async def test_build_constructs_model_in_worker_thread(monkeypatch):
     """The async builder must offload the complete model factory call."""
     caller_thread = threading.get_ident()
