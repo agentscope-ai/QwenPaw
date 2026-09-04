@@ -640,8 +640,10 @@
 /* ---- Host row (shield icon centering) ---- */
 
 .hostRow {
-  display: inline-flex;
-  align-items: center;
+  :global(.qwenpaw-space-item) {
+    display: inline-flex;
+    align-items: center;
+  }
 }
 
 /* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
