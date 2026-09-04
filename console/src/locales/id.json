@@ -2372,6 +2372,8 @@
       "status": "Status"
     },
     "loading": "Memuat...",
+    "interrupted": "Panggilan alat terhenti sebelum mengembalikan hasil.",
+    "interruptedTitle": "Terhenti",
     "rawInputPreview": "Input mentah langsung (4.096 karakter terakhir)",
     "largeOutputOmitted": "{{count}} baris dihilangkan — salin keluaran yang tersedia atau ikuti petunjuk pemulihannya",
     "largeOutputTruncated": "Keluaran dipangkas untuk tampilan — salin keluaran yang tersedia atau ikuti petunjuk pemulihannya",

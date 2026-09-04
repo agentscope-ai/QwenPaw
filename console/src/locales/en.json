@@ -4355,6 +4355,8 @@
       "status": "Status"
     },
     "loading": "Loading...",
+    "interrupted": "Tool call was interrupted before it returned a result.",
+    "interruptedTitle": "Interrupted",
     "rawInputPreview": "Live raw input (last 4,096 characters)",
     "largeOutputOmitted": "{{count}} lines omitted — copy the available output or follow its recovery instructions",
     "largeOutputTruncated": "Output truncated for display — copy the available output or follow its recovery instructions",
