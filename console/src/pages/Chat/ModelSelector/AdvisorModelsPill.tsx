@@ -80,9 +80,11 @@ export function AdvisorModelsPill() {
           type="button"
           aria-expanded={open}
           aria-label={t("loop.advisorSetup.openAria")}
-          className={[styles.trigger, open ? styles.triggerActive : ""].join(
-            " ",
-          )}
+          className={[
+            styles.trigger,
+            styles.advisorPair,
+            open ? styles.triggerActive : "",
+          ].join(" ")}
           data-testid="advisor-models-pill"
         >
           <Bot size={16} />
