@@ -143,6 +143,28 @@ describe("RenderableCodeBlock", () => {
     expect(screen.getByRole("button", { name: "Download" })).toBeEnabled();
   });
 
+  it.each([
+    ["cs", "csharp"],
+    ["csharp", "csharp"],
+    ["shader", "hlsl"],
+    ["cginc", "hlsl"],
+    ["gdshader", "glsl"],
+    ["vert", "glsl"],
+    ["frag", "glsl"],
+    ["gd", "gdscript"],
+  ])("normalizes %s code fences to %s highlighting", (lang, expected) => {
+    const { container } = render(
+      <RenderableCodeBlock block lang={lang}>
+        {"void main() {}"}
+      </RenderableCodeBlock>,
+    );
+
+    expect(
+      container.querySelector(`[data-language='${expected}']`),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+
   it("keeps inline code HTML attributes and omits renderer-only props", () => {
     const handleClick = vi.fn();
 
@@ -177,7 +199,7 @@ describe("RenderableCodeBlock", () => {
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
 
     render(
-      <RenderableCodeBlock block lang="python">
+      <RenderableCodeBlock block lang="cs">
         {"answer = 42"}
       </RenderableCodeBlock>,
     );
@@ -186,7 +208,7 @@ describe("RenderableCodeBlock", () => {
 
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(anchorClick).toHaveBeenCalledOnce();
-    expect(document.querySelector("a[download='block.py']")).toBeNull();
+    expect(document.querySelector("a[download='block.cs']")).toBeNull();
     expect(revokeObjectURL).not.toHaveBeenCalled();
 
     vi.runOnlyPendingTimers();
