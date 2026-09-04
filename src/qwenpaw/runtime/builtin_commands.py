@@ -711,7 +711,8 @@ async def _skill_fallback_handler(
 
 
 def collect_builtin_command_specs() -> list[CommandSpec]:
-    """Return all built-in command specs (daemon, control, conversation).
+    """Return all built-in command specs (daemon, control, conversation,
+    session).
 
     These are registered into each workspace's :class:`SlashCommandRegistry`
     via ``bootstrap_plugins(builtin_command_specs=...)``.
@@ -720,7 +721,15 @@ def collect_builtin_command_specs() -> list[CommandSpec]:
     specs.extend(_collect_daemon_specs())
     specs.extend(_collect_control_specs())
     specs.extend(_collect_conversation_specs())
+    specs.extend(_collect_session_command_specs())
     return specs
+
+
+def _collect_session_command_specs() -> list[CommandSpec]:
+    """Session management commands (/sessions, /session switch/new/close)."""
+    from .commands.session_commands import _collect_session_specs as collect
+
+    return collect()
 
 
 def get_skill_fallback_handler() -> FallbackHandler:

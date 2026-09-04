@@ -190,9 +190,7 @@ def _rewrite_weixin_in_session_filename(name: str) -> str | None:
     if idx >= 0:
         safe_uid = stem[:idx]
         safe_sid_tail = stem[idx + len(delim) :]
-        return (
-            f"{safe_uid}_{_CANONICAL_WECHAT_SAFE_PREFIX}{safe_sid_tail}.json"
-        )
+        return f"{safe_uid}_{_CANONICAL_WECHAT_SAFE_PREFIX}{safe_sid_tail}.json"
     if stem.startswith(_LEGACY_WEIXIN_SAFE_PREFIX):
         return (
             _CANONICAL_WECHAT_SAFE_PREFIX
@@ -385,8 +383,7 @@ class SafeJSONSession:
                     raise AgentStateError(
                         session_id=session_id,
                         message=(
-                            f"Session file {session_save_path}"
-                            f" does not exist"
+                            f"Session file {session_save_path}" f" does not exist"
                         ),
                     ) from exc
                 states = {}
@@ -410,6 +407,35 @@ class SafeJSONSession:
             key,
             session_save_path,
         )
+
+    async def delete_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete the persisted state file for one conversation.
+
+        Mirrors the save/load key resolution (``_get_save_path``) so the
+        deleted file is exactly the one ``save_session_state`` writes.
+        Missing files are treated as already-deleted.
+
+        Returns:
+            ``True`` if a file was removed, ``False`` if it did not exist.
+        """
+        session_save_path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(session_save_path):
+            try:
+                os.remove(session_save_path)
+            except FileNotFoundError:
+                return False
+        logger.info("Deleted session state file %s.", session_save_path)
+        return True
 
     async def get_session_state_dict(
         self,
