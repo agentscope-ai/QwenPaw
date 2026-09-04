@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access
-"""Tests for DoomLoopGate reset behaviour."""
+"""Tests for DoomLoopGate reset behaviour and exempt-tools (#5906)."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -38,6 +38,27 @@ def gate():
             _stage(3, "modify_prompt", "warning"),
             _stage(6, "stop", "doom stop"),
         ],
+    )
+    g.activate(None)
+    g._ensure_state()
+    return g
+
+
+@pytest.fixture()
+def gate_with_exemptions():
+    """Gate with read-only tools exempt from doom loop detection."""
+    g = DoomLoopGate(
+        window_size=3,
+        similarity_threshold=1.0,
+        stages=[
+            _stage(3, "modify_prompt", "warning"),
+            _stage(6, "stop", "doom stop"),
+        ],
+        exempt_tools={
+            "recall_history",
+            "recall_history_python",
+            "read_file",
+        },
     )
     g.activate(None)
     g._ensure_state()
@@ -145,3 +166,204 @@ async def test_session_isolation():
         return_value="s2",
     ):
         assert len(g._state().history) == 1
+
+
+# ---------------------------------------------------------------------------
+# #5906 — exempt read-only tools from doom loop detection
+# ---------------------------------------------------------------------------
+
+def test_exempt_tool_not_recorded(gate_with_exemptions):
+    """recall_history calls are not added to doom loop history."""
+    gate_with_exemptions.record("recall_history", "hash1")
+    gate_with_exemptions.record("recall_history", "hash1")
+    gate_with_exemptions.record("recall_history", "hash1")
+    assert len(gate_with_exemptions._ensure_state().history) == 0
+
+
+@pytest.mark.asyncio
+async def test_exempt_tool_does_not_trigger_warning(gate_with_exemptions):
+    """6 consecutive recall_history calls must NOT trigger doom loop."""
+    for _ in range(6):
+        gate_with_exemptions.record("recall_history", "same_args")
+    result = await gate_with_exemptions.check({"iteration": 6})
+    assert result.action == StopAction.BYPASS
+
+
+@pytest.mark.asyncio
+async def test_exempt_tool_does_not_trigger_terminate(gate_with_exemptions):
+    """Even past the stop threshold, exempt tools must not terminate."""
+    for _ in range(10):
+        gate_with_exemptions.record("read_file", "same_args")
+    result = await gate_with_exemptions.check({"iteration": 10})
+    assert result.action == StopAction.BYPASS
+
+
+@pytest.mark.asyncio
+async def test_non_exempt_tool_still_triggers(gate_with_exemptions):
+    """Non-exempt tools are still subject to doom loop detection."""
+    for _ in range(3):
+        gate_with_exemptions.record("search_web", "same_query")
+    result = await gate_with_exemptions.check({"iteration": 3})
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+
+
+def test_exempt_mixed_with_normal_only_counts_normal(gate_with_exemptions):
+    """Exempt calls interspersed with normal calls only count normal ones."""
+    gate_with_exemptions.record("recall_history", "h1")
+    gate_with_exemptions.record("search_web", "q1")
+    gate_with_exemptions.record("recall_history", "h2")
+    gate_with_exemptions.record("search_web", "q1")
+    gate_with_exemptions.record("recall_history", "h3")
+    # Only 2 search_web calls in history — below window_size=3
+    assert len(gate_with_exemptions._ensure_state().history) == 2
+
+
+def test_no_exempt_tools_by_default():
+    """Without exempt_tools, all tool calls are recorded (backward compat)."""
+    g = DoomLoopGate(
+        window_size=3,
+        similarity_threshold=1.0,
+        stages=[_stage(3, "stop", "doom")],
+    )
+    g.activate(None)
+    g._ensure_state()
+    g.record("recall_history", "h1")
+    g.record("recall_history", "h1")
+    assert len(g._ensure_state().history) == 2
+
+
+def test_exempt_tools_via_auto_record(gate_with_exemptions):
+    """_auto_record_from_ctx skips exempt tools when extracting from context."""
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="recall_history",
+                            input={"query": "test"},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    ctx = {"agent": agent, "iteration": 1}
+    state = gate_with_exemptions._ensure_state()
+    gate_with_exemptions._auto_record_from_ctx(ctx, state)
+    assert len(state.history) == 0
+
+
+def test_non_exempt_via_auto_record(gate_with_exemptions):
+    """_auto_record_from_ctx records non-exempt tools normally."""
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="search_web",
+                            input={"q": "test"},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    ctx = {"agent": agent, "iteration": 1}
+    state = gate_with_exemptions._ensure_state()
+    gate_with_exemptions._auto_record_from_ctx(ctx, state)
+    assert len(state.history) == 1
+
+
+def test_exempt_does_not_swallow_non_exempt_same_iter(gate_with_exemptions):
+    """P1: exempt tool after non-exempt in same context must not skip the
+    non-exempt call.  reversed(content) hits recall_history first (exempt),
+    but search_web before it must still be recorded.
+    """
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="search_web",
+                            input={"q": "dangerous"},
+                        ),
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="recall_history",
+                            input={"query": "what did I do"},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    ctx = {"agent": agent, "iteration": 1}
+    state = gate_with_exemptions._ensure_state()
+    gate_with_exemptions._auto_record_from_ctx(ctx, state)
+    assert len(state.history) == 1
+    assert state.history[0].tool_name == "search_web"
+
+
+def test_all_exempt_in_iter_advances_recorded_iter(gate_with_exemptions):
+    """If all tool calls in an iteration are exempt, last_recorded_iter
+    advances so the iteration is not re-scanned."""
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="recall_history",
+                            input={},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    ctx = {"agent": agent, "iteration": 5}
+    state = gate_with_exemptions._ensure_state()
+    gate_with_exemptions._auto_record_from_ctx(ctx, state)
+    assert len(state.history) == 0
+    assert state.last_recorded_iter == 5
+
+
+@pytest.mark.asyncio
+async def test_recall_history_python_exempt(gate_with_exemptions):
+    """recall_history_python (sandboxed REPL, default scroll tool) is
+    exempt — repeated calls must not trigger doom loop (#5906 main path).
+    """
+    for _ in range(6):
+        gate_with_exemptions.record("recall_history_python", "same")
+    result = await gate_with_exemptions.check({"iteration": 6})
+    assert result.action == StopAction.BYPASS
+
+
+def test_recall_history_python_via_auto_record(gate_with_exemptions):
+    """_auto_record_from_ctx skips recall_history_python."""
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        SimpleNamespace(
+                            type="tool_use",
+                            name="recall_history_python",
+                            input={"code": "df.head()"},
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    ctx = {"agent": agent, "iteration": 1}
+    state = gate_with_exemptions._ensure_state()
+    gate_with_exemptions._auto_record_from_ctx(ctx, state)
+    assert len(state.history) == 0
