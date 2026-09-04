@@ -1,6 +1,6 @@
-import { Bot } from "lucide-react";
 import { Popover, Select } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import type { TooltipPlacement } from "antd/es/tooltip";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { advisorModeApi } from "../../api/modules/advisorMode";
@@ -31,22 +31,24 @@ function slotLabel(slot: Slot): string {
 interface AdvisorSetupPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  compact?: boolean;
+  /** The element the panel is anchored to (an invisible anchor by default). */
+  children?: ReactNode;
+  placement?: TooltipPlacement;
 }
 
 /**
- * The two models of an Advisor conversation, offered right where the mode
- * is picked: the composer opens this once Advisor is chosen from the
- * loop-mode menu, and the button stays next to the mode pill so it can be
- * reopened while the conversation runs. Defaults follow the agent's main
- * model (advisor) and sub-agent model (worker); a choice here is saved for
- * the agent through /api/advisor-mode, the same setting the Advisor loop
- * template shows.
+ * The two models of an Advisor conversation. The composer opens this
+ * right after Advisor is picked from the loop-mode menu; in an Advisor
+ * conversation the chat header's model pill shows the pair and reopens
+ * it. Defaults follow the agent's main model (advisor) and sub-agent
+ * model (worker); a choice here is saved for the agent through
+ * /api/advisor-mode, the same setting the Advisor loop template shows.
  */
 export function AdvisorSetupPopover({
   open,
   onOpenChange,
-  compact = false,
+  children,
+  placement = "topLeft",
 }: AdvisorSetupPopoverProps) {
   const { t } = useTranslation();
   const { state, setAdvisorMode } = useAdvisorMode();
@@ -181,18 +183,10 @@ export function AdvisorSetupPopover({
       onOpenChange={onOpenChange}
       open={open}
       overlayClassName={styles.modePopover}
-      placement="topLeft"
+      placement={placement}
       trigger="click"
     >
-      <button
-        aria-expanded={open}
-        aria-label={t("loop.advisorSetup.openAria")}
-        className={styles.modelsButton}
-        type="button"
-      >
-        <Bot size={14} />
-        {!compact && <span>{t("loop.advisorSetup.button")}</span>}
-      </button>
+      {children ?? <span className={styles.advisorAnchor} aria-hidden />}
     </Popover>
   );
 }

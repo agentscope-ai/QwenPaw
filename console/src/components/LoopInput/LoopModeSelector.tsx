@@ -56,8 +56,8 @@ export function LoopModeSelector({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  // Opens by itself right after Advisor is picked, and stays reachable
-  // from the button next to the mode pill.
+  // Opens by itself right after Advisor is picked; the chat header's model
+  // pill reopens it while the conversation runs.
   const [advisorSetupOpen, setAdvisorSetupOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);
@@ -111,13 +111,6 @@ export function LoopModeSelector({
             )}
           </div>
         </Tooltip>
-        {activeMode.id === ADVISOR_LOOP_MODE_ID && (
-          <AdvisorSetupPopover
-            compact={compact}
-            open={advisorSetupOpen}
-            onOpenChange={setAdvisorSetupOpen}
-          />
-        )}
       </>
     );
   }
@@ -251,7 +244,6 @@ export function LoopModeSelector({
   const advisorSetup =
     selectedMode.id === ADVISOR_LOOP_MODE_ID ? (
       <AdvisorSetupPopover
-        compact={compact}
         open={advisorSetupOpen}
         onOpenChange={setAdvisorSetupOpen}
       />
