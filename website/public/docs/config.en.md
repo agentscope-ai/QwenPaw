@@ -195,6 +195,9 @@ Stores globally shared configuration:
       }
     }
   },
+  "env_context": {
+    "show_about_line": true
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
@@ -205,14 +208,15 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                  |
-| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
+| Field                         | Type           | Default             | Description                                                                                            |
+| ----------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `agents.active_agent`         | string         | `"default"`         | Currently active agent ID                                                                              |
+| `agents.profiles`             | object         | `{}`                | Agent profile references (key is agent_id)                                                             |
+| `env_context.show_about_line` | bool           | `true`              | Whether to prepend the framework attribution group (About / GitHub / Docs lines) to each system prompt |
+| `last_api.host`               | string \| null | `null`              | Host address from last `qwenpaw app` start                                                             |
+| `last_api.port`               | int \| null    | `null`              | Port from last `qwenpaw app` start                                                                     |
+| `show_tool_details`           | bool           | `true`              | Whether to show tool call/return details in channel messages                                           |
+| `user_timezone`               | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                                                           |
 
 **`agents.profiles[agent_id]` reference fields:**
 
