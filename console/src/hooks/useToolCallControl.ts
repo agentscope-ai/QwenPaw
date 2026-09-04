@@ -22,12 +22,16 @@ export interface ToolCallControlState {
   /** Seconds since tool start (from last backend snapshot + local tick). */
   elapsed: number;
   /**
-   * True once the backend tool coordinator reported this call. Exchanges a
-   * middleware injects into the stream (an advisor plan) look like running
-   * tools but have no coordinator entry, so cancel / offload / extend would
-   * only ever answer "not found" for them.
+   * False once the backend tool coordinator said it does not know this
+   * call. Exchanges a middleware injects into the stream (an advisor plan)
+   * look like running tools but have no coordinator entry, so cancel /
+   * offload / extend would only ever answer "not found" for them.
    */
   managed: boolean;
+}
+
+function isNotFound(err: unknown): boolean {
+  return err instanceof Error && /\b404\b|not found/i.test(err.message);
 }
 
 function resolveSessionId(sessionId: string): string {
@@ -50,7 +54,7 @@ export function useToolCallControl(
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
-    managed: false,
+    managed: true,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -231,8 +235,12 @@ export function useToolCallControl(
       if (cancelled || fetchedRef.current) return;
 
       const sid = resolveSessionId(sessionId);
+      let notFound = false;
       const infoPromise = sid
-        ? toolCallsApi.getInfo(sid, toolCallId).catch(() => null)
+        ? toolCallsApi.getInfo(sid, toolCallId).catch((err: unknown) => {
+            notFound = isNotFound(err);
+            return null;
+          })
         : Promise.resolve(null);
       const policyPromise = policyLoaded
         ? Promise.resolve(null)
@@ -250,7 +258,12 @@ export function useToolCallControl(
         setState((s) => ({ ...s, defaultPolicy: dp }));
       }
 
-      if (!info) return;
+      if (!info) {
+        if (notFound) {
+          setState((s) => (s.managed ? { ...s, managed: false } : s));
+        }
+        return;
+      }
 
       fetchedRef.current = true;
       setState((s) => (s.managed ? s : { ...s, managed: true }));

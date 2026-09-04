@@ -66,7 +66,7 @@ export const advisorModeApi = {
   /** Read Advisor Mode state for the current agent. */
   get: () => request<AdvisorModeState>("/advisor-mode"),
 
-  /** Update Advisor Mode; fields left out are unchanged. */
+  /** Update Advisor Mode. Fields left out are unchanged. */
   update: (body: AdvisorModeUpdate) =>
     request<AdvisorModeState>("/advisor-mode", {
       method: "POST",

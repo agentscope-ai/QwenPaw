@@ -7,7 +7,7 @@ import {
   LoaderCircle,
   Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   advisorModeApi,
@@ -22,6 +22,7 @@ import {
   useAdvisorMode,
   useAdvisorModeStore,
 } from "../../../../stores/advisorModeStore";
+import { useSyncAdvisorMode } from "../../../../stores/useSyncAdvisorMode";
 import styles from "../index.module.less";
 import loopStyles from "./AgentLoopCard.module.less";
 import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
@@ -96,25 +97,12 @@ const INTERVENTION_FIELDS: {
 
 export function AdvisorModeTab() {
   const { t } = useTranslation();
-  const { state } = useAdvisorMode();
+  useSyncAdvisorMode();
+  const { state, initialized } = useAdvisorMode();
   const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const setAdvisorMode = useAdvisorModeStore((s) => s.setAdvisorMode);
-  const [loading, setLoading] = useState(true);
+  const loading = !initialized;
   const [saving, setSaving] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const next = await advisorModeApi.get();
-      setAdvisorMode(selectedAgent, next);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedAgent, setAdvisorMode]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   const update = async (patch: AdvisorModeUpdate) => {
     setSaving(true);
