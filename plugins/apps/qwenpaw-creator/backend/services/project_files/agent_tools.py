@@ -36,7 +36,7 @@ from services.runtime_files.models import (
 from utils.logger import setup_logger
 
 from .assets import AssetFileStore
-from .auto_snapshot import auto_snapshot_timelines
+from .auto_snapshot import auto_snapshot_timelines, frozen_snapshot_edits
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
@@ -994,6 +994,7 @@ class AgentProjectTools:
             string_args=request.string_args,
             json_args=request.json_args,
         )
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
         auto_snapshot_timelines(
             base.project.model_dump(mode="json"),
@@ -1064,6 +1065,29 @@ class AgentProjectTools:
                 update={"cut_advisory": cut_advisory},
             )
         return commit_result
+
+    def _reject_frozen_snapshot_edits(
+        self,
+        base: ProjectSnapshot,
+        candidate: dict[str, Any],
+    ) -> None:
+        """Snapshot timelines are frozen copies outside the work graph:
+        an element written into one is never scheduled, so accepting the
+        commit would silently strand the content. Fail closed and steer
+        the writer to the live timeline instead."""
+        violations = frozen_snapshot_edits(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
+        if violations:
+            raise AgentProjectToolError(
+                "历史快照是冻结副本，不能修改其中的元素："
+                + ", ".join(violations)
+                + "。快照不会进入生产图，写入的内容永远不会被排产；"
+                "请改为修改对应的 live 时间线（如 timeline:main）。",
+                code="SNAPSHOT_TIMELINE_FROZEN",
+                details={"snapshotTimelineIds": violations},
+            )
 
     def _apply_agent_edit_impacts(
         self,
@@ -1378,6 +1402,7 @@ class AgentProjectTools:
         base = self._base(request.project_id)
         candidate = base.project.model_dump(mode="json")
         apply_patch_ops(candidate, request.ops)
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
         auto_snapshot_timelines(
             base.project.model_dump(mode="json"),

@@ -52,6 +52,29 @@ def _next_snapshot_id(
     return f"{prefix}{highest + 1}"
 
 
+def frozen_snapshot_edits(
+    base_data: dict[str, Any],
+    candidate_data: dict[str, Any],
+) -> list[str]:
+    """Existing snapshot timelines whose elements the candidate mutates.
+
+    Snapshots never enter the work graph, so an element written into one
+    is silently unproducible — writers must be told to target the live
+    timeline instead. Brand-new snapshot ids (absent from base) are the
+    snapshot-creation flows themselves and stay allowed.
+    """
+    base_items = base_data.get("timelines", {}).get("items", {})
+    return sorted(
+        timeline_id
+        for timeline_id in _timeline_element_changes(
+            base_data,
+            candidate_data,
+        )
+        if timeline_id.startswith(_SNAPSHOT_PREFIX)
+        and timeline_id in base_items
+    )
+
+
 def _remap_element_id(element_id: str, snapshot_id: str) -> str:
     """Prefix element ID with snapshot ID to ensure uniqueness."""
     return f"{snapshot_id}:{element_id}"
@@ -197,6 +220,11 @@ def auto_snapshot_timelines(
     stamp = now.strftime(_SNAPSHOT_STAMP_FORMAT)
 
     for timeline_id in sorted(changed_ids):
+        # Snapshots are frozen copies: re-snapshotting one would mint
+        # "snapshot:snapshot:..." ids, and since every nested id is new the
+        # dedupe window never bounds the growth.
+        if timeline_id.startswith(_SNAPSHOT_PREFIX):
+            continue
         base_timeline = base_items.get(timeline_id)
         if base_timeline is None:
             continue

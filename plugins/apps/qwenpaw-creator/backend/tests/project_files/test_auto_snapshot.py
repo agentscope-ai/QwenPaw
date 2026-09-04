@@ -146,6 +146,28 @@ class TestAutoSnapshotTimelines:
         auto_snapshot_timelines(base, candidate)
         assert len(candidate["timelines"]["items"]) == 1
 
+    def test_snapshot_timeline_never_resnapshotted(self):
+        sid = f"snapshot:{TL}:1"
+        base = _minimal_project(elements={ELEM: _element(ELEM)})
+        snapshot = copy.deepcopy(base["timelines"]["items"][TL])
+        snapshot["timeline_id"] = sid
+        snapshot["description"] = "自动快照：修改前的时间轴副本"
+        base["timelines"]["items"][sid] = snapshot
+        base["timelines"]["order"].append(sid)
+
+        candidate = copy.deepcopy(base)
+        _elems(candidate, sid)[ELEM]["label"] = "Edited inside snapshot"
+
+        auto_snapshot_timelines(base, candidate)
+
+        nested = [
+            key
+            for key in candidate["timelines"]["items"]
+            if key.startswith("snapshot:snapshot:")
+        ]
+        assert nested == []
+        assert len(candidate["timelines"]["items"]) == 2
+
     def test_element_change_creates_snapshot(self):
         base = _minimal_project(elements={ELEM: _element(ELEM)})
         candidate = copy.deepcopy(base)
