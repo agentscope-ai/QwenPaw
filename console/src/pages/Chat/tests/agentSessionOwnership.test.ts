@@ -16,6 +16,7 @@ import type { ChatSpec, ChatHistory } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useSessionListStore } from "../../../stores/sessionListStore";
 import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
 
@@ -34,7 +35,12 @@ async function flush(): Promise<void> {
   await new Promise((res) => setTimeout(res, 0));
 }
 
-function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
+function makeChatSpec(
+  id: string,
+  sessionId: string,
+  name = "chat",
+  status: "idle" | "running" = "idle",
+): ChatSpec {
   return {
     id,
     name,
@@ -44,7 +50,7 @@ function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
     created_at: "2026-07-27T10:00:00.000000+00:00",
     updated_at: "2026-07-27T10:00:00.000000+00:00",
     meta: {},
-    status: "idle",
+    status,
     pinned: false,
     archived: false,
     archived_at: null,
@@ -60,16 +66,13 @@ const B_CHAT = "22222222-bbbb-4bbb-8bbb-222222222222";
 
 // Legacy cached drafts still need ID-resolution coverage. New SDK creation
 // obtains the UUID before sending; do not make createChat fake the old contract.
-function seedLegacyDraft() {
+function seedLegacyDraft(id = "1788430000000-legacy1") {
   const legacy = sessionApi as unknown as {
     createEmptySession: (id: string, owner: unknown) => any;
     getActiveOwner: () => unknown;
     sessionList: any[];
   };
-  const draft = legacy.createEmptySession(
-    "1788430000000-legacy1",
-    legacy.getActiveOwner(),
-  );
+  const draft = legacy.createEmptySession(id, legacy.getActiveOwner());
   legacy.sessionList.unshift(draft);
   return { session: draft };
 }
@@ -77,11 +80,13 @@ function seedLegacyDraft() {
 beforeEach(() => {
   sessionApi.resetForTests();
   useAgentStore.setState({ lastChatIdByAgent: {} });
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   sessionApi.resetForTests();
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 describe("agent session ownership epochs", () => {
@@ -326,6 +331,41 @@ describe("agent session ownership epochs", () => {
     const sessions = await sessionApi.getSessionList();
     expect(sessions.find((item) => item.id === B_CHAT)).toBeDefined();
     expect(sessionApi.getRealIdForSession(localId)).toBe(A_CHAT);
+  });
+
+  it("keeps both legacy generating sessions selectable after resolving their ids", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const setLibrarySessions = vi.fn();
+    useSessionListStore.setState({ _setLibrarySessions: setLibrarySessions });
+
+    sessionApi.setActiveAgent("agent-a");
+    const firstTempId = seedLegacyDraft("1788430000000-legacy1").session.id;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(firstTempId);
+    await flush();
+
+    const secondTempId = seedLegacyDraft("1788430000001-legacy2").session.id;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(B_CHAT, secondTempId, "chat-2", "running"),
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(secondTempId);
+    await flush();
+
+    const latestSessions =
+      setLibrarySessions.mock.calls[
+        setLibrarySessions.mock.calls.length - 1
+      ][0];
+    expect(latestSessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstTempId, realId: A_CHAT }),
+        expect.objectContaining({ id: secondTempId, realId: B_CHAT }),
+      ]),
+    );
   });
 
   it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {

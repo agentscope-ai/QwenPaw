@@ -19,6 +19,7 @@ import {
 import { useTurnUsageStore } from "../turnUsageStore";
 import { extractClientMessageId } from "../../../utils/clientMessageId";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
+import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1694,6 +1695,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionList = list;
     if (realId) {
       this.pendingLocalSessionIds.delete(tempId);
+      // Publish the resolved mapping immediately so the SDK can match a URL
+      // carrying the backend UUID while the response is still generating.
+      syncSessionsGlobal(this.sessionList as ExtendedSession[]);
       // Migrate the pending user message from the local timestamp key to
       // the backend UUID key so patchLastUserMessage can find it after
       // page refresh (where the URL — and therefore the lookup key — is

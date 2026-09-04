@@ -76,6 +76,7 @@ export interface ReMeLightMemoryConfig {
   auto_memory_inbox_push_enabled: boolean;
   auto_dream_inbox_push_enabled: boolean;
   daily_paper_inbox_push_enabled: boolean;
+  auto_fin_inbox_push_enabled: boolean;
   auto_memory_interval: number;
   dream_cron_enabled: boolean;
   dream_cron: string;
@@ -83,6 +84,10 @@ export interface ReMeLightMemoryConfig {
   daily_paper_cron: string;
   daily_paper_use_hf_mirror: boolean;
   daily_paper_topics: string;
+  auto_fin_cron_enabled: boolean;
+  auto_fin_cron: string;
+  auto_fin_topics: string;
+  auto_fin_window_hours: number;
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
@@ -99,6 +104,16 @@ export interface ADBPGMemoryConfig {
   memory_isolation: boolean;
   search_timeout: number;
   auto_memory_search_config: AutoMemorySearchConfig;
+}
+
+export interface PowerContextMemoryConfig {
+  base_url: string;
+  token: string;
+  scope_id: string;
+  timeout: number;
+  auto_memory_search_config: AutoMemorySearchConfig & {
+    max_context_bytes: number;
+  };
 }
 
 export interface DoomLoopStageConfig {
@@ -191,6 +206,7 @@ export interface AgentsRunningConfig {
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
   adbpg_memory_config?: ADBPGMemoryConfig | null;
+  powercontext_memory_config?: PowerContextMemoryConfig | null;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

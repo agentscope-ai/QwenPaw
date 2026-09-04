@@ -15,6 +15,23 @@ QwenPaw 的长期记忆由工作区的文件系统和 [ReMe](https://github.com/
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从记录、整理到找回的完整循环" />
 </p>
 
+## 可选的 PowerContext 后端
+
+`remelight` 仍是默认长期记忆后端。如需使用可选的 `powercontext` 后端，必须先单独部署或启动
+PowerContext Server；QwenPaw 不会自动下载或启动该服务。本地服务默认地址为
+`http://127.0.0.1:8000`。可使用以下命令安装并启动：
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run
+```
+
+在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时、自动检索结果数量和注入上下文预算。保存后重启 QwenPaw，后端切换才会生效。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。记忆作用域留空时，QwenPaw 会使用持久化的安装级默认值 `qwenpaw:<installation_id>:agent:<agent_id>`；即使两个独立安装使用相同 Agent ID 并连接同一个 PowerContext 服务，也会被隔离。只有希望多个 Agent 共享记忆时，才应填写相同的显式作用域。复制 QwenPaw 工作目录会同时复制安装身份；若复制品不应共享记忆，应在复制后设置不同的显式作用域。自动检索还会受总注入上下文预算限制（默认 12,000 UTF-8 字节），请求超时限制为 1–60 秒。
+
+### 网络与审批边界
+
+启用该后端后，自动检索和每回合结束后的受限状态写入均是配置驱动的后台网络操作：它们会将查询或经过长度限制的回合状态发送到所配置的 PowerContext 服务，不经过 Agent 工具调用。如果这种传输不合适，请关闭自动检索或改用其他记忆后端。相对地，Agent 可见的 `memory_search` 和 `memory_remember` 是受治理的操作：PowerContext 的检索工具被标记为网络 I/O，严格治理可以在发送查询前要求审批；`memory_remember` 同样作为网络写入受当前策略约束。
+
 ## 先理解它怎样工作
 
 假设你是一名金融分析师，正在持续研究新能源汽车产业链。几周内，你可能先后讨论过宁德时代的产品结构、动力电池价格、碳酸锂供需，以及“锂价下跌究竟利好电池厂还是会带来库存减值”这样的判断。
@@ -161,7 +178,9 @@ Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然�
 
 分析师的知识不只来自对话，还来自论文、新闻和数据源。Auto Resource 是这条外部资料管线的总称，目前仍处于 Beta，正在持续扩展。
 
-当前内置能力是 **Daily Paper**：启用后，QwenPaw 会从 Hugging Face Papers 的周榜和月榜中筛选与你关注主题相关的热门论文，保存原始 PDF，并生成三篇精读和一份每日简报。例如把主题设置为 `battery, lithium, energy storage`，就可以持续补充电池材料、寿命预测和储能技术相关研究。
+当前内置能力包括 **Daily Paper** 和 **Auto Fin**。
+
+启用 Daily Paper 后，QwenPaw 会从 Hugging Face Papers 的周榜和月榜中筛选与你关注主题相关的热门论文，保存原始 PDF，并生成三篇精读和一份每日简报。例如把主题设置为 `battery, lithium, energy storage`，就可以持续补充电池材料、寿命预测和储能技术相关研究。
 
 - PDF 写入 `resource/papers/`；
 - 精读和简报写入 `memory/YYYY-MM-DD/`；
@@ -171,7 +190,9 @@ Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然�
   <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper 的调度与主题配置" />
 </p>
 
-Daily Paper 是当前内置的资料入口。任意文件仅仅放进 `resource/` 并不会被自动处理。自动抓取你感兴趣的财经新闻并沉淀到知识库仍在规划中（TODO）；在正式接入前，不应把 Auto Resource 理解成一个通用的文件导入器。
+Auto Fin 会拉取一个滚动时间窗口内的财联社电报（默认最近 24 小时），按关注主题筛选相关新闻，再搜索 ReMe 中有回顾价值的历史记忆，生成一份带有效 Wikilink 的中文研究报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告会写入 `memory/YYYY-MM-DD/auto_fin.md`。同日重跑会参考已有报告并原子覆盖为修订结果；没有相关新闻时任务成功跳过，不写报告，也不发送 Inbox 通知。
+
+Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。任意文件仅仅放进 `resource/` 仍不会被自动处理，因此不应把 Auto Resource 理解成一个通用的文件导入器。完整流程与边界见 [ReMe Auto Fin 指南](https://github.com/agentscope-ai/ReMe/blob/main/plugins/auto-fin/README_ZH.md)。
 
 ### 4. Auto-Dream 把每日记录整理成长期经验
 
@@ -269,7 +290,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 
 1. 你在 `MEMORY.md` 中写下“重点跟踪新能源汽车、锂电池和锂资源”的稳定研究范围；
 2. Auto-Memory 把当天关于宁德时代与锂价的 session 总结成一条日期子目录笔记，并刷新当天索引页；
-3. Auto Resource 把已接入的相关论文精读补充进每日记忆；
+3. Auto Resource 把已接入的论文精读和财经研究报告补充进每日记忆；
 4. Markdown AST 分块、BM25、向量索引与文件图谱在后台持续更新；
 5. Auto-Dream 把多天记录整理成 `personal`、`procedure` 和 `wiki` 长期节点，并建立 Wikilink；
 6. Memory Search 在下一次写研报时先返回命中片段，再按需沿出边、入边和文件路径展开；
@@ -314,6 +335,11 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
       "daily_paper_use_hf_mirror": false,
       "daily_paper_topics": "",
       "daily_paper_inbox_push_enabled": true,
+      "auto_fin_cron_enabled": false,
+      "auto_fin_cron": "0 18 * * *",
+      "auto_fin_topics": "gold,robotics,semiconductors",
+      "auto_fin_window_hours": 24,
+      "auto_fin_inbox_push_enabled": true,
       "memory_search_enabled": true,
       "auto_memory_search_config": {
         "enabled": false,
@@ -324,21 +350,26 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 }
 ```
 
-| 配置项                                  | 默认值         | 说明                                                               |
-| --------------------------------------- | -------------- | ------------------------------------------------------------------ |
-| `auto_memory_interval`                  | `5`            | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
-| `auto_memory_inbox_push_enabled`        | `true`         | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
-| `dream_cron_enabled`                    | `true`         | 启用定时 Auto-Dream                                                |
-| `dream_cron`                            | `"0 23 * * *"` | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
-| `auto_dream_inbox_push_enabled`         | `true`         | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
-| `daily_paper_cron_enabled`              | `false`        | 启用定时 Daily Paper                                               |
-| `daily_paper_cron`                      | `"0 9 * * *"`  | Daily Paper 的五段式 cron                                          |
-| `daily_paper_use_hf_mirror`             | `false`        | 通过 Hugging Face 镜像获取论文信息                                 |
-| `daily_paper_topics`                    | `""`           | 选论文时优先考虑的主题                                             |
-| `daily_paper_inbox_push_enabled`        | `true`         | 把 Daily Paper 结果推送到 Inbox                                    |
-| `memory_search_enabled`                 | `true`         | 向 Agent 提供手动 `memory_search` 工具                             |
-| `auto_memory_search_config.enabled`     | `false`        | 每次普通用户请求前自动搜索记忆                                     |
-| `auto_memory_search_config.max_results` | `2`            | 自动搜索时最多注入的结果数                                         |
+| 配置项                                  | 默认值                           | 说明                                                               |
+| --------------------------------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `auto_memory_interval`                  | `5`                              | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
+| `auto_memory_inbox_push_enabled`        | `true`                           | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
+| `dream_cron_enabled`                    | `true`                           | 启用定时 Auto-Dream                                                |
+| `dream_cron`                            | `"0 23 * * *"`                   | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
+| `auto_dream_inbox_push_enabled`         | `true`                           | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
+| `daily_paper_cron_enabled`              | `false`                          | 启用定时 Daily Paper                                               |
+| `daily_paper_cron`                      | `"0 9 * * *"`                    | Daily Paper 的五段式 cron                                          |
+| `daily_paper_use_hf_mirror`             | `false`                          | 通过 Hugging Face 镜像获取论文信息                                 |
+| `daily_paper_topics`                    | `""`                             | 选论文时优先考虑的主题                                             |
+| `daily_paper_inbox_push_enabled`        | `true`                           | 把 Daily Paper 结果推送到 Inbox                                    |
+| `auto_fin_cron_enabled`                 | `false`                          | 启用定时 Auto Fin                                                  |
+| `auto_fin_cron`                         | `"0 18 * * *"`                   | Auto Fin 的五段式 cron                                             |
+| `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | 用逗号分隔的财联社新闻筛选主题                                     |
+| `auto_fin_window_hours`                 | `24`                             | 每次向前抓取财联社电报的滚动小时数，范围为 1–168                   |
+| `auto_fin_inbox_push_enabled`           | `true`                           | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
+| `memory_search_enabled`                 | `true`                           | 向 Agent 提供手动 `memory_search` 工具                             |
+| `auto_memory_search_config.enabled`     | `false`                          | 每次普通用户请求前自动搜索记忆                                     |
+| `auto_memory_search_config.max_results` | `2`                              | 自动搜索时最多注入的结果数                                         |
 
 自动搜索结果只注入当前请求，不写入正式会话历史，也不会再次被 Auto-Memory 保存。自动化产生的请求不会触发自动搜索。
 
@@ -355,7 +386,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 | `embedding_model_config` | 默认关闭         | 可选向量模型配置，见 [向量模型](./embedding) |
 | `needs_reindex`          | `false`          | 向量空间变化后由运行时维护的待重建标记       |
 
-旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的三个任务级 Inbox 开关，但不会写回已验证的配置。
+旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的四个任务级 Inbox 开关，但不会写回已验证的配置。
 
 ### 状态与重建索引
 
@@ -365,13 +396,23 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>
 
-正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**，或调用：
+正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**。维护 API 支持分范围重建：
 
 ```http
-POST /api/agents/{agentId}/memory/reindex
+POST /api/agents/{agentId}/memory/reindex?scope=all
+POST /api/agents/{agentId}/memory/reindex?scope=bm25
+POST /api/agents/{agentId}/memory/reindex?scope=embedding
 ```
 
-重建会清空派生索引，再从 `memory/` 和 `digest/` 的 Markdown 生成新索引；不会删除源记忆。运行期间 CPU 和内存占用可能上升，同一个 Agent 同时只能运行一个重建任务。
+`bm25` 只重建关键词索引，`embedding` 只重建向量索引，默认的 `all` 会先重建 BM25，再重建 Embedding。`embedding` 和 `all` 要求当前 Embedding 配置已经启用，否则返回 HTTP `409`；未配置向量模型时请使用 `bm25`。重建使用已经摄取的 `memory/` 和 `digest/` chunks，不会重新解析或删除源记忆，也不会修改 Wikilink 图谱。运行期间 CPU 和内存占用可能上升，同一个 Agent 同时只能运行一个重建任务。
+
+更换 Embedding 后，向量搜索会保持不可用，直到 `embedding` 或 `all` 重建成功；BM25 仍可使用。如果不想继续这次尚未重建的向量空间变更，可以在控制台撤销，或调用：
+
+```http
+POST /api/agents/{agentId}/memory/reindex/undo
+```
+
+撤销会恢复与现有向量匹配的上一份 Embedding 配置，不会删除记忆文件。只有存在待重建变更时才能撤销。
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的资源占用确认提示" />

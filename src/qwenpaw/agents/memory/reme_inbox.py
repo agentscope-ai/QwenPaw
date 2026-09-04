@@ -7,11 +7,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "daily_paper"}
+RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "daily_paper", "auto_fin"}
 NOTIFICATION_FIELDS = {
     "auto_memory": "auto_memory_inbox_push_enabled",
     "auto_dream": "auto_dream_inbox_push_enabled",
     "daily_paper": "daily_paper_inbox_push_enabled",
+    "auto_fin": "auto_fin_inbox_push_enabled",
 }
 EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_BODY_CHARS = 4000
@@ -24,16 +25,19 @@ def is_successful_noop(name: str, response: Any) -> bool:
     metadata = getattr(response, "metadata", None)
     if not isinstance(metadata, dict):
         return False
+    noop = False
     if name == "auto_memory":
-        return metadata.get("modified") is False
-    if name == "auto_dream":
+        noop = metadata.get("modified") is False
+    elif name == "auto_dream":
         if metadata.get("modified") is not False:
             return False
         dream = metadata.get("dream")
-        return not (
+        noop = not (
             isinstance(dream, dict) and bool(dream.get("deleted_paths"))
         )
-    return False
+    elif name == "auto_fin":
+        noop = metadata.get("skipped") is True
+    return noop
 
 
 def result_title(name: str) -> str:
@@ -41,6 +45,7 @@ def result_title(name: str) -> str:
         "auto_memory": "Auto-memory result",
         "auto_dream": "Auto-dream result",
         "daily_paper": "Daily Paper result",
+        "auto_fin": "Auto Fin result",
     }.get(name, "Memory job result")
 
 
@@ -49,6 +54,7 @@ def empty_result_body(name: str) -> str:
         "auto_memory": "Auto-memory completed with no returned content.",
         "auto_dream": "Auto-dream completed with no returned content.",
         "daily_paper": "Daily Paper completed with no returned content.",
+        "auto_fin": "Auto Fin completed with no returned content.",
     }.get(name, "Memory job completed with no returned content.")
 
 
@@ -64,20 +70,40 @@ def build_payload(
         "date": str(kwargs.get("date") or ""),
         "hint": str(kwargs.get("memory_hint") or kwargs.get("hint") or ""),
     }
-    if name != "daily_paper":
+    if name not in {"daily_paper", "auto_fin"}:
         return payload
-    payload["force"] = bool(kwargs.get("force", False))
     payload["topics"] = str(kwargs.get("topics") or "")
+    if name == "auto_fin":
+        payload["window_hours"] = float(kwargs.get("window_hours") or 24)
+    else:
+        payload["force"] = bool(kwargs.get("force", False))
     if isinstance(metadata, dict):
-        for key in (
-            "digest_path",
-            "selected_arxiv_ids",
-            "note_paths",
-            "pdf_paths",
-            "skipped",
-        ):
+        if not payload["date"]:
+            payload["date"] = str(metadata.get("date") or "")
+        keys = (
+            (
+                "digest_path",
+                "selected_arxiv_ids",
+                "note_paths",
+                "pdf_paths",
+                "skipped",
+            )
+            if name == "daily_paper"
+            else (
+                "digest_path",
+                "selected_news_count",
+                "relevant_news_count",
+                "skipped",
+                "skip_reason",
+            )
+        )
+        for key in keys:
             if key in metadata:
                 payload[key] = metadata[key]
+        if name == "auto_fin" and isinstance(metadata.get("topics"), list):
+            payload["effective_topics"] = [
+                str(topic) for topic in metadata["topics"]
+            ]
     return payload
 
 

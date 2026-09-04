@@ -713,6 +713,30 @@ def mutate_config(
         return candidate.model_copy(deep=True)
 
 
+def get_or_create_powercontext_installation_id() -> str:
+    """Return the stable installation identity used by default PC scopes.
+
+    The identity is generated only when PowerContext is first configured and
+    persisted through the root-config transaction, so independently created
+    QwenPaw installations do not share an implicit memory scope.
+    """
+    existing = load_config().powercontext_installation_id
+    if existing:
+        return existing
+
+    generated = uuid.uuid4().hex
+
+    def ensure_identity(config: Config) -> None:
+        nonlocal generated
+        if config.powercontext_installation_id:
+            generated = config.powercontext_installation_id
+        else:
+            config.powercontext_installation_id = generated
+
+    mutate_config(ensure_identity)
+    return generated
+
+
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     """Return effective heartbeat config (from agent config or default).
 

@@ -8,3 +8,4 @@ export { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
 export { EmbeddingModelCard } from "./EmbeddingModelCard";
 export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";
 export { ADBPGConfigCard } from "./ADBPGConfigCard";
+export { PowerContextConfigCard } from "./PowerContextConfigCard";

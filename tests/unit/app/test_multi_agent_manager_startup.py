@@ -20,7 +20,11 @@ from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.memory.powercontext_memory_manager import (
+    PowerContextMemoryManager,
+)
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
+from qwenpaw.config.config import PowerContextMemoryConfig
 
 
 def _config(*agent_ids: str):
@@ -151,6 +155,54 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
 
     assert workspace.memory_manager is old_manager
     assert "memory_manager" in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_workspace_recreates_powercontext_manager_when_config_changes(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A reload must not keep a client with the old remote scope or URL."""
+    old_config = PowerContextMemoryConfig(
+        base_url="http://old.example",
+        scope_id="agent:old",
+    )
+    new_config = PowerContextMemoryConfig(
+        base_url="http://new.example",
+        scope_id="agent:new",
+    )
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(
+            memory_manager_backend="powercontext",
+            powercontext_memory_config=new_config,
+        ),
+    )
+    old_manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    old_manager._config = old_config
+    monkeypatch.setattr(
+        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
+        lambda _agent_id: SimpleNamespace(
+            running=SimpleNamespace(powercontext_memory_config=new_config),
+        ),
+    )
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    manager = workspace.memory_manager
+    assert manager is not old_manager
+    assert isinstance(manager, PowerContextMemoryManager)
+    assert manager._client is not None
+    assert manager._client.config.base_url == "http://new.example"
+    assert manager._client.config.scope_id == "agent:new"
+    await manager.close()
 
 
 @pytest.mark.asyncio

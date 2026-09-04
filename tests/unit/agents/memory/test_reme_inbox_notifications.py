@@ -10,6 +10,7 @@ import pytest
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
+from qwenpaw.agents.memory.reme_inbox import build_payload
 
 
 def _manager() -> ReMeLightMemoryManager:
@@ -18,6 +19,7 @@ def _manager() -> ReMeLightMemoryManager:
     manager.get_memory_config = lambda: SimpleNamespace(
         auto_memory_inbox_push_enabled=True,
         auto_dream_inbox_push_enabled=True,
+        auto_fin_inbox_push_enabled=True,
     )
     return manager
 
@@ -102,6 +104,24 @@ def _manager() -> ReMeLightMemoryManager:
             True,
         ),
         (
+            "auto_fin",
+            SimpleNamespace(
+                success=True,
+                answer="No related CLS news",
+                metadata={"skipped": True},
+            ),
+            False,
+        ),
+        (
+            "auto_fin",
+            SimpleNamespace(
+                success=True,
+                answer="Financial research generated",
+                metadata={"digest_path": "memory/2026-08-31/auto_fin.md"},
+            ),
+            True,
+        ),
+        (
             "auto_dream",
             SimpleNamespace(
                 success=True,
@@ -163,3 +183,40 @@ async def test_memory_inbox_only_suppresses_successful_noops(
 
     assert emitted is expected
     assert append_event.await_count == int(expected)
+
+
+def test_auto_fin_payload_separates_requested_and_effective_topics() -> None:
+    payload = build_payload(
+        "auto_fin",
+        {
+            "date": "",
+            "topics": "黄金, 机器人，黄金",
+            "window_hours": 12,
+        },
+        {
+            "date": "2026-08-31",
+            "topics": ["黄金", "机器人"],
+            "window_hours": 24,
+            "digest_path": "memory/2026-08-31/auto_fin.md",
+            "selected_news_count": 2,
+            "relevant_news_count": 2,
+        },
+    )
+
+    assert payload["date"] == "2026-08-31"
+    assert payload["topics"] == "黄金, 机器人，黄金"
+    assert payload["effective_topics"] == ["黄金", "机器人"]
+    assert payload["window_hours"] == 12
+    assert payload["digest_path"] == "memory/2026-08-31/auto_fin.md"
+    assert payload["selected_news_count"] == 2
+    assert payload["relevant_news_count"] == 2
+
+
+def test_auto_fin_payload_preserves_an_explicit_request_date() -> None:
+    payload = build_payload(
+        "auto_fin",
+        {"date": "2026-08-30", "topics": "黄金", "window_hours": 24},
+        {"date": "2026-08-31", "topics": ["黄金"]},
+    )
+
+    assert payload["date"] == "2026-08-30"

@@ -250,6 +250,11 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] = Field(default_factory=list)
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+    )
+    subagent_model: ModelSlotConfig | None = None
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
@@ -840,6 +845,9 @@ async def create_agent(
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
         active_model=active_model,
+        fallback_models=request.fallback_models,
+        fallback_policy=request.fallback_policy,
+        subagent_model=request.subagent_model,
         mail=request.mail,
     )
 

@@ -2938,7 +2938,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout perolehan slot harus lebih besar dari jeda batas kecepatan + jitter",
     "contextManagementTitle": "Manajemen Konteks",
     "memoryManagerBackend": "Backend Manajemen Memori Jangka Panjang",
-    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal) atau adbpg (database cloud).",
+    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal), adbpg (database cloud), PowerContext (layanan memori jarak jauh), atau none (nonaktifkan memori).",
     "memoryManagerBackendRestartWarning": "Mengalihkan backend manajemen memori jangka panjang tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "maxIters": "Iterasi Maksimum",
     "maxItersTooltip": "Jumlah maksimum iterasi penalaran-tindakan untuk agen ReAct",
@@ -3380,6 +3380,18 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
+    "powercontextMemoryTitle": "Memori PowerContext",
+    "powercontextConfig": {
+      "title": "Konfigurasi Memori PowerContext",
+      "baseUrl": "URL Server",
+      "token": "Token Bearer",
+      "scopeId": "Ruang Lingkup Memori",
+      "scopeIdPlaceholder": "Kosongkan untuk menggunakan ruang lingkup agen unik untuk instalasi ini",
+      "scopeIdInvalid": "Ruang lingkup memori tidak boleh hanya berisi spasi.",
+      "timeout": "Batas Waktu Permintaan",
+      "maxContextBytes": "Konteks maksimum yang disisipkan (byte)",
+      "maxContextBytesTooltip": "Membatasi total hasil pencarian PowerContext yang ditambahkan ke satu giliran model."
+    },
     "adbpgConfig": {
       "title": "Konfigurasi Memori ADBPG",
       "apiMode": "Mode API",
