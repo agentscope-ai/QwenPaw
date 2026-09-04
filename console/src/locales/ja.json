@@ -2635,6 +2635,8 @@
       "appearance": "外観",
       "about": "QwenPaw について"
     },
+    "collapse": "サイドバーを折りたたむ",
+    "expand": "サイドバーを展開する",
     "more": "その他",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },

@@ -2879,6 +2879,8 @@
       "appearance": "Aparência",
       "about": "Sobre o QwenPaw"
     },
+    "collapse": "Recolher barra lateral",
+    "expand": "Expandir barra lateral",
     "more": "Mais",
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },

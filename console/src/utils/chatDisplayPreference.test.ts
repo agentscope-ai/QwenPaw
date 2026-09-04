@@ -45,6 +45,18 @@ describe("chatDisplayPreference", () => {
     unsubscribe();
   });
 
+  it("notifies subscribers when another tab changes a display preference", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeChatDisplayPreference(listener);
+
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "qwenpaw_show_thinking" }),
+    );
+
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
+  });
+
   it("persists and clears the tool display preference", () => {
     setToolDisplayPreference("raw-input-output");
     expect(getToolDisplayPreference()).toBe("raw-input-output");

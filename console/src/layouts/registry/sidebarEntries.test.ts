@@ -112,6 +112,19 @@ describe("partitionSidebarEntries", () => {
       ).map((item) => item.id),
     ).toEqual(["plugin.before", "core.security", "plugin.after"]);
   });
+
+  it("does not expose an empty group as a navigation entry", () => {
+    const items: TreeMenuItem[] = [
+      {
+        id: "plugin.empty-group",
+        location: "primary.settings",
+        label: "Empty group",
+        __children: [],
+      },
+    ];
+
+    expect(filterSidebarMenuItems(items, new Set(), new Set())).toHaveLength(0);
+  });
 });
 
 describe("orderSidebarEntries", () => {

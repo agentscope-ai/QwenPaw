@@ -33,6 +33,7 @@ import { useTranslation } from "react-i18next";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
+import { usePlugins } from "@/plugins/PluginContext";
 import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
 import GeneralSettings from "./GeneralSettings";
 import NavigationSettings from "./NavigationSettings";
@@ -267,6 +268,7 @@ export default function SettingsCenter() {
   const location = useLocation();
   const navigate = useNavigate();
   const routes = useRoutes();
+  const { loading: pluginsLoading } = usePlugins();
   const rawSettingsMenu = useMenuItems("primary.settings");
   const [query, setQuery] = useState("");
 
@@ -360,7 +362,20 @@ export default function SettingsCenter() {
     (location.state as { settingsReturnTo?: string } | null)
       ?.settingsReturnTo || "/chat";
 
-  if (!matchedActivePage && activeKey !== "general") {
+  if (pluginsLoading && !matchedActivePage && activeKey !== "general") {
+    return (
+      <div
+        className={`${styles.root} ${isDark ? styles.rootDark : ""}`}
+        data-theme={isDark ? "dark" : "light"}
+      >
+        <div className={styles.loading}>
+          <Spin tip={t("common.loading")} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!pluginsLoading && !matchedActivePage && activeKey !== "general") {
     return (
       <Navigate
         to="/settings/general"

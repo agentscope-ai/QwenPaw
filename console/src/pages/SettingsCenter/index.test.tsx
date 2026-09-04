@@ -17,6 +17,7 @@ const registry = vi.hoisted(() => ({
   }>,
   agentMenu: [] as MenuItem[],
   settingsMenu: [] as MenuItem[],
+  pluginLoading: false,
 }));
 
 vi.mock("@/plugins/registry/hooks", () => ({
@@ -26,6 +27,10 @@ vi.mock("@/plugins/registry/hooks", () => ({
     if (location === "primary.settings") return registry.settingsMenu;
     return [];
   },
+}));
+
+vi.mock("@/plugins/PluginContext", () => ({
+  usePlugins: () => ({ loading: registry.pluginLoading }),
 }));
 
 import SettingsCenter from ".";
@@ -40,6 +45,7 @@ describe("SettingsCenter", () => {
     registry.routes = [];
     registry.agentMenu = [];
     registry.settingsMenu = [];
+    registry.pluginLoading = false;
     localStorage.removeItem("qwenpaw_chat_wide_mode");
     localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
     localStorage.removeItem("qwenpaw_tool_display_mode");
@@ -173,6 +179,35 @@ describe("SettingsCenter", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Back to app" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/files");
+  });
+
+  it("does not redirect a potential plugin deep link while plugins load", async () => {
+    registry.pluginLoading = true;
+    const view = renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/settings/plugin-account"] },
+    );
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/plugin-account",
+    );
+    expect(screen.queryByRole("heading", { name: "General" })).toBeNull();
+
+    registry.pluginLoading = false;
+    view.rerender(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/settings/general",
+      );
+    });
   });
 
   it("keeps operational workspaces out of settings navigation", () => {

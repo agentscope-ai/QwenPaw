@@ -266,6 +266,8 @@
       "appearance": "Appearance",
       "about": "About QwenPaw"
     },
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "more": "More",
     "toggleAgentNavigation": "Expand or collapse agent navigation"
   },

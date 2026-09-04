@@ -1252,8 +1252,10 @@ export default function ChatPage() {
     };
 
     window.addEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+    window.addEventListener("storage", syncWideMode);
     return () => {
       window.removeEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+      window.removeEventListener("storage", syncWideMode);
     };
   }, []);
 

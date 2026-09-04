@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PYPI_URL } from "./constants";
 
 const mocks = vi.hoisted(() => ({
   getVersion: vi.fn(),
@@ -76,7 +77,9 @@ describe("AppBrand", () => {
   });
 
   it("keeps the shared logo, version, action, and update reminder together", async () => {
-    render(<AppBrand action={<button type="button">Collapse</button>} />);
+    const view = render(
+      <AppBrand action={<button type="button">Collapse</button>} />,
+    );
 
     expect(screen.getByRole("img", { name: "QwenPaw" })).toHaveAttribute(
       "src",
@@ -91,5 +94,11 @@ describe("AppBrand", () => {
     fireEvent.click(version);
 
     expect(await screen.findByText("Version 2.0.0")).toBeVisible();
+
+    view.unmount();
+    render(<AppBrand />);
+    expect(await screen.findByText("v1.0.0")).toBeVisible();
+    expect(mocks.getVersion).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(PYPI_URL);
   });
 });

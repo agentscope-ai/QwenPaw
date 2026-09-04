@@ -31,15 +31,15 @@ interface SidebarVisibilityState {
 function loadFocusItemIds(): string[] {
   try {
     const stored = localStorage.getItem(FOCUS_ITEMS_STORAGE_KEY);
-    if (!stored) return DEFAULT_FOCUS_ITEM_IDS;
+    if (!stored) return [...DEFAULT_FOCUS_ITEM_IDS];
     const parsed: unknown = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return DEFAULT_FOCUS_ITEM_IDS;
+    if (!Array.isArray(parsed)) return [...DEFAULT_FOCUS_ITEM_IDS];
     return parsed.filter(
       (itemId): itemId is string =>
         typeof itemId === "string" && !isFixedSidebarItemId(itemId),
     );
   } catch {
-    return DEFAULT_FOCUS_ITEM_IDS;
+    return [...DEFAULT_FOCUS_ITEM_IDS];
   }
 }
 
@@ -156,7 +156,7 @@ export const useSidebarStore = create<SidebarStoreState>((set) => ({
     persistFocusItemIds(DEFAULT_FOCUS_ITEM_IDS);
     persistHiddenPluginItemIds([]);
     set({
-      focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
+      focusItemIds: [...DEFAULT_FOCUS_ITEM_IDS],
       hiddenPluginItemIds: [],
     });
   },

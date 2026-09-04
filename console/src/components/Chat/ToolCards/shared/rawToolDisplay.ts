@@ -1,4 +1,10 @@
 const LARGE_BASE64_CHARS = 4_096;
+const MAX_DISPLAY_DEPTH = 32;
+const COMMON_BASE64_FIELD_NAMES = new Set([
+  "imagedata",
+  "screenshot",
+  "thumbnail",
+]);
 
 function base64Placeholder(length: number): string {
   return `[base64 data omitted: ${length} characters]`;
@@ -9,8 +15,10 @@ function isBase64Field(
   container: Record<string, unknown>,
 ): boolean {
   const normalizedKey = key.toLowerCase();
+  const compactKey = normalizedKey.replace(/[^a-z0-9]/g, "");
   return (
     normalizedKey.includes("base64") ||
+    COMMON_BASE64_FIELD_NAMES.has(compactKey) ||
     (normalizedKey === "data" &&
       (container.type === "base64" || container.encoding === "base64"))
   );
@@ -19,11 +27,16 @@ function isBase64Field(
 function sanitizeForDisplay(
   value: unknown,
   ancestors: WeakSet<object>,
+  depth = 0,
 ): unknown {
+  if (depth > MAX_DISPLAY_DEPTH) return "[maximum display depth exceeded]";
+
   if (Array.isArray(value)) {
     if (ancestors.has(value)) return "[circular reference]";
     ancestors.add(value);
-    const sanitized = value.map((item) => sanitizeForDisplay(item, ancestors));
+    const sanitized = value.map((item) =>
+      sanitizeForDisplay(item, ancestors, depth + 1),
+    );
     ancestors.delete(value);
     return sanitized;
   }
@@ -41,7 +54,7 @@ function sanitizeForDisplay(
         ) {
           return [key, base64Placeholder(item.length)];
         }
-        return [key, sanitizeForDisplay(item, ancestors)];
+        return [key, sanitizeForDisplay(item, ancestors, depth + 1)];
       }),
     );
     ancestors.delete(value);

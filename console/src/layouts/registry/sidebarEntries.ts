@@ -32,7 +32,7 @@ export function filterSidebarMenuItems(
   const walk = (candidates: MenuItem[]) => {
     for (const rawItem of candidates) {
       const item = rawItem as MenuItemWithChildren;
-      if (item.__children?.length) {
+      if (Array.isArray(item.__children)) {
         walk(item.__children);
       } else if (isVisible(item)) {
         result.push(item);

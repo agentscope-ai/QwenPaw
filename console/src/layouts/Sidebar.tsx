@@ -51,6 +51,7 @@ import {
 import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
+import { getAppVersion } from "./appVersion";
 import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
 import { getAgentDisplayName } from "../utils/agentDisplayName";
 import { isAgentAvailableInChat } from "../utils/agentVisibility";
@@ -203,9 +204,8 @@ export default function Sidebar({
   }, [selectedKey, visibleSidebarNav]);
 
   useEffect(() => {
-    api
-      .getVersion()
-      .then((response) => setVersion(response?.version ?? ""))
+    void getAppVersion()
+      .then(setVersion)
       .catch(() => {});
   }, []);
 
@@ -609,7 +609,7 @@ export default function Sidebar({
               icon={<SparkOperateLeftLine size={18} />}
               onClick={() => setCollapsed(true)}
               className={styles.brandCollapseToggle}
-              aria-label="Collapse sidebar"
+              aria-label={t("sidebar.collapse", "Collapse sidebar")}
             />
           }
         />
@@ -619,14 +619,14 @@ export default function Sidebar({
         <nav className={styles.collapsedNav}>
           <div className={styles.collapsedNavPinned}>
             <Tooltip
-              title="Expand sidebar"
+              title={t("sidebar.expand", "Expand sidebar")}
               placement="right"
               mouseEnterDelay={0.5}
             >
               <button
                 type="button"
                 className={styles.collapsedNavItem}
-                aria-label="Expand sidebar"
+                aria-label={t("sidebar.expand", "Expand sidebar")}
                 onClick={() => setCollapsed(false)}
               >
                 <SparkOperateRightLine size={18} />

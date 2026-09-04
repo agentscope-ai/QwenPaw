@@ -14,7 +14,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import api from "../api";
 import { ExternalMarkdownLink } from "../components/Markdown/externalLinkComponents";
 import { useDesktopUpdate } from "../contexts/DesktopUpdateContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -29,7 +28,66 @@ import {
   PYPI_URL,
   UPDATE_MD,
 } from "./constants";
+import { getAppVersion } from "./appVersion";
 import styles from "./index.module.less";
+
+let latestVersionRequest: Promise<string> | null = null;
+let latestVersionRequestedAt = 0;
+
+function getLatestPublishedVersion(): Promise<string> {
+  if (
+    !latestVersionRequest ||
+    Date.now() - latestVersionRequestedAt >= ONE_HOUR_MS
+  ) {
+    latestVersionRequestedAt = Date.now();
+    latestVersionRequest = fetch(PYPI_URL)
+      .then((response) => response.json())
+      .then((data) => {
+        const releases = data?.releases ?? {};
+        const versionsWithTime = Object.entries(releases)
+          .filter(([candidate]) => isStableVersion(candidate))
+          .map(([candidate, files]) => {
+            const fileList = files as Array<{
+              upload_time_iso_8601?: string;
+            }>;
+            const latestUpload = fileList
+              .map((file) => file.upload_time_iso_8601)
+              .filter(Boolean)
+              .sort()
+              .pop();
+            return {
+              version: candidate,
+              uploadTime: latestUpload || "",
+            };
+          });
+
+        versionsWithTime.sort((left, right) => {
+          const timeDiff =
+            new Date(right.uploadTime).getTime() -
+            new Date(left.uploadTime).getTime();
+          return timeDiff !== 0
+            ? timeDiff
+            : compareVersions(right.version, left.version);
+        });
+
+        const latest =
+          versionsWithTime[0]?.version ?? data?.info?.version ?? "";
+        const releaseTime = versionsWithTime.find(
+          (item) => item.version === latest,
+        )?.uploadTime;
+        return releaseTime &&
+          new Date(releaseTime) <= new Date(Date.now() - ONE_HOUR_MS)
+          ? latest
+          : "";
+      })
+      .catch((error: unknown) => {
+        latestVersionRequest = null;
+        latestVersionRequestedAt = 0;
+        throw error;
+      });
+  }
+  return latestVersionRequest;
+}
 
 function UpdateCodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
@@ -73,55 +131,16 @@ export default function AppBrand({ action }: AppBrandProps) {
   const logoClicksRef = useRef<number[]>([]);
 
   useEffect(() => {
-    api
-      .getVersion()
-      .then((response) => setVersion(response?.version ?? ""))
+    void getAppVersion()
+      .then(setVersion)
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (onDesktop) return;
 
-    fetch(PYPI_URL)
-      .then((response) => response.json())
-      .then((data) => {
-        const releases = data?.releases ?? {};
-        const versionsWithTime = Object.entries(releases)
-          .filter(([candidate]) => isStableVersion(candidate))
-          .map(([candidate, files]) => {
-            const fileList = files as Array<{
-              upload_time_iso_8601?: string;
-            }>;
-            const latestUpload = fileList
-              .map((file) => file.upload_time_iso_8601)
-              .filter(Boolean)
-              .sort()
-              .pop();
-            return {
-              version: candidate,
-              uploadTime: latestUpload || "",
-            };
-          });
-
-        versionsWithTime.sort((left, right) => {
-          const timeDiff =
-            new Date(right.uploadTime).getTime() -
-            new Date(left.uploadTime).getTime();
-          return timeDiff !== 0
-            ? timeDiff
-            : compareVersions(right.version, left.version);
-        });
-
-        const latest =
-          versionsWithTime[0]?.version ?? data?.info?.version ?? "";
-        const releaseTime = versionsWithTime.find(
-          (item) => item.version === latest,
-        )?.uploadTime;
-        const isOldEnough =
-          !!releaseTime &&
-          new Date(releaseTime) <= new Date(Date.now() - ONE_HOUR_MS);
-        setLatestVersion(isOldEnough ? latest : "");
-      })
+    void getLatestPublishedVersion()
+      .then(setLatestVersion)
       .catch(() => {});
   }, [onDesktop]);
 

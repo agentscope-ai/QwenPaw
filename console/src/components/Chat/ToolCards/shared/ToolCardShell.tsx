@@ -145,6 +145,20 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     }
     return lines.length > 0 ? lines.join("\n") : null;
   }, [control.offloadRemaining, control.killRemaining]);
+  const rawInput = useMemo(
+    () =>
+      showRawInputOutput
+        ? formatRawToolValue(content.rawInput ?? content.params)
+        : "",
+    [content.params, content.rawInput, showRawInputOutput],
+  );
+  const rawOutput = useMemo(
+    () =>
+      showRawInputOutput && content.result !== undefined
+        ? formatRawToolValue(content.result)
+        : "",
+    [content.result, showRawInputOutput],
+  );
 
   return (
     <div className={styles.toolCallContainer}>
@@ -201,15 +215,9 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
         {bodyMounted &&
           (showRawInputOutput ? (
             <>
-              <DefaultBlock
-                title="Input"
-                content={formatRawToolValue(content.rawInput ?? content.params)}
-              />
+              <DefaultBlock title="Input" content={rawInput} />
               {content.result !== undefined && (
-                <DefaultBlock
-                  title="Output"
-                  content={formatRawToolValue(content.result)}
-                />
+                <DefaultBlock title="Output" content={rawOutput} />
               )}
             </>
           ) : isError ? (

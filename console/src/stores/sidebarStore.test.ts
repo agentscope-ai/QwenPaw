@@ -55,6 +55,14 @@ describe("sidebarStore", () => {
     expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
+  it("does not expose the default array through mutable store state", () => {
+    useSidebarStore.getState().resetFocusItemIds();
+
+    expect(useSidebarStore.getState().focusItemIds).not.toBe(
+      DEFAULT_FOCUS_ITEM_IDS,
+    );
+  });
+
   it("keeps plugins visible by default and persists an explicit hide", () => {
     expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
 

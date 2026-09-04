@@ -277,6 +277,8 @@
       "appearance": "Tampilan",
       "about": "Tentang QwenPaw"
     },
+    "collapse": "Ciutkan bilah samping",
+    "expand": "Luaskan bilah samping",
     "more": "Lainnya",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },

@@ -248,6 +248,8 @@
       "appearance": "Giao diện",
       "about": "Giới thiệu QwenPaw"
     },
+    "collapse": "Thu gọn thanh bên",
+    "expand": "Mở rộng thanh bên",
     "more": "Thêm",
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
