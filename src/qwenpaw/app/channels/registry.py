@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from .base import BaseChannel
 
@@ -43,39 +43,98 @@ _BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
 _BUILTIN_CHANNEL_CACHE_LOCK = threading.Lock()
 
 
-def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
-    """Load built-in channels safely.
+def _import_channel_class(
+    key: str,
+    module_name: str,
+    class_name: str,
+) -> type[BaseChannel]:
+    """Import one built-in channel class and validate the contract."""
+    mod = importlib.import_module(module_name, package=__package__)
+    cls = getattr(mod, class_name)
+    if not (
+        isinstance(cls, type)
+        and issubclass(cls, BaseChannel)
+        and cls is not BaseChannel
+    ):
+        raise TypeError(
+            f"{key}: {module_name}.{class_name} is not a "
+            f"BaseChannel subtype",
+        )
+    return cls
 
-    A single optional dependency failure should not break CLI startup.
+
+class _LazyChannelClass:
+    """Stand-in for a built-in channel class until it is first used.
+
+    Attribute access, instantiation, and ``from_config`` / ``from_env``
+    resolve the real class once and then delegate. Registry listing and
+    key iteration do not import the channel module.
+    """
+
+    __slots__ = ("_key", "_module_name", "_class_name", "_cls", "_lock")
+
+    def __init__(
+        self,
+        key: str,
+        module_name: str,
+        class_name: str,
+    ) -> None:
+        self._key = key
+        self._module_name = module_name
+        self._class_name = class_name
+        self._cls: type[BaseChannel] | None = None
+        self._lock = threading.Lock()
+
+    def _resolve(self) -> type[BaseChannel]:
+        if self._cls is not None:
+            return self._cls
+        with self._lock:
+            if self._cls is None:
+                self._cls = _import_channel_class(
+                    self._key,
+                    self._module_name,
+                    self._class_name,
+                )
+            return self._cls
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resolve(), name)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._resolve()(*args, **kwargs)
+
+    def __repr__(self) -> str:
+        if self._cls is not None:
+            return f"<LazyChannel {self._key} -> {self._cls!r}>"
+        return f"<LazyChannel {self._key} (unresolved)>"
+
+
+def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
+    """Build the built-in channel map.
+
+    Required channels (currently ``console``) are imported immediately so
+    startup fails fast if they are broken. Optional channels are wrapped
+    in a lazy proxy and imported on first attribute access, so unused
+    channel SDKs (for example ``lark_oapi``) are not paid for at startup.
     """
     out: dict[str, type[BaseChannel]] = {}
     for key, (module_name, class_name) in _BUILTIN_SPECS.items():
-        try:
-            mod = importlib.import_module(module_name, package=__package__)
-            cls = getattr(mod, class_name)
-            if not (
-                isinstance(cls, type)
-                and issubclass(cls, BaseChannel)
-                and cls is not BaseChannel
-            ):
-                raise TypeError(
-                    f"{module_name}.{class_name} is not a BaseChannel subtype",
+        if key in _REQUIRED_CHANNEL_KEYS:
+            try:
+                out[key] = _import_channel_class(
+                    key,
+                    module_name,
+                    class_name,
                 )
-        except Exception:
-            if key in _REQUIRED_CHANNEL_KEYS:
+            except Exception:
                 logger.error(
                     'failed to load required built-in channel "%s"',
                     key,
                     exc_info=True,
                 )
                 raise
-            logger.debug(
-                "built-in channel unavailable: %s",
-                key,
-                exc_info=True,
-            )
             continue
-        out[key] = cls
+        out[key] = _LazyChannelClass(key, module_name, class_name)
     return out
 
 
