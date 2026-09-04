@@ -233,11 +233,17 @@ vi.mock("@/stores/loopStore", () => ({
       })),
     },
   ),
+  beginLoopModeMessageSubmission: vi.fn(
+    (message: Record<string, unknown>) => message,
+  ),
   beginLoopModeSubmission: vi.fn((text: string) => text),
   fetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   fetchAvailableLoopModes: vi.fn(() => Promise.resolve([])),
   markLoopModeRunning: vi.fn(),
   prepareLoopModeMessage: vi.fn((text: string) => text),
+  prepareLoopModeMessageSubmission: vi.fn(
+    (message: Record<string, unknown>) => message,
+  ),
 }));
 
 vi.mock("@/stores/sidebarModeStore", () => ({

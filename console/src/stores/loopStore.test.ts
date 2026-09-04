@@ -15,6 +15,8 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  beginLoopModeMessageSubmission,
+  prepareLoopModeMessageSubmission,
   useLoopStore,
   DEFAULT_LOOP_MODE,
   type LoopModeInfo,
@@ -36,11 +38,19 @@ const customMode: LoopModeInfo = {
   source: "custom",
 };
 
+const missionMode: LoopModeInfo = {
+  id: "mission",
+  name: "Mission Mode",
+  slash_command: "mission",
+  description: "Run a multi-agent mission",
+  source: "builtin",
+};
+
 describe("loopStore state transitions (A#85096690)", () => {
   beforeEach(() => {
     useLoopStore.setState({
       selectedModeId: "default",
-      availableModes: [DEFAULT_LOOP_MODE, goalMode, customMode],
+      availableModes: [DEFAULT_LOOP_MODE, goalMode, missionMode, customMode],
       sessionState: "idle",
       activeMode: null,
       catalogLoading: false,
@@ -130,5 +140,69 @@ describe("loopStore state transitions (A#85096690)", () => {
     const state = useLoopStore.getState();
     expect(state.sessionState).toBe("running");
     expect(state.activeMode).toEqual(customMode);
+  });
+
+  it.each([
+    ["goal", "/goal Fix the failing tests", goalMode],
+    ["mission", "/mission Build the feature", missionMode],
+  ])(
+    "adds the selected %s mode to string message content",
+    (_, expected, mode) => {
+      useLoopStore.getState().setSelectedMode(mode.id);
+
+      const message = beginLoopModeMessageSubmission({
+        role: "user",
+        content: expected.replace(/^\/\w+ /, ""),
+      });
+
+      expect(message.content).toBe(expected);
+      expect(useLoopStore.getState().sessionState).toBe("starting");
+      expect(useLoopStore.getState().activeMode).toEqual(mode);
+    },
+  );
+
+  it("adds the selected mode to the text part of multimodal content", () => {
+    useLoopStore.getState().setSelectedMode("goal");
+
+    const message = beginLoopModeMessageSubmission({
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,x" } },
+        { type: "text", text: "Describe this image" },
+      ],
+    });
+
+    expect(message.content).toEqual([
+      { type: "image_url", image_url: { url: "data:image/png;base64,x" } },
+      { type: "text", text: "/goal Describe this image" },
+    ]);
+  });
+
+  it("preserves an explicit loop command instead of adding the selected mode", () => {
+    useLoopStore.getState().setSelectedMode("goal");
+
+    const message = beginLoopModeMessageSubmission({
+      role: "user",
+      content: [{ type: "text", text: "/mission Build the feature" }],
+    });
+
+    expect(message.content).toEqual([
+      { type: "text", text: "/mission Build the feature" },
+    ]);
+    expect(useLoopStore.getState().activeMode).toEqual(missionMode);
+  });
+
+  it("preserves the selected mode while asynchronous request checks run", () => {
+    useLoopStore.getState().setSelectedMode("goal");
+    const prepared = prepareLoopModeMessageSubmission({
+      role: "user",
+      content: "Fix the failing tests",
+    });
+
+    useLoopStore.getState().resetSessionMode();
+    const submitted = beginLoopModeMessageSubmission(prepared);
+
+    expect(submitted.content).toBe("/goal Fix the failing tests");
+    expect(useLoopStore.getState().activeMode).toEqual(goalMode);
   });
 });

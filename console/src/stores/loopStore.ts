@@ -173,6 +173,51 @@ export function beginLoopModeSubmission(text: string): string {
   return prepared;
 }
 
+function transformLoopModeMessage(
+  message: Record<string, unknown>,
+  transform: (text: string) => string,
+): Record<string, unknown> {
+  if (message.role !== "user") return message;
+  if (typeof message.content === "string") {
+    return {
+      ...message,
+      content: transform(message.content),
+    };
+  }
+  if (!Array.isArray(message.content)) return message;
+
+  let prepared = false;
+  const content = message.content.map((part) => {
+    if (
+      prepared ||
+      !part ||
+      typeof part !== "object" ||
+      (part as Record<string, unknown>).type !== "text" ||
+      typeof (part as Record<string, unknown>).text !== "string"
+    ) {
+      return part;
+    }
+    prepared = true;
+    return {
+      ...(part as Record<string, unknown>),
+      text: transform((part as Record<string, unknown>).text as string),
+    };
+  });
+  return prepared ? { ...message, content } : message;
+}
+
+export function prepareLoopModeMessageSubmission(
+  message: Record<string, unknown>,
+): Record<string, unknown> {
+  return transformLoopModeMessage(message, prepareLoopModeMessage);
+}
+
+export function beginLoopModeMessageSubmission(
+  message: Record<string, unknown>,
+): Record<string, unknown> {
+  return transformLoopModeMessage(message, beginLoopModeSubmission);
+}
+
 export function markLoopModeRunning(): void {
   useLoopStore.getState().setRunningMode();
 }

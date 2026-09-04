@@ -44,11 +44,13 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
+  beginLoopModeMessageSubmission,
   beginLoopModeSubmission,
   fetchActiveLoopMode,
   fetchAvailableLoopModes,
   markLoopModeRunning,
   prepareLoopModeMessage,
+  prepareLoopModeMessageSubmission,
   useLoopStore,
 } from "../../stores/loopStore";
 import { buildLoopSlashSuggestions } from "./loopSlashSuggestions";
@@ -2530,6 +2532,14 @@ export default function ChatPage() {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
       };
+      const { input = [], biz_params } = data;
+      const session: SessionInfo = input[input.length - 1]?.session || {};
+      const lastInput = input.slice(-1);
+      const lastMsg = lastInput[0];
+      const preparedLastMsg =
+        usesQwenPawBackend && lastMsg
+          ? prepareLoopModeMessageSubmission(lastMsg)
+          : lastMsg;
 
       if (usesQwenPawBackend) {
         try {
@@ -2552,6 +2562,11 @@ export default function ChatPage() {
         }
       }
 
+      const submittedLastMsg =
+        usesQwenPawBackend && preparedLastMsg
+          ? beginLoopModeMessageSubmission(preparedLastMsg)
+          : preparedLastMsg;
+
       const submittedValue = pendingSenderClearRef.current;
       if (submittedValue !== null) {
         clearSubmittedSenderInput(submittedValue);
@@ -2559,17 +2574,16 @@ export default function ChatPage() {
         localStorage.removeItem(getDraftStorageKey(selectedAgent));
       }
 
-      const { input = [], biz_params } = data;
-      const session: SessionInfo = input[input.length - 1]?.session || {};
-      const lastInput = input.slice(-1);
-      const lastMsg = lastInput[0];
       const clientMessageId =
-        lastMsg?.role === "user" ? createClientMessageId() : undefined;
-      const rewrittenLastMsg: Record<string, unknown> | undefined = lastMsg
-        ? clientMessageId
-          ? attachClientMessageId(lastMsg, clientMessageId)
-          : lastMsg
-        : undefined;
+        submittedLastMsg?.role === "user"
+          ? createClientMessageId()
+          : undefined;
+      const rewrittenLastMsg: Record<string, unknown> | undefined =
+        submittedLastMsg
+          ? clientMessageId
+            ? attachClientMessageId(submittedLastMsg, clientMessageId)
+            : submittedLastMsg
+          : undefined;
       const rewrittenInput: Array<Record<string, unknown>> =
         rewrittenLastMsg?.content && Array.isArray(rewrittenLastMsg.content)
           ? [
@@ -2911,7 +2925,7 @@ export default function ChatPage() {
       const textarea = getActiveSenderTextarea();
       if (textarea) {
         const prepared = usesQwenPawBackend
-          ? beginLoopModeSubmission(textarea.value)
+          ? prepareLoopModeMessage(textarea.value)
           : textarea.value;
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
