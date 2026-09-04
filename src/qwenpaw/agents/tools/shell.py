@@ -250,6 +250,97 @@ def _sanitize_win_cmd(cmd: str) -> str:
     return cmd
 
 
+def _list_user_python_dirs(local_apps: str) -> list[str]:
+    """Return per-user Python version/Scripts directories (Windows)."""
+    if not local_apps:
+        return []
+    python_base = os.path.join(local_apps, "Programs", "Python")
+    if not os.path.isdir(python_base):
+        return []
+    dirs: list[str] = []
+    try:
+        entries = sorted(os.listdir(python_base))
+    except OSError:
+        return []
+    for entry in entries:
+        ver_dir = os.path.join(python_base, entry)
+        if not os.path.isdir(ver_dir):
+            continue
+        dirs.append(ver_dir)
+        scripts_dir = os.path.join(ver_dir, "Scripts")
+        if os.path.isdir(scripts_dir):
+            dirs.append(scripts_dir)
+    return dirs
+
+
+def _ensure_user_bins_on_path(
+    env: dict[str, str],
+    user_home: str | None = None,
+) -> dict[str, str]:
+    """Prepend standard user-level bin directories onto ``env["PATH"]``.
+
+    When QwenPaw runs under a service manager (systemd, Launchd, Docker with
+    a stripped ``PATH``), the inherited ``PATH`` often omits the directories
+    where single-user toolchains install their CLIs:
+
+    * ``~/.local/bin`` on Unix — the standard location for user-installed
+      binaries (``gh``, ``cmake``, ``lark-cli``, etc.).
+    * ``%LOCALAPPDATA%\\Programs\\Python\\<version>\\Scripts`` on Windows —
+      where per-user Python installs place their ``Scripts`` directory.
+    * ``~/.local/share/fnm`` and ``~/.nvm`` on Unix — base directories used
+      by the most common single-user Node.js managers. These are added so
+      their shims (which resolve to real binaries at runtime) are
+      discoverable without changing the Python venv.
+
+    Only directories that *exist* on disk are added, and duplicates against
+    the existing ``PATH`` are skipped.  This keeps daemon subprocesses
+    consistent with what a logged-in user would see, while leaving the
+    already-configured ``python_bin_dir`` and existing ``PATH`` entries
+    untouched.
+    """
+    home = user_home if user_home is not None else str(Path.home())
+    candidate_dirs: list[str] = []
+    existing_path = env.get("PATH", "")
+    existing_lower = (
+        {os.path.normpath(p).lower() for p in existing_path.split(os.pathsep)}
+        if existing_path
+        else set()
+    )
+
+    if sys.platform != "win32":
+        candidate_dirs.extend(
+            [
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, ".local", "share", "fnm"),
+                os.path.join(home, ".nvm"),
+            ],
+        )
+    else:
+        local_apps = env.get("LOCALAPPDATA") or ""
+        candidate_dirs.extend(_list_user_python_dirs(local_apps))
+
+    additions: list[str] = []
+    for d in candidate_dirs:
+        if not d:
+            continue
+        d = os.path.normpath(d)
+        if d.lower() in existing_lower:
+            continue
+        if not os.path.isdir(d):
+            continue
+        additions.append(d)
+
+    if not additions:
+        return env
+
+    # Keep existing PATH casing intact; just prepend new user-bin dirs.
+    existing_first: list[str] = (
+        existing_path.split(os.pathsep) if existing_path else []
+    )
+    env["PATH"] = os.pathsep.join(additions + existing_first)
+    return env
+
+
 def _read_output_snapshot(
     output_file: BinaryIO,
     max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
@@ -1336,8 +1427,10 @@ async def execute_shell_command(
     else:
         working_dir = get_tool_base_dir()
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
+    # Ensure the venv Python is on PATH for subprocesses.  User-level bins
+    # (``~/.local/bin`` etc.) are added so that daemon subprocesses can
+    # locate user-installed CLIs — see ``_ensure_user_bins_on_path``.
+    env = _ensure_user_bins_on_path(os.environ.copy())
     python_bin_dir = str(Path(sys.executable).parent)
     existing_path = env.get("PATH", "")
     if existing_path:
