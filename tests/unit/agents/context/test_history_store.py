@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.history import (
+    HistoryStore,
+    HistoryUnavailable,
+    has_rows_before,
+    open_readonly_connection,
+    read_history_page,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -499,3 +505,190 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         assert store.count("s") == 1
     finally:
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# Read-only pagination (``read_history_page`` / ``has_rows_before`` /
+# ``open_readonly_connection``) — the HTTP messages endpoint's read path.
+# ---------------------------------------------------------------------------
+
+
+def _append_turn(
+    store: HistoryStore,
+    session_id: str,
+    idx: int,
+) -> tuple[int, int]:
+    """Append one user+assistant turn; returns (user_seq, assistant_seq)."""
+    user_seq = store.append(
+        session_id=session_id,
+        dedup_key=f"u{idx}",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content=f"question {idx}",
+        ),
+    )
+    assistant_seq = store.append(
+        session_id=session_id,
+        dedup_key=f"a{idx}",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content=f"answer {idx}",
+        ),
+    )
+    return user_seq, assistant_seq
+
+
+def test_read_history_page_aligned_window_matches_full_turn(
+    store: HistoryStore,
+):
+    """When the naive fetch already lands on a real user row, no expansion
+    is needed and the page is exactly the requested turn."""
+    for i in range(1, 6):
+        _append_turn(store, "s1", i)
+
+    page = read_history_page(store.path, "s1", before_seq=11, limit=2)
+    assert [r["seq"] for r in page.rows] == [9, 10]
+    assert page.next_cursor == 9
+    assert page.has_more is True
+    assert page.truncated is False
+
+
+def test_read_history_page_expands_to_full_turn_when_cut_mid_turn(
+    store: HistoryStore,
+):
+    """``limit=1`` naively lands mid-turn (on the assistant row); the page
+    must expand backward to include that turn's user row too, never
+    returning a half-turn."""
+    for i in range(1, 6):
+        _append_turn(store, "s1", i)
+
+    page = read_history_page(store.path, "s1", before_seq=11, limit=1)
+    assert [r["seq"] for r in page.rows] == [9, 10]
+    assert page.next_cursor == 9
+    assert page.has_more is True
+    assert page.truncated is False
+
+
+def test_read_history_page_reaches_start_reports_no_more(
+    store: HistoryStore,
+):
+    for i in range(1, 4):
+        _append_turn(store, "s1", i)
+
+    page = read_history_page(store.path, "s1", before_seq=3, limit=10)
+    assert [r["seq"] for r in page.rows] == [1, 2]
+    assert page.next_cursor == 1
+    assert page.has_more is False
+    assert page.truncated is False
+
+
+def test_read_history_page_empty_before_cursor_returns_empty(
+    store: HistoryStore,
+):
+    _append_turn(store, "s1", 1)
+    page = read_history_page(store.path, "s1", before_seq=1, limit=10)
+    assert page.rows == []
+    assert page.next_cursor is None
+    assert page.has_more is False
+    assert page.truncated is False
+
+
+def test_read_history_page_truncates_pathological_single_turn(
+    store: HistoryStore,
+):
+    """One user row followed by hundreds of assistant rows with no further
+    user boundary (a runaway single turn) must not expand past the budget —
+    it truncates, and the *next* page picks up exactly where this one
+    stopped."""
+    store.append(
+        session_id="s1",
+        dedup_key="u1",
+        entry=LogEntry(kind="context_msg", role="user", content="start"),
+    )
+    for i in range(700):
+        store.append(
+            session_id="s1",
+            dedup_key=f"a{i}",
+            entry=LogEntry(
+                kind="model_turn",
+                role="assistant",
+                content=f"chunk {i}",
+            ),
+        )
+
+    page = read_history_page(
+        store.path,
+        "s1",
+        before_seq=702,
+        limit=5,
+        max_expansion_rows=50,
+    )
+    assert page.truncated is True
+    assert len(page.rows) == 50
+    assert page.next_cursor == min(r["seq"] for r in page.rows)
+    assert page.has_more is True
+
+    # The next page continues below the truncation point with no gap and no
+    # duplication.
+    next_page = read_history_page(
+        store.path,
+        "s1",
+        before_seq=page.next_cursor,
+        limit=5,
+        max_expansion_rows=50,
+    )
+    assert max(r["seq"] for r in next_page.rows) < page.next_cursor
+
+
+def test_read_history_page_after_purge_skips_removed_rows(
+    store: HistoryStore,
+):
+    for i in range(1, 4):
+        _append_turn(store, "s1", i)
+    # Purge everything (simulating a retention purge with no kind filter,
+    # as a worst case) so the page query has to cope with gaps in seq.
+    store.purge(before="9999-01-01T00:00:00+00:00")
+    assert store.count("s1") == 0
+
+    page = read_history_page(store.path, "s1", before_seq=999, limit=10)
+    assert page.rows == []
+    assert page.has_more is False
+
+
+def test_open_readonly_connection_missing_file_raises(tmp_path: Path):
+    with pytest.raises(HistoryUnavailable):
+        open_readonly_connection(tmp_path / "nope.db")
+
+
+def test_open_readonly_connection_reads_concurrently_with_writer(
+    store: HistoryStore,
+):
+    """The read-only connection must be independent of the live writer's
+    connection — a concurrent read must see committed rows without
+    contending for the writer's lock."""
+    store.append(session_id="s1", dedup_key="m1", entry=_entry("hello"))
+    conn = open_readonly_connection(store.path)
+    try:
+        row = conn.execute(
+            "SELECT content FROM conversation_history WHERE session_id = ?",
+            ("s1",),
+        ).fetchone()
+        assert row["content"] == "hello"
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("DELETE FROM conversation_history")
+    finally:
+        conn.close()
+
+
+def test_has_rows_before(store: HistoryStore):
+    for i in range(1, 4):
+        _append_turn(store, "s1", i)
+    conn = open_readonly_connection(store.path)
+    try:
+        assert has_rows_before(conn, "s1", 3) is True
+        assert has_rows_before(conn, "s1", 1) is False
+        assert has_rows_before(conn, "other-session", 999) is False
+    finally:
+        conn.close()

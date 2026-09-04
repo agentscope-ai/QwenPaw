@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
+from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.schemas import MessageType
 from qwenpaw.app.chats.utils import (
     _abspath_from_url,
     _is_local_file_url,
@@ -15,10 +21,12 @@ from qwenpaw.app.chats.utils import (
     _resolve_content_url,
     agentscope_msg_to_message,
     clean_display_text,
+    history_rows_to_messages,
     strip_injected_skill_block,
 )
 from qwenpaw.app.chats.title_generator import _clean_title
 from qwenpaw.constant import (
+    LOOP_CONTINUATION_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
@@ -506,3 +514,361 @@ def test_clean_title_truncates_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert len(result) <= 80
+
+
+# ---------------------------------------------------------------------------
+# history_rows_to_messages — reconstruction from conversation_history rows
+# ---------------------------------------------------------------------------
+
+
+def _persist_msg(store, session_id: str, msg: Msg) -> None:
+    """Persist one Msg the way ``ScrollContextManager._persist_new`` does:
+    ``dedup_key`` is the Msg id for non-result entries, the tool_call_id for
+    each tool_result entry."""
+    for entry in msg_to_entries(msg):
+        dedup_key = (
+            entry.tool_call_id if entry.kind == "tool_result" else msg.id
+        )
+        store.append(session_id=session_id, dedup_key=dedup_key, entry=entry)
+
+
+def _rows_for_session(store, session_id: str) -> list:
+    return list(
+        store._conn.execute(  # pylint: disable=protected-access
+            "SELECT * FROM conversation_history "
+            "WHERE session_id = ? ORDER BY seq",
+            (session_id,),
+        ),
+    )
+
+
+def _rendered_text(messages) -> str:
+    parts = []
+    for message in messages:
+        for content in message.content:
+            text = getattr(content, "text", None)
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
+
+
+def test_history_rows_to_messages_matches_live_path_for_text_turn():
+    """A plain user question + assistant answer round-trips through
+    HistoryStore to the same displayed text as the live-Msg conversion."""
+
+    user_msg = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "what is 2+2?"}],
+    )
+    assistant_msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "2+2 is 4"}],
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            _persist_msg(store, "s1", user_msg)
+            _persist_msg(store, "s1", assistant_msg)
+            rows = _rows_for_session(store, "s1")
+
+            live = agentscope_msg_to_message([user_msg, assistant_msg])
+            from_db = history_rows_to_messages(rows)
+
+            assert len(from_db) == len(live) == 2
+            assert [m.role for m in from_db] == [m.role for m in live]
+            assert _rendered_text(from_db) == _rendered_text(live)
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_matches_live_path_for_tool_turn():
+    """A turn with text + tool_call + tool_result round-trips with the tool
+    call/output content intact, matching the live-Msg conversion."""
+
+    assistant_msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(type="text", text="let me check"),
+            ToolCallBlock(type="tool_call", id="c1", name="grep", input="{}"),
+            ToolResultBlock(
+                type="tool_result",
+                id="c1",
+                name="grep",
+                output=[TextBlock(type="text", text="found it")],
+            ),
+        ],
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            _persist_msg(store, "s1", assistant_msg)
+            rows = _rows_for_session(store, "s1")
+
+            live = agentscope_msg_to_message([assistant_msg])
+            from_db = history_rows_to_messages(rows)
+
+            assert [m.type for m in from_db] == [m.type for m in live]
+            live_call = next(
+                m for m in live if m.type == MessageType.PLUGIN_CALL
+            )
+            db_call = next(
+                m for m in from_db if m.type == MessageType.PLUGIN_CALL
+            )
+            assert live_call.content[0].data["name"] == "grep"
+            assert db_call.content[0].data["name"] == "grep"
+            assert db_call.content[0].data["call_id"] == "c1"
+
+            live_output = next(
+                m for m in live if m.type == MessageType.PLUGIN_CALL_OUTPUT
+            )
+            db_output = next(
+                m for m in from_db if m.type == MessageType.PLUGIN_CALL_OUTPUT
+            )
+            assert live_output.content[0].data["output"] == (
+                db_output.content[0].data["output"]
+            )
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_ids_are_unique_and_prefixed():
+    """Every reconstructed Message id is ``{original_id}:{part_index}`` and
+    no two parts of the same turn collide."""
+
+    assistant_msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(type="text", text="working"),
+            ToolCallBlock(type="tool_call", id="c1", name="grep", input="{}"),
+            ToolResultBlock(
+                type="tool_result",
+                id="c1",
+                name="grep",
+                output=[TextBlock(type="text", text="ok")],
+            ),
+        ],
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            _persist_msg(store, "s1", assistant_msg)
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows)
+
+            ids = [m.id for m in messages]
+            assert len(ids) == len(set(ids))
+            # The turn's own parts (text, tool_call) are prefixed by the
+            # Msg id; the tool_result — a separate db row with its own
+            # dedup_key (= tool_call_id) — is prefixed by that instead.
+            assert ids[0].startswith(f"{assistant_msg.id}:")
+            assert ids[1].startswith(f"{assistant_msg.id}:")
+            assert ids[2].startswith("c1:")
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_orphan_tool_result_renders_standalone():
+    """A tool_result row whose tool_call isn't in the page renders as its
+    own card instead of being dropped (design doc §2.2 "孤儿 tool_result")."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            # A bare tool_result row with no accompanying tool_call row at
+            # all (simulating one split off onto a different page).
+            store.append(
+                session_id="s1",
+                dedup_key="c1",
+                entry=LogEntry(
+                    kind="tool_result",
+                    role="assistant",
+                    name="grep",
+                    tool_call_id="c1",
+                    content="found it",
+                    blocks=[
+                        ToolResultBlock(
+                            type="tool_result",
+                            id="c1",
+                            name="grep",
+                            output=[
+                                TextBlock(type="text", text="found it"),
+                            ],
+                        ).model_dump(),
+                    ],
+                ),
+            )
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows)
+
+            assert len(messages) == 1
+            assert messages[0].type == MessageType.PLUGIN_CALL_OUTPUT
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_missing_result_is_expired_past_retention():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            store.append(
+                session_id="s1",
+                dedup_key="m1",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content="let me check",
+                    created_at="2000-01-01T00:00:00+00:00",
+                    blocks=[
+                        TextBlock(
+                            type="text",
+                            text="let me check",
+                        ).model_dump(),
+                        ToolCallBlock(
+                            type="tool_call",
+                            id="c1",
+                            name="grep",
+                            input="{}",
+                        ).model_dump(),
+                    ],
+                ),
+            )
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows, retention_days=30)
+
+            output = next(
+                m for m in messages if m.type == MessageType.PLUGIN_CALL_OUTPUT
+            )
+            assert output.metadata.get("tool_result_expired") is True
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_missing_result_is_pending_within_retention():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            store.append(
+                session_id="s1",
+                dedup_key="m1",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content="let me check",
+                    blocks=[
+                        TextBlock(
+                            type="text",
+                            text="let me check",
+                        ).model_dump(),
+                        ToolCallBlock(
+                            type="tool_call",
+                            id="c1",
+                            name="grep",
+                            input="{}",
+                        ).model_dump(),
+                    ],
+                ),
+            )
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows, retention_days=30)
+
+            output = next(
+                m for m in messages if m.type == MessageType.PLUGIN_CALL_OUTPUT
+            )
+            assert output.metadata.get("tool_result_pending") is True
+            assert not output.metadata.get("tool_result_expired")
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_filters_synthetic_user_row():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            store.append(
+                session_id="s1",
+                dedup_key="u1",
+                entry=LogEntry(
+                    kind="context_msg",
+                    role="user",
+                    content="Continue working on the task.",
+                    metadata={
+                        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+                    },
+                ),
+            )
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows)
+            assert messages == []
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_output_is_seq_ascending():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            for i in range(5):
+                store.append(
+                    session_id="s1",
+                    dedup_key=f"u{i}",
+                    entry=LogEntry(
+                        kind="context_msg",
+                        role="user",
+                        content=f"question {i}",
+                    ),
+                )
+            rows = _rows_for_session(store, "s1")
+            messages = history_rows_to_messages(rows)
+            rendered = [m.content[0].text for m in messages]
+            assert rendered == [f"question {i}" for i in range(5)]
+        finally:
+            store.close()
+
+
+def test_history_rows_to_messages_omits_runtime_hints():
+    """Scroll-back replay must hide hint blocks exactly like the live path.
+
+    Hint blocks are runtime/model-facing state that
+    ``test_msg_to_message_omits_runtime_hints_from_history`` already keeps
+    out of the live transcript. Both paths share ``_blocks_to_messages``, so
+    this pins the guarantee for the db side too — without it a refactor
+    could restore hints only when a user scrolls back, which is exactly the
+    inconsistency users would notice.
+    """
+
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "hint",
+                "hint": (
+                    "<system-reminder>private runtime state"
+                    "</system-reminder>"
+                ),
+                "source": '{"label": "System"}',
+            },
+            {"type": "text", "text": "visible answer"},
+        ],
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = HistoryStore(Path(tmp) / "history.db")
+        try:
+            _persist_msg(store, "s1", msg)
+            rows = _rows_for_session(store, "s1")
+
+            live = agentscope_msg_to_message([msg])
+            from_db = history_rows_to_messages(rows)
+
+            assert _rendered_text(from_db) == _rendered_text(live)
+            assert "system-reminder" not in _rendered_text(from_db)
+        finally:
+            store.close()

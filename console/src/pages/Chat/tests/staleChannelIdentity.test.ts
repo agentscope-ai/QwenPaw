@@ -16,9 +16,10 @@
  *  - `resetWindowIdentity()` clears the globals (called on agent switch).
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import type { ChatSpec, ChatHistory, Message } from "../../../api";
+import type { ChatSpec, ChatMessagesPage, Message } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 interface IdentityWindow extends Window {
   currentSessionId?: string;
@@ -47,21 +48,21 @@ function makeChatSpec(id: string, channel: string, userId: string): ChatSpec {
   } as unknown as ChatSpec;
 }
 
-function makeHistory(): ChatHistory {
+function makeHistory(): ChatMessagesPage {
   const messages: Message[] = [
     {
       role: "assistant",
       content: [{ type: "text", text: "hello" }],
     } as unknown as Message,
   ];
-  return { messages, status: "idle" } as unknown as ChatHistory;
+  return toMessagesPage({ messages, status: "idle" });
 }
 
 /** Loads the given chats into sessionApi and opens the first one so the
  *  window identity globals are populated from it. */
 async function openChat(spec: ChatSpec): Promise<void> {
   vi.spyOn(api, "listChats").mockResolvedValue([spec]);
-  vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+  vi.spyOn(api, "getMessages").mockResolvedValue(makeHistory());
   await sessionApi.getSessionList();
   await sessionApi.getSession(spec.id);
 }
