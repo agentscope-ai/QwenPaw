@@ -272,8 +272,10 @@ scrolled out of context (seq spans come from the [context compressed] map)
 plus your earlier sessions. Pick an op:
 
   • op="expand", lo=180, hi=184 — turns in the seq span [lo, hi], oldest
-    first. Results are explicit pages that never silently truncate; pass the
-    returned cursor unchanged to continue.
+    first. The current in-progress turn is excluded because it is already in
+    the live context and is not a stable historical snapshot. Results are
+    explicit pages that never silently truncate; pass the returned cursor
+    unchanged to continue.
   • op="search", query="flight number", k=10 — full-text search over your
     whole history (across your past sessions). Whether the keyword matches a
     user, assistant, or tool-result row, each result includes that row's full
