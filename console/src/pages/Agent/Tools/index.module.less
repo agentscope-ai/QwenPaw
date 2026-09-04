@@ -176,6 +176,44 @@
     border-color: var(--color-border, #d9d9d9);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
+
+  &.clickableCard {
+    cursor: pointer;
+  }
+}
+
+.detailDrawerFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detailDrawerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detailMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detailSectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text, rgba(0, 0, 0, 0.88));
+}
+
+.noParameters {
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.45));
+  font-size: 13px;
 }
 
 .cardHeader {

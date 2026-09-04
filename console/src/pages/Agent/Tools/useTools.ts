@@ -6,17 +6,18 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useTools() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
   const { message } = useAppMessage();
+  const lang = i18n.resolvedLanguage || i18n.language || "en";
 
   const loadTools = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listTools();
+      const data = await api.listTools(lang);
       setTools(data);
     } catch (error) {
       console.error("Failed to load tools:", error);
@@ -24,7 +25,7 @@ export function useTools() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, lang, message]);
 
   useEffect(() => {
     loadTools();
@@ -34,42 +35,44 @@ export function useTools() {
     async (tool: ToolInfo) => {
       // Optimistic update
       setTools((prev) =>
-        prev.map((t) =>
-          t.name === tool.name ? { ...t, enabled: !t.enabled } : t,
+        prev.map((item) =>
+          item.name === tool.name ? { ...item, enabled: !item.enabled } : item,
         ),
       );
 
       try {
-        const result = await api.toggleTool(tool.name);
+        const result = await api.toggleTool(tool.name, lang);
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
         );
         // Merge rather than replace to preserve any local state not returned
         // by the server (e.g. UI-only fields added in future expansions).
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
+          prev.map((item) =>
+            item.name === result.name ? { ...item, ...result } : item,
+          ),
         );
       } catch (error) {
         // Revert optimistic update on error
         setTools((prev) =>
-          prev.map((t) =>
-            t.name === tool.name ? { ...t, enabled: tool.enabled } : t,
+          prev.map((item) =>
+            item.name === tool.name ? { ...item, enabled: tool.enabled } : item,
           ),
         );
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [t, lang, message],
   );
 
   const toggleAsyncExecution = useCallback(
     async (tool: ToolInfo) => {
       // Optimistic update
       setTools((prev) =>
-        prev.map((t) =>
-          t.name === tool.name
-            ? { ...t, async_execution: !t.async_execution }
-            : t,
+        prev.map((item) =>
+          item.name === tool.name
+            ? { ...item, async_execution: !item.async_execution }
+            : item,
         ),
       );
 
@@ -77,6 +80,7 @@ export function useTools() {
         const result = await api.updateAsyncExecution(
           tool.name,
           !tool.async_execution,
+          lang,
         );
         message.success(
           result.async_execution
@@ -85,21 +89,23 @@ export function useTools() {
         );
         // Merge server response to preserve static metadata.
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
+          prev.map((item) =>
+            item.name === result.name ? { ...item, ...result } : item,
+          ),
         );
       } catch (error) {
         // Revert optimistic update on error
         setTools((prev) =>
-          prev.map((t) =>
-            t.name === tool.name
-              ? { ...t, async_execution: tool.async_execution }
-              : t,
+          prev.map((item) =>
+            item.name === tool.name
+              ? { ...item, async_execution: tool.async_execution }
+              : item,
           ),
         );
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [t, lang, message],
   );
 
   const enableAll = useCallback(async () => {
@@ -110,19 +116,19 @@ export function useTools() {
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
+    setTools((prev) => prev.map((item) => ({ ...item, enabled: true })));
 
     setBatchLoading(true);
     try {
       const results = await Promise.all(
-        disabledTools.map((tool) => api.toggleTool(tool.name)),
+        disabledTools.map((tool) => api.toggleTool(tool.name, lang)),
       );
       message.success(t("tools.enableAllSuccess"));
       // Merge server responses, preserving all static metadata.
       setTools((prev) =>
-        prev.map((t) => {
-          const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, ...result } : t;
+        prev.map((item) => {
+          const result = results.find((r) => r.name === item.name);
+          return result ? { ...item, ...result } : item;
         }),
       );
     } catch (error) {
@@ -132,7 +138,7 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [tools, t, loadTools, lang, message]);
 
   const disableAll = useCallback(async () => {
     const enabledTools = tools.filter((tool) => tool.enabled);
@@ -142,19 +148,19 @@ export function useTools() {
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
+    setTools((prev) => prev.map((item) => ({ ...item, enabled: false })));
 
     setBatchLoading(true);
     try {
       const results = await Promise.all(
-        enabledTools.map((tool) => api.toggleTool(tool.name)),
+        enabledTools.map((tool) => api.toggleTool(tool.name, lang)),
       );
       message.success(t("tools.disableAllSuccess"));
       // Merge server responses, preserving all static metadata.
       setTools((prev) =>
-        prev.map((t) => {
-          const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, ...result } : t;
+        prev.map((item) => {
+          const result = results.find((r) => r.name === item.name);
+          return result ? { ...item, ...result } : item;
         }),
       );
     } catch (error) {
@@ -164,7 +170,7 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [tools, t, loadTools, lang, message]);
 
   const saveToolConfig = useCallback(
     async (toolName: string, config: Record<string, any>) => {
@@ -177,7 +183,7 @@ export function useTools() {
         throw error;
       }
     },
-    [t],
+    [t, message],
   );
 
   return {

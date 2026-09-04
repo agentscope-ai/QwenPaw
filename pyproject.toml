@@ -95,6 +95,7 @@ include-package-data = true
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
+    "agents/tools/docs/**",
     "agents/context/visual_compression/assets/atlas-gray.ts",
     "agents/context/visual_compression/assets/atlas-gray-medium.ts",
     "agents/context/visual_compression/assets/atlas-gray-high.ts",
