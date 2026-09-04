@@ -283,7 +283,7 @@ describe("ChatSessionDrawer", () => {
       expect(screen.getByText("Session One")).toBeInTheDocument(),
     );
     await user.click(screen.getByText("Session One"));
-    expect(mockNavigate).toHaveBeenCalledWith("/chat/s1");
+    expect(mockNavigate).toHaveBeenCalledWith("/chat/default/s1");
   });
 
   it("clicking the close button calls onClose", async () => {

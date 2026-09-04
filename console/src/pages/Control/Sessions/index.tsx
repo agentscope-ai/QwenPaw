@@ -1,5 +1,7 @@
 import { useEffect, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAgentStore } from "../../../stores/agentStore";
+import { buildChatPath } from "../../../utils/sessionRoute";
 import { Card, Form, Modal, Table, Button, Tabs } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
@@ -19,6 +21,7 @@ import styles from "./index.module.less";
 function SessionsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const {
     sessions,
     loading,
@@ -125,7 +128,7 @@ function SessionsPage() {
   };
 
   const handleView = (session: Session) => {
-    navigate(`/chat/${encodeURIComponent(session.id)}`);
+    navigate(buildChatPath(session.id, selectedAgent));
   };
 
   const handleArchiveToggle = async (session: Session) => {
