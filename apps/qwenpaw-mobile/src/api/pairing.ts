@@ -1,3 +1,5 @@
+import { PLATFORM_BASE_URL } from "../config/platform";
+
 export interface DirectPairingPayload {
   kind: "direct";
   version: 1;
@@ -68,7 +70,7 @@ function parseRelayPairingJson(value: string): RelayPairingPayload {
     payload.type !== "qwenpaw.relay.pairing" ||
     payload.v !== 2 ||
     payload.protocol_version !== 1 ||
-    issuer !== "https://platform.agentscope.io" ||
+    issuer !== PLATFORM_BASE_URL ||
     !isUuid(nodeId) ||
     !isUuid(qwenPawId) ||
     !pairingTicket.startsWith("qprt_v1_") ||

@@ -1,4 +1,5 @@
 import { platformRequest } from "../../api/platform";
+import { PLATFORM_BASE_URL } from "../../config/platform";
 import { buildCommunityArticlePayload } from "./model";
 import type {
   CommunityArticle,
@@ -10,7 +11,7 @@ import type {
   CommunitySort,
 } from "./types";
 
-const PLATFORM_API = "https://platform.agentscope.io/api/v1/community";
+const PLATFORM_API = `${PLATFORM_BASE_URL}/api/v1/community`;
 
 interface PlatformEnvelope<T> {
   data: T;
@@ -57,11 +58,11 @@ export function getCommunityComments(
 }
 
 export function communityArticleUrl(articleId: string): string {
-  return `https://platform.agentscope.io/community/articles/${encodeURIComponent(articleId)}`;
+  return `${PLATFORM_BASE_URL}/community/articles/${encodeURIComponent(articleId)}`;
 }
 
 export const communityWriteUrl =
-  "https://platform.agentscope.io/community/write";
+  `${PLATFORM_BASE_URL}/community/write`;
 
 export function likeCommunityArticle(
   articleId: string,

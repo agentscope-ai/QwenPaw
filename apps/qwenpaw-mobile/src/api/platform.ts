@@ -39,8 +39,9 @@ import {
 } from "./platformSessionModel";
 import { PlatformTokenCoordinator } from "./platformTokenCoordinator";
 import { colors } from "../theme/tokens";
+import { PLATFORM_BASE_URL } from "../config/platform";
 
-export const PLATFORM_BASE_URL = "https://platform.agentscope.io";
+export { PLATFORM_BASE_URL } from "../config/platform";
 const REFRESH_EARLY_SECONDS = 300;
 
 export class PlatformOAuthCancelledError extends Error {

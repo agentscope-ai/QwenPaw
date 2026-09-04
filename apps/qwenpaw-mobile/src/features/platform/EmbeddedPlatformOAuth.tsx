@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, type WebViewNavigation } from "react-native-webview";
 
 import { colors } from "../../theme/tokens";
+import { PLATFORM_HOST } from "../../config/platform";
 import { classifyEmbeddedOAuthNavigation } from "./platformOAuth";
 
 interface OAuthRequest {
@@ -112,7 +113,7 @@ export function EmbeddedPlatformOAuthHost() {
           </Pressable>
           <View style={styles.titleBlock}>
             <Text style={styles.title}>Platform 安全登录</Text>
-            <Text style={styles.host}>platform.agentscope.io</Text>
+            <Text style={styles.host}>{PLATFORM_HOST}</Text>
           </View>
           <Pressable
             accessibilityLabel="关闭登录"

@@ -55,10 +55,11 @@ import {
 import { findConnectionByBaseUrl } from "../../storage/connectionModel";
 import { useAppStore } from "../../store/app";
 import { colors, radius, spacing } from "../../theme/tokens";
+import { PLATFORM_BASE_URL } from "../../config/platform";
 
 const POLL_INTERVAL_MS = 10_000;
 const LOG_POLL_EVERY = 2;
-const PLATFORM_SETTINGS_URL = "https://platform.agentscope.io/settings";
+const PLATFORM_SETTINGS_URL = `${PLATFORM_BASE_URL}/settings`;
 
 interface DeploymentRefreshResult {
   deployment: PlatformDeployment | null;

@@ -9,7 +9,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ...constant import SECRET_DIR
+from ...constant import EnvVarLoader, SECRET_DIR
 from ...remote_access import (
     RelayLocalApi,
     RelayNodeConnectionService,
@@ -24,7 +24,10 @@ from ..channels.qrcode_auth_handler import generate_qrcode_image
 
 router = APIRouter(prefix="/remote-access", tags=["remote-access"])
 
-_PLATFORM_URL = "https://platform.agentscope.io"
+_PLATFORM_URL = EnvVarLoader.get_str(
+    "QWENPAW_PLATFORM_URL",
+    "https://platform.agentscope.io",
+)
 _store = RelayNodeStore(SECRET_DIR / "relay-node.json")
 _service = RelayEnrollmentService(_store)
 _connection_service = RelayNodeConnectionService(

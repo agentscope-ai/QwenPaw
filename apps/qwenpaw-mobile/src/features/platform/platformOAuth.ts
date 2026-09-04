@@ -1,7 +1,8 @@
+import { PLATFORM_BASE_URL } from "../../config/platform";
+
 export const PLATFORM_CLI_CLIENT_ID = "agentscope-platform-cli";
 export const PLATFORM_CLI_SCOPE = "platform:control";
 export const PLATFORM_APP_CALLBACK_URL = "qwenpaw://platform-auth";
-const PLATFORM_ORIGIN = "https://platform.agentscope.io";
 export const ANDROID_OAUTH_CALLBACK_GRACE_MS = 2_000;
 
 export interface AndroidOAuthBrowserSupport {
@@ -99,7 +100,7 @@ export function buildPlatformAuthorizeUrl({
     code_challenge_method: "S256",
     scope: PLATFORM_CLI_SCOPE,
   });
-  return `${PLATFORM_ORIGIN}/cli/login?${query.toString()}`;
+  return `${PLATFORM_BASE_URL}/cli/login?${query.toString()}`;
 }
 
 export function parsePlatformOAuthCallback(
