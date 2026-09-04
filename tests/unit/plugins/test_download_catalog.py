@@ -16,21 +16,21 @@ def test_entry_with_qwenpaw_version_compatible() -> None:
     assert _is_entry_compatible(entry) is True
 
 
-def test_entry_with_qwenpaw_version_max_ignored() -> None:
-    """Declared max must not exclude a newer running QwenPaw."""
+def test_entry_with_qwenpaw_version_incompatible() -> None:
+    """Declared max excludes a newer running QwenPaw."""
     entry = {
         "id": "demo",
         "version": "1.0.0",
         "qwenpaw_version": {"min": "0.1.0", "max": "1.1.0"},
     }
-    assert _is_entry_compatible(entry) is True
+    assert _is_entry_compatible(entry) is False
 
 
 def test_entry_with_only_min_compatible() -> None:
     entry = {
         "id": "demo",
         "version": "1.0.0",
-        # Derived exclusive max is 2.2.0 for min 2.1.0.
+        # No max specified: no upper bound enforced.
         "qwenpaw_version": {"min": "2.1.0"},
     }
     assert _is_entry_compatible(entry) is True
@@ -96,7 +96,7 @@ def test_legacy_min_version_incompatible() -> None:
 
 
 def test_legacy_min_max_version_compatible() -> None:
-    """Legacy min+max still loads when min is satisfied (max ignored)."""
+    """Legacy min+max range covering current QwenPaw is compatible."""
     entry = {
         "id": "demo",
         "version": "1.0.0",
@@ -106,15 +106,15 @@ def test_legacy_min_max_version_compatible() -> None:
     assert _is_entry_compatible(entry) is True
 
 
-def test_legacy_max_version_ignored() -> None:
-    """Legacy max_version alone must not make an entry incompatible."""
+def test_legacy_min_max_version_incompatible() -> None:
+    """Legacy min+max range not covering current QwenPaw."""
     entry = {
         "id": "demo",
         "version": "1.0.0",
         "min_version": "0.1.0",
         "max_version": "1.0.0",
     }
-    assert _is_entry_compatible(entry) is True
+    assert _is_entry_compatible(entry) is False
 
 
 def test_entry_with_empty_dict_qwenpaw_version() -> None:
