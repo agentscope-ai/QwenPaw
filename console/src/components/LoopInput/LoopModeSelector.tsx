@@ -1,4 +1,5 @@
 import {
+  Bot,
   Boxes,
   ChevronDown,
   CircleDot,
@@ -35,6 +36,7 @@ import {
 import styles from "./index.module.less";
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
+  if (mode.id === ADVISOR_LOOP_MODE_ID) return <Bot size={size} />;
   if (mode.id === "goal") return <Target size={size} />;
   if (mode.id === "mission") return <Rocket size={size} />;
   if (mode.source === "custom") return <Sparkles size={size} />;
