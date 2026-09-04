@@ -2867,15 +2867,15 @@ class ToolGuardRuleConfig(BaseModel):
 
 
 def _default_shell_evasion_checks() -> Dict[str, bool]:
-    """Return default shell-evasion checks (all disabled at startup)."""
+    """Return default shell-evasion checks (all enabled for security)."""
     return {
-        "command_substitution": False,
-        "obfuscated_flags": False,
-        "backslash_escaped_whitespace": False,
-        "backslash_escaped_operators": False,
-        "newlines": False,
-        "comment_quote_desync": False,
-        "quoted_newline": False,
+        "command_substitution": True,
+        "obfuscated_flags": True,
+        "backslash_escaped_whitespace": True,
+        "backslash_escaped_operators": True,
+        "newlines": True,
+        "comment_quote_desync": True,
+        "quoted_newline": True,
     }
 
 
