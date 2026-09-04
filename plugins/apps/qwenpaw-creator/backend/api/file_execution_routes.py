@@ -6,9 +6,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi.responses import Response
 from pydantic import Field
 
 from domain.enums import (
@@ -577,6 +581,73 @@ async def render_timeline(
             task_id=task_id,
             replayed=False,
         )
+
+
+@router.get("/timelines/{timeline_id}/rough-cut")
+async def rough_cut_draft(
+    project_id: str,
+    timeline_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Zero-cost rough-cut draft: the timeline's element videos and
+    storyboard stills concatenated at 480p, streamed as one mp4.
+
+    Fails closed with 409 while the timeline has no picture source yet;
+    ffmpeg work runs in a thread so the event loop never blocks.
+    """
+
+    # pylint: disable=import-outside-toplevel
+    from services.media_files.rough_cut import (
+        RoughCutError,
+        collect_rough_cut_clips,
+        render_rough_cut,
+    )
+    from services.project_files.assets import AssetFileError, AssetFileStore
+
+    def build() -> bytes:
+        snapshot = services.projects.read(project_id)
+        project = snapshot.project
+        timeline = project.timelines.items.get(timeline_id)
+        if timeline is None:
+            raise NotFoundError(f"timeline 不存在: {timeline_id}")
+        store = AssetFileStore(services.projects.project_root(project_id))
+        with tempfile.TemporaryDirectory(prefix="rough-cut-src-") as name:
+            workdir = Path(name)
+            counter = iter(range(1_000_000))
+
+            def materialize(file_id: str) -> Path:
+                # Verified copy through the AssetFileStore boundary: the
+                # relative_uri is containment-checked and the bytes are
+                # sha256-verified before ffmpeg ever sees a path.
+                indexed = project.assets.files_by_id.get(file_id)
+                if indexed is None:
+                    raise RoughCutError(f"粗剪素材缺失: {file_id}")
+                suffix = Path(indexed.relative_uri).suffix or ".bin"
+                target = workdir / f"clip-{next(counter):06d}{suffix}"
+                try:
+                    with store.open_verified(indexed) as stream:
+                        with target.open("wb") as sink:
+                            shutil.copyfileobj(stream, sink)
+                except AssetFileError as error:
+                    raise StorageIntegrityError(str(error)) from error
+                return target
+
+            clips = collect_rough_cut_clips(
+                project,
+                timeline,
+                resolve_file=materialize,
+            )
+            return render_rough_cut(clips)
+
+    try:
+        payload = await asyncio.to_thread(build)
+    except RoughCutError as error:
+        raise ConflictError(str(error)) from error
+    return Response(
+        content=payload,
+        media_type="video/mp4",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/execution-authorizations")

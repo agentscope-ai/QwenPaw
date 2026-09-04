@@ -7,9 +7,13 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { Button, Tooltip, message } from "antd";
-import { ArrowUpOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, MenuFoldOutlined } from "@ant-design/icons";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -18,6 +22,8 @@ import {
   Eraser,
   Info,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
@@ -95,7 +101,7 @@ interface DockSize {
 
 const DOCK_MIN_WIDTH = 240;
 const DOCK_MIN_HEIGHT = 420;
-const DOCK_DEFAULT_SIZE: DockSize = { width: 440, height: 620 };
+const DOCK_DEFAULT_SIZE: DockSize = { width: 340, height: 620 };
 const DOCK_SIZE_STORAGE_KEY = "agentDock.size.v1";
 // The workspace keeps at least this many pixels no matter how wide the dock
 // is dragged; below that width its container queries switch to the drawer
@@ -1721,7 +1727,20 @@ function WorkspacePanel() {
   );
 }
 
-export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
+export default function AgentDock({
+  sidebar = false,
+  anchor = "right",
+  headerSlot,
+  feedSlot,
+}: {
+  sidebar?: boolean;
+  /** Which screen edge the sidebar dock is attached to. */
+  anchor?: "left" | "right";
+  /** Replaces the brand/title block in the dock header. */
+  headerSlot?: ReactNode;
+  /** Rendered instead of the conversation feed (composer stays). */
+  feedSlot?: ReactNode;
+}) {
   const { t } = useTranslation();
   const { id: projectId = "" } = useParams();
   const open = useAgentDockUiStore((state) => state.open);
@@ -2120,6 +2139,15 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     }
   }, [open, orderedMessages, queued, toolCalls]);
 
+  // Apply a pending draft before inserting any selection pill: callers like
+  // the blueprint "request changes" action set both, and the draft must land
+  // while the input is still empty.
+  useEffect(() => {
+    if (!open || !draft || inputRef.current?.getContent().text) return;
+    inputRef.current?.setText(draft);
+    setCanSend(Boolean(draft.trim()));
+  }, [draft, open]);
+
   useEffect(() => {
     if (!open || !selectionAttachment) return;
     inputRef.current?.insertSelection(selectionAttachment);
@@ -2130,12 +2158,6 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
     return () => window.clearTimeout(timer);
   }, [open, selectionAttachment, setSelectionAttachment]);
-
-  useEffect(() => {
-    if (!open || !draft || inputRef.current?.getContent().text) return;
-    inputRef.current?.setText(draft);
-    setCanSend(Boolean(draft.trim()));
-  }, [draft, open]);
 
   useEffect(() => {
     if (mentionQuery === null || !projectId) {
@@ -2173,7 +2195,10 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           width:
             axis === "y"
               ? start.startW
-              : start.startW + (start.startX - moveEvent.clientX),
+              : start.startW +
+                (anchor === "left"
+                  ? moveEvent.clientX - start.startX
+                  : start.startX - moveEvent.clientX),
           height:
             axis === "x"
               ? start.startH
@@ -2370,15 +2395,19 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
   return (
     <>
-      {!open && (
+      {!open && (!sidebar || decisionCount > 0) && (
         <button
           type="button"
           onClick={() => setOpen(true)}
           data-agent-dock-handle
           data-state={liveStatus.state}
-          className={`fixed right-0 top-20 z-40 flex ${
+          className={`fixed top-20 z-40 flex ${
+            anchor === "left"
+              ? "left-0 rounded-r-xl border-l-0"
+              : "right-0 rounded-l-xl border-r-0"
+          } ${
             decisionCount > 0 ? "h-[96px]" : "h-[76px]"
-          } w-7 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
+          } w-7 flex-col items-center justify-center border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
           aria-label={t("agent.assistant")}
           title={
             decisionCount > 0
@@ -2386,7 +2415,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               : t("agent.expandPanel")
           }
         >
-          <PanelRightOpen className="h-3.5 w-3.5 shrink-0" />
+          {anchor === "left" ? (
+            <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <PanelRightOpen className="h-3.5 w-3.5 shrink-0" />
+          )}
           {decisionCount > 0 && (
             <span
               className={`mt-1.5 text-[9px] font-semibold leading-none tracking-[3px] [writing-mode:vertical-rl] ${
@@ -2400,7 +2433,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           )}
           {decisionCount > 0 && (
             <span
-              className={`absolute -left-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white ${
+              className={`absolute -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white ${
+                anchor === "left" ? "-right-2" : "-left-2"
+              } ${
                 hasUrgentDecision
                   ? "animate-pulse bg-[var(--color-warning)]"
                   : "bg-[var(--color-danger)]"
@@ -2412,12 +2447,20 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           {hasUrgentDecision && (
             <span
               data-agent-dock-handle-toast
-              className="agent-dock-handle-toast pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-full bg-[var(--color-warning)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg"
+              className={`agent-dock-handle-toast pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-[var(--color-warning)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg ${
+                anchor === "left" ? "left-full ml-3" : "right-full mr-3"
+              }`}
             >
               {t("agent.productionConfirmPending", {
                 count: pendingAuthorizationCount,
               })}
-              <span className="absolute left-full top-1/2 -translate-y-1/2 border-[5px] border-transparent border-l-[var(--color-warning)]" />
+              <span
+                className={`absolute top-1/2 -translate-y-1/2 border-[5px] border-transparent ${
+                  anchor === "left"
+                    ? "right-full border-r-[var(--color-warning)]"
+                    : "left-full border-l-[var(--color-warning)]"
+                }`}
+              />
             </span>
           )}
         </button>
@@ -2431,7 +2474,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           style={sidebar ? { width, flexShrink: 0 } : panelStyle}
           className={
             sidebar
-              ? "relative flex min-h-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
+              ? `relative flex min-h-0 flex-1 flex-col overflow-hidden ${
+                  anchor === "left" ? "border-r" : "border-l"
+                } border-[var(--color-border)] bg-[var(--color-bg-card)]`
               : "agent-dock-enter fixed bottom-5 right-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 shadow-2xl backdrop-blur-xl"
           }
         >
@@ -2447,7 +2492,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               onPointerDown={beginResize("x")}
               className={
                 sidebar
-                  ? "group absolute inset-y-0 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20"
+                  ? `group absolute inset-y-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20 ${
+                      anchor === "left" ? "right-0" : "left-0"
+                    }`
                   : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
               }
               title={t("agent.dragWidth")}
@@ -2469,48 +2516,60 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           </>
 
           <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-[18px]">
-            <div className="flex min-w-0 items-center gap-2">
-              {/* Transparent brand glyph, swapped per theme. */}
-              <img
-                src={logoGlyphOrange}
-                alt=""
-                className="h-5 w-5 shrink-0 object-contain dark:hidden"
-              />
-              <img
-                src={logoGlyphWhite}
-                alt=""
-                className="hidden h-5 w-5 shrink-0 object-contain dark:block"
-              />
-              <div className="min-w-0">
-                <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
-                  {t("agent.assistant")}
-                </b>
-                {contextChips.length > 0 && (
-                  <span className="block truncate text-[10px] text-[var(--color-text-tertiary)]">
-                    {t("agent.relatedRefs", { count: contextChips.length })}
-                  </span>
-                )}
+            {headerSlot ?? (
+              <div className="flex min-w-0 items-center gap-2">
+                {/* Transparent brand glyph, swapped per theme. */}
+                <img
+                  src={logoGlyphOrange}
+                  alt=""
+                  className="h-5 w-5 shrink-0 object-contain dark:hidden"
+                />
+                <img
+                  src={logoGlyphWhite}
+                  alt=""
+                  className="hidden h-5 w-5 shrink-0 object-contain dark:block"
+                />
+                <div className="min-w-0">
+                  <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
+                    {t("agent.assistant")}
+                  </b>
+                  {contextChips.length > 0 && (
+                    <span className="block truncate text-[10px] text-[var(--color-text-tertiary)]">
+                      {t("agent.relatedRefs", { count: contextChips.length })}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex shrink-0 items-center gap-1.5">
+              {!sidebar && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    <Info
+                      className={`h-3.5 w-3.5 ${
+                        showWorkspace ? "text-[var(--color-accent)]" : ""
+                      }`}
+                    />
+                  }
+                  onClick={toggleWorkspace}
+                  title={t("agent.workspaceFacts")}
+                  aria-label={t("agent.workspaceFacts")}
+                />
+              )}
               <Button
                 type="text"
                 size="small"
                 icon={
-                  <Info
-                    className={`h-3.5 w-3.5 ${
-                      showWorkspace ? "text-[var(--color-accent)]" : ""
-                    }`}
-                  />
+                  sidebar ? (
+                    <MenuFoldOutlined className="text-sm" />
+                  ) : anchor === "left" ? (
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  ) : (
+                    <PanelRightClose className="h-3.5 w-3.5" />
+                  )
                 }
-                onClick={toggleWorkspace}
-                title={t("agent.workspaceFacts")}
-                aria-label={t("agent.workspaceFacts")}
-              />
-              <Button
-                type="text"
-                size="small"
-                icon={<PanelRightClose className="h-3.5 w-3.5" />}
                 onClick={() => setOpen(false)}
                 title={t("agent.collapsePanel")}
                 aria-label={t("agent.collapsePanel")}
@@ -2525,7 +2584,19 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           )}
 
           <>
-            <div className="relative flex min-h-0 flex-1 flex-col">
+            {feedSlot != null && (
+              <div
+                data-agent-feed-slot
+                className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                {feedSlot}
+              </div>
+            )}
+            <div
+              className={`relative min-h-0 flex-1 flex-col ${
+                feedSlot != null ? "hidden" : "flex"
+              }`}
+            >
               <div
                 ref={scrollRef}
                 onScroll={handleScroll}

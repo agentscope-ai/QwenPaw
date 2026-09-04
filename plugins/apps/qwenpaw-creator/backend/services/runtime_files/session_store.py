@@ -41,7 +41,7 @@ from .errors import (
     SequenceConflictError,
 )
 from .jsonl_store import DurableJsonlStore
-from .locking import CrossProcessFileLock
+from .locking import DEFAULT_LOCK_TIMEOUT_SECONDS, CrossProcessFileLock
 from .models import (
     CreatorConversationRecord,
     CreatorGoalRecord,
@@ -160,7 +160,7 @@ class ProjectRuntimeSessionStore:
         self,
         data_root: str | os.PathLike[str],
         *,
-        lock_timeout_seconds: float | None = 10.0,
+        lock_timeout_seconds: float | None = DEFAULT_LOCK_TIMEOUT_SECONDS,
     ) -> None:
         raw_root = Path(data_root).expanduser()
         if not raw_root.is_absolute():

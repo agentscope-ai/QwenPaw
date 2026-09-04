@@ -19,9 +19,13 @@ export interface SelectionAttachment {
 
 export type AgentDockTab = "conversation" | "activity";
 
+export type WorkspaceSidebarTab = "assistant" | "episodes";
+
 interface AgentDockUiState {
   open: boolean;
   tab: AgentDockTab;
+  /** 创作助手/剧集列表 tab —— 跨页面保持用户的上一次选择。 */
+  sidebarTab: WorkspaceSidebarTab;
   width: number;
   height: number;
   runFilter: string;
@@ -35,6 +39,7 @@ interface AgentDockUiState {
   decisionTrayCollapsed: boolean;
   setOpen: (open: boolean) => void;
   setTab: (tab: AgentDockTab) => void;
+  setSidebarTab: (tab: WorkspaceSidebarTab) => void;
   setSize: (width: number, height: number) => void;
   setRunFilter: (filter: string) => void;
   setDraft: (draft: string) => void;
@@ -47,7 +52,8 @@ interface AgentDockUiState {
 export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   open: true,
   tab: "conversation",
-  width: 440,
+  sidebarTab: "assistant",
+  width: 340,
   height: 620,
   runFilter: "all",
   draft: "",
@@ -56,6 +62,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   decisionTrayCollapsed: false,
   setOpen: (open) => set({ open }),
   setTab: (tab) => set({ tab, open: true }),
+  setSidebarTab: (sidebarTab) => set({ sidebarTab }),
   setSize: (width, height) =>
     // Floor must match AgentDock's DOCK_MIN_WIDTH so users can actually
     // narrow the dock down to 240px on tight windows.
@@ -71,7 +78,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
     set({
       open: true,
       tab: "conversation",
-      width: 440,
+      width: 340,
       height: 620,
       runFilter: "all",
       draft: "",

@@ -129,6 +129,7 @@ export interface CharacterVoiceDocument extends ProjectJsonRecord {
   target_model: string;
   preferred_name: string;
   sample_source_version_id: string | null;
+  voice_prompt?: string;
   enrollment_key: string;
   created_at: string;
 }
@@ -428,13 +429,19 @@ export interface TimelineDocument extends ProjectJsonRecord {
   name: string;
   description: string;
   ticks_per_second: number;
+  /** Narrative-node display title (schema v9; absent on older snapshots). */
+  title?: string;
+  /** Narrative-node synopsis (schema v9; absent on older snapshots). */
+  synopsis?: string;
+  /** Planned duration in seconds (schema v9; absent on older snapshots). */
+  planned_duration_seconds?: number | null;
   color_grade?: string;
   edit_plan?: EditPlanDocument | null;
   elements_by_id: Record<string, TimelineElementDocument>;
 }
 
 export interface ProjectDocument extends ProjectJsonRecord {
-  schema_version: 4;
+  schema_version: number;
   project_id: string;
   generation: number;
   created_at: string;

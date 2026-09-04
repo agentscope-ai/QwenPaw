@@ -1,6 +1,6 @@
 import { LeftOutlined } from "@ant-design/icons";
 import { Tooltip } from "antd";
-import { CircleHelp, Images, LayoutList } from "lucide-react";
+import { CircleHelp, Images, Waypoints } from "lucide-react";
 import { Link, useParams, usePathname, useRouter } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useOnboardingStore } from "@/store/onboardingStore";
@@ -11,12 +11,14 @@ import logoMarkUrl from "@/assets/design/logo-mark.png";
 import { useTranslation } from "react-i18next";
 
 const MAIN_TABS = [
-  { key: "plan", labelKey: "nav.videoPlan", icon: LayoutList },
+  { key: "", labelKey: "nav.videoPlan", icon: Waypoints },
   { key: "assets", labelKey: "nav.assets", icon: Images },
 ] as const;
 
+// Plan/workbench routes are blueprint drill-downs: anything that is not the
+// assets side keeps the blueprint tab highlighted (hierarchy, plan §4.1).
 function activeTabKey(routeSection: string): string {
-  return routeSection === "assets" ? "assets" : "plan";
+  return routeSection === "assets" ? "assets" : "";
 }
 
 export default function TopNav() {
@@ -33,16 +35,17 @@ export default function TopNav() {
   );
 
   if (!project) return null;
-  const routeSection = pathname.split("/").filter(Boolean)[2] || "plan";
+  const routeSection = pathname.split("/").filter(Boolean)[2] || "";
   const activeKey = activeTabKey(routeSection);
   const replayTour = () => {
     // Launch the tour matching the current page; the workspace tour's anchors
-    // live on the video plan page.
+    // live on the timeline-edit (plan) page.
     if (activeKey === "assets") {
       requestAssetsTour();
       return;
     }
-    if (activeKey !== "plan") router.push(`/project/${id}/plan`);
+    if (routeSection !== "t" && routeSection !== "plan")
+      router.push(`/project/${id}/plan`);
     requestProjectTour();
   };
   const masterScript = project.description || "";
@@ -90,8 +93,8 @@ export default function TopNav() {
           const Icon = tab.icon;
           return (
             <Link
-              key={tab.key}
-              href={`/project/${id}/${tab.key}`}
+              key={tab.labelKey}
+              href={tab.key ? `/project/${id}/${tab.key}` : `/project/${id}`}
               aria-label={t(tab.labelKey)}
               title={t(tab.labelKey)}
               data-onboarding-id={

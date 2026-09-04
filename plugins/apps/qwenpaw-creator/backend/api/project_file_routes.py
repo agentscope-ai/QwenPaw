@@ -26,7 +26,6 @@ from services.file_agent_runtime import notify_creator_agent_runtime
 from services.media_files.visual_reference_resolution import (
     preview_r2v_reference_order,
 )
-from services.project_files.auto_snapshot import auto_snapshot_timelines
 from services.project_files.commit import (
     ActiveReviewConflictError,
     CommitJournalState,
@@ -34,6 +33,7 @@ from services.project_files.commit import (
     ProtectedFieldError,
     is_protected_pointer,
 )
+from services.project_files import frontend_edit_hold
 from services.project_files.edit_impact import (
     apply_frontend_edit_impacts,
     summarize_committed_edit_impact,
@@ -439,11 +439,13 @@ async def _acquire_existing_project_lifecycle(
     phantom directory without ``project.json``.
     """
 
-    lifecycle_lock = services.projects.lifecycle_lock(
-        project_id,
-        cross_thread_hold=True,
-    )
-    await asyncio.to_thread(lifecycle_lock.acquire)
+    lifecycle_lock = services.projects.lifecycle_lock(project_id)
+    # ``acquire_detached``: the coroutine, not the pooled ``to_thread``
+    # worker, owns this lock across await boundaries. A plain ``acquire``
+    # would leave the reused executor thread registered as holder and any
+    # unrelated Runtime read scheduled onto it would falsely trip the
+    # same-thread nested-lock guard.
+    await asyncio.to_thread(lifecycle_lock.acquire_detached)
     try:
         await _require_existing_project(services, project_id)
     except BaseException:
@@ -658,7 +660,9 @@ async def patch_project(
         cross_thread_hold=True,
     )
     try:
-        await asyncio.to_thread(lifecycle_lock.acquire)
+        # Detached: the coroutine owns the lock across awaits; the pooled
+        # ``to_thread`` worker must not stay registered as the holder.
+        await asyncio.to_thread(lifecycle_lock.acquire_detached)
         # Close the read/delete window before any idempotency or operation lock
         # is allowed to materialize a path below the Project directory.
         await _require_existing_project(services, project_id)
@@ -687,7 +691,9 @@ async def patch_project(
         cross_thread_hold=True,
     )
     try:
-        await asyncio.to_thread(operation_lock.acquire)
+        # Detached for the same reason as the lifecycle lock above: the
+        # coroutine holds it across awaits, not the pooled worker thread.
+        await asyncio.to_thread(operation_lock.acquire_detached)
     except Exception as exc:
         lifecycle_lock.release()
         _translate_storage_error(exc)
@@ -737,9 +743,16 @@ async def patch_project(
                     [operation.path for operation in request.operations],
                     base=base.project.model_dump(mode="json"),
                 )
-                auto_snapshot_timelines(
-                    base.project.model_dump(mode="json"),
-                    candidate,
+                # The commit below wakes the work scheduler; the grace
+                # window must exist before that wake derives the graph, or
+                # an auto-saved half-finished prompt could dispatch paid
+                # generation. A hold left behind by a failed commit merely
+                # delays automatic dispatch by one window.
+                frontend_edit_hold.note_frontend_edit(
+                    project_id,
+                    frontend_edit_hold.element_ids_from_pointers(
+                        operation.path for operation in request.operations
+                    ),
                 )
                 result = await services.commit_candidate(
                     base=base,
@@ -1049,7 +1062,9 @@ async def decide_project_review(
         cross_thread_hold=True,
     )
     try:
-        await asyncio.to_thread(operation_lock.acquire)
+        # Detached for the same reason as the lifecycle lock above: the
+        # coroutine holds it across awaits, not the pooled worker thread.
+        await asyncio.to_thread(operation_lock.acquire_detached)
     except Exception as exc:
         lifecycle_lock.release()
         _translate_storage_error(exc)

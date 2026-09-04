@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { MessageSquarePlus, MousePointer2, Play } from "lucide-react";
+import { Camera, MessageSquarePlus, MousePointer2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
@@ -150,6 +150,70 @@ export function MockSelectionDemo() {
   );
 }
 
+export function MockSnapshotPanel() {
+  const { t } = useTranslation();
+  const badge = (label: string) => (
+    <span className="shrink-0 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] px-1 py-px text-[8px] font-medium text-[var(--color-accent)]">
+      {label}
+    </span>
+  );
+  const row = (
+    name: string,
+    time: string,
+    trailing: React.ReactNode,
+    highlighted = false,
+  ) => (
+    <div
+      className={`flex items-center gap-1.5 rounded border px-1.5 py-1 ${
+        highlighted
+          ? "border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)]"
+          : "border-transparent"
+      }`}
+    >
+      <Camera className="h-3 w-3 shrink-0 text-[var(--color-text-secondary)]" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[9px] font-medium text-[var(--color-text-primary)]">
+          {name}
+        </span>
+        {time && (
+          <span className="block text-[8px] text-[var(--color-text-tertiary)]">
+            {time}
+          </span>
+        )}
+      </span>
+      {trailing}
+    </div>
+  );
+  return (
+    <MockFrame>
+      <MockCaption>{t("tourMocks.sampleSnapshots")}</MockCaption>
+      <div className="space-y-0.5">
+        {row(
+          t("tourMocks.snapshotCurrentName"),
+          t("tourMocks.snapshotMatches"),
+          badge(t("tourMocks.snapshotCurrentTag")),
+          true,
+        )}
+        {row(
+          t("tourMocks.snapshotRowName"),
+          "2026-09-04 12:55",
+          badge(t("tourMocks.snapshotAppliedTag")),
+        )}
+        {row(t("tourMocks.snapshotBackupName"), "2026-09-04 11:20", null)}
+      </div>
+      <div className="mt-1.5 flex justify-end gap-1.5">
+        <span className="relative rounded border border-[var(--color-border)] bg-white px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-text-primary)] dark:bg-[var(--color-bg-elevated)]">
+          {t("tourMocks.snapshotApply")}
+          <ClickCursor label={t("tourMocks.snapshotApplyHint")} />
+        </span>
+        <span className="rounded border border-[var(--color-border)] bg-white px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-text-primary)] dark:bg-[var(--color-bg-elevated)]">
+          {t("tourMocks.snapshotCreate")}
+        </span>
+      </div>
+    </MockFrame>
+  );
+}
+
 export function MockAgentChat() {
   const { t } = useTranslation();
   return (
@@ -267,7 +331,7 @@ export function LiveSelectionDemo() {
         <button
           type="button"
           onClick={runDemo}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-semibold text-white transition hover:opacity-90"
+          className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[10px] font-semibold text-[var(--color-bg-primary)] transition hover:opacity-90"
         >
           <Play className="h-3 w-3" />
           {t("tourMocks.simulateSelect")}
@@ -296,7 +360,7 @@ export function LiveDockToggleDemo() {
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-semibold text-white transition hover:opacity-90"
+          className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[10px] font-semibold text-[var(--color-bg-primary)] transition hover:opacity-90"
         >
           <Play className="h-3 w-3" />
           {open ? t("tourMocks.collapsePanel") : t("tourMocks.expandPanel")}

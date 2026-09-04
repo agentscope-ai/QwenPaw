@@ -20,8 +20,9 @@ import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import TopNav from "./TopNav";
+import WorkspaceSidebar from "./WorkspaceSidebar";
 import ReturnBanner from "@/components/creator/ReturnBanner";
-import { AgentDock, SelectionToolbar } from "@/components/agent";
+import { SelectionToolbar } from "@/components/agent";
 import { ProjectTour, AssetsTour } from "@/components/onboarding";
 import PageSkeleton from "@/components/PageSkeleton";
 
@@ -395,6 +396,9 @@ export default function ProjectLayout() {
     >
       <TopNav />
       <div className="flex min-h-0 overflow-hidden">
+        {/* Left workspace sidebar: 创作助手 / 剧集列表 tabs over the AgentDock
+            (design 83:13383); the composer stays pinned at its bottom. */}
+        <WorkspaceSidebar />
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
           <ReturnBanner />
           <main
@@ -405,21 +409,6 @@ export default function ProjectLayout() {
             <Outlet />
             <LaunchUploadProgressCard />
           </main>
-        </div>
-        {/* Right rail: the dock keeps the top; on narrow workspaces the pages
-            portal their detail panel into the slot below, so dock and detail
-            split the rail vertically instead of fighting for width. */}
-        <div className="flex min-h-0 shrink-0 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <AgentDock sidebar />
-          </div>
-          {/* No left border here: the workspace background flows into the
-              rail so the detail card reads as part of the workspace, while a
-              strong top rule cleanly ends the dock above it. */}
-          <div
-            data-detail-rail
-            className="hidden min-h-0 shrink-0 basis-1/2 flex-col overflow-hidden border-t-2 border-[var(--color-border-strong)] bg-[var(--color-bg-layout)] [&:not(:empty)]:flex"
-          />
         </div>
       </div>
       <SelectionToolbar />

@@ -639,6 +639,41 @@ SEEDANCE_FAMILY_SPECS: dict[str, tuple[frozenset[str], int, int, bool]] = {
     "1.0": (frozenset({"480p", "720p", "1080p"}), 2, 12, False),
 }
 
+# Reference-voice input shapes documented by the official R2V contracts:
+# - "per_media": wan2.7 binds one voice per reference entry via
+#   ``media[].reference_voice`` (video-to-video guide, 参数设置 table).
+# - "standalone": wan3.0 accepts up to five ``type=reference_audio`` media
+#   entries (total <= 15s); Seedance 2.x accepts ``type=audio_url`` content
+#   entries with role ``reference_audio`` (2.5: up to 10; 2.0: up to 3,
+#   paired with image/video references).
+# Every other family (wan2.6, HappyHorse, Kling, Vidu, Veo, MiniMax)
+# documents no audio input — only automatic-audio switches.
+REFERENCE_VOICE_PER_MEDIA = "per_media"
+REFERENCE_VOICE_STANDALONE = "standalone"
+
+
+def video_reference_voice_support(  # pylint: disable=too-many-return-statements  # noqa: E501
+    model_name: str,
+    protocol_backend: str | None = None,
+) -> tuple[str, int] | None:
+    """Return ``(shape, max_audio_count)`` or ``None`` when unsupported."""
+
+    name = (model_name or "").strip()
+    if not name:
+        return None
+    if _WAN_27_MODEL_PATTERN.match(name):
+        return (REFERENCE_VOICE_PER_MEDIA, 5)
+    if is_wan3_video_model(name):
+        return (REFERENCE_VOICE_STANDALONE, 5)
+    seedance_family = seedance_video_generation(name)
+    if seedance_family is None and (protocol_backend or "") == "seedance2":
+        return None
+    if seedance_family == "2.5":
+        return (REFERENCE_VOICE_STANDALONE, 10)
+    if seedance_family in ("2.0", "2.0-fast"):
+        return (REFERENCE_VOICE_STANDALONE, 3)
+    return None
+
 
 def is_happyhorse_model(model_name: str) -> bool:
     """True when the configured video model is a Bailian HappyHorse model."""

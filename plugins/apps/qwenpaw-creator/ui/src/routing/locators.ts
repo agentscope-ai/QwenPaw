@@ -9,6 +9,14 @@ export function pathForLocator(
   locator: Record<string, string>,
 ): string {
   switch (locator.page) {
+    case "blueprint":
+      // Blueprint reviews deep-link to the project root; a timelineId selects
+      // the corresponding narrative node once the page mounts.
+      return locator.timelineId
+        ? `/project/${projectId}?timeline=${encodeURIComponent(
+            locator.timelineId,
+          )}`
+        : `/project/${projectId}`;
     case "assets":
       return `/project/${projectId}/assets`;
     case "element":

@@ -399,7 +399,7 @@ export default function HeroComposerCard() {
               onClick={handleLaunch}
               className={`flex h-8 w-8 items-center justify-center rounded-md transition-all ${
                 canLaunch
-                  ? "cursor-pointer bg-[var(--color-accent)] text-white shadow-[0_6px_16px_-6px_rgba(255,106,0,0.7)] hover:bg-[var(--color-accent-hover)]"
+                  ? "cursor-pointer bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] shadow-[0_6px_16px_-6px_rgba(0,0,0,0.4)] hover:opacity-90"
                   : "cursor-not-allowed bg-[rgba(43,27,0,0.06)] text-[rgba(26,23,22,0.35)] dark:bg-white/10 dark:text-white/30"
               }`}
             >

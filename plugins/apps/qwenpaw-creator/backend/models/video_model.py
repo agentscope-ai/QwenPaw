@@ -42,6 +42,8 @@ from models.video_capabilities import (
     WAN_30_RESOLUTIONS,
     VIDU_MODEL_SPECS,
     VIDU_SIZE_MAP,
+    REFERENCE_VOICE_PER_MEDIA,
+    REFERENCE_VOICE_STANDALONE,
     effective_video_model_name,
     is_wan3_video_model,
     seedance_video_generation,
@@ -49,6 +51,7 @@ from models.video_capabilities import (
     video_backend_key,
     video_reference_capability,
     video_reference_violation,
+    video_reference_voice_support,
 )
 from models.video_backends import kling as kling_backend
 from models.video_backends import minimax as minimax_backend
@@ -68,6 +71,9 @@ SEEDANCE_RESOLUTIONS = {"480p", "720p", "1080p"}
 # documented "adaptive" value for backwards compatibility.
 SEEDANCE_RATIOS = {"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}
 VIDEO_REFERENCE_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
+# wan3.0 documents wav/mp3 for reference_audio; m4a/aac tolerated so an
+# enrolled voice sample in either container still classifies as audio.
+AUDIO_REFERENCE_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac"}
 
 # Transport protocols whose reference media is inlined as a Base64 data
 # URL instead of the Bailian temporary upload channel.
@@ -78,7 +84,11 @@ _INLINE_MEDIA_BACKENDS = frozenset(
 
 def _reference_media_kind(filename: str) -> str:
     suffix = Path(filename or "").suffix.lower()
-    return "video" if suffix in VIDEO_REFERENCE_SUFFIXES else "image"
+    if suffix in VIDEO_REFERENCE_SUFFIXES:
+        return "video"
+    if suffix in AUDIO_REFERENCE_SUFFIXES:
+        return "audio"
+    return "image"
 
 
 def _reference_media_kind_from_url(url: str) -> str:
@@ -578,6 +588,7 @@ async def submit_video_task(
     mode: str = "r2v",
     first_frame_url: Optional[str] = None,
     video_url: Optional[str] = None,
+    reference_voice_urls: Optional[list[str]] = None,
 ) -> str:
     """Submit a video generation task and return its task_id.
 
@@ -585,6 +596,13 @@ async def submit_video_task(
     ``r2v`` (default, unchanged), ``t2v`` (text only), ``i2v``
     (``first_frame_url`` required) and ``video_edit`` (``video_url``
     required, HappyHorse only; inputs 3-60s, >15s keeps the first 15s).
+
+    ``reference_voice_urls`` pairs one enrolled-voice sample audio with
+    each entry of ``reference_image_url_list`` (empty string = none). It
+    is honoured only for models whose official contract documents an
+    audio reference input (wan2.7 ``media[].reference_voice``, wan3.0
+    ``reference_audio`` entries, Seedance 2.x ``audio_url`` content) and
+    silently ignored elsewhere.
     """
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
@@ -612,6 +630,19 @@ async def submit_video_task(
         all_images.append(reference_image_url)
     if reference_image_url_list:
         all_images.extend(reference_image_url_list)
+    # Pair voices with references before deduplication: the first sighting
+    # of a URL keeps its voice, matching how dict.fromkeys keeps order.
+    voice_by_reference: dict[str, str] = {}
+    if reference_voice_urls and reference_image_url_list:
+        for index, item in enumerate(reference_image_url_list):
+            key = (item or "").strip()
+            if not key or key in voice_by_reference:
+                continue
+            voice = ""
+            if index < len(reference_voice_urls):
+                voice = (reference_voice_urls[index] or "").strip()
+            if voice:
+                voice_by_reference[key] = voice
     upload_backend = (
         protocol_backend
         if protocol_backend in _INLINE_MEDIA_BACKENDS
@@ -770,11 +801,30 @@ async def submit_video_task(
                 )
             media.append({"type": "reference_image", "url": resolved_url})
     elif normalized_mode == "r2v":
+        voice_support = video_reference_voice_support(
+            effective_model,
+            protocol_backend,
+        )
+        if voice_by_reference and voice_support is None:
+            logger.info(
+                "Reference voices skipped: model %s documents no audio "
+                "reference input",
+                effective_model,
+            )
+        voice_shape, voice_budget = voice_support or ("", 0)
+        standalone_voices: list[str] = []
         for img_url in unique_references:
             resolved_url, media_kind = await _resolve_reference_media_url(
                 img_url,
                 upload_backend,
             )
+            if media_kind == "audio":
+                raise ModelError(
+                    "audio files cannot be sent as image/video references; "
+                    "enrolled character voices travel through the "
+                    f"reference-voice channel ({img_url[:120]})",
+                    model_name=effective_model,
+                )
             if uses_happyhorse and media_kind == "video":
                 raise ModelError(
                     "HappyHorse r2v only accepts image references; replace the "
@@ -782,16 +832,63 @@ async def submit_video_task(
                     "the video model to a Wan r2v model",
                     model_name=effective_model,
                 )
-            media.append(
-                {
-                    "type": (
-                        "reference_video"
-                        if media_kind == "video"
-                        else "reference_image"
-                    ),
-                    "url": resolved_url,
-                },
-            )
+            entry = {
+                "type": (
+                    "reference_video"
+                    if media_kind == "video"
+                    else "reference_image"
+                ),
+                "url": resolved_url,
+            }
+            voice_url = voice_by_reference.get(img_url)
+            if voice_url and voice_shape:
+                if voice_shape == REFERENCE_VOICE_PER_MEDIA:
+                    (
+                        resolved_voice,
+                        voice_kind,
+                    ) = await _resolve_reference_media_url(
+                        voice_url,
+                        upload_backend,
+                    )
+                    if voice_kind != "audio":
+                        raise ModelError(
+                            "reference voice must be an audio file: "
+                            f"{voice_url[:120]}",
+                            model_name=effective_model,
+                        )
+                    # wan2.7 documented shape: the voice rides on its
+                    # subject's media entry.
+                    entry["reference_voice"] = resolved_voice
+                elif voice_url not in standalone_voices:
+                    standalone_voices.append(voice_url)
+            media.append(entry)
+        if voice_shape == REFERENCE_VOICE_STANDALONE and standalone_voices:
+            if len(standalone_voices) > voice_budget:
+                logger.info(
+                    "Reference voices truncated to the %s cap of %d",
+                    effective_model,
+                    voice_budget,
+                )
+                standalone_voices = standalone_voices[:voice_budget]
+            for voice_url in standalone_voices:
+                (
+                    resolved_voice,
+                    voice_kind,
+                ) = await _resolve_reference_media_url(
+                    voice_url,
+                    upload_backend,
+                )
+                if voice_kind != "audio":
+                    raise ModelError(
+                        "reference voice must be an audio file: "
+                        f"{voice_url[:120]}",
+                        model_name=effective_model,
+                    )
+                # wan3.0 media entry; the seedance branch below rewrites
+                # it into an audio_url content item.
+                media.append(
+                    {"type": "reference_audio", "url": resolved_voice},
+                )
 
     url = ""
     submit_headers: dict = {}
@@ -873,6 +970,14 @@ async def submit_video_task(
                         "type": "video_url",
                         "role": "reference_video",
                         "video_url": {"url": item["url"]},
+                    },
+                )
+            elif item["type"] == "reference_audio":
+                content.append(
+                    {
+                        "type": "audio_url",
+                        "role": "reference_audio",
+                        "audio_url": {"url": item["url"]},
                     },
                 )
             else:

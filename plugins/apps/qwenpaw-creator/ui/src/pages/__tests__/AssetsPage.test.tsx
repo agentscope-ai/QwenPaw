@@ -159,9 +159,9 @@ describe("AssetsPage Project projection", () => {
       "/api/qwenpaw-creator/media/artifacts/cat-anchor-v1",
     ]);
 
-    // Selecting exposes the canonical ref; the hand-off button stays removed.
+    // Selecting exposes the canonical ref (the raw ref text is no longer a
+    // visible field per the updated design); the hand-off button stays removed.
     fireEvent.click(screen.getByText("测试项目最终成片"));
-    expect(screen.getByText("artifact-version:final-v1")).toBeInTheDocument();
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "artifact-version:final-v1",
     );
@@ -171,16 +171,29 @@ describe("AssetsPage Project projection", () => {
   });
 
   it("filters locally without requiring a separate backend asset projection", () => {
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "来源素材" }));
-    expect(screen.getByText("1 项")).toBeInTheDocument();
+    const { container } = renderPage();
+    // 来源下拉（设计 84:78645）：只看上传的来源素材。
+    const openOrigin = () =>
+      fireEvent.mouseDown(
+        container.querySelector('[data-assets-origin] [role="combobox"]')!
+          .parentElement!.parentElement!,
+      );
+    openOrigin();
+    fireEvent.click(
+      document.querySelector('.ant-select-item-option[title="来源素材"]')!,
+    );
+    expect(screen.getAllByText("1 项").length).toBeGreaterThan(0);
 
+    openOrigin();
+    fireEvent.click(
+      document.querySelector('.ant-select-item-option[title="全部来源"]')!,
+    );
     fireEvent.click(screen.getByRole("button", { name: "视频" }));
-    expect(screen.getByText("3 项")).toBeInTheDocument();
+    expect(screen.getAllByText("3 项").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("搜索名称或 ID"), {
       target: { value: "最终" },
     });
-    expect(screen.getByText("1 项")).toBeInTheDocument();
+    expect(screen.getAllByText("1 项").length).toBeGreaterThan(0);
     expect(screen.getByText("测试项目最终成片")).toBeInTheDocument();
   });
 
@@ -290,7 +303,8 @@ describe("AssetsPage Project projection", () => {
     installMockFetch(ingestRoutes());
     renderPage();
 
-    fireEvent.click(screen.getByText("双人组"));
+    // The default 按归属 view shows the lineup card's ownership card name.
+    fireEvent.click(screen.getByText("双人组（阵容图）"));
 
     expect(await screen.findByText("相对关系说明")).toBeInTheDocument();
     expect(screen.getAllByText(/左矮右高/).length).toBeGreaterThan(0);

@@ -245,6 +245,7 @@ class R2VProvider(Protocol):
         mode: str = "r2v",
         first_frame_url: str | None = None,
         video_url: str | None = None,
+        reference_voice_urls: Sequence[str] = (),
     ) -> str:
         ...
 
@@ -285,6 +286,7 @@ class ExistingR2VProvider:
         mode: str = "r2v",
         first_frame_url: str | None = None,
         video_url: str | None = None,
+        reference_voice_urls: Sequence[str] = (),
     ) -> str:
         from models.video_model import submit_video_task
 
@@ -299,6 +301,9 @@ class ExistingR2VProvider:
             mode=mode,
             first_frame_url=first_frame_url,
             video_url=video_url,
+            reference_voice_urls=(
+                list(reference_voice_urls) if reference_voice_urls else None
+            ),
         )
 
     async def poll(self, provider_task_id: str) -> Mapping[str, Any]:
@@ -412,6 +417,10 @@ class _ResolvedR2V:
     slot_kind: str
     owner_ref: str
     mode: str = "r2v"
+    # Parallel to reference_urls: the enrolled character-voice sample audio
+    # bound to each reference ("" = none). Only filled when the configured
+    # video model documents an audio reference input.
+    reference_voice_urls: tuple[str, ...] = ()
     first_frame_version_id: str = ""
     first_frame_url: str = ""
     video_version_id: str = ""
@@ -538,14 +547,16 @@ def _target_element_id(
 
 def _duration(value: Any) -> int:
     if isinstance(value, bool):
-        raise ValidationError("R2V durationSeconds 必须是整数")
+        raise ValidationError("R2V durationSeconds 必须是数字")
     try:
         number = float(value)
     except (TypeError, ValueError) as error:
-        raise ValidationError("R2V durationSeconds 必须是整数") from error
-    if not number.is_integer() or not 1 <= number <= 60:
-        raise ValidationError("R2V durationSeconds 必须是 1 到 60 的整数")
-    return int(number)
+        raise ValidationError("R2V durationSeconds 必须是数字") from error
+    if not 1 <= number <= 60:
+        raise ValidationError("R2V durationSeconds 必须在 1 到 60 秒之间")
+    # Shots are planned at sub-second precision but providers only accept
+    # whole seconds — round instead of rejecting the whole dispatch.
+    return max(1, round(number))
 
 
 def _indexed_path(project_root: Path, indexed: IndexedFile) -> Path:
@@ -1039,6 +1050,78 @@ def _assert_r2v_reference_budget(
 _REFERENCE_ROLE_MARKER = "[REFERENCE IMAGE ROLES — RUNTIME FACT]"
 
 
+def _resolve_reference_voices(
+    *,
+    project: Project,
+    project_root: Path,
+    creation: Any,
+    version_ids: Sequence[str],
+) -> tuple[tuple[str, ...], list[dict[str, Any]]]:
+    """Pair each reference version with its character's enrolled voice.
+
+    Returns ``(voice_urls, read_entries)`` where *voice_urls* parallels
+    ``version_ids`` ("" = no voice). Only characters referenced by the
+    creation whose enrolled voice keeps a sample audio contribute; the
+    sample rides with the character's own reference image so providers
+    that document per-subject voices (wan2.7) bind them correctly and
+    standalone-audio providers (wan3.0 / Seedance 2.x) receive the same
+    deduplicated set.
+    """
+
+    from models import config as model_config
+    from models.video_capabilities import video_reference_voice_support
+
+    if (
+        video_reference_voice_support(
+            model_config.get_video_model_name(),
+            model_config.get_video_backend(),
+        )
+        is None
+    ):
+        return (), []
+
+    voice_by_version: dict[str, str] = {}
+    read_entries: list[dict[str, Any]] = []
+    resolved_samples: dict[str, str] = {}
+    for entity_ref in getattr(creation, "character_refs", ()) or ():
+        entity = project.visual.entities.items.get(entity_ref)
+        if entity is None or entity.kind != "character":
+            continue
+        voice = entity.voice
+        if voice is None or not voice.sample_source_version_id:
+            continue
+        contributed = {
+            variant.selected_artifact_version_id
+            for variant in entity.variants.items.values()
+            if variant.selected_artifact_version_id
+        }
+        if entity.selected_artifact_version_id:
+            contributed.add(entity.selected_artifact_version_id)
+        matched = [vid for vid in version_ids if vid in contributed]
+        if not matched:
+            continue
+        sample_id = voice.sample_source_version_id
+        sample_url = resolved_samples.get(sample_id)
+        if sample_url is None:
+            sample_url, _checksum, _ref, entry = _resolve_single_media_version(
+                project=project,
+                project_root=project_root,
+                version_id=sample_id,
+                media_prefix="audio/",
+                label="characterVoiceSample",
+            )
+            resolved_samples[sample_id] = sample_url
+            read_entries.append(entry)
+        for vid in matched:
+            voice_by_version.setdefault(vid, sample_url)
+    if not voice_by_version:
+        return (), []
+    return (
+        tuple(voice_by_version.get(vid, "") for vid in version_ids),
+        read_entries,
+    )
+
+
 def _append_reference_role_mapping(
     prompt: str,
     project: Project,
@@ -1231,6 +1314,13 @@ def _resolve_request(
             project_root=project_root,
             version_ids=version_ids,
         )
+        voice_urls, voice_read_entries = _resolve_reference_voices(
+            project=project,
+            project_root=project_root,
+            creation=creation,
+            version_ids=version_ids,
+        )
+        read_set = [*read_set, *voice_read_entries]
         prompt = _append_reference_role_mapping(
             prompt,
             project,
@@ -1241,6 +1331,7 @@ def _resolve_request(
     if mode != "r2v":
         version_ids = ()
         urls, checksums, provenance, read_set = [], [], [], []
+        voice_urls = ()
 
     first_frame_url = ""
     video_url = ""
@@ -1285,6 +1376,7 @@ def _resolve_request(
         reference_checksums=tuple(checksums),
         provenance_refs=tuple(provenance),
         read_set=tuple(read_set),
+        reference_voice_urls=tuple(voice_urls),
         slot_id=f"element:{element_id}:main",
         slot_kind="element_video",
         owner_ref=f"element:{element_id}",
@@ -2017,6 +2109,12 @@ class FileR2VExecutionService:
             "artifactVersionId": stable["artifact_version_id"],
             "transactionId": stable["transaction_id"],
         }
+        if any(resolved.reference_voice_urls):
+            # Joins the frozen request only when a voice actually rides
+            # along, so legacy tasks keep their fingerprint identity.
+            payload["referenceVoiceUrls"] = list(
+                resolved.reference_voice_urls,
+            )
         if resolved.mode != "r2v":
             # Only non-default modes join the frozen request so legacy r2v
             # tasks keep their fingerprint identity across the upgrade.
@@ -2989,6 +3087,11 @@ class FileR2VExecutionService:
                                 else None
                             ),
                         }
+                    if request.get("referenceVoiceUrls"):
+                        # Same legacy-signature courtesy as above.
+                        extra_arguments["reference_voice_urls"] = tuple(
+                            str(item) for item in request["referenceVoiceUrls"]
+                        )
                     return await self.provider.submit(
                         prompt=str(request["prompt"]),
                         reference_image_urls=tuple(request["referenceUrls"]),

@@ -33,7 +33,7 @@ export function selectPrimaryTimeline(
     return project.timelines.items[activeTimelineId];
   }
   const orderedId = project.timelines.order.find(
-    (id) => project.timelines.items[id],
+    (id) => project.timelines.items[id] && !id.startsWith("snapshot:"),
   );
   if (orderedId) return project.timelines.items[orderedId];
   return Object.values(project.timelines.items)[0] ?? null;
@@ -45,6 +45,33 @@ export function selectTimelineById(
 ): TimelineDocument | null {
   if (!project || !timelineId) return null;
   return project.timelines.items[timelineId] ?? null;
+}
+
+export type NarrativeShape = "single" | "linear";
+
+/**
+ * Live narrative timelines in order; `snapshot:*` frozen history excluded.
+ * Every "how many episodes / which timeline is active" decision must go
+ * through this filter instead of reading `timelines.order` directly.
+ */
+export function selectLiveTimelineIds(
+  project: ProjectDocument | null | undefined,
+): string[] {
+  if (!project) return [];
+  return project.timelines.order.filter(
+    (id) => project.timelines.items[id] && !id.startsWith("snapshot:"),
+  );
+}
+
+/**
+ * The blueprint's only fork point, derived purely from data (plan §4.5):
+ * several timelines → linear episode list; otherwise the single-node
+ * production board.
+ */
+export function selectNarrativeShape(
+  project: ProjectDocument | null | undefined,
+): NarrativeShape {
+  return selectLiveTimelineIds(project).length > 1 ? "linear" : "single";
 }
 
 export function timelineEndTick(

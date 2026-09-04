@@ -269,16 +269,14 @@ def test_lock_times_out_while_held_and_recovers_after_release(tmp_path):
     assert not path.exists()
 
 
-def test_same_thread_nested_lock_fails_immediately_with_owner_details(
-    tmp_path,
-):
+def test_same_thread_nested_lock_waits_then_times_out(tmp_path):
     path = tmp_path / "nested.lock"
     with CrossProcessFileLock(path):
-        with pytest.raises(
-            RuntimeError,
-            match="same-thread nested Runtime lock acquisition",
-        ):
-            with CrossProcessFileLock(path):
+        # Executor threads are reused across requests while a hold spans an
+        # await, so same-thread re-acquisition must WAIT (not fail fast); a
+        # genuine nested acquisition then surfaces as the retryable timeout.
+        with pytest.raises(LockTimeoutError):
+            with CrossProcessFileLock(path, timeout_seconds=0.2):
                 pass
 
 
@@ -308,6 +306,73 @@ def test_cross_thread_release_clears_the_acquiring_threads_owner(tmp_path):
 
     assert not thread.is_alive()
     assert not errors
+
+
+def test_detached_acquire_does_not_poison_the_reused_executor_thread(
+    tmp_path,
+):
+    """Regression: exclusive lock acquired via ``asyncio.to_thread``.
+
+    A coroutine that acquires the Project lifecycle lock with
+    ``await asyncio.to_thread(lock.acquire_detached)`` keeps holding it
+    across awaits while the worker thread returns to the pool.  A shared
+    poll read (for example SSE ``list_events``) scheduled onto that reused
+    thread must wait on the lock like any other reader — not explode with
+    the same-thread nested-acquisition guard.
+    """
+
+    path = tmp_path / "detached.lock"
+    owner = CrossProcessFileLock(path)
+    outcomes: list[object] = []
+    held = threading.Event()
+    released = threading.Event()
+
+    def executor_thread() -> None:
+        try:
+            # Simulates ``await asyncio.to_thread(lock.acquire_detached)``:
+            # the acquiring pooled thread immediately moves on to other work.
+            owner.acquire_detached()
+            held.set()
+            # The reused thread now runs an unrelated shared read while the
+            # coroutine still holds the exclusive lock: it must block and
+            # time out on the file lock, not trip the nesting guard.
+            try:
+                with CrossProcessFileLock(
+                    path,
+                    timeout_seconds=0.05,
+                    poll_interval_seconds=0.005,
+                    shared=True,
+                ):
+                    outcomes.append("read-acquired-while-exclusive-held")
+            except LockTimeoutError:
+                outcomes.append("read-timed-out-while-exclusive-held")
+            assert released.wait(timeout=2)
+            with CrossProcessFileLock(
+                path,
+                timeout_seconds=1,
+                poll_interval_seconds=0.005,
+                shared=True,
+            ):
+                outcomes.append("read-acquired-after-release")
+        except BaseException as error:  # pragma: no cover - asserted below
+            outcomes.append(error)
+
+    thread = threading.Thread(target=executor_thread)
+    thread.start()
+    assert held.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    while not outcomes and time.monotonic() < deadline:
+        time.sleep(0.005)
+    # Release from a different thread, like the event-loop coroutine does.
+    owner.release()
+    released.set()
+    thread.join(timeout=3)
+
+    assert not thread.is_alive()
+    assert outcomes == [
+        "read-timed-out-while-exclusive-held",
+        "read-acquired-after-release",
+    ]
 
 
 def test_store_operations_create_no_lock_artifacts_on_disk(tmp_path):

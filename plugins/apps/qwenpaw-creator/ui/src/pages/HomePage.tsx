@@ -14,6 +14,9 @@ import tabCreateIcon from "@/assets/design/icon-tab-create.svg";
 import tabProjectsIcon from "@/assets/design/icon-tab-projects.svg";
 import previewEyeIcon from "@/assets/design/icon-eye-preview.svg";
 import importProjectIcon from "@/assets/design/icon-import-project.svg";
+import wordmarkUrl from "@/assets/design/wordmark-qwenpaw.svg";
+import wordmarkDarkUrl from "@/assets/design/wordmark-qwenpaw-dark.svg";
+import { useTheme } from "@/app/theme";
 import type { ProjectSummary } from "@/contracts/creator";
 import {
   deleteProject,
@@ -220,6 +223,7 @@ export default function HomePage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { resolvedTheme } = useTheme();
   const [view, setView] = useState<HomeView>("create");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -281,7 +285,7 @@ export default function HomePage() {
 
   const handleOpen = useCallback(
     (id: string) => {
-      router.push(`/project/${id}/plan`);
+      router.push(`/project/${id}`);
     },
     [router],
   );
@@ -355,7 +359,7 @@ export default function HomePage() {
         const result = await copyProject(project.projectId, requestId);
         copyRetryKeys.current.delete(project.projectId);
         message.success(t("home.copySuccess"));
-        router.push(`/project/${result.projectId}/plan`);
+        router.push(`/project/${result.projectId}`);
       } catch (error) {
         // A lost response or client timeout is an ambiguous commit: preserve
         // the operation key so the next user attempt replays the same copy.
@@ -446,8 +450,17 @@ export default function HomePage() {
               height={38}
               className="shrink-0"
             />
-            <span className="hidden truncate text-xl font-medium leading-6 text-[var(--color-text-primary)] md:block">
-              QwenPaw Creator
+            {/* 品牌花字：与 Hero 同款 wordmark + 渐变 Creator，按原始比例
+                （字形盒 48 : 字号 60.16）等比缩到页头尺寸。 */}
+            <span className="hidden items-center gap-1.5 md:flex">
+              <img
+                src={resolvedTheme === "dark" ? wordmarkDarkUrl : wordmarkUrl}
+                alt="QwenPaw"
+                className="h-[20px] w-auto shrink-0"
+              />
+              <span className="hero-title-creator !text-[25px] !leading-[34px]">
+                Creator
+              </span>
             </span>
           </div>
           <div

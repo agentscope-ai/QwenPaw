@@ -65,6 +65,8 @@ def _remove_tree(entry: Path) -> bool:
     def _record(_func, _path, exc_info) -> None:
         failures.append(exc_info[1])
 
+    # onexc requires 3.12+; runtime still supports 3.11.
+    # pylint: disable-next=deprecated-argument
     shutil.rmtree(entry, onerror=_record)
     if failures:
         logger.warning(

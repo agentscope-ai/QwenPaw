@@ -22,6 +22,7 @@ from domain.enums import CreatorCommandType, TaskKind, TaskStatus
 from services.prompt_text import dialogue_match_key, dialogue_spoken_lines
 from services.project_files.models import (
     ArtifactVersionRenderSource,
+    narrative_timeline_ids,
     ElementOutputRenderSource,
     I2VCreation,
     Project,
@@ -45,18 +46,28 @@ class WorkNodeStatus(StrEnum):
 # Node kinds the scheduler may dispatch without a model turn: their
 # generation parameters are deterministically assembled from project.json.
 DISPATCHABLE_KINDS = frozenset(
-    {"visual", "lineup", "storyboard", "video", "compose"},
+    {
+        "script",
+        "visual",
+        "lineup",
+        "storyboard",
+        "video",
+        "compose",
+    },
 )
 
 
 @dataclass(frozen=True, slots=True)
 class WorkNode:
     node_id: str
-    kind: str  # visual | lineup | storyboard | video | compose
+    kind: str  # script|visual|lineup|storyboard|video|compose
     label: str
     status: WorkNodeStatus
     deps: tuple[str, ...] = ()
     lane: str = ""
+    # Narrative-node scope (方案 3.2)：script/storyboard/video/compose 节点
+    # 归属的 timeline；项目级节点（visual/lineup）为 None。
+    timeline_id: str | None = None
     # Actionable context for UI and the completion loop.
     task_id: str | None = None
     progress: float | None = None
@@ -654,10 +665,79 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             ),
         )
 
+    # ---- Lane: timeline scripts (blueprint script flow) ---------------
+    # 每条 timeline 一个 kind="script" 节点：slot 无版本→READY，selected
+    # 版本存在且未 stale→DONE，版本 stale→STALE。剧本流仅在项目启用时
+    # 生效（存在 timeline_script slot 或多 timeline）；旧项目（单
+    # timeline 且无 script slot）不生成 script 节点，行为零回退。
+    live_timeline_ids = narrative_timeline_ids(project)
+    script_flow = len(live_timeline_ids) > 1
+    script_node_by_timeline: dict[str, str] = {}
+    for timeline_id in live_timeline_ids:
+        timeline = project.timelines.items[timeline_id]
+        slot = project.assets.artifact_slots_by_id.get(
+            f"script:{timeline_id}",
+        )
+        if slot is None and not script_flow:
+            continue
+        node_id = f"script:{timeline_id}"
+        selected = slot.selected_version_id if slot is not None else None
+        version = (
+            project.assets.artifact_versions_by_id.get(selected)
+            if selected
+            else None
+        )
+        key = (TaskKind.SCRIPT_DRAFT.value, f"timeline:{timeline_id}")
+        task = active.get(key)
+        failure = failed.get(key)
+        fingerprint = _fingerprint(
+            node_id,
+            timeline.title,
+            timeline.synopsis,
+            project.strategy.creative_brief,
+        )
+        if task is not None:
+            status = WorkNodeStatus.RUNNING
+        elif version is not None:
+            status = (
+                WorkNodeStatus.STALE if version.stale else WorkNodeStatus.DONE
+            )
+        elif failure is not None and not _failure_inputs_changed(
+            failure,
+            node_id,
+            fingerprint,
+        ):
+            status = WorkNodeStatus.FAILED
+        else:
+            status = WorkNodeStatus.READY
+        add(
+            WorkNode(
+                node_id=node_id,
+                kind="script",
+                label=f"{timeline.title or timeline_id} · 剧本",
+                status=status,
+                lane=timeline.title or f"timeline:{timeline_id}",
+                timeline_id=timeline_id,
+                task_id=getattr(task, "task_id", None),
+                progress=getattr(task, "progress", None),
+                error=(
+                    _task_error_summary(failure)
+                    if status is WorkNodeStatus.FAILED
+                    else None
+                ),
+                locator={"page": "blueprint", "timelineId": timeline_id},
+                command="GENERATE_TIMELINE_SCRIPT",
+                target_ref=f"timeline:{timeline_id}",
+                dispatch_fingerprint=fingerprint,
+            ),
+        )
+        script_node_by_timeline[timeline_id] = node_id
+
     # ---- Lanes per element: storyboard -> video ----------------------
     video_node_ids: list[str] = []
-    for timeline_id in project.timelines.order:
+    for timeline_id in live_timeline_ids:
         timeline = project.timelines.items[timeline_id]
+        script_node = script_node_by_timeline.get(timeline_id)
         for element_id, element in timeline.elements_by_id.items():
             creation = element.creation
             if not element.enabled:
@@ -679,6 +759,10 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 # elements produce a storyboard (T2V/I2V/S2V creations carry
                 # no shots, storyboard prompt or reference stacks).
                 deps: list[str] = []
+                # 剧本流下分镜等待本 timeline 的剧本节点（方案 3.3：
+                # script 通过 → 该 timeline 的 shots/分镜/生成）。
+                if script_node is not None:
+                    deps.append(script_node)
                 for ref in creation.cast_lineup_refs:
                     deps.append(f"lineup:{ref}")
                 for entity_id, variant_id in sorted(
@@ -766,6 +850,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                         status=status,
                         deps=tuple(deps),
                         lane=lane,
+                        timeline_id=timeline_id,
                         task_id=getattr(task, "task_id", None),
                         progress=getattr(task, "progress", None),
                         error=(
@@ -880,8 +965,13 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     kind="video",
                     label=f"{label} · 视频",
                     status=status,
-                    deps=storyboard_dep,
+                    deps=(
+                        (script_node, *storyboard_dep)
+                        if script_node is not None
+                        else storyboard_dep
+                    ),
                     lane=lane,
+                    timeline_id=timeline_id,
                     task_id=getattr(task, "task_id", None),
                     progress=getattr(task, "progress", None),
                     error=(
@@ -931,7 +1021,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
         )
 
     for compose_timeline_id in (
-        tid for tid in project.timelines.order if _timeline_has_content(tid)
+        tid for tid in live_timeline_ids if _timeline_has_content(tid)
     ):
         timeline = project.timelines.items[compose_timeline_id]
         node_id = f"compose:{compose_timeline_id}"
@@ -1005,6 +1095,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 status=status,
                 deps=tuple(video_node_ids),
                 lane="compose",
+                timeline_id=compose_timeline_id,
                 task_id=getattr(task, "task_id", None),
                 progress=getattr(task, "progress", None),
                 missing=missing,
@@ -1134,7 +1225,7 @@ def _declared_pending_lineup_nodes(project: Project) -> list[str]:
     """
 
     pending: list[str] = []
-    for timeline_id in project.timelines.order:
+    for timeline_id in narrative_timeline_ids(project):
         timeline = project.timelines.items[timeline_id]
         for element in timeline.elements_by_id.values():
             creation = element.creation

@@ -4,21 +4,21 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f9f8f4;
-  --foreground: #241f1a;
-  --color-bg-layout: #f9f8f4;
+  --background: #fcfaf8;
+  --foreground: #271606;
+  --color-bg-layout: #fcfaf8;
   --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f4f1ea;
+  --color-bg-secondary: #fafafa;
   --color-bg-elevated: #ffffff;
   --color-bg-card: #ffffff;
-  --color-text-primary: #241f1a;
-  --color-text-secondary: #6f665c;
-  --color-text-tertiary: #9a9188;
-  --color-border: #e8e0d6;
-  --color-border-strong: #d8cabb;
-  --color-accent: #ff7f16;
-  --color-accent-hover: #e96f0c;
-  --color-accent-soft: rgba(255, 127, 22, 0.12);
+  --color-text-primary: #271606;
+  --color-text-secondary: #656563;
+  --color-text-tertiary: #999999;
+  --color-border: #eae9e7;
+  --color-border-strong: #d9d5d0;
+  --color-accent: #fe7622;
+  --color-accent-hover: #e9660c;
+  --color-accent-soft: rgba(254, 118, 34, 0.12);
   --color-success: #12b76a;
   --color-success-soft: #ecfdf3;
   --color-warning: #f79009;
@@ -278,14 +278,16 @@ a {
   color: var(--color-text-primary) !important;
 }
 
+/* 全站按钮统一黑白：主按钮 = 墨底反色字（暗色模式随变量自动反转）。 */
 .ant-btn-primary {
-  background: var(--color-accent) !important;
-  border-color: var(--color-accent) !important;
-  color: #fff !important;
+  background: var(--color-text-primary) !important;
+  border-color: var(--color-text-primary) !important;
+  color: var(--color-bg-primary) !important;
 }
 
 .ant-btn-primary:hover {
-  background: var(--color-accent-hover) !important;
+  background: var(--color-text-primary) !important;
+  opacity: 0.88;
 }
 
 .ant-modal-confirm-body .ant-modal-confirm-title {
@@ -600,6 +602,16 @@ a {
 .glass-card:hover {
   border-color: var(--color-accent);
   box-shadow: var(--shadow-sm);
+}
+
+/* Decorative vertical hairline grid behind the blueprint canvas
+   (design 83:13383 背景底色, soft-light 25%). */
+.workspace-decor-grid {
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-border) 45%, transparent) 0 1px,
+    transparent 1px 44px
+  );
 }
 
 /* Segmented tabs */
@@ -1006,4 +1018,26 @@ a {
   .hero-fade-up {
     animation: none;
   }
+}
+
+/* Frosted dropdown surfaces (blueprint export menu etc.) */
+.ant-dropdown .ant-dropdown-menu {
+  border-radius: 14px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-primary) 86%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
+}
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item {
+  border-radius: 9px;
+}
+
+/* Workbench: Shot row highlight driven by hovering a SHOT badge inside
+   PromptRichBlock's reference preview (Shot ↔ Prompt segment linkage). */
+.workbench-shot-hl {
+  border-color: var(--color-accent) !important;
+  background: var(--color-accent-soft) !important;
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
 }

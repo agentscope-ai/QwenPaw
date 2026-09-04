@@ -1082,3 +1082,183 @@ def test_stale_nodes_are_model_required() -> None:
     # STALE nodes should be in model_required_nodes
     required = graph.model_required_nodes()
     assert video_node in required
+
+
+# ---- Blueprint script lane（方案 3.2/3.3）--------------------------------
+
+
+def _add_second_timeline(project: Project) -> None:
+    from services.project_files.models import Timeline
+
+    project.timelines.items["timeline:ep2"] = Timeline(
+        timeline_id="timeline:ep2",
+        title="第二集 · 旧宅疑云",
+        synopsis="林晚发现母亲遗物的秘密。",
+    )
+    project.timelines.order.append("timeline:ep2")
+
+
+def test_legacy_single_timeline_project_has_no_script_node() -> None:
+    """旧项目（单 timeline 且无 script slot）零回退：不生成 script 节点。"""
+
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    graph = derive_work_graph(project)
+    assert not [node for node in graph.nodes if node.kind == "script"]
+    storyboard = graph.by_id["storyboard:elem:one"]
+    assert "script:timeline:main" not in storyboard.deps
+
+
+def test_multi_timeline_project_derives_script_nodes_gating_elements() -> None:
+    project = _project()
+    _add_second_timeline(project)
+    _add_element(project, _element("elem:one"))
+
+    graph = derive_work_graph(project)
+    main_script = graph.by_id["script:timeline:main"]
+    ep2_script = graph.by_id["script:timeline:ep2"]
+    # slot 无版本 → READY，可被调度器直接派发。
+    assert main_script.status is WorkNodeStatus.READY
+    assert ep2_script.status is WorkNodeStatus.READY
+    assert main_script.command == "GENERATE_TIMELINE_SCRIPT"
+    assert main_script.timeline_id == "timeline:main"
+    assert ep2_script.lane == "第二集 · 旧宅疑云"
+    assert ep2_script.locator == {
+        "page": "blueprint",
+        "timelineId": "timeline:ep2",
+    }
+    assert main_script in graph.ready_media_nodes()
+
+    # 该 timeline 的 storyboard/video 等待剧本节点。
+    storyboard = graph.by_id["storyboard:elem:one"]
+    video = graph.by_id["video:elem:one"]
+    assert "script:timeline:main" in storyboard.deps
+    assert storyboard.status is WorkNodeStatus.GATED
+    assert "script:timeline:main" in storyboard.missing
+    assert video.deps == ("script:timeline:main", "storyboard:elem:one")
+    assert storyboard.timeline_id == "timeline:main"
+
+    # 剧本版本选定后分镜解除门禁。
+    _select_slot(
+        project,
+        slot_id="script:timeline:main",
+        kind="timeline_script",
+        owner_ref="timeline:timeline:main",
+        version_id="art:script-main",
+    )
+    graph = derive_work_graph(project)
+    assert graph.by_id["script:timeline:main"].status is WorkNodeStatus.DONE
+    assert graph.by_id["storyboard:elem:one"].status is WorkNodeStatus.READY
+
+
+def test_stale_script_version_marks_script_node_stale() -> None:
+    project = _project()
+    _add_second_timeline(project)
+    _select_slot(
+        project,
+        slot_id="script:timeline:ep2",
+        kind="timeline_script",
+        owner_ref="timeline:timeline:ep2",
+        version_id="art:script-ep2",
+    )
+    project.assets.artifact_versions_by_id["art:script-ep2"].stale = True
+
+    graph = derive_work_graph(project)
+    node = graph.by_id["script:timeline:ep2"]
+    assert node.status is WorkNodeStatus.STALE
+    # STALE is terminal for the scheduler: not READY, not dispatched.
+    assert node not in graph.ready_media_nodes()
+
+
+def test_single_timeline_with_script_slot_opts_into_script_flow() -> None:
+    """存在 timeline_script slot 的单 timeline 项目也进入剧本流。"""
+
+    project = _project()
+    _select_slot(
+        project,
+        slot_id="script:timeline:main",
+        kind="timeline_script",
+        owner_ref="timeline:timeline:main",
+        version_id="art:script-main",
+    )
+    _add_element(project, _element("elem:one"))
+
+    graph = derive_work_graph(project)
+    script = graph.by_id["script:timeline:main"]
+    assert script.status is WorkNodeStatus.DONE
+    assert "script:timeline:main" in graph.by_id["storyboard:elem:one"].deps
+
+
+def test_running_script_task_projects_running_status() -> None:
+    project = _project()
+    _add_second_timeline(project)
+    graph = derive_work_graph(
+        project,
+        tasks=[
+            _task(
+                "script_draft",
+                "timeline:timeline:ep2",
+                TaskStatus.RUNNING,
+                progress=0.5,
+            ),
+        ],
+    )
+    node = graph.by_id["script:timeline:ep2"]
+    assert node.status is WorkNodeStatus.RUNNING
+    assert node.progress == 0.5
+
+
+# ---- History snapshots are frozen: never part of the production graph ----
+
+
+def _append_snapshot(project: Project, base_id: str = "timeline:main") -> None:
+    """Clone *base_id* as a frozen history snapshot (mirrors auto_snapshot)."""
+
+    from services.project_files.models import Timeline
+
+    raw = project.timelines.items[base_id].model_dump(mode="json")
+    snapshot_id = f"snapshot:{base_id}:1"
+    raw["timeline_id"] = snapshot_id
+    remapped = {}
+    for element_id, element in raw["elements_by_id"].items():
+        element = dict(element)
+        element["element_id"] = f"{snapshot_id}:{element_id}"
+        remapped[f"{snapshot_id}:{element_id}"] = element
+    raw["elements_by_id"] = remapped
+    project.timelines.items[snapshot_id] = Timeline.model_validate(raw)
+    project.timelines.order.append(snapshot_id)
+
+
+def test_snapshot_never_enters_the_work_graph() -> None:
+    """单正式 timeline + 快照仍是单集：不开 script flow，也没有任何
+    script/storyboard/video/compose 节点指向 snapshot:*。"""
+
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    _append_snapshot(project)
+
+    graph = derive_work_graph(project)
+
+    assert not [node for node in graph.nodes if node.kind == "script"]
+    snapshot_nodes = [
+        node.node_id for node in graph.nodes if "snapshot:" in node.node_id
+    ]
+    assert snapshot_nodes == []
+    # The live element still gets its lane.
+    assert "storyboard:elem:one" in graph.by_id
+
+
+def test_snapshot_does_not_count_toward_script_flow() -> None:
+    """多正式 timeline 按正式数量判定；快照不改变 script 节点集合。"""
+
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    _add_second_timeline(project)
+    _append_snapshot(project)
+
+    graph = derive_work_graph(project)
+
+    script_nodes = sorted(
+        node.node_id for node in graph.nodes if node.kind == "script"
+    )
+    assert script_nodes == ["script:timeline:ep2", "script:timeline:main"]

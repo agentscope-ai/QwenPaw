@@ -1661,6 +1661,194 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
     assert "agent.mainline.resumed" in {item.event_type for item in events}
 
 
+def _create_persisted_run(
+    driver,
+    snapshot,
+    *,
+    run_id: str,
+    running: bool = True,
+) -> None:
+    """Durable run record as the dispatcher persists it for the initial
+    request, without any process-local task attached to it."""
+
+    driver.runs.create(
+        {
+            "run_id": run_id,
+            "project_id": PROJECT_ID,
+            "session_id": SESSION_ID,
+            "goal_id": GOAL_ID,
+            "conversation_id": CONVERSATION_ID,
+            "round_id": f"agent-round-{run_id}",
+            "caused_by_message_id": "message-initial",
+            "caused_by_message_seq": 1,
+            "caused_by_request_id": "client-initial",
+            "origin": "initial_creation",
+            "review_policy": "auto_fix",
+            "input_generation": snapshot.generation,
+            "input_etag": snapshot.etag,
+        },
+    )
+    if running:
+        driver.runs.transition(
+            PROJECT_ID,
+            run_id,
+            expected_status=AgentRunStatus.QUEUED,
+            status=AgentRunStatus.RUNNING,
+        )
+
+
+def test_startup_sweep_reclaims_hard_killed_running_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A crash/SIGKILL skips graceful shutdown: the run stays durably
+    RUNNING with error null and the Session keeps its lease. The startup
+    sweep must settle it exactly like a SHUTDOWN cancellation and feed it
+    into the auto-resume path instead of leaving a permanent zombie."""
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_media_review_mode",
+        lambda: "auto_approve",
+    )
+
+    async def scenario():
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成完整短片",
+        )
+        _write_runtime_state(services, snapshot)
+
+        async def callback(_messages, _tools) -> AgentModelTurn:
+            return AgentModelTurn(content="继续完成")
+
+        driver = _driver(services, callback)
+        _create_persisted_run(driver, snapshot, run_id="crashed-run")
+        services.sessions.activate_run(
+            PROJECT_ID,
+            SESSION_ID,
+            goal_id=GOAL_ID,
+            run_id="crashed-run",
+        )
+        # The previous process "dies" here: no graceful shutdown, run
+        # durably RUNNING, request message unconsumed, lease held.
+
+        await driver.start()
+
+        await _wait_for(
+            lambda: driver.runs.get(PROJECT_ID, "crashed-run").status
+            is AgentRunStatus.CANCELLED,
+        )
+
+        def _yolo_messages():
+            return [
+                item
+                for item in services.sessions.list_messages(
+                    PROJECT_ID,
+                    SESSION_ID,
+                    after_seq=0,
+                    limit=None,
+                )
+                if item.source == driver.YOLO_RESUME_SOURCE
+            ]
+
+        await _wait_for(lambda: len(_yolo_messages()) == 1)
+        resume = _yolo_messages()[0]
+        await _wait_for(
+            lambda: any(
+                run.caused_by_message_seq == resume.message_seq
+                and run.status is AgentRunStatus.SUCCEEDED
+                for run in driver.runs.list(PROJECT_ID)
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        crashed = driver.runs.get(PROJECT_ID, "crashed-run")
+        session = services.sessions.get_project_session(PROJECT_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return crashed, resume, session, events
+
+    crashed, resume, session, events = asyncio.run(scenario())
+    assert crashed.status is AgentRunStatus.CANCELLED
+    assert crashed.error is not None
+    # Same terminal shape a graceful shutdown writes, so every existing
+    # consumer (including this sweep on the next restart) treats it alike.
+    assert crashed.error["code"] == "SHUTDOWN"
+    assert resume.metadata["resumeAfterRunId"] == "crashed-run"
+    assert session.active_run_id != "crashed-run"
+    assert any(
+        event.event_type == "agent.run.cancelled"
+        and event.payload.get("runId") == "crashed-run"
+        and event.payload.get("reclaimedAfterCrash") is True
+        for event in events
+    )
+
+
+def test_startup_sweep_never_resumes_interrupted_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """INTERRUPTED carries human intent (an explicit stop) and must stay
+    excluded from auto-resume even with crash reclamation in the sweep."""
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_media_review_mode",
+        lambda: "auto_approve",
+    )
+
+    async def scenario():
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成完整短片",
+        )
+        _write_runtime_state(services, snapshot)
+        services.sessions.mark_messages_consumed(
+            PROJECT_ID,
+            SESSION_ID,
+            through_seq=1,
+            goal_id=GOAL_ID,
+        )
+
+        async def callback(_messages, _tools) -> AgentModelTurn:
+            return AgentModelTurn(content="不应被调用")
+
+        driver = _driver(services, callback)
+        _create_persisted_run(driver, snapshot, run_id="stopped-run")
+        driver.runs.transition(
+            PROJECT_ID,
+            "stopped-run",
+            expected_status=AgentRunStatus.RUNNING,
+            status=AgentRunStatus.CANCELLED,
+            updates={
+                "error": {
+                    "code": "INTERRUPTED",
+                    "message": "Run interrupted by the user",
+                },
+            },
+        )
+
+        await driver.start()
+        await asyncio.sleep(0.1)
+        messages = services.sessions.list_messages(
+            PROJECT_ID,
+            SESSION_ID,
+            after_seq=0,
+            limit=None,
+        )
+        runs = driver.runs.list(PROJECT_ID)
+        await driver.stop()
+        return messages, runs
+
+    messages, runs = asyncio.run(scenario())
+    assert not any(
+        item.source == FileCreatorAgentRuntime.YOLO_RESUME_SOURCE
+        for item in messages
+    )
+    assert [run.run_id for run in runs] == ["stopped-run"]
+    assert runs[0].error["code"] == "INTERRUPTED"
+
+
 def test_interrupt_revokes_stale_run_before_late_tool_commit(tmp_path) -> None:
     async def scenario():
         services, snapshot = _create_project(tmp_path, initial_goal="请修改项目")

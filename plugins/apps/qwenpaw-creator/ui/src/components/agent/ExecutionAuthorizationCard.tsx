@@ -17,7 +17,7 @@ import i18n from "@/i18n";
 
 const BUTTON_BASE =
   "rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50";
-const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-accent)] text-white hover:opacity-90`;
+const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] hover:opacity-90`;
 const BUTTON_GHOST = `${BUTTON_BASE} border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`;
 
 export function authorizationApprovalPayload(

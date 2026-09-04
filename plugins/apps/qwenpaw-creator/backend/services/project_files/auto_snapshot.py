@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from .json_pointer import diff_json
@@ -39,12 +39,17 @@ def _next_snapshot_id(
     timelines_items: dict[str, Any],
     timeline_id: str,
 ) -> str:
-    existing = [
-        key
-        for key in timelines_items
-        if key.startswith(f"{_SNAPSHOT_PREFIX}{timeline_id}:")
-    ]
-    return f"{_SNAPSHOT_PREFIX}{timeline_id}:{len(existing) + 1}"
+    # Max suffix + 1, not count + 1: snapshots are deletable, and a count
+    # after deleting an early snapshot would collide with a surviving id.
+    prefix = f"{_SNAPSHOT_PREFIX}{timeline_id}:"
+    highest = 0
+    for key in timelines_items:
+        if not key.startswith(prefix):
+            continue
+        suffix = key[len(prefix) :]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return f"{prefix}{highest + 1}"
 
 
 def _remap_element_id(element_id: str, snapshot_id: str) -> str:
@@ -122,6 +127,36 @@ def _remap_snapshot_elements(
                 ]
 
 
+_AUTO_SNAPSHOT_DESCRIPTION = "自动快照：修改前的时间轴副本"
+_SNAPSHOT_STAMP_FORMAT = "%Y-%m-%d %H:%M"
+_AUTO_SNAPSHOT_DEDUPE_WINDOW_SECONDS = 10 * 60
+
+
+def _latest_auto_snapshot_age_seconds(
+    timelines_items: dict[str, Any],
+    timeline_id: str,
+    now: datetime,
+) -> float | None:
+    """Age of the newest auto-snapshot of *timeline_id*, or None."""
+    latest: datetime | None = None
+    prefix = f"{_SNAPSHOT_PREFIX}{timeline_id}:"
+    for key, timeline in timelines_items.items():
+        if not key.startswith(prefix):
+            continue
+        if not str(timeline.get("description", "")).startswith("自动快照"):
+            continue
+        stamp = str(timeline.get("name", ""))[-16:]
+        try:
+            created = datetime.strptime(stamp, _SNAPSHOT_STAMP_FORMAT)
+        except ValueError:
+            continue
+        if latest is None or created > latest:
+            latest = created
+    if latest is None:
+        return None
+    return (now - latest).total_seconds()
+
+
 def auto_snapshot_timelines(
     base_data: dict[str, Any],
     candidate_data: dict[str, Any],
@@ -130,12 +165,17 @@ def auto_snapshot_timelines(
 
     Mutates *candidate_data* in place. For each timeline whose elements
     changed between *base_data* and *candidate_data*, a frozen copy of the
-    **candidate** (post-change) timeline is inserted into the candidate with
-    a versioned name, preserving the latest modifications in the snapshot.
+    **base** (pre-change) timeline is inserted into the candidate with a
+    versioned name, so the user can compare against and roll back to the
+    state before the modification. The live timeline keeps the candidate's
+    edits — the user always modifies the live timeline, never a snapshot.
 
     Only fires when elements are added, removed, or modified inside
     ``elements_by_id``.  Timeline-level property changes (name, description,
-    order) do not trigger a snapshot.
+    order) do not trigger a snapshot, and a timeline whose newest
+    auto-snapshot is younger than ten minutes is not snapshotted again, so
+    an editing session leaves one pre-session baseline instead of one
+    snapshot per commit.
     """
     changed_ids = _timeline_element_changes(base_data, candidate_data)
     if not changed_ids:
@@ -151,36 +191,39 @@ def auto_snapshot_timelines(
     base_timelines = base_data.get("timelines", {})
     base_items = base_timelines.get("items", {})
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    # Local time on purpose: the frontend stamps manual snapshots with the
+    # user's local clock, and the panel shows both side by side.
+    now = datetime.now()
+    stamp = now.strftime(_SNAPSHOT_STAMP_FORMAT)
 
     for timeline_id in sorted(changed_ids):
-        candidate_timeline = candidate_items.get(timeline_id)
-        if candidate_timeline is None:
+        base_timeline = base_items.get(timeline_id)
+        if base_timeline is None:
             continue
-        elements = candidate_timeline.get("elements_by_id", {})
+        elements = base_timeline.get("elements_by_id", {})
         if not elements:
+            continue
+        age = _latest_auto_snapshot_age_seconds(
+            candidate_items,
+            timeline_id,
+            now,
+        )
+        if age is not None and age < _AUTO_SNAPSHOT_DEDUPE_WINDOW_SECONDS:
             continue
 
         snapshot_id = _next_snapshot_id(candidate_items, timeline_id)
-        original_name = candidate_timeline.get("name") or timeline_id
-        snapshot_name = f"快照 · {original_name} · {now}"
+        # Internal ids like "timeline:main" must never surface to users.
+        original_name = (
+            base_timeline.get("name") or base_timeline.get("title") or "时间线"
+        )
+        snapshot_name = f"快照 · {original_name} · {stamp}"
 
-        snapshot_timeline = copy.deepcopy(candidate_timeline)
+        snapshot_timeline = copy.deepcopy(base_timeline)
         snapshot_timeline["timeline_id"] = snapshot_id
         snapshot_timeline["name"] = snapshot_name
-        snapshot_timeline["description"] = "自动快照：Agent 修改后的时间轴副本"
+        snapshot_timeline["description"] = _AUTO_SNAPSHOT_DESCRIPTION
         _remap_snapshot_elements(snapshot_timeline, snapshot_id)
 
         candidate_items[snapshot_id] = snapshot_timeline
         if snapshot_id not in candidate_order:
             candidate_order.append(snapshot_id)
-
-        base_timeline = base_items.get(timeline_id)
-        if base_timeline is not None:
-            candidate_timeline["elements_by_id"] = copy.deepcopy(
-                base_timeline.get("elements_by_id", {}),
-            )
-            if "edit_plan" in base_timeline:
-                candidate_timeline["edit_plan"] = copy.deepcopy(
-                    base_timeline["edit_plan"],
-                )

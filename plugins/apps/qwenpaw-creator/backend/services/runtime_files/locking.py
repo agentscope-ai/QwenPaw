@@ -24,7 +24,6 @@ import socket
 import sys
 import threading
 import time
-import traceback
 from types import TracebackType
 from typing import Any
 from uuid import uuid4
@@ -37,7 +36,9 @@ logger = logging.getLogger("qwenpaw.creator.runtime_files.locking")
 # longer hides a leaked/nested lock instead of fixing it, so ten seconds stays
 # a deadlock fuse.  Readers never take locks, so contention is limited to the
 # rare write/write overlap within one Project domain.
-DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
+DEFAULT_LOCK_TIMEOUT_SECONDS = float(
+    os.environ.get("CREATOR_LOCK_TIMEOUT_SECONDS", "10.0"),
+)
 
 _SHARED_HOLDER_REPORT_LIMIT = 20
 
@@ -258,22 +259,20 @@ class CrossProcessFileLock:
                 )
             )
             if held is not None:
-                message = (
-                    "same-thread nested Runtime lock acquisition "
-                    + "would deadlock: "
-                )
-                acquirer_stack = "".join(
-                    traceback.format_stack(limit=18),
-                )
-                logger.error(
-                    "%spath=%s held=%r acquirer stack:\n%s",
-                    message,
+                # The same pool thread already appears as a holder. This is
+                # usually NOT a nested call stack: holds that span an await
+                # return their thread to the executor pool, and the next
+                # request reused it. Waiting is safe — flock release happens
+                # on whichever thread resumes the holder — so fall through
+                # to the normal timeout-bounded wait instead of failing the
+                # innocent request. A genuine nested acquisition surfaces as
+                # a retryable LockTimeoutError after the deadline.
+                logger.warning(
+                    "same-thread lock reuse detected for %s "
+                    "(likely executor thread reuse); waiting with timeout. "
+                    "holder=%r",
                     self.path,
                     held,
-                    acquirer_stack,
-                )
-                raise RuntimeFileValidationError(
-                    f"{message}path={self.path} held={held!r}",
                 )
 
         started = time.monotonic()
@@ -346,6 +345,29 @@ class CrossProcessFileLock:
         if remaining <= 0:
             raise self._timeout_error(state, waiter)
         state.condition.wait(remaining)
+
+    def acquire_detached(self) -> CrossProcessFileLock:
+        """Acquire for a holder that outlives the acquiring thread.
+
+        ``await asyncio.to_thread(lock.acquire)`` acquires on a pooled
+        executor thread that returns to the pool immediately, while the
+        coroutine keeps holding the lock across ``await`` boundaries.
+        Keeping the thread-based holder registration would falsely flag
+        unrelated work later scheduled onto that reused thread (for example
+        a shared poll read of the same Project lock) as a same-thread nested
+        acquisition.  Dropping the thread association here, before the
+        worker thread can pick up other work, keeps the nesting guard for
+        true same-stack nesting; a cross-owner wait stays bounded by the
+        lock timeout fuse.  ``release`` keeps working from any thread.
+        """
+
+        self.acquire()
+        held_key = self._held_key
+        self._held_key = None
+        if held_key is not None:
+            with _HELD_LOCKS_GUARD:
+                _HELD_LOCKS.pop(held_key, None)
+        return self
 
     def release(self) -> None:
         state = self._state

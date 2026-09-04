@@ -48,6 +48,7 @@ from services.file_agent_runtime.work_graph import (
     WorkNodeStatus,
     derive_work_graph,
 )
+from services.project_files import frontend_edit_hold
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.execution_store import ProjectExecutionStore
 from utils.logger import setup_logger
@@ -140,6 +141,7 @@ def _quarantined_stale_targets(tasks: Sequence[Any]) -> set[str]:
 _R2V_COMMANDS = {CreatorCommandType.GENERATE_R2V_VIDEO.value}
 _S2V_COMMANDS = {CreatorCommandType.GENERATE_S2V_VIDEO.value}
 _COMPOSE_COMMANDS = {CreatorCommandType.COMPOSE_FINAL_VIDEO.value}
+_SCRIPT_COMMANDS = {CreatorCommandType.GENERATE_TIMELINE_SCRIPT.value}
 
 # Publication stays non-blocking, but dependent unattended work waits for the
 # asynchronous reviewer to settle. Otherwise a short image review can replace
@@ -277,6 +279,22 @@ class WorkGraphScheduler:
             ).encode("utf-8"),
         ).hexdigest()[:16]
         return f"{base}-m{models}"
+
+    @staticmethod
+    def _dispatch_slot(fingerprint: str) -> str:
+        """Safe-segment slot id for one ledger fingerprint.
+
+        The ledger fingerprint embeds the configured media model names
+        ("...|img:<model>|vid:<model>") and "|" is not a safe Runtime
+        path segment character. Media executors persist the dispatch
+        idempotency key verbatim as Task idempotency_key /
+        caused_by_request_id, so the raw fingerprint must never leak
+        into the key — every store write would reject it and no media
+        node could dispatch. Hash it down to a stable hex slot instead
+        (same shape work_graph fingerprints already use).
+        """
+
+        return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
 
     # -- lifecycle -----------------------------------------------------
 
@@ -424,6 +442,7 @@ class WorkGraphScheduler:
         }
 
     # pylint: disable=too-many-statements
+    # pylint: disable-next=too-many-branches
     async def tick(self, project_id: str) -> WorkGraph | None:
         """Derive the graph once and dispatch what capacity allows."""
 
@@ -505,9 +524,26 @@ class WorkGraphScheduler:
             1 for node in graph.nodes if node.status.value == "running"
         )
         capacity = get_media_parallelism() - running - len(inflight)
+        # Auto-saved frontend edits open a short grace window per element;
+        # dispatching inside it would hand a possibly half-finished prompt
+        # to a paid provider. Recheck once the earliest window expires.
+        held_recheck: float | None = None
         for node in self._dispatch_candidates(project_id, graph, tasks):
             if capacity <= 0:
                 break
+            target_ref = node.target_ref or ""
+            if target_ref.startswith("element:"):
+                held_for = frontend_edit_hold.hold_remaining(
+                    project_id,
+                    target_ref[len("element:") :],
+                )
+                if held_for > 0:
+                    held_recheck = (
+                        held_for
+                        if held_recheck is None
+                        else min(held_recheck, held_for)
+                    )
+                    continue
             if _blocked_by_active_sync_review(
                 node,
                 sync_review_pending=sync_review_pending,
@@ -555,6 +591,9 @@ class WorkGraphScheduler:
                     done.exception()
 
             task.add_done_callback(discard)
+        if held_recheck is not None:
+            # Same one-shot wake mechanics as the sync-gate recheck timer.
+            self._schedule_sync_gate_recheck(project_id, held_recheck)
         await self._emit_graph_transitions(
             project_id,
             graph,
@@ -756,7 +795,7 @@ class WorkGraphScheduler:
             ledger_key = (project_id, node.node_id, fingerprint)
             if ledger_key not in self._dispatched or node.node_id in inflight:
                 continue
-            prefix = f"dag-{node.node_id}-{fingerprint}"
+            prefix = f"dag-{node.node_id}-{self._dispatch_slot(fingerprint)}"
             node_prefix = f"dag-{node.node_id}-"
             if any(
                 key.startswith(prefix)
@@ -1067,9 +1106,12 @@ class WorkGraphScheduler:
 
         if node.command is None or node.target_ref is None:
             raise ValueError(f"node {node.node_id} is not dispatchable")
+        raw_fingerprint = fingerprint or self._ledger_fingerprint(node)
+        # The key becomes a durable record's caused_by_request_id, so the
+        # fingerprint (which carries "|"-separated model names) is hashed
+        # into a safe path segment first.
         idempotency_key = (
-            f"dag-{node.node_id}-"
-            f"{fingerprint or self._ledger_fingerprint(node)}"
+            f"dag-{node.node_id}-{self._dispatch_slot(raw_fingerprint)}"
         )
         if node.command in _COMPOSE_COMMANDS:
             # A failed master render is retried without content changes
@@ -1079,7 +1121,7 @@ class WorkGraphScheduler:
             ledger_key = (
                 project_id,
                 node.node_id,
-                fingerprint or self._ledger_fingerprint(node),
+                raw_fingerprint,
             )
             generation = self._transient_retries.get(ledger_key, 0)
             if generation:
@@ -1090,6 +1132,8 @@ class WorkGraphScheduler:
             dispatch = self._r2v_dispatch or _default_r2v_dispatch
         elif node.command in _COMPOSE_COMMANDS:
             dispatch = _default_compose_dispatch
+        elif node.command in _SCRIPT_COMMANDS:
+            dispatch = _default_script_dispatch
         else:
             dispatch = self._image_dispatch or _default_image_dispatch
         return await dispatch(
@@ -1121,6 +1165,33 @@ async def _default_image_dispatch(
         services,
         project_id=project_id,
         command=command,
+        target_ref=target_ref,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
+    )
+
+
+async def _default_script_dispatch(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    command: str | None = None,
+    target_ref: str,
+    arguments: dict[str, Any],
+    idempotency_key: str,
+) -> Any:
+    """Draft one timeline's script via the text model (free of media spend)."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.media_files.script_execution import (
+        execute_file_script_command,
+    )
+
+    # The script entry point has a single command and takes no command kwarg.
+    del command
+    return await execute_file_script_command(
+        services,
+        project_id=project_id,
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,

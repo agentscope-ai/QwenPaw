@@ -96,6 +96,9 @@ class RuntimeEventKind(StrEnum):
     NODE_DISPATCH_STARTED = "node_dispatch_started"
     NODE_SUCCEEDED = "node_succeeded"
     NODE_GATED = "node_gated"
+    # Direct (HTTP, no agent turn) character-voice enrollment completed.
+    VOICE_ENROLLED = "voice_enrolled"
+    NARRATION_REGENERATED = "narration_regenerated"
 
 
 class NotificationLevel(StrEnum):
@@ -114,6 +117,8 @@ EVENT_LEVELS: dict[RuntimeEventKind, NotificationLevel] = {
     RuntimeEventKind.NODE_DISPATCH_STARTED: NotificationLevel.QUIET,
     RuntimeEventKind.NODE_SUCCEEDED: NotificationLevel.QUIET,
     RuntimeEventKind.NODE_GATED: NotificationLevel.QUIET,
+    RuntimeEventKind.VOICE_ENROLLED: NotificationLevel.QUIET,
+    RuntimeEventKind.NARRATION_REGENERATED: NotificationLevel.QUIET,
 }
 
 

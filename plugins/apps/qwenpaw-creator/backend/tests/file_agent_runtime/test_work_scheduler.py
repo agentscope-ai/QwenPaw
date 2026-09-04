@@ -465,6 +465,31 @@ def test_ledger_fingerprint_still_reopens_on_model_change():
     assert baseline != fingerprint_for("image-a", "video-b")
 
 
+def test_idempotency_key_is_a_safe_runtime_segment(tmp_path, monkeypatch):
+    """Regression: the ledger fingerprint carries "|img:<model>|vid:<model>"
+    and "|" is rejected by require_safe_runtime_segment. Media executors
+    persist the dispatch key verbatim as Task idempotency_key /
+    caused_by_request_id, so a raw fingerprint in the key failed every
+    work-graph dispatch ("caused_by_request_id is not a safe path
+    segment") and media generation never started."""
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    dispatch = _RecordingDispatch()
+    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+
+    async def scenario():
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+
+    asyncio.run(scenario())
+
+    key = dispatch.calls[0]["idempotency_key"]
+    assert "|" not in key
+    assert (
+        require_safe_runtime_segment(key, label="caused_by_request_id") == key
+    )
+
+
 def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
     """Field run 2026-08-07: the first commit of a four-wide storyboard
     wave staled the other three; their tasks went QUARANTINED (invisible
