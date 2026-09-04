@@ -2764,6 +2764,10 @@
       "mission": {
         "name": "Nhiệm vụ",
         "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
+      },
+      "advisor": {
+        "name": "Cố vấn",
+        "description": "Mô hình mạnh hơn lập kế hoạch và can thiệp; mô hình rẻ hơn làm việc."
       }
     },
     "advisorSetup": {

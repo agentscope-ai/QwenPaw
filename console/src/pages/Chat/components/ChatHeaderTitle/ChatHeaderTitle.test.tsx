@@ -85,7 +85,7 @@ describe("ChatHeaderTitle", () => {
     });
     useLoopStore.getState().setSessionMode(
       {
-        id: "plugin:advisor",
+        id: "advisor",
         name: "Advisor",
         slash_command: "advisor",
         description: "",

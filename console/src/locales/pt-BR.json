@@ -4232,6 +4232,10 @@
       "mission": {
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
+      },
+      "advisor": {
+        "name": "Conselheiro",
+        "description": "Um modelo mais forte planeja e intervém; um mais barato faz o trabalho."
       }
     },
     "advisorSetup": {

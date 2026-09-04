@@ -14,7 +14,7 @@ import { useAdvisorMode } from "../../stores/advisorModeStore";
 import styles from "./index.module.less";
 
 /** Loop-catalog id of Advisor Mode (`plugin:<mode name>`). */
-export const ADVISOR_LOOP_MODE_ID = "plugin:advisor";
+export const ADVISOR_LOOP_MODE_ID = "advisor";
 
 const DEFAULT_KEY = "";
 

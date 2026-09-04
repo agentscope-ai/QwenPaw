@@ -384,7 +384,11 @@ def _build_loop_catalog(
             continue
         command = commands[0]
         metadata = command.metadata or {}
-        descriptor_id = f"plugin:{runtime_name}"
+        bundled = bool(metadata.get("builtin"))
+        # Modes bundled with QwenPaw (Advisor) sit with the built-in loops in
+        # the composer, matching their tab in Configuration; they get a bare
+        # id like ``goal`` so the Console resolves their name from its i18n.
+        descriptor_id = runtime_name if bundled else f"plugin:{runtime_name}"
         name_i18n = _as_str_dict(metadata.get("name_i18n"))
         description_i18n = _as_str_dict(metadata.get("description_i18n"))
         result.append(
@@ -393,9 +397,7 @@ def _build_loop_catalog(
                 name=str(metadata.get("loop_name") or runtime_name),
                 slash_command=command.name,
                 description=command.help_text,
-                # Modes bundled with QwenPaw (Advisor) sit with the built-in
-                # loops in the composer, matching their tab in Configuration.
-                source="builtin" if metadata.get("builtin") else "plugin",
+                source="builtin" if bundled else "plugin",
                 name_i18n=name_i18n or None,
                 description_i18n=description_i18n or None,
             ),

@@ -4686,6 +4686,10 @@
       "mission": {
         "name": "任务",
         "description": "运行结构化、可持续的多步骤任务。"
+      },
+      "advisor": {
+        "name": "顾问",
+        "description": "更强的模型规划并在卡住时介入，便宜的模型干活。"
       }
     },
     "advisorSetup": {

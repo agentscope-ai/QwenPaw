@@ -189,7 +189,7 @@ describe("fetchActiveLoopMode while a mode is starting", () => {
     vi.mocked(request).mockResolvedValueOnce({ state: "idle", mode: null });
     const { fetchActiveLoopMode } = await import("./loopStore");
     useLoopStore.getState().setStartingMode({
-      id: "plugin:advisor",
+      id: "advisor",
       name: "Advisor",
       slash_command: "advisor",
       description: "",
@@ -197,7 +197,7 @@ describe("fetchActiveLoopMode while a mode is starting", () => {
     });
     await fetchActiveLoopMode({ chatId: "chat-1" });
     expect(useLoopStore.getState().sessionState).toBe("starting");
-    expect(useLoopStore.getState().activeMode?.id).toBe("plugin:advisor");
+    expect(useLoopStore.getState().activeMode?.id).toBe("advisor");
   });
 
   it("still resets to idle when nothing is starting", async () => {

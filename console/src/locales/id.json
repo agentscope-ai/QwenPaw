@@ -3553,6 +3553,10 @@
       "mission": {
         "name": "Misi",
         "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
+      },
+      "advisor": {
+        "name": "Penasihat",
+        "description": "Model yang lebih kuat merencanakan dan turun tangan; model yang lebih murah mengerjakan."
       }
     },
     "advisorSetup": {

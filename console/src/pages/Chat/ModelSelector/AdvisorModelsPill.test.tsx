@@ -26,7 +26,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 const ADVISOR = {
-  id: "plugin:advisor",
+  id: "advisor",
   name: "Advisor",
   slash_command: "advisor",
   description: "",
@@ -88,7 +88,7 @@ describe("AdvisorModelsPill", () => {
     const { result, rerender } = renderHook(() => useIsAdvisorConversation());
     expect(result.current).toBe(false);
     useLoopStore.getState().setAvailableModes([ADVISOR]);
-    useLoopStore.getState().setSelectedMode("plugin:advisor");
+    useLoopStore.getState().setSelectedMode("advisor");
     rerender();
     expect(result.current).toBe(true);
     useLoopStore.getState().resetSessionMode();
