@@ -86,7 +86,9 @@ export function AdvisorModelsPill() {
           data-testid="advisor-models-pill"
         >
           <Bot size={16} />
-          <span className={styles.triggerName}>{label}</span>
+          <span className={`${styles.triggerName} ${styles.advisorPairName}`}>
+            {label}
+          </span>
           <ChevronDown size={14} />
         </button>
       </Tooltip>
