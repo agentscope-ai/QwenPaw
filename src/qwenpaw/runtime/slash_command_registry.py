@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+from .occupancy import occupancy_conflict
+
 if TYPE_CHECKING:
     from agentscope.message import Msg
 
@@ -40,6 +42,7 @@ class CommandSpec:
     category: str = "user"
     help_text: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    owner_plugin_id: str = ""
 
 
 class SlashCommandRegistry:
@@ -67,11 +70,24 @@ class SlashCommandRegistry:
             if key in self._by_name:
                 existing = self._by_name[key]
                 raise ValueError(
-                    f"command /{key} already registered "
-                    f"by {existing.category} ({existing.name})",
+                    occupancy_conflict(
+                        "command",
+                        f"/{key}",
+                        getattr(existing, "owner_plugin_id", "") or "",
+                    ),
                 )
         for nm in names:
             self._by_name[nm.lower()] = spec
+
+    def unregister(self, name: str) -> bool:
+        """Remove a command and its aliases. ``True`` if it was present."""
+        key = name.lower()
+        spec = self._by_name.get(key)
+        if spec is None:
+            return False
+        for nm in (spec.name, *spec.aliases):
+            self._by_name.pop(nm.lower(), None)
+        return True
 
     def register_fallback(self, handler: FallbackHandler) -> None:
         if self._fallback is not None:

@@ -1386,11 +1386,17 @@ class AgentBuilder:
                 mw = reg.factory(ctx, agent_config)
                 if mw is not None:
                     mws.append(mw)
-            except Exception:
+            except Exception as exc:
                 _logger.warning(
                     "plugin %s middleware factory failed",
                     reg.plugin_id,
                     exc_info=True,
+                )
+                from qwenpaw.plugins.lifecycle import note_plugin_diagnostic
+
+                note_plugin_diagnostic(
+                    reg.plugin_id,
+                    f"middleware factory: {exc}",
                 )
 
         # Visual compression is a request-boundary middleware. It reads the

@@ -89,6 +89,42 @@ async def _sync_scroll_history_on_startup() -> None:
         logger.warning("session-sync: import/launch failed", exc_info=True)
 
 
+async def _shutdown_plugins(app: FastAPI) -> None:
+    """Tear down plugin runtime resources before other services stop."""
+    plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        logger.info("Executing plugin shutdown (mode=shutdown)...")
+        from ..plugins.lifecycle import UnloadMode
+
+        await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        return
+    plugin_registry = getattr(app.state, "plugin_registry", None)
+    if plugin_registry is None:
+        return
+    logger.info("Executing plugin shutdown hooks...")
+    for hook in plugin_registry.get_shutdown_hooks():
+        try:
+            logger.info(
+                f"Executing shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority"
+                f"={hook.priority})",
+            )
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+            logger.info(
+                f"✓ Completed shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as exc:
+            logger.error(
+                f"✗ Failed to execute shutdown hook "
+                f"'{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {exc}",
+                exc_info=True,
+            )
+
+
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
     """Periodically reclaim idle browser workers for this app process."""
     while True:
@@ -504,32 +540,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # ---- Startup Hooks ----
             logger.debug("Executing plugin startup hooks...")
-            startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
-
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+            await plugin_loader.run_all_startup_hooks()
 
             # ---- Approval Service ----
             try:
@@ -594,35 +605,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         await shutdown_browser_runtime()
 
         # ==================== Execute Shutdown Hooks ====================
-        plugin_registry = getattr(app.state, "plugin_registry", None)
-        if plugin_registry is not None:
-            logger.info("Executing plugin shutdown hooks...")
-            shutdown_hooks = plugin_registry.get_shutdown_hooks()
-            for hook in shutdown_hooks:
-                try:
-                    logger.info(
-                        f"Executing shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' (priority"
-                        f"={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(result) or inspect.isawaitable(
-                        result,
-                    ):
-                        await result
-
-                    logger.info(
-                        f"✓ Completed shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute shutdown hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+        await _shutdown_plugins(app)
 
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:

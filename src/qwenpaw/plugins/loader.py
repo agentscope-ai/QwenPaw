@@ -23,9 +23,21 @@ from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
+from .dependency_gate import DependencyGate, GateDecision
+from .lifecycle import (
+    PluginLifecycle,
+    ReloadReport,
+    UnloadMode,
+    UnloadReport,
+    await_with_budget,
+    REGISTER_WALL_CLOCK_SECONDS,
+)
 from .module_isolation import (
     build_plugin_builtins,
     get_namespace_finder,
+    probe_plugin_source,
+    restore_plugin_import_state,
+    snapshot_plugin_import_state,
     strip_plugin_sys_path,
     sweep_bare_tree_modules,
     unregister_namespace,
@@ -62,6 +74,51 @@ def _plugin_runtime_dir() -> Path:
     from ..constant import WORKING_DIR
 
     return Path(WORKING_DIR) / "plugin_runtime"
+
+
+def _backend_entry_file(
+    source_path: Path,
+    manifest: PluginManifest,
+) -> Path | None:
+    backend = getattr(manifest.entry, "backend", None)
+    if not backend:
+        return None
+    return source_path / backend
+
+
+def _probe_incoming(
+    plugin_id: str,
+    source_path: Path,
+    entry_file: Path | None,
+) -> ReloadReport | None:
+    """Return a failed report when probe import does not succeed."""
+    if entry_file is None:
+        return None
+    try:
+        probe_plugin_source(plugin_id, source_path, entry_file)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Probe import failed for plugin '%s': %s",
+            plugin_id,
+            exc,
+            exc_info=True,
+        )
+        return ReloadReport(
+            plugin_id=plugin_id,
+            ok=False,
+            unchanged=True,
+            errors=[f"probe failed: {exc}"],
+        )
+    return None
+
+
+def _remove_dir(path: Path | None) -> None:
+    if path is None or not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    path.unlink()
 
 
 def _plugin_site_dir() -> Path:
@@ -197,6 +254,7 @@ class PluginLoader:
         """
         self.plugin_dirs = [Path(d) for d in plugin_dirs]
         self.registry = PluginRegistry()
+        self.lifecycle = PluginLifecycle(self)
         self._loaded_plugins: Dict[str, PluginRecord] = {}
         # In-process per-plugin serialization for load/unload/reinstall.
         # Distinct from the inter-process install-deps file lock.
@@ -395,37 +453,42 @@ class PluginLoader:
         self,
         source_path: Path,
         plugin_id: str,
-    ) -> None:
-        """Check and install missing dependencies for a plugin.
+        *,
+        allow_install: bool = False,
+    ) -> GateDecision:
+        """Run the dependency gate, optionally installing packages.
 
-        Inspects ``requirements.txt`` in the plugin directory; if any
-        packages are missing or version-incompatible, installs them via
-        pip/uv before the plugin module is imported.
-
-        Args:
-            source_path: Plugin directory containing requirements.txt
-            plugin_id: Plugin identifier (for log messages)
+        Boot paths pass ``allow_install=False`` (check only). User-facing
+        install / update / repair pass ``True`` so the gate may install.
         """
-        # Previously installed plugin deps live in a user-writable site dir;
-        # ensure it is importable before checking and before plugin import.
         _ensure_plugin_site_on_path()
-
         requirements_file = source_path / "requirements.txt"
-        missing_deps = self._find_unsatisfied_dependencies(requirements_file)
-        if not missing_deps:
-            return
+        if not self.lifecycle.delegate.owns_dependency_env(plugin_id):
+            return GateDecision(
+                allow_install=False,
+                already_satisfied=True,
+                reason="dependency env not owned by this process",
+            )
+        decision = DependencyGate().evaluate(
+            requirements_file,
+            allow_install=allow_install,
+            plugin_id=plugin_id,
+        )
+        if decision.already_satisfied or not decision.allow_install:
+            return decision
         logger.info(
             "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
             "Installing...",
             plugin_id,
-            len(missing_deps),
-            ", ".join(missing_deps),
+            len(decision.missing),
+            ", ".join(decision.missing),
         )
         await asyncio.to_thread(
             self._install_requirements_locked,
             requirements_file,
             plugin_id,
         )
+        return decision
 
     def _install_requirements_locked(
         self,
@@ -586,18 +649,12 @@ class PluginLoader:
                 "qwenpaw_version": qv_dict,
                 "meta": manifest.meta,
             }
-            api = PluginApi(plugin_id, config or {}, manifest_dict)
-            api.set_registry(self.registry)
-            self.registry.register_plugin_manifest(plugin_id, manifest_dict)
-
-            if hasattr(plugin_def, "register"):
-                result = plugin_def.register(api)
-                if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                    await result
-            else:
-                raise AttributeError(
-                    "Plugin must implement 'register(api)' method",
-                )
+            await self._invoke_plugin_register(
+                plugin_id,
+                plugin_def,
+                config,
+                manifest_dict,
+            )
         except Exception:
             self._cleanup_failed_load(
                 plugin_id,
@@ -624,6 +681,49 @@ class PluginLoader:
             sweep_bare_tree_modules(source_path, modules_before)
 
         return plugin_def
+
+    async def _invoke_plugin_register(
+        self,
+        plugin_id: str,
+        plugin_def: Any,
+        config: Optional[Dict],
+        manifest_dict: Dict[str, Any],
+    ) -> None:
+        """Bind the current instance and run ``plugin_def.register``."""
+        from .settings import runtime_config
+
+        api = PluginApi(plugin_id, runtime_config(config), manifest_dict)
+        api.set_registry(self.registry)
+        instance = self.lifecycle.ensure_instance(plugin_id)
+        api.bind_instance(instance)
+        self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+        instance.record_runtime(
+            "plugin_manifest",
+            lambda: self.registry.drop_plugin_manifest(plugin_id),
+            kind="manifest",
+        )
+        if not hasattr(plugin_def, "register"):
+            raise AttributeError(
+                "Plugin must implement 'register(api)' method",
+            )
+        try:
+            result = plugin_def.register(api)
+            await await_with_budget(
+                result,
+                seconds=REGISTER_WALL_CLOCK_SECONDS,
+                what="register()",
+                plugin_id=plugin_id,
+            )
+        except Exception as exc:
+            instance.mark_failed(str(exc))
+            await instance.dispose(UnloadMode.UNLOAD)
+            from .provision import recover_migrating_inventory
+
+            recover_migrating_inventory(plugin_id)
+            raise
+        from .provision import commit_migrations
+
+        commit_migrations(plugin_id)
 
     def _cleanup_failed_load(
         self,
@@ -678,6 +778,8 @@ class PluginLoader:
         manifest: PluginManifest,
         source_path: Path,
         config: Optional[Dict] = None,
+        *,
+        allow_install: bool = False,
     ) -> PluginRecord:
         """Load a single plugin.
 
@@ -699,6 +801,7 @@ class PluginLoader:
                 manifest,
                 source_path,
                 config,
+                allow_install=allow_install,
             )
 
     async def _load_plugin_unlocked(
@@ -706,6 +809,8 @@ class PluginLoader:
         manifest: PluginManifest,
         source_path: Path,
         config: Optional[Dict] = None,
+        *,
+        allow_install: bool = False,
     ) -> PluginRecord:
         """Load a plugin; caller must hold :meth:`plugin_lifecycle`."""
         plugin_id = manifest.id
@@ -714,6 +819,12 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
+        instance = self.lifecycle.ensure_instance(plugin_id)
+        instance.source_path = source_path
+        from .settings import runtime_config
+
+        instance.config = runtime_config(config)
+
         compatible, compat_msg = self._check_version_compatibility(manifest)
         if not compatible:
             logger.warning(
@@ -721,17 +832,40 @@ class PluginLoader:
                 plugin_id,
                 compat_msg,
             )
+            instance.mark_failed(compat_msg)
             record = PluginRecord(
                 manifest=manifest,
                 source_path=source_path,
                 enabled=False,
-                diagnostics=[compat_msg],
+                diagnostics=list(instance.diagnostics),
+                status="failed",
             )
             self._loaded_plugins[plugin_id] = record
             return record
 
-        # Ensure plugin dependencies are installed before loading
-        await self._ensure_dependencies_installed(source_path, plugin_id)
+        decision = await self._ensure_dependencies_installed(
+            source_path,
+            plugin_id,
+            allow_install=allow_install,
+        )
+        if decision.require_restart:
+            raise RuntimeError(decision.reason)
+        if decision.missing and not decision.allow_install:
+            instance.mark_failed(decision.reason)
+            logger.error(
+                "Plugin '%s' marked FAILED: %s",
+                plugin_id,
+                decision.reason,
+            )
+            record = PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                diagnostics=list(instance.diagnostics),
+                status="failed",
+            )
+            self._loaded_plugins[plugin_id] = record
+            return record
 
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
@@ -770,13 +904,24 @@ class PluginLoader:
                     f"Failed to load plugin '{plugin_id}': {e}",
                     exc_info=True,
                 )
-                raise
+                instance.mark_failed(str(e))
+                record = PluginRecord(
+                    manifest=manifest,
+                    source_path=source_path,
+                    enabled=False,
+                    diagnostics=list(instance.diagnostics),
+                    status="failed",
+                )
+                self._loaded_plugins[plugin_id] = record
+                return record
 
         record = PluginRecord(
             manifest=manifest,
             source_path=source_path,
             enabled=True,
             instance=plugin_def,
+            diagnostics=list(instance.diagnostics),
+            status="active",
         )
         self._loaded_plugins[plugin_id] = record
         logger.info(f"✓ Loaded plugin '{plugin_id}' successfully")
@@ -800,15 +945,37 @@ class PluginLoader:
         Returns:
             Dictionary of plugin_id -> PluginRecord
         """
+        from .provision import recover_migrating_inventory
+        from .updates import recover_interrupted_updates
+
+        recover_interrupted_updates(
+            owns_commit=self.lifecycle.delegate.owns_commit,
+        )
+        recover_migrating_inventory(
+            owns_commit=self.lifecycle.delegate.owns_commit,
+        )
+
         discovered = self.discover_plugins()
 
         for manifest, plugin_dir in discovered:
             if types is not None and manifest.plugin_type not in types:
                 continue
+            from .settings import is_plugin_enabled, runtime_config
+
             config = configs.get(manifest.id) if configs else None
+            if not is_plugin_enabled(config):
+                logger.info(
+                    "Skipping disabled plugin '%s'",
+                    manifest.id,
+                )
+                continue
 
             try:
-                await self.load_plugin(manifest, plugin_dir, config)
+                await self.load_plugin(
+                    manifest,
+                    plugin_dir,
+                    runtime_config(config),
+                )
             except Exception as e:
                 logger.error(f"Failed to load plugin '{manifest.id}': {e}")
 
@@ -1067,13 +1234,235 @@ class PluginLoader:
             target,
         )
 
-    def _read_source_manifest(
+    def read_source_manifest(
         self,
         source_path: Path,
     ) -> Tuple[Path, PluginManifest]:
         """Resolve and load ``plugin.json`` under *source_path* (sync I/O)."""
         manifest_path = resolved_plugin_manifest_path(source_path)
         return manifest_path, self._load_manifest(manifest_path)
+
+    def _read_source_manifest(
+        self,
+        source_path: Path,
+    ) -> Tuple[Path, PluginManifest]:
+        """Resolve and load ``plugin.json`` under *source_path* (sync I/O)."""
+        return self.read_source_manifest(source_path)
+
+    async def reload_plugin_unlocked(
+        self,
+        plugin_id: str,
+        *,
+        new_source: Optional[Path] = None,
+        config: Optional[Dict] = None,
+        allow_install: bool = False,
+        owns_dependency_env: bool = True,
+        after_unload: Optional[Any] = None,
+    ) -> ReloadReport:
+        """Reload one plugin. Caller must hold the lifecycle lock."""
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            return ReloadReport(
+                plugin_id=plugin_id,
+                ok=False,
+                errors=[f"Plugin '{plugin_id}' is not loaded"],
+            )
+        old_path = Path(record.source_path)
+        old_config = dict(
+            getattr(self.lifecycle.get_instance(plugin_id), "config", {})
+            or {},
+        )
+        old_generation = 0
+        inst = self.lifecycle.get_instance(plugin_id)
+        if inst is not None:
+            old_generation = inst.generation
+        incoming = Path(new_source).resolve() if new_source else old_path
+        incoming_manifest = record.manifest
+        if incoming != old_path:
+            _, incoming_manifest = await asyncio.to_thread(
+                self._read_source_manifest,
+                incoming,
+            )
+        entry = _backend_entry_file(incoming, incoming_manifest)
+        failed = _probe_incoming(
+            plugin_id,
+            incoming,
+            entry,
+        )
+        if failed is not None:
+            return failed
+        if owns_dependency_env:
+            decision = await self._ensure_dependencies_installed(
+                incoming,
+                plugin_id,
+                allow_install=allow_install,
+            )
+            if decision.require_restart:
+                return ReloadReport(
+                    plugin_id=plugin_id,
+                    ok=False,
+                    unchanged=True,
+                    errors=[decision.reason],
+                )
+        snapshot = snapshot_plugin_import_state(plugin_id, old_path)
+        swapped: Path | None = None
+        try:
+            unload_report = await self._unload_plugin_unlocked(
+                plugin_id,
+                delete_files=False,
+                mode=UnloadMode.UNLOAD,
+            )
+            if not unload_report.quiescent:
+                await self._rollback_reload(
+                    plugin_id,
+                    old_path,
+                    old_config,
+                    snapshot,
+                    None,
+                    incoming_manifest=record.manifest,
+                )
+                return ReloadReport(
+                    plugin_id=plugin_id,
+                    ok=False,
+                    errors=list(unload_report.errors)
+                    or ["hosted resources did not go quiescent"],
+                    generation=old_generation,
+                )
+            await _invoke_after_unload(after_unload, plugin_id)
+            swapped = await self._swap_plugin_dir(
+                plugin_id,
+                old_path,
+                incoming,
+            )
+            target = old_path if swapped else incoming
+            _, installed_manifest = await asyncio.to_thread(
+                self._read_source_manifest,
+                target,
+            )
+            new_record = await self._load_plugin_unlocked(
+                installed_manifest,
+                target,
+                config if config is not None else old_config,
+                allow_install=allow_install,
+            )
+            if new_record.status == "failed":
+                raise RuntimeError(
+                    new_record.diagnostics[0]
+                    if new_record.diagnostics
+                    else f"Plugin '{plugin_id}' failed to load",
+                )
+            from .updates import clear_updating_marker
+
+            clear_updating_marker(plugin_id)
+            if swapped:
+                _remove_dir(swapped)
+            new_inst = self.lifecycle.get_instance(plugin_id)
+            if new_inst is not None:
+                new_inst.generation = old_generation + 1
+            return ReloadReport(
+                plugin_id=plugin_id,
+                ok=True,
+                generation=old_generation + 1,
+            )
+        except Exception as exc:  # noqa: BLE001
+            await self._rollback_reload(
+                plugin_id,
+                old_path,
+                old_config,
+                snapshot,
+                swapped,
+                incoming_manifest=record.manifest,
+            )
+            return ReloadReport(
+                plugin_id=plugin_id,
+                ok=False,
+                errors=[str(exc)],
+                generation=old_generation,
+            )
+
+    async def _swap_plugin_dir(
+        self,
+        plugin_id: str,
+        old_path: Path,
+        incoming: Path,
+    ) -> Path | None:
+        """Rename *old_path* aside and copy *incoming* in. None if in-place."""
+        if not self.lifecycle.delegate.owns_commit(plugin_id):
+            return None
+        if incoming.resolve() == old_path.resolve():
+            return None
+        from .updates import write_updating_marker
+
+        backup = old_path.with_name(old_path.name + f".{plugin_id}.bak")
+
+        def _swap() -> None:
+            if backup.exists():
+                shutil.rmtree(backup)
+            shutil.move(str(old_path), str(backup))
+            shutil.copytree(incoming, old_path)
+
+        write_updating_marker(
+            plugin_id,
+            backup_path=backup,
+            target_path=old_path,
+        )
+        try:
+            await asyncio.to_thread(_swap)
+        except Exception:
+            if backup.exists() and not old_path.exists():
+                shutil.move(str(backup), str(old_path))
+            from .updates import clear_updating_marker
+
+            clear_updating_marker(plugin_id)
+            raise
+        return backup
+
+    async def _rollback_reload(
+        self,
+        plugin_id: str,
+        old_path: Path,
+        old_config: Dict,
+        snapshot: dict,
+        backup: Path | None,
+        *,
+        incoming_manifest: PluginManifest,
+    ) -> None:
+        """Restore runtime, directory, modules, and the previous load."""
+        from .provision import recover_migrating_inventory
+        from .updates import clear_updating_marker
+
+        if plugin_id in self._loaded_plugins:
+            try:
+                await self._unload_plugin_unlocked(
+                    plugin_id,
+                    delete_files=False,
+                    mode=UnloadMode.UNLOAD,
+                    skip_legacy=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Rollback unload failed for plugin '%s'",
+                    plugin_id,
+                )
+        recover_migrating_inventory(plugin_id)
+        if backup is not None and backup.exists():
+            if old_path.exists():
+                shutil.rmtree(old_path)
+            shutil.move(str(backup), str(old_path))
+        clear_updating_marker(plugin_id)
+        restore_plugin_import_state(snapshot)
+        try:
+            await self._load_plugin_unlocked(
+                incoming_manifest,
+                old_path,
+                old_config,
+                allow_install=False,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to restore previous plugin '%s' after reload",
+                plugin_id,
+            )
 
     async def load_plugin_from_path(
         self,
@@ -1094,9 +1483,10 @@ class PluginLoader:
         ``requirements.txt`` are installed before loading.
 
         When *force* is true and the plugin id is already loaded, the
-        existing instance is unloaded under :meth:`plugin_lifecycle`
-        before install (optional *before_force_unload* /
-        *after_force_unload* callbacks run around that unload).
+        existing instance is replaced via :meth:`reload_plugin_unlocked`
+        (probe first; failure leaves the old instance serving). Optional
+        *before_force_unload* / *after_force_unload* run around that
+        inner unload.
 
         *after_load* runs still inside the lifecycle lock so router
         post-load setup (providers / commands / agent config) cannot
@@ -1107,7 +1497,7 @@ class PluginLoader:
             config: Optional plugin configuration dict
             install_dir: Target plugins directory.  Defaults to the
                 first directory in ``self.plugin_dirs``.
-            force: Unload a same-id loaded plugin before installing
+            force: Replace a same-id loaded plugin via reload
             before_force_unload: ``callback(plugin_id)`` before unload
             after_force_unload: ``callback(plugin_id)`` after unload
             after_load: ``callback(record)`` after successful load
@@ -1133,14 +1523,31 @@ class PluginLoader:
                     maybe_before = before_force_unload(plugin_id)
                     if inspect.isawaitable(maybe_before):
                         await maybe_before
-                await self._unload_plugin_unlocked(
+                report = await self.reload_plugin_unlocked(
                     plugin_id,
-                    delete_files=False,
+                    new_source=source_path,
+                    config=config,
+                    allow_install=True,
+                    owns_dependency_env=(
+                        self.lifecycle.delegate.owns_dependency_env(
+                            plugin_id,
+                        )
+                    ),
+                    after_unload=after_force_unload,
                 )
-                if after_force_unload is not None:
-                    maybe_after = after_force_unload(plugin_id)
-                    if inspect.isawaitable(maybe_after):
-                        await maybe_after
+                if not report.ok:
+                    detail = (
+                        report.errors[0]
+                        if report.errors
+                        else f"Reload of '{plugin_id}' failed"
+                    )
+                    raise RuntimeError(detail)
+                record = self._loaded_plugins[plugin_id]
+                if after_load is not None:
+                    maybe_loaded = after_load(record)
+                    if inspect.isawaitable(maybe_loaded):
+                        await maybe_loaded
+                return record
             record = await self._load_plugin_from_path_unlocked(
                 source_path,
                 manifest,
@@ -1206,15 +1613,6 @@ class PluginLoader:
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
-        # Install Python dependencies (off the event loop)
-        requirements_file = target_dir / "requirements.txt"
-        if await asyncio.to_thread(requirements_file.exists):
-            await asyncio.to_thread(
-                self._install_requirements_locked,
-                requirements_file,
-                plugin_id,
-            )
-
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory
         _installed_path, installed_manifest = await asyncio.to_thread(
@@ -1222,83 +1620,139 @@ class PluginLoader:
             target_dir,
         )
         del _installed_path
-        return await self.load_plugin(installed_manifest, target_dir, config)
+        record = await self.load_plugin(
+            installed_manifest,
+            target_dir,
+            config,
+            allow_install=True,
+        )
+        if record.status == "failed":
+            reason = (
+                record.diagnostics[0]
+                if record.diagnostics
+                else f"Plugin '{plugin_id}' failed to load"
+            )
+            raise RuntimeError(reason)
+        return record
 
     async def unload_plugin(
         self,
         plugin_id: str,
         delete_files: bool = False,
-    ) -> None:
-        """Unload a plugin from memory and optionally remove its files.
+        *,
+        mode: UnloadMode | None = None,
+    ) -> UnloadReport:
+        """Unload a plugin.
 
-        Executes any registered shutdown hooks, removes the plugin
-        module from ``sys.modules``, cleans up the plugin registry, and
-        removes the plugin's tools from ``qwenpaw.agents.tools``.
-
-        Args:
-            plugin_id: Plugin identifier to unload
-            delete_files: When ``True``, delete the plugin directory
-                from disk after unloading.
-
-        Raises:
-            KeyError: If the plugin is not currently loaded
+        ``delete_files`` maps to uninstall when *mode* is omitted.
         """
+        resolved = mode
+        if resolved is None:
+            resolved = (
+                UnloadMode.UNINSTALL if delete_files else UnloadMode.UNLOAD
+            )
+        return await self.lifecycle.unload(
+            plugin_id,
+            resolved,
+            delete_files=delete_files,
+        )
+
+    async def repair_dependencies(self, plugin_id: str) -> PluginRecord:
+        """Explicit repair: gate + install + load a FAILED or disk plugin."""
         async with self.plugin_lifecycle(plugin_id):
-            await self._unload_plugin_unlocked(plugin_id, delete_files)
+            record = self._loaded_plugins.get(plugin_id)
+            if record is not None:
+                source_path = record.source_path
+                manifest = record.manifest
+            else:
+                source_path = self._find_installed_plugin_dir(plugin_id)
+                if source_path is None:
+                    raise KeyError(f"Plugin '{plugin_id}' is not installed")
+                _path, manifest = await asyncio.to_thread(
+                    self._read_source_manifest,
+                    source_path,
+                )
+                del _path
+            decision = await self._ensure_dependencies_installed(
+                source_path,
+                plugin_id,
+                allow_install=True,
+            )
+            if decision.require_restart:
+                raise RuntimeError(decision.reason)
+            if record is not None and record.status == "failed":
+                self._loaded_plugins.pop(plugin_id, None)
+                self.lifecycle.drop_instance(plugin_id)
+            elif plugin_id in self._loaded_plugins and record is not None:
+                if record.status != "failed" and record.enabled:
+                    return record
+            return await self._load_plugin_unlocked(
+                manifest,
+                source_path,
+                allow_install=False,
+            )
+
+    async def unload_plugin_with_mode(
+        self,
+        plugin_id: str,
+        mode: UnloadMode,
+        *,
+        instance,
+        delete_files: bool = False,
+    ) -> UnloadReport:
+        """Unlocked unload used by ``PluginLifecycle``.
+
+        Caller must hold the per-plugin lifecycle lock.
+        """
+        return await self._unload_plugin_unlocked(
+            plugin_id,
+            delete_files,
+            mode=mode,
+            instance=instance,
+        )
 
     async def _unload_plugin_unlocked(
         self,
         plugin_id: str,
         delete_files: bool = False,
-    ) -> None:
+        *,
+        mode: UnloadMode | None = None,
+        instance=None,
+        skip_legacy: bool = False,
+    ) -> UnloadReport:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
+        if mode is None:
+            mode = UnloadMode.UNINSTALL if delete_files else UnloadMode.UNLOAD
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
+            if mode is UnloadMode.UNINSTALL:
+                return await self._uninstall_without_instance(plugin_id)
             raise KeyError(
                 f"Plugin '{plugin_id}' is not loaded",
             )
+        if instance is None:
+            instance = self.lifecycle.ensure_instance(plugin_id)
 
-        # Execute shutdown hooks registered by this plugin
-        shutdown_hooks = [
-            h
-            for h in self.registry.get_shutdown_hooks()
-            if h.plugin_id == plugin_id
-        ]
-        for hook in shutdown_hooks:
-            try:
-                result = hook.callback()
-                if inspect.iscoroutine(result) or inspect.isawaitable(
-                    result,
-                ):
-                    await result
-            except Exception as exc:
-                logger.error(
-                    f"Error in shutdown hook '{hook.hook_name}' "
-                    f"for plugin '{plugin_id}': {exc}",
-                )
-
-        # Execute uninstall hooks (only run on explicit unload/remove)
-        uninstall_hooks = [
-            h
-            for h in self.registry.get_uninstall_hooks()
-            if h.plugin_id == plugin_id
-        ]
-        for hook in uninstall_hooks:
-            try:
-                result = hook.callback(
-                    plugin_id=plugin_id,
-                    delete_files=delete_files,
-                )
-                if inspect.iscoroutine(result) or inspect.isawaitable(
-                    result,
-                ):
-                    await result
-            except Exception as exc:
-                logger.error(
-                    f"Error in uninstall hook '{hook.hook_name}' "
-                    f"for plugin '{plugin_id}': {exc}",
-                    exc_info=True,
-                )
+        # Author hooks must run while they are still in the registry.
+        # Ledger teardowns only drop the rows; they do not invoke them.
+        report = UnloadReport(plugin_id=plugin_id, mode=mode)
+        await self._run_shutdown_hooks(plugin_id, report)
+        if mode is UnloadMode.SHUTDOWN:
+            report.absorb(await instance.dispose(mode))
+            logger.info("Shutdown hooks finished for plugin '%s'", plugin_id)
+            return report
+        if not skip_legacy:
+            await self._run_legacy_uninstall_hooks(
+                plugin_id,
+                report,
+                delete_files=delete_files or mode is UnloadMode.UNINSTALL,
+            )
+        report.absorb(await instance.dispose(mode))
+        self._record_workspace_scan(plugin_id, report)
+        leftovers = self.registry.leftover_registrations(plugin_id)
+        if leftovers:
+            report.clean = False
+            report.leftovers.extend(leftovers)
 
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
@@ -1340,8 +1794,12 @@ class PluginLoader:
         # Remove from the loaded-plugins dict
         del self._loaded_plugins[plugin_id]
 
+        if mode is UnloadMode.UNINSTALL:
+            _recheck_created_locations(plugin_id, report)
+
         # Optionally delete files from disk (off the event loop).
-        if delete_files:
+        should_delete = delete_files or mode is UnloadMode.UNINSTALL
+        if should_delete:
             source_path = record.source_path
             if await asyncio.to_thread(source_path.exists):
                 await asyncio.to_thread(shutil.rmtree, source_path)
@@ -1349,7 +1807,35 @@ class PluginLoader:
                     f"Deleted plugin files at {source_path}",
                 )
 
+        if mode is not UnloadMode.SHUTDOWN:
+            self.lifecycle.drop_instance(plugin_id)
+
         logger.info(f"Unloaded plugin '{plugin_id}'")
+        return report
+
+    def _record_workspace_scan(
+        self,
+        plugin_id: str,
+        report: UnloadReport,
+    ) -> None:
+        """Scan live workspace tables after ledger teardown (report only)."""
+        from .workspace_projector import (
+            default_live_workspaces,
+            scan_owner_rows,
+        )
+
+        scan = scan_owner_rows(plugin_id, default_live_workspaces())
+        report.workspace_leaks.extend(scan.stamped_leaks)
+        if scan.saw_unstamped:
+            report.workspace_leaks.append("未标注归属、未覆盖")
+        if scan.stamped_leaks:
+            report.clean = False
+        from .custody import scan_unhosted_tasks
+
+        for item in scan_unhosted_tasks(plugin_id):
+            report.leftovers.append(item)
+            report.clean = False
+        self.registry.projector.drop_plugin(plugin_id)
 
     def _cleanup_plugin_tools(
         self,
@@ -1453,6 +1939,146 @@ class PluginLoader:
                 f"{exc}",
             )
 
+    async def _run_shutdown_hooks(
+        self,
+        plugin_id: str,
+        report: UnloadReport,
+    ) -> None:
+        """Run registry shutdown hooks and record failures on *report*."""
+        hooks = [
+            h
+            for h in self.registry.get_shutdown_hooks()
+            if h.plugin_id == plugin_id
+        ]
+        for hook in hooks:
+            try:
+                result = hook.callback()
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await await_with_budget(
+                        result,
+                        seconds=REGISTER_WALL_CLOCK_SECONDS,
+                        what=f"shutdown hook '{hook.hook_name}'",
+                        plugin_id=plugin_id,
+                    )
+            except Exception as exc:
+                logger.error(
+                    f"Error in shutdown hook '{hook.hook_name}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                )
+                report.errors.append(f"shutdown:{hook.hook_name}:{exc}")
+                report.clean = False
+
+    async def _run_legacy_uninstall_hooks(
+        self,
+        plugin_id: str,
+        report: UnloadReport,
+        *,
+        delete_files: bool,
+    ) -> None:
+        """Run historical uninstall hooks (unload and uninstall modes)."""
+        hooks = [
+            h
+            for h in self.registry.get_uninstall_hooks()
+            if h.plugin_id == plugin_id
+        ]
+        for hook in hooks:
+            try:
+                result = hook.callback(
+                    plugin_id=plugin_id,
+                    delete_files=delete_files,
+                )
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.error(
+                    f"Error in uninstall hook '{hook.hook_name}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                    exc_info=True,
+                )
+                report.errors.append(f"uninstall:{hook.hook_name}:{exc}")
+                report.clean = False
+
+    def find_installed_plugin_dir(self, plugin_id: str) -> Optional[Path]:
+        """Return the on-disk directory for *plugin_id*, if present."""
+        for plugin_dir in self.plugin_dirs:
+            candidate = plugin_dir / plugin_id
+            if (candidate / "plugin.json").is_file():
+                return candidate
+        return None
+
+    def _find_installed_plugin_dir(self, plugin_id: str) -> Optional[Path]:
+        """Return the on-disk directory for *plugin_id*, if present."""
+        return self.find_installed_plugin_dir(plugin_id)
+
+    async def _uninstall_without_instance(
+        self,
+        plugin_id: str,
+    ) -> UnloadReport:
+        """Clear disk provisions and the plugin dir when nothing is loaded."""
+        from .provision import (
+            declared_provision_dests,
+            inventory_path,
+            leftover_dests,
+            snapshot_created_dests,
+            teardown_created_locations,
+            teardown_paths,
+        )
+
+        report = UnloadReport(
+            plugin_id=plugin_id,
+            mode=UnloadMode.UNINSTALL,
+        )
+        source_path = self._find_installed_plugin_dir(plugin_id)
+        has_inventory = inventory_path(plugin_id).is_file()
+        if source_path is None and not has_inventory:
+            raise KeyError(f"Plugin '{plugin_id}' is not installed")
+
+        created = snapshot_created_dests(plugin_id)
+        declared: list[str] = []
+        candidate = False
+        if not created and source_path is not None:
+            try:
+                _path, manifest = await asyncio.to_thread(
+                    self._read_source_manifest,
+                    source_path,
+                )
+                del _path
+                declared = declared_provision_dests(
+                    _manifest_as_dict(manifest),
+                )
+            except Exception:  # noqa: BLE001
+                declared = []
+            if declared:
+                candidate = True
+                report.errors.append(
+                    "candidate: inventory missing; "
+                    "using plugin.json declarations",
+                )
+
+        teardown_created_locations(plugin_id)
+        if candidate:
+            teardown_paths(declared)
+        PluginApi.cleanup_sourced_skills(plugin_id)
+
+        leftover = leftover_dests(created or declared)
+        for dest in leftover:
+            prefix = (
+                "candidate leftover" if candidate else "inventory leftover"
+            )
+            report.errors.append(f"{prefix}: {dest}")
+            report.clean = False
+
+        if source_path is not None and await asyncio.to_thread(
+            source_path.exists,
+        ):
+            await asyncio.to_thread(shutil.rmtree, source_path)
+        self.lifecycle.drop_instance(plugin_id)
+        logger.info(
+            "Uninstalled plugin '%s' without a live instance",
+            plugin_id,
+        )
+        return report
+
     def get_loaded_plugin(self, plugin_id: str) -> Optional[PluginRecord]:
         """Get loaded plugin record.
 
@@ -1471,3 +2097,233 @@ class PluginLoader:
             Dictionary of plugin_id -> PluginRecord
         """
         return self._loaded_plugins.copy()
+
+    async def reregister_unlocked(
+        self,
+        plugin_id: str,
+        config: Optional[Dict] = None,
+    ) -> None:
+        """Call ``register()`` again on the already-imported plugin object."""
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None or record.instance is None:
+            raise RuntimeError(f"Plugin '{plugin_id}' is not loaded")
+        await self._reregister_body(
+            plugin_id,
+            record.instance,
+            config,
+            _manifest_as_dict(record.manifest),
+        )
+
+    async def _reregister_body(
+        self,
+        plugin_id: str,
+        plugin_def: Any,
+        config: Optional[Dict],
+        manifest_dict: Dict[str, Any],
+    ) -> None:
+        """Bind a fresh API and run ``register()``; do not dispose on error."""
+        from .settings import runtime_config
+
+        api = PluginApi(plugin_id, runtime_config(config), manifest_dict)
+        api.set_registry(self.registry)
+        instance = self.lifecycle.ensure_instance(plugin_id)
+        api.bind_instance(instance)
+        self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+        instance.record_runtime(
+            "plugin_manifest",
+            lambda: self.registry.drop_plugin_manifest(plugin_id),
+            kind="manifest",
+        )
+        if not hasattr(plugin_def, "register"):
+            raise AttributeError(
+                "Plugin must implement 'register(api)' method",
+            )
+        try:
+            result = plugin_def.register(api)
+            await await_with_budget(
+                result,
+                seconds=REGISTER_WALL_CLOCK_SECONDS,
+                what="register()",
+                plugin_id=plugin_id,
+            )
+        except Exception:
+            from .provision import recover_migrating_inventory
+
+            recover_migrating_inventory(plugin_id)
+            raise
+        from .provision import commit_migrations
+
+        commit_migrations(plugin_id)
+
+    async def run_plugin_startup_hooks(self, plugin_id: str) -> None:
+        """Run startup hooks that currently belong to *plugin_id*.
+
+        Exceptions propagate so ``update_config`` / reload can roll back.
+        """
+        for hook in self.registry.get_startup_hooks():
+            if hook.plugin_id != plugin_id:
+                continue
+            await self._invoke_startup_hook(hook)
+
+    async def run_startup_hooks_isolated(self, plugin_id: str) -> bool:
+        """Run one plugin's startup hooks; failure → FAILED + ledger undo.
+
+        Returns ``True`` when every hook succeeded.
+        """
+        for hook in self.registry.get_startup_hooks():
+            if hook.plugin_id != plugin_id:
+                continue
+            try:
+                await self._invoke_startup_hook(hook)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "✗ Failed to execute startup hook '%s' "
+                    "from plugin '%s': %s",
+                    hook.hook_name,
+                    plugin_id,
+                    exc,
+                    exc_info=True,
+                )
+                await self._fail_after_startup(plugin_id, str(exc))
+                return False
+        return True
+
+    async def run_all_startup_hooks(self) -> None:
+        """Run every startup hook; one failure does not stop the others."""
+        failed: set[str] = set()
+        for hook in self.registry.get_startup_hooks():
+            if hook.plugin_id in failed:
+                continue
+            logger.debug(
+                "Executing startup hook '%s' from plugin '%s' "
+                "(priority=%s)",
+                hook.hook_name,
+                hook.plugin_id,
+                hook.priority,
+            )
+            try:
+                await self._invoke_startup_hook(hook)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "✗ Failed to execute startup hook '%s' "
+                    "from plugin '%s': %s",
+                    hook.hook_name,
+                    hook.plugin_id,
+                    exc,
+                    exc_info=True,
+                )
+                failed.add(hook.plugin_id)
+                await self._fail_after_startup(hook.plugin_id, str(exc))
+                continue
+            logger.debug(
+                "Completed startup hook '%s' from plugin '%s'",
+                hook.hook_name,
+                hook.plugin_id,
+            )
+
+    async def _invoke_startup_hook(self, hook: Any) -> None:
+        result = hook.callback()
+        await await_with_budget(
+            result,
+            seconds=REGISTER_WALL_CLOCK_SECONDS,
+            what=f"startup hook '{hook.hook_name}'",
+            plugin_id=hook.plugin_id,
+        )
+
+    async def _fail_after_startup(
+        self,
+        plugin_id: str,
+        reason: str,
+    ) -> None:
+        """Mark FAILED, undo the runtime ledger, keep the loaded record."""
+        instance = self.lifecycle.ensure_instance(plugin_id)
+        instance.mark_failed(reason)
+        await instance.dispose(UnloadMode.UNLOAD)
+        from .provision import recover_migrating_inventory
+
+        recover_migrating_inventory(plugin_id)
+        self.registry.unregister_plugin(plugin_id)
+        record = self._loaded_plugins.get(plugin_id)
+        if record is not None:
+            record.status = "failed"
+            record.enabled = False
+            record.diagnostics = list(instance.diagnostics)
+        logger.error(
+            "Plugin '%s' marked FAILED after startup: %s",
+            plugin_id,
+            reason,
+        )
+
+    async def load_installed_unlocked(self, plugin_id: str) -> PluginRecord:
+        """Load an on-disk plugin; caller must hold the lifecycle lock."""
+        source_path = self._find_installed_plugin_dir(plugin_id)
+        if source_path is None:
+            raise KeyError(f"Plugin '{plugin_id}' is not installed")
+        _path, manifest = await asyncio.to_thread(
+            self._read_source_manifest,
+            source_path,
+        )
+        del _path
+        from ..config.utils import load_config
+        from .settings import runtime_config
+
+        raw = (load_config().plugins or {}).get(plugin_id)
+        return await self._load_plugin_unlocked(
+            manifest,
+            source_path,
+            runtime_config(raw),
+            allow_install=False,
+        )
+
+
+async def _invoke_after_unload(
+    after_unload: Optional[Any],
+    plugin_id: str,
+) -> None:
+    """Run an optional post-unload callback."""
+    if after_unload is None:
+        return
+    maybe = after_unload(plugin_id)
+    if inspect.isawaitable(maybe):
+        await maybe
+
+
+def _recheck_created_locations(
+    plugin_id: str,
+    report: UnloadReport,
+) -> None:
+    """Uninstall step ⑦: teardown created dests, then ERROR if they remain."""
+    from .provision import (
+        leftover_dests,
+        snapshot_created_dests,
+        teardown_created_locations,
+    )
+
+    created = snapshot_created_dests(plugin_id)
+    teardown_created_locations(plugin_id)
+    for dest in leftover_dests(created):
+        report.errors.append(f"inventory leftover: {dest}")
+        report.clean = False
+
+
+def _manifest_as_dict(manifest: PluginManifest) -> Dict[str, Any]:
+    """Project a manifest into the dict ``register()`` historically
+    received."""
+    if manifest.qwenpaw_version is not None:
+        qv_dict = manifest.qwenpaw_version.model_dump()
+    else:
+        qv_dict = {
+            "min": manifest.min_version,
+            "max": manifest.max_version,
+        }
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "description_i18n": manifest.description_i18n,
+        "author": manifest.author,
+        "dependencies": manifest.dependencies,
+        "qwenpaw_version": qv_dict,
+        "meta": manifest.meta,
+    }

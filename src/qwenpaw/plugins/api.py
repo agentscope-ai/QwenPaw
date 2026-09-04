@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Plugin API for plugin developers."""
 
+import inspect
 import logging
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -144,13 +146,14 @@ def _bridge_to_runtime(
     enabled: bool,
     description: str,
     registry,
+    plugin_id: str = "",
 ) -> None:
     """Attach ToolDescriptor and inject into runtime ToolRegistries.
 
     Replaces any existing descriptor / bootstrap entry for *tool_name*
     so hot-reload does not keep a stale callable.
     """
-    import inspect
+    from dataclasses import replace
 
     from ..runtime.tool_registry import ToolDescriptor
 
@@ -163,6 +166,7 @@ def _bridge_to_runtime(
             enabled_by_default=enabled,
             async_execution=is_async,
             description=description,
+            owner_plugin_id=plugin_id,
         )
         # pylint: disable-next=protected-access
         tool_func._tool_descriptor = desc  # type: ignore[attr-defined]
@@ -170,6 +174,10 @@ def _bridge_to_runtime(
             "Attached ToolDescriptor to '%s'",
             tool_name,
         )
+    elif plugin_id and not getattr(desc, "owner_plugin_id", ""):
+        desc = replace(desc, owner_plugin_id=plugin_id)
+        # pylint: disable-next=protected-access
+        tool_func._tool_descriptor = desc  # type: ignore[attr-defined]
 
     if registry is None:
         return
@@ -186,16 +194,31 @@ def _bridge_to_runtime(
         if tr is None:
             continue
         try:
-            if tool_name in tr and hasattr(tr, "unregister"):
-                tr.unregister(tool_name)
+            if tool_name in tr:
+                existing = tr.get(tool_name) if hasattr(tr, "get") else None
+                owner = getattr(existing, "owner_plugin_id", "") or ""
+                if owner and owner != plugin_id:
+                    from ..runtime.occupancy import occupancy_conflict
+
+                    raise ValueError(
+                        occupancy_conflict("tool", tool_name, owner),
+                    )
+                if hasattr(tr, "unregister"):
+                    tr.unregister(tool_name)
             tr.register(desc)
             logger.info(
                 "Injected '%s' into workspace '%s' ToolRegistry",
                 tool_name,
                 ws.agent_id,
             )
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.error(
+                "Failed to inject tool '%s' into workspace '%s': %s",
+                tool_name,
+                getattr(ws, "agent_id", "?"),
+                exc,
+            )
+            raise
 
     bk = getattr(wm, "_bootstrap_kwargs", None)
     if bk is not None:
@@ -258,14 +281,16 @@ def _write_tool_config(
     enabled: bool,
     description: str,
     icon: str,
+    plugin_id: str,
 ) -> None:
-    """Persist BuiltinToolConfig entry to the agent config file."""
+    """Persist BuiltinToolConfig, migrating plugin-owned fields."""
     from ..config.config import (
         BuiltinToolConfig,
         load_agent_config,
         save_agent_config,
     )
     from ..app.agent_context import get_current_agent_id
+    from .provision import apply_tool_factory
 
     agent_id = get_current_agent_id()
     if not agent_id:
@@ -283,29 +308,39 @@ def _write_tool_config(
 
         agent_config.tools = ToolsConfig()
 
-    if tool_name not in agent_config.tools.builtin_tools:
-        agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
-            name=tool_name,
-            enabled=enabled,
-            description=description,
-            display_to_user=True,
-            async_execution=False,
-            icon=icon,
-        )
-        logger.info(
-            "Added tool '%s' to agent '%s' config (enabled=%s)",
-            tool_name,
-            agent_id,
-            enabled,
-        )
-    else:
-        logger.info(
-            "Tool '%s' already in agent '%s' config, skipping",
-            tool_name,
-            agent_id,
-        )
-
+    existing = agent_config.tools.builtin_tools.get(tool_name)
+    current = None
+    if existing is not None:
+        current = existing.model_dump()
+        current.pop("name", None)
+    factory = _tool_factory(enabled, description, icon)
+    merged = apply_tool_factory(plugin_id, tool_name, factory, current)
+    merged.pop("name", None)
+    agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+        name=tool_name,
+        **merged,
+    )
     save_agent_config(agent_id, agent_config)
+    logger.info(
+        "Wrote tool '%s' into agent '%s' config",
+        tool_name,
+        agent_id,
+    )
+
+
+def _tool_factory(
+    enabled: bool,
+    description: str,
+    icon: str,
+) -> dict:
+    return {
+        "description": description,
+        "icon": icon,
+        "display_to_user": True,
+        "enabled": enabled,
+        "async_execution": False,
+        "config": {},
+    }
 
 
 # -------------------------------------------------------------------
@@ -335,6 +370,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         self.config = config
         self.manifest = manifest or {}
         self._registry = None
+        self._instance = None
 
     def set_registry(self, registry):
         """Set registry reference (called by loader).
@@ -343,6 +379,437 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             registry: PluginRegistry instance
         """
         self._registry = registry
+
+    def bind_instance(self, instance) -> None:
+        """Attach the current ``PluginInstance`` for ledger recording."""
+        self._instance = instance
+
+    def _projection_failed(self, kind: str, exc: Exception) -> None:
+        """Fail loudly when a workspace projection cannot be applied."""
+        message = f"Projection {kind} failed: {exc}"
+        logger.error(
+            "Plugin '%s' %s",
+            self.plugin_id,
+            message,
+        )
+        if self._instance is not None:
+            self._instance.add_diagnostic(message)
+
+    def _guard_register(self) -> None:
+        if self._instance is not None:
+            self._instance.guard_register()
+
+    def _drop_hook(self, hook_name: str):
+        """Return a teardown that removes *hook_name* without running it."""
+
+        def _teardown():
+            if self._registry is not None:
+                self._registry.remove_hooks_by_name(
+                    self.plugin_id,
+                    [hook_name],
+                )
+
+        return _teardown
+
+    def _drop_http_router(self, prefix: str):
+        def _teardown():
+            if self._registry is not None:
+                self._registry.drop_http_router(self.plugin_id, prefix)
+
+        return _teardown
+
+    def _drop_provider(self, provider_id: str):
+        def _teardown():
+            if self._registry is not None:
+                self._registry.drop_provider(provider_id)
+            try:
+                from ..providers.provider_manager import ProviderManager
+
+                ProviderManager.get_instance().unregister_plugin_provider(
+                    provider_id,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Live provider '%s' already gone",
+                    provider_id,
+                    exc_info=True,
+                )
+
+        return _teardown
+
+    def _drop_control_command(self, command_name: str):
+        def _teardown():
+            if self._registry is not None:
+                self._registry.drop_control_command(
+                    self.plugin_id,
+                    command_name,
+                )
+            try:
+                from ..runtime.commands.control import (
+                    unregister_command as unregister_handler,
+                )
+                from ..app.channels.command_registry import CommandRegistry
+
+                unregister_handler(command_name)
+                CommandRegistry().unregister_command(f"/{command_name}")
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Live control command '%s' already gone",
+                    command_name,
+                    exc_info=True,
+                )
+
+        return _teardown
+
+    def _drop_middleware(self, factory: Callable, priority: int):
+        def _teardown():
+            if self._registry is not None:
+                self._registry.drop_middleware(
+                    self.plugin_id,
+                    factory,
+                    priority,
+                )
+
+        return _teardown
+
+    def _project_prompt_section(
+        self,
+        name: str,
+        provider: Callable,
+        *,
+        priority: int,
+        agent_id: Optional[str],
+    ) -> None:
+        """Project a prompt section onto live workspace PromptManagers."""
+        from ..runtime.prompt_manager import SyncPromptContributor
+
+        owner_id = self.plugin_id
+
+        class _Section(SyncPromptContributor):
+            def __init__(self):
+                self.name = name
+                self.priority = priority
+                self.owner_plugin_id = owner_id
+                self._provider = provider
+                self._agent_id = agent_id
+
+            def contribute_sync(self, ctx):
+                agent = getattr(ctx, "agent", None) or ctx
+                if self._agent_id:
+                    current = getattr(agent, "agent_id", None)
+                    if current is not None and current != self._agent_id:
+                        return None
+                return self._provider(agent)
+
+        def extra_teardown():
+            if self._registry is not None:
+                self._registry.drop_prompt_section(name)
+
+        def apply(workspace):
+            self._guard_register()
+            manager = getattr(
+                getattr(workspace, "plugins", None),
+                "prompt_manager",
+                None,
+            )
+            if manager is None:
+                return
+            try:
+                manager.register(_Section())
+            except (TypeError, ValueError) as exc:
+                self._projection_failed("prompt_section", exc)
+
+        def revoke(workspace):
+            manager = getattr(
+                getattr(workspace, "plugins", None),
+                "prompt_manager",
+                None,
+            )
+            if manager is None:
+                return
+            manager.unregister(name)
+
+        self._schedule_workspace_intent(
+            "prompt_section",
+            name,
+            apply,
+            revoke,
+            priority=60,
+            extra_teardown=extra_teardown,
+        )
+
+    def _note_runtime(
+        self,
+        desc: str,
+        teardown=None,
+        *,
+        kind: str = "official",
+    ) -> None:
+        """Record a runtime-ledger row, optionally with a teardown."""
+        self._guard_register()
+        if self._instance is not None:
+            self._instance.record_runtime(desc, teardown, kind=kind)
+
+    def _schedule_workspace_intent(
+        self,
+        kind: str,
+        name: str,
+        apply,
+        revoke,
+        *,
+        priority: int = 60,
+        extra_teardown=None,
+    ) -> None:
+        """Remember an intent, project it, and record revoke on the ledger."""
+        if self._registry is None:
+            return
+        projector = self._registry.projector
+        projector.intend(kind, name, self.plugin_id, apply, revoke)
+
+        def _startup():
+            return projector.project(kind, name, self.plugin_id)
+
+        def _created(workspace_info: dict):
+            workspace = self._get_workspace_from_info(workspace_info)
+            if workspace is None:
+                return None
+            return projector.project_one(
+                workspace,
+                kind,
+                name,
+                self.plugin_id,
+            )
+
+        async def _teardown():
+            await projector.revoke(kind, name, self.plugin_id)
+            if extra_teardown is None:
+                return
+            extra = extra_teardown()
+            if inspect.isawaitable(extra):
+                await extra
+
+        self.register_startup_hook(
+            hook_name=f"{kind}_{self.plugin_id}_{name}",
+            callback=_startup,
+            priority=priority,
+        )
+        self.register_workspace_created_hook(
+            hook_name=f"{kind}_ws_{self.plugin_id}_{name}",
+            callback=_created,
+            priority=priority,
+            reload_safe=True,
+        )
+        self._note_runtime(f"{kind}:{name}", teardown=_teardown)
+
+    def _note_install(
+        self,
+        desc: str,
+        teardown=None,
+        *,
+        kind: str = "provision",
+    ) -> None:
+        self._guard_register()
+        if self._instance is not None:
+            self._instance.record_install(desc, teardown, kind=kind)
+
+    def _owns_commit(self) -> bool:
+        inst = self._instance
+        if inst is None:
+            return True
+        return bool(inst.owns_commit())
+
+    def provision_files(self, src, dest, version: str) -> str:
+        """Copy factory files with three-way merge."""
+        from .provision import provision_files as _provision_files
+
+        self._guard_register()
+        if not self._owns_commit():
+            return "skipped"
+        branch = _provision_files(
+            self.plugin_id,
+            Path(src),
+            Path(dest),
+            version,
+        )
+        self._note_install(
+            f"provision_files:{dest}",
+            kind="provision_files",
+        )
+        return branch
+
+    def provision(self, desc: str, setup, teardown) -> None:
+        """Escape hatch: leave existing files, delete only on uninstall."""
+        from .provision import record_escape_provision
+
+        self._guard_register()
+        if not self._owns_commit():
+            return
+        record_escape_provision(self.plugin_id, desc)
+        if setup is not None:
+            setup()
+        self._note_install(desc, teardown, kind="provision")
+
+    def effect(
+        self,
+        desc: str,
+        setup,
+        teardown,
+        shutdown_critical: bool = True,
+    ) -> None:
+        """Record a process-local side effect on the runtime ledger."""
+        self._guard_register()
+        if setup is not None:
+            setup()
+        if self._instance is not None:
+            self._instance.record_runtime(
+                desc,
+                teardown,
+                shutdown_critical=shutdown_critical,
+                kind="effect",
+            )
+
+    def spawn_task(self, coro, desc: str = "task") -> Any:
+        """Create an asyncio task and stop it on unload."""
+        import asyncio
+
+        from . import custody
+
+        self._guard_register()
+        if self._instance is None:
+            raise RuntimeError("Plugin instance is not bound")
+        generation = self._instance.generation
+        task = asyncio.create_task(
+            custody.wrap_task_body(
+                coro,
+                instance=self._instance,
+                generation=generation,
+                desc=desc,
+            ),
+            name=f"{self.plugin_id}:{desc}",
+        )
+
+        async def _teardown():
+            await custody.stop_task(task, desc)
+
+        self._instance.record_runtime(
+            f"task:{desc}",
+            _teardown,
+            kind="custody",
+        )
+        return task
+
+    def spawn_thread(
+        self,
+        target,
+        desc: str = "thread",
+        stop=None,
+    ) -> Any:
+        """Start a background thread and join it on unload."""
+        from . import custody
+
+        self._guard_register()
+        if self._instance is None:
+            raise RuntimeError("Plugin instance is not bound")
+        if stop is None:
+            stop = threading.Event()
+        instance = self._instance
+
+        def _run() -> None:
+            try:
+                target()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Hosted thread %r for plugin '%s' crashed",
+                    desc,
+                    instance.plugin_id,
+                )
+                instance.add_diagnostic("有托管任务异常退出")
+
+        thread = threading.Thread(
+            target=_run,
+            name=f"{self.plugin_id}:{desc}",
+            daemon=True,
+        )
+        thread.start()
+
+        def _teardown():
+            custody.stop_thread(thread, stop, desc)
+
+        self._instance.record_runtime(
+            f"thread:{desc}",
+            _teardown,
+            kind="custody",
+        )
+        return thread
+
+    def spawn_subprocess(self, args, desc: str = "subprocess") -> Any:
+        """Start a subprocess and terminate it on unload."""
+        # pylint: disable=consider-using-with
+        import subprocess
+
+        from . import custody
+
+        self._guard_register()
+        if self._instance is None:
+            raise RuntimeError("Plugin instance is not bound")
+        proc = subprocess.Popen(args)  # noqa: S603
+
+        def _teardown():
+            custody.stop_subprocess(proc, desc)
+
+        self._instance.record_runtime(
+            f"subprocess:{desc}",
+            _teardown,
+            kind="custody",
+        )
+        return proc
+
+    def watch(self, path, on_event, desc: str = "watch") -> Any:
+        """Watch *path* and stop the watcher on unload."""
+        from . import custody
+
+        self._guard_register()
+        if self._instance is None:
+            raise RuntimeError("Plugin instance is not bound")
+        stop = threading.Event()
+        generation = self._instance.generation
+        instance = self._instance
+        thread = custody.start_watch(
+            Path(path),
+            on_event,
+            stop,
+            generation,
+            lambda: instance.generation,
+        )
+
+        def _teardown():
+            stop.set()
+            custody.stop_thread(thread, stop, desc)
+
+        self._instance.record_runtime(
+            f"watch:{desc}",
+            _teardown,
+            kind="custody",
+        )
+        return thread
+
+    def hold_connection(self, client, desc: str = "connection") -> Any:
+        """Keep *client* and close it on unload."""
+        from . import custody
+
+        self._guard_register()
+        if self._instance is None:
+            raise RuntimeError("Plugin instance is not bound")
+
+        async def _teardown():
+            await custody.close_connection(client, desc)
+
+        self._instance.record_runtime(
+            f"connection:{desc}",
+            _teardown,
+            kind="custody",
+        )
+        return client
 
     def register_provider(
         self,
@@ -371,6 +838,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ...     require_api_key=True,
             ... )
         """
+        self._guard_register()
         if self._registry:
             # Merge plugin manifest meta with provider metadata
             merged_metadata = dict(metadata)
@@ -388,6 +856,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             logger.info(
                 f"Plugin '{self.plugin_id}' registered provider "
                 f"'{provider_id}'",
+            )
+            self._note_runtime(
+                f"provider:{provider_id}",
+                self._drop_provider(provider_id),
             )
 
     def register_startup_hook(
@@ -421,6 +893,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"Plugin '{self.plugin_id}' registered startup hook "
                 f"'{hook_name}' (priority={priority})",
             )
+            self._note_runtime(
+                f"startup_hook:{hook_name}",
+                self._drop_hook(hook_name),
+            )
 
     def register_shutdown_hook(
         self,
@@ -429,6 +905,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         priority: int = 100,
     ):
         """Register a shutdown hook.
+
+        .. deprecated::
+            Cross-layer historical hook. Prefer hosted teardown via
+            ``api.effect`` / the runtime ledger. Timing is unchanged.
 
         Args:
             hook_name: Unique hook identifier
@@ -442,6 +922,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ...     priority=100,
             ... )
         """
+        warnings.warn(
+            "register_shutdown_hook is deprecated; use hosted teardown "
+            "via api.effect or the runtime ledger",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self._registry:
             self._registry.register_shutdown_hook(
                 plugin_id=self.plugin_id,
@@ -453,6 +939,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"Plugin '{self.plugin_id}' registered shutdown hook "
                 f"'{hook_name}' (priority={priority})",
             )
+            self._note_runtime(
+                f"shutdown_hook:{hook_name}",
+                self._drop_hook(hook_name),
+                kind="shutdown_hook",
+            )
 
     def register_uninstall_hook(
         self,
@@ -462,13 +953,16 @@ class PluginApi:  # pylint: disable=too-many-public-methods
     ):
         """Register an uninstall hook.
 
+        .. deprecated::
+            Cross-layer historical hook. The framework cannot keep the
+            two ledger layers separate for this callback. Prefer
+            ``api.provision`` / install-layer teardown. Timing is
+            unchanged: ``unload`` / ``uninstall`` run it; ``shutdown``
+            and failure rollback do not.
+
         Unlike shutdown hooks (which run on every app shutdown),
         uninstall hooks run **only** when the plugin is explicitly
         unloaded or removed via ``PluginLoader.unload_plugin()``.
-
-        Use these for one-time cleanup on uninstall — e.g. removing
-        workspace skills, clearing manifest entries, or undoing
-        monkey-patches applied during startup.
 
         The callback receives keyword arguments:
             - ``plugin_id`` (str): The plugin being uninstalled.
@@ -485,6 +979,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ...     callback=self.on_uninstall,
             ... )
         """
+        warnings.warn(
+            "register_uninstall_hook is deprecated; use api.provision "
+            "or install-layer teardown",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self._registry:
             self._registry.register_uninstall_hook(
                 plugin_id=self.plugin_id,
@@ -495,6 +995,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             logger.info(
                 f"Plugin '{self.plugin_id}' registered uninstall hook "
                 f"'{hook_name}' (priority={priority})",
+            )
+            self._note_runtime(
+                f"uninstall_hook:{hook_name}",
+                self._drop_hook(hook_name),
+                kind="legacy_uninstall",
             )
 
     def register_workspace_created_hook(
@@ -538,6 +1043,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"workspace_created hook '{hook_name}' "
                 f"(priority={priority})",
             )
+            self._note_runtime(
+                f"workspace_created_hook:{hook_name}",
+                self._drop_hook(hook_name),
+            )
 
     def register_http_router(
         self,
@@ -569,6 +1078,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 prefix=prefix,
                 tags=tags,
             )
+            self._note_runtime(
+                f"http_router:{prefix}",
+                self._drop_http_router(prefix),
+            )
 
     def register_control_command(
         self,
@@ -591,6 +1104,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             logger.info(
                 f"Plugin '{self.plugin_id}' registered control command "
                 f"'{handler.command_name}' (priority={priority_level})",
+            )
+            self._note_runtime(
+                f"control_command:{handler.command_name}",
+                self._drop_control_command(handler.command_name),
             )
 
     def register_middleware(
@@ -626,6 +1143,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             logger.info(
                 f"Plugin '{self.plugin_id}' registered middleware "
                 f"factory (priority={priority})",
+            )
+            self._note_runtime(
+                f"middleware:{priority}",
+                self._drop_middleware(middleware_factory, priority),
             )
 
     def register_channel(
@@ -716,6 +1237,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             f"Plugin '{self.plugin_id}' registered channel "
             f"'{channel_key}'",
         )
+        self._project_channel(channel_key)
 
     @property
     def runtime(self):
@@ -813,6 +1335,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ...         tool_type="network",
             ...     )
         """
+        self._guard_register()
 
         def _startup_register():
             # Ownership + governance first: fail closed before exposing
@@ -860,12 +1383,14 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     enabled,
                     description,
                     self._registry,
+                    self.plugin_id,
                 )
                 _write_tool_config(
                     tool_name,
                     enabled,
                     description,
                     icon,
+                    self.plugin_id,
                 )
 
             except Exception as exc:
@@ -892,6 +1417,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     f"governance sync (rolled back): {exc}",
                     exc_info=True,
                 )
+                raise
 
         self.register_startup_hook(
             hook_name=(f"register_tool_{self.plugin_id}_{tool_name}"),
@@ -902,6 +1428,19 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             f"Plugin '{self.plugin_id}' scheduled tool "
             f"'{tool_name}' for registration on startup",
         )
+        self._note_runtime(
+            f"tool:{tool_name}",
+            teardown=lambda: _unbridge_from_runtime(
+                tool_name,
+                tool_func,
+                self._registry,
+            ),
+        )
+        if self._instance is not None:
+            self._note_install(
+                f"tool_config:{tool_name}",
+                kind="official",
+            )
 
     def register_slash_command(
         self,
@@ -938,24 +1477,25 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             category=category,
             help_text=help_text,
             metadata=metadata or {},
+            owner_plugin_id=self.plugin_id,
         )
 
-        def _register_to_workspaces():
-            self._register_spec_to_all_workspaces(spec)
+        def apply(workspace):
+            self._guard_register()
+            try:
+                workspace.plugins.slash_command_registry.register(spec)
+            except ValueError as exc:
+                self._projection_failed("slash_command", exc)
 
-        def _on_workspace_created(workspace_info: dict):
-            self._register_spec_to_workspace(spec, workspace_info)
+        def revoke(workspace):
+            workspace.plugins.slash_command_registry.unregister(name)
 
-        self.register_startup_hook(
-            hook_name=(f"slash_cmd_{self.plugin_id}_{name}"),
-            callback=_register_to_workspaces,
+        self._schedule_workspace_intent(
+            "slash_command",
+            name,
+            apply,
+            revoke,
             priority=60,
-        )
-        self.register_workspace_created_hook(
-            hook_name=(f"slash_cmd_ws_{self.plugin_id}_{name}"),
-            callback=_on_workspace_created,
-            priority=60,
-            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled slash command "
@@ -980,25 +1520,24 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         """
         mode_name = getattr(mode_cls, "name", None) or mode_cls.__name__
 
-        def _register_mode():
-            self._register_mode_cls_to_all_workspaces(mode_cls)
+        def apply(workspace):
+            self._guard_register()
+            mode = mode_cls()
+            mode.owner_plugin_id = self.plugin_id
+            try:
+                workspace.plugins.register_mode(mode, workspace)
+            except ValueError as exc:
+                self._projection_failed("mode", exc)
 
-        def _on_workspace_created(workspace_info: dict):
-            self._register_mode_cls_to_workspace(
-                mode_cls,
-                workspace_info,
-            )
+        def revoke(workspace):
+            workspace.plugins.unregister_mode(mode_name, workspace)
 
-        self.register_startup_hook(
-            hook_name=(f"mode_{self.plugin_id}_{mode_name}"),
-            callback=_register_mode,
+        self._schedule_workspace_intent(
+            "mode",
+            mode_name,
+            apply,
+            revoke,
             priority=70,
-        )
-        self.register_workspace_created_hook(
-            hook_name=(f"mode_ws_{self.plugin_id}_{mode_name}"),
-            callback=_on_workspace_created,
-            priority=70,
-            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled mode "
@@ -1020,25 +1559,24 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 ``name``, and ``run()`` defined.
         """
 
-        def _register_hook():
-            self._register_hook_to_all_workspaces(hook)
+        hook.owner_plugin_id = self.plugin_id
 
-        def _on_workspace_created(workspace_info: dict):
-            self._register_hook_to_workspace(
-                hook,
-                workspace_info,
-            )
+        def apply(workspace):
+            self._guard_register()
+            try:
+                workspace.plugins.hook_registry.register(hook)
+            except (TypeError, ValueError) as exc:
+                self._projection_failed("hook", exc)
 
-        self.register_startup_hook(
-            hook_name=(f"rt_hook_{self.plugin_id}_{hook.name}"),
-            callback=_register_hook,
+        def revoke(workspace):
+            workspace.plugins.hook_registry.unregister(hook.name)
+
+        self._schedule_workspace_intent(
+            "hook",
+            hook.name,
+            apply,
+            revoke,
             priority=65,
-        )
-        self.register_workspace_created_hook(
-            hook_name=(f"rt_hook_ws_{self.plugin_id}_{hook.name}"),
-            callback=_on_workspace_created,
-            priority=65,
-            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled runtime hook "
@@ -1072,27 +1610,25 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             handler=handler,
             priority=priority,
             name=name or f"{self.plugin_id}_stop",
+            owner_plugin_id=self.plugin_id,
         )
 
-        def _register():
-            self._register_stop_handler_to_all_workspaces(reg)
+        def apply(workspace):
+            self._guard_register()
+            try:
+                workspace.plugins.register_stop_handler(reg)
+            except ValueError as exc:
+                self._projection_failed("stop_handler", exc)
 
-        def _on_workspace_created(workspace_info: dict):
-            self._register_stop_handler_to_workspace(
-                reg,
-                workspace_info,
-            )
+        def revoke(workspace):
+            workspace.plugins.unregister_stop_handler(reg.name)
 
-        self.register_startup_hook(
-            hook_name=(f"stop_{self.plugin_id}_{reg.name}"),
-            callback=_register,
+        self._schedule_workspace_intent(
+            "stop_handler",
+            reg.name,
+            apply,
+            revoke,
             priority=55,
-        )
-        self.register_workspace_created_hook(
-            hook_name=(f"stop_ws_{self.plugin_id}_{reg.name}"),
-            callback=_on_workspace_created,
-            priority=55,
-            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled stop handler "
@@ -1158,26 +1694,16 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"section '{name}' after '{after}' "
                 f"(priority={priority})",
             )
+            self._project_prompt_section(
+                name,
+                provider,
+                priority=priority,
+                agent_id=agent_id,
+            )
 
     # ================================================================
     # Internal helpers for workspace registration
     # ================================================================
-
-    def _get_all_workspaces(self) -> list:
-        """Get all workspace instances from the registry."""
-        try:
-            from .registry import PluginRegistry
-
-            registry = PluginRegistry()
-            mgr = registry.get_workspace_manager()
-            if mgr is None:
-                return []
-            return list(mgr.agents.values())
-        except Exception as exc:
-            logger.debug(
-                f"Could not get workspaces: {exc}",
-            )
-            return []
 
     def _get_workspace_from_info(
         self,
@@ -1205,106 +1731,43 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
             return None
 
-    def _register_spec_to_all_workspaces(self, spec):
-        """Register a CommandSpec to all existing workspaces."""
-        for ws in self._get_all_workspaces():
+    def _project_channel(self, channel_key: str) -> None:
+        """Project a registered channel onto live workspaces."""
+        from .workspace_projector import channel_passes_gates
+
+        def extra_teardown():
+            if self._registry is not None:
+                self._registry.unregister_channel(channel_key)
+
+        async def apply(workspace):
+            self._guard_register()
+            if not channel_passes_gates(workspace, channel_key):
+                return
+            manager = getattr(workspace, "channel_manager", None)
+            if manager is None:
+                return
             try:
-                ws.plugins.slash_command_registry.register(spec)
-            except ValueError as exc:
-                logger.debug(
-                    f"Slash cmd already registered: {exc}",
+                await manager.start_one(
+                    channel_key,
+                    getattr(workspace, "_config", None),
                 )
+            except Exception as exc:  # noqa: BLE001
+                self._projection_failed("channel", exc)
 
-    def _register_spec_to_workspace(
-        self,
-        spec,
-        workspace_info: dict,
-    ):
-        """Register a CommandSpec to a specific workspace."""
-        ws = self._get_workspace_from_info(workspace_info)
-        if ws is None:
-            return
-        try:
-            ws.plugins.slash_command_registry.register(spec)
-        except ValueError as exc:
-            logger.debug(
-                f"Slash cmd already registered: {exc}",
-            )
+        async def revoke(workspace):
+            manager = getattr(workspace, "channel_manager", None)
+            if manager is None:
+                return
+            await manager.stop_one(channel_key)
 
-    def _register_mode_cls_to_all_workspaces(self, mode_cls: Type) -> None:
-        """Instantiate and register *mode_cls* on every workspace."""
-        for ws in self._get_all_workspaces():
-            try:
-                ws.plugins.register_mode(mode_cls(), ws)
-            except ValueError as exc:
-                logger.debug(
-                    f"Mode already registered: {exc}",
-                )
-
-    def _register_mode_cls_to_workspace(
-        self,
-        mode_cls: Type,
-        workspace_info: dict,
-    ) -> None:
-        """Instantiate and register *mode_cls* on one workspace."""
-        ws = self._get_workspace_from_info(workspace_info)
-        if ws is None:
-            return
-        try:
-            ws.plugins.register_mode(mode_cls(), ws)
-        except ValueError as exc:
-            logger.debug(
-                f"Mode already registered: {exc}",
-            )
-
-    def _register_hook_to_all_workspaces(self, hook):
-        """Register a runtime hook to all workspaces."""
-        for ws in self._get_all_workspaces():
-            try:
-                ws.plugins.hook_registry.register(hook)
-            except (TypeError, ValueError) as exc:
-                logger.debug(
-                    f"Hook registration issue: {exc}",
-                )
-
-    def _register_hook_to_workspace(
-        self,
-        hook,
-        workspace_info: dict,
-    ):
-        """Register a runtime hook to a specific workspace."""
-        ws = self._get_workspace_from_info(workspace_info)
-        if ws is None:
-            return
-        try:
-            ws.plugins.hook_registry.register(hook)
-        except (TypeError, ValueError) as exc:
-            logger.debug(
-                f"Hook registration issue: {exc}",
-            )
-
-    def _register_stop_handler_to_all_workspaces(self, reg):
-        """Register stop handler to all workspaces."""
-        for ws in self._get_all_workspaces():
-            self._attach_stop_handler(ws, reg)
-
-    def _register_stop_handler_to_workspace(
-        self,
-        reg,
-        workspace_info: dict,
-    ):
-        """Register stop handler to a specific workspace."""
-        ws = self._get_workspace_from_info(workspace_info)
-        if ws is None:
-            return
-        self._attach_stop_handler(ws, reg)
-
-    @staticmethod
-    def _attach_stop_handler(ws, reg):
-        """Attach a stop handler registration to workspace."""
-        if not hasattr(ws.plugins, "stop_handlers"):
-            ws.plugins.stop_handlers = []
-        ws.plugins.stop_handlers.append(reg)
+        self._schedule_workspace_intent(
+            "channel",
+            channel_key,
+            apply,
+            revoke,
+            priority=80,
+            extra_teardown=extra_teardown,
+        )
 
     # ================================================================
     # End Loop Engineering
@@ -1319,16 +1782,17 @@ class PluginApi:  # pylint: disable=too-many-public-methods
     ) -> None:
         """Register a plugin as a skill provider.
 
-        Copies the plugin's skills into the workspace skill directory,
-        reconciles the workspace manifest, and applies the plugin's
-        default enable/channel strategy.  On uninstall, skills sourced
-        from this plugin are automatically cleaned up.
+        Copies the plugin's skills through framework ``provision_files``
+        (three-way hash / migrate / ``.new``), reconciles the workspace
+        skill manifest, and applies the plugin's default enable/channel
+        strategy.  On uninstall, skills sourced from this plugin are
+        cleaned up from the install-layer ledger.
 
         Skills are also automatically installed into workspaces created
         after the server starts, via a ``workspace_created`` hook.
 
         The host handles:
-        - Copying the skill directory into the workspace.
+        - Copying the skill directory via ``provision_files``.
         - Reconciling the workspace skill manifest.
         - Applying the default enabled/channels strategy.
         - Cleaning up manifest entries on uninstall (by ``source``).
@@ -1362,10 +1826,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 resolved_channels,
             )
 
-        def _uninstall_skills(plugin_id: str, delete_files: bool = False):
+        def _uninstall_skills():
             """Remove skills sourced from this plugin on uninstall."""
-            _ = delete_files  # unused but part of uninstall hook contract
-            self._do_uninstall_skills(plugin_id, source_tag)
+            self._do_uninstall_skills(self.plugin_id, source_tag)
 
         def _on_workspace_created(workspace_info: dict):
             """Install plugin skills into a newly created workspace."""
@@ -1391,18 +1854,18 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             priority=80,
         )
 
-        # Register cleanup on uninstall
-        self.register_uninstall_hook(
-            hook_name=f"uninstall_skills_{self.plugin_id}",
-            callback=_uninstall_skills,
+        self._note_install(
+            f"skill_provider:{source_tag}",
+            _uninstall_skills,
+            kind="provision",
         )
 
     def unregister_skill_provider(self) -> None:
         """Unregister this plugin as a skill provider.
 
-        Removes the startup, workspace_created, and uninstall hooks
-        that were registered by ``register_skill_provider()``, and
-        cleans up skills sourced from this plugin across all existing
+        Removes the startup and workspace_created hooks that were
+        registered by ``register_skill_provider()``, and cleans up
+        skills sourced from this plugin across all existing
         workspaces.
 
         This allows plugins to dynamically disable their skill
@@ -1415,7 +1878,6 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         hook_names = [
             f"install_skills_{self.plugin_id}",
             f"provision_skills_{self.plugin_id}",
-            f"uninstall_skills_{self.plugin_id}",
         ]
 
         # Remove the hooks from registry
@@ -1462,12 +1924,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         """
         try:
             from ..agents.skill_system.store import (
-                copy_skill_dir,
                 get_workspace_skills_dir,
                 get_workspace_skill_manifest_path,
                 default_workspace_manifest,
                 mutate_json,
             )
+            from .provision import commit_migrations, provision_files
             from ..agents.skill_system.registry import (
                 reconcile_workspace_manifest,
             )
@@ -1480,11 +1942,15 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ws_skills_dir = get_workspace_skills_dir(workspace_dir)
             ws_skills_dir.mkdir(parents=True, exist_ok=True)
 
+            version = str(self.manifest.get("version") or "0")
             for skill_name in skill_names:
-                copy_skill_dir(
+                provision_files(
+                    self.plugin_id,
                     skills_dir / skill_name,
                     ws_skills_dir / skill_name,
+                    version,
                 )
+            commit_migrations(self.plugin_id)
 
             reconcile_workspace_manifest(workspace_dir)
 
@@ -1565,6 +2031,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"'{self.plugin_id}': {exc}",
                 exc_info=True,
             )
+
+    @staticmethod
+    def cleanup_sourced_skills(plugin_id: str) -> None:
+        """Remove skills tagged ``plugin:{id}`` from every workspace."""
+        PluginApi._do_uninstall_skills(plugin_id, f"plugin:{plugin_id}")
 
     @staticmethod
     def _do_uninstall_skills(plugin_id: str, source_tag: str) -> None:

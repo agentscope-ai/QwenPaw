@@ -36,6 +36,7 @@ class AgentMode:
     """
 
     name: str
+    owner_plugin_id: str = ""
 
     def setup(self, workspace: object) -> None:
         """Register every contribution into ``workspace``'s plugins.
@@ -52,6 +53,37 @@ class AgentMode:
             workspace.plugins.hook_registry.register(hook)
         for contributor in self.prompt_contributors():
             workspace.plugins.prompt_manager.register(contributor)
+
+    def teardown(self, workspace: object) -> None:
+        """Remove every contribution ``setup`` pushed into ``workspace``.
+
+        Safe to call when some of those names were never registered
+        (partial ``setup`` failure). Subclasses that append extra
+        state (stop handlers, etc.) should override and call ``super``.
+        """
+        plugins = getattr(workspace, "plugins", None)
+        if plugins is None:
+            return
+        for spec in self.commands():
+            unregister = getattr(
+                plugins.slash_command_registry,
+                "unregister",
+                None,
+            )
+            if callable(unregister):
+                unregister(spec.name)
+        for desc in self.tools():
+            unregister = getattr(plugins.tool_registry, "unregister", None)
+            if callable(unregister):
+                unregister(desc.name)
+        for hook in self.hooks():
+            unregister = getattr(plugins.hook_registry, "unregister", None)
+            if callable(unregister):
+                unregister(hook.name)
+        for contributor in self.prompt_contributors():
+            unregister = getattr(plugins.prompt_manager, "unregister", None)
+            if callable(unregister):
+                unregister(contributor.name)
 
     def commands(self) -> list["CommandSpec"]:
         return []

@@ -9,6 +9,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,
@@ -36,6 +37,99 @@ OnLastDispatch = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
+
+
+@dataclass
+class ChannelHandle:
+    """Opaque start result. Today the live object is a ``BaseChannel``."""
+
+    key: str
+    channel: Any
+
+
+@dataclass
+class StopReceipt:
+    """Result of ``ChannelManager.stop_one``."""
+
+    key: str
+    stopped: bool
+    detail: str = ""
+
+
+def channel_cfg_for_key(workspace_config: Any, key: str) -> Any | None:
+    """Return the config section for *key*, or ``None`` if absent."""
+    channels = getattr(workspace_config, "channels", None)
+    if channels is None:
+        return None
+    extra = getattr(channels, "__pydantic_extra__", None) or {}
+    ch_cfg = getattr(channels, key, None)
+    if ch_cfg is None and key in extra:
+        ch_cfg = extra[key]
+    if ch_cfg is None:
+        return None
+    if isinstance(ch_cfg, dict):
+        from types import SimpleNamespace
+
+        from ...config.config import BaseChannelConfig
+
+        defaults = BaseChannelConfig().model_dump()
+        defaults.update(ch_cfg)
+        return SimpleNamespace(**defaults)
+    return ch_cfg
+
+
+def channel_enabled(ch_cfg: Any) -> bool:
+    if isinstance(ch_cfg, dict):
+        return bool(ch_cfg.get("enabled", False))
+    return bool(getattr(ch_cfg, "enabled", False))
+
+
+def instantiate_channel(
+    key: str,
+    workspace_config: Any,
+    *,
+    process: ProcessHandler,
+    on_last_dispatch: OnLastDispatch = None,
+    workspace_dir: Path | None = None,
+) -> BaseChannel:
+    """Build one channel instance from workspace config (three-gate caller)."""
+    registry = get_channel_registry()
+    ch_cls = registry.get(key)
+    if ch_cls is None:
+        raise RuntimeError(f"Channel '{key}' is not in the registry")
+    ch_cfg = channel_cfg_for_key(workspace_config, key)
+    if ch_cfg is None:
+        raise RuntimeError(f"No config found for channel '{key}'")
+    show_tool_details = getattr(
+        workspace_config,
+        "show_tool_details",
+        True,
+    )
+    no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
+    from_config_kwargs: dict[str, Any] = {
+        "process": process,
+        "config": ch_cfg,
+        "on_reply_sent": on_last_dispatch,
+        "display_config": ChannelDisplayConfig.from_config(
+            ch_cfg,
+            show_tool_details=show_tool_details,
+        ),
+        "no_text_debounce": no_text_debounce,
+        "workspace_dir": workspace_dir,
+    }
+    import inspect
+
+    sig = inspect.signature(ch_cls.from_config)
+    if any(
+        p.kind == inspect.Parameter.VAR_KEYWORD
+        for p in sig.parameters.values()
+    ):
+        filtered_kwargs = from_config_kwargs
+    else:
+        filtered_kwargs = {
+            k: v for k, v in from_config_kwargs.items() if k in sig.parameters
+        }
+    return ch_cls.from_config(**filtered_kwargs)
 
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
@@ -76,6 +170,10 @@ class ChannelManager:
         self.channels = channels
         self._lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._process: ProcessHandler | None = None
+        self._on_last_dispatch: OnLastDispatch = None
+        self._workspace_dir: Path | None = None
+        self._workspace_config: Any = None
 
         # New unified queue system
         self._command_registry = CommandRegistry()
@@ -110,10 +208,12 @@ class ChannelManager:
             for key, ch_cls in registry.items()
             if key in available
         ]
-        return cls(channels)
+        manager = cls(channels)
+        manager._process = process
+        manager._on_last_dispatch = on_last_dispatch
+        return manager
 
     @classmethod
-    # pylint: disable=too-many-branches,too-many-statements
     def from_config(
         cls,
         process: ProcessHandler,
@@ -130,72 +230,23 @@ class ChannelManager:
             workspace_dir: Agent workspace directory for channel state files
         """
         available = get_available_channels()
-        ch = config.channels
-        show_tool_details = getattr(config, "show_tool_details", True)
-        extra = getattr(ch, "__pydantic_extra__", None) or {}
-
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
+        for key in get_channel_registry():
             if key not in available:
                 continue
-            ch_cfg = getattr(ch, key, None)
-            if ch_cfg is None and key in extra:
-                ch_cfg = extra[key]
-            if ch_cfg is None:
+            ch_cfg = channel_cfg_for_key(config, key)
+            if ch_cfg is None or not channel_enabled(ch_cfg):
                 continue
-            if isinstance(ch_cfg, dict):
-                from types import SimpleNamespace
-                from ...config.config import BaseChannelConfig
-
-                defaults = BaseChannelConfig().model_dump()
-                defaults.update(ch_cfg)
-                ch_cfg = SimpleNamespace(**defaults)
-
-            # Check if channel is enabled
-            # Handle both Pydantic objects (built-in)
-            # and dicts (customchannels)
-            if isinstance(ch_cfg, dict):
-                enabled = ch_cfg.get("enabled", False)
-            else:
-                enabled = getattr(ch_cfg, "enabled", False)
-            if not enabled:
-                continue
-
-            no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
-
-            # Channel classes may expose different plugin-specific factory
-            # signatures, so this mapping is intentionally dynamic.
-            from_config_kwargs: dict[str, Any] = {
-                "process": process,
-                "config": ch_cfg,
-                "on_reply_sent": on_last_dispatch,
-                "display_config": ChannelDisplayConfig.from_config(
-                    ch_cfg,
-                    show_tool_details=show_tool_details,
-                ),
-                "no_text_debounce": no_text_debounce,
-                "workspace_dir": workspace_dir,
-            }
-
-            # Only pass kwargs that the channel's from_config accepts
-            import inspect
-
-            sig = inspect.signature(ch_cls.from_config)
-            filtered_kwargs: dict[str, Any]
-            if any(
-                p.kind == inspect.Parameter.VAR_KEYWORD
-                for p in sig.parameters.values()
-            ):
-                filtered_kwargs = from_config_kwargs
-            else:
-                filtered_kwargs = {
-                    k: v
-                    for k, v in from_config_kwargs.items()
-                    if k in sig.parameters
-                }
-
             try:
-                channels.append(ch_cls.from_config(**filtered_kwargs))
+                channels.append(
+                    instantiate_channel(
+                        key,
+                        config,
+                        process=process,
+                        on_last_dispatch=on_last_dispatch,
+                        workspace_dir=workspace_dir,
+                    ),
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to initialize channel '%s', skipping: %s",
@@ -204,7 +255,12 @@ class ChannelManager:
                 )
                 continue
 
-        return cls(channels)
+        manager = cls(channels)
+        manager._process = process
+        manager._on_last_dispatch = on_last_dispatch
+        manager._workspace_dir = workspace_dir
+        manager._workspace_config = config
+        return manager
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
         """Return a callback that enqueues payload for the given channel."""
@@ -547,6 +603,90 @@ class ChannelManager:
         await asyncio.gather(*[_stop(g) for g in reversed(snapshot)])
 
         logger.info("ChannelManager stopped")
+
+    def _find_channel(self, key: str) -> BaseChannel | None:
+        return next((c for c in self.channels if c.channel == key), None)
+
+    async def start_one(
+        self,
+        key: str,
+        workspace_config: Any,
+    ) -> ChannelHandle:
+        """Start one channel on this manager. Idempotent if already running.
+
+        The returned handle is not guaranteed to be a local
+        ``BaseChannel`` — callers must treat it as opaque.
+        """
+        existing = self._find_channel(key)
+        if existing is not None:
+            return ChannelHandle(key=key, channel=existing)
+
+        process = self._process
+        if process is None and self._workspace is not None:
+            process = getattr(self._workspace, "stream_query", None)
+        if process is None:
+            raise RuntimeError(
+                f"Cannot start channel '{key}': no process handler",
+            )
+        workspace_dir = self._workspace_dir
+        if workspace_dir is None and self._workspace is not None:
+            workspace_dir = getattr(self._workspace, "workspace_dir", None)
+        config = workspace_config or self._workspace_config
+        channel = instantiate_channel(
+            key,
+            config,
+            process=process,
+            on_last_dispatch=self._on_last_dispatch,
+            workspace_dir=workspace_dir,
+        )
+        if self._workspace is not None:
+            channel.set_workspace(self._workspace, self._command_registry)
+        if getattr(channel, "uses_manager_queue", True):
+            channel.set_enqueue(self._make_enqueue_cb(key))
+        try:
+            await channel.start()
+        except Exception:
+            logger.exception("Failed to start channel '%s'", key)
+            try:
+                await channel.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        async with self._lock:
+            if self._find_channel(key) is None:
+                self.channels.append(channel)
+            else:
+                try:
+                    await channel.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+                existing = self._find_channel(key)
+                return ChannelHandle(key=key, channel=existing)
+        return ChannelHandle(key=key, channel=channel)
+
+    async def stop_one(self, key: str) -> StopReceipt:
+        """Stop one channel on this manager. Other channels are untouched."""
+        async with self._lock:
+            channel = None
+            for index, item in enumerate(self.channels):
+                if item.channel == key:
+                    channel = self.channels.pop(index)
+                    break
+        if channel is None:
+            return StopReceipt(
+                key=key,
+                stopped=False,
+                detail="not running",
+            )
+        channel.set_enqueue(None)
+        try:
+            await channel.stop()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to stop channel '%s'", key)
+            return StopReceipt(key=key, stopped=False, detail=str(exc))
+        return StopReceipt(key=key, stopped=True)
 
     async def get_channel(self, channel: str) -> Optional[BaseChannel]:
         async with self._lock:

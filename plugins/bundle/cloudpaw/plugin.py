@@ -417,55 +417,13 @@ async def _ensure_aliyun_cli() -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Plugin loader monkeypatch for uninstall cleanup
-# ---------------------------------------------------------------------------
+def _cleanup_cloudpaw_agents() -> None:
+    """Install-layer teardown: remove CloudPaw agents on uninstall only."""
+    from .agents_setup import uninstall_agents
 
-
-def _patch_plugin_loader_unload() -> None:
-    """Monkeypatch PluginLoader.unload_plugin to clean up CloudPaw agents
-    when the plugin is uninstalled.
-    """
-    try:
-        from qwenpaw.plugins.loader import PluginLoader
-    except ImportError:
-        logger.warning(
-            "Cannot import PluginLoader; uninstall patch skipped",
-        )
-        return
-
-    if getattr(PluginLoader.unload_plugin, "_cloudpaw_patched", False):
-        logger.debug("unload_plugin already patched; skip")
-        return
-
-    _original_unload_plugin = PluginLoader.unload_plugin
-
-    async def _patched_unload_plugin(
-        self,
-        plugin_id: str,
-        delete_files: bool = False,
-    ) -> None:
-        if plugin_id == "cloudpaw":
-            logger.info(
-                "[CloudPaw] Uninstall detected, cleaning up agents...",
-            )
-            try:
-                from .agents_setup import uninstall_agents
-
-                uninstall_agents()
-                logger.info("[CloudPaw] Agent cleanup completed")
-            except Exception as exc:
-                logger.warning(
-                    "[CloudPaw] Agent cleanup failed: %s",
-                    exc,
-                )
-
-        return await _original_unload_plugin(self, plugin_id, delete_files)
-
-    _patched_unload_plugin._cloudpaw_patched = True
-    _patched_unload_plugin._original = _original_unload_plugin
-    PluginLoader.unload_plugin = _patched_unload_plugin
-    logger.info("[CloudPaw] Patched PluginLoader.unload_plugin")
+    logger.info("[CloudPaw] Uninstall detected, cleaning up agents...")
+    uninstall_agents()
+    logger.info("[CloudPaw] Agent cleanup completed")
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +488,11 @@ class CloudPawPlugin:
                 exc_info=True,
             )
 
+        api.provision(
+            "cloudpaw_agents",
+            setup=None,
+            teardown=_cleanup_cloudpaw_agents,
+        )
         api.register_startup_hook(
             hook_name="cloudpaw_init",
             callback=self._on_startup,
@@ -576,11 +539,6 @@ class CloudPawPlugin:
 
         logger.info("[CloudPaw] Checking aliyun CLI availability...")
         await _ensure_aliyun_cli()
-
-        logger.info(
-            "[CloudPaw] Patching plugin loader for uninstall cleanup...",
-        )
-        _patch_plugin_loader_unload()
 
         logger.info("CloudPaw plugin startup complete")
 
