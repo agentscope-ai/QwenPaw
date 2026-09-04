@@ -36,6 +36,7 @@ from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
+from .remote_access import router as remote_access_router
 
 router = APIRouter()
 
@@ -72,6 +73,7 @@ router.include_router(provider_oauth_router)
 router.include_router(pawapps_router)
 router.include_router(harnesses_router)
 router.include_router(checkpoints_router)
+router.include_router(remote_access_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

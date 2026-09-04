@@ -1,24 +1,12 @@
 import { request } from "../request";
+import type {
+  InboxEvent,
+  PendingApproval,
+  PushMessage,
+  PushMessagesResponse,
+} from "@qwenpaw/api-contract";
 
-export interface PushMessage {
-  id: string;
-  text: string;
-}
-
-export interface InboxEvent {
-  id: string;
-  agent_id: string;
-  source_type: string;
-  source_id: string;
-  event_type: string;
-  status: string;
-  severity: string;
-  title: string;
-  body: string;
-  payload?: Record<string, unknown>;
-  read: boolean;
-  created_at: number;
-}
+export type { InboxEvent, PendingApproval, PushMessage };
 
 export interface InboxTrace {
   run_id: string;
@@ -33,35 +21,9 @@ export interface InboxTrace {
   error?: string;
 }
 
-export interface PendingApproval {
-  request_id: string;
-  session_id: string;
-  root_session_id: string;
-  owner_agent_id?: string;
-  agent_id: string;
-  tool_name: string;
-  tool_display_name?: string;
-  tool_source?: string;
-  severity: string;
-  findings_count: number;
-  findings_summary: string;
-  tool_params: Record<string, unknown>;
-  created_at: number;
-  timeout_seconds: number;
-  // One-line rationale emitted by the agent before requesting the tool
-  // call. May be an empty string when the agent gave no reasoning.
-  reasoning?: string;
-  // Approval-scope display fields (governance path). When is_generalized
-  // is true the console offers Approve Pattern vs Approve Exact.
-  is_generalized?: boolean;
-  exact_target?: string;
-  similar_target?: string;
-  source_type: string;
-}
-
 export const consoleApi = {
   getPushMessages: (sessionId?: string) =>
-    request<{ messages: PushMessage[]; pending_approvals: PendingApproval[] }>(
+    request<PushMessagesResponse>(
       sessionId
         ? `/console/push-messages?session_id=${sessionId}`
         : "/console/push-messages",

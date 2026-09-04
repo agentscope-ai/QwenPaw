@@ -1,0 +1,11 @@
+{
+  "name": "qwenpaw-oauth-loopback",
+  "version": "1.0.0",
+  "description": "One-shot loopback redirect for QwenPaw native OAuth",
+  "main": "index.ts",
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "expo": "*",
+    "react-native": "*"
+  }
+}

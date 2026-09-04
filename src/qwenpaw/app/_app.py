@@ -59,6 +59,7 @@ from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
+from .routers.remote_access import callback_router as relay_callback_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 
@@ -846,6 +847,7 @@ async def post_desktop_shutdown(
 
 
 app.include_router(api_router, prefix="/api")
+app.include_router(relay_callback_router)
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

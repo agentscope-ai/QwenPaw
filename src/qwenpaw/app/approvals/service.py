@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from ..mobile_push import MobileNotificationEvent, schedule_mobile_notification
 from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
@@ -215,6 +216,17 @@ class ApprovalService:
                 name=f"approval-notify-{request_id[:8]}",
             )
 
+        schedule_mobile_notification(
+            MobileNotificationEvent(
+                kind="approval_required",
+                agent_id=owner_agent_id,
+                title="需要你的审批",
+                body=f"{tool_name} 正在等待确认。",
+                session_id=root_session_id,
+                approval_request_id=request_id,
+            ),
+        )
+
         return pending
 
     async def create_pending_summary(
@@ -281,6 +293,17 @@ class ApprovalService:
                 self._notify_channel(pending, pending.result_summary),
                 name=f"approval-notify-{request_id[:8]}",
             )
+
+        schedule_mobile_notification(
+            MobileNotificationEvent(
+                kind="approval_required",
+                agent_id=owner_agent_id,
+                title="需要你的审批",
+                body=f"{summary.name} 正在等待确认。",
+                session_id=root_session_id,
+                approval_request_id=request_id,
+            ),
+        )
 
         return pending
 
