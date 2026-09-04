@@ -6,6 +6,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   clawhub: "ClawHub",
   modelscope: "ModelScope",
   aliyun: "Aliyun",
+  gitlab: "GitLab",
 };
 
 export function sourceLabel(source: string): string {
@@ -17,6 +18,7 @@ const PROVIDER_FALLBACK: Record<string, { letter: string; color: string }> = {
   clawhub: { letter: "C", color: "#f59e0b" },
   modelscope: { letter: "M", color: "#4f46e5" },
   aliyun: { letter: "A", color: "#ff6a00" },
+  gitlab: { letter: "G", color: "#fc6d26" },
 };
 
 interface SkillIconProps {
