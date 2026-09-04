@@ -23,6 +23,13 @@ from qwenpaw.constant import SECRET_DIR, WORKING_DIR
 from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
 from qwenpaw.utils.io_utils import get_sync_path_lock, write_json_atomic
 
+from .registry import (
+    env_key_identity,
+    is_bootstrap_protected_env_key,
+    is_internal_env_key,
+    validate_unique_env_keys,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,16 +92,6 @@ def _migrate_legacy_envs_json(path: Path) -> None:
             continue
 
 
-# Security-sensitive envs should come from process/system environment,
-# not persisted envs.json.
-_PROTECTED_BOOTSTRAP_KEYS = frozenset(
-    {
-        "QWENPAW_WORKING_DIR",
-        "QWENPAW_SECRET_DIR",
-    },
-)
-
-
 def get_envs_json_path() -> Path:
     """Return envs.json path under SECRET_DIR."""
     return _ENVS_JSON
@@ -116,9 +113,18 @@ def _apply_to_environ(
         envs: Key-value mapping to inject.
         overwrite: When False, existing process env values take precedence.
     """
+    seen: set[str] = set()
     for key, value in envs.items():
-        if key not in _HOST_ENV_VALUES:
-            _HOST_ENV_VALUES[key] = os.environ.get(key)
+        identity = env_key_identity(key)
+        if identity in seen:
+            logger.warning(
+                f"Skipping case-conflicting environment variable: {key}",
+            )
+            continue
+        seen.add(identity)
+        host_key = identity if os.name == "nt" else key
+        if host_key not in _HOST_ENV_VALUES:
+            _HOST_ENV_VALUES[host_key] = os.environ.get(key)
         if not overwrite and key in os.environ:
             continue
         os.environ[key] = value
@@ -126,7 +132,8 @@ def _apply_to_environ(
 
 def _remove_from_environ(key: str) -> None:
     """Restore the inherited value for *key*, or remove it if absent."""
-    inherited = _HOST_ENV_VALUES.get(key)
+    host_key = env_key_identity(key) if os.name == "nt" else key
+    inherited = _HOST_ENV_VALUES.get(host_key)
     if inherited is None:
         os.environ.pop(key, None)
     else:
@@ -251,6 +258,7 @@ def _save_envs_unlocked(
     *,
     old: dict[str, str],
 ) -> None:
+    validate_unique_env_keys(envs)
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
             f"envs.json path exists but is not a regular file: {path}",
@@ -322,7 +330,7 @@ def load_envs_into_environ() -> dict[str, str]:
     Call this once at application startup so that environment
     variables persisted from a previous session are available
     immediately. Protected keys are excluded from injection, and
-    existing process/system env vars are preserved.
+    persisted values override existing process/system values.
 
     Returns:
         Full persisted mapping from envs.json, including protected keys
@@ -336,10 +344,16 @@ def load_envs_into_environ() -> dict[str, str]:
     with restore_process_lock():
         cleanup_stale_restore_artifacts(_BOOTSTRAP_SECRET_DIR)
         envs = load_envs()
+    blocked_internal = [key for key in envs if is_internal_env_key(key)]
+    for key in blocked_internal:
+        logger.warning(
+            f"Ignoring internally managed environment variable from "
+            f"{get_envs_json_path()}: {key}",
+        )
     bootstrap_envs = {
         key: value
         for key, value in envs.items()
-        if key not in _PROTECTED_BOOTSTRAP_KEYS
+        if not is_bootstrap_protected_env_key(key)
     }
     # Console-managed values override the inherited process environment.
     _apply_to_environ(bootstrap_envs, overwrite=True)

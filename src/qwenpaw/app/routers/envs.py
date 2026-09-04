@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -12,8 +12,10 @@ from ...envs import delete_env_var, load_envs, save_envs, update_env_vars
 from ...envs.registry import (
     ENV_VAR_SPECS,
     ENV_VAR_SPECS_BY_KEY,
+    EnvReadonlyReason,
     validate_env_key,
     validate_env_value,
+    validate_unique_env_keys,
 )
 
 router = APIRouter(prefix="/envs", tags=["envs"])
@@ -32,16 +34,12 @@ class EnvSpecResponse(BaseModel):
     key: str
     default: str
     effective_value: str
-    source: str
-    description: str
+    source: Literal["default", "system", "user"]
     description_key: str
     editable: bool
-    sensitive: bool
-    value_type: str
-    choices: List[str]
-    readonly_reason: str | None
-    readonly_reason_code: str | None
-    mutability: str
+    value_type: Literal["string", "float", "integer", "boolean"]
+    readonly_reason_code: EnvReadonlyReason | None
+    mutability: Literal["hot_runtime", "startup_only"]
     configured: bool
 
 
@@ -60,7 +58,16 @@ def _validate_updates(body: Dict[str, str]) -> dict[str, str]:
             validate_env_value(key, value)
         except ValueError as exc:
             raise HTTPException(400, detail=str(exc)) from exc
+        if key in cleaned:
+            raise HTTPException(
+                400,
+                detail=f"Environment variable names conflict: {key}",
+            )
         cleaned[key] = value
+    try:
+        validate_unique_env_keys(cleaned)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
     return cleaned
 
 
@@ -91,15 +98,11 @@ def list_env_catalog() -> List[EnvSpecResponse]:
                 default=spec.default,
                 effective_value=value,
                 source=source,
-                description="",
                 description_key=(
                     f"environments.variableDescriptions.{spec.key}"
                 ),
                 editable=spec.editable,
-                sensitive=False,
                 value_type=spec.value_type,
-                choices=[],
-                readonly_reason=None,
                 readonly_reason_code=spec.readonly_reason_code,
                 mutability=spec.mutability,
                 configured=spec.key in configured,
@@ -111,14 +114,20 @@ def list_env_catalog() -> List[EnvSpecResponse]:
 @router.patch("", response_model=List[EnvVar])
 def patch_envs(body: Dict[str, str]) -> List[EnvVar]:
     """Merge submitted values without deleting omitted variables."""
-    return _items(update_env_vars(_validate_updates(body)))
+    try:
+        return _items(update_env_vars(_validate_updates(body)))
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
 
 
 @router.put("", response_model=List[EnvVar])
 def batch_save_envs(body: Dict[str, str]) -> List[EnvVar]:
     """Replace all persisted values through the legacy batch endpoint."""
     cleaned = _validate_updates(body)
-    save_envs(cleaned)
+    try:
+        save_envs(cleaned)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
     return _items(cleaned)
 
 

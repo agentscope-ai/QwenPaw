@@ -35,7 +35,13 @@ function SourceBadge({ source }: { source: EnvSpec["source"] }) {
   );
 }
 
-function ValueText({ value, secret }: { value: string; secret: boolean }) {
+function ValueText({
+  value,
+  secret = false,
+}: {
+  value: string;
+  secret?: boolean;
+}) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   return (
@@ -82,7 +88,6 @@ function EnvironmentsPage() {
     (item) =>
       !normalizedQuery ||
       item.key.toLowerCase().includes(normalizedQuery) ||
-      item.description.toLowerCase().includes(normalizedQuery) ||
       describeSpec(item).toLowerCase().includes(normalizedQuery),
   );
   const editableCatalog = visibleCatalog.filter((item) => item.editable);
@@ -98,6 +103,15 @@ function EnvironmentsPage() {
     const key = editor.key.trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       message.error(t("environments.invalidKeyFormat"));
+      return;
+    }
+    const keyIdentity = key.toUpperCase();
+    const duplicate =
+      editor.isNew &&
+      (envVars.some((item) => item.key.toUpperCase() === keyIdentity) ||
+        catalog.some((item) => item.key.toUpperCase() === keyIdentity));
+    if (duplicate) {
+      message.error(t("environments.duplicateKey", { name: key }));
       return;
     }
     setSaving(true);
@@ -156,14 +170,14 @@ function EnvironmentsPage() {
       const value = configured.get(item.key) ?? item.effective_value;
       const readonlyReason = item.readonly_reason_code
         ? t(`environments.readonlyReason.${item.readonly_reason_code}`)
-        : item.readonly_reason ?? "";
+        : "";
       return (
         <div className={styles.row} key={item.key}>
           <div className={styles.identity}>
             <code>{item.key}</code>
             <p>{describeSpec(item)}</p>
           </div>
-          <ValueText value={value} secret={item.sensitive} />
+          <ValueText value={value} />
           <SourceBadge source={item.source} />
           <div className={styles.actions}>
             {item.editable ? (

@@ -6,9 +6,14 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from typing import Iterable, Literal
 
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+EnvMutability = Literal["hot_runtime", "startup_only"]
+EnvReadonlyReason = Literal["startup", "initial_default"]
+EnvValueType = Literal["string", "float", "integer", "boolean"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,9 +22,9 @@ class EnvVarSpec:
 
     key: str
     default: str
-    mutability: str
-    value_type: str = "string"
-    readonly_reason_code: str | None = None
+    mutability: EnvMutability
+    value_type: EnvValueType = "string"
+    readonly_reason_code: EnvReadonlyReason | None = None
 
     @property
     def editable(self) -> bool:
@@ -150,15 +155,55 @@ _INTERNAL_KEYS = frozenset(
         "QWENPAW_RUNTIME_READY_FILE",
     },
 )
+_PROTECTED_BOOTSTRAP_KEYS = frozenset(
+    {
+        "QWENPAW_WORKING_DIR",
+        "QWENPAW_SECRET_DIR",
+        *_INTERNAL_KEYS,
+    },
+)
+
+
+def env_key_identity(key: str) -> str:
+    """Return the portable, case-insensitive identity for an env key."""
+    return key.upper()
+
+
+def is_internal_env_key(key: str) -> bool:
+    """Return whether an env key is reserved for internal runtime use."""
+    return env_key_identity(key) in _INTERNAL_KEYS
+
+
+def is_bootstrap_protected_env_key(key: str) -> bool:
+    """Return whether persisted data must not override a startup value."""
+    return env_key_identity(key) in _PROTECTED_BOOTSTRAP_KEYS
+
+
+def validate_unique_env_keys(keys: Iterable[str]) -> None:
+    """Reject keys that differ only by letter case."""
+    seen: dict[str, str] = {}
+    for key in keys:
+        identity = env_key_identity(key)
+        existing = seen.get(identity)
+        if existing is not None and existing != key:
+            raise ValueError(
+                f"Environment variable names conflict: {existing}, {key}",
+            )
+        seen[identity] = key
 
 
 def validate_env_key(key: str) -> None:
     """Reject malformed, internal, and non-editable known keys."""
     if not _ENV_KEY_RE.fullmatch(key):
         raise ValueError(f"Invalid environment variable name: {key}")
-    if key in _INTERNAL_KEYS:
+    identity = env_key_identity(key)
+    if identity.startswith("QWENPAW_") and key != identity:
+        raise ValueError(
+            f"QwenPaw environment variable must be uppercase: {key}",
+        )
+    if is_internal_env_key(key):
         raise ValueError(f"Environment variable is managed internally: {key}")
-    spec = ENV_VAR_SPECS_BY_KEY.get(key)
+    spec = ENV_VAR_SPECS_BY_KEY.get(identity)
     if spec is not None and not spec.editable:
         raise ValueError(f"Environment variable is read-only: {key}")
 

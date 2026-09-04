@@ -64,14 +64,10 @@ const timeoutSpec = {
   default: "30",
   effective_value: "30",
   source: "default" as const,
-  description: "Stream idle timeout",
   description_key:
     "environments.variableDescriptions.QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
   editable: true,
-  sensitive: false,
-  value_type: "float",
-  choices: [],
-  readonly_reason: null,
+  value_type: "float" as const,
   readonly_reason_code: null,
   mutability: "hot_runtime" as const,
   configured: false,
@@ -145,7 +141,6 @@ describe("EnvironmentsPage", () => {
         key: "QWENPAW_WORKING_DIR",
         editable: false,
         mutability: "startup_only",
-        readonly_reason: "startup only",
         readonly_reason_code: "startup",
       },
     ]);

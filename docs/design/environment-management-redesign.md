@@ -107,6 +107,10 @@ CLI 所需的变量。保存后：
 - MCP stdio 显式取得 env store 中的变量，绕过 MCP SDK 的继承白名单；
 - 已经运行的外部子进程不会被操作系统原地修改。
 
+全局自定义变量会提供给每一个之后启动的 stdio MCP。按 MCP card 绑定或限制变量
+属于 MCP 层的权限模型，不在本环境变量管理 PR 中实现。用户不应把不希望 MCP
+子进程读取的凭据放入全局环境变量配置。
+
 ## 5. 持久化与优先级
 
 继续使用现有 `SECRET_DIR/envs.json`：
@@ -127,6 +131,10 @@ QwenPaw envs.json 显式值 > system/.env > code default
 启动加载 `envs.json` 时，显式值覆盖当前进程中的同名值。覆盖前记录继承值；用户
 删除或重置覆盖项时，恢复该继承值。如果启动前不存在同名值，则从
 `os.environ` 删除。
+
+环境变量名称使用大小写不敏感的可移植身份检查重复项。`QWENPAW_*` 名称必须使用
+规范大写，避免在 Windows 上绕过已知变量和内部变量策略。runtime token、ready
+file 以及启动目录变量不会从 `envs.json` 注入当前进程。
 
 这一行为只修改当前 QwenPaw 进程及其未来子进程，不会修改父进程、shell profile、
 Windows Registry、launchd、systemd 或机器级环境。
@@ -162,7 +170,8 @@ Windows Registry、launchd、systemd 或机器级环境。
 
 ### `POST /api/envs/{key}/reset`
 
-删除一个可动态修改的已知变量覆盖，并恢复 system/.env 或代码默认行为。
+删除一个已知变量的遗留覆盖，并恢复 system/.env 或代码默认行为。只读变量仍不可
+通过写接口设置，但如果存储中已有旧值，可以通过 reset 清理。
 
 ## 7. Console
 
@@ -189,14 +198,19 @@ Windows Registry、launchd、systemd 或机器级环境。
 - [x] 新增原子增量更新能力
 - [x] 用户持久化值覆盖 system/.env
 - [x] 删除用户覆盖时恢复继承值
+- [x] 拒绝大小写冲突的 key，并要求 `QWENPAW_*` 使用规范大写
+- [x] 禁止持久化 internal key 覆盖可信启动环境
 - [x] stream timeout 在每次新 stream 开始时通过 `EnvVarLoader` 读取
 - [x] `AgentsRunningConfig` 使用 `default_factory + EnvVarLoader`
 - [x] MCP stdio 注入受管自定义环境
+- [x] 明确全局 MCP 注入为本期接受的边界，per-MCP policy 留在 MCP 层
 - [x] Provider 凭据与模型配置不进入环境变量 catalog 或 `os.environ`
 - [x] Console 分开展示动态、自定义和只读设置
 - [x] Console 将用户自定义变量置顶，其后连续展示 QwenPaw 设置
 - [x] 移除与三段式结构重复的分类筛选、API 字段和 catalog 元数据
 - [x] Console 不再调用全量 PUT 保存单项修改
+- [x] Console 新增模式拒绝覆盖已有变量
+- [x] 删除 catalog 中固定且未使用的响应字段并收紧类型
 - [x] 后端单元与集成测试通过
 - [x] 前端页面与 locale 测试通过
 - [x] Python pre-commit、前端 lint 和生产构建通过
