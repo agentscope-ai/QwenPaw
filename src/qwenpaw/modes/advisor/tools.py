@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 
+from .prompts import FALLBACK_ADVICE
+
 if TYPE_CHECKING:
     from .mode import AdvisorMode
 
@@ -38,8 +40,7 @@ CONSULT_TOOL_DESCRIPTION = (
 )
 
 _NO_SESSION_REPLY = (
-    "The advisor is not available in this session. Decide with your own "
-    "best judgment and keep going."
+    f"The advisor is not available in this session. {FALLBACK_ADVICE}"
 )
 
 
@@ -107,7 +108,7 @@ def make_consult_advisor(owner: "AdvisorMode") -> Any:
         if not middleware.on_demand_enabled:
             yield _chunk(
                 "On-demand consultation is switched off for this agent. "
-                "Decide with your own best judgment and keep going.",
+                f"{FALLBACK_ADVICE}",
                 block_id,
             )
             return

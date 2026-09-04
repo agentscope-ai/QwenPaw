@@ -17,6 +17,7 @@ from agentscope.message import (
     UserMsg,
 )
 
+from qwenpaw.config.config import AdvisorInterventionConfig
 from qwenpaw.modes.advisor.middleware import (
     _LiveExchange,
     CONSULT_BUDGET_EXHAUSTED,
@@ -35,7 +36,6 @@ from qwenpaw.modes.advisor.middleware import (
 from qwenpaw.modes.advisor.trigger import (
     InterventionTrigger,
     ObservedStep,
-    TriggerConfig,
 )
 
 FAIL = "Command failed with exit code 1."
@@ -85,7 +85,7 @@ def make_mw(
     **trigger_kw,
 ):
     """A middleware past the opening plan, with a scripted advisor."""
-    cfg = TriggerConfig(
+    cfg = AdvisorInterventionConfig(
         consecutive_failures=3,
         window_size=10,
         window_failures=4,

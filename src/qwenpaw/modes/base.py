@@ -19,7 +19,7 @@ from: it auto-skips when the owning mode's ``is_active(ctx)`` returns
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..runtime.hooks import HookBase, HookContext, HookResult
 
@@ -84,7 +84,7 @@ class AgentMode:
         self,
         ctx: HookContext,  # pylint: disable=unused-argument
         agent_config: object,  # pylint: disable=unused-argument
-    ) -> list:
+    ) -> list[Any]:
         """AgentScope middlewares this mode adds to the agent.
 
         Unlike the ``setup``-time registrations these are built per

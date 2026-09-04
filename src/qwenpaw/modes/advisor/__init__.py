@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Advisor mode — self-contained ``AgentMode`` plugin.
 
-A stronger "advisor" model (the agent's main model) writes a strategic
+A stronger "advisor" model (the agent's primary model) writes a strategic
 plan before the agent's first step and is consulted again when the agent
 keeps failing, while the agent itself runs on the cheaper
 ``subagent_model`` when one is configured.

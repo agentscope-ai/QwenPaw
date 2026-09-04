@@ -9,13 +9,15 @@ message without an agent reload.
 from __future__ import annotations
 
 import logging
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
+from ...config.config import AdvisorThinkingLevel
 from ...modes.advisor.models import (
+    default_advisor_slot,
     slot_to_dict,
     resolve_worker_slot,
     resolve_advisor_slot,
@@ -57,9 +59,7 @@ class AdvisorModeUpdateRequest(BaseModel):
     on_demand_enabled: Optional[bool] = None
     max_consults: Optional[int] = Field(default=None, ge=0)
     intervention: Optional[InterventionBody] = None
-    advisor_thinking: Optional[
-        Literal["inherit", "off", "low", "medium", "high"]
-    ] = None
+    advisor_thinking: Optional[AdvisorThinkingLevel] = None
     advisor_model: Optional[ModelSlotBody] = None
     worker_model: Optional[ModelSlotBody] = None
 
@@ -72,8 +72,8 @@ def _state(config) -> dict:
     show "default" vs "custom".
     """
     am = config.advisor_mode
-    advisor, _advisor_source = resolve_advisor_slot(config)
-    worker, _worker_source = resolve_worker_slot(config)
+    advisor = resolve_advisor_slot(config)
+    worker = resolve_worker_slot(config)
     return {
         "enabled": bool(am.enabled),
         "plan_enabled": bool(am.plan_enabled),
@@ -88,19 +88,9 @@ def _state(config) -> dict:
         "worker_model_override": slot_to_dict(am.worker_model),
         "advisor_thinking": am.advisor_thinking,
         # The defaults the overrides fall back to, for the Console labels.
-        "main_model": slot_to_dict(
-            resolve_advisor_slot(_without_overrides(config))[0],
-        ),
+        "main_model": slot_to_dict(default_advisor_slot(config)),
         "subagent_model": slot_to_dict(config.subagent_model),
     }
-
-
-def _without_overrides(config):
-    """``config`` as seen with the advisor model overrides cleared."""
-    am = config.advisor_mode.model_copy(
-        update={"advisor_model": None, "worker_model": None},
-    )
-    return config.model_copy(update={"advisor_mode": am})
 
 
 @router.get(
@@ -129,7 +119,7 @@ async def post_advisor_mode_update(
 
     Persists the ``advisor_mode`` section of ``agent.json``: the switches,
     ``max_consults`` and the two model overrides. Fields left out of the
-    body are unchanged; ``"advisor_model": null`` / ``"worker_model":
+    body are unchanged. ``"advisor_model": null`` / ``"worker_model":
     null`` clear the respective override.
     """
     from ...config.config import ModelSlotConfig, update_agent_config_async

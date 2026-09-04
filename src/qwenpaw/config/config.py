@@ -2015,6 +2015,9 @@ class CodingModeConfig(BaseModel):
     )
 
 
+AdvisorThinkingLevel = Literal["inherit", "off", "low", "medium", "high"]
+
+
 class AdvisorInterventionConfig(BaseModel):
     """When the advisor is called back in mid-run (Advisor Mode).
 
@@ -2026,7 +2029,9 @@ class AdvisorInterventionConfig(BaseModel):
     consecutive_failures: int = Field(
         default=3,
         ge=1,
-        description="Failures in a row that call the advisor in",
+        description=(
+            "Failed tool calls in a row before the advisor is consulted"
+        ),
     )
     window_size: int = Field(
         default=10,
@@ -2036,7 +2041,10 @@ class AdvisorInterventionConfig(BaseModel):
     window_failures: int = Field(
         default=4,
         ge=1,
-        description="Failures within the window that call the advisor in",
+        description=(
+            "Failed tool calls within the window before the advisor is "
+            "consulted"
+        ),
     )
     cooldown_steps: int = Field(
         default=0,
@@ -2106,13 +2114,7 @@ class AdvisorModeConfig(BaseModel):
             "the sub-agent model, or the primary model when none is set"
         ),
     )
-    advisor_thinking: Literal[
-        "inherit",
-        "off",
-        "low",
-        "medium",
-        "high",
-    ] = Field(
+    advisor_thinking: AdvisorThinkingLevel = Field(
         default="off",
         description=(
             "Thinking level for the advisor's own calls. 'inherit' "

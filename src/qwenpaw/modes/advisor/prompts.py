@@ -189,6 +189,9 @@ SEVERITY_NOTES = {
     ),
 }
 
+# Closes every notice the agent gets instead of an advisor answer.
+FALLBACK_ADVICE = "Decide with your own best judgment and keep going."
+
 TRIGGER_NOTES = {
     "consecutive": "Several tool calls in a row have failed.",
     "window": "Failures keep recurring over the last several steps.",
@@ -205,6 +208,7 @@ __all__ = [
     "ADVISOR_SYSTEM_PROMPT",
     "CONSULT_REQUEST_TEMPLATE",
     "ENV_SECTION_HEADER",
+    "FALLBACK_ADVICE",
     "FOLLOWUP_REQUEST_TEMPLATE",
     "PLAN_REQUEST_TEMPLATE",
     "SEVERITY_NOTES",

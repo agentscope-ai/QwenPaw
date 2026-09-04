@@ -18,7 +18,7 @@ result pair so the agent reads them as something it asked for:
 2. **Mid-run intervention.** Every later model call feeds the tool results
    that accumulated in context to :class:`InterventionTrigger`. When the
    agent is stuck (repeated failures) the advisor is consulted again with
-   the recent calls and answers CONTINUE or ADJUST; only an ADJUST body is
+   the recent calls and answers CONTINUE or ADJUST. Only an ADJUST body is
    injected, as a ``consult_advisor_followup`` pair.
 
 3. **On-demand consultation.** :meth:`consult_stream` answers a question
@@ -61,6 +61,7 @@ from agentscope.message import (
 from agentscope.middleware import MiddlewareBase
 
 from .prompts import (
+    FALLBACK_ADVICE,
     ADVISOR_SYSTEM_PROMPT,
     CONSULT_REQUEST_TEMPLATE,
     ENV_SECTION_HEADER,
@@ -84,7 +85,7 @@ logger = logging.getLogger(__name__)
 PLAN_TOOL_NAME = "consult_advisor"
 FOLLOWUP_TOOL_NAME = "consult_advisor_followup"
 
-# Tool output can be tens of KB; the advisor only needs enough to judge.
+# Tool output can be tens of KB. The advisor only needs enough to judge.
 _MAX_OUTPUT_CHARS = 800
 _MAX_ARGS_CHARS = 300
 
@@ -102,12 +103,12 @@ _FOLLOWUP_FORMAT_ATTEMPTS = 3
 DEFAULT_MAX_CONSULTS = 32
 CONSULT_BUDGET_EXHAUSTED = (
     "The advisor is not available for further consultation in this "
-    "conversation. Decide with your own best judgment and keep going."
+    f"conversation. {FALLBACK_ADVICE}"
 )
 
 # What the agent sees as the arguments of the injected calls. The real
 # requests are large (the plan request carries the tool list, environment
-# context and planning guidelines; the follow-up carries the agent's own
+# context and planning guidelines. The follow-up carries the agent's own
 # failures). Echoing them back would double the context cost and re-show
 # the errors verbatim. A fixed stand-in keeps each call short and identical
 # every time.
@@ -197,7 +198,7 @@ def _parse_followup(reply: str) -> tuple[str, str]:
 
     The advisor is asked to put CONTINUE or ADJUST alone on the first line.
     Leading blank lines and markdown emphasis around the word are tolerated,
-    since models add those readily; anything else counts as unparseable and
+    since models add those readily. Anything else counts as unparseable and
     returns ``("", "")`` so the caller can re-ask.
     """
     lines = (reply or "").strip().splitlines()
@@ -584,7 +585,7 @@ class AdvisorMiddleware(MiddlewareBase):
             and not self._plan_injected
             and self._plan_error is None
         ):
-            # Only consume the flag once a plan is actually in context; a
+            # Only consume the flag once a plan is actually in context. A
             # rejected advisor call must not silently downgrade the run.
             # Once every attempt has failed (``_plan_error``), the rest of
             # this run goes without a plan and gets the watcher below
@@ -629,8 +630,8 @@ class AdvisorMiddleware(MiddlewareBase):
 
         The reply is returned to the agent as the tool result (the toolkit
         records it in context, so nothing is injected here). Consultations
-        are capped per conversation; past the cap a fixed notice is
-        returned instead of a advisor call. ``on_text`` receives the
+        are capped per conversation. Past the cap a fixed notice is
+        returned instead of an advisor call. ``on_text`` receives the
         cumulative reply while the advisor is still writing it.
         """
         question = (question or "").strip()
@@ -672,12 +673,12 @@ class AdvisorMiddleware(MiddlewareBase):
             record["error"] = str(exc)
             self._record_consult(record)
             return (
-                "The advisor could not be reached right now. Decide with "
-                "your own best judgment and keep going."
+                "The advisor could not be reached right now. "
+                f"{FALLBACK_ADVICE}"
             )
         record["reply"] = reply
         self._record_consult(record)
-        # The agent just asked; do not count the same run of failures
+        # The agent just asked, so do not count the same run of failures
         # towards an automatic intervention on top of that.
         self._trigger.reset_counters()
         logger.info(
@@ -693,7 +694,7 @@ class AdvisorMiddleware(MiddlewareBase):
         """:meth:`consult`, delivered as text deltas while the advisor
         writes, so the ``consult_advisor`` tool can stream its result.
 
-        Yields the pieces of the reply in order; joined, they equal the
+        Yields the pieces of the reply in order. Joined, they equal the
         text :meth:`consult` returns (a notice — budget exhausted, advisor
         unreachable — arrives as one piece).
         """
@@ -734,7 +735,7 @@ class AdvisorMiddleware(MiddlewareBase):
     # ── mid-run intervention ────────────────────────────────────────────
 
     async def _check_and_intervene(self, agent: "Agent") -> Msg | None:
-        """Feed new tool results to the trigger; consult the advisor if
+        """Feed new tool results to the trigger and consult the advisor if
         stuck. Returns the injected message, if any."""
         try:
             event = self._consume_new_results(agent.state.context)
@@ -883,7 +884,7 @@ class AdvisorMiddleware(MiddlewareBase):
                 live.note("(no CONTINUE/ADJUST verdict, asking again)")
         else:
             # Still unparseable: treat as ADJUST rather than drop the
-            # advice, so a advisor that ignored the format is not silently
+            # advice, so an advisor that ignored the format is not silently
             # discarded.
             action, body = _ADJUST, advice.strip()
             logger.warning(
@@ -1071,7 +1072,7 @@ class AdvisorMiddleware(MiddlewareBase):
     def _save_transcript(self) -> None:
         """Persist the advisor exchange for debugging and analysis.
 
-        Written under ``ADVISOR_DIR/<agent_id>/<session>.json`` — outside
+        Written under ``~/.qwenpaw/advisor/<agent_id>/<session>.json``, outside
         the agent workspace on purpose, so the agent's own file searches
         never surface the advisor's log as task material.
         """
@@ -1125,7 +1126,7 @@ class AdvisorMiddleware(MiddlewareBase):
     def _extract_instruction(context: list[Msg]) -> str:
         """The text of the latest user message in *context*.
 
-        The context of a chat session carries every earlier turn; the
+        The context of a chat session carries every earlier turn. The
         follow-up and consultation requests must describe the message the
         agent is answering now, not the first one of the conversation.
         """
@@ -1158,8 +1159,6 @@ def default_log_dir(agent_id: str) -> Path:
 
 __all__ = [
     "AdvisorMiddleware",
-    "CONSULT_BUDGET_EXHAUSTED",
-    "DEFAULT_MAX_CONSULTS",
     "FOLLOWUP_TOOL_NAME",
     "PLAN_TOOL_NAME",
     "default_log_dir",

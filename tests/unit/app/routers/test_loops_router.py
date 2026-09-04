@@ -447,7 +447,7 @@ def test_loop_catalog_lists_advisor_mode(client, workspace) -> None:
     assert response.status_code == 200
     advisor = next(m for m in response.json() if m["id"] == "advisor")
     assert advisor["slash_command"] == "advisor"
-    assert advisor["name"] == "Advisor"
+    assert advisor["name"] == "advisor"
     assert (
         advisor["source"] == "builtin"
     ), "bundled mode, listed with built-ins"
