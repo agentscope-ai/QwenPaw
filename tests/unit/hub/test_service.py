@@ -4,6 +4,7 @@
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -89,6 +90,37 @@ class _FakeProvisioner(RuntimeProvisioner):
         return None
 
 
+class _BlockingProvisioner(_FakeProvisioner):
+    """Hold starts open so lifecycle concurrency can be asserted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+        self._condition = threading.Condition()
+        self._started = 0
+
+    def start(
+        self,
+        record: RuntimeRecord,
+        credentials: Mapping[str, str],
+    ) -> RuntimeRecord:
+        del credentials
+        with self._condition:
+            self.start_calls += 1
+            self._started += 1
+            self._condition.notify_all()
+        assert self.release.wait(timeout=2)
+        return replace(record, state=RuntimeState.RUNNING, pid=100)
+
+    def wait_for_starts(self, count: int) -> bool:
+        """Wait until the requested number of starts enter the backend."""
+        with self._condition:
+            return self._condition.wait_for(
+                lambda: self._started >= count,
+                timeout=1,
+            )
+
+
 def _service(
     tmp_path: Path,
     config: HubConfig,
@@ -101,6 +133,19 @@ def _service(
         provisioners={"local": _FakeProvisioner(provisioner_available)},
         credential_provider=lambda _: {},
         hub_config=config,
+    )
+
+
+def _service_with_provisioner(
+    tmp_path: Path,
+    provisioner: RuntimeProvisioner,
+) -> RuntimeService:
+    return RuntimeService(
+        root_dir=tmp_path,
+        registry=RuntimeRegistry(tmp_path / "control.db"),
+        provisioners={"local": provisioner},
+        credential_provider=lambda _: {},
+        hub_config=HubConfig(),
     )
 
 
@@ -228,6 +273,30 @@ def test_running_runtime_limit_is_global(tmp_path: Path) -> None:
     assert service.start("first").state is RuntimeState.RUNNING
     with pytest.raises(ValueError, match="running runtime limit reached: 1"):
         service.start("second")
+
+
+def test_slow_lifecycle_starts_are_coalesced_and_parallel(
+    tmp_path: Path,
+) -> None:
+    provisioner = _BlockingProvisioner()
+    service = _service_with_provisioner(tmp_path, provisioner)
+    service.create(_spec("runtime-a"))
+    service.create(_spec("runtime-b", "tenant-b"))
+
+    first = service.submit("start", "runtime-a")
+    duplicate = service.submit("start", "runtime-a")
+    second = service.submit("start", "runtime-b")
+
+    assert first is duplicate
+    assert provisioner.wait_for_starts(2)
+    assert service.active_operation("runtime-a") == "start"
+    assert service.status("runtime-a").state is RuntimeState.STARTING
+    assert provisioner.start_calls == 2
+
+    provisioner.release.set()
+    assert first.result(timeout=1).state is RuntimeState.RUNNING
+    assert second.result(timeout=1).state is RuntimeState.RUNNING
+    service.close()
 
 
 @pytest.mark.parametrize(

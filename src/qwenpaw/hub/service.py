@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import builtins
+import logging
 import re
 import threading
 from collections.abc import Callable, Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from ..utils.http import is_loopback_host
 from .config import HubConfig
@@ -38,6 +41,10 @@ _WINDOWS_RESERVED_NAMES = {
 }
 
 
+class RuntimeOperationConflictError(RuntimeError):
+    """Raised when a runtime already has another lifecycle operation."""
+
+
 class RuntimeService:
     """Coordinate persistent metadata with deployment-specific provisioners."""
 
@@ -61,6 +68,14 @@ class RuntimeService:
         self._lock_registry = threading.Lock()
         self._admission_lock = threading.Lock()
         self._runtime_locks: dict[str, threading.RLock] = {}
+        self._operations_lock = threading.Lock()
+        self._operations: dict[
+            str,
+            tuple[str, Future[Any]],
+        ] = {}
+        self._lifecycle_executor = ThreadPoolExecutor(
+            thread_name_prefix="qwenpaw-runtime-lifecycle",
+        )
         self._provisioner_availability = self._preflight_provisioners()
 
     def create(self, spec: RuntimeSpec) -> RuntimeRecord:
@@ -144,7 +159,11 @@ class RuntimeService:
     def list(self, owner_user_id: str | None = None) -> list[RuntimeRecord]:
         """Refresh and return all runtime records."""
         return [
-            self.status(record.runtime_id)
+            (
+                self.get(record.runtime_id)
+                if self.active_operation(record.runtime_id)
+                else self.status(record.runtime_id)
+            )
             for record in self.registry.list(owner_user_id)
         ]
 
@@ -170,7 +189,14 @@ class RuntimeService:
             owner=owner,
         )
         return (
-            [self.status(record.runtime_id) for record in records],
+            [
+                (
+                    self.get(record.runtime_id)
+                    if self.active_operation(record.runtime_id)
+                    else self.status(record.runtime_id)
+                )
+                for record in records
+            ],
             total,
         )
 
@@ -184,8 +210,7 @@ class RuntimeService:
     def start(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime and persist either success or failure."""
         with self._runtime_lock(runtime_id):
-            with self._admission_lock:
-                return self._start_locked(runtime_id)
+            return self._start_locked(runtime_id)
 
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
@@ -193,34 +218,35 @@ class RuntimeService:
         if not is_loopback_host(record.host):
             raise ValueError("Managed runtime host must be loopback-only.")
         self.require_provisioner_available(record.provisioner)
-        capacity = self.hub_config.capacity
-        running_count = sum(
-            item.runtime_id != record.runtime_id
-            and item.state
-            in {
-                RuntimeState.STARTING,
-                RuntimeState.RUNNING,
-            }
-            for item in self.registry.list()
-        )
-        if (
-            capacity.max_running_runtimes is not None
-            and running_count >= capacity.max_running_runtimes
-        ):
-            raise ValueError(
-                "Hub running runtime limit reached: "
-                f"{capacity.max_running_runtimes}",
-            )
         provisioner = self._provisioner(record)
-        starting = self.registry.save(
-            replace(
-                record,
-                desired_state=RuntimeState.RUNNING,
-                start_policy=RuntimeStartPolicy.OWNER_ALLOWED,
-                state=RuntimeState.STARTING,
-                last_error=None,
-            ),
-        )
+        with self._admission_lock:
+            capacity = self.hub_config.capacity
+            running_count = sum(
+                item.runtime_id != record.runtime_id
+                and item.state
+                in {
+                    RuntimeState.STARTING,
+                    RuntimeState.RUNNING,
+                }
+                for item in self.registry.list()
+            )
+            if (
+                capacity.max_running_runtimes is not None
+                and running_count >= capacity.max_running_runtimes
+            ):
+                raise ValueError(
+                    "Hub running runtime limit reached: "
+                    f"{capacity.max_running_runtimes}",
+                )
+            starting = self.registry.save(
+                replace(
+                    record,
+                    desired_state=RuntimeState.RUNNING,
+                    start_policy=RuntimeStartPolicy.OWNER_ALLOWED,
+                    state=RuntimeState.STARTING,
+                    last_error=None,
+                ),
+            )
         try:
             credentials = self.credential_provider(starting)
             running = provisioner.start(starting, credentials)
@@ -260,7 +286,7 @@ class RuntimeService:
         owner_initiated: bool = False,
     ) -> RuntimeRecord:
         """Restart one runtime with the current administrator policy."""
-        with self._runtime_lock(runtime_id), self._admission_lock:
+        with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
             if (
                 owner_initiated
@@ -303,7 +329,7 @@ class RuntimeService:
 
     def rebuild(self, runtime_id: str) -> RuntimeRecord:
         """Recreate a Docker runtime with the current global image policy."""
-        with self._runtime_lock(runtime_id), self._admission_lock:
+        with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
             if record.provisioner != "docker":
                 raise ValueError("Only Docker runtimes can be rebuilt.")
@@ -329,6 +355,8 @@ class RuntimeService:
 
     def status(self, runtime_id: str) -> RuntimeRecord:
         """Refresh one runtime's observed state."""
+        if self.active_operation(runtime_id):
+            return self.get(runtime_id)
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
             observed = self._provisioner(record).status(record)
@@ -351,6 +379,7 @@ class RuntimeService:
 
     def close(self) -> None:
         """Close all provisioners and persist the resulting stopped states."""
+        self._lifecycle_executor.shutdown(wait=True)
         for provisioner in self.provisioners.values():
             provisioner.close()
         for record in self.registry.list():
@@ -365,6 +394,99 @@ class RuntimeService:
                         pid=None,
                     ),
                 )
+
+    def submit(
+        self,
+        operation: str,
+        runtime_id: str,
+        *,
+        start_policy: RuntimeStartPolicy = RuntimeStartPolicy.OWNER_ALLOWED,
+        owner_initiated: bool = False,
+    ) -> Future[Any]:
+        """Submit one deployment-neutral runtime lifecycle operation."""
+        operations: dict[
+            str,
+            tuple[Callable[..., Any], dict[str, object]],
+        ] = {
+            "start": (self.start, {}),
+            "stop": (self.stop, {"start_policy": start_policy}),
+            "restart": (
+                self.restart,
+                {"owner_initiated": owner_initiated},
+            ),
+            "rebuild": (self.rebuild, {}),
+            "delete": (self.delete, {}),
+        }
+        selected = operations.get(operation)
+        if selected is None:
+            raise ValueError(f"Unknown runtime operation: {operation}")
+        function, kwargs = selected
+        return self._submit_operation(
+            runtime_id,
+            operation,
+            function,
+            runtime_id,
+            coalesce=operation == "start",
+            **kwargs,
+        )
+
+    def active_operation(self, runtime_id: str) -> str | None:
+        """Return the active lifecycle operation for a runtime."""
+        with self._operations_lock:
+            active = self._operations.get(runtime_id)
+            return active[0] if active is not None else None
+
+    def _submit_operation(
+        self,
+        runtime_id: str,
+        operation: str,
+        function: Callable[..., Any],
+        *args: object,
+        coalesce: bool = False,
+        **kwargs: object,
+    ) -> Future[Any]:
+        """Run one lifecycle operation without using request workers."""
+        with self._operations_lock:
+            active = self._operations.get(runtime_id)
+            if active is not None:
+                active_name, active_future = active
+                if coalesce and active_name == operation:
+                    return active_future
+                raise RuntimeOperationConflictError(
+                    f"Runtime {runtime_id} is already {active_name}",
+                )
+            future = self._lifecycle_executor.submit(
+                function,
+                *args,
+                **kwargs,
+            )
+            self._operations[runtime_id] = (operation, future)
+        future.add_done_callback(
+            lambda completed: self._finish_operation(
+                runtime_id,
+                operation,
+                completed,
+            ),
+        )
+        return future
+
+    def _finish_operation(
+        self,
+        runtime_id: str,
+        operation: str,
+        future: Future[Any],
+    ) -> None:
+        """Release a completed operation slot and report failures."""
+        with self._operations_lock:
+            active = self._operations.get(runtime_id)
+            if active is not None and active[1] is future:
+                self._operations.pop(runtime_id, None)
+        exception = future.exception()
+        if exception is not None:
+            logging.getLogger(__name__).warning(
+                f"Runtime {runtime_id} {operation} operation failed: "
+                f"{exception}",
+            )
 
     def security_level(self, provisioner_name: str) -> str:
         """Expose the security contract of a registered provisioner."""

@@ -8,6 +8,7 @@ import gzip
 from pathlib import Path
 import sqlite3
 import threading
+import time
 from urllib.parse import urlsplit
 from unittest.mock import patch
 
@@ -95,6 +96,7 @@ def _client(
     hub_config: HubConfig | None = None,
     provisioner_available: bool = True,
     runtime_port: int = 0,
+    runtime_provisioner: RuntimeProvisioner | None = None,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -117,15 +119,14 @@ def _client(
         )
         return environment
 
+    provisioner = runtime_provisioner or _FakeProvisioner(
+        provisioner_available,
+        runtime_port,
+    )
     service = RuntimeService(
         root_dir=tmp_path,
         registry=registry,
-        provisioners={
-            "local": _FakeProvisioner(
-                provisioner_available,
-                runtime_port,
-            ),
-        },
+        provisioners={"local": provisioner},
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -525,6 +526,54 @@ def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
         assert created.status_code == 503
         assert proxied.status_code == 503
         assert client.app.state.runtime_service.registry.list() == []
+
+
+def test_health_starts_runtime_once_without_blocking_control_plane(
+    tmp_path: Path,
+) -> None:
+    provisioner = _FakeProvisioner()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_start(
+        record: RuntimeRecord,
+        credentials: Mapping[str, str],
+    ) -> RuntimeRecord:
+        del credentials
+        entered.set()
+        assert release.wait(timeout=3)
+        return replace(record, state=RuntimeState.RUNNING, pid=100)
+
+    with (
+        patch.object(provisioner, "start", side_effect=slow_start) as start,
+        _client(tmp_path, runtime_provisioner=provisioner) as client,
+    ):
+        headers = _headers(_register(client, "owner"))
+
+        first = client.get("/api/hub/healthz", headers=headers)
+        assert first.status_code == 200
+        assert first.json()["runtime_state"] == "starting"
+        assert entered.wait(timeout=1)
+
+        version = client.get("/api/version")
+        second = client.get("/api/hub/healthz", headers=headers)
+
+        assert version.status_code == 200
+        assert second.status_code == 200
+        assert second.json()["runtime_state"] == "starting"
+        assert start.call_count == 1
+
+        release.set()
+        deadline = time.monotonic() + 1
+        service = client.app.state.runtime_service
+        runtime_id = service.registry.list()[0].runtime_id
+        while service.active_operation(runtime_id):
+            if time.monotonic() >= deadline:
+                pytest.fail("Runtime start operation did not finish")
+            time.sleep(0.01)
+
+        ready = client.get("/api/hub/healthz", headers=headers)
+        assert ready.json()["runtime_state"] == "running"
 
 
 def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
