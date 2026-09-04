@@ -4,6 +4,7 @@
 """
 Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -460,7 +461,27 @@ class BaseChannel(ABC):
         )
 
     def _get_acl_store(self):
-        """Get the AccessControlStore for this channel's workspace."""
+        """Get the AccessControlStore for this channel.
+
+        Uses the agent's root profile workspace directory (from global
+        config) rather than the per-task workspace, so that ACL data
+        (whitelist / blacklist / pending) is shared across all task
+        instances (e.g. multica ACP tasks).
+        """
+        if self._workspace is not None:
+            try:
+                from ...config.config import load_agent_config
+
+                profile = load_agent_config(self._workspace.agent_id)
+                workspace_dir = Path(profile.workspace_dir)
+                return get_access_control_store(workspace_dir)
+            except Exception:
+                logger.debug(
+                    "Failed to load agent config for ACL store, "
+                    "falling back to current workspace",
+                    exc_info=True,
+                )
+        # Fallback: use current workspace directory
         workspace_dir = None
         if self._workspace is not None:
             workspace_dir = Path(self._workspace.workspace_dir)
