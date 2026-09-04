@@ -104,9 +104,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
               width: 32,
               height: 32,
               padding: 0,
-              ...(workspaceOpen
-                ? { color: "var(--color-primary, #ff9d4d)" }
-                : {}),
+              ...(workspaceOpen ? { color: "var(--app-accent, #ff9d4d)" } : {}),
             }}
             onClick={onToggleWorkspace}
           />
@@ -120,9 +118,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             bordered={false}
             icon={<SparkHistoryLine />}
             style={
-              historyOpen
-                ? { color: "var(--color-primary, #ff9d4d)" }
-                : undefined
+              historyOpen ? { color: "var(--app-accent, #ff9d4d)" } : undefined
             }
             onClick={onToggleHistory}
           />

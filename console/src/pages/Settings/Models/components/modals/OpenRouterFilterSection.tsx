@@ -23,7 +23,6 @@ interface OpenRouterFilterSectionProps {
   loadingFilters: boolean;
   discoveredModels: ExtendedModelInfo[];
   saving: boolean;
-  isDark: boolean;
   freeTagStyle: CSSProperties;
   onToggleFilters: () => void;
   onSelectedSeriesChange: (series: string[]) => void;
@@ -99,7 +98,6 @@ export function OpenRouterFilterSection({
   loadingFilters,
   discoveredModels,
   saving,
-  isDark,
   freeTagStyle,
   onToggleFilters,
   onSelectedSeriesChange,
@@ -175,7 +173,7 @@ export function OpenRouterFilterSection({
       </Button>
 
       {showFilters && (
-        <div className={`${styles.panel} ${isDark ? styles.panelDark : ""}`}>
+        <div className={styles.panel}>
           <div className={styles.filterGroup}>
             <div className={styles.filterHeader}>
               <div className={styles.filterTitleBlock}>
@@ -284,12 +282,7 @@ export function OpenRouterFilterSection({
                 {t("models.discovered") || "Available Models:"}
               </div>
               {discoveredModels.map((model) => (
-                <div
-                  key={model.id}
-                  className={`${styles.modelRow} ${
-                    isDark ? styles.modelRowDark : ""
-                  }`}
-                >
+                <div key={model.id} className={styles.modelRow}>
                   <div>
                     <div className={styles.modelNameRow}>
                       <span>{model.name}</span>
@@ -309,11 +302,7 @@ export function OpenRouterFilterSection({
                         </Tag>
                       )}
                     </div>
-                    <div
-                      className={`${styles.modelMeta} ${
-                        isDark ? styles.modelMetaDark : ""
-                      }`}
-                    >
+                    <div className={styles.modelMeta}>
                       <span>{model.provider}</span>
                       {model.input_modalities?.includes("text") && (
                         <SparkTextLine style={{ fontSize: 12 }} />
@@ -332,10 +321,8 @@ export function OpenRouterFilterSection({
                       )}
                       {model.output_modalities?.includes("image") && (
                         <SparkTextImageLine
-                          style={{
-                            fontSize: 12,
-                            color: isDark ? "#7dd3fc" : "#722ed1",
-                          }}
+                          className={styles.outputModalityIcon}
+                          style={{ fontSize: 12 }}
                         />
                       )}
                       <ModelPricing model={model} />

@@ -159,6 +159,6 @@ describe("Chat mobile layout styles", () => {
     expect(toolbarRule).toContain('&[aria-expanded="true"]');
     expect(toolbarRule).toContain("&:focus-visible");
     expect(toolbarRule).toContain('&[data-state="running"]');
-    expect(toolbarRule).toContain("var(--ant-color-success)");
+    expect(toolbarRule).toContain("var(--app-success)");
   });
 });

@@ -10,13 +10,13 @@
   border: 0;
   border-radius: 9px;
   background: transparent;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  color: var(--app-text-tertiary);
   cursor: pointer;
 }
 
 .header:hover {
-  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  background: var(--app-fill-faint);
+  color: var(--app-text);
 
   .more {
     opacity: 1;
@@ -25,12 +25,12 @@
 
 .source {
   margin-top: 8px;
-  background: color-mix(in srgb, var(--color-primary, #ff7f16) 5%, transparent);
-  color: var(--colorPrimary, #ff7f16);
+  background: color-mix(in srgb, var(--app-accent) 5%, transparent);
+  color: var(--app-accent);
 }
 
 .pinned {
-  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
+  background: var(--app-fill-faint);
 }
 
 .chevron,
@@ -72,18 +72,19 @@
   justify-content: center;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--colorFillTertiary, rgba(43, 18, 0, 0.05));
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
   font-size: 10px;
   transition: opacity 0.15s ease;
 }
 
 .pinMark {
-  color: var(--color-primary, #ff7f16);
+  color: var(--app-accent);
   transition: opacity 0.15s ease;
 }
 
 .lockMark {
-  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.3));
+  color: var(--app-text-quaternary);
 }
 
 .more {
@@ -108,7 +109,7 @@
 }
 
 .more:hover {
-  background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+  background: var(--app-fill);
 }
 
 .renameInput {
@@ -116,34 +117,6 @@
   flex: 1;
   height: 26px;
   font-size: 11px;
-}
-
-:global(.dark-mode) {
-  .header {
-    color: rgba(255, 255, 255, 0.68);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.95);
-    }
-  }
-
-  .pinned {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .count {
-    background: rgba(255, 255, 255, 0.09);
-    color: rgba(255, 255, 255, 0.58);
-  }
-
-  .lockMark {
-    color: rgba(255, 255, 255, 0.38);
-  }
-
-  .more:hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
 }
 
 @media (hover: none), (max-width: 768px) {

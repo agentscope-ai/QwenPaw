@@ -20,7 +20,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f9f8f4;
+  background: var(--app-shell-bg);
+  border-bottom-color: var(--app-border-subtle);
+  color: var(--app-text);
 
   :global {
     .qwenpaw-space-item {
@@ -56,6 +58,7 @@
 .headerTitle {
   font-size: 18px;
   font-weight: 500;
+  color: var(--app-text);
   min-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -64,7 +67,8 @@
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
-  background: #f9f8f4 !important;
+  background: var(--app-shell-bg) !important;
+  border-right-color: var(--app-border-subtle) !important;
   overflow: auto;
   height: calc(100vh - 64px) !important;
   padding: 0 16px;
@@ -93,9 +97,9 @@
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
     flex-shrink: 0;
-    background: rgba(43, 18, 0, 0.02);
+    background: var(--app-shell-bg);
     border-radius: 12px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--app-border-subtle);
     padding: 4px;
 
     :global {
@@ -111,7 +115,7 @@
     z-index: 10;
     margin-bottom: 4px;
     // Opaque background so scrolled content is hidden behind
-    background: #f9f7f3;
+    background: var(--app-shell-bg);
     border-radius: 12px 12px 0 0;
   }
 
@@ -126,19 +130,25 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(0, 0, 0, 0.88);
+    color: var(--app-text);
     font-size: 14px;
     cursor: pointer;
     transition: background 0.2s;
     padding-left: 12px;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.06);
+      background: var(--app-fill);
     }
   }
 
   .stickyChatButtonActive {
-    background: rgba(43, 18, 0, 0.08);
+    background: var(--app-nav-selected-bg);
+    color: var(--app-nav-selected-text);
+
+    &:hover {
+      background: var(--app-nav-selected-bg-hover);
+      color: var(--app-nav-selected-text);
+    }
   }
 
   // Menu takes remaining space
@@ -254,13 +264,13 @@
       font-weight: 500 !important;
       line-height: 32px !important;
       letter-spacing: normal !important;
-      color: rgba(26, 23, 22, 0.25) !important;
+      color: var(--app-text-quaternary) !important;
       padding-left: 8px !important;
 
       /* No hover effect for group titles */
       &:hover {
         background: transparent !important;
-        color: rgba(26, 23, 22, 0.25) !important;
+        color: var(--app-text-quaternary) !important;
       }
     }
 
@@ -288,11 +298,16 @@
 
     /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: rgba(43, 18, 0, 0.08) !important;
-      color: inherit !important;
+      background: var(--app-nav-selected-bg) !important;
+      color: var(--app-nav-selected-text) !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
+
+      &:hover {
+        background: var(--app-nav-selected-bg-hover) !important;
+        color: var(--app-nav-selected-text) !important;
+      }
 
       .qwenpaw-menu-title-content {
         display: flex !important;
@@ -300,80 +315,9 @@
       }
     }
 
-    /* Selected submenu item - keep text color unchanged */
+    /* Keep nested selected items on the same navigation treatment. */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
-      color: inherit !important;
-    }
-  }
-}
-
-.siderDark {
-  background: #1a1a1a !important;
-  border-right-color: rgba(255, 255, 255, 0.08) !important;
-
-  // Agent-scoped section (dark mode)
-  .agentScopedSection {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  // Sticky container background (dark mode)
-  .agentSelectorContainer {
-    background: #1e1e1e;
-  }
-
-  // Sticky bottom bar background (dark mode)
-  .collapseToggleContainer {
-    background: #1a1a1a;
-  }
-
-  // Chat button (dark mode)
-  .stickyChatButton {
-    color: rgba(255, 255, 255, 0.75);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.95);
-    }
-  }
-
-  .stickyChatButtonActive {
-    background: rgba(255, 127, 22, 0.5);
-    color: #ff7f16;
-  }
-
-  :global {
-    .qwenpaw-menu {
-      background: #1a1a1a !important;
-      border-inline-end: 0 !important;
-    }
-
-    /* Group title (sub-menu label) */
-    .qwenpaw-menu-submenu-title {
-      color: rgba(255, 255, 255, 0.45) !important;
-
-      /* No hover effect for group titles in dark mode */
-      &:hover {
-        background: transparent !important;
-        color: rgba(255, 255, 255, 0.45) !important;
-      }
-    }
-
-    /* Regular menu item */
-    .qwenpaw-menu-item {
-      color: rgba(255, 255, 255, 0.75) !important;
-    }
-
-    /* Hover state - only for menu items, not group titles */
-    .qwenpaw-menu-item:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(255, 255, 255, 0.95) !important;
-    }
-
-    /* Selected item */
-    .qwenpaw-menu-item-selected {
-      background: rgba(255, 127, 22, 0.5) !important;
-      color: #ff7f16 !important;
+      color: var(--app-nav-selected-text) !important;
     }
   }
 }
@@ -393,7 +337,7 @@
   width: 16px;
   height: 0px;
   transform: rotate(90deg);
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
   margin: 0 8px;
 }
 
@@ -402,12 +346,12 @@
   height: 0px;
   transform: rotate(90deg);
   z-index: 4;
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
 }
 
 .versionBadge {
   font-size: 12px;
-  color: #1a171673;
+  color: var(--app-text-tertiary);
   font-weight: 600;
   line-height: 1;
   position: relative;
@@ -424,14 +368,14 @@
 
 .collapseBtn {
   margin: auto;
-  color: #ff7f16;
+  color: var(--app-accent);
 }
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
 .authActions {
   flex-shrink: 0;
   padding: 12px 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .authBtn {
@@ -439,11 +383,11 @@
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
 
   &:hover {
-    color: rgba(0, 0, 0, 0.88) !important;
-    background: rgba(0, 0, 0, 0.04) !important;
+    color: var(--app-text) !important;
+    background: var(--app-fill-subtle) !important;
   }
 }
 
@@ -462,17 +406,17 @@
   gap: 16px;
   margin-bottom: 20px;
   padding: 14px 16px;
-  border: 1px solid rgba(26, 23, 22, 0.08);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 10px;
-  background: rgba(26, 23, 22, 0.025);
+  background: var(--app-fill-faint);
 
   span {
-    color: rgba(26, 23, 22, 0.52);
+    color: var(--app-text-secondary);
   }
 
   strong {
     overflow: hidden;
-    color: rgba(26, 23, 22, 0.88);
+    color: var(--app-text);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -482,12 +426,12 @@
   strong {
     display: block;
     margin-bottom: 6px;
-    color: rgba(26, 23, 22, 0.88);
+    color: var(--app-text);
   }
 
   p {
     margin: 0 0 14px;
-    color: rgba(26, 23, 22, 0.52);
+    color: var(--app-text-secondary);
     font-size: 13px;
     line-height: 1.6;
   }
@@ -538,17 +482,13 @@
   transform-origin: center center;
   // Show a persistent hover-like background so the "rectangle" rotates
   // together with the content.
-  background-color: rgba(0, 0, 0, 0.06) !important;
+  background-color: var(--app-fill) !important;
 
   // Pause immediately on hover as a visual safety net (JS handler
   // will permanently remove the class on the next React render).
   &:hover {
     animation-play-state: paused;
   }
-}
-
-:global(.dark-mode) .inboxShake {
-  background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Collapse Toggle Button */
@@ -564,23 +504,25 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  background: #f9f8f4; // match sider background so scrolled content is hidden
+  background: var(
+    --app-shell-bg
+  ); // match sider background so scrolled content is hidden
 }
 
 .collapseToggle {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   border-radius: 8px;
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06) !important;
-    color: #ff7f16 !important;
+    background: var(--app-fill) !important;
+    color: var(--app-accent) !important;
   }
 }
 
 .modeToggleActive {
-  color: #ff7f16 !important;
-  background: rgba(255, 127, 22, 0.08);
+  color: var(--app-accent) !important;
+  background: var(--app-accent-soft);
 }
 
 // ─── Simple mode: flat nav + session list ─────────────────────────────────────
@@ -620,31 +562,31 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  color: var(--app-text-tertiary);
   cursor: pointer;
 
   &:hover,
   &:focus-visible,
   &[aria-expanded="true"] {
-    color: var(--colorPrimary, #ff7f16);
+    color: var(--app-accent);
 
     .simpleAgentDisclosureLine {
       background: linear-gradient(
         90deg,
         transparent,
-        color-mix(in srgb, var(--colorPrimary, #ff7f16) 44%, transparent)
+        color-mix(in srgb, var(--app-accent, #ff7f16) 44%, transparent)
       );
     }
 
     .simpleAgentDisclosureHandle {
       border-color: color-mix(
         in srgb,
-        var(--colorPrimary, #ff7f16) 34%,
+        var(--app-accent, #ff7f16) 34%,
         transparent
       );
       background: color-mix(
         in srgb,
-        var(--colorPrimary, #ff7f16) 9%,
+        var(--app-accent, #ff7f16) 9%,
         transparent
       );
       box-shadow: 0 3px 10px rgba(255, 127, 22, 0.12);
@@ -653,7 +595,7 @@
 
   &:focus-visible {
     outline: 2px solid
-      color-mix(in srgb, var(--colorPrimary, #ff7f16) 30%, transparent);
+      color-mix(in srgb, var(--app-accent, #ff7f16) 30%, transparent);
     outline-offset: 1px;
   }
 }
@@ -663,7 +605,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    var(--colorBorderSecondary, rgba(43, 18, 0, 0.1))
+    var(--app-border, rgba(43, 18, 0, 0.1))
   );
   transition: background 0.16s ease;
 
@@ -678,7 +620,7 @@
   height: 22px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.08));
+  border: 1px solid var(--app-border);
   border-radius: 999px;
   background: color-mix(in srgb, white 48%, transparent);
   box-shadow: 0 2px 8px rgba(43, 18, 0, 0.055);
@@ -725,15 +667,15 @@
   margin: 4px 0;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 127, 22, 0.08);
-  color: #ff7f16;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
 
   &:hover {
-    background: rgba(255, 127, 22, 0.14);
+    background: var(--app-accent-soft-hover);
   }
 }
 
@@ -754,7 +696,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text-secondary);
   font-size: 14px;
   cursor: pointer;
   transition:
@@ -763,14 +705,19 @@
   text-align: left;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: rgba(0, 0, 0, 0.88);
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 }
 
 .simpleNavItemActive {
-  background: rgba(43, 18, 0, 0.08);
-  color: rgba(0, 0, 0, 0.88);
+  background: var(--app-nav-selected-bg);
+  color: var(--app-nav-selected-text);
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover);
+    color: var(--app-nav-selected-text);
+  }
 }
 
 // Session list container
@@ -785,7 +732,7 @@
 .simpleSessionHeader {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(26, 23, 22, 0.35);
+  color: var(--app-text-quaternary);
   padding: 4px 12px 6px;
   flex-shrink: 0;
 }
@@ -817,7 +764,7 @@
   position: relative;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--app-fill);
 
     .simpleSessionActions {
       opacity: 1;
@@ -827,7 +774,7 @@
 }
 
 .simpleSessionItemActive {
-  background: rgba(43, 18, 0, 0.08);
+  background: var(--app-fill);
 }
 
 .simpleSessionItemDisabled {
@@ -840,7 +787,7 @@
   min-width: 0;
   font-size: 13px;
   line-height: 20px;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
@@ -849,7 +796,7 @@
 .simpleSessionTime {
   flex-shrink: 0;
   font-size: 11px;
-  color: rgba(26, 23, 22, 0.35);
+  color: var(--app-text-quaternary);
 }
 
 .simpleSessionActions {
@@ -867,11 +814,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 
   &:hover {
-    color: rgba(0, 0, 0, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--app-text);
+    background: var(--app-fill);
   }
 }
 
@@ -932,12 +879,12 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--app-text-secondary);
   transition: all 0.15s;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: rgba(0, 0, 0, 0.88);
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 
   &.inboxShake {
@@ -946,8 +893,13 @@
 }
 
 .collapsedNavItemActive {
-  background: rgba(43, 18, 0, 0.08) !important;
-  color: rgba(0, 0, 0, 0.88) !important;
+  background: var(--app-nav-selected-bg) !important;
+  color: var(--app-nav-selected-text) !important;
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover) !important;
+    color: var(--app-nav-selected-text) !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1104,8 +1056,8 @@
 // ─── Code block inside update modal ──────────────────────────────────────────
 .codeBlock {
   position: relative;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  background: var(--app-fill-subtle);
+  border: 1px solid var(--app-border);
   border-radius: 6px;
   padding: 12px 40px 12px 16px;
   overflow-x: auto;
@@ -1118,7 +1070,8 @@
 }
 
 .codeInline {
-  background: #f5f5f5;
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
   border-radius: 3px;
   padding: 1px 5px;
   font-family: monospace;
@@ -1139,7 +1092,7 @@
   border-radius: 4px;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--app-fill);
   }
 }
 
@@ -1148,24 +1101,22 @@
 }
 
 .copyBtnDefault {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
+/* Dark-only exceptions. Everything else now comes from the base rules via
+ * tokens; these four differ from the light design on purpose. */
 :global(.dark-mode) {
   .header {
-    background: #1a1a1a !important;
-    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-    color: rgba(255, 255, 255, 0.85);
-
-    /* Text buttons (Docs / FAQ / GitHub / Changelog) */
+    /* antd paints its own text-button colours, which do not follow our tokens. */
     :global(.qwenpaw-btn-text),
     :global(.ant-btn-text) {
-      color: rgba(255, 255, 255, 0.75) !important;
+      color: var(--app-text-secondary) !important;
 
       &:hover {
-        color: #fff !important;
-        background: rgba(255, 255, 255, 0.08) !important;
+        color: var(--app-text) !important;
+        background: var(--app-fill-subtle) !important;
       }
 
       .anticon,
@@ -1174,109 +1125,19 @@
       }
     }
 
-    /* Fallback: any icon or text directly inside header */
     :global(.anticon) {
-      color: rgba(255, 255, 255, 0.75);
+      color: var(--app-text-secondary);
     }
   }
 
-  .headerTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .sider {
-    background: #1a1a1a !important;
-    border-right-color: rgba(255, 255, 255, 0.08) !important;
-  }
-
+  /* The light sider has no divider under its top block. */
   .siderTop {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--app-border-subtle);
   }
 
+  /* Muted grey in light, brand orange here. */
   .versionBadge {
-    color: #ff7f16;
-  }
-
-  .collapseBtn {
-    color: #ff7f16;
-  }
-
-  .authActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .authBtn {
-    color: rgba(255, 255, 255, 0.75);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.9) !important;
-      background: rgba(255, 255, 255, 0.06) !important;
-    }
-  }
-
-  .accountIdentity {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-
-    span {
-      color: rgba(255, 255, 255, 0.5);
-    }
-
-    strong {
-      color: rgba(255, 255, 255, 0.9);
-    }
-  }
-
-  .runtimeRecovery {
-    strong {
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    p {
-      color: rgba(255, 255, 255, 0.5);
-    }
-  }
-
-  .collapseToggle {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #ff7f16;
-    }
-  }
-
-  .modeToggleActive {
-    color: #ff7f16 !important;
-    background: rgba(255, 127, 22, 0.12);
-  }
-
-  .collapsedNavItem {
-    color: rgba(255, 255, 255, 0.5);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .collapsedNavItemActive {
-    background: rgba(255, 127, 22, 0.5) !important;
-    color: rgba(255, 255, 255, 0.88) !important;
-  }
-
-  .codeBlock {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .codeInline {
-    background: #2a2a2a;
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .copyBtnDefault {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--app-accent);
   }
 }
 
@@ -1292,15 +1153,15 @@
   margin: 4px 0;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 127, 22, 0.08);
-  color: #ff7f16;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
 
   &:hover {
-    background: rgba(255, 127, 22, 0.14);
+    background: var(--app-accent-soft-hover);
   }
 }
 
@@ -1321,7 +1182,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text-secondary);
   font-size: 14px;
   cursor: pointer;
   transition:
@@ -1330,14 +1191,19 @@
   text-align: left;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: rgba(0, 0, 0, 0.88);
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 }
 
 .simpleNavItemActive {
-  background: rgba(43, 18, 0, 0.08);
-  color: rgba(0, 0, 0, 0.88);
+  background: var(--app-nav-selected-bg);
+  color: var(--app-nav-selected-text);
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover);
+    color: var(--app-nav-selected-text);
+  }
 }
 
 // Session list container
@@ -1352,7 +1218,7 @@
 .simpleSessionHeader {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(26, 23, 22, 0.35);
+  color: var(--app-text-quaternary);
   padding: 4px 12px 6px;
   flex-shrink: 0;
 }
@@ -1384,7 +1250,7 @@
   position: relative;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--app-fill);
 
     .simpleSessionActions {
       opacity: 1;
@@ -1394,7 +1260,7 @@
 }
 
 .simpleSessionItemActive {
-  background: rgba(43, 18, 0, 0.08);
+  background: var(--app-fill);
 }
 
 .simpleSessionItemDisabled {
@@ -1407,7 +1273,7 @@
   min-width: 0;
   font-size: 13px;
   line-height: 20px;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
@@ -1416,7 +1282,7 @@
 .simpleSessionTime {
   flex-shrink: 0;
   font-size: 11px;
-  color: rgba(26, 23, 22, 0.35);
+  color: var(--app-text-quaternary);
 }
 
 .simpleSessionActions {
@@ -1434,11 +1300,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 
   &:hover {
-    color: rgba(0, 0, 0, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--app-text);
+    background: var(--app-fill);
   }
 }
 
@@ -1456,83 +1322,16 @@
 // ─── Simple mode dark overrides ───────────────────────────────────────────────
 
 .siderSimple {
+  /* Dark-only exceptions: the accent-tinted divider reads as neutral here, the
+   * glass handle has no light-glass equivalent. */
   :global(.dark-mode) & {
-    .simpleAgentDisclosure {
-      color: rgba(255, 255, 255, 0.48);
-
-      &:hover,
-      &:focus-visible,
-      &[aria-expanded="true"] {
-        color: #ff8f32;
-      }
-    }
-
     .simpleAgentDisclosureLine {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.13)
-      );
+      background: linear-gradient(90deg, transparent, var(--app-fill));
     }
 
     .simpleAgentDisclosureHandle {
-      border-color: rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.045);
+      background: var(--app-fill-faint);
       box-shadow: none;
-    }
-
-    .simpleNewChat {
-      background: rgba(255, 127, 22, 0.12);
-      color: #ff7f16;
-
-      &:hover {
-        background: rgba(255, 127, 22, 0.2);
-      }
-    }
-
-    .simpleNavItem {
-      color: rgba(255, 255, 255, 0.75);
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.95);
-      }
-    }
-
-    .simpleNavItemActive {
-      background: rgba(255, 127, 22, 0.5);
-      color: #ff7f16;
-    }
-
-    .simpleSessionHeader {
-      color: rgba(255, 255, 255, 0.35);
-    }
-
-    .simpleSessionItem {
-      &:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-    }
-
-    .simpleSessionItemActive {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .simpleSessionName {
-      color: rgba(255, 255, 255, 0.75);
-    }
-
-    .simpleSessionTime {
-      color: rgba(255, 255, 255, 0.35);
-    }
-
-    .simpleSessionActionBtn {
-      color: rgba(255, 255, 255, 0.45);
-
-      &:hover {
-        color: rgba(255, 255, 255, 0.88);
-        background: rgba(255, 255, 255, 0.08);
-      }
     }
   }
 }

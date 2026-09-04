@@ -57,6 +57,7 @@ import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 

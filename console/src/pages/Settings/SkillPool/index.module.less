@@ -16,7 +16,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
 
@@ -36,17 +36,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -78,12 +78,8 @@
 .importToolbarDivider {
   width: 1px;
   height: 16px;
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--app-border-strong);
   margin: 0 4px;
-
-  :global(.dark-mode) & {
-    background: rgba(255, 255, 255, 0.15);
-  }
 }
 
 .headerActionsRight {
@@ -105,21 +101,21 @@
   gap: 10px;
   padding: 14px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(245, 34, 45, 0.18);
-  background: rgba(255, 244, 240, 0.96);
+  border: 1px solid var(--app-error-border);
+  background: var(--app-error-bg);
 }
 
 .builtinNoticeTitle {
   font-size: 14px;
   font-weight: 600;
-  color: #cf1322;
+  color: var(--app-error-text);
 }
 
 .builtinNoticeList {
   display: grid;
   gap: 4px;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 /* ─── Loading State ───────────────────────────────────────────────────────── */
@@ -129,7 +125,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .noSearchResults {
@@ -139,7 +135,7 @@
   justify-content: center;
   gap: 12px;
   padding: 80px 24px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .noSearchResultsIcon {
@@ -173,20 +169,20 @@
   min-width: 0;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--color-border-secondary, #d9d9d9);
+  border: 1px solid var(--app-border);
   border-radius: 6px;
   font-size: 14px;
-  color: rgba(20, 20, 19, 0.88);
-  background: var(--color-bg-base, #ffffff);
+  color: var(--app-text);
+  background: var(--app-surface);
   outline: none;
   transition: border-color 0.2s;
 
   &::placeholder {
-    color: rgba(20, 20, 19, 0.25);
+    color: var(--app-text-quaternary);
   }
 
   &:focus {
-    border-color: #ff7f16;
+    border-color: var(--app-accent);
   }
 }
 
@@ -206,9 +202,9 @@
     }
 
     .ant-select-selection-item {
-      background: rgba(22, 119, 255, 0.08);
-      border: 1px solid rgba(22, 119, 255, 0.18);
-      color: #1677ff;
+      background: var(--app-info-bg);
+      border: 1px solid var(--app-info-border);
+      color: var(--app-info-text);
       border-radius: 4px;
       padding: 0 8px;
       margin: 2px 4px 2px 0;
@@ -220,13 +216,13 @@
 .tagSelectEmpty {
   padding: 24px 16px;
   text-align: center;
-  color: rgba(20, 20, 19, 0.35);
+  color: var(--app-text-quaternary);
   font-size: 13px;
 }
 
 .filterGroup {
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 
   &:last-child {
     border-bottom: none;
@@ -237,7 +233,7 @@
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .filterOptions {
@@ -253,20 +249,20 @@
   padding: 2px 8px;
   font-size: 12px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.65);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(22, 119, 255, 0.08);
-    color: #1677ff;
+    background: var(--app-info-bg);
+    color: var(--app-info-text);
   }
 }
 
 .filterOptionActive {
-  background: rgba(22, 119, 255, 0.12);
-  color: #1677ff;
+  background: var(--app-selected-bg);
+  color: var(--app-info-text);
   font-weight: 500;
 }
 
@@ -290,20 +286,20 @@
   height: 32px;
   border: none;
   background: transparent;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   cursor: pointer;
   border-radius: 4px;
   font-size: 16px;
   transition: all 0.2s;
 
   &:hover {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.04);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
   }
 
   &.viewToggleBtnActive {
-    color: rgba(20, 20, 19, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--app-text);
+    background: var(--app-fill);
   }
 }
 
@@ -321,9 +317,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-bottom: none;
-  background: var(--color-bg-base, #ffffff);
+  background: var(--app-surface);
   cursor: pointer;
   transition: background 0.15s ease;
   position: relative;
@@ -333,17 +329,17 @@
   }
 
   &:last-child {
-    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-bottom: 1px solid var(--app-border);
     border-radius: 0 0 8px 8px;
   }
 
   &:only-child {
     border-radius: 8px;
-    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-bottom: 1px solid var(--app-border);
   }
 
   &:hover {
-    background: rgba(0, 0, 0, 0.02);
+    background: var(--app-fill-faint);
   }
 }
 
@@ -381,8 +377,8 @@
   padding: 1px 8px;
   border-radius: 4px;
   white-space: nowrap;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: rgba(20, 20, 19, 0.65);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
 }
 
 /* List view status value badge */
@@ -396,30 +392,30 @@
   white-space: nowrap;
 
   &.synced {
-    background-color: rgba(82, 196, 26, 0.1);
-    color: #389e0d;
+    background-color: var(--app-success-bg);
+    color: var(--app-success-text);
   }
 
   &.outdated {
-    background-color: rgba(250, 173, 20, 0.12);
-    color: #d48806;
+    background-color: var(--app-warning-bg);
+    color: var(--app-warning-text);
   }
 
   &.neutral {
-    background-color: rgba(239, 240, 243, 0.8);
-    color: rgba(20, 20, 19, 0.65);
+    background-color: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
   }
 }
 
 .listItemTime {
   font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .listItemDesc {
   margin: 4px 0 0;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -450,11 +446,11 @@
 }
 
 .selectedListItem {
-  background: rgba(255, 127, 22, 0.02);
+  background: var(--app-accent-faint);
 }
 
 .selectedCard {
-  box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.2) !important;
+  box-shadow: 0 0 0 1px var(--app-accent-ring) !important;
 }
 
 .batchActions {
@@ -465,7 +461,7 @@
 
 .batchCount {
   font-size: 13px;
-  color: #666;
+  color: var(--app-text-secondary);
   margin-right: 4px;
 }
 
@@ -477,8 +473,8 @@
   flex-direction: column;
   gap: 0;
   border-radius: var(--border-radius, 12px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
@@ -495,8 +491,8 @@
   }
 
   &:hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: var(--app-border-hover);
+    box-shadow: 0 4px 12px var(--app-border-subtle);
   }
 }
 
@@ -527,26 +523,26 @@
   white-space: nowrap;
 
   &.status_synced {
-    color: #17b26a;
+    color: var(--app-success-text);
 
     .statusDot {
-      background-color: #17b26a;
+      background-color: var(--app-success-text);
     }
   }
 
   &.status_outdated {
-    color: #d48806;
+    color: var(--app-warning-text);
 
     .statusDot {
-      background-color: #f5a623;
+      background-color: var(--app-warning-text);
     }
   }
 
   &.status_neutral {
-    color: rgba(20, 20, 19, 0.45);
+    color: var(--app-text-tertiary);
 
     .statusDot {
-      background-color: rgba(20, 20, 19, 0.25);
+      background-color: var(--app-text-quaternary);
     }
   }
 }
@@ -562,7 +558,7 @@
   width: 52px;
   height: 52px;
   border-radius: 10px;
-  background: #f7f5f3;
+  background: var(--app-fill);
   font-size: 34px;
   display: flex;
   align-items: center;
@@ -574,7 +570,7 @@
   width: 52px;
   height: 52px;
   border-radius: 10px;
-  background: #f7f5f3;
+  background: var(--app-fill);
   font-size: 28px;
   line-height: 1;
   display: inline-flex;
@@ -594,7 +590,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -609,11 +605,11 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: #8e8c99;
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
   flex-shrink: 0;
   white-space: nowrap;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-fill);
 }
 
 .customTag {
@@ -621,11 +617,11 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.9);
-  color: #d48806;
+  background-color: var(--app-warning-bg);
+  color: var(--app-warning-text);
   flex-shrink: 0;
   white-space: nowrap;
-  border: 1px solid rgba(250, 173, 20, 0.2);
+  border: 1px solid var(--app-warning-border);
 }
 
 .automationTag {
@@ -633,11 +629,11 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(240, 249, 235, 0.9);
-  color: #389e0d;
+  background-color: var(--app-success-bg);
+  color: var(--app-success-text);
   flex-shrink: 0;
   white-space: nowrap;
-  border: 1px solid rgba(82, 196, 26, 0.2);
+  border: 1px solid var(--app-success-border);
 }
 
 /* Meta info rows: Updated / Tags */
@@ -649,7 +645,7 @@
   margin-bottom: 6px;
 
   .metaInfoLabel {
-    color: rgba(20, 20, 19, 0.55);
+    color: var(--app-text-secondary);
     min-width: 72px;
     flex-shrink: 0;
     padding-top: 2px;
@@ -659,16 +655,16 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    color: rgba(20, 20, 19, 0.88);
+    color: var(--app-text);
     font-weight: 500;
     padding: 1px 8px;
     border-radius: 4px;
-    background-color: rgba(239, 240, 243, 0.6);
+    background-color: var(--app-fill-subtle);
   }
 
   .calendarIcon {
     font-size: 11px;
-    color: rgba(26, 23, 22, 0.45);
+    color: var(--app-text-tertiary);
   }
 }
 
@@ -693,7 +689,7 @@
 
 .infoLabel {
   font-size: 12px;
-  color: rgba(26, 23, 22, 0.65);
+  color: var(--app-text-secondary);
 }
 
 .infoBlock {
@@ -707,21 +703,21 @@
   border: 1px solid transparent;
 
   &.synced {
-    background-color: rgba(82, 196, 26, 0.12);
-    color: #389e0d;
-    border-color: rgba(82, 196, 26, 0.24);
+    background-color: var(--app-success-bg);
+    color: var(--app-success-text);
+    border-color: var(--app-success-border);
   }
 
   &.outdated {
-    background-color: rgba(250, 173, 20, 0.14);
-    color: #d48806;
-    border-color: rgba(250, 173, 20, 0.28);
+    background-color: var(--app-warning-bg);
+    color: var(--app-warning-text);
+    border-color: var(--app-warning-border);
   }
 
   &.neutral {
-    background-color: rgba(239, 240, 243, 0.8);
-    color: rgba(20, 20, 19, 0.65);
-    border-color: rgba(20, 20, 19, 0.08);
+    background-color: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+    border-color: var(--app-border-subtle);
   }
 }
 
@@ -764,9 +760,9 @@
   line-height: 16px;
   padding: 0 6px;
   border-radius: 3px;
-  background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
-  border: 1px solid rgba(22, 119, 255, 0.18);
+  background: var(--app-info-bg);
+  color: var(--app-info-text);
+  border: 1px solid var(--app-info-border);
   white-space: nowrap;
 }
 
@@ -786,22 +782,22 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.6);
-  color: rgba(20, 20, 19, 0.88);
+  background-color: var(--app-fill-subtle);
+  color: var(--app-text);
   white-space: nowrap;
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
 .descriptionText {
   border-radius: 4px;
-  background: rgba(43, 18, 0, 0.02);
+  background: var(--app-fill-faint);
   box-sizing: border-box;
-  border: 1px solid #f3f1f0;
+  border: 1px solid var(--app-border-subtle);
   padding: 2px 4px;
   line-height: 20px;
   margin: 0;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -825,13 +821,13 @@
 
 .metaLabel {
   font-size: 11px;
-  color: rgba(26, 23, 22, 0.65);
+  color: var(--app-text-secondary);
   min-width: 60px;
 }
 
 .metaValue {
   font-size: 11px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
 }
 
 /* ─── Card Footer ─────────────────────────────────────────────────────────── */
@@ -845,16 +841,16 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #fff;
+  background: var(--app-surface);
 }
 
 .actionButton {
   flex: 1;
   height: 34px;
   font-size: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background-color: #ffffff;
-  color: rgba(20, 20, 19, 0.88);
+  border: 1px solid var(--app-border);
+  background-color: var(--app-surface-raised);
+  color: var(--app-text);
   cursor: pointer;
   border-radius: 8px;
 }
@@ -865,9 +861,9 @@
   font-size: 14px;
   cursor: pointer;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background-color: #ffffff;
-  color: rgba(20, 20, 19, 0.55);
+  border: 1px solid var(--app-border);
+  background-color: var(--app-surface-raised);
+  color: var(--app-text-secondary);
 }
 
 .automationButton {
@@ -880,9 +876,9 @@
 
 .automationMixedButton {
   position: relative;
-  border-color: #d48806;
-  color: #d48806;
-  background: rgba(250, 173, 20, 0.08);
+  border-color: var(--app-warning-text);
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
 
   &::after {
     position: absolute;
@@ -901,9 +897,9 @@
   display: grid;
   gap: 12px;
   padding: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: rgba(239, 240, 243, 0.35);
+  background: var(--app-fill-faint);
 }
 
 .automationSetting {
@@ -912,7 +908,7 @@
 
   & + & {
     padding-top: 12px;
-    border-top: 1px solid rgba(0, 0, 0, 0.07);
+    border-top: 1px solid var(--app-border-subtle);
   }
 }
 
@@ -924,14 +920,14 @@
 }
 
 .automationSettingTitle {
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   font-size: 13px;
   font-weight: 600;
 }
 
 .automationFlow,
 .automationTargetsHint {
-  color: rgba(20, 20, 19, 0.55);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -943,324 +939,16 @@
 }
 
 /* ─── Dark Mode ───────────────────────────────────────────────────────────── */
+/* Dark-only: the meta icons are raster assets, so they are lifted with a
+ * filter instead of a colour token. The selected card also carries a solid
+ * accent border here, which the light design never had. */
 :global(.dark-mode) {
-  .fileIcon {
-    background: rgba(26, 23, 22, 0.88);
-  }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 1);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .noSearchResults {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .tagSelectEmpty {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  /* Search input - dark mode */
-  .searchInput {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.88);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
-    }
-
-    &:focus {
-      border-color: #ff7f16;
-    }
-  }
-
-  /* Tag select - dark mode */
-  .tagSelect {
-    :global {
-      .ant-select-selector {
-        background: #2a2a2a;
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-
-      .ant-select-selection-item {
-        background: rgba(22, 119, 255, 0.15);
-        border-color: rgba(22, 119, 255, 0.3);
-        color: #4da3ff;
-      }
-
-      .ant-select-selection-placeholder {
-        color: rgba(255, 255, 255, 0.25);
-      }
-    }
-  }
-
-  .filterGroup {
-    border-bottom-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .filterGroupTitle {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .filterOption {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover {
-      background: rgba(22, 119, 255, 0.15);
-      color: #4da3ff;
-    }
-  }
-
-  .filterOptionActive {
-    background: rgba(22, 119, 255, 0.2);
-    color: #4da3ff;
+  .metaIcon {
+    filter: brightness(1.2);
   }
 
   .selectedCard {
-    border-color: #ff7f16 !important;
-    box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
-  }
-
-  .batchCount {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .skillCard {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.15);
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.3);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    }
-  }
-
-  .skillTitle {
-    color: rgba(255, 255, 255, 1);
-  }
-
-  .statusBadge {
-    &.status_synced {
-      color: #4ade80;
-
-      .statusDot {
-        background-color: #4ade80;
-      }
-    }
-
-    &.status_outdated {
-      color: #ffc53d;
-
-      .statusDot {
-        background-color: #ffc53d;
-      }
-    }
-
-    &.status_neutral {
-      color: rgba(255, 255, 255, 0.45);
-
-      .statusDot {
-        background-color: rgba(255, 255, 255, 0.3);
-      }
-    }
-  }
-
-  .builtinTag {
-    background-color: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.7);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .customTag {
-    background-color: rgba(255, 247, 230, 0.15);
-    color: #ffc53d;
-    border-color: rgba(250, 173, 20, 0.25);
-  }
-
-  .automationTag {
-    background-color: rgba(82, 196, 26, 0.15);
-    color: #73d13d;
-    border-color: rgba(82, 196, 26, 0.25);
-  }
-
-  .automationPanel {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .automationSetting {
-    & + & {
-      border-top-color: rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .automationSettingTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .automationFlow,
-  .automationTargetsHint {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .automationMixedButton {
-    border-color: #ffc53d;
-    color: #ffc53d;
-    background: rgba(250, 173, 20, 0.12);
-  }
-
-  .metaInfoRow {
-    .metaInfoLabel {
-      color: rgba(255, 255, 255, 0.5);
-    }
-
-    .metaInfoValue {
-      color: rgba(255, 255, 255, 0.88);
-      background-color: rgba(255, 255, 255, 0.1);
-    }
-
-    .calendarIcon {
-      color: rgba(255, 255, 255, 0.45);
-    }
-  }
-
-  .descriptionText {
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .infoBlock {
-    &.synced {
-      background-color: rgba(82, 196, 26, 0.18);
-      color: #b7eb8f;
-      border-color: rgba(82, 196, 26, 0.32);
-    }
-
-    &.outdated {
-      background-color: rgba(250, 173, 20, 0.2);
-      color: #ffd666;
-      border-color: rgba(250, 173, 20, 0.34);
-    }
-
-    &.neutral {
-      background-color: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.8);
-      border-color: rgba(255, 255, 255, 0.14);
-    }
-  }
-
-  .cardFooter {
-    background: #1f1f1f;
-  }
-
-  /* Action button */
-  .actionButton {
-    background-color: #3a3a3a !important;
-    color: rgba(255, 255, 255, 0.88) !important;
-    border-color: rgba(255, 255, 255, 0.15) !important;
-  }
-
-  .deleteButton {
-    background-color: #3a3a3a !important;
-    color: rgba(255, 255, 255, 0.55) !important;
-    border-color: rgba(255, 255, 255, 0.12) !important;
-  }
-
-  .viewToggleBtn {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &.viewToggleBtnActive {
-      color: rgba(255, 255, 255, 0.85);
-      background: rgba(255, 255, 255, 0.12);
-    }
-  }
-
-  .skillListItem {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.15);
-
-    &:hover {
-      background: #2a2a2a;
-    }
-  }
-
-  .listItemTime {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .listItemDesc {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .selectedListItem {
-    background: rgba(255, 127, 22, 0.05);
-  }
-
-  .tagChip {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.88);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .categoryChip {
-    background: rgba(22, 119, 255, 0.15);
-    color: #69b1ff;
-    border-color: rgba(105, 177, 255, 0.3);
-  }
-
-  /* List view status badge */
-  .typeBadge {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .statusValue {
-    &.synced {
-      background-color: rgba(82, 196, 26, 0.15);
-      color: #67cf22;
-    }
-
-    &.outdated {
-      background-color: rgba(250, 173, 20, 0.15);
-      color: #ffc53d;
-    }
-
-    &.neutral {
-      background-color: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.65);
-    }
-  }
-
-  .metaIcon {
-    filter: brightness(1.2);
+    border-color: var(--app-accent) !important;
   }
 }
 
@@ -1347,14 +1035,6 @@
 
   .skillCard {
     min-height: auto;
-  }
-
-  :global(.dark-mode) {
-    .descriptionText {
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.65);
-    }
   }
 
   .cardFooter {

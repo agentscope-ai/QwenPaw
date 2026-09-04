@@ -11,36 +11,25 @@
 }
 
 .page {
-  height: 100vh;
   display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
   align-items: center;
   justify-content: center;
-}
-
-.pageLight {
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-}
-
-.pageDark {
-  background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+  padding: 16px;
+  background: var(--app-bg);
 }
 
 .card {
-  width: 400px;
+  width: min(400px, 100%);
+  box-sizing: border-box;
   padding: 40px;
+  border: 1px solid var(--app-border);
   border-radius: 12px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-md);
   text-align: center;
   animation: backend-loading-fadein 0.6s ease-out;
-}
-
-.pageLight .card {
-  background: #fff;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
-}
-
-.pageDark .card {
-  background: #1f1f1f;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .logo {
@@ -49,75 +38,50 @@
 }
 
 .progressLabel {
-  color: #333;
-}
-
-.pageDark .progressLabel {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--app-text);
 }
 
 .statusText {
-  color: #333;
+  color: var(--app-text);
   font-size: 16px;
   font-weight: 500;
   margin: 16px 0 0;
 }
 
-.pageDark .statusText {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.failedText,
-.pageDark .failedText {
-  color: var(--qwenpaw-error-color);
+.failedText {
+  color: var(--app-error-text);
 }
 
 .hint {
-  color: #888;
+  color: var(--app-text-secondary);
   font-size: 13px;
   margin: 8px 0 24px;
-}
-
-.pageDark .hint {
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .details {
   margin: 0 0 24px;
   padding: 12px;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-fill-subtle);
   text-align: left;
-}
-
-.pageDark .details {
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .summary {
   cursor: pointer;
-  color: #888;
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.pageDark .summary {
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .errorDetails {
   max-height: 96px;
   overflow: auto;
   margin: 8px 0 0;
-  color: #888;
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.pageDark .errorDetails {
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .retryButton {
@@ -125,9 +89,35 @@
   padding: 0 32px;
   border-radius: 8px;
   border: 0;
-  background: var(--qwenpaw-brand-color);
-  color: #fff;
+  background: var(--app-accent);
+  color: var(--app-text-inverse);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--app-accent-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent-ring);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 32px 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
 }

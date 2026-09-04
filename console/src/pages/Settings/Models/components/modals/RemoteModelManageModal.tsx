@@ -29,7 +29,6 @@ import type {
 
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../../../../../contexts/ThemeContext";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { CapabilityTags, tagColors } from "./ModelCapabilityTags";
 import { ModelConfigEditor } from "./ModelConfigEditor";
@@ -56,8 +55,7 @@ export function RemoteModelManageModal({
   onProviderUpdated,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.65)" } : undefined;
+  const iconButtonStyle = { color: "var(--app-text-secondary)" };
   const { message } = useAppMessage();
   const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
@@ -568,7 +566,7 @@ export function RemoteModelManageModal({
     );
   }, [provider.models, provider.extra_models, deferredSearchQuery]);
 
-  const colors = tagColors(isDark);
+  const colors = tagColors();
 
   return (
     <Modal
@@ -589,7 +587,7 @@ export function RemoteModelManageModal({
       />
 
       {supportsAutoDiscover && (
-        <div style={{ marginTop: 8, color: "rgba(127,127,127,0.9)" }}>
+        <div style={{ marginTop: 8, color: "var(--app-text-tertiary)" }}>
           <CloudCog
             size={18}
             style={{ marginRight: 6, verticalAlign: "-3px" }}
@@ -659,7 +657,7 @@ export function RemoteModelManageModal({
                       <span className={styles.modelListItemId}>{m.id}</span>
                     </div>
                     <div className={styles.modelListItemActions}>
-                      <CapabilityTags model={m} isDark={isDark} />
+                      <CapabilityTags model={m} />
                       {m.is_free && (
                         <Tag
                           style={{
@@ -707,9 +705,7 @@ export function RemoteModelManageModal({
                           display: "inline-block",
                           width: 1,
                           height: 16,
-                          background: isDark
-                            ? "rgba(255,255,255,0.15)"
-                            : "#e5e7eb",
+                          background: "var(--app-border-strong)",
                           margin: "0 8px",
                           flexShrink: 0,
                         }}
@@ -725,7 +721,7 @@ export function RemoteModelManageModal({
                           icon={<FlaskConical size={18} />}
                           onClick={() => handleProbeMultimodal(m.id)}
                           loading={probingModelId === m.id}
-                          style={darkBtnStyle}
+                          style={iconButtonStyle}
                         />
                       </Tooltip>
                       <Tooltip title={t("models.testConnection")}>
@@ -737,7 +733,7 @@ export function RemoteModelManageModal({
                           icon={<PlugZap size={18} />}
                           onClick={() => handleTestModel(m.id)}
                           loading={testingModelId === m.id}
-                          style={darkBtnStyle}
+                          style={iconButtonStyle}
                         />
                       </Tooltip>
                       <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
@@ -756,7 +752,7 @@ export function RemoteModelManageModal({
                           onClick={() =>
                             setConfigOpenModelId(isConfigOpen ? null : m.id)
                           }
-                          style={darkBtnStyle}
+                          style={iconButtonStyle}
                         />
                       </Tooltip>
                       {isDeletable && (
@@ -778,9 +774,7 @@ export function RemoteModelManageModal({
                     <div
                       style={{
                         padding: "0 16px 12px",
-                        borderBottom: isDark
-                          ? "1px solid rgba(255,255,255,0.06)"
-                          : "1px solid #f5f5f5",
+                        borderBottom: "1px solid var(--app-border-subtle)",
                       }}
                     >
                       <ModelConfigEditor
@@ -789,7 +783,6 @@ export function RemoteModelManageModal({
                         onSaved={onSaved}
                         onProviderUpdated={onProviderUpdated}
                         onClose={() => setConfigOpenModelId(null)}
-                        isDark={isDark}
                         chatModel={provider.chat_model}
                         thinkingParamStyle={
                           extraModelIds.has(m.id)
@@ -847,7 +840,6 @@ export function RemoteModelManageModal({
           loadingFilters={loadingFilters}
           discoveredModels={discoveredModels}
           saving={saving}
-          isDark={isDark}
           freeTagStyle={colors.free}
           onToggleFilters={() => setShowFilters(!showFilters)}
           onSelectedSeriesChange={setSelectedSeries}

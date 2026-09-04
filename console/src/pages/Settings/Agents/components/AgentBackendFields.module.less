@@ -1,5 +1,48 @@
+// This panel keeps its own warm palette on purpose; it is not part of the
+// neutral --app-* scale. The colours live in one place per theme: the light
+// values below and the dark overrides at the bottom of the file. Brand orange
+// comes from the global token so it cannot drift.
 .section {
   margin: 4px 0 20px;
+
+  --abf-text: #2d231d;
+  --abf-text-muted: #7b716a;
+  --abf-text-faint: #9d948d;
+  --abf-icon: #79685b;
+  --abf-icon-muted: #9a8d83;
+
+  --abf-accent: #d45f00;
+  --abf-accent-border: rgba(255, 127, 22, 0.55);
+  --abf-accent-border-selected: var(--app-accent);
+  --abf-accent-bg: #fff6ed;
+  --abf-accent-bg-soft: #ffe8d3;
+  --abf-accent-bg-faint: rgba(255, 127, 22, 0.035);
+  --abf-accent-bg-hover: rgba(255, 127, 22, 0.1);
+
+  --abf-surface: #fffdfa;
+  --abf-surface-hover: #fffdfa;
+  --abf-surface-alt: #faf7f4;
+  --abf-icon-bg: #f3ede8;
+  --abf-panel-from: #fffdfa;
+  --abf-panel-to: #fff7ef;
+  --abf-provider-bg: rgba(255, 255, 255, 0.72);
+  --abf-provider-bg-hover: #fffaf5;
+  --abf-provider-bg-selected: #fffaf5;
+  --abf-provider-bg-disabled: rgba(255, 255, 255, 0.62);
+  --abf-row-bg: rgba(255, 255, 255, 0.78);
+  --abf-radio-bg: #ffffff;
+
+  --abf-border: #e8dfd8;
+  --abf-border-strong: #d3c7be;
+  --abf-border-disabled: #e9e1da;
+
+  --abf-ok-border: #d6e8d8;
+  --abf-ok-bg: #f5faf5;
+  --abf-ok-text: #357544;
+
+  --abf-shadow-hover: 0 8px 24px rgba(186, 83, 0, 0.09);
+  --abf-shadow-selected: inset 0 0 0 1px rgba(255, 127, 22, 0.14);
+  --abf-shadow-card: 0 5px 16px rgba(186, 83, 0, 0.08);
 }
 
 .sectionHeading {
@@ -7,7 +50,7 @@
 
   h3 {
     margin: 3px 0;
-    color: #241b15;
+    color: var(--abf-text);
     font-size: 16px;
     font-weight: 650;
     letter-spacing: -0.01em;
@@ -15,14 +58,14 @@
 
   p {
     margin: 0;
-    color: #7b716a;
+    color: var(--abf-text-muted);
     font-size: 12px;
     line-height: 1.5;
   }
 }
 
 .eyebrow {
-  color: #d45f00;
+  color: var(--abf-accent);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.12em;
@@ -42,10 +85,10 @@
   align-items: flex-start;
   gap: 12px;
   padding: 15px;
-  border: 1px solid #e8dfd8;
+  border: 1px solid var(--abf-border);
   border-radius: 14px;
-  color: #2d231d;
-  background: #fffdfa;
+  color: var(--abf-text);
+  background: var(--abf-surface);
   cursor: pointer;
   text-align: left;
   transition:
@@ -55,15 +98,16 @@
     background 160ms ease;
 
   &:hover {
-    border-color: rgba(255, 127, 22, 0.55);
-    box-shadow: 0 8px 24px rgba(186, 83, 0, 0.09);
+    border-color: var(--abf-accent-border);
+    background: var(--abf-surface-hover);
+    box-shadow: var(--abf-shadow-hover);
     transform: translateY(-1px);
   }
 
   &.selected {
-    border-color: #ff7f16;
-    background: #fff6ed;
-    box-shadow: inset 0 0 0 1px rgba(255, 127, 22, 0.14);
+    border-color: var(--app-accent);
+    background: var(--abf-accent-bg);
+    box-shadow: var(--abf-shadow-selected);
   }
 }
 
@@ -74,14 +118,14 @@
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  color: #79685b;
-  background: #f3ede8;
+  color: var(--abf-icon);
+  background: var(--abf-icon-bg);
 }
 
 .selected .typeIcon,
 .providerCardSelected .providerIcon {
-  color: #d45f00;
-  background: #ffe8d3;
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-soft);
 }
 
 .typeIcon {
@@ -103,7 +147,7 @@
   }
 
   small {
-    color: #7b716a;
+    color: var(--abf-text-muted);
     font-size: 11px;
     line-height: 1.45;
   }
@@ -113,21 +157,25 @@
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
-  border: 1px solid #d3c7be;
+  border: 1px solid var(--abf-border-strong);
   border-radius: 50%;
 }
 
 .selected .radioMark {
-  border: 4px solid #ff7f16;
-  background: #fff;
+  border: 4px solid var(--app-accent);
+  background: var(--abf-radio-bg);
 }
 
 .thirdPartyPanel {
   margin-top: 12px;
   padding: 16px;
-  border: 1px solid #eadfd6;
+  border: 1px solid var(--abf-border);
   border-radius: 14px;
-  background: linear-gradient(145deg, #fffdfa 0%, #fff7ef 100%);
+  background: linear-gradient(
+    145deg,
+    var(--abf-panel-from) 0%,
+    var(--abf-panel-to) 100%
+  );
 }
 
 .panelHeading {
@@ -135,13 +183,13 @@
 
   h4 {
     margin: 0 0 2px;
-    color: #30251e;
+    color: var(--abf-text);
     font-size: 13px;
   }
 
   p {
     margin: 0;
-    color: #82766e;
+    color: var(--abf-text-muted);
     font-size: 11px;
   }
 }
@@ -165,17 +213,17 @@
 }
 
 .providerCardSelected {
-  border: 1px solid #ff7f16;
-  color: #30251e;
-  background: #fffaf5;
+  border: 1px solid var(--abf-accent-border-selected);
+  color: var(--abf-text);
+  background: var(--abf-provider-bg-selected);
   cursor: default;
-  box-shadow: 0 5px 16px rgba(186, 83, 0, 0.08);
+  box-shadow: var(--abf-shadow-card);
 }
 
 .providerCard {
-  border: 1px solid #e5d9cf;
-  color: #30251e;
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--abf-border);
+  color: var(--abf-text);
+  background: var(--abf-provider-bg);
   cursor: pointer;
   transition:
     border-color 150ms ease,
@@ -183,19 +231,19 @@
     transform 150ms ease;
 
   &:hover {
-    border-color: rgba(255, 127, 22, 0.55);
-    background: #fffaf5;
+    border-color: var(--abf-accent-border);
+    background: var(--abf-provider-bg-hover);
     transform: translateY(-1px);
   }
 }
 
 .providerCardDisabled {
-  border: 1px solid #e9e1da;
-  color: #9d948d;
-  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--abf-border-disabled);
+  color: var(--abf-text-faint);
+  background: var(--abf-provider-bg-disabled);
 
   small {
-    color: #aaa19a;
+    color: var(--abf-text-faint);
   }
 }
 
@@ -207,13 +255,13 @@
 
 .providerCheck {
   flex: 0 0 auto;
-  color: #e66900;
+  color: var(--abf-accent);
 }
 
 .providerConfig {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #eadfd6;
+  border-top: 1px solid var(--abf-border);
 }
 
 .binaryField {
@@ -237,12 +285,12 @@
 
 .helpIcon {
   display: inline-flex;
-  color: #9a8d83;
+  color: var(--abf-icon-muted);
   cursor: help;
   transition: color 150ms ease;
 
   &:hover {
-    color: #d45f00;
+    color: var(--abf-accent);
   }
 }
 
@@ -263,13 +311,13 @@
 }
 
 .detected {
-  border-color: #d6e8d8;
-  background: #f5faf5;
+  border-color: var(--abf-ok-border);
+  background: var(--abf-ok-bg);
 }
 
 .notDetected {
-  border-color: #eadfd6;
-  background: #faf7f4;
+  border-color: var(--abf-border);
+  background: var(--abf-surface-alt);
 }
 
 .binaryStatusLabel {
@@ -282,18 +330,18 @@
 }
 
 .detected .binaryStatusLabel {
-  color: #357544;
+  color: var(--abf-ok-text);
 }
 
 .notDetected .binaryStatusLabel {
-  color: #8b7464;
+  color: var(--abf-text-muted);
 }
 
 .binaryPath {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: #70655d;
+  color: var(--abf-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", monospace;
   font-size: 10px;
@@ -311,7 +359,7 @@
   padding: 0;
   border: 0;
   border-radius: 6px;
-  color: #887a70;
+  color: var(--abf-icon-muted);
   background: transparent;
   cursor: pointer;
   transition:
@@ -319,14 +367,14 @@
     background 150ms ease;
 
   &:hover {
-    color: #c95700;
-    background: rgba(255, 127, 22, 0.1);
+    color: var(--abf-accent);
+    background: var(--abf-accent-bg-hover);
   }
 }
 
 .authHint {
   margin: 0 2px 10px;
-  color: #7b6d62;
+  color: var(--abf-text-muted);
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -338,27 +386,27 @@
   justify-content: space-between;
   gap: 14px;
   padding: 11px 12px;
-  border: 1px solid #e9ded5;
+  border: 1px solid var(--abf-border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--abf-row-bg);
 }
 
 .chatSettingsHint {
   margin: 10px 2px 0;
-  color: #7b6d62;
+  color: var(--abf-text-muted);
   font-size: 12px;
 }
 
 .capabilityPanel {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e9ded5;
+  border-top: 1px solid var(--abf-border);
 }
 
 .capabilityTitle {
   display: block;
   margin-bottom: 10px;
-  color: #81756c;
+  color: var(--abf-text-muted);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -377,10 +425,10 @@
   align-items: flex-start;
   gap: 9px;
   padding: 11px;
-  border: 1px solid #eadfd6;
+  border: 1px solid var(--abf-border);
   border-radius: 10px;
-  color: #d45f00;
-  background: rgba(255, 127, 22, 0.035);
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-faint);
 
   > span {
     display: grid;
@@ -390,7 +438,7 @@
 
   strong {
     overflow: hidden;
-    color: #2d231d;
+    color: var(--abf-text);
     font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
@@ -398,7 +446,7 @@
   }
 
   small {
-    color: #7b716a;
+    color: var(--abf-text-muted);
     font-size: 11px;
     line-height: 1.35;
   }
@@ -412,7 +460,7 @@
 }
 
 .accountLabel {
-  color: #81756c;
+  color: var(--abf-text-muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.08em;
@@ -428,186 +476,57 @@
 }
 
 .connectedState {
-  color: #c95700;
+  color: var(--abf-accent);
 }
 
 .disconnectedState {
-  color: #82766d;
+  color: var(--abf-text-muted);
 }
 
 .accountAction {
   flex: 0 0 auto;
 }
 
-:global(.dark-mode) {
-  .sectionHeading h3,
-  .typeCard,
-  .panelHeading h4,
-  .providerCardSelected {
-    color: #f5eee8;
-  }
+// Dark theme: only the palette is redefined, every rule above stays shared.
+:global(.dark-mode) .section {
+  --abf-text: #f5eee8;
+  --abf-text-muted: #a99d94;
+  --abf-text-faint: #716a64;
+  --abf-icon: #bca99a;
+  --abf-icon-muted: #8f837a;
 
-  .providerCard {
-    border-color: #3b332d;
-    color: #e8dfd7;
-    background: rgba(255, 255, 255, 0.025);
+  --abf-accent: #ff9a47;
+  --abf-accent-border: rgba(255, 127, 22, 0.68);
+  --abf-accent-border-selected: #e87313;
+  --abf-accent-bg: rgba(255, 127, 22, 0.12);
+  --abf-accent-bg-soft: rgba(255, 127, 22, 0.16);
+  --abf-accent-bg-faint: rgba(255, 127, 22, 0.06);
+  --abf-accent-bg-hover: rgba(255, 127, 22, 0.12);
 
-    &:hover {
-      border-color: rgba(255, 127, 22, 0.65);
-      background: rgba(255, 127, 22, 0.07);
-    }
-  }
+  --abf-surface: #211e1b;
+  --abf-surface-hover: #26211d;
+  --abf-surface-alt: rgba(255, 255, 255, 0.025);
+  --abf-icon-bg: #332d28;
+  --abf-panel-from: #211d19;
+  --abf-panel-to: #191817;
+  --abf-provider-bg: rgba(255, 255, 255, 0.025);
+  --abf-provider-bg-hover: rgba(255, 127, 22, 0.07);
+  --abf-provider-bg-selected: rgba(255, 127, 22, 0.09);
+  --abf-provider-bg-disabled: rgba(255, 255, 255, 0.018);
+  --abf-row-bg: rgba(255, 255, 255, 0.035);
+  --abf-radio-bg: #211d19;
 
-  .eyebrow {
-    color: #ff9a47;
-  }
+  --abf-border: #3d352f;
+  --abf-border-strong: #62564d;
+  --abf-border-disabled: #332f2b;
 
-  .sectionHeading p,
-  .typeCopy small,
-  .providerCopy small,
-  .panelHeading p,
-  .accountLabel {
-    color: #a99d94;
-  }
+  --abf-ok-border: rgba(91, 158, 105, 0.32);
+  --abf-ok-bg: rgba(70, 129, 82, 0.1);
+  --abf-ok-text: #86c792;
 
-  .typeCard {
-    border-color: #3b332d;
-    background: #211e1b;
-
-    &:hover {
-      border-color: rgba(255, 127, 22, 0.7);
-      background: #26211d;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
-    }
-  }
-
-  .typeCard.selected {
-    border-color: #ff7f16;
-    background: rgba(255, 127, 22, 0.12);
-    box-shadow: inset 0 0 0 1px rgba(255, 153, 70, 0.12);
-  }
-
-  .typeIcon,
-  .providerIcon {
-    color: #bca99a;
-    background: #332d28;
-  }
-
-  .selected .typeIcon,
-  .providerCardSelected .providerIcon {
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.16);
-  }
-
-  .radioMark {
-    border-color: #62564d;
-  }
-
-  .selected .radioMark {
-    border-color: #ff7f16;
-    background: #211d19;
-  }
-
-  .thirdPartyPanel {
-    border-color: #41362e;
-    background: linear-gradient(145deg, #211d19 0%, #191817 100%);
-  }
-
-  .providerCardSelected {
-    border-color: #e87313;
-    background: rgba(255, 127, 22, 0.09);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-  }
-
-  .providerCardDisabled {
-    border-color: #332f2b;
-    color: #716a64;
-    background: rgba(255, 255, 255, 0.018);
-
-    small {
-      color: #716a64;
-    }
-  }
-
-  .providerConfig {
-    border-top-color: #3b332d;
-  }
-
-  .accountRow {
-    border-color: #3d352f;
-    background: rgba(255, 255, 255, 0.035);
-  }
-
-  .connectedState {
-    color: #ff9a47;
-  }
-
-  .disconnectedState {
-    color: #a99d94;
-  }
-
-  .chatSettingsHint {
-    color: #a99d94;
-  }
-
-  .authHint {
-    color: #a99d94;
-  }
-
-  .helpIcon {
-    color: #8f837a;
-
-    &:hover {
-      color: #ff9a47;
-    }
-  }
-
-  .detected {
-    border-color: rgba(91, 158, 105, 0.32);
-    background: rgba(70, 129, 82, 0.1);
-  }
-
-  .notDetected {
-    border-color: #423a34;
-    background: rgba(255, 255, 255, 0.025);
-  }
-
-  .capabilityPanel {
-    border-color: #423a34;
-  }
-
-  .capabilityTitle,
-  .capabilityItem small {
-    color: #a99d94;
-  }
-
-  .capabilityItem {
-    border-color: #423a34;
-    color: #ff9a47;
-    background: rgba(255, 127, 22, 0.06);
-
-    strong {
-      color: #f5eee8;
-    }
-  }
-
-  .detected .binaryStatusLabel {
-    color: #86c792;
-  }
-
-  .notDetected .binaryStatusLabel,
-  .binaryPath {
-    color: #a99d94;
-  }
-
-  .copyPathButton {
-    color: #91857c;
-
-    &:hover {
-      color: #ff9a47;
-      background: rgba(255, 127, 22, 0.12);
-    }
-  }
+  --abf-shadow-hover: 0 10px 28px rgba(0, 0, 0, 0.24);
+  --abf-shadow-selected: inset 0 0 0 1px rgba(255, 153, 70, 0.12);
+  --abf-shadow-card: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 
 @media (max-width: 680px) {

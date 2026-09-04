@@ -12,12 +12,8 @@
 
 .panel {
   padding: 12px;
-  border: 1px solid rgba(5, 5, 5, 0.06);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-}
-
-.panelDark {
-  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .filterGroup {
@@ -55,14 +51,9 @@
   max-height: 200px;
   overflow-y: auto;
   padding: 0px 8px;
-  border: 1px solid rgba(5, 5, 5, 0.06);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.panelDark .providerList {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--app-surface-subtle);
 }
 
 .providerRow {
@@ -74,11 +65,7 @@
 }
 
 .providerRow + .providerRow {
-  border-top: 1px solid rgba(5, 5, 5, 0.06);
-}
-
-.panelDark .providerRow + .providerRow {
-  border-top-color: rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .providerName {
@@ -91,7 +78,7 @@
 .providerEmpty {
   padding: 12px 8px;
   text-align: center;
-  color: #8c8c8c;
+  color: var(--app-text-tertiary);
 }
 
 .modalitySwitchGroup {
@@ -107,14 +94,9 @@
   gap: 8px;
   min-width: 0;
   padding: 6px 8px;
-  border: 1px solid rgba(5, 5, 5, 0.06);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.panelDark .modalitySwitchRow {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--app-surface-subtle);
 }
 
 .modalitySwitchLabel {
@@ -158,12 +140,8 @@
   align-items: center;
   padding: 4px 8px;
   margin-bottom: 4px;
-  background: white;
+  background: var(--app-surface);
   border-radius: 4px;
-}
-
-.modelRowDark {
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .modelNameRow {
@@ -177,15 +155,15 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #666;
+  color: var(--app-text-secondary);
   font-size: 11px;
-}
-
-.modelMetaDark {
-  color: rgba(255, 255, 255, 0.65);
 }
 
 .price {
   margin-left: 4px;
-  color: green;
+  color: var(--app-success-text);
+}
+
+.outputModalityIcon {
+  color: var(--app-info-text);
 }
