@@ -12,7 +12,6 @@ sub-agent delegation, etc.).
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 from pathlib import Path
@@ -457,10 +456,8 @@ class QwenPawACPAgent(Agent):
                 workspace_dir=str(workspace_dir),
             )
             app_services = await self._ensure_app_services()
-            bootstrap_kwargs = self._build_bootstrap_kwargs(app_services)
-            await asyncio.to_thread(
-                workspace.bootstrap_plugins,
-                **bootstrap_kwargs,
+            workspace.bootstrap_plugins(
+                **self._build_bootstrap_kwargs(app_services),
             )
             workspace.set_app_services(app_services)
             await workspace.start()
@@ -1556,73 +1553,6 @@ class QwenPawACPAgent(Agent):
         return agent_config.active_model
 
 
-def _sync_stdout_write(data: bytes) -> None:
-    """Synchronous stdout write, safe to call from a worker thread."""
-    import sys
-
-    try:
-        sys.stdout.buffer.write(data)
-        sys.stdout.buffer.flush()
-    except OSError:
-        logger.debug("ACP stdout write failed (pipe closed?)", exc_info=True)
-        raise
-
-
-def _threaded_sender_factory(writer: Any, supervisor: Any) -> Any:
-    """Windows sender that writes responses from a worker thread.
-
-    The event loop can be blocked for a long time while the workspace
-    bootstraps (plugin loading / MCP init can take minutes).  The default
-    in-loop sender never gets scheduled during that window, so the client
-    times out and closes the pipe; the eventual write then fails with
-    ``OSError: [Errno 22]`` (ERROR_NO_DATA).  Running the write in the
-    executor keeps responses flowing even while the loop is busy.
-    """
-    from acp.task.sender import MessageSender
-
-    class _ThreadedMessageSender(MessageSender):
-        def __init__(self, writer: Any, supervisor: Any) -> None:
-            super().__init__(writer, supervisor)
-            self._pending: set[asyncio.Future[None]] = set()
-            self._shutdown = False
-
-        async def send(self, payload: dict[str, Any]) -> None:
-            data = (json.dumps(payload, separators=(",", ":")) + "\n").encode(
-                "utf-8",
-            )
-            loop = asyncio.get_running_loop()
-            future = loop.run_in_executor(None, _sync_stdout_write, data)
-            self._pending.add(future)
-            future.add_done_callback(self._pending.discard)
-            await future
-
-        async def _loop(self) -> None:  # type: ignore[override]
-            # All writes happen in send(); nothing to drain here.
-            return
-
-        async def close(self) -> None:
-            if self._shutdown:
-                return
-            self._shutdown = True
-            # Wait for in-flight executor writes instead of relying on the
-            # inherited queue-sentinel shutdown (nothing drains that queue).
-            if self._pending:
-                await asyncio.gather(*self._pending, return_exceptions=True)
-            if self._task is not None and not self._task.done():
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._task
-
-    return _ThreadedMessageSender(writer, supervisor)
-
-
-def _make_agent_sender_factory() -> Any:
-    import platform
-
-    if platform.system() == "Windows":
-        return _threaded_sender_factory
-    return None
-
-
 async def run_qwenpaw_agent(
     agent_id: str | None = None,
     workspace_dir: Path | None = None,
@@ -1639,10 +1569,6 @@ async def run_qwenpaw_agent(
     try:
         # pylint: disable=protected-access
         await agent._install_runtime_provider()
-        kwargs: dict[str, Any] = {"use_unstable_protocol": True}
-        sender_factory = _make_agent_sender_factory()
-        if sender_factory is not None:
-            kwargs["sender_factory"] = sender_factory
-        await run_agent(agent, **kwargs)
+        await run_agent(agent, use_unstable_protocol=True)
     finally:
         await agent._shutdown_workspace()  # pylint: disable=protected-access
