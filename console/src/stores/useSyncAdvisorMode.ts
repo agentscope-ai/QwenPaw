@@ -9,8 +9,9 @@ import { advisorModeApi } from "../api/modules/advisorMode";
  * without this hook the UI would show stale or empty state across reloads
  * and tabs.
  *
- * Mount once at a top-level component (e.g. MainLayout) so every route
- * sees a populated store.
+ * Mounted by the components that show Advisor state (the setup panel in
+ * the chat and the Advisor loop template), so nothing is fetched until
+ * one of them renders.
  */
 export function useSyncAdvisorMode(): void {
   const { selectedAgent } = useAgentStore();

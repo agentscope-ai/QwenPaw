@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { AdvisorModeTab } from "./AdvisorModeTab";
-import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
 import {
   Card,
   Form,
@@ -55,6 +53,8 @@ import type {
   CustomLoopModeConfig,
   GateInstanceConfig,
 } from "@/api/types";
+import { AdvisorModeTab } from "./AdvisorModeTab";
+import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
 import styles from "../index.module.less";
 import loopStyles from "./AgentLoopCard.module.less";
 

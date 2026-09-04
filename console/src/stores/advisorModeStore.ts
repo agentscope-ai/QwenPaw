@@ -14,9 +14,9 @@ interface AdvisorModeStoreState {
 }
 
 // Backend (agent.json) is the source of truth. State is held in-memory
-// only and refilled on every app boot via useSyncAdvisorMode — see
-// MainLayout. Persisting here would let stale browser cache mask the real
-// backend state across tabs / sessions.
+// only and refilled by useSyncAdvisorMode wherever Advisor state is shown.
+// Persisting here would let stale browser cache mask the real backend
+// state across tabs / sessions.
 export const useAdvisorModeStore = create<AdvisorModeStoreState>((set) => ({
   advisorModeByAgent: {},
   advisorModeRevisionByAgent: {},
@@ -58,12 +58,15 @@ export const DISABLED_ADVISOR_MODE: AdvisorModeState = {
 /** Convenience hook: Advisor Mode state for the currently selected agent. */
 export function useAdvisorMode(): {
   state: AdvisorModeState;
+  /** False until the backend state for the agent has been fetched. */
+  initialized: boolean;
   setAdvisorMode: (state: AdvisorModeState) => void;
 } {
   const { selectedAgent } = useAgentStore();
   const { advisorModeByAgent, setAdvisorMode } = useAdvisorModeStore();
   return {
     state: advisorModeByAgent[selectedAgent] ?? DISABLED_ADVISOR_MODE,
+    initialized: selectedAgent in advisorModeByAgent,
     setAdvisorMode: (next: AdvisorModeState) =>
       setAdvisorMode(selectedAgent, next),
   };

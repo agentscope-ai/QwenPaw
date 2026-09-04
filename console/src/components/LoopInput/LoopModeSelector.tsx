@@ -58,8 +58,8 @@ export function LoopModeSelector({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  // Opens by itself right after Advisor is picked; the chat header's model
-  // pill reopens it while the conversation runs.
+  // Opens by itself right after Advisor is picked. The chat header's
+  // Advisor pill opens its own copy of the panel.
   const [advisorSetupOpen, setAdvisorSetupOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);
