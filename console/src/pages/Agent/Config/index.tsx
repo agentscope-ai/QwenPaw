@@ -34,6 +34,7 @@ function AgentConfigPage() {
   const [localReindexing, setLocalReindexing] = useState(false);
   const [persistedEmbeddingFingerprint, setPersistedEmbeddingFingerprint] =
     useState<string>();
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
   const syncReindexRequirement = useCallback((config: AgentsRunningConfig) => {
     setNeedsReindex(config.reme_light_memory_config.needs_reindex === true);
     setPersistedEmbeddingFingerprint(
@@ -325,9 +326,40 @@ function AgentConfigPage() {
             runtimeStatus,
             diagnosticsStatus,
             checkMemoryStatus,
+            rerankerExpanded,
+            setRerankerExpanded,
           }}
         >
-          <Form form={form} layout="vertical" className={styles.form}>
+          <Form
+            form={form}
+            layout="vertical"
+            className={styles.form}
+            onFieldsChange={(_changedFields, allFields) => {
+              // Reranker detail fields stay mounted (hidden when collapsed)
+              // so that full-form validation catches missing required
+              // values. When a validation error lands on one of them while
+              // reranking is enabled, surface the section so the user can
+              // see and fix the problem.
+              const rerankerEnabled = form.getFieldValue([
+                "reme_light_memory_config",
+                "reranker_config",
+                "enabled",
+              ]);
+              if (rerankerEnabled) {
+                const inError = allFields.some(
+                  (field) =>
+                    field.name[0] === "reme_light_memory_config" &&
+                    field.name[1] === "reranker_config" &&
+                    (field.name[2] === "base_url" ||
+                      field.name[2] === "model_name") &&
+                    field.errors?.length,
+                );
+                if (inError) {
+                  setRerankerExpanded(true);
+                }
+              }
+            }}
+          >
             <Tabs
               className={styles.mainTabs}
               activeKey={activeTab}

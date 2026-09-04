@@ -602,6 +602,19 @@
   color: #237f75;
 }
 
+.memorySectionIconQuaternary {
+  border: 1px solid rgba(200, 85, 110, 0.21);
+  background: linear-gradient(
+    145deg,
+    rgba(214, 100, 130, 0.16),
+    rgba(228, 155, 175, 0.07)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 5px 14px rgba(160, 55, 90, 0.09);
+  color: #c8556e;
+}
+
 .memoryCapabilityHeader {
   display: flex;
   align-items: flex-end;
@@ -856,6 +869,34 @@
     color: rgba(20, 20, 19, 0.48);
     font-size: 11px;
     line-height: 1.45;
+  }
+}
+
+.memoryRerankerToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(20, 20, 19, 0.35);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: rgba(20, 20, 19, 0.06);
+    color: rgba(20, 20, 19, 0.6);
+  }
+
+  &:active {
+    background: rgba(20, 20, 19, 0.1);
   }
 }
 
@@ -1358,6 +1399,16 @@
     color: #a8b0ff;
   }
 
+  .memorySectionIconQuaternary {
+    border-color: rgba(255, 120, 150, 0.2);
+    background: linear-gradient(
+      145deg,
+      rgba(214, 90, 120, 0.2),
+      rgba(255, 160, 180, 0.08)
+    );
+    color: #ff7696;
+  }
+
   .memoryReferences,
   .memorySectionHeader p {
     color: rgba(255, 255, 255, 0.5);
@@ -1404,6 +1455,19 @@
   .memorySettingRow {
     border-color: rgba(255, 255, 255, 0.09);
     background: rgba(255, 255, 255, 0.035);
+  }
+
+  .memoryRerankerToggle {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    &:active {
+      background: rgba(255, 255, 255, 0.12);
+    }
   }
 
   .memoryOverviewItem {

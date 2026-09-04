@@ -61,6 +61,8 @@ export function ReMeLightMemoryCard() {
     runtimeStatus,
     diagnosticsStatus,
     checkMemoryStatus,
+    rerankerExpanded,
+    setRerankerExpanded,
   } = useMemoryMaintenance();
   const [statusView, setStatusView] = useState<"tasks" | "diagnostics" | null>(
     null,
@@ -71,6 +73,60 @@ export function ReMeLightMemoryCard() {
       form.getFieldValue(["reme_light_memory_config", "auto_fin_cron_enabled"]),
     ),
   );
+
+  const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
+    | ReMeLightMemoryConfig
+    | undefined;
+  const rerankerEnabled = remeConfig?.reranker_config?.enabled ?? false;
+
+  // Reset to the default expansion state whenever the enable/disable signal
+  // or the selected Agent changes. This keeps the details collapsed after
+  // disabling reranking and prevents the page-level rerankerExpanded state
+  // from leaking across Agent switches or Reset.
+  useEffect(() => {
+    setRerankerExpanded(rerankerEnabled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerankerEnabled, selectedAgent]);
+
+  const rerankerPath = (field: string): string[] => [
+    "reme_light_memory_config",
+    "reranker_config",
+    field,
+  ];
+
+  const normalizeRerankerNumbersOnDisable = () => {
+    const multiplier = form.getFieldValue(rerankerPath("candidate_multiplier"));
+    const timeout = form.getFieldValue(rerankerPath("timeout"));
+
+    const validMultiplier =
+      typeof multiplier === "number" &&
+      Number.isFinite(multiplier) &&
+      multiplier >= 1 &&
+      Number.isInteger(multiplier);
+    const validTimeout =
+      typeof timeout === "number" && Number.isFinite(timeout) && timeout >= 1;
+
+    form.setFields([
+      {
+        name: rerankerPath("base_url"),
+        errors: [],
+      },
+      {
+        name: rerankerPath("model_name"),
+        errors: [],
+      },
+      {
+        name: rerankerPath("candidate_multiplier"),
+        value: validMultiplier ? multiplier : 3,
+        errors: [],
+      },
+      {
+        name: rerankerPath("timeout"),
+        value: validTimeout ? timeout : 10,
+        errors: [],
+      },
+    ]);
+  };
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
@@ -157,9 +213,6 @@ export function ReMeLightMemoryCard() {
         pending: runtime.worker.queue_pending,
       })
     : "—";
-  const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
-    | ReMeLightMemoryConfig
-    | undefined;
   const autoMemoryInterval = Number(remeConfig?.auto_memory_interval ?? 0);
   const autoMemoryEnabled = autoMemoryInterval > 0;
   const dreamCronEnabled = remeConfig?.dream_cron_enabled ?? true;
@@ -821,6 +874,227 @@ export function ReMeLightMemoryCard() {
                   min={1}
                   step={1}
                   disabled={!autoSearchEnabled}
+                />
+              </Form.Item>
+            </div>
+          </section>
+
+          <section className={styles.memoryRecallPanel}>
+            <div className={styles.memorySectionHeader}>
+              <div
+                className={`${styles.memorySectionIcon} ${styles.memorySectionIconQuaternary}`}
+              >
+                04
+              </div>
+              <div>
+                <h3>{t("agentConfig.rerankerConfigCollapseLabel")}</h3>
+                <p>{t("agentConfig.rerankerEnableHint")}</p>
+              </div>
+              <button
+                type="button"
+                className={styles.memoryRerankerToggle}
+                onClick={() => setRerankerExpanded(!rerankerExpanded)}
+                aria-expanded={rerankerExpanded}
+                aria-controls="reranker-details"
+                aria-label={
+                  rerankerExpanded
+                    ? t("agentConfig.rerankerCollapseDetails")
+                    : t("agentConfig.rerankerExpandDetails")
+                }
+              >
+                <ChevronRight
+                  size={16}
+                  style={{
+                    transform: rerankerExpanded ? "rotate(90deg)" : undefined,
+                  }}
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+
+            <div className={styles.memoryCapabilityHeader}>
+              <h4>{t("agentConfig.rerankerTitle")}</h4>
+              <code>reranker-search</code>
+            </div>
+
+            <Form.Item
+              label={t("agentConfig.rerankerEnabled")}
+              name={["reme_light_memory_config", "reranker_config", "enabled"]}
+              initialValue={false}
+              valuePropName="checked"
+              tooltip={t("agentConfig.rerankerEnabledTooltip")}
+            >
+              <Switch
+                onChange={(checked) => {
+                  if (checked) {
+                    setRerankerExpanded(true);
+                    void form.validateFields([
+                      [
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "base_url",
+                      ],
+                      [
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "model_name",
+                      ],
+                    ]);
+                  } else {
+                    // Normalize invalid/empty numeric values back to valid
+                    // defaults and clear their errors. The backend schema
+                    // validates candidate_multiplier/timeout even when
+                    // reranking is disabled, so null must never be submitted.
+                    normalizeRerankerNumbersOnDisable();
+                  }
+                }}
+              />
+            </Form.Item>
+
+            <div
+              id="reranker-details"
+              style={{ display: rerankerExpanded ? undefined : "none" }}
+            >
+              <Form.Item
+                label={t("agentConfig.rerankerBaseUrl")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "base_url",
+                ]}
+                rules={[
+                  {
+                    required: rerankerEnabled,
+                    whitespace: true,
+                    message: t("agentConfig.rerankerBaseUrlRequired"),
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerBaseUrlTooltip")}
+              >
+                <Input
+                  placeholder={t("agentConfig.rerankerBaseUrlPlaceholder")}
+                  disabled={!rerankerEnabled}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={t("agentConfig.rerankerModelName")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "model_name",
+                ]}
+                rules={[
+                  {
+                    required: rerankerEnabled,
+                    whitespace: true,
+                    message: t("agentConfig.rerankerModelNameRequired"),
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerModelNameTooltip")}
+              >
+                <Input
+                  placeholder={t("agentConfig.rerankerModelNamePlaceholder")}
+                  disabled={!rerankerEnabled}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={t("agentConfig.rerankerApiKey")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "api_key",
+                ]}
+                tooltip={t("agentConfig.rerankerApiKeyTooltip")}
+              >
+                <Input.Password
+                  placeholder={t("agentConfig.rerankerApiKeyPlaceholder")}
+                  disabled={!rerankerEnabled}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={t("agentConfig.rerankerCandidateMultiplier")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "candidate_multiplier",
+                ]}
+                initialValue={3}
+                rules={[
+                  {
+                    required: true,
+                    message: t(
+                      "agentConfig.rerankerCandidateMultiplierRequired",
+                    ),
+                  },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("agentConfig.rerankerCandidateMultiplierMin"),
+                  },
+                  {
+                    validator: (_, value) => {
+                      if (value == null) {
+                        return Promise.resolve();
+                      }
+                      const num = Number(value);
+                      if (!Number.isFinite(num) || Number.isNaN(num)) {
+                        return Promise.reject(
+                          new Error(
+                            t("agentConfig.rerankerCandidateMultiplierInteger"),
+                          ),
+                        );
+                      }
+                      if (!Number.isInteger(num)) {
+                        return Promise.reject(
+                          new Error(
+                            t("agentConfig.rerankerCandidateMultiplierInteger"),
+                          ),
+                        );
+                      }
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerCandidateMultiplierTooltip")}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={1}
+                  step={1}
+                  precision={0}
+                  disabled={!rerankerEnabled}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={t("agentConfig.rerankerTimeout")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "timeout",
+                ]}
+                initialValue={10.0}
+                rules={[
+                  {
+                    required: true,
+                    message: t("agentConfig.rerankerTimeoutRequired"),
+                  },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("agentConfig.rerankerTimeoutMin"),
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerTimeoutTooltip")}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={1}
+                  step={1}
+                  disabled={!rerankerEnabled}
                 />
               </Form.Item>
             </div>
