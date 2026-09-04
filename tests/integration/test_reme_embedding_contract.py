@@ -180,7 +180,7 @@ async def test_disabled_embedding_reindex_preserves_real_reme_vectors(
             ) as update_config,
             pytest.raises(EmbeddingReindexUnavailableError),
         ):
-            await manager.rebuild_index("embedding")
+            await manager._rebuild_index("embedding")
 
         np.testing.assert_array_equal(chunk.embedding, original_embedding)
         assert file_store._embedding_rebuild_pending is False

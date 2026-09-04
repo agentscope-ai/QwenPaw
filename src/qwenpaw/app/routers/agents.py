@@ -23,6 +23,7 @@ from qwenpaw.exceptions import (
 from ...agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
+from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -185,10 +186,10 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
-class MemoryCaptureTaskStatus(BaseModel):
-    """One bounded memory-capture record, newest records returned first.
+class AutoMemoryTaskStatus(BaseModel):
+    """One bounded auto-memory record, newest records returned first.
 
-    Records share the summarize queue used by periodic auto-memory and the
+    Records share the auto-memory queue used by periodic auto-memory and the
     user-triggered ``/new`` and ``/compact`` commands.
     """
 
@@ -197,6 +198,7 @@ class MemoryCaptureTaskStatus(BaseModel):
     queued_at: str | None = None
     finished_at: str | None = None
     message_count: int = 0
+    trigger: str = "manual"
     result: str | None = None
     error: str | None = None
 
@@ -219,7 +221,7 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
-    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
+    tasks: list[AutoMemoryTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
     embedding_reindex_required: bool = False
@@ -1344,8 +1346,13 @@ async def rebuild_agent_memory_index(
             detail="Memory manager is not available",
         )
 
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
     try:
-        response = await memory_manager.rebuild_index(scope)
+        response = await memory_manager.run_action("reindex", scope=scope)
     except EmbeddingReindexUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -1397,15 +1404,27 @@ async def undo_agent_memory_reindex(
             detail="Memory manager is not available",
         )
 
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
     try:
-        restored = await memory_manager.undo_embedding_reindex()
+        response = await memory_manager.run_action("undo_reindex")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return restored
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory action 'undo_reindex' is unavailable",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+    return EmbeddingModelConfig.model_validate(response.answer)
 
 
 @router.get(
@@ -1492,8 +1511,13 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
     try:
-        response = await memory_manager.reme_status()
+        response = await memory_manager.run_action("status")
     except RuntimeError as exc:
         message = str(exc)
         if not (
@@ -1582,7 +1606,12 @@ async def get_agent_memory_graph(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.graph_snapshot()
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    response = await memory_manager.run_action("graph_snapshot")
     if response is None:
         raise HTTPException(
             status_code=503,

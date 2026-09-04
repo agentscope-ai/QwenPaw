@@ -20,6 +20,7 @@ from .middlewares import (
     manual_compact_memory_by_handler,
     reset_auto_memory_turn_state,
 )
+from .memory.action_provider import MemoryActionProvider
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 #   - ``new`` overlaps the dedicated ACP ``new_session`` affordance (clients
 #     start a fresh session natively); ``/clear`` covers the in-session
 #     "start over" need, so ``/new`` is not advertised over ACP.
-#   - ``history``, ``plan``, ``compact_str``, ``summarize_status``,
+#   - ``history``, ``plan``, ``compact_str``, ``auto_memory_status``,
 #     ``message``, ``dump_history``, ``load_history``, ``proactive`` are
 #     internal/programmatic.
 # Descriptions mirror the console command palette copy
@@ -82,7 +83,7 @@ class ConversationCommandHandlerMixin:
             "clear",
             "history",
             "compact_str",
-            "summarize_status",
+            "auto_memory_status",
             "message",
             "dump_history",
             "load_history",
@@ -433,8 +434,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             compress_stats.get("evicted", inferred_evicted) or 0,
         )
         if self._has_memory_manager():
-            self.memory_manager.add_summarize_task(
+            self.memory_manager.submit_auto_memory(
                 messages=messages,
+                trigger="compact",
                 session_id=self._current_session_id(),
             )
             self._discard_submitted_pending_markers(messages)
@@ -633,7 +635,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             self._set_summary("")
             reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
-                "**No messages to summarize.**\n\n"
+                "**No messages for auto-memory.**\n\n"
                 "- Current memory is empty\n"
                 "- Compressed summary is clear\n"
                 "- Plan state cleared\n"
@@ -647,8 +649,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(
+        self.memory_manager.submit_auto_memory(
             messages=messages,
+            trigger="new",
             session_id=self._current_session_id(),
         )
         self._set_summary("")
@@ -657,7 +660,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         reset_auto_memory_turn_state(self._state)
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
-            "- Summary task started in background\n"
+            "- Auto-memory task started in background\n"
             "- Plan state cleared\n"
             "- Ready for new conversation",
             metadata={"clear_plan": True},
@@ -812,31 +815,32 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         return ""
 
-    async def _process_summarize_status(
+    async def _process_auto_memory_status(
         self,
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process /summarize_status command to show all status."""
+        """Process /auto_memory_status to show queued task status."""
         if not self._has_memory_manager():
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
-                "- Cannot list summary task status\n"
+                "- Cannot list auto-memory task status\n"
                 "- Enable memory manager to use this feature",
             )
 
-        task_list = self.memory_manager.list_summarize_status()
+        task_list = self.memory_manager.list_auto_memory_tasks()
         if not task_list:
             return await self._make_system_msg(
-                "**No Summary Tasks**\n\n"
-                "- No summary tasks have been started",
+                "**No Auto-memory Tasks**\n\n"
+                "- No auto-memory tasks have been started",
             )
 
-        status_lines = ["**Summary Task Status**\n\n"]
+        status_lines = ["**Auto-memory Task Status**\n\n"]
         for info in task_list:
             status_lines.append(
                 f"- **{info['task_id']}**\n"
                 f"  - Start: {info['start_time']}\n"
+                f"  - Trigger: {info['trigger']}\n"
                 f"  - Status: {info['status']}\n",
             )
             if info["status"] == "completed" and info["result"]:
@@ -860,17 +864,32 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         hint = args.strip()
+        provider = self.memory_manager
+        if not isinstance(provider, MemoryActionProvider):
+            return await self._make_system_msg(
+                "**Auto-dream Unavailable**\n\n"
+                "- This memory backend does not support auto-dream",
+            )
         try:
             if hint:
-                await self.memory_manager.dream(hint=hint)
+                response = await provider.run_action("auto_dream", hint=hint)
             else:
-                await self.memory_manager.dream()
+                response = await provider.run_action("auto_dream")
         except Exception as e:
             logger.exception("auto-dream failed: %s", e)
             return await self._make_system_msg(
                 f"**Auto-dream Failed**\n\n- Error: {e}",
             )
 
+        if response is None:
+            return await self._make_system_msg(
+                "**Auto-dream Unavailable**\n\n- Memory backend is not ready",
+            )
+        if not response.success:
+            return await self._make_system_msg(
+                "**Auto-dream Failed**\n\n"
+                f"- Error: {response.answer or 'Unknown ReMe error'}",
+            )
         return await self._make_system_msg(
             "**Auto-dream Complete**\n\n"
             "- Ran one auto-dream memory optimization pass",
@@ -890,8 +909,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "QwenPaw to enable this feature",
             )
 
+        provider = self.memory_manager
+        if not isinstance(provider, MemoryActionProvider):
+            return await self._make_system_msg(
+                "**ReMe Status Unavailable**\n\n"
+                "- This memory backend does not support ReMe actions",
+            )
         try:
-            response = await self.memory_manager.reme_status()
+            response = await provider.run_action("status")
         except Exception as e:
             logger.exception("ReMe status failed: %s", e)
             return await self._make_system_msg(
@@ -978,8 +1003,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            await self.memory_manager.auto_memory(
+            self.memory_manager.submit_auto_memory(
                 memory_messages,
+                trigger="manual",
                 session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,

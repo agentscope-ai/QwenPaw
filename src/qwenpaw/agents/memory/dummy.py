@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """No-op memory manager – disables all memory functionality."""
-from collections.abc import Callable
 
+from agentscope.message import Msg
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolChunk
 
@@ -21,17 +21,32 @@ class NoopMemoryManager(BaseMemoryManager):
     async def start(self) -> None:
         """No-op: nothing to initialize."""
 
-    async def close(self) -> bool:
-        """No-op: nothing to release."""
-        return True
-
     def get_memory_prompt(self) -> str:
         """Return empty prompt – no memory guidance needed."""
         return ""
 
-    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
-        """Return empty list – no memory tools exposed."""
-        return []
+    def is_memory_search_enabled(self) -> bool:
+        """Return false because the disabled backend exposes no tools."""
+        return False
+
+    async def memory_search(
+        self,
+        query: str,
+        max_results: int = 5,
+        **kwargs,
+    ) -> ToolChunk:
+        """Reject searches against the disabled backend."""
+        del query, max_results, kwargs
+        raise RuntimeError("Memory manager is disabled")
+
+    async def auto_memory(
+        self,
+        messages: list[Msg],
+        **kwargs,
+    ) -> str:
+        """Discard auto-memory requests for the disabled backend."""
+        del messages, kwargs
+        return ""
 
     def build_middlewares(self) -> list[MiddlewareBase]:
         """Return empty list – no memory middlewares."""

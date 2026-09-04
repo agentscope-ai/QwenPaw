@@ -103,3 +103,40 @@ async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
 
     assert result is None
     manager.memory_search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_adbpg_auto_memory_waits_for_backend_processing(tmp_path):
+    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    client = SimpleNamespace(add_memory=AsyncMock())
+    manager._client = client
+    message = _user_msg("remember this")
+
+    result = await manager.auto_memory([message])
+
+    assert (
+        result == "Processed 1 user message(s) to ADBPG for agent 'agent-1'."
+    )
+    client.add_memory.assert_awaited_once()
+    assert message.id in manager._persisted_msg_ids
+
+
+@pytest.mark.asyncio
+async def test_adbpg_auto_memory_tracks_each_success_before_later_failure(
+    tmp_path,
+):
+    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    client = SimpleNamespace(
+        add_memory=AsyncMock(
+            side_effect=[None, RuntimeError("second write failed")],
+        ),
+    )
+    manager._client = client
+    first = _user_msg("first")
+    second = _user_msg("second")
+
+    with pytest.raises(RuntimeError, match="second write failed"):
+        await manager.auto_memory([first, second])
+
+    assert first.id in manager._persisted_msg_ids
+    assert second.id not in manager._persisted_msg_ids

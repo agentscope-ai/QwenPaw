@@ -58,7 +58,7 @@ Optionally, add a one-shot instruction to guide which supported information the 
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -460,14 +460,14 @@ Git deduplicates identical content, and automatic GC removes old refs according 
 
 Commands for viewing and managing conversation history.
 
-| Command             | Response Content              |
-| ------------------- | ----------------------------- |
-| `/history`          | 📋 Message list + Token stats |
-| `/message`          | 📄 Specified message details  |
-| `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
-| `/dump_history`     | 📁 Exported history file path |
-| `/load_history`     | ✅ History load result        |
+| Command               | Response Content              |
+| --------------------- | ----------------------------- |
+| `/history`            | 📋 Message list + Token stats |
+| `/message`            | 📄 Specified message details  |
+| `/compact_str`        | 📝 Compressed summary content |
+| `/auto_memory_status` | 📊 Auto-memory task status    |
+| `/dump_history`       | 📁 Exported history file path |
+| `/load_history`       | ✅ History load result        |
 
 ---
 
@@ -583,30 +583,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /auto_memory_status - View Auto-memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display the running status of all background auto-memory tasks, including task ID, start time, and execution results.
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: User requested help building a user authentication system...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` automatically starts an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 

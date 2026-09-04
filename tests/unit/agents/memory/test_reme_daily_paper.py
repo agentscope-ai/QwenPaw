@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Focused tests for the embedded ReMe Daily Paper entry point."""
+"""Focused tests for scheduled ReMe actions and memory guidance."""
 
 import asyncio
 from types import SimpleNamespace
@@ -17,20 +17,18 @@ from qwenpaw.agents.memory.reme_light_memory_manager import (
 @pytest.mark.asyncio
 async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(
+    manager.run_action = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=False,
         daily_paper_topics="",
     )
 
-    await manager.daily_paper()
+    await manager._run_scheduled_action("daily_paper")
 
-    manager._run_reme_job.assert_awaited_once_with(
+    manager.run_action.assert_awaited_once_with(
         "daily_paper",
-        needs_llm=True,
-        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=False,
@@ -41,20 +39,18 @@ async def test_daily_paper_runs_with_qwenpaw_model_and_defaults() -> None:
 @pytest.mark.asyncio
 async def test_daily_paper_passes_configured_source_preferences() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(
+    manager.run_action = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=True,
         daily_paper_topics="agent memory",
     )
 
-    await manager.daily_paper()
+    await manager._run_scheduled_action("daily_paper")
 
-    manager._run_reme_job.assert_awaited_once_with(
+    manager.run_action.assert_awaited_once_with(
         "daily_paper",
-        needs_llm=True,
-        raise_on_error=True,
         date="",
         force=False,
         use_hf_mirror=True,
@@ -65,20 +61,18 @@ async def test_daily_paper_passes_configured_source_preferences() -> None:
 @pytest.mark.asyncio
 async def test_auto_fin_passes_configured_topics_and_window() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(
+    manager.run_action = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="done"),
     )
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         auto_fin_topics="黄金,AI",
         auto_fin_window_hours=12,
     )
 
-    await manager.auto_fin()
+    await manager._run_scheduled_action("auto_fin")
 
-    manager._run_reme_job.assert_awaited_once_with(
+    manager.run_action.assert_awaited_once_with(
         "auto_fin",
-        needs_llm=True,
-        raise_on_error=True,
         date="",
         topics="黄金,AI",
         window_hours=12.0,
@@ -88,42 +82,57 @@ async def test_auto_fin_passes_configured_topics_and_window() -> None:
 @pytest.mark.asyncio
 async def test_daily_paper_fails_when_reme_is_unavailable() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._run_reme_job = AsyncMock(return_value=None)
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager.run_action = AsyncMock(return_value=None)
+    manager._load_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=False,
         daily_paper_topics="",
     )
 
-    with pytest.raises(RuntimeError, match="ReMe is not started"):
-        await manager.daily_paper()
+    with pytest.raises(RuntimeError, match="is unavailable"):
+        await manager._run_scheduled_action("daily_paper")
 
 
 @pytest.mark.asyncio
 async def test_daily_paper_reports_the_real_execution_failure() -> None:
-    """An unreachable source must not be reported as "ReMe is not started"."""
+    """An execution failure must not be reported as action unavailability."""
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._reme = SimpleNamespace(
         is_started=True,
         run_job=AsyncMock(side_effect=ConnectionError("mirror unreachable")),
+        context=SimpleNamespace(
+            jobs={
+                "daily_paper": SimpleNamespace(
+                    enable_serve=True,
+                    parameters={
+                        "properties": {
+                            "date": {"type": "string"},
+                            "force": {"type": "boolean"},
+                            "use_hf_mirror": {"type": "boolean"},
+                            "topics": {"type": "string"},
+                        },
+                    },
+                ),
+            },
+        ),
     )
     manager._lifecycle_condition = asyncio.Condition()
     manager._lifecycle_operation = None
     manager._active_reme_jobs = 0
     manager._update_qwenpaw_model = AsyncMock()
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         daily_paper_use_hf_mirror=True,
         daily_paper_topics="",
     )
 
     with pytest.raises(ConnectionError, match="mirror unreachable"):
-        await manager.daily_paper()
+        await manager._run_scheduled_action("daily_paper")
 
 
 @pytest.mark.asyncio
 async def test_daily_paper_result_is_delivered_to_inbox() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager.agent_id = "agent-1"
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         daily_paper_inbox_push_enabled=True,
     )
     response = SimpleNamespace(
@@ -157,13 +166,13 @@ async def test_daily_paper_result_is_delivered_to_inbox() -> None:
 
 def test_memory_search_tool_exposure_has_an_independent_switch() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         memory_search_enabled=False,
     )
 
     assert not manager.list_memory_tools()
 
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         memory_search_enabled=True,
     )
     assert manager.list_memory_tools() == [manager.memory_search]
@@ -241,7 +250,7 @@ def test_zh_memory_prompt_describes_the_four_memory_surfaces() -> None:
 def test_reme_declares_its_enabled_cron_jobs() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._reme = SimpleNamespace(is_started=True)
-    manager.get_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: SimpleNamespace(
         dream_cron_enabled=True,
         dream_cron="0 23 * * *",
         daily_paper_cron_enabled=True,
@@ -253,13 +262,14 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
     jobs = manager.list_cron_jobs()
 
     assert [job.key for job in jobs] == ["dream", "daily-paper", "auto-fin"]
-    assert jobs[0].callback.__self__ is manager
-    assert jobs[0].callback.__func__ is ReMeLightMemoryManager.dream
+    assert jobs[0].callback.func.__self__ is manager
+    assert jobs[0].callback.func.__func__ is (
+        ReMeLightMemoryManager._run_scheduled_action
+    )
+    assert jobs[0].callback.args == ("auto_dream",)
     assert jobs[0].jitter_seconds == 60
-    assert jobs[1].callback.__self__ is manager
-    assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper
-    assert jobs[2].callback.__self__ is manager
-    assert jobs[2].callback.__func__ is ReMeLightMemoryManager.auto_fin
+    assert jobs[1].callback.args == ("daily_paper",)
+    assert jobs[2].callback.args == ("auto_fin",)
 
 
 @pytest.mark.asyncio
@@ -281,7 +291,7 @@ async def test_automatic_search_works_when_agent_tool_is_hidden() -> None:
     agent_config = SimpleNamespace(
         running=SimpleNamespace(reme_light_memory_config=memory_config),
     )
-    manager.get_memory_config = lambda: memory_config
+    manager._load_memory_config = lambda: memory_config
 
     with patch(
         "qwenpaw.agents.memory.reme_light_memory_manager."

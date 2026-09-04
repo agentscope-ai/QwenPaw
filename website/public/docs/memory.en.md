@@ -418,6 +418,17 @@ Legacy `inbox_push_enabled` is migration input only. It initializes any missing 
 
 The long-term memory page shows background jobs, the waiting queue, resource use, and index-component status.
 
+Conversation capture uses one FIFO Auto-Memory worker per Agent. Periodic
+capture, `/memorize`, context compaction, and `/new` all submit work to this
+same queue; each status record identifies its `periodic`, `manual`, `compact`,
+or `new` trigger. Use `/auto_memory_status` to inspect these tasks from a
+conversation. Shutdown uses one five-second deadline to stop this worker,
+quiesce active ReMe jobs, and close ReMe; it reports failure instead of waiting
+indefinitely or replacing a backend that is still in use. ReMe maintenance
+operations such as status, graph snapshots, reindexing, and embedding rollback
+use the memory-action interface, validate arguments against each action's full
+JSON Schema, and do not enter the Auto-Memory queue.
+
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
 </p>

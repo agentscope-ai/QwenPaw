@@ -2870,11 +2870,17 @@
     "memoryQueueIdleSummary": "空闲 · 无等待任务",
     "memoryAutoRecordDisabledHint": "自动对话记忆已关闭",
     "memoryAutoMemoryEnabledSummary": "自动记忆已开启 · 每 {{interval}} 轮对话触发",
-    "memoryRuntimeActivityDescription": "自动记忆和手动操作触发的记忆沉淀任务会在后台依次处理，不会阻塞当前对话",
+    "memoryRuntimeActivityDescription": "自动和手动触发的自动记忆任务会在后台依次处理，不会阻塞当前对话",
     "memoryLastError": "最近一次错误",
     "memoryNeverRun": "暂无记录",
-    "memoryRecentTasks": "最近的记忆沉淀任务",
-    "memoryRecentTasksEmpty": "最近还没有记忆沉淀任务",
+    "autoMemoryRecentTasks": "最近的自动记忆任务",
+    "autoMemoryRecentTasksEmpty": "最近还没有自动记忆任务",
+    "autoMemoryTrigger": {
+      "periodic": "周期触发",
+      "manual": "手动触发",
+      "compact": "上下文压缩",
+      "new": "新会话"
+    },
     "memoryTaskMessages": "处理 {{count}} 条消息",
     "memoryTaskNoResult": "任务尚未返回内容",
     "memoryTaskStatus": {
@@ -2896,7 +2902,7 @@
       "keyword_index": "关键词索引"
     },
     "memoryStatusDisabled": "已关闭",
-    "memoryJournalTitle": "记忆沉淀",
+    "memoryJournalTitle": "自动记忆",
     "memoryJournalDescription": "从对话和外部知识源中持续提取并沉淀可检索的记忆",
     "memoryConversationJournalTitle": "对话记忆",
     "memoryExternalSourcesDevelopingLabel": "持续开发中",

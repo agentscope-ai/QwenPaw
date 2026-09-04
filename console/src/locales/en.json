@@ -3012,11 +3012,17 @@
     "memoryQueueIdleSummary": "Idle · no pending jobs",
     "memoryAutoRecordDisabledHint": "Automatic conversation memory is off",
     "memoryAutoMemoryEnabledSummary": "Auto-memory enabled · runs every {{interval}} turns",
-    "memoryRuntimeActivityDescription": "Memory capture jobs from automatic and manual actions run sequentially without blocking the current conversation",
+    "memoryRuntimeActivityDescription": "Auto-memory jobs from automatic and manual actions run sequentially without blocking the current conversation",
     "memoryLastError": "Most recent error",
     "memoryNeverRun": "No activity yet",
-    "memoryRecentTasks": "Recent memory capture jobs",
-    "memoryRecentTasksEmpty": "No memory capture jobs yet",
+    "autoMemoryRecentTasks": "Recent auto-memory jobs",
+    "autoMemoryRecentTasksEmpty": "No auto-memory jobs yet",
+    "autoMemoryTrigger": {
+      "periodic": "Periodic",
+      "manual": "Manual",
+      "compact": "Context compact",
+      "new": "New conversation"
+    },
     "memoryTaskMessages": "{{count}} messages processed",
     "memoryTaskNoResult": "The job has not returned content yet",
     "memoryTaskStatus": {
@@ -3038,7 +3044,7 @@
       "keyword_index": "Keyword index"
     },
     "memoryStatusDisabled": "Disabled",
-    "memoryJournalTitle": "Memory capture",
+    "memoryJournalTitle": "Auto-memory",
     "memoryJournalDescription": "Continuously extract searchable memories from conversations and external knowledge sources",
     "memoryConversationJournalTitle": "Conversation memory",
     "memoryExternalSourcesDevelopingLabel": "More coming",
