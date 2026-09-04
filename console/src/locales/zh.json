@@ -4697,7 +4697,7 @@
       "subagentDefault": "{{model}} · 默认：Sub-agent 模型",
       "noSubagent": "与顾问相同 · 默认：未设置 Sub-agent 模型",
       "openAria": "顾问模型",
-      "button": "模型"
+      "pairTooltip": "本对话的顾问 → Worker 模型"
     }
   }
 }

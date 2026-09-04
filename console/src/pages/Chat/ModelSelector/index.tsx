@@ -30,6 +30,10 @@ import { ProviderIcon } from "../../Settings/Models/components/ProviderIconCompo
 import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import { AgentModelSettings } from "./AgentModelSettings";
+import {
+  AdvisorModelsPill,
+  useIsAdvisorConversation,
+} from "./AdvisorModelsPill";
 import { CandidateModelSection } from "./CandidateModelSection";
 import { modelSelectorApi } from "./modelSelectorApi";
 import {
@@ -84,6 +88,7 @@ export default function ModelSelector({
   showAdvancedModelControls = false,
 }: ModelSelectorProps) {
   const { t } = useTranslation();
+  const advisorConversation = useIsAdvisorConversation();
   const [saving, setSaving] = useState(false);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
@@ -1027,6 +1032,11 @@ export default function ModelSelector({
       </div>
     </div>
   );
+
+  // An Advisor conversation runs two models; the pill shows the pair.
+  if (advisorConversation) {
+    return <AdvisorModelsPill />;
+  }
 
   return (
     <>

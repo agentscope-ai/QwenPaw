@@ -4679,7 +4679,7 @@
       "subagentDefault": "{{model}} · default: sub-agent model",
       "noSubagent": "Same as the advisor · default: no sub-agent model set",
       "openAria": "Advisor models",
-      "button": "Models"
+      "pairTooltip": "Advisor → worker models of this conversation"
     }
   }
 }

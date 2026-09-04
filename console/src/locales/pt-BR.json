@@ -4243,7 +4243,7 @@
       "subagentDefault": "{{model}} · padrão: modelo de subagente",
       "noSubagent": "Igual ao conselheiro · padrão: sem modelo de subagente",
       "openAria": "Modelos do conselheiro",
-      "button": "Modelos"
+      "pairTooltip": "Modelos conselheiro → trabalhador desta conversa"
     }
   }
 }

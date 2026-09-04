@@ -2775,7 +2775,7 @@
       "subagentDefault": "{{model}} · mặc định: mô hình sub-agent",
       "noSubagent": "Giống cố vấn · mặc định: chưa đặt mô hình sub-agent",
       "openAria": "Mô hình cố vấn",
-      "button": "Mô hình"
+      "pairTooltip": "Mô hình cố vấn → worker của cuộc trò chuyện này"
     }
   }
 }

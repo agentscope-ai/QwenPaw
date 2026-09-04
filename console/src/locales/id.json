@@ -3564,7 +3564,7 @@
       "subagentDefault": "{{model}} · default: model sub-agen",
       "noSubagent": "Sama dengan penasihat · default: model sub-agen belum diatur",
       "openAria": "Model penasihat",
-      "button": "Model"
+      "pairTooltip": "Model penasihat → pekerja percakapan ini"
     }
   }
 }

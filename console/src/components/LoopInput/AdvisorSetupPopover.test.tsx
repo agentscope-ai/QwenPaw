@@ -116,11 +116,12 @@ describe("AdvisorSetupPopover", () => {
 
   it("does not load providers while closed", () => {
     renderWithProviders(
-      <AdvisorSetupPopover open={false} onOpenChange={() => {}} />,
+      <AdvisorSetupPopover open={false} onOpenChange={() => {}}>
+        <button type="button">anchor</button>
+      </AdvisorSetupPopover>,
     );
-    expect(
-      screen.getByRole("button", { name: "loop.advisorSetup.openAria" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "anchor" })).toBeInTheDocument();
+    expect(screen.queryByTestId("advisor-setup")).toBeNull();
     expect(providerApi.listProviders).not.toHaveBeenCalled();
   });
 });

@@ -288,22 +288,9 @@ describe("advisor setup", () => {
   it("opens the model setup right after Advisor is picked", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LoopModeSelector />);
-    expect(
-      screen.queryByRole("button", { name: "loop.advisorSetup.openAria" }),
-    ).toBeNull();
+    expect(screen.queryByTestId("advisor-setup")).toBeNull();
     await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
     await user.click(await screen.findByRole("option", { name: /Advisor/ }));
     expect(await screen.findByTestId("advisor-setup")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "loop.advisorSetup.openAria" }),
-    ).toBeInTheDocument();
-  });
-
-  it("keeps the models button while an Advisor conversation runs", () => {
-    useLoopStore.getState().setSessionMode(advisor, "running");
-    renderWithProviders(<LoopModeSelector />);
-    expect(
-      screen.getByRole("button", { name: "loop.advisorSetup.openAria" }),
-    ).toBeInTheDocument();
   });
 });
