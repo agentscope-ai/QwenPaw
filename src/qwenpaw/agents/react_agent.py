@@ -161,6 +161,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
+    # Events a middleware wants shown in the chat stream (an injected
+    # advisor plan, for example). ``__init__`` arms the queue only when a
+    # middleware says it emits them. ``_reasoning`` then merges them live
+    # into the events it forwards.
+    _injected_events: asyncio.Queue[Any] | None = None
+
     def __init__(
         self,
         *,
@@ -188,18 +194,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
-        # Events a middleware wants shown in the chat stream (an injected
-        # advisor plan, for example). Armed only when a middleware says it
-        # emits them. ``_reasoning`` then merges them live into the events
-        # it forwards.
-        self._injected_events: asyncio.Queue[Any] | None = (
-            asyncio.Queue()
-            if any(
-                getattr(mw, "emits_injected_exchanges", False)
-                for mw in middlewares
-            )
-            else None
-        )
+        if any(
+            getattr(mw, "emits_injected_exchanges", False)
+            for mw in middlewares
+        ):
+            self._injected_events = asyncio.Queue()
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
         # native AgentScope compression (see compress_context /
@@ -1197,7 +1196,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """The base reasoning stream, with injected exchanges merged in
         when a middleware emits them (otherwise the stream is untouched)."""
         inner = super()._reasoning(tool_choice=tool_choice)
-        queue = getattr(self, "_injected_events", None)
+        queue = self._injected_events
         if queue is None:
             return inner
         return merge_injected_events(inner, queue)
@@ -1209,7 +1208,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         ``_reasoning`` yields, so this queue is the bridge. Returns False
         when no middleware armed the queue (the event is dropped).
         """
-        queue = getattr(self, "_injected_events", None)
+        queue = self._injected_events
         if queue is None:
             return False
         queue.put_nowait(event)
