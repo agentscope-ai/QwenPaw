@@ -14,6 +14,7 @@ from qwenpaw.app.chats.utils import (
     _normalize_msg_timestamp,
     _resolve_content_url,
     agentscope_msg_to_message,
+    build_env_context,
     clean_display_text,
     strip_injected_skill_block,
 )
@@ -506,3 +507,53 @@ def test_clean_title_truncates_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert len(result) <= 80
+
+
+# ---------------------------------------------------------------------------
+# build_env_context / env_context.show_about_line
+# ---------------------------------------------------------------------------
+
+
+def _patch_env_config(show_about_line):
+    cfg = SimpleNamespace(
+        user_timezone="UTC",
+        env_context=SimpleNamespace(show_about_line=show_about_line),
+    )
+    return patch(
+        "qwenpaw.app.chats.utils.load_config",
+        return_value=cfg,
+    )
+
+
+def test_build_env_context_includes_about_line_by_default():
+    with _patch_env_config(True):
+        ctx = build_env_context(active_model_name="qwen-max")
+    assert "You are a personal AI assistant, powered by qwen-max" in ctx
+    assert "- GitHub: https://github.com/agentscope-ai/QwenPaw" in ctx
+    assert "- Docs: https://qwenpaw.agentscope.io/" in ctx
+
+
+def test_build_env_context_omits_framework_attribution_when_disabled():
+    with _patch_env_config(False):
+        ctx = build_env_context(active_model_name="qwen-max")
+    assert "You are a personal AI assistant" not in ctx
+    # The whole framework-attribution group goes with it.
+    assert "- GitHub: https://github.com/agentscope-ai/QwenPaw" not in ctx
+    assert "- Docs: https://qwenpaw.agentscope.io/" not in ctx
+    # Environment facts always stay.
+    assert "- OS:" in ctx
+
+
+def test_build_env_context_keeps_request_fields_when_disabled():
+    with _patch_env_config(False):
+        ctx = build_env_context(
+            session_id="s1",
+            user_id="u1",
+            channel="console",
+            working_dir="/tmp/ws",
+        )
+    assert "- Channel: console" in ctx
+    assert "- User ID: u1" in ctx
+    assert "- Session ID: s1" in ctx
+    assert "- Working directory: /tmp/ws" in ctx
+    assert "You are a personal AI assistant" not in ctx

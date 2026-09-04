@@ -3128,6 +3128,18 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class EnvContextConfig(BaseModel):
+    """Environment context block settings for the system prompt."""
+
+    show_about_line: bool = Field(
+        default=True,
+        description="Whether to include the framework-attribution group "
+        "(the 'About: You are a personal AI assistant ...' line plus the "
+        "GitHub/Docs lines) in the env context. Set to False for agents "
+        "whose persona is fully defined in SOUL.md / PROFILE.md.",
+    )
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -3149,6 +3161,11 @@ class Config(BaseModel):
         ),
     )
     show_tool_details: bool = True
+    env_context: EnvContextConfig = Field(
+        default_factory=EnvContextConfig,
+        description="Settings for the env context block prepended to the "
+        "system prompt.",
+    )
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
