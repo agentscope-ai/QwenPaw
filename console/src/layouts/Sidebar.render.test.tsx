@@ -217,7 +217,11 @@ vi.mock("@agentscope-ai/icons", () => iconStubs);
 
 vi.mock("lucide-react", () => {
   const stub = ({ size }: { size?: number }) =>
-    React.createElement("span", { "data-testid": "lucide-icon" }, size ?? 16);
+    React.createElement(
+      "span",
+      { "aria-hidden": true, "data-testid": "lucide-icon" },
+      size ?? 16,
+    );
   return {
     Check: stub,
     ChevronDown: stub,
@@ -253,7 +257,7 @@ function renderSidebar(
 
 async function openAccountModal() {
   const settingsButtons = await screen.findAllByRole("button", {
-    name: "More settings",
+    name: "Settings",
   });
   fireEvent.click(settingsButtons[settingsButtons.length - 1]);
   fireEvent.click(await screen.findByText("account.title"));
@@ -317,6 +321,21 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
     });
+  });
+
+  it("distinguishes full settings navigation from quick settings", async () => {
+    renderSidebar();
+
+    expect(
+      await screen.findByRole("button", { name: "More settings" }),
+    ).toBeVisible();
+    const quickSettings = screen.getByRole("button", { name: "Settings" });
+    expect(quickSettings).toHaveAttribute("aria-haspopup", "menu");
+    expect(quickSettings).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(quickSettings);
+
+    expect(quickSettings).toHaveAttribute("aria-expanded", "true");
   });
 
   it("handles session clicks by navigating to the resolved session path", async () => {

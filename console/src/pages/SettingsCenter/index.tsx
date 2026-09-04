@@ -27,7 +27,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
@@ -322,8 +322,8 @@ export default function SettingsCenter() {
 
   const activeKey = pageKeyFromPath(location.pathname);
   const allPages = availableGroups.flatMap((group) => group.pages);
-  const activePage =
-    allPages.find((page) => page.key === activeKey) ?? allPages[0];
+  const matchedActivePage = allPages.find((page) => page.key === activeKey);
+  const activePage = matchedActivePage ?? allPages[0];
   const ActiveComponent = activePage?.Component
     ? activePage.Component
     : activePage?.routeId
@@ -359,6 +359,16 @@ export default function SettingsCenter() {
   const returnTo =
     (location.state as { settingsReturnTo?: string } | null)
       ?.settingsReturnTo || "/chat";
+
+  if (!matchedActivePage && activeKey !== "general") {
+    return (
+      <Navigate
+        to="/settings/general"
+        replace
+        state={{ settingsReturnTo: returnTo }}
+      />
+    );
+  }
 
   const openPage = (page: SettingsPageDefinition) => {
     if (page.href) {

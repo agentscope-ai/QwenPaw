@@ -855,7 +855,9 @@ export default function Sidebar({
             type="button"
             className={styles.sidebarUser}
             onClick={() => setSettingsOpen(true)}
-            aria-label={t("nav.moreSettings", "More settings")}
+            aria-label={t("sidebar.quickMenu.settings", "Settings")}
+            aria-haspopup="menu"
+            aria-expanded={settingsOpen}
           >
             <span className={styles.sidebarUserAvatar} aria-hidden>
               {(authUsername || "Q").slice(0, 2).toUpperCase()}
@@ -889,8 +891,10 @@ export default function Sidebar({
         >
           <Button
             type="text"
-            title={t("nav.moreSettings", "More settings")}
-            aria-label={t("nav.moreSettings", "More settings")}
+            title={t("sidebar.quickMenu.settings", "Settings")}
+            aria-label={t("sidebar.quickMenu.settings", "Settings")}
+            aria-haspopup="menu"
+            aria-expanded={settingsOpen}
             icon={<Settings size={18} />}
             className={styles.collapseToggle}
           />

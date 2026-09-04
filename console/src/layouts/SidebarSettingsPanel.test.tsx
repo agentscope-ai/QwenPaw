@@ -74,8 +74,11 @@ describe("SidebarSettingsPanel", () => {
     const appearanceButton = screen.getByRole("button", {
       name: "Appearance",
     });
+    expect(appearanceButton).toHaveAttribute("aria-haspopup", "menu");
+    expect(appearanceButton).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(appearanceButton);
     expect(appearanceButton).toHaveClass("ant-popover-open");
+    expect(appearanceButton).toHaveAttribute("aria-expanded", "true");
     const language = last(await screen.findAllByText("Language"));
     const appearance = within(language.closest(".ant-popover")!);
     expect(appearance.getByText("Language")).toBeInTheDocument();

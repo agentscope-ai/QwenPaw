@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentType } from "react";
 import { useLocation } from "react-router-dom";
@@ -145,6 +145,33 @@ describe("SettingsCenter", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Back to app" }));
 
+    expect(screen.getByTestId("location")).toHaveTextContent("/files");
+  });
+
+  it("redirects an unknown settings page while preserving the return path", async () => {
+    renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      {
+        initialEntries: [
+          {
+            pathname: "/settings/unknown-page",
+            state: { settingsReturnTo: "/files" },
+          },
+        ],
+      },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/settings/general",
+      );
+    });
+    expect(screen.getByRole("heading", { name: "General" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to app" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/files");
   });
 

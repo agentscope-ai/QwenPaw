@@ -132,7 +132,12 @@ function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
       mouseEnterDelay={0.06}
       mouseLeaveDelay={0.18}
     >
-      <button type="button" className={styles.menuItem}>
+      <button
+        type="button"
+        className={styles.menuItem}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
         {icon}
         <span>{label}</span>
         <ChevronRight className={styles.chevron} size={15} />
