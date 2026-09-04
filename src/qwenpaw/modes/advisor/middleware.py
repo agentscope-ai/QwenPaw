@@ -133,6 +133,10 @@ _LISTING_SKIP_DIRS = frozenset(
 # Tools irrelevant for task planning — excluded from the advisor's view.
 _EXCLUDED_TOOLS = frozenset(
     {
+        # The advisor's own entry point: listing it made the advisor open
+        # every plan with "first, call consult_advisor".
+        PLAN_TOOL_NAME,
+        FOLLOWUP_TOOL_NAME,
         "list_agents",
         "chat_with_agent",
         "submit_to_agent",
