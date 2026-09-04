@@ -4242,8 +4242,6 @@
       "mainModelDefault": "{{model}} · padrão: modelo principal",
       "subagentDefault": "{{model}} · padrão: modelo de subagente",
       "noSubagent": "Igual ao conselheiro · padrão: sem modelo de subagente",
-      "sameAsAdvisor": "igual ao conselheiro",
-      "summary": "Em vigor — conselheiro: {{advisor}} · trabalhador: {{worker}}",
       "openAria": "Modelos do conselheiro",
       "button": "Modelos"
     }

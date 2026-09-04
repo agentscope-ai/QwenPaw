@@ -96,7 +96,6 @@ describe("AdvisorSetupPopover", () => {
       ),
     );
     expect(setup).toHaveTextContent("loop.advisorSetup.noSubagent");
-    expect(setup).toHaveTextContent("loop.advisorSetup.summary");
   });
 
   it("saves a worker model for the agent", async () => {

@@ -4678,8 +4678,6 @@
       "mainModelDefault": "{{model}} · default: main model",
       "subagentDefault": "{{model}} · default: sub-agent model",
       "noSubagent": "Same as the advisor · default: no sub-agent model set",
-      "sameAsAdvisor": "same as the advisor",
-      "summary": "In effect — advisor: {{advisor}} · worker: {{worker}}",
       "openAria": "Advisor models",
       "button": "Models"
     }

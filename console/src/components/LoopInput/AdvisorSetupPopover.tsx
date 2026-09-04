@@ -164,14 +164,6 @@ export function AdvisorSetupPopover({
           onChange={(value: string) => void save("worker_model", value)}
         />
       </label>
-      <div className={styles.advisorSummary}>
-        {t("loop.advisorSetup.summary", {
-          advisor: slotLabel(state.advisor_model) || "-",
-          worker:
-            slotLabel(state.worker_model) ||
-            t("loop.advisorSetup.sameAsAdvisor"),
-        })}
-      </div>
     </div>
   );
 

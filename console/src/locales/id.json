@@ -3563,8 +3563,6 @@
       "mainModelDefault": "{{model}} · default: model utama",
       "subagentDefault": "{{model}} · default: model sub-agen",
       "noSubagent": "Sama dengan penasihat · default: model sub-agen belum diatur",
-      "sameAsAdvisor": "sama dengan penasihat",
-      "summary": "Berlaku — penasihat: {{advisor}} · pekerja: {{worker}}",
       "openAria": "Model penasihat",
       "button": "Model"
     }
