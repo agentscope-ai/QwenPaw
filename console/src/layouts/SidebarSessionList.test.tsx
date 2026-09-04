@@ -74,14 +74,11 @@ vi.mock("../components/SessionGroupDnd", () => ({
   ),
 }));
 
-vi.mock(
-  "../pages/Chat/components/ChatSessionDrawer/useSessionListData",
-  () => ({
-    useSessionListData: (...args: unknown[]) => mockSessionListData(...args),
-    getBackendId: (s: { realId?: string; id?: string }) =>
-      s?.realId ?? s?.id ?? null,
-  }),
-);
+vi.mock("./useSidebarSessionListData", () => ({
+  useSessionListData: (...args: unknown[]) => mockSessionListData(...args),
+  getBackendId: (s: { realId?: string; id?: string }) =>
+    s?.realId ?? s?.id ?? null,
+}));
 
 vi.mock("../hooks/useChatGroups", () => ({
   useChatGroups: () => mockChatGroups(),
@@ -305,11 +302,7 @@ describe("SidebarSessionList", () => {
     const onNewChat = vi.fn();
     mockData([]);
     renderWithProviders(<SidebarSessionList onNewChat={onNewChat} />);
-    const btn = screen
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes("chat.newChatTooltip"));
-    expect(btn).toBeTruthy();
-    fireEvent.click(btn!);
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
     expect(onNewChat).toHaveBeenCalled();
   });
 
@@ -321,10 +314,7 @@ describe("SidebarSessionList", () => {
     window.addEventListener("qwenpaw:sidebar-new-chat", listener);
     mockData([]);
     renderWithProviders(<SidebarSessionList />);
-    const btn = screen
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes("chat.newChatTooltip"));
-    fireEvent.click(btn!);
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
     expect(fired).toBe(true);
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
   });
@@ -354,6 +344,8 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByText("Search conversations"));
     const search = screen.getByPlaceholderText("Search…");
     fireEvent.change(search, { target: { value: "beta" } });
     await waitFor(() => {
@@ -382,11 +374,8 @@ describe("SidebarSessionList", () => {
       reorderGroups: vi.fn(),
     });
     renderWithProviders(<SidebarSessionList />);
-    const newGroupBtn = screen
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes("New group"));
-    expect(newGroupBtn).toBeTruthy();
-    fireEvent.click(newGroupBtn!);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByText("New group"));
     const input = screen.getByPlaceholderText("Group name");
     fireEvent.change(input, { target: { value: "My Group" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });

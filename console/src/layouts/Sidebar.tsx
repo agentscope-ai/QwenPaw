@@ -31,7 +31,7 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
 import { getOsRootHref } from "../utils/navigationMode";
 import { useAgentStore } from "../stores/agentStore";
@@ -111,9 +111,7 @@ export default function Sidebar({
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
-  // The legacy store name is retained for persisted-data compatibility. The
-  // user-facing UI now exposes one sidebar with configurable visibility.
-  const { focusItemIds, hiddenPluginItemIds } = useSidebarModeStore();
+  const { focusItemIds, hiddenPluginItemIds } = useSidebarStore();
   const { selectedAgent, agents, setSelectedAgent, refreshAgents } =
     useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
@@ -181,10 +179,10 @@ export default function Sidebar({
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
   }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
-  const simpleInboxEntry = selectedFlatNav.find(
+  const inboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
-  const simpleMarketplaceEntry = selectedFlatNav.find(
+  const marketplaceEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.marketplace",
   );
   const visibleSidebarNav = useMemo(
@@ -299,7 +297,7 @@ export default function Sidebar({
   // but the Zustand store may still be empty (ChatSessionInitializer may not
   // have synced yet).  Proactively fetch sessions into the store so the data
   // is ready the moment the user expands.  Fire on mount regardless of
-  // sidebar mode (the default "full" mode also benefits from this).
+  // sidebar is expanded.
   // Uses sessionApi.getSessionList() instead of raw api.listChats() to ensure
   // the same data processing pipeline (dedup, realId, generating state) as
   // the shared conversation-history list.
@@ -567,15 +565,15 @@ export default function Sidebar({
     );
   };
 
-  const renderSimpleNavItem = (entry: FlatMenuEntry) => {
+  const renderNavItem = (entry: FlatMenuEntry) => {
     const isActive = selectedKey === entry.key;
     return (
       <button
         key={entry.key}
         type="button"
         aria-current={isActive ? "page" : undefined}
-        className={`${styles.simpleNavItem} ${
-          isActive ? styles.simpleNavItemActive : ""
+        className={`${styles.navigationItem} ${
+          isActive ? styles.navigationItemActive : ""
         }`}
         onClick={() => {
           if (entry.href) {
@@ -600,7 +598,7 @@ export default function Sidebar({
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}${
-        !collapsed ? ` ${styles.siderSimple}` : ""
+        !collapsed ? ` ${styles.siderExpanded}` : ""
       }`}
     >
       {!collapsed && (
@@ -759,7 +757,7 @@ export default function Sidebar({
         <>
           {/* Unified sidebar: selected shortcuts and sessions. */}
           <div
-            className={`${styles.agentScopedSection} ${styles.simpleAgentPanel}`}
+            className={`${styles.agentScopedSection} ${styles.expandedAgentPanel}`}
           >
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
@@ -767,7 +765,7 @@ export default function Sidebar({
             <Slot name="sider.top" kind="fill" />
             <button
               type="button"
-              className={styles.simpleNewTask}
+              className={styles.newTask}
               onClick={handleNewChat}
             >
               <SparkNewChatLine size={18} />
@@ -775,53 +773,50 @@ export default function Sidebar({
             </button>
             <div
               ref={navScrollRef}
-              className={`${styles.simpleNavItems} ${styles.simpleNavScroll}`}
+              className={`${styles.navigationItems} ${styles.navigationScroll}`}
             >
-              {simpleInboxEntry && (
+              {inboxEntry && (
                 <button
                   type="button"
                   aria-current={
-                    selectedKey === simpleInboxEntry.key ? "page" : undefined
+                    selectedKey === inboxEntry.key ? "page" : undefined
                   }
-                  className={`${styles.simpleNavItem} ${
-                    styles.simpleInboxItem
-                  } ${
-                    selectedKey === simpleInboxEntry.key
-                      ? styles.simpleNavItemActive
+                  className={`${styles.navigationItem} ${styles.inboxItem} ${
+                    selectedKey === inboxEntry.key
+                      ? styles.navigationItemActive
                       : ""
                   }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
                   onMouseEnter={handleInboxHover}
                   onClick={() => {
-                    if (simpleInboxEntry.href) {
+                    if (inboxEntry.href) {
                       window.open(
-                        simpleInboxEntry.href,
+                        inboxEntry.href,
                         "_blank",
                         "noopener,noreferrer",
                       );
                     } else {
-                      navigate(simpleInboxEntry.path);
+                      navigate(inboxEntry.path);
                     }
                   }}
                 >
-                  <span className={styles.simpleInboxIcon}>
-                    {simpleInboxEntry.icon ?? <SparkEmailLine size={16} />}
+                  <span className={styles.inboxIcon}>
+                    {inboxEntry.icon ?? <SparkEmailLine size={16} />}
                     {hasInboxUnread && (
                       <span
-                        className={styles.simpleInboxUnreadDot}
+                        className={styles.inboxUnreadDot}
                         style={{ background: inboxDotColor }}
                       />
                     )}
                   </span>
-                  <span>{simpleInboxEntry.label}</span>
+                  <span>{inboxEntry.label}</span>
                 </button>
               )}
-              {simpleMarketplaceEntry &&
-                renderSimpleNavItem(simpleMarketplaceEntry)}
-              {visibleSidebarNav.map(renderSimpleNavItem)}
+              {marketplaceEntry && renderNavItem(marketplaceEntry)}
+              {visibleSidebarNav.map(renderNavItem)}
             </div>
             <button
               type="button"
-              className={styles.simpleMoreSettings}
+              className={styles.moreSettings}
               onClick={handleOpenSettings}
             >
               <Settings size={16} />
@@ -830,7 +825,7 @@ export default function Sidebar({
           </div>
 
           {/* Session list — fills the primary space. */}
-          <div className={styles.simpleSessionArea}>
+          <div className={styles.sessionArea}>
             <SidebarSessionList
               onNewChat={handleNewChat}
               onSessionClick={handleSidebarSessionClick}

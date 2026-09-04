@@ -14,7 +14,10 @@ import { useLocation } from "react-router-dom";
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
-  sidebarMode: { mode: "full" as "full" | "simple" },
+  sidebar: {
+    focusItemIds: ["core.workspace", "core.models"] as string[],
+    hiddenPluginItemIds: [] as string[],
+  },
   menuItems: [] as unknown[],
   routes: [] as unknown[],
   authStatus: { enabled: false, mode: "normal" },
@@ -37,8 +40,8 @@ vi.mock("../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
 }));
 
-vi.mock("../stores/sidebarModeStore", () => ({
-  useSidebarModeStore: () => mocks.sidebarMode,
+vi.mock("../stores/sidebarStore", () => ({
+  useSidebarStore: () => mocks.sidebar,
 }));
 
 vi.mock("../stores/agentStore", () => ({
@@ -86,6 +89,7 @@ vi.mock("../hooks/useAppMessage", () => ({
 
 vi.mock("../api", () => ({
   default: {
+    getVersion: () => Promise.resolve({ version: "2.2.0b3" }),
     getInboxEvents: () => Promise.resolve({ events: mocks.inboxEvents }),
     getPushMessages: () => Promise.resolve(mocks.pushMessages),
     getUserTimezone: () => Promise.resolve({ timezone: "UTC" }),
@@ -99,6 +103,7 @@ vi.mock("../api/config", () => ({
 vi.mock("../api/modules/auth", () => ({
   authApi: {
     getStatus: () => Promise.resolve(mocks.authStatus),
+    getCurrentUser: () => Promise.resolve({ username: "testuser" }),
     updateProfile: (...args: unknown[]) => mocks.updateProfile(...args),
   },
 }));
@@ -126,6 +131,12 @@ vi.mock("../components/AgentSelector", () => ({
   default: () => <div data-testid="agent-selector" />,
 }));
 
+vi.mock("./AppBrand", () => ({
+  default: ({ action }: { action?: React.ReactNode }) => (
+    <div data-testid="app-brand">{action}</div>
+  ),
+}));
+
 vi.mock("./SidebarSessionList", () => ({
   default: ({
     onNewChat,
@@ -146,7 +157,11 @@ vi.mock("./SidebarSessionList", () => ({
 }));
 
 vi.mock("./SidebarSettingsPanel", () => ({
-  default: () => <div data-testid="settings-panel" />,
+  default: ({ onOpenAccount }: { onOpenAccount?: () => void }) => (
+    <div data-testid="settings-panel">
+      <button onClick={onOpenAccount}>account.title</button>
+    </div>
+  ),
 }));
 
 vi.mock("motion/react", () => ({
@@ -186,6 +201,10 @@ const iconStubs = vi.hoisted(() => {
     SparkMenuFoldLine: make("fold"),
     SparkEmailLine: make("email"),
     SparkSettingLine: make("setting"),
+    SparkAgentLine: make("agent"),
+    SparkNewChatLine: make("new-chat"),
+    SparkOperateLeftLine: make("operate-left"),
+    SparkOperateRightLine: make("operate-right"),
   };
 });
 
@@ -196,8 +215,10 @@ vi.mock("lucide-react", () => {
     React.createElement("span", { "data-testid": "lucide-icon" }, size ?? 16);
   return {
     ChevronDown: stub,
+    History: stub,
     MessageSquareText: stub,
     RotateCw: stub,
+    Settings: stub,
     ShieldCheck: stub,
   };
 });
@@ -224,6 +245,14 @@ function renderSidebar(
   );
 }
 
+async function openAccountModal() {
+  const settingsButtons = await screen.findAllByRole("button", {
+    name: "More settings",
+  });
+  fireEvent.click(settingsButtons[settingsButtons.length - 1]);
+  fireEvent.click(await screen.findByText("account.title"));
+}
+
 const inboxItem = {
   id: "core.inbox",
   location: "primary.agentScoped",
@@ -245,13 +274,12 @@ const modelsItem = {
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    mocks.sidebarMode = { mode: "full" };
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
     mocks.routes = [
-      { route: "core.workspace", path: "/workspace" },
-      { route: "core.inbox", path: "/inbox" },
-      { route: "core.models", path: "/models" },
-      { route: "core.chat", path: "/chat" },
+      { id: "core.workspace", path: "/workspace" },
+      { id: "core.inbox", path: "/inbox" },
+      { id: "core.models", path: "/models" },
+      { id: "core.chat", path: "/chat" },
     ];
     mocks.authStatus = { enabled: false, mode: "normal" };
     mocks.inboxEvents = [];
@@ -267,8 +295,7 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("agent-selector")).toBeTruthy();
     });
-    // Full mode does not embed the session list panel
-    expect(screen.queryByTestId("session-list")).toBeNull();
+    expect(screen.getByTestId("session-list")).toBeTruthy();
     // Menu labels resolve from the mocked menu registry
     expect(screen.getByText("Workspace")).toBeTruthy();
     expect(screen.getByText("Models")).toBeTruthy();
@@ -276,19 +303,13 @@ describe("Sidebar", () => {
 
   it("navigates to the chat path from the sticky chat button", async () => {
     renderSidebar();
-    const chatBtn = screen
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes("nav.chat"));
-    expect(chatBtn).toBeTruthy();
-    fireEvent.click(chatBtn!);
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
     });
   });
 
   it("handles session clicks by navigating to the resolved session path", async () => {
-    // Simple mode mounts the (mocked) session list
-    mocks.sidebarMode = { mode: "simple" };
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
@@ -300,7 +321,6 @@ describe("Sidebar", () => {
   });
 
   it("dispatches the new-chat flow from the session list", async () => {
-    mocks.sidebarMode = { mode: "simple" };
     renderSidebar();
     const btns = screen.getAllByTestId("sl-new-chat");
     // Route starts with /chat → dispatches the DOM event
@@ -319,22 +339,18 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
     });
-    // Last button is the collapse toggle (fold icon)
-    const toggles = screen.getAllByRole("button");
-    fireEvent.click(toggles[toggles.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     await waitFor(() => {
       // Collapsed nav has no menu labels, only tooltips/buttons
       expect(screen.queryByText("Workspace")).toBeNull();
     });
-    const collapsedToggles = screen.getAllByRole("button");
-    fireEvent.click(collapsedToggles[collapsedToggles.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
     });
   });
 
-  it("simple mode shows the simple panel with the session list", async () => {
-    mocks.sidebarMode = { mode: "simple" };
+  it("shows the unified panel with the session list", async () => {
     renderSidebar();
     await waitFor(() => {
       expect(screen.getAllByTestId("session-list").length).toBeGreaterThan(0);
@@ -344,8 +360,7 @@ describe("Sidebar", () => {
   it("opens the account modal when auth is enabled and warns on empty update", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // Modal form renders; submit with only the current password filled
     const inputs = document.querySelectorAll("input");
     // currentPassword is the first input
@@ -360,8 +375,7 @@ describe("Sidebar", () => {
   it("flags a whitespace-only new password", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     const inputs = document.querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[2], { target: { value: "   " } });
@@ -376,8 +390,7 @@ describe("Sidebar", () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     mocks.updateProfile.mockRejectedValue(new Error("password is incorrect"));
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     const inputs = document.querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[1], { target: { value: "new-user" } });
@@ -394,11 +407,10 @@ describe("Sidebar", () => {
   it("requires a password in hub mode", async () => {
     mocks.authStatus = { enabled: true, mode: "hub" };
     renderSidebar({ hubMode: true });
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // Hub mode shows the username identity
     await waitFor(() => {
-      expect(screen.getByText("hubuser")).toBeTruthy();
+      expect(screen.getAllByText("hubuser").length).toBeGreaterThan(0);
     });
     // Submit with an empty password → passwordRequired warning, no call
     fireEvent.click(screen.getByText("account.save"));
@@ -411,8 +423,7 @@ describe("Sidebar", () => {
     mocks.authStatus = { enabled: true, mode: "hub" };
     mocks.restartRuntime.mockRejectedValue(new Error("restart refused"));
     renderSidebar({ hubMode: true });
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // The restart confirm lives behind a Popconfirm; invoking the handler
     // directly via the rendered button is flaky with antd Popconfirm in
     // jsdom, so assert the modal content is present instead.

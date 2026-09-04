@@ -2,7 +2,7 @@ import { Button, Checkbox } from "antd";
 import type { ReactNode } from "react";
 
 import type { FlatMenuEntry } from "@/layouts/registry/adapter";
-import { useSidebarModeStore } from "@/stores/sidebarModeStore";
+import { useSidebarStore } from "@/stores/sidebarStore";
 import styles from "./index.module.less";
 
 interface SidebarEntrySectionProps {
@@ -24,7 +24,7 @@ export default function SidebarEntrySection({
     setSidebarItemVisible,
     setSidebarItemsVisible,
     invertSidebarItems,
-  } = useSidebarModeStore();
+  } = useSidebarStore();
   const itemIds = entries.map((entry) => entry.key);
   const isItemVisible = (itemId: string) =>
     itemId.startsWith("core.")

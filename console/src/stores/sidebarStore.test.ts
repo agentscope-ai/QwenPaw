@@ -1,19 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  DEFAULT_FOCUS_ITEM_IDS,
-  useSidebarModeStore,
-} from "./sidebarModeStore";
+import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "./sidebarStore";
 
 const FOCUS_ITEMS_STORAGE_KEY = "qwenpaw_sidebar_focus_items_v1";
 const HIDDEN_PLUGIN_ITEMS_STORAGE_KEY =
   "qwenpaw_sidebar_hidden_plugin_items_v1";
 
-describe("sidebarModeStore", () => {
+describe("sidebarStore", () => {
   beforeEach(() => {
     localStorage.removeItem(FOCUS_ITEMS_STORAGE_KEY);
     localStorage.removeItem(HIDDEN_PLUGIN_ITEMS_STORAGE_KEY);
-    useSidebarModeStore.setState({
+    useSidebarStore.setState({
       focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
       hiddenPluginItemIds: [],
     });
@@ -29,7 +26,7 @@ describe("sidebarModeStore", () => {
   });
 
   it("persists preferences without fixed sidebar entries", () => {
-    useSidebarModeStore
+    useSidebarStore
       .getState()
       .setFocusItemIds([
         "core.files",
@@ -38,7 +35,7 @@ describe("sidebarModeStore", () => {
         "plugin.example",
       ]);
 
-    expect(useSidebarModeStore.getState().focusItemIds).toEqual([
+    expect(useSidebarStore.getState().focusItemIds).toEqual([
       "core.files",
       "plugin.example",
     ]);
@@ -48,65 +45,59 @@ describe("sidebarModeStore", () => {
   });
 
   it("restores the default sidebar items", () => {
-    useSidebarModeStore
-      .getState()
-      .setSidebarItemVisible("plugin.example", false);
-    useSidebarModeStore.getState().setFocusItemIds([]);
-    useSidebarModeStore.getState().resetFocusItemIds();
+    useSidebarStore.getState().setSidebarItemVisible("plugin.example", false);
+    useSidebarStore.getState().setFocusItemIds([]);
+    useSidebarStore.getState().resetFocusItemIds();
 
-    expect(useSidebarModeStore.getState().focusItemIds).toEqual(
+    expect(useSidebarStore.getState().focusItemIds).toEqual(
       DEFAULT_FOCUS_ITEM_IDS,
     );
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
   it("keeps plugins visible by default and persists an explicit hide", () => {
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
 
-    useSidebarModeStore
-      .getState()
-      .setSidebarItemVisible("plugin.example", false);
+    useSidebarStore.getState().setSidebarItemVisible("plugin.example", false);
 
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([
       "plugin.example",
     ]);
     expect(
       JSON.parse(localStorage.getItem(HIDDEN_PLUGIN_ITEMS_STORAGE_KEY) || "[]"),
     ).toEqual(["plugin.example"]);
 
-    useSidebarModeStore
-      .getState()
-      .setSidebarItemVisible("plugin.example", true);
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
+    useSidebarStore.getState().setSidebarItemVisible("plugin.example", true);
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
   it("selects all built-in and plugin shortcuts in one update", () => {
-    useSidebarModeStore.setState({
+    useSidebarStore.setState({
       focusItemIds: ["core.files"],
       hiddenPluginItemIds: ["plugin.example"],
     });
 
-    useSidebarModeStore
+    useSidebarStore
       .getState()
       .setSidebarItemsVisible(
         ["core.inbox", "core.security", "plugin.example"],
         true,
       );
 
-    expect(useSidebarModeStore.getState().focusItemIds).toEqual([
+    expect(useSidebarStore.getState().focusItemIds).toEqual([
       "core.files",
       "core.security",
     ]);
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([]);
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([]);
   });
 
   it("inverts shortcuts while ignoring fixed sidebar entries", () => {
-    useSidebarModeStore.setState({
+    useSidebarStore.setState({
       focusItemIds: ["core.files", "core.security"],
       hiddenPluginItemIds: ["plugin.hidden"],
     });
 
-    useSidebarModeStore
+    useSidebarStore
       .getState()
       .invertSidebarItems([
         "core.inbox",
@@ -117,11 +108,11 @@ describe("sidebarModeStore", () => {
         "plugin.hidden",
       ]);
 
-    expect(useSidebarModeStore.getState().focusItemIds).toEqual([
+    expect(useSidebarStore.getState().focusItemIds).toEqual([
       "core.files",
       "core.debug",
     ]);
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toEqual([
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toEqual([
       "plugin.visible",
     ]);
   });

@@ -109,7 +109,7 @@ function updateSidebarItemsVisibility(
   return next;
 }
 
-export const useSidebarModeStore = create<SidebarStoreState>((set) => ({
+export const useSidebarStore = create<SidebarStoreState>((set) => ({
   focusItemIds: loadFocusItemIds(),
   hiddenPluginItemIds: loadHiddenPluginItemIds(),
 

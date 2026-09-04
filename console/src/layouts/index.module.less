@@ -128,14 +128,14 @@
     border-radius: 12px 12px 0 0;
   }
 
-  &.siderSimple {
+  &.siderExpanded {
     display: flex;
     flex-direction: column;
     overflow: hidden;
 
-    // In simple mode the children wrapper must itself be a flex column so that
-    // agentScopedSection / sessionList / collapseToggleContainer become flex
-    // items and only the sessionList scrolls.
+    // The children wrapper must itself be a flex column so that
+    // agentScopedSection / sessionArea / collapseToggleContainer become flex
+    // items and only the session area scrolls.
     :global {
       .qwenpaw-layout-sider-children {
         flex: 1;
@@ -728,9 +728,9 @@
   background: rgba(255, 127, 22, 0.1);
 }
 
-// ─── Simple mode: flat nav + session list ─────────────────────────────────────
+// ─── Expanded sidebar: flat nav + session list ────────────────────────────────
 
-.simpleAgentPanel {
+.expandedAgentPanel {
   flex-shrink: 0;
 
   .agentSelectorContainer {
@@ -743,7 +743,7 @@
   }
 }
 
-.simpleNavScroll {
+.navigationScroll {
   max-height: min(198px, 30vh);
   overflow-x: hidden;
   overflow-y: auto;
@@ -761,12 +761,12 @@
     background: rgba(43, 18, 0, 0.18);
   }
 
-  > .simpleNavItem {
+  > .navigationItem {
     flex: 0 0 36px;
   }
 }
 
-.simpleMoreSettings {
+.moreSettings {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -790,24 +790,24 @@
   }
 }
 
-.simpleSessionArea {
+.sessionArea {
   display: flex;
   flex: 1;
   min-height: 0;
   margin-top: 10px;
 }
 
-.simpleInboxItem {
+.inboxItem {
   margin-bottom: 1px;
 }
 
-.simpleInboxIcon {
+.inboxIcon {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
 }
 
-.simpleInboxUnreadDot {
+.inboxUnreadDot {
   position: absolute;
   top: -1px;
   right: -3px;
@@ -816,7 +816,7 @@
   border-radius: 50%;
 }
 
-.simpleNewTask {
+.newTask {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -838,14 +838,14 @@
   }
 }
 
-.simpleNavItems {
+.navigationItems {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding-top: 4px;
 }
 
-.simpleNavItem {
+.navigationItem {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -869,7 +869,7 @@
   }
 }
 
-.simpleNavItemActive {
+.navigationItemActive {
   background: rgba(43, 18, 0, 0.08);
   color: rgba(0, 0, 0, 0.88);
 }
@@ -1298,11 +1298,11 @@
   }
 }
 
-// ─── Simple mode dark overrides ───────────────────────────────────────────────
+// ─── Expanded sidebar dark overrides ──────────────────────────────────────────
 
-.siderSimple {
+.siderExpanded {
   :global(.dark-mode) & {
-    .simpleNavScroll {
+    .navigationScroll {
       scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 
       &::-webkit-scrollbar-thumb {
@@ -1310,7 +1310,7 @@
       }
     }
 
-    .simpleNewTask {
+    .newTask {
       background: rgba(255, 127, 22, 0.12);
       color: #ff7f16;
 
@@ -1319,7 +1319,7 @@
       }
     }
 
-    .simpleMoreSettings {
+    .moreSettings {
       border-top-color: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.52);
 
@@ -1329,7 +1329,7 @@
       }
     }
 
-    .simpleNavItem {
+    .navigationItem {
       color: rgba(255, 255, 255, 0.75);
 
       &:hover {
@@ -1338,7 +1338,7 @@
       }
     }
 
-    .simpleNavItemActive {
+    .navigationItemActive {
       background: rgba(255, 127, 22, 0.5);
       color: #ff7f16;
     }

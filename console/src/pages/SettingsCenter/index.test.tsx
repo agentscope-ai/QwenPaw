@@ -7,10 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import type { MenuItem } from "@/plugins/registry/types";
-import {
-  DEFAULT_FOCUS_ITEM_IDS,
-  useSidebarModeStore,
-} from "@/stores/sidebarModeStore";
+import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
 
 const registry = vi.hoisted(() => ({
   routes: [] as Array<{
@@ -49,7 +46,7 @@ describe("SettingsCenter", () => {
     localStorage.removeItem("qwenpaw_assistant_message_display_mode");
     localStorage.removeItem("qwenpaw_show_thinking");
     localStorage.removeItem("qwenpaw-theme");
-    useSidebarModeStore.setState({
+    useSidebarStore.setState({
       focusItemIds: DEFAULT_FOCUS_ITEM_IDS,
       hiddenPluginItemIds: [],
     });
@@ -307,10 +304,8 @@ describe("SettingsCenter", () => {
     expect(
       screen.getByRole("checkbox", { name: "Cron Jobs" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Marketplace" })).toBeChecked();
-    expect(
-      screen.getByRole("checkbox", { name: "Marketplace" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Extension" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Extension" })).toBeDisabled();
   });
 
   it("moves resource management pages into Global settings", () => {
@@ -428,7 +423,7 @@ describe("SettingsCenter", () => {
     await userEvent.click(checkbox);
 
     expect(checkbox).not.toBeChecked();
-    expect(useSidebarModeStore.getState().hiddenPluginItemIds).toContain(
+    expect(useSidebarStore.getState().hiddenPluginItemIds).toContain(
       "example.settings.menu",
     );
     expect(screen.getAllByText("Example extension").length).toBeGreaterThan(0);
@@ -464,9 +459,7 @@ describe("SettingsCenter", () => {
     await userEvent.click(checkbox);
 
     expect(checkbox).toBeChecked();
-    expect(useSidebarModeStore.getState().focusItemIds).toContain(
-      "core.security",
-    );
+    expect(useSidebarStore.getState().focusItemIds).toContain("core.security");
   });
 
   it("controls built-in and plugin shortcuts independently by section", async () => {

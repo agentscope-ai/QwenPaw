@@ -61,7 +61,7 @@ describe("Sidebar overflow layout", () => {
   });
 
   it("bounds non-chat shortcuts to roughly five rows", () => {
-    const ruleStart = stylesSource.indexOf(".simpleNavScroll {");
+    const ruleStart = stylesSource.indexOf(".navigationScroll {");
     const rule = stylesSource.slice(
       ruleStart,
       stylesSource.indexOf("\n}", ruleStart) + 2,
@@ -71,15 +71,15 @@ describe("Sidebar overflow layout", () => {
     expect(rule).toContain("max-height: min(198px, 30vh);");
     expect(rule).toContain("overflow-y: auto;");
     expect(rule).toContain("overscroll-behavior: contain;");
-    expect(rule).toContain("> .simpleNavItem {");
+    expect(rule).toContain("> .navigationItem {");
     expect(rule).toContain("flex: 0 0 36px;");
   });
 
   it("keeps a visible thin scrollbar as an overflow affordance", () => {
-    const ruleStart = stylesSource.indexOf(".simpleNavScroll {");
+    const ruleStart = stylesSource.indexOf(".navigationScroll {");
     const rule = stylesSource.slice(
       ruleStart,
-      stylesSource.indexOf(".simpleInboxItem {", ruleStart),
+      stylesSource.indexOf(".inboxItem {", ruleStart),
     );
 
     expect(rule).toContain("scrollbar-width: thin;");
@@ -89,7 +89,6 @@ describe("Sidebar overflow layout", () => {
   });
 
   it("does not retain the old disclosure control", () => {
-    expect(stylesSource).not.toContain(".simpleAgentDisclosure");
     expect(sidebarSource).not.toContain("sidebar.expandShortcuts");
     expect(sidebarSource).not.toContain("sidebar.collapseShortcuts");
   });
@@ -102,19 +101,14 @@ describe("Sidebar overflow layout", () => {
     );
 
     expect(scrollStart).toBeGreaterThanOrEqual(0);
-    expect(scrollRegion).toContain("simpleInboxEntry &&");
-    expect(scrollRegion).toContain(
-      "visibleSidebarNav.map(renderSimpleNavItem)",
-    );
+    expect(scrollRegion).toContain("inboxEntry &&");
+    expect(scrollRegion).toContain("visibleSidebarNav.map(renderNavItem)");
   });
 
   it("pins the expanded new-task button directly above inbox shortcuts", () => {
-    const taskStart = sidebarSource.indexOf("className={styles.simpleNewTask}");
+    const taskStart = sidebarSource.indexOf("className={styles.newTask}");
     const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const inboxStart = sidebarSource.indexOf(
-      "simpleInboxEntry &&",
-      scrollStart,
-    );
+    const inboxStart = sidebarSource.indexOf("inboxEntry &&", scrollStart);
 
     expect(taskStart).toBeGreaterThanOrEqual(0);
     expect(taskStart).toBeLessThan(scrollStart);
@@ -122,13 +116,13 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource.slice(taskStart, scrollStart)).toContain(
       't("chat.newTask", "New task")',
     );
-    expect(stylesSource).toContain(".simpleNewTask");
+    expect(stylesSource).toContain(".newTask");
   });
 
   it("pins more settings below shortcuts and preserves the return path", () => {
     const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
     const moreSettingsStart = sidebarSource.indexOf(
-      "className={styles.simpleMoreSettings}",
+      "className={styles.moreSettings}",
     );
     const sessionsStart = sidebarSource.indexOf("{/* Session list");
 
@@ -138,11 +132,11 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource).toContain('t("nav.moreSettings", "More settings")');
     expect(sidebarSource).toContain('navigate("/settings/general"');
     expect(sidebarSource).toContain("settingsReturnTo:");
-    expect(stylesSource).toContain(".simpleMoreSettings");
+    expect(stylesSource).toContain(".moreSettings");
   });
 
   it("separates conversation history from the shortcut panel", () => {
-    const historyAreaStart = stylesSource.indexOf(".simpleSessionArea {");
+    const historyAreaStart = stylesSource.indexOf(".sessionArea {");
     const historyAreaRule = stylesSource.slice(
       historyAreaStart,
       stylesSource.indexOf("\n}", historyAreaStart) + 2,
@@ -150,7 +144,7 @@ describe("Sidebar overflow layout", () => {
 
     expect(historyAreaStart).toBeGreaterThanOrEqual(0);
     expect(historyAreaRule).toContain("margin-top: 10px;");
-    expect(sidebarSource).toContain("className={styles.simpleSessionArea}");
+    expect(sidebarSource).toContain("className={styles.sessionArea}");
   });
 
   it("retains the bottom settings icon in expanded and collapsed modes", () => {
@@ -211,8 +205,6 @@ describe("Sidebar overflow layout", () => {
 
   it("removes the standalone chat navigation entry", () => {
     expect(sidebarSource).not.toContain('t("nav.chat")');
-    expect(stylesSource).not.toContain(".simpleChatItem");
-    expect(stylesSource).not.toContain(".simpleNewChat");
   });
 
   it("uses a recent-style history header with compact actions", () => {

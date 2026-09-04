@@ -379,7 +379,10 @@ export default function SidebarSettingsPanel({
       />
       <FlyoutItem
         icon={<ListCollapse size={16} />}
-        label={t("settingsCenter.assistantDisplay", "Assistant messages")}
+        label={t(
+          "settingsCenter.assistantDisplay",
+          "Assistant message collapse",
+        )}
         content={assistantDisplayChoices}
       />
       <button

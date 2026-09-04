@@ -228,7 +228,10 @@ export default function GeneralSettings() {
             </span>
             <span className={styles.settingCopy}>
               <strong>
-                {t("settingsCenter.assistantDisplay", "Assistant messages")}
+                {t(
+                  "settingsCenter.assistantDisplay",
+                  "Assistant message collapse",
+                )}
               </strong>
               <small>
                 {t(

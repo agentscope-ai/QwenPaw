@@ -2,7 +2,7 @@ import { Button, Checkbox, Tag } from "antd";
 import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { useSidebarModeStore } from "@/stores/sidebarModeStore";
+import { useSidebarStore } from "@/stores/sidebarStore";
 import SidebarEntrySection from "./SidebarEntrySection";
 import { useSidebarEntryGroups } from "./useSidebarEntryGroups";
 import styles from "./index.module.less";
@@ -10,7 +10,7 @@ import styles from "./index.module.less";
 export default function NavigationSettings() {
   const { t } = useTranslation();
   const { work, global, plugins } = useSidebarEntryGroups();
-  const { resetFocusItemIds } = useSidebarModeStore();
+  const { resetFocusItemIds } = useSidebarStore();
 
   const configurableGroups = [
     {
