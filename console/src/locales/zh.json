@@ -2521,21 +2521,18 @@
     "advisorMode": "顾问模式",
     "advisorModeTooltip": "主模型在智能体开始前写好计划，并在其反复失败时介入；智能体本身使用 Sub-agent 模型运行。",
     "advisorModeDescription": "允许该智能体使用顾问模式（实验性）。",
-    "advisorModePlan": "开场计划：智能体迈出第一步前先由顾问写计划",
-    "advisorModeFollowup": "中途自动介入：harness 监测工具结果，智能体反复失败时自动召唤顾问",
-    "advisorModeOnDemand": "允许智能体通过 consult_advisor 工具主动向顾问提问",
     "advisorModeModels": "顾问：{{advisor}} · Worker：{{worker}}",
     "advisorModeEnableHelp": "对话仍然从默认循环开始。开启后，输入栏的模式菜单里会出现「顾问」，/advisor 命令可用；按对话选择使用（渠道和定时任务的提示词用 /advisor on）。",
     "advisorModeModelsTitle": "顾问模型与 Worker 模型",
     "advisorModeModelsHelp": "顾问使用智能体的主模型，Worker（智能体本身）使用 Sub-agent 模型。主模型在聊天的模型选择器里设置，Sub-agent 模型在智能体的模型路由设置里设置。agent.json 里可以把任一角色固定到其它模型（advisor_mode.advisor_model / worker_model）。",
     "advisorModeSameAsAdvisor": "与顾问相同",
     "advisorModeThinking": "顾问思考",
-    "advisorModeThinkingTooltip": "顾问自身调用的思考档位。短计划前的长时间思考是首 token 延迟的主要来源；“继承”跟随智能体和模型的默认设置。",
+    "advisorModeThinkingTooltip": "顾问自身调用的思考档位。使用思考模型时，计划出现前的等待大多花在思考上；“继承”跟随智能体和模型的默认设置。",
     "advisorModePlanTitle": "开场计划",
     "advisorModePlanDescription": "智能体迈出第一步前，先由顾问写一份计划。",
     "advisorModePlanHelp": "计划以 consult_advisor 调用及其结果的形式注入智能体上下文，并在聊天中边写边显示。",
     "advisorModeFollowupTitle": "中途自动介入",
-    "advisorModeFollowupDescription": "harness 监测工具结果，智能体反复失败时自动召唤顾问。",
+    "advisorModeFollowupDescription": "QwenPaw 监测工具结果，智能体反复失败时自动召唤顾问。",
     "advisorModeFollowupHelp": "连续失败达到设定次数，或最近窗口内失败达到设定次数时触发，每次运行最多介入设定的次数；每次介入后计数器重置。顾问回复 CONTINUE，或 ADJUST 加一份修正计划。",
     "advisorModeOnDemandTitle": "主动咨询",
     "advisorModeOnDemandDescription": "允许智能体通过 consult_advisor 工具主动向顾问提问。",
@@ -4689,7 +4686,7 @@
       },
       "advisor": {
         "name": "顾问",
-        "description": "更强的模型规划并在卡住时介入，便宜的模型干活。"
+        "description": "让更强的模型规划并在卡住时介入，便宜的模型干活。"
       }
     },
     "advisorSetup": {
@@ -4700,7 +4697,6 @@
       "mainModelDefault": "{{model}} · 默认：主模型",
       "subagentDefault": "{{model}} · 默认：Sub-agent 模型",
       "noSubagent": "与顾问相同 · 默认：未设置 Sub-agent 模型",
-      "openAria": "顾问模型",
       "pairTooltip": "本对话的顾问 → Worker 模型"
     }
   }

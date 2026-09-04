@@ -2663,21 +2663,18 @@
     "advisorMode": "Advisor Mode",
     "advisorModeTooltip": "The main model writes a plan before the agent starts and steps in when it keeps failing; the agent itself runs on the sub-agent model.",
     "advisorModeDescription": "Make Advisor Mode available for this agent (experimental).",
-    "advisorModePlan": "Opening plan: the advisor writes a plan before the agent's first step",
-    "advisorModeFollowup": "Mid-run auto intervention: the harness watches tool results and calls the advisor when the agent keeps failing",
-    "advisorModeOnDemand": "Let the agent proactively ask the advisor via the consult_advisor tool",
     "advisorModeModels": "Advisor: {{advisor}} · Worker: {{worker}}",
     "advisorModeEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the composer's mode menu and /advisor works; pick it per conversation (channels and cron prompts use /advisor on).",
     "advisorModeModelsTitle": "Advisor and worker models",
     "advisorModeModelsHelp": "The advisor uses the agent's main model; the worker (the agent itself) runs on the sub-agent model. Set the main model in the chat model selector and the sub-agent model in the agent's model routing settings. agent.json can pin either role to another model (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "same as the advisor",
     "advisorModeThinking": "Advisor thinking",
-    "advisorModeThinkingTooltip": "Thinking level for the advisor's own calls. A long think before a short plan is most of the wait before the first token; 'inherit' follows the agent and model defaults.",
+    "advisorModeThinkingTooltip": "Thinking level for the advisor's own calls. With a thinking model most of the wait before the plan is the model thinking; 'inherit' follows the agent and model defaults.",
     "advisorModePlanTitle": "Opening plan",
     "advisorModePlanDescription": "The advisor writes a plan before the agent's first step.",
     "advisorModePlanHelp": "The plan is injected into the agent's context as a consult_advisor call and result, and shown in the chat while it is being written.",
     "advisorModeFollowupTitle": "Mid-run auto intervention",
-    "advisorModeFollowupDescription": "The harness watches tool results and calls the advisor when the agent keeps failing.",
+    "advisorModeFollowupDescription": "QwenPaw watches tool results and calls the advisor when the agent keeps failing.",
     "advisorModeFollowupHelp": "Fires after the configured failures in a row or within the recent window, at most the configured number of times per run; counters reset after each intervention. The advisor answers CONTINUE or ADJUST with a revised plan.",
     "advisorModeOnDemandTitle": "On-demand consultation",
     "advisorModeOnDemandDescription": "The agent may ask the advisor itself through the consult_advisor tool.",
@@ -4671,7 +4668,7 @@
       },
       "advisor": {
         "name": "Advisor",
-        "description": "A stronger model plans and steps in; a cheaper one does the work."
+        "description": "Let a stronger model plan and step in while a cheaper one does the work."
       }
     },
     "advisorSetup": {
@@ -4682,7 +4679,6 @@
       "mainModelDefault": "{{model}} · default: main model",
       "subagentDefault": "{{model}} · default: sub-agent model",
       "noSubagent": "Same as the advisor · default: no sub-agent model set",
-      "openAria": "Advisor models",
       "pairTooltip": "Advisor → worker models of this conversation"
     }
   }

@@ -115,7 +115,6 @@ export interface AgentProfileConfig {
   };
   subagent_model?: ModelSlotConfig | null;
   thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
-  advisor_mode?: AdvisorModeConfig;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -125,19 +124,6 @@ export interface AgentProfileConfig {
   tools?: unknown;
   security?: unknown;
   mail?: AgentMailConfig | null;
-}
-
-export interface AdvisorModeConfig {
-  enabled: boolean;
-  plan_enabled: boolean;
-  followup_enabled: boolean;
-  on_demand_enabled: boolean;
-  max_consults: number;
-  /** Advisor model override; null = the agent's main model. */
-  advisor_model?: ModelSlotConfig | null;
-  /** Worker model override while Advisor Mode is on; null = sub-agent model. */
-  worker_model?: ModelSlotConfig | null;
-  advisor_thinking?: "inherit" | "off" | "low" | "medium" | "high";
 }
 
 export interface AgentModelSettingsPatch {

@@ -189,7 +189,9 @@ export function AdvisorModeTab() {
             <p className={loopStyles.readOnlyCopy}>
               {t("agentConfig.advisorModeModelsHelp")}
             </p>
-            <div className={loopStyles.fieldGrid}>
+            <div
+              className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
+            >
               <Form.Item
                 label={t("agentConfig.advisorModeThinking")}
                 tooltip={t("agentConfig.advisorModeThinkingTooltip")}
@@ -214,7 +216,10 @@ export function AdvisorModeTab() {
             icon={<ListChecks size={15} />}
             title={t("agentConfig.advisorModePlanTitle")}
             description={t("agentConfig.advisorModePlanDescription")}
-            extra={toggle("plan_enabled", t("agentConfig.advisorModePlan"))}
+            extra={toggle(
+              "plan_enabled",
+              t("agentConfig.advisorModePlanTitle"),
+            )}
           >
             <p className={loopStyles.readOnlyCopy}>
               {t("agentConfig.advisorModePlanHelp")}
@@ -226,14 +231,16 @@ export function AdvisorModeTab() {
             description={t("agentConfig.advisorModeFollowupDescription")}
             extra={toggle(
               "followup_enabled",
-              t("agentConfig.advisorModeFollowup"),
+              t("agentConfig.advisorModeFollowupTitle"),
             )}
           >
             <p className={loopStyles.readOnlyCopy}>
               {t("agentConfig.advisorModeFollowupHelp")}
             </p>
             {intervention ? (
-              <div className={loopStyles.fieldGrid}>
+              <div
+                className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
+              >
                 {INTERVENTION_FIELDS.map(({ key, min, max }) => (
                   <Form.Item
                     key={key}
@@ -262,7 +269,7 @@ export function AdvisorModeTab() {
             description={t("agentConfig.advisorModeOnDemandDescription")}
             extra={toggle(
               "on_demand_enabled",
-              t("agentConfig.advisorModeOnDemand"),
+              t("agentConfig.advisorModeOnDemandTitle"),
             )}
           >
             <p className={loopStyles.readOnlyCopy}>

@@ -2093,21 +2093,18 @@
     "advisorMode": "アドバイザーモード",
     "advisorModeTooltip": "メインモデルがエージェントの開始前に計画を作成し、失敗が続くと介入します。エージェント自体はサブエージェントモデルで動作します。",
     "advisorModeDescription": "このエージェントでアドバイザーモードを使えるようにする（実験的）。",
-    "advisorModePlan": "開始時の計画: エージェントの最初のステップの前にアドバイザーが計画を作成する",
-    "advisorModeFollowup": "実行中の自動介入: ハーネスがツール結果を監視し、失敗が続くとアドバイザーを呼び出す",
-    "advisorModeOnDemand": "エージェントが consult_advisor ツールで自発的にアドバイザーに質問できるようにする",
     "advisorModeModels": "アドバイザー：{{advisor}} · ワーカー：{{worker}}",
     "advisorModeEnableHelp": "会話は引き続きデフォルトループで始まります。オンにするとコンポーザーのモードメニューに「アドバイザー」が現れ、/advisor が使えます。会話ごとに選んでください（チャネルや cron のプロンプトでは /advisor on）。",
     "advisorModeModelsTitle": "アドバイザーとワーカーのモデル",
     "advisorModeModelsHelp": "アドバイザーはエージェントのメインモデルを、ワーカー（エージェント自身）はサブエージェントモデルを使います。メインモデルはチャットのモデルセレクターで、サブエージェントモデルはエージェントのモデルルーティング設定で設定します。agent.json でどちらの役割も別のモデルに固定できます（advisor_mode.advisor_model / worker_model）。",
     "advisorModeSameAsAdvisor": "アドバイザーと同じ",
     "advisorModeThinking": "アドバイザーの思考",
-    "advisorModeThinkingTooltip": "アドバイザー自身の呼び出しの思考レベル。短い計画の前の長い思考が最初のトークンまでの待ち時間の大半です。「継承」はエージェントとモデルのデフォルトに従います。",
+    "advisorModeThinkingTooltip": "アドバイザー自身の呼び出しの思考レベル。思考モデルでは計画が出るまでの待ち時間の大半が思考です。「継承」はエージェントとモデルのデフォルトに従います。",
     "advisorModePlanTitle": "開始時の計画",
     "advisorModePlanDescription": "エージェントの最初のステップの前に、アドバイザーが計画を書きます。",
     "advisorModePlanHelp": "計画は consult_advisor の呼び出しと結果としてエージェントのコンテキストに注入され、書かれている途中からチャットに表示されます。",
     "advisorModeFollowupTitle": "実行中の自動介入",
-    "advisorModeFollowupDescription": "ハーネスがツール結果を監視し、エージェントが失敗し続けるとアドバイザーを呼びます。",
+    "advisorModeFollowupDescription": "QwenPaw がツール結果を監視し、エージェントが失敗し続けるとアドバイザーを呼びます。",
     "advisorModeFollowupHelp": "設定した回数の連続失敗、または直近ウィンドウ内で設定回数の失敗で発動し、1 回の実行につき設定回数までです。介入のたびにカウンターはリセットされます。アドバイザーは CONTINUE か、修正計画付きの ADJUST で答えます。",
     "advisorModeOnDemandTitle": "オンデマンド相談",
     "advisorModeOnDemandDescription": "エージェントが consult_advisor ツールで自らアドバイザーに質問できます。",
@@ -4173,7 +4170,7 @@
       },
       "advisor": {
         "name": "アドバイザー",
-        "description": "強いモデルが計画し行き詰まりで介入、安いモデルが作業します。"
+        "description": "強いモデルに計画と介入を任せ、安いモデルに作業させます。"
       }
     },
     "advisorSetup": {
@@ -4184,7 +4181,6 @@
       "mainModelDefault": "{{model}} · デフォルト：メインモデル",
       "subagentDefault": "{{model}} · デフォルト：サブエージェントモデル",
       "noSubagent": "アドバイザーと同じ · デフォルト：サブエージェントモデル未設定",
-      "openAria": "アドバイザーのモデル",
       "pairTooltip": "この会話のアドバイザー → ワーカーのモデル"
     }
   }

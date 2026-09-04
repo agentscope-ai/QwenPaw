@@ -3001,21 +3001,18 @@
     "advisorMode": "Mode Penasihat",
     "advisorModeTooltip": "Model utama menyusun rencana sebelum agen mulai dan turun tangan saat agen terus gagal; agen sendiri berjalan pada model sub-agen.",
     "advisorModeDescription": "Sediakan Mode Penasihat untuk agen ini (eksperimental).",
-    "advisorModePlan": "Rencana awal: penasihat menyusun rencana sebelum langkah pertama agen",
-    "advisorModeFollowup": "Intervensi otomatis di tengah jalan: harness memantau hasil alat dan memanggil penasihat saat agen terus gagal",
-    "advisorModeOnDemand": "Izinkan agen bertanya secara proaktif kepada penasihat melalui alat consult_advisor",
     "advisorModeModels": "Penasihat: {{advisor}} · Pekerja: {{worker}}",
     "advisorModeEnableHelp": "Percakapan tetap dimulai di loop default. Saat aktif, Penasihat muncul di menu mode kotak input dan /advisor berfungsi; pilih per percakapan (kanal dan prompt cron memakai /advisor on).",
     "advisorModeModelsTitle": "Model penasihat dan pekerja",
     "advisorModeModelsHelp": "Penasihat memakai model utama agen; pekerja (agen itu sendiri) berjalan pada model sub-agen. Atur model utama di pemilih model obrolan dan model sub-agen di pengaturan perutean model agen. agent.json dapat mengunci salah satu peran ke model lain (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "sama dengan penasihat",
     "advisorModeThinking": "Pemikiran penasihat",
-    "advisorModeThinkingTooltip": "Tingkat pemikiran untuk panggilan penasihat sendiri. Pemikiran panjang sebelum rencana singkat adalah sebagian besar waktu tunggu token pertama; 'warisi' mengikuti default agen dan model.",
+    "advisorModeThinkingTooltip": "Tingkat pemikiran untuk panggilan penasihat sendiri. Dengan model berpikir, sebagian besar waktu tunggu sebelum rencana adalah model yang berpikir; 'warisi' mengikuti default agen dan model.",
     "advisorModePlanTitle": "Rencana pembuka",
     "advisorModePlanDescription": "Penasihat menulis rencana sebelum langkah pertama agen.",
     "advisorModePlanHelp": "Rencana disuntikkan ke konteks agen sebagai panggilan dan hasil consult_advisor, dan ditampilkan di obrolan saat sedang ditulis.",
     "advisorModeFollowupTitle": "Intervensi otomatis di tengah jalan",
-    "advisorModeFollowupDescription": "Harness memantau hasil alat dan memanggil penasihat saat agen terus gagal.",
+    "advisorModeFollowupDescription": "QwenPaw memantau hasil alat dan memanggil penasihat saat agen terus gagal.",
     "advisorModeFollowupHelp": "Dipicu setelah jumlah kegagalan berturut-turut yang ditentukan, atau jumlah kegagalan yang ditentukan dalam jendela terakhir, paling banyak sejumlah yang ditentukan per jalankan; penghitung direset setelah setiap intervensi. Penasihat menjawab CONTINUE atau ADJUST dengan rencana yang direvisi.",
     "advisorModeOnDemandTitle": "Konsultasi sesuai permintaan",
     "advisorModeOnDemandDescription": "Agen boleh bertanya sendiri kepada penasihat melalui alat consult_advisor.",
@@ -3556,7 +3553,7 @@
       },
       "advisor": {
         "name": "Penasihat",
-        "description": "Model yang lebih kuat merencanakan dan turun tangan; model yang lebih murah mengerjakan."
+        "description": "Biarkan model yang lebih kuat merencanakan dan turun tangan sementara model yang lebih murah mengerjakan."
       }
     },
     "advisorSetup": {
@@ -3567,7 +3564,6 @@
       "mainModelDefault": "{{model}} · default: model utama",
       "subagentDefault": "{{model}} · default: model sub-agen",
       "noSubagent": "Sama dengan penasihat · default: model sub-agen belum diatur",
-      "openAria": "Model penasihat",
       "pairTooltip": "Model penasihat → pekerja percakapan ini"
     }
   }

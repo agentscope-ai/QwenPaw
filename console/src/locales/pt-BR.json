@@ -2331,21 +2331,18 @@
     "advisorMode": "Modo Conselheiro",
     "advisorModeTooltip": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando; o agente em si roda no modelo de subagente.",
     "advisorModeDescription": "Disponibilizar o Modo Conselheiro para este agente (experimental).",
-    "advisorModePlan": "Plano inicial: o conselheiro escreve um plano antes do primeiro passo do agente",
-    "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
-    "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
     "advisorModeModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
     "advisorModeEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo do compositor e /advisor funciona; escolha por conversa (canais e prompts de cron usam /advisor on).",
     "advisorModeModelsTitle": "Modelos do conselheiro e do trabalhador",
     "advisorModeModelsHelp": "O conselheiro usa o modelo principal do agente; o trabalhador (o próprio agente) roda no modelo de subagente. Defina o modelo principal no seletor de modelo do chat e o modelo de subagente nas configurações de roteamento de modelo do agente. O agent.json pode fixar qualquer papel em outro modelo (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "igual ao conselheiro",
     "advisorModeThinking": "Raciocínio do conselheiro",
-    "advisorModeThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Um raciocínio longo antes de um plano curto é a maior parte da espera pelo primeiro token; 'herdar' segue os padrões do agente e do modelo.",
+    "advisorModeThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Com um modelo de raciocínio, a maior parte da espera pelo plano é o modelo pensando; 'herdar' segue os padrões do agente e do modelo.",
     "advisorModePlanTitle": "Plano inicial",
     "advisorModePlanDescription": "O conselheiro escreve um plano antes do primeiro passo do agente.",
     "advisorModePlanHelp": "O plano é injetado no contexto do agente como uma chamada e resultado de consult_advisor, e aparece no chat enquanto está sendo escrito.",
     "advisorModeFollowupTitle": "Intervenção automática no meio da execução",
-    "advisorModeFollowupDescription": "O harness observa os resultados das ferramentas e chama o conselheiro quando o agente continua falhando.",
+    "advisorModeFollowupDescription": "O QwenPaw observa os resultados das ferramentas e chama o conselheiro quando o agente continua falhando.",
     "advisorModeFollowupHelp": "Dispara após o número configurado de falhas seguidas ou dentro da janela recente, no máximo o número configurado de vezes por execução; os contadores zeram após cada intervenção. O conselheiro responde CONTINUE ou ADJUST com um plano revisado.",
     "advisorModeOnDemandTitle": "Consulta sob demanda",
     "advisorModeOnDemandDescription": "O agente pode perguntar ao conselheiro por conta própria pela ferramenta consult_advisor.",
@@ -4235,7 +4232,7 @@
       },
       "advisor": {
         "name": "Conselheiro",
-        "description": "Um modelo mais forte planeja e intervém; um mais barato faz o trabalho."
+        "description": "Deixe um modelo mais forte planejar e intervir enquanto um mais barato faz o trabalho."
       }
     },
     "advisorSetup": {
@@ -4246,7 +4243,6 @@
       "mainModelDefault": "{{model}} · padrão: modelo principal",
       "subagentDefault": "{{model}} · padrão: modelo de subagente",
       "noSubagent": "Igual ao conselheiro · padrão: sem modelo de subagente",
-      "openAria": "Modelos do conselheiro",
       "pairTooltip": "Modelos conselheiro → trabalhador desta conversa"
     }
   }

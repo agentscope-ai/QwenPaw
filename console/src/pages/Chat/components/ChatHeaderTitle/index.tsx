@@ -3,6 +3,7 @@ import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ADVISOR_LOOP_MODE_ID } from "../../../../components/LoopInput";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import { useLoopStore } from "../../../../stores/loopStore";
 import styles from "./index.module.less";
@@ -16,7 +17,8 @@ const ChatHeaderTitle: React.FC = () => {
   // Advisor Mode is per conversation: on once it was picked from the
   // composer's mode menu (or /advisor on), regardless of the agent switch.
   const advisorMode = useLoopStore(
-    (s) => s.sessionState !== "idle" && s.activeMode?.id === "advisor",
+    (s) =>
+      s.sessionState !== "idle" && s.activeMode?.id === ADVISOR_LOOP_MODE_ID,
   );
   const { t } = useTranslation();
   const currentSession = sessions.find((s) => s.id === currentSessionId);

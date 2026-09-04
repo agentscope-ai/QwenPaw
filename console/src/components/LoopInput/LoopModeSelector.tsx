@@ -88,32 +88,30 @@ export function LoopModeSelector({
         ? t("loop.activeCustomDescription")
         : t("loop.activePersistentDescription");
     return (
-      <>
-        <Tooltip title={tooltip}>
-          <div
-            className={[styles.activeMode, className].filter(Boolean).join(" ")}
-            aria-label={`${modeName} ${t(`loop.${sessionState}`)}`}
-            aria-live="polite"
-            data-state={sessionState}
-          >
-            {sessionState === "starting" && (
-              <LoaderCircle className={styles.spin} size={14} />
-            )}
-            {sessionState === "running" && <ModeIcon mode={activeMode} />}
-            {sessionState === "awaiting_user" && (
-              <MessageCircleQuestion size={14} />
-            )}
-            {!compact && (
-              <>
-                <span>{modeName}</span>
-                <span className={styles.activeState}>
-                  {t(`loop.${sessionState}`)}
-                </span>
-              </>
-            )}
-          </div>
-        </Tooltip>
-      </>
+      <Tooltip title={tooltip}>
+        <div
+          className={[styles.activeMode, className].filter(Boolean).join(" ")}
+          aria-label={`${modeName} ${t(`loop.${sessionState}`)}`}
+          aria-live="polite"
+          data-state={sessionState}
+        >
+          {sessionState === "starting" && (
+            <LoaderCircle className={styles.spin} size={14} />
+          )}
+          {sessionState === "running" && <ModeIcon mode={activeMode} />}
+          {sessionState === "awaiting_user" && (
+            <MessageCircleQuestion size={14} />
+          )}
+          {!compact && (
+            <>
+              <span>{modeName}</span>
+              <span className={styles.activeState}>
+                {t(`loop.${sessionState}`)}
+              </span>
+            </>
+          )}
+        </div>
+      </Tooltip>
     );
   }
 

@@ -1835,21 +1835,18 @@
     "advisorMode": "Chế độ cố vấn",
     "advisorModeTooltip": "Mô hình chính lập kế hoạch trước khi agent bắt đầu và can thiệp khi agent liên tục thất bại; bản thân agent chạy trên mô hình sub-agent.",
     "advisorModeDescription": "Cho phép agent này dùng Chế độ cố vấn (thử nghiệm).",
-    "advisorModePlan": "Kế hoạch mở đầu: cố vấn lập kế hoạch trước bước đầu tiên của agent",
-    "advisorModeFollowup": "Tự động can thiệp giữa chừng: harness theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại",
-    "advisorModeOnDemand": "Cho phép agent chủ động hỏi cố vấn qua công cụ consult_advisor",
     "advisorModeModels": "Cố vấn: {{advisor}} · Worker: {{worker}}",
     "advisorModeEnableHelp": "Cuộc trò chuyện vẫn bắt đầu ở vòng lặp mặc định. Khi bật, Cố vấn xuất hiện trong menu chế độ của ô nhập và /advisor hoạt động; chọn theo từng cuộc trò chuyện (kênh và prompt cron dùng /advisor on).",
     "advisorModeModelsTitle": "Mô hình cố vấn và worker",
     "advisorModeModelsHelp": "Cố vấn dùng mô hình chính của agent; worker (chính agent) chạy trên mô hình sub-agent. Đặt mô hình chính trong bộ chọn mô hình của chat và mô hình sub-agent trong cài đặt định tuyến mô hình của agent. agent.json có thể cố định một vai trò vào mô hình khác (advisor_mode.advisor_model / worker_model).",
     "advisorModeSameAsAdvisor": "giống cố vấn",
     "advisorModeThinking": "Suy nghĩ của cố vấn",
-    "advisorModeThinkingTooltip": "Mức suy nghĩ cho các lời gọi của chính cố vấn. Suy nghĩ dài trước một kế hoạch ngắn chiếm phần lớn thời gian chờ token đầu tiên; 'kế thừa' theo mặc định của agent và mô hình.",
+    "advisorModeThinkingTooltip": "Mức suy nghĩ cho các lời gọi của chính cố vấn. Với mô hình suy nghĩ, phần lớn thời gian chờ kế hoạch là do mô hình suy nghĩ; 'kế thừa' theo mặc định của agent và mô hình.",
     "advisorModePlanTitle": "Kế hoạch mở đầu",
     "advisorModePlanDescription": "Cố vấn viết kế hoạch trước bước đầu tiên của agent.",
     "advisorModePlanHelp": "Kế hoạch được đưa vào ngữ cảnh của agent dưới dạng lời gọi consult_advisor và kết quả, và hiển thị trong chat ngay khi đang được viết.",
     "advisorModeFollowupTitle": "Tự động can thiệp giữa chừng",
-    "advisorModeFollowupDescription": "Harness theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại.",
+    "advisorModeFollowupDescription": "QwenPaw theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại.",
     "advisorModeFollowupHelp": "Kích hoạt sau số lần thất bại liên tiếp đã đặt, hoặc số lần thất bại đã đặt trong cửa sổ gần đây, tối đa số lần đã đặt mỗi lượt chạy; bộ đếm được đặt lại sau mỗi lần can thiệp. Cố vấn trả lời CONTINUE hoặc ADJUST kèm kế hoạch sửa đổi.",
     "advisorModeOnDemandTitle": "Tham vấn theo yêu cầu",
     "advisorModeOnDemandDescription": "Agent có thể tự hỏi cố vấn qua công cụ consult_advisor.",
@@ -2767,7 +2764,7 @@
       },
       "advisor": {
         "name": "Cố vấn",
-        "description": "Mô hình mạnh hơn lập kế hoạch và can thiệp; mô hình rẻ hơn làm việc."
+        "description": "Để mô hình mạnh hơn lập kế hoạch và can thiệp trong khi mô hình rẻ hơn làm việc."
       }
     },
     "advisorSetup": {
@@ -2778,7 +2775,6 @@
       "mainModelDefault": "{{model}} · mặc định: mô hình chính",
       "subagentDefault": "{{model}} · mặc định: mô hình sub-agent",
       "noSubagent": "Giống cố vấn · mặc định: chưa đặt mô hình sub-agent",
-      "openAria": "Mô hình cố vấn",
       "pairTooltip": "Mô hình cố vấn → worker của cuộc trò chuyện này"
     }
   }
