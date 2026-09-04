@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 
 from qwenpaw.app.mcp.config_service import MCPConfigService
 from qwenpaw.drivers.adapters.agentscope_tool import build_driver_agent_tools
@@ -328,13 +329,14 @@ async def test_update_tool_whitelist_refreshes_without_reload() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_tool_whitelist_falls_back_when_refresh_fails() -> None:
+async def test_update_tool_whitelist_rejects_when_refresh_fails() -> None:
     service, card, saves, refreshed, reloads = _whitelist_service(
         refresh_fails=True,
     )
-    result = await service.update_tool_whitelist("fs", ["read"])
+    with pytest.raises(HTTPException) as caught:
+        await service.update_tool_whitelist("fs", ["read"])
+    assert caught.value.status_code == 502
     assert saves == [False]
     assert refreshed == ["fs"]
-    assert reloads == ["fs"]
+    assert not reloads
     assert card.config["tools"] == ["read"]
-    assert result == []

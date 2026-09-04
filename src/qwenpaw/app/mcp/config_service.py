@@ -179,14 +179,14 @@ class MCPConfigService:
         if manager is not None:
             try:
                 await manager.refresh_driver(client_key)
-            except Exception:
-                logger.warning(
-                    "MCP tool whitelist saved but driver was not refreshed",
-                    exc_info=True,
-                )
-                await self._driver_config.reload_driver_best_effort(
-                    client_key,
-                )
+            except Exception as exc:
+                raise HTTPException(
+                    502,
+                    detail=(
+                        f"MCP tool whitelist saved but failed to apply to "
+                        f"the active runtime: {exc}"
+                    ),
+                ) from exc
         try:
             return await self.list_tools(client_key)
         except HTTPException:
