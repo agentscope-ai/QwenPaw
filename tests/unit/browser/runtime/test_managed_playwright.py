@@ -311,7 +311,7 @@ def _patch_fake_install(monkeypatch, module, tmp_path, factory):
 
 
 @pytest.mark.asyncio
-async def test_unkillable_process_enters_failed_cooldown(
+async def test_unkillable_process_blocks_second_install(
     managed_state,
     monkeypatch,
     tmp_path,
@@ -336,13 +336,24 @@ async def test_unkillable_process_enters_failed_cooldown(
     _patch_fake_install(monkeypatch, managed_state, tmp_path, _Proc)
     await managed_state._download_and_record()
     monkeypatch.setattr(managed_state, "_download_task", _Done())
+    monkeypatch.setattr(
+        managed_state,
+        "_last_failure_at",
+        managed.time.monotonic() - 61.0,
+    )
     _block_create(monkeypatch, managed_state)
-    assert managed_state._install_process is None
+    assert managed_state._install_process is not None
+    assert managed_state._install_process_alive()
     ready, detail, retry_after = managed_state.ensure_managed_chromium()
     assert ready is False
     assert detail
     assert "downloading" not in detail.lower()
-    assert retry_after > 0
+    assert retry_after >= managed._IN_FLIGHT_RETRY_SECONDS
+    ready, detail = managed_state.start_managed_chromium_download()
+    assert ready is False
+    assert detail
+    managed_state._install_process.returncode = -1
+    assert managed_state._install_process_alive() is False
 
 
 @pytest.mark.asyncio

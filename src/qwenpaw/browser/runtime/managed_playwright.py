@@ -185,7 +185,8 @@ async def _download_chromium() -> None:
         await _stop_install_process(process)
         raise
     finally:
-        _install_process = None
+        if process.returncode is not None:
+            _install_process = None
     if process.returncode:
         detail = _trim_output(output)
         raise RuntimeError(
