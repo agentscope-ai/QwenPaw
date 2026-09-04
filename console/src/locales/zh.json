@@ -49,7 +49,7 @@
     "enableRelayHint": "只需使用 Platform 账号授权这只 QwenPaw 一次，后续由 App 自动续期。",
     "authorize": "前往 Platform 授权",
     "waitingApproval": "等待 Platform 确认",
-    "userCode": "请在 Platform 核对此短码",
+    "waitingApprovalHint": "授权完成后会自动返回并生成配对二维码。",
     "openPlatform": "打开 Platform",
     "expires": "{{seconds}} 秒后过期",
     "directHint": "手机在同一局域网内直接连接，不需要 Platform 账号。",

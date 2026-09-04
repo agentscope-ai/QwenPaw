@@ -133,8 +133,9 @@ function waitForOpen(socket: RelaySocket): Promise<void> {
 
 function validateRelayWebSocketUrl(value: string): void {
   const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (
-    url.protocol !== "wss:" ||
+    (url.protocol !== "wss:" && !(url.protocol === "ws:" && loopback)) ||
     !url.hostname ||
     url.username ||
     url.password ||

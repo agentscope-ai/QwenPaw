@@ -2,7 +2,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Device from "expo-device";
 import { router } from "expo-router";
 import { ArrowLeft, Camera, ShieldCheck } from "lucide-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -16,11 +16,13 @@ import { colors, radius, spacing } from "../theme/tokens";
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const connect = useAppStore((state) => state.connect);
+  const scanInFlight = useRef(false);
   const [scanned, setScanned] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleCode = async (data: string) => {
-    if (scanned) return;
+    if (scanInFlight.current) return;
+    scanInFlight.current = true;
     setScanned(true);
     setError(null);
     try {
@@ -44,6 +46,7 @@ export default function ScanScreen() {
       router.replace("/chats");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Pairing failed.");
+      scanInFlight.current = false;
       setScanned(false);
     }
   };

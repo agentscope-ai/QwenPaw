@@ -1,12 +1,12 @@
-export const DEFAULT_PLATFORM_BASE_URL =
-  "https://platform.agentscope.io";
+export const DEFAULT_PLATFORM_BASE_URL = "https://platform.agentscope.io";
 
 export function resolvePlatformBaseUrl(value?: string): string {
   if (!value?.trim()) return DEFAULT_PLATFORM_BASE_URL;
   try {
     const url = new URL(value.trim());
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     if (
-      url.protocol !== "https:" ||
+      (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
       url.username ||
       url.password ||
       url.pathname !== "/" ||

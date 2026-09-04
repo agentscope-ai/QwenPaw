@@ -17,7 +17,6 @@ from .protocol import (
     encode_frame,
 )
 from .platform_client import (
-    DeviceAuthorization,
     EnrollmentToken,
     PlatformRelayClient,
     RegisteredNode,
@@ -45,7 +44,6 @@ __all__ = [
     "RelayOperationDispatcher",
     "RelayPlatformError",
     "RelayProofError",
-    "DeviceAuthorization",
     "EnrollmentToken",
     "PlatformRelayClient",
     "RegisteredNode",

@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from ..security.secret_store import decrypt, encrypt
 from ..utils.io_utils import read_json, write_json_atomic
 from .identity import RelayKeyPair
-from .platform_client import DeviceAuthorization, RegisteredNode
+from .platform_client import RegisteredNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +21,6 @@ class RelayNodeState:
     qwenpaw_id: str
     name: str
     private_key: str
-    authorization: DeviceAuthorization | None = None
     registered_node: RegisteredNode | None = None
 
     @property
@@ -44,18 +43,12 @@ class RelayNodeStore:
         payload = read_json(self.path)
         if not isinstance(payload, Mapping):
             raise ValueError("Relay node state must be a JSON object")
-        authorization = payload.get("authorization")
         registered = payload.get("registered_node")
         return RelayNodeState(
             platform_url=_string(payload, "platform_url"),
             qwenpaw_id=_string(payload, "qwenpaw_id"),
             name=_string(payload, "name"),
             private_key=_string(payload, "private_key"),
-            authorization=(
-                DeviceAuthorization(**authorization)
-                if isinstance(authorization, dict)
-                else None
-            ),
             registered_node=(
                 RegisteredNode(
                     node_id=_string(registered, "node_id"),
@@ -73,11 +66,6 @@ class RelayNodeStore:
 
     def save(self, state: RelayNodeState) -> None:
         """Encrypt credentials and atomically replace the state file."""
-        authorization = (
-            asdict(state.authorization)
-            if state.authorization is not None
-            else None
-        )
         registered = None
         if state.registered_node is not None:
             registered = asdict(state.registered_node)
@@ -92,7 +80,6 @@ class RelayNodeStore:
                 "qwenpaw_id": state.qwenpaw_id,
                 "name": state.name,
                 "private_key": state.private_key,
-                "authorization": authorization,
                 "registered_node": registered,
             },
             indent=2,

@@ -6,7 +6,8 @@ import json
 import time
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ...constant import EnvVarLoader, SECRET_DIR
@@ -23,6 +24,7 @@ from ..channels.qrcode_auth_handler import generate_qrcode_image
 
 
 router = APIRouter(prefix="/remote-access", tags=["remote-access"])
+callback_router = APIRouter(tags=["remote-access"])
 
 _PLATFORM_URL = EnvVarLoader.get_str(
     "QWENPAW_PLATFORM_URL",
@@ -63,12 +65,16 @@ async def platform_relay_status() -> dict:
     "/platform/authorize",
     summary="Authorize this QwenPaw with Platform",
 )
-async def authorize_platform(body: RelayAuthorizationRequest) -> dict:
-    """Start Node Device OAuth; LAN direct pairing is unaffected."""
+async def authorize_platform(
+    body: RelayAuthorizationRequest,
+    request: Request,
+) -> dict:
+    """Start Node PKCE OAuth; LAN direct pairing is unaffected."""
     try:
         status = await _service.start(
             platform_url=body.platform_url,
             name=body.name.strip(),
+            callback_port=request.url.port or 8088,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -77,24 +83,32 @@ async def authorize_platform(body: RelayAuthorizationRequest) -> dict:
     return asdict(status)
 
 
-@router.post(
-    "/platform/complete",
-    summary="Complete approved Platform Relay authorization",
-)
-async def complete_platform_authorization() -> dict:
-    """Poll once and register the Node after the Platform user approves."""
+@callback_router.get("/callback/{nonce}", response_class=HTMLResponse)
+async def complete_platform_authorization(
+    nonce: str,
+    state: str,
+    code: str,
+) -> HTMLResponse:
+    """Complete the localhost PKCE callback and register the Node."""
     try:
-        status = await _service.complete()
+        await _service.complete_oauth(
+            nonce=nonce,
+            state_value=state,
+            code=code,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RelayPlatformError as exc:
         raise _platform_http_error(exc) from exc
     _supervisor.start()
-    return {
-        **asdict(status),
-        "transport_status": _supervisor.status,
-        "transport_error": _supervisor.last_error,
-    }
+    return HTMLResponse(
+        "<!doctype html><meta charset='utf-8'>"
+        "<title>QwenPaw connected</title>"
+        "<style>body{font:16px system-ui;margin:48px;line-height:1.6}"
+        "h1{color:#ff6a00}</style>"
+        "<h1>QwenPaw 已连接</h1>"
+        "<p>可以关闭此页面并返回 QwenPaw。</p>"
+    )
 
 
 @router.post(

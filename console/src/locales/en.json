@@ -49,7 +49,7 @@
     "enableRelayHint": "Authorize this QwenPaw with your Platform account once. Mobile access will renew automatically.",
     "authorize": "Authorize with Platform",
     "waitingApproval": "Waiting for Platform approval",
-    "userCode": "Confirm this code on Platform",
+    "waitingApprovalHint": "After approval, this QwenPaw connects automatically and creates a pairing code.",
     "openPlatform": "Open Platform",
     "expires": "Expires in {{seconds}}s",
     "directHint": "Your phone connects directly on the same local network. Platform is not required.",

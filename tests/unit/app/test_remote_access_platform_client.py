@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for Platform Relay Device OAuth enrollment."""
+"""Tests for Platform Relay PKCE OAuth enrollment."""
 from __future__ import annotations
 
 import httpx
@@ -17,26 +17,22 @@ def _response(data: dict) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_device_oauth_registers_key_bound_node() -> None:
+async def test_pkce_oauth_registers_key_bound_node() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        if request.url.path.endswith("/device-authorizations"):
+        if request.url.path.endswith("/oauth/token"):
             return httpx.Response(
                 200,
-                json=_response(
-                    {
-                        "device_code": "device-code",
-                        "user_code": "ABCD-EFGH",
-                        "verification_uri": "https://platform.test/device",
-                        "expires_in": 600,
-                        "interval": 5,
-                        "dpop_nonce": "device-nonce",
-                    },
-                ),
+                json={
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "expires_in": 900,
+                    "token_type": "Bearer",
+                },
             )
-        if request.url.path.endswith("/device-authorizations/token"):
+        if request.url.path.endswith("/oauth-enrollments"):
             return httpx.Response(
                 200,
                 json=_response(
@@ -49,6 +45,8 @@ async def test_device_oauth_registers_key_bound_node() -> None:
                     },
                 ),
             )
+        if request.url.path.endswith("/oauth/revoke"):
+            return httpx.Response(200, json={"ok": True})
         return httpx.Response(
             200,
             json=_response(
@@ -71,14 +69,16 @@ async def test_device_oauth_registers_key_bound_node() -> None:
             client=http_client,
         )
         key_pair = RelayKeyPair.generate()
-        authorization = await client.start_authorization(
+        access_token, refresh_token = await client.exchange_oauth_code(
+            code="authorization-code",
+            redirect_uri="http://127.0.0.1:8088/callback/nonce123",
+            code_verifier="v" * 64,
+        )
+        enrollment = await client.create_oauth_enrollment(
+            access_token=access_token,
             qwenpaw_id="paw-1",
             name="Office Paw",
             key_pair=key_pair,
-        )
-        enrollment = await client.poll_authorization(
-            authorization,
-            key_pair,
         )
         node = await client.register_node(
             qwenpaw_id="paw-1",
@@ -86,42 +86,14 @@ async def test_device_oauth_registers_key_bound_node() -> None:
             enrollment=enrollment,
             key_pair=key_pair,
         )
+        await client.revoke_oauth_refresh_token(refresh_token or "")
 
     assert node.credential == "qprn_v1.node.secret"
-    assert requests[1].headers["DPoP"].count(".") == 2
+    assert requests[1].headers["Authorization"] == "Bearer access-token"
     assert requests[2].headers["Authorization"] == (
         "RelayEnrollment enrollment-token"
     )
     assert requests[2].headers["DPoP"].count(".") == 2
-
-
-@pytest.mark.asyncio
-async def test_pending_authorization_preserves_error_code() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={
-                "code": "authorization_pending",
-                "message": "等待用户批准",
-                "retryable": True,
-            },
-        )
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handler),
-    ) as http_client:
-        client = PlatformRelayClient(
-            "https://platform.test",
-            client=http_client,
-        )
-        with pytest.raises(RelayPlatformError) as raised:
-            await client.poll_authorization(
-                _authorization(),
-                RelayKeyPair.generate(),
-            )
-
-    assert raised.value.code == "authorization_pending"
-    assert raised.value.retryable is True
 
 
 @pytest.mark.asyncio
@@ -231,16 +203,3 @@ async def test_node_pairing_ticket_is_bound_to_registered_identity() -> None:
 def test_platform_origin_rejects_insecure_or_ambiguous_url(url: str) -> None:
     with pytest.raises(ValueError):
         PlatformRelayClient(url)
-
-
-def _authorization():
-    from qwenpaw.remote_access import DeviceAuthorization
-
-    return DeviceAuthorization(
-        device_code="device-code",
-        user_code="ABCD-EFGH",
-        verification_uri="https://platform.test/device",
-        expires_in=600,
-        interval=5,
-        dpop_nonce="device-nonce",
-    )

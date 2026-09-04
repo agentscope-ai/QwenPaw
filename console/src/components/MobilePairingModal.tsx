@@ -23,9 +23,7 @@ interface PairingResponse {
 
 interface RelayStatus {
   status: "not_connected" | "authorization_pending" | "connected";
-  verification_uri?: string | null;
-  user_code?: string | null;
-  interval?: number | null;
+  authorization_url?: string | null;
 }
 
 type PairingMode = "direct" | "relay";
@@ -101,19 +99,26 @@ export function MobilePairingModal({ open, onClose }: MobilePairingModalProps) {
     }
   }, [requestJson, t]);
 
-  const loadRelayStatus = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const status = await requestJson<RelayStatus>("/remote-access/platform");
-      setRelayStatus(status);
-      if (status.status === "connected") await createRelayPairing();
-    } catch (caught) {
-      setError(errorMessage(caught, t("mobilePairing.errors.status")));
-    } finally {
-      setLoading(false);
-    }
-  }, [createRelayPairing, requestJson, t]);
+  const loadRelayStatus = useCallback(
+    async (silent = false) => {
+      if (!silent) {
+        setLoading(true);
+        setError("");
+      }
+      try {
+        const status = await requestJson<RelayStatus>(
+          "/remote-access/platform",
+        );
+        setRelayStatus(status);
+        if (status.status === "connected") await createRelayPairing();
+      } catch (caught) {
+        setError(errorMessage(caught, t("mobilePairing.errors.status")));
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [createRelayPairing, requestJson, t],
+  );
 
   const startRelayAuthorization = useCallback(async () => {
     setLoading(true);
@@ -129,27 +134,13 @@ export function MobilePairingModal({ open, onClose }: MobilePairingModalProps) {
         },
       );
       setRelayStatus(status);
-      if (status.verification_uri) openExternalLink(status.verification_uri);
+      if (status.authorization_url) openExternalLink(status.authorization_url);
     } catch (caught) {
       setError(errorMessage(caught, t("mobilePairing.errors.authorize")));
     } finally {
       setLoading(false);
     }
   }, [requestJson, t]);
-
-  const completeRelayAuthorization = useCallback(async () => {
-    try {
-      const status = await requestJson<RelayStatus>(
-        "/remote-access/platform/complete",
-        { method: "POST" },
-      );
-      setRelayStatus(status);
-      if (status.status === "connected") await createRelayPairing();
-    } catch (caught) {
-      const message = errorMessage(caught, "");
-      if (!/pending|等待|slow_down/i.test(message)) setError(message);
-    }
-  }, [createRelayPairing, requestJson]);
 
   useEffect(() => {
     if (!open) {
@@ -166,13 +157,9 @@ export function MobilePairingModal({ open, onClose }: MobilePairingModalProps) {
 
   useEffect(() => {
     if (!open || relayStatus?.status !== "authorization_pending") return;
-    const delay = Math.max(3, relayStatus.interval ?? 5) * 1000;
-    const timer = window.setInterval(
-      () => void completeRelayAuthorization(),
-      delay,
-    );
+    const timer = window.setInterval(() => void loadRelayStatus(true), 1500);
     return () => window.clearInterval(timer);
-  }, [completeRelayAuthorization, open, relayStatus]);
+  }, [loadRelayStatus, open, relayStatus]);
 
   const activePairing = mode === "direct" ? direct : relay;
   useEffect(() => {
@@ -258,13 +245,12 @@ export function MobilePairingModal({ open, onClose }: MobilePairingModalProps) {
             <div className={styles.authorization}>
               <ShieldCheck size={25} aria-hidden="true" />
               <strong>{t("mobilePairing.waitingApproval")}</strong>
-              <span>{t("mobilePairing.userCode")}</span>
-              <code className={styles.userCode}>{relayStatus.user_code}</code>
+              <span>{t("mobilePairing.waitingApprovalHint")}</span>
               <Button
                 icon={<ExternalLink size={16} />}
                 onClick={() =>
-                  relayStatus.verification_uri &&
-                  openExternalLink(relayStatus.verification_uri)
+                  relayStatus.authorization_url &&
+                  openExternalLink(relayStatus.authorization_url)
                 }
               >
                 {t("mobilePairing.openPlatform")}

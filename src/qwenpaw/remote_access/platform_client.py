@@ -11,7 +11,7 @@ import httpx
 from .identity import RelayKeyPair
 
 
-RELAY_PUBLIC_CLIENT_ID = "qwenpaw-selfhost"
+PLATFORM_OAUTH_CLIENT_ID = "agentscope-platform-cli"
 RELAY_PROTOCOL_VERSION = 1
 
 
@@ -30,18 +30,6 @@ class RelayPlatformError(RuntimeError):
         self.code = code
         self.status_code = status_code
         self.retryable = retryable
-
-
-@dataclass(frozen=True, slots=True)
-class DeviceAuthorization:
-    """User activation details for one Node Device OAuth flow."""
-
-    device_code: str
-    user_code: str
-    verification_uri: str
-    expires_in: int
-    interval: int
-    dpop_nonce: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +77,7 @@ class RelayPairingTicket:
 
 
 class PlatformRelayClient:
-    """Perform the Device OAuth and one-time Node enrollment flow."""
+    """Perform PKCE OAuth and one-time Node enrollment."""
 
     def __init__(
         self,
@@ -99,71 +87,6 @@ class PlatformRelayClient:
     ) -> None:
         self.base_url = _normalize_platform_url(base_url)
         self._client = client
-
-    async def start_authorization(
-        self,
-        *,
-        qwenpaw_id: str,
-        name: str,
-        key_pair: RelayKeyPair,
-    ) -> DeviceAuthorization:
-        """Create a user-approved authorization bound to the Node key."""
-        payload = await self._post(
-            "/api/v1/qwenpaw-relay/device-authorizations",
-            json={
-                "client_id": RELAY_PUBLIC_CLIENT_ID,
-                "qwenpaw_id": qwenpaw_id,
-                "name": name,
-                "protocol_version": RELAY_PROTOCOL_VERSION,
-                "public_key_jwk": key_pair.public_jwk(),
-            },
-        )
-        return DeviceAuthorization(
-            device_code=_required_string(payload, "device_code"),
-            user_code=_required_string(payload, "user_code"),
-            verification_uri=_required_string(payload, "verification_uri"),
-            expires_in=_required_int(payload, "expires_in"),
-            interval=_required_int(payload, "interval"),
-            dpop_nonce=_required_string(payload, "dpop_nonce"),
-        )
-
-    async def poll_authorization(
-        self,
-        authorization: DeviceAuthorization,
-        key_pair: RelayKeyPair,
-    ) -> EnrollmentToken:
-        """Poll once for approval and return a one-time enrollment token."""
-        path = "/api/v1/qwenpaw-relay/device-authorizations/token"
-        target = f"{self.base_url}{path}"
-        proof = key_pair.create_proof(
-            "POST",
-            target,
-            authorization.device_code,
-            authorization.dpop_nonce,
-        )
-        payload = await self._post(
-            path,
-            json={
-                "client_id": RELAY_PUBLIC_CLIENT_ID,
-                "device_code": authorization.device_code,
-            },
-            headers={"DPoP": proof},
-        )
-        if payload.get("token_type") != "RelayEnrollment":
-            raise RelayPlatformError(
-                "invalid_response",
-                "Platform returned an unsupported enrollment token",
-                status_code=502,
-            )
-        return EnrollmentToken(
-            token=_required_string(payload, "enrollment_token"),
-            expires_in=_required_int(payload, "expires_in"),
-            credential_generation=_required_int(
-                payload,
-                "credential_generation",
-            ),
-            dpop_nonce=_required_string(payload, "dpop_nonce"),
-        )
 
     async def register_node(
         self,
@@ -209,6 +132,76 @@ class PlatformRelayClient:
                 node,
                 "credential_generation",
             ),
+        )
+
+    async def exchange_oauth_code(
+        self,
+        *,
+        code: str,
+        redirect_uri: str,
+        code_verifier: str,
+    ) -> tuple[str, str | None]:
+        """Exchange a localhost PKCE callback code for Platform tokens."""
+        payload = await self._post_raw(
+            "/api/cli/v1/oauth/token",
+            json={
+                "grant_type": "authorization_code",
+                "client_id": PLATFORM_OAUTH_CLIENT_ID,
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            },
+        )
+        access_token = _required_string(payload, "access_token")
+        refresh_token = payload.get("refresh_token")
+        return (
+            access_token,
+            refresh_token if isinstance(refresh_token, str) else None,
+        )
+
+    async def create_oauth_enrollment(
+        self,
+        *,
+        access_token: str,
+        qwenpaw_id: str,
+        name: str,
+        key_pair: RelayKeyPair,
+    ) -> EnrollmentToken:
+        """Create a one-time Node enrollment as the OAuth user."""
+        payload = await self._post(
+            "/api/v1/qwenpaw-relay/oauth-enrollments",
+            json={
+                "qwenpaw_id": qwenpaw_id,
+                "name": name,
+                "protocol_version": RELAY_PROTOCOL_VERSION,
+                "public_key_jwk": key_pair.public_jwk(),
+            },
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if payload.get("token_type") != "RelayEnrollment":
+            raise RelayPlatformError(
+                "invalid_response",
+                "Platform returned an unsupported enrollment token",
+                status_code=502,
+            )
+        return EnrollmentToken(
+            token=_required_string(payload, "enrollment_token"),
+            expires_in=_required_int(payload, "expires_in"),
+            credential_generation=_required_int(
+                payload,
+                "credential_generation",
+            ),
+            dpop_nonce=_required_string(payload, "dpop_nonce"),
+        )
+
+    async def revoke_oauth_refresh_token(self, refresh_token: str) -> None:
+        """Revoke the transient refresh token after Node registration."""
+        await self._post_raw(
+            "/api/cli/v1/oauth/revoke",
+            json={
+                "token": refresh_token,
+                "token_type_hint": "refresh_token",
+            },
         )
 
     async def create_node_connect_ticket(
@@ -303,6 +296,23 @@ class PlatformRelayClient:
         json: Mapping[str, Any],
         headers: Mapping[str, str] | None = None,
     ) -> Mapping[str, Any]:
+        body = await self._post_raw(path, json=json, headers=headers)
+        data = body.get("data")
+        if not isinstance(data, Mapping):
+            raise RelayPlatformError(
+                "invalid_response",
+                "Platform Relay response is malformed",
+                status_code=502,
+            )
+        return data
+
+    async def _post_raw(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
             timeout=httpx.Timeout(15.0),
@@ -332,14 +342,7 @@ class PlatformRelayClient:
                 status_code=response.status_code,
                 retryable=body.get("retryable") is True,
             )
-        data = body.get("data")
-        if not isinstance(data, Mapping):
-            raise RelayPlatformError(
-                "invalid_response",
-                "Platform Relay response is malformed",
-                status_code=502,
-            )
-        return data
+        return body
 
 
 def _normalize_platform_url(value: str) -> str:

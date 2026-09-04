@@ -2,8 +2,9 @@
 """Tests for local Platform Relay enrollment orchestration."""
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
 from qwenpaw.remote_access import (
-    DeviceAuthorization,
     EnrollmentToken,
     RegisteredNode,
     RelayEnrollmentService,
@@ -15,21 +16,10 @@ class _FakeClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
 
-    async def start_authorization(self, **_kwargs) -> DeviceAuthorization:
-        return DeviceAuthorization(
-            device_code="device-code",
-            user_code="ABCD-EFGH",
-            verification_uri="https://platform.test/device",
-            expires_in=600,
-            interval=5,
-            dpop_nonce="device-nonce",
-        )
+    async def exchange_oauth_code(self, **_kwargs):
+        return "access-token", "refresh-token"
 
-    async def poll_authorization(
-        self,
-        _authorization,
-        _key_pair,
-    ) -> EnrollmentToken:
+    async def create_oauth_enrollment(self, **_kwargs) -> EnrollmentToken:
         return EnrollmentToken(
             token="enrollment",
             expires_in=60,
@@ -44,6 +34,9 @@ class _FakeClient:
             dpop_nonce="node-nonce",
             credential_generation=1,
         )
+
+    async def revoke_oauth_refresh_token(self, refresh_token: str) -> None:
+        assert refresh_token == "refresh-token"
 
 
 async def test_enrollment_exposes_only_redacted_state(
@@ -62,11 +55,20 @@ async def test_enrollment_exposes_only_redacted_state(
     pending = await service.start(
         platform_url="https://platform.test",
         name="Office Paw",
+        callback_port=8088,
     )
-    connected = await service.complete()
+    authorization_url = urlsplit(pending.authorization_url or "")
+    query = parse_qs(authorization_url.query)
+    callback_url = urlsplit(query["redirect_uri"][0])
+    connected = await service.complete_oauth(
+        nonce=callback_url.path.rsplit("/", 1)[-1],
+        state_value=query["state"][0],
+        code="authorization-code",
+    )
 
     assert pending.status == "authorization_pending"
-    assert pending.user_code == "ABCD-EFGH"
+    assert authorization_url.path == "/cli/login"
+    assert query["code_challenge_method"] == ["S256"]
     assert connected.status == "connected"
     assert connected.node_id == "node-1"
     assert not hasattr(connected, "credential")

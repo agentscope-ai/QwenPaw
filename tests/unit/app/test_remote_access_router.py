@@ -100,3 +100,42 @@ async def test_pairing_endpoint_rejects_unregistered_node(
         response = await client.post("/remote-access/platform/pairing")
 
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_registers_node_and_returns_to_console(
+    monkeypatch,
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    class Enrollment:
+        async def complete_oauth(self, **kwargs) -> RelayEnrollmentStatus:
+            calls.append(kwargs)
+            return RelayEnrollmentStatus(status="connected", node_id="node-1")
+
+    class Supervisor:
+        def start(self) -> None:
+            calls.append({"supervisor": "started"})
+
+    monkeypatch.setattr(remote_access, "_service", Enrollment())
+    monkeypatch.setattr(remote_access, "_supervisor", Supervisor())
+    app = FastAPI()
+    app.include_router(remote_access.callback_router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8088",
+    ) as client:
+        response = await client.get(
+            "/callback/nonce-123?state=state-123&code=code-123",
+        )
+
+    assert response.status_code == 200
+    assert "QwenPaw 已连接" in response.text
+    assert calls == [
+        {
+            "nonce": "nonce-123",
+            "state_value": "state-123",
+            "code": "code-123",
+        },
+        {"supervisor": "started"},
+    ]
