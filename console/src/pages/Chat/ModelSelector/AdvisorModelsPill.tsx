@@ -5,14 +5,15 @@ import { useTranslation } from "react-i18next";
 
 import { providerApi } from "@/api/modules/provider";
 import type { ModelSlotConfig } from "@/api/types";
-import { AdvisorSetupPopover } from "@/components/LoopInput";
+import {
+  ADVISOR_LOOP_MODE_ID,
+  AdvisorSetupPopover,
+} from "@/components/LoopInput";
 import { useAdvisorMode } from "@/stores/advisorModeStore";
 import { useLoopStore } from "@/stores/loopStore";
 import { buildEligibleProviders } from "./modelSelectorModels";
 
 import styles from "./index.module.less";
-
-export const ADVISOR_LOOP_MODE_ID = "advisor";
 
 /** Whether the current chat is an Advisor conversation (running, or a new
  * one with Advisor picked in the composer). */
@@ -79,7 +80,7 @@ export function AdvisorModelsPill() {
         <button
           type="button"
           aria-expanded={open}
-          aria-label={t("loop.advisorSetup.openAria")}
+          aria-label={t("loop.advisorSetup.title")}
           className={[
             styles.trigger,
             styles.advisorPair,

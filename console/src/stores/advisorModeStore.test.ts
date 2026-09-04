@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useAdvisorModeStore, useAdvisorMode } from "./advisorModeStore";
+import {
+  DISABLED_ADVISOR_MODE,
+  useAdvisorModeStore,
+  useAdvisorMode,
+} from "./advisorModeStore";
 import { useAgentStore } from "./agentStore";
 
 const ON = {
+  ...DISABLED_ADVISOR_MODE,
   enabled: true,
-  plan_enabled: true,
-  followup_enabled: true,
-  on_demand_enabled: true,
+  agent_id: "a1",
   advisor_model: { provider_id: "dash", model: "qwen3-max" },
   worker_model: { provider_id: "dash", model: "qwen3-8b" },
 };
@@ -38,20 +41,18 @@ describe("advisorModeStore", () => {
     ).toBe(2);
   });
 
-  it("useAdvisorMode: unknown agent → disabled, not initialized", () => {
+  it("useAdvisorMode: unknown agent → disabled defaults", () => {
     useAgentStore.setState({ selectedAgent: "unknown", agents: [] });
     const { result } = renderHook(() => useAdvisorMode());
-    expect(result.current.advisorMode).toBe(false);
-    expect(result.current.initialized).toBe(false);
-    expect(result.current.state.worker_model).toBeNull();
+    expect(result.current.state).toBe(DISABLED_ADVISOR_MODE);
+    expect(result.current.state.enabled).toBe(false);
   });
 
   it("useAdvisorMode: reflects the selected agent's snapshot", () => {
     useAgentStore.setState({ selectedAgent: "a1", agents: [] });
     useAdvisorModeStore.getState().setAdvisorMode("a1", ON);
     const { result } = renderHook(() => useAdvisorMode());
-    expect(result.current.advisorMode).toBe(true);
-    expect(result.current.initialized).toBe(true);
+    expect(result.current.state.enabled).toBe(true);
     expect(result.current.state.advisor_model?.model).toBe("qwen3-max");
   });
 

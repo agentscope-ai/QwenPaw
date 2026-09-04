@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/common_setup";
 import { useAgentStore } from "@/stores/agentStore";
-import { useAdvisorModeStore } from "@/stores/advisorModeStore";
+import {
+  DISABLED_ADVISOR_MODE,
+  useAdvisorModeStore,
+} from "@/stores/advisorModeStore";
 import { useLoopStore } from "@/stores/loopStore";
 import { providerApi } from "@/api/modules/provider";
 import {
@@ -39,10 +42,8 @@ beforeEach(() => {
   useAdvisorModeStore.setState({
     advisorModeByAgent: {
       a1: {
+        ...DISABLED_ADVISOR_MODE,
         enabled: true,
-        plan_enabled: true,
-        followup_enabled: true,
-        on_demand_enabled: true,
         advisor_model: { provider_id: "dash", model: "qwen3-max" },
         worker_model: { provider_id: "dash", model: "qwen-plus" },
         main_model: { provider_id: "dash", model: "qwen3-max" },

@@ -112,7 +112,7 @@ describe("AdvisorModeTab", () => {
     const user = userEvent.setup();
     renderWithProviders(<AdvisorModeTab />);
     const followup = await screen.findByRole("switch", {
-      name: "agentConfig.advisorModeFollowup",
+      name: "agentConfig.advisorModeFollowupTitle",
     });
     expect(followup).not.toBeChecked();
     await user.click(followup);

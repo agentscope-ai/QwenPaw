@@ -1,40 +1,16 @@
 import { create } from "zustand";
 import { useAgentStore } from "./agentStore";
-import type { AdvisorModeState as AdvisorModeApiState } from "../api/modules/advisorMode";
-
-export type AdvisorModeSnapshot = Pick<
-  AdvisorModeApiState,
-  | "enabled"
-  | "plan_enabled"
-  | "followup_enabled"
-  | "on_demand_enabled"
-  | "advisor_model"
-  | "worker_model"
-> &
-  Partial<
-    Pick<
-      AdvisorModeApiState,
-      | "max_consults"
-      | "intervention"
-      | "advisor_thinking"
-      | "advisor_source"
-      | "worker_source"
-      | "advisor_model_override"
-      | "worker_model_override"
-      | "main_model"
-      | "subagent_model"
-    >
-  >;
+import type { AdvisorModeState } from "../api/modules/advisorMode";
 
 interface AdvisorModeStoreState {
   /**
    * Advisor Mode state per agentId. Key absent → not yet fetched from the
    * backend (UI should treat as loading).
    */
-  advisorModeByAgent: Record<string, AdvisorModeSnapshot>;
+  advisorModeByAgent: Record<string, AdvisorModeState>;
   /** Monotonic local-write version used to ignore stale sync responses. */
   advisorModeRevisionByAgent: Record<string, number>;
-  setAdvisorMode: (agentId: string, state: AdvisorModeSnapshot) => void;
+  setAdvisorMode: (agentId: string, state: AdvisorModeState) => void;
 }
 
 // Backend (agent.json) is the source of truth. State is held in-memory
@@ -45,7 +21,7 @@ export const useAdvisorModeStore = create<AdvisorModeStoreState>((set) => ({
   advisorModeByAgent: {},
   advisorModeRevisionByAgent: {},
 
-  setAdvisorMode: (agentId: string, state: AdvisorModeSnapshot) =>
+  setAdvisorMode: (agentId: string, state: AdvisorModeState) =>
     set((prev: AdvisorModeStoreState) => ({
       advisorModeByAgent: { ...prev.advisorModeByAgent, [agentId]: state },
       advisorModeRevisionByAgent: {
@@ -55,30 +31,42 @@ export const useAdvisorModeStore = create<AdvisorModeStoreState>((set) => ({
     })),
 }));
 
-const DISABLED: AdvisorModeSnapshot = {
+/** Safe defaults until the backend state arrives (or when GET fails). */
+export const DISABLED_ADVISOR_MODE: AdvisorModeState = {
   enabled: false,
   plan_enabled: true,
   followup_enabled: true,
   on_demand_enabled: true,
+  max_consults: 32,
+  intervention: {
+    consecutive_failures: 3,
+    window_size: 10,
+    window_failures: 4,
+    cooldown_steps: 0,
+    max_interventions: 3,
+  },
+  advisor_thinking: "off",
+  agent_id: "",
   advisor_model: null,
+  advisor_source: "global",
   worker_model: null,
+  worker_source: "main_model",
+  advisor_model_override: null,
+  worker_model_override: null,
+  main_model: null,
+  subagent_model: null,
 };
 
-/** Convenience hook: Advisor Mode status for the currently selected agent. */
+/** Convenience hook: Advisor Mode state for the currently selected agent. */
 export function useAdvisorMode(): {
-  advisorMode: boolean;
-  state: AdvisorModeSnapshot;
-  initialized: boolean;
-  setAdvisorMode: (state: AdvisorModeSnapshot) => void;
+  state: AdvisorModeState;
+  setAdvisorMode: (state: AdvisorModeState) => void;
 } {
   const { selectedAgent } = useAgentStore();
   const { advisorModeByAgent, setAdvisorMode } = useAdvisorModeStore();
-  const state = advisorModeByAgent[selectedAgent] ?? DISABLED;
   return {
-    advisorMode: state.enabled,
-    state,
-    initialized: selectedAgent in advisorModeByAgent,
-    setAdvisorMode: (next: AdvisorModeSnapshot) =>
+    state: advisorModeByAgent[selectedAgent] ?? DISABLED_ADVISOR_MODE,
+    setAdvisorMode: (next: AdvisorModeState) =>
       setAdvisorMode(selectedAgent, next),
   };
 }

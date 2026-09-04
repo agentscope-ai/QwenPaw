@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useAgentStore } from "./agentStore";
-import { useAdvisorModeStore } from "./advisorModeStore";
+import { DISABLED_ADVISOR_MODE, useAdvisorModeStore } from "./advisorModeStore";
 import { advisorModeApi } from "../api/modules/advisorMode";
 
 /**
@@ -40,14 +40,7 @@ export function useSyncAdvisorMode(): void {
         // forever on any GET failure.
         console.warn("Failed to sync advisor mode state:", err);
         if (stillCurrent()) {
-          setAdvisorMode(selectedAgent, {
-            enabled: false,
-            plan_enabled: true,
-            followup_enabled: true,
-            on_demand_enabled: true,
-            advisor_model: null,
-            worker_model: null,
-          });
+          setAdvisorMode(selectedAgent, DISABLED_ADVISOR_MODE);
         }
       });
     return () => {
