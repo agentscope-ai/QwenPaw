@@ -110,6 +110,13 @@ _KLING_REFERENCE_DOCUMENTATION = (
 _MINIMAX_REFERENCE_DOCUMENTATION = (
     "https://platform.minimax.io/docs/api-reference/video-generation-t2v"
 )
+_MINIMAX_H3_VIDEO_DOCUMENTATION = (
+    "https://platform.minimax.io/docs/api-reference/"
+    "video-generation-v2-create"
+)
+_MINIMAX_H3_SGLANG_DOCUMENTATION = (
+    "https://docs.sglang.io/cookbook/diffusion/MiniMax/MiniMax-H3"
+)
 _VIDU_BAILIAN_DOCUMENTATION = (
     "https://help.aliyun.com/zh/model-studio/"
     "vidu-reference-to-video-api-reference"
@@ -164,6 +171,10 @@ _VIDU_DIRECT_IMAGE_ONLY_REFERENCE_PATTERN = re.compile(
 )
 _MINIMAX_S2V_REFERENCE_PATTERN = re.compile(
     r"^s2v-01$",
+    re.IGNORECASE,
+)
+_MINIMAX_H3_REFERENCE_PATTERN = re.compile(
+    r"^minimax-h3(?:-max|-ref2va)?$",
     re.IGNORECASE,
 )
 _VIDU_IMAGE_ONLY_REFERENCE_PATTERN = re.compile(
@@ -270,6 +281,17 @@ _MINIMAX_S2V_REFERENCE_CAPABILITY = VideoReferenceCapability(
     max_reference_media=1,
     documentation_url=_MINIMAX_REFERENCE_DOCUMENTATION,
 )
+# MiniMax H3 omni reference (v2 API and SGLang Ref2VA): up to 9 reference
+# images and 3 reference videos. The official 12-file total also counts
+# reference audio, which this catalog does not track — the submit builders
+# enforce the audio-inclusive cap.
+_MINIMAX_H3_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="minimax-h3",
+    max_reference_images=9,
+    max_reference_videos=3,
+    max_reference_media=12,
+    documentation_url=_MINIMAX_H3_VIDEO_DOCUMENTATION,
+)
 # Vidu reference-to-video hosted on Bailian: image-only models accept
 # 1-7 reference images; viduq2-pro additionally accepts 1-2 reference
 # videos (with images then limited to 1-4 — enforced at submit time).
@@ -367,6 +389,8 @@ _KLING_DIRECT_MODEL_MODES: dict[str, frozenset[str]] = {
     "kling-2.6": frozenset({"t2v", "i2v"}),
 }
 _MINIMAX_MODEL_MODES: dict[str, frozenset[str]] = {
+    "minimax-h3": frozenset({"t2v", "i2v", "r2v"}),
+    "minimax-h3-max": frozenset({"t2v", "i2v", "r2v"}),
     "minimax-hailuo-2.3": frozenset({"t2v", "i2v"}),
     "minimax-hailuo-2.3-fast": frozenset({"i2v"}),
     "minimax-hailuo-02": frozenset({"t2v", "i2v"}),
@@ -376,6 +400,15 @@ _MINIMAX_MODEL_MODES: dict[str, frozenset[str]] = {
     "i2v-01-live": frozenset({"i2v"}),
     "i2v-01-director": frozenset({"i2v"}),
     "s2v-01": frozenset({"r2v"}),
+}
+# SGLang self-hosted H3: one server instance loads exactly one checkpoint
+# variant (``sglang serve --model-variant fl2va|ref2va``, official ports
+# 30010/30011), so the configured model name records which variant the
+# endpoint serves and fail-closes the other modes. The wire request never
+# carries the model name.
+_MINIMAX_H3_SGLANG_MODEL_MODES: dict[str, frozenset[str]] = {
+    "minimax-h3-fl2va": frozenset({"t2v", "i2v"}),
+    "minimax-h3-ref2va": frozenset({"r2v"}),
 }
 _VIDU_HOSTED_MODEL_MODES: dict[str, frozenset[str]] = {
     f"vidu/{name}_reference2video": frozenset({"r2v"})
@@ -411,7 +444,7 @@ _KNOWN_SUFFIX_SEGMENTS = ("-video-edit", "-t2v", "-i2v", "-r2v")
 # Backends whose providers keep the configured model name for every mode
 # (their upstream families do not encode the mode in the model ID).
 _CONFIGURED_NAME_BACKENDS = frozenset(
-    {"seedance2", "veo", "kling", "minimax", "vidu"},
+    {"seedance2", "veo", "kling", "minimax", "minimax_sglang", "vidu"},
 )
 
 # --- Official per-family request constraints -------------------------------
@@ -462,6 +495,29 @@ MINIMAX_HAILUO_02_RESOLUTIONS: dict[str, tuple[int, ...]] = {
 MINIMAX_LEGACY_RESOLUTIONS: dict[str, tuple[int, ...]] = {"720P": (6,)}
 MINIMAX_MAX_PROMPT_CHARS = 2000
 MINIMAX_SUBJECT_REFERENCE_MODEL = "S2V-01"
+
+# MiniMax H3 (v2 API): any integer duration inside the documented window;
+# H3-Max starts at 5s. 768P leads each matrix so it is the default tier.
+MINIMAX_H3_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(4, 16)),
+    "480P": tuple(range(4, 16)),
+    "2K": tuple(range(4, 16)),
+}
+MINIMAX_H3_MAX_MODEL_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(5, 16)),
+    "480P": tuple(range(5, 16)),
+    "2K": tuple(range(5, 16)),
+}
+# Self-hosted H3-Base renders 768p only; 2K needs the hosted Regenerate-2K.
+MINIMAX_H3_SGLANG_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(4, 16)),
+}
+MINIMAX_H3_MAX_PROMPT_CHARS = 7000
+MINIMAX_H3_RATIOS = frozenset(
+    {"adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"},
+)
+MINIMAX_H3_MAX_REFERENCE_AUDIO = 3
+MINIMAX_H3_MAX_TOTAL_MEDIA = 12
 
 # Bailian-hosted Vidu reference-to-video: per-model duration window
 # (inclusive), resolutions, default resolution, allowed ratios and whether
@@ -645,9 +701,11 @@ SEEDANCE_FAMILY_SPECS: dict[str, tuple[frozenset[str], int, int, bool]] = {
 # - "standalone": wan3.0 accepts up to five ``type=reference_audio`` media
 #   entries (total <= 15s); Seedance 2.x accepts ``type=audio_url`` content
 #   entries with role ``reference_audio`` (2.5: up to 10; 2.0: up to 3,
-#   paired with image/video references).
-# Every other family (wan2.6, HappyHorse, Kling, Vidu, Veo, MiniMax)
-# documents no audio input — only automatic-audio switches.
+#   paired with image/video references); MiniMax H3 accepts up to three
+#   ``audio_url`` content entries with role ``reference_audio`` (v2 API)
+#   or ``type=audio`` reference conditions (SGLang Ref2VA).
+# Every other family (wan2.6, HappyHorse, Kling, Vidu, Veo, the v1 MiniMax
+# models) documents no audio input — only automatic-audio switches.
 REFERENCE_VOICE_PER_MEDIA = "per_media"
 REFERENCE_VOICE_STANDALONE = "standalone"
 
@@ -661,6 +719,8 @@ def video_reference_voice_support(  # pylint: disable=too-many-return-statements
     name = (model_name or "").strip()
     if not name:
         return None
+    if _MINIMAX_H3_REFERENCE_PATTERN.fullmatch(name):
+        return (REFERENCE_VOICE_STANDALONE, MINIMAX_H3_MAX_REFERENCE_AUDIO)
     if _WAN_27_MODEL_PATTERN.match(name):
         return (REFERENCE_VOICE_PER_MEDIA, 5)
     if is_wan3_video_model(name):
@@ -711,7 +771,13 @@ def video_backend_key(
     """Map a configured model (+ optional protocol backend) to a matrix key."""
     # pylint: disable=too-many-return-statements
     normalized_protocol = protocol_backend.strip().casefold()
-    if normalized_protocol in {"veo", "kling", "minimax", "vidu"}:
+    if normalized_protocol in {
+        "veo",
+        "kling",
+        "minimax",
+        "minimax_sglang",
+        "vidu",
+    }:
         return normalized_protocol
     if is_happyhorse_model(model_name):
         return "happyhorse"
@@ -743,7 +809,7 @@ def video_model_capability(
     """
     # Exact model registration is intentionally fail-closed and each provider
     # has a distinct naming contract, so the branches are the registry itself.
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches,too-many-statements
 
     model = model_name.strip()
     lowered = model.casefold()
@@ -809,6 +875,9 @@ def video_model_capability(
     elif backend == "minimax":
         modes = _MINIMAX_MODEL_MODES.get(lowered)
         documentation_url = _MINIMAX_VIDEO_DOCUMENTATION
+    elif backend == "minimax_sglang":
+        modes = _MINIMAX_H3_SGLANG_MODEL_MODES.get(lowered)
+        documentation_url = _MINIMAX_H3_SGLANG_DOCUMENTATION
     elif backend == "vidu":
         if lowered.startswith("vidu/"):
             modes = _VIDU_HOSTED_MODEL_MODES.get(lowered)
@@ -877,6 +946,8 @@ def video_reference_capability(  # pylint: disable=too-many-return-statements
         return _KLING_OMNI_REFERENCE_CAPABILITY
     if _KLING_DIRECT_OMNI_REFERENCE_PATTERN.fullmatch(normalized):
         return _KLING_DIRECT_OMNI_REFERENCE_CAPABILITY
+    if _MINIMAX_H3_REFERENCE_PATTERN.fullmatch(normalized):
+        return _MINIMAX_H3_REFERENCE_CAPABILITY
     if _MINIMAX_S2V_REFERENCE_PATTERN.fullmatch(normalized):
         return _MINIMAX_S2V_REFERENCE_CAPABILITY
     if _VIDU_Q2_PRO_REFERENCE_PATTERN.fullmatch(normalized):

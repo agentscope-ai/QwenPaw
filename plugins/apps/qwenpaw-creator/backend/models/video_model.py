@@ -55,6 +55,7 @@ from models.video_capabilities import (
 )
 from models.video_backends import kling as kling_backend
 from models.video_backends import minimax as minimax_backend
+from models.video_backends import minimax_sglang as minimax_sglang_backend
 from models.video_backends import veo as veo_backend
 from models.video_backends import vidu as vidu_backend
 from utils.paths import media_path_from_url
@@ -78,7 +79,7 @@ AUDIO_REFERENCE_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac"}
 # Transport protocols whose reference media is inlined as a Base64 data
 # URL instead of the Bailian temporary upload channel.
 _INLINE_MEDIA_BACKENDS = frozenset(
-    {"seedance2", "veo", "minimax", "kling", "vidu"},
+    {"seedance2", "veo", "minimax", "minimax_sglang", "kling", "vidu"},
 )
 
 
@@ -180,7 +181,9 @@ async def _resolve_reference_media_url(
             max_bytes=SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
         )
         kind = _reference_media_kind(filename)
-        if kind == "video":
+        # Self-hosted SGLang H3 accepts data URIs for every media kind;
+        # the cloud task APIs only take public URLs for reference videos.
+        if kind == "video" and backend != "minimax_sglang":
             raise ModelError(
                 f"{backend} reference videos must be public HTTP(S) URLs: "
                 "the provider task API does not accept Base64-encoded video "
@@ -606,13 +609,14 @@ async def submit_video_task(
     """
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
-    if not api_key:
+    protocol_backend = model_config.get_video_backend()
+    # SGLang serves without authentication unless started with --api-key.
+    if not api_key and protocol_backend != "minimax_sglang":
         raise ModelError(
             "creator_video_model.api_key or VIDEO_API_KEY is required",
             model_name=model_name,
         )
 
-    protocol_backend = model_config.get_video_backend()
     uses_seedance = protocol_backend == "seedance2"
     backend_key = video_backend_key(model_name, protocol_backend)
     try:
@@ -910,6 +914,23 @@ async def submit_video_task(
             prompt=prompt,
             mode=normalized_mode,
             media=media,
+            ratio=ratio,
+            duration=duration,
+            resolution=resolution,
+            model_name=effective_model,
+            api_key=api_key,
+            base_url=model_config.get_video_base_url(),
+        )
+    elif backend_key == "minimax_sglang":
+        (
+            url,
+            submit_headers,
+            body,
+        ) = minimax_sglang_backend.build_submit_request(
+            prompt=prompt,
+            mode=normalized_mode,
+            media=media,
+            ratio=ratio,
             duration=duration,
             resolution=resolution,
             model_name=effective_model,
@@ -1163,6 +1184,8 @@ async def submit_video_task(
             # MiniMax wraps rejections in base_resp on an HTTP 200.
             minimax_backend.raise_on_base_resp(data, effective_model)
             task_id = minimax_backend.extract_task_id(data)
+        elif backend_key == "minimax_sglang":
+            task_id = minimax_sglang_backend.extract_task_id(data)
         elif protocol_backend == "kling":
             # Kling wraps rejections in code/message on an HTTP 200.
             kling_backend.raise_on_error_code(data, effective_model)
@@ -1288,15 +1311,17 @@ async def check_task_status(task_id: str) -> dict:
     """Check the status of a submitted video generation task."""
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
-    if not api_key:
+    backend = model_config.get_video_backend()
+    # SGLang serves without authentication unless started with --api-key.
+    if not api_key and backend != "minimax_sglang":
         raise ModelError(
             "creator_video_model.api_key or VIDEO_API_KEY is required",
             model_name=model_name,
         )
-    backend = model_config.get_video_backend()
     _STATUS_MODULES = {
         "veo": veo_backend,
         "minimax": minimax_backend,
+        "minimax_sglang": minimax_sglang_backend,
         "kling": kling_backend,
         "vidu": vidu_backend,
     }

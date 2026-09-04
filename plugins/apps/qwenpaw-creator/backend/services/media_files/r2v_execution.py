@@ -156,6 +156,8 @@ _TERMINAL_TASKS = frozenset(
 logger = setup_logger("services.media_files.r2v_execution")
 
 _GOOGLE_API_KEY_AUTH = "x-goog-api-key"
+# Matches models.video_backends.minimax_sglang.BEARER_DOWNLOAD_AUTH.
+_BEARER_VIDEO_API_KEY_AUTH = "authorization-bearer"
 _CREDENTIAL_QUERY_NAMES = frozenset(
     {"key", "api_key", "token", "access_token"},
 )
@@ -202,14 +204,46 @@ def _provider_download_headers(result: Mapping[str, Any]) -> dict[str, str]:
     auth = str(result.get("download_auth") or "")
     if not auth:
         return {}
-    if auth != _GOOGLE_API_KEY_AUTH:
+    if auth not in (_GOOGLE_API_KEY_AUTH, _BEARER_VIDEO_API_KEY_AUTH):
         raise ValidationError(f"未知 provider 下载鉴权类型: {auth}")
     from models import config as model_config
 
     api_key = model_config.get_video_api_key()
     if not api_key:
-        raise ValidationError("Veo 视频下载需要当前模型配置中的 API Key")
+        raise ValidationError(
+            "Veo 视频下载需要当前模型配置中的 API Key"
+            if auth == _GOOGLE_API_KEY_AUTH
+            else "受保护的自部署视频下载需要当前模型配置中的 API Key",
+        )
+    if auth == _BEARER_VIDEO_API_KEY_AUTH:
+        return {"Authorization": f"Bearer {api_key}"}
     return {_GOOGLE_API_KEY_AUTH: api_key}
+
+
+def _provider_trusted_private_origins() -> frozenset[tuple[str, str, int]]:
+    """Origins of operator-configured self-hosted video endpoints.
+
+    Only the exact scheme/host/port the user typed into the active
+    ``minimax_sglang`` configuration may resolve to a non-global address
+    during result materialization; every other provider URL — including
+    redirects off this origin — keeps the public-network requirement.
+    Derived from live config at download time, never from durable state.
+    """
+
+    from models import config as model_config
+
+    if model_config.get_video_backend() != "minimax_sglang":
+        return frozenset()
+    parsed = urlsplit(str(model_config.get_video_base_url() or ""))
+    scheme = parsed.scheme.casefold()
+    host = (parsed.hostname or "").casefold()
+    if scheme not in {"http", "https"} or not host:
+        return frozenset()
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return frozenset()
+    return frozenset({(scheme, host, port)})
 
 
 class VideoReferenceBudgetError(ValidationError):
@@ -3948,6 +3982,9 @@ class FileR2VExecutionService:
                     total_timeout_seconds=self.materialize_timeout_seconds,
                     request_headers=_provider_download_headers(
                         claim.provider_result,
+                    ),
+                    trusted_private_origins=(
+                        _provider_trusted_private_origins()
                     ),
                 )
             except Exception as error:

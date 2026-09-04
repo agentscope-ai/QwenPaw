@@ -1745,6 +1745,12 @@ def video_backend_for_protocol(protocol: str) -> str | None:
         return "seedance2"
     if "gemini" in lowered or "veo" in lowered:
         return "veo"
+    # Checked before "minimax": the self-hosted label contains both words.
+    # The protocol label is the only selector for this backend — localhost
+    # endpoints carry no recognizable host and the H3 variant model names
+    # would otherwise route to the official channel.
+    if "sglang" in lowered:
+        return "minimax_sglang"
     if "minimax" in lowered or "海螺" in protocol:
         return "minimax"
     if "kling" in lowered or "可灵" in protocol:
@@ -1835,6 +1841,8 @@ def _validate_video_backend_url(backend: str, base: str) -> None:
             "VIDEO_MODEL_NAME selects MiniMax, but VIDEO_BASE_URL is not a "
             "MiniMax endpoint (api.minimax.io / api.minimaxi.com)",
         )
+    # minimax_sglang: self-hosted endpoints live on arbitrary hosts
+    # (typically localhost), so no host allowlist applies.
     if backend == "kling" and "klingai" not in base_lower:
         raise ValueError(
             "VIDEO_MODEL_NAME selects the official Kling channel, but "

@@ -657,6 +657,8 @@ def _bind_selection(monkeypatch, *, model="", base_url="", section=None):
         ("Volcano Engine（火山引擎）", "seedance2"),
         ("Google Gemini（Veo）", "veo"),
         ("MiniMax（海螺）", "minimax"),
+        # Contains both "minimax" and "sglang": the sglang check must win.
+        ("MiniMax H3（SGLang 自部署）", "minimax_sglang"),
         ("Kling（可灵官方）", "kling"),
         ("Vidu（官方）", "vidu"),
     ],

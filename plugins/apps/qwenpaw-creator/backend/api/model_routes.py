@@ -971,7 +971,16 @@ async def _validate_section_connectivity(
             "llm",
             {},
         ).get("api_key", "")
-    if not item.get("base_url") or not api_key:
+    # Self-hosted SGLang video serves without authentication unless
+    # started with --api-key, so an empty key is a valid configuration.
+    key_optional = (
+        section == "video"
+        and model_config.video_backend_for_protocol(
+            str(item.get("protocol") or ""),
+        )
+        == "minimax_sglang"
+    )
+    if not item.get("base_url") or (not api_key and not key_optional):
         raise ValidationError(
             f"{section}: 缺少 Base URL 或 API Key，请检查配置",
         )
@@ -1793,6 +1802,10 @@ def _probe_payload(
                     "task_id": "creator-connection-probe",
                 },
             )
+        if video_backend == "minimax_sglang":
+            # Zero-cost self-hosted probe: the SGLang multimodal server
+            # exposes GET /health (2xx when healthy and warmed up).
+            return (f"{base}/health", headers, {"_get_probe": True})
         if video_backend == "kling":
             return (
                 f"{base}/tasks",

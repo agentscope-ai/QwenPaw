@@ -51,7 +51,8 @@ Creator 通过 QwenPaw 的 **Apps（应用中心）** 安装和打开。启动 Q
   - DashScope / 百炼：`wan3.0-video`、`wan3.0-video-prime` 为 All-in-One 模型，同一模型 ID 支持 t2v / i2v / r2v；`wan2.7`、`happyhorse-1.1` 会按元素类型自动选择 t2v / i2v / r2v；百炼同时托管 `kling/kling-v3-*` 与 `vidu/viduq3-*_reference2video` 系列；
   - 火山引擎：`doubao-seedance-2-5-260628`（最长 30 秒，全模态参考最多 30 图 + 10 视频）与文档中明确列出的 `doubao-seedance-2-0-*` ID；
   - Google Gemini：`veo-3.1`（时长 4/6/8 秒，带参考图或 1080p/4k 时固定 8 秒，参考图最多 3 张）；
-  - MiniMax 海螺：`MiniMax-Hailuo-2.3` 等（768P 支持 6/10 秒，1080P 仅 6 秒），主体参考仅 `S2V-01`；
+  - MiniMax 海螺：`MiniMax-Hailuo-2.3` 等（768P 支持 6/10 秒，1080P 仅 6 秒），主体参考仅 `S2V-01`；`MiniMax-H3` / `MiniMax-H3-Max` 走 v2 content API（480P/768P/2K，4-15 秒，全模态参考最多 9 图 + 3 视频 + 3 音频）；
+  - MiniMax H3 自部署（SGLang）：开源权重 `MiniMaxAI/MiniMax-H3` 经 `sglang serve --model-variant fl2va|ref2va` 部署；一个实例只装载一个 variant，因此以配置的模型名记录——`MiniMax-H3-FL2VA`（t2v/i2v）或 `MiniMax-H3-Ref2VA`（全模态参考 r2v）；仅输出 768P，API Key 可选；
   - 可灵官方：`kling-3.0-omni`（参考生视频，参考图最多 7 张）、`kling-2.6`（仅 t2v/i2v，5 或 10 秒）；
   - Vidu 官方：能力按精确模型区分——`viduq3-turbo` 支持 t2v/i2v/r2v，`viduq3-mix`、`viduq3` 仅 r2v，`viduq2-pro` 支持 i2v/r2v，`viduq2` 支持 t2v/r2v；
   - 可灵与 Vidu 同时提供百炼托管和官方直连两条渠道，**由模型配置中选择的协议决定走哪条**；
