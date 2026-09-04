@@ -23,7 +23,7 @@
 
 两个角色都可以固定到其它模型：在输入栏的循环模式菜单里选中 **顾问** 后，模式胶囊旁会弹出 **顾问模型** 面板（对话进行中可用旁边的 **模型** 按钮再次打开），里面是 *顾问模型* 和 *Worker 模型* 两个下拉，默认预填上面的两个槽位。选择随智能体保存（`agent.json` 里的 `advisor_mode.advisor_model` / `advisor_mode.worker_model`，`POST /api/advisor-mode` 接受同样的字段），不会改动主模型和 Sub-agent 槽位；重新选回默认项即可恢复。顾问循环模板里的 **顾问模型与 Worker 模型** 卡片和 `/advisor status` 会显示实际生效的模型。
 
-顾问自身的调用有单独的思考档位 `advisor_mode.advisor_thinking`（同一卡片上的 **顾问思考**）：`inherit`（默认）跟随智能体和模型的默认设置，`off` / `low` / `medium` / `high` 只对顾问生效。对 qwen3-max 这类思考模型，计划首 token 之前的时间大部分花在思考上，觉得计划慢时先调低这一项。
+顾问自身的调用有单独的思考档位 `advisor_mode.advisor_thinking`（同一卡片上的 **顾问思考**）：默认 `off`，因为对 qwen3-max 这类思考模型，计划首 token 之前的时间大部分花在思考上（实测 35 秒 vs 2 秒）；`inherit` 跟随智能体和模型的默认设置，`low` / `medium` / `high` 只对顾问生效。更看重计划质量而非延迟时再调高。
 
 顾问的调用走与 QwenPaw 其它模型调用相同的 model factory，因此 provider 路由、重试、限流和 token 统计全部一致。
 
@@ -60,7 +60,7 @@
     "max_consults": 32,
     "advisor_model": null,
     "worker_model": null,
-    "advisor_thinking": "inherit"
+    "advisor_thinking": "off"
   }
 }
 ```

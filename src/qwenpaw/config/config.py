@@ -2113,10 +2113,11 @@ class AdvisorModeConfig(BaseModel):
         "medium",
         "high",
     ] = Field(
-        default="inherit",
+        default="off",
         description=(
-            "Thinking level for the advisor's own calls; 'inherit' "
-            "follows the agent / model default"
+            "Thinking level for the advisor's own calls. Off by default: "
+            "a thinking advisor spends most of the plan's latency "
+            "thinking; 'inherit' follows the agent / model default"
         ),
     )
 

@@ -45,7 +45,7 @@ def test_round_trips_through_json():
         },
         "advisor_model": None,
         "worker_model": None,
-        "advisor_thinking": "inherit",
+        "advisor_thinking": "off",
     }
     back = AgentProfileConfig.model_validate(raw)
     assert back.advisor_mode.enabled is True

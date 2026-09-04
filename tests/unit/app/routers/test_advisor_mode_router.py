@@ -77,7 +77,7 @@ def test_get_reports_state_and_models(client):
         "worker_source": "subagent_model",
         "advisor_model_override": None,
         "worker_model_override": None,
-        "advisor_thinking": "inherit",
+        "advisor_thinking": "off",
         "main_model": {"provider_id": "dash", "model": "qwen3-max"},
         "subagent_model": {"provider_id": "dash", "model": "qwen3-8b"},
     }
@@ -231,10 +231,10 @@ def test_post_updates_intervention_thresholds_partially(client, stored_config):
 
 
 def test_post_sets_the_advisor_thinking_level(client, stored_config):
-    resp = client.post("/api/advisor-mode", json={"advisor_thinking": "off"})
+    resp = client.post("/api/advisor-mode", json={"advisor_thinking": "high"})
     assert resp.status_code == 200
-    assert resp.json()["advisor_thinking"] == "off"
-    assert stored_config.advisor_mode.advisor_thinking == "off"
+    assert resp.json()["advisor_thinking"] == "high"
+    assert stored_config.advisor_mode.advisor_thinking == "high"
     assert (
         client.post(
             "/api/advisor-mode",
