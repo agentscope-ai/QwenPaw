@@ -327,6 +327,16 @@ def collect_final_agent_chat_response(
     return response_data
 
 
+def is_abnormal_outcome(response_data: Dict[str, Any]) -> bool:
+    """Return True when the final SSE response indicates an abnormal end.
+
+    API automation callers can use this instead of matching assistant
+    text keywords (e.g. doom-loop warnings).
+    """
+    outcome = response_data.get("outcome", "success")
+    return outcome not in {"success", "cancelled"}
+
+
 async def collect_final_agent_chat_response_async(
     base_url: Optional[str],
     request_payload: Dict[str, Any],
