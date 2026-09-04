@@ -245,6 +245,7 @@ class IssueCreate(BaseModel):
     description: str = ""
     status: str = "backlog"
     assignee: str = ""
+    language: str = "en"
 
 
 class IssuePatch(BaseModel):
@@ -252,6 +253,27 @@ class IssuePatch(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     assignee: Optional[str] = None
+    language: Optional[str] = None
+
+
+def _build_issue_prompt(issue: Dict[str, Any]) -> str:
+    """Build the agent prompt in the issue's selected UI language."""
+    language = "zh" if issue.get("language") == "zh" else "en"
+    title = issue["title"]
+    description = issue.get("description")
+    if language == "en":
+        return (
+            "You have been assigned the following Kanban issue:\n"
+            f"Title: {title}\n"
+            f"Description: {description or '(No description)'}\n\n"
+            "Complete the task and report the result concisely in English."
+        )
+    return (
+        "你被指派处理以下看板任务(Issue):\n"
+        f"标题: {title}\n"
+        f"描述: {description or '(无描述)'}\n\n"
+        "请完成该任务，并用简洁的中文汇报你的处理结果。"
+    )
 
 
 # ── HTTP router ──────────────────────────────────────────────────────
@@ -299,6 +321,7 @@ async def create_issue(
             "description": body.description,
             "status": status,
             "assignee": assignee,
+            "language": body.language if body.language == "zh" else "en",
             # No result field - results are stored in session
             "created_at": _now(),
             "updated_at": _now(),
@@ -347,6 +370,8 @@ async def patch_issue(
             issue["title"] = body.title
         if body.description is not None:
             issue["description"] = body.description
+        if body.language is not None:
+            issue["language"] = "zh" if body.language == "zh" else "en"
 
         # Apply assignee first so the status check below sees it.
         old_assignee = issue.get("assignee") or ""
@@ -682,6 +707,7 @@ _LAST_CTX: Dict[str, Any] = {}
 @router.post("/issues/{issue_id:path}/run")
 async def run_issue(
     issue_id: str,
+    language: Optional[str] = None,
     ctx=Depends(get_ctx),
 ) -> Dict[str, Any]:
     """Dispatch the issue to its assigned agent (non-blocking).
@@ -697,6 +723,8 @@ async def run_issue(
                 status_code=404,
                 detail="Issue not found",
             )
+        if language is not None:
+            issue["language"] = "zh" if language == "zh" else "en"
         assignee = issue.get("assignee")
         if not assignee:
             raise HTTPException(
@@ -716,15 +744,7 @@ async def run_issue(
         issue.pop("error", None)
         issue["updated_at"] = _now()
         _write_all(issues)
-        title = issue["title"]
-        description = issue.get("description") or "(无描述)"
-
-    prompt = (
-        "你被指派处理以下看板任务(Issue):\n"
-        f"标题: {title}\n"
-        f"描述: {description}\n\n"
-        "请完成该任务，并用简洁的中文汇报你的处理结果。"
-    )
+        prompt = _build_issue_prompt(issue)
 
     _LAST_CTX[assignee] = ctx
     _launch_run(ctx, issue_id, prompt, assignee)
@@ -1204,14 +1224,7 @@ async def _dispatch_loop() -> None:
                             issue_fresh["updated_at"] = _now()
                             _write_all(issues_fresh)
 
-                            title = issue_fresh["title"]
-                            desc = issue_fresh.get("description") or "(无描述)"
-                            prompt = (
-                                "你被指派处理以下看板任务(Issue):\n"
-                                f"标题: {title}\n"
-                                f"描述: {desc}\n\n"
-                                "请完成该任务，并用简洁的中文汇报你的处理结果。"
-                            )
+                            prompt = _build_issue_prompt(issue_fresh)
                             logger.info(
                                 "[kanban] Dispatcher: "
                                 "launching %s for agent %s",
