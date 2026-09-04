@@ -273,7 +273,8 @@ class TestNoTextDebounceBuffering:
     @pytest.fixture(autouse=True)
     def enable_base_debounce(self, base_channel):
         # These tests exercise BaseChannel's optional buffering. Console HTTP
-        # submissions intentionally disable it to support attachment-only turns.
+        # submissions intentionally disable it to support attachment-only
+        # turns.
         base_channel._no_text_debounce = True
 
     def test_no_text_content_buffered_not_processed(
