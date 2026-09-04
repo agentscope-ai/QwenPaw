@@ -973,17 +973,19 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
             input=tool_input,
             metadata={"tool_call_id": getattr(tool_call, "id", None)},
         ) as observation:
-            final_response = None
-            async for event in next_handler():
-                if isinstance(event, ToolResponse):
-                    final_response = event
-                yield event
-            if observation is not None and final_response is not None:
-                observation.update(
-                    output={
-                        "content": [
-                            getattr(b, "text", str(b))
-                            for b in (final_response.content or [])
-                        ],
-                    },
+            try:
+                final_response = None
+                async for event in next_handler():
+                    if isinstance(event, ToolResponse):
+                        final_response = event
+                    yield event
+            finally:
+                if observation is not None and final_response is not None:
+                    observation.update(
+                        output={
+                            "content": [
+                                getattr(b, "text", str(b))
+                                for b in (final_response.content or [])
+                            ],
+                        },
                 )
