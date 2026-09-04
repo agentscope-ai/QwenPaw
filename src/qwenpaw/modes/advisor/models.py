@@ -14,11 +14,12 @@ exactly like every other model call in QwenPaw.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterable
 from typing import Any, Callable
 
 from agentscope.message import Msg, TextBlock
 
-from ...utils.model_response import consume_model_response
+from ...utils.model_response import extract_response_text
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,19 @@ class AdvisorClient:
             )
             for m in messages
         ]
-        return await consume_model_response(model, msgs, on_text=on_text)
+        response = await model(msgs)
+        if not isinstance(response, AsyncIterable):
+            return extract_response_text(response)
+        # Streamed chunks carry the cumulative text, the last non-empty
+        # one wins.
+        text = ""
+        async for chunk in response:
+            chunk_text = extract_response_text(chunk)
+            if chunk_text:
+                text = chunk_text
+                if on_text is not None:
+                    on_text(text)
+        return text
 
 
 __all__ = [

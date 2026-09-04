@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """Advisor-mode tools: ``consult_advisor``.
 
-The opening plan and the automatic mid-run interventions are injected
-*as if* the agent had called ``consult_advisor``. This module makes that
-tool real, so the agent can also ask the advisor on its own — at a
-decision point, or when it is unsure whether to abandon a route — instead
-of waiting for the failure trigger.
+The opening plan is injected as if the agent had called
+``consult_advisor``. This module makes that tool real, so the agent can
+also ask the advisor on its own (at a decision point, or when it is unsure
+whether to abandon a route) instead of waiting for the failure trigger.
 """
 from __future__ import annotations
 
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator
+
+from agentscope.message import TextBlock
+from agentscope.tool import ToolChunk
 
 if TYPE_CHECKING:
     from .mode import AdvisorMode
@@ -30,9 +32,9 @@ CONSULT_TOOL_DESCRIPTION = (
     "committing to a costly or irreversible route, or when you are unsure "
     "whether to abandon an approach that keeps failing. Do not use it for "
     "routine steps or things you can check yourself with your tools. The "
-    "advisor cannot see your files or run code; state what you tried and "
-    "what you are deciding between. Consultations are capped per "
-    "conversation, so do not spend them on routine steps."
+    "advisor cannot see your files or run code, so state what you tried "
+    "and what you are deciding between. Consultations are capped per "
+    "conversation."
 )
 
 _NO_SESSION_REPLY = (
@@ -76,9 +78,6 @@ def _chunk(text: str, block_id: str) -> Any:
     them into a single text block (the agent then reads one reply, not a
     list of fragments) and the UI appends each piece as it arrives.
     """
-    from agentscope.message import TextBlock
-    from agentscope.tool import ToolChunk
-
     return ToolChunk(content=[TextBlock(type="text", text=text, id=block_id)])
 
 
@@ -119,7 +118,6 @@ def make_consult_advisor(owner: "AdvisorMode") -> Any:
 
 
 __all__ = [
-    "CONSULT_POLICY_NAME",
     "CONSULT_TOOL_DESCRIPTION",
     "CONSULT_TOOL_NAME",
     "make_consult_advisor",
