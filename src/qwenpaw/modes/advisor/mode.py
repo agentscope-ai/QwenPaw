@@ -14,9 +14,9 @@ from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import get_current_session_id
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
+from ..goal.helpers import rewrite_user_msg
 from .config import is_enabled, resolve_agent_config
 from .middleware import (
-    DEFAULT_MAX_CONSULTS,
     AdvisorMiddleware,
     default_log_dir,
 )
@@ -34,19 +34,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_USAGE = (
-    "Usage: /advisor <task>  (start Advisor Mode for this conversation and "
-    "run the task)\n"
-    "       /advisor on | off  (switch it on or off for this conversation)\n"
-    "       /advisor status\n"
-    "In Advisor Mode the agent's main model writes a plan up front, answers "
-    "the agent's questions, and steps in when the agent keeps failing, while "
-    "the agent itself runs on the configured sub-agent model."
-)
-
 _LOOP_DESCRIPTION = (
-    "A stronger model plans and steps in; a cheaper one does the work. "
-    "/advisor off leaves the mode."
+    "A stronger model plans and steps in while a cheaper one does the "
+    "work. Send /advisor off to leave."
 )
 
 # How many chat sessions' advisor state to keep per mode instance.
@@ -56,25 +46,8 @@ _MAX_SESSIONS = 64
 _UNAVAILABLE_NOTICE = (
     "Advisor Mode is switched off for this agent. Turn it on in "
     "Configuration → Agent Loop Settings → Advisor, then pick Advisor in "
-    "the composer's mode menu or send /advisor on."
+    "the Loop mode menu or send /advisor on."
 )
-
-
-def _trigger_config(advisor_config: Any) -> TriggerConfig:
-    """The mid-run intervention thresholds from ``advisor_mode.intervention``
-    (defaults when the section is missing)."""
-    section = getattr(advisor_config, "intervention", None)
-    defaults = TriggerConfig()
-    kwargs = {}
-    for name in (
-        "consecutive_failures",
-        "window_size",
-        "window_failures",
-        "cooldown_steps",
-        "max_interventions",
-    ):
-        kwargs[name] = int(getattr(section, name, getattr(defaults, name)))
-    return TriggerConfig(**kwargs)
 
 
 def _system_reply(text: str) -> Msg:
@@ -83,21 +56,6 @@ def _system_reply(text: str) -> Msg:
         role="system",
         content=[TextBlock(type="text", text=text)],
     )
-
-
-def _rewrite_user_msg(ctx: Any, text: str) -> None:
-    """Replace the last user message's content with *text*.
-
-    Used when ``/advisor <task>`` starts the mode: the agent must see the
-    bare task, not the slash command.
-    """
-    msgs = getattr(ctx, "input_msgs", None)
-    if not msgs:
-        return
-    last = msgs[-1]
-    if not isinstance(last, Msg):
-        return
-    last.content = [TextBlock(type="text", text=text)]
 
 
 @dataclass
@@ -242,8 +200,6 @@ class AdvisorMode(AgentMode):
         ctx: HookContext,
         agent_config: object,
     ) -> list:
-        if not self.is_active(ctx):
-            return []
         cfg = agent_config or resolve_agent_config(ctx)
         return [self.build_middleware(ctx, cfg)]
 
@@ -254,7 +210,7 @@ class AdvisorMode(AgentMode):
                 handler=self._command_handler,
                 category="builtin",
                 help_text=_LOOP_DESCRIPTION,
-                metadata={"loop_name": "Advisor"},
+                metadata={"builtin": True, "loop_name": "Advisor"},
             ),
         ]
 
@@ -280,12 +236,12 @@ class AdvisorMode(AgentMode):
             if session_id
             else AdvisorSessionState()
         )
-        am = getattr(cfg, "advisor_mode", None)
+        am = cfg.advisor_mode
         advisor = AdvisorClient(
             agent_id=agent_id,
             agent_config=cfg,
             model_slot=effective_advisor_slot(cfg),
-            thinking=str(getattr(am, "advisor_thinking", "inherit")),
+            thinking=am.advisor_thinking,
         )
         env_root = getattr(cfg, "project_dir", None) or getattr(
             ctx,
@@ -294,13 +250,13 @@ class AdvisorMode(AgentMode):
         )
         middleware = AdvisorMiddleware(
             advisor=advisor,
-            trigger=InterventionTrigger(config=_trigger_config(am)),
-            plan_enabled=bool(getattr(am, "plan_enabled", True)),
-            followup_enabled=bool(getattr(am, "followup_enabled", True)),
-            on_demand_enabled=bool(getattr(am, "on_demand_enabled", True)),
-            max_consults=int(
-                getattr(am, "max_consults", DEFAULT_MAX_CONSULTS),
+            trigger=InterventionTrigger(
+                config=TriggerConfig(**am.intervention.model_dump()),
             ),
+            plan_enabled=am.plan_enabled,
+            followup_enabled=am.followup_enabled,
+            on_demand_enabled=am.on_demand_enabled,
+            max_consults=am.max_consults,
             consults_used=state.consults_used,
             plan_injected=state.plan_injected,
             advisor_history=state.advisor_history,
@@ -363,7 +319,7 @@ class AdvisorMode(AgentMode):
         # Anything else is a task: start the mode and let the agent run it.
         if key:
             self.session_state(key).override = True
-        _rewrite_user_msg(ctx, text)
+        rewrite_user_msg(ctx, text)
         logger.info(
             "Advisor Mode: started for session %s with task %r",
             key,
@@ -377,19 +333,8 @@ class AdvisorMode(AgentMode):
 
     @staticmethod
     def _status_text(cfg: Any, override: bool | None = None) -> str:
-        am = getattr(cfg, "advisor_mode", None)
-        available = bool(am and getattr(am, "enabled", False))
-        active = available and bool(override)
-        plan = bool(am is None or getattr(am, "plan_enabled", True))
-        followup = bool(am is None or getattr(am, "followup_enabled", True))
-        on_demand = bool(
-            am is None or getattr(am, "on_demand_enabled", True),
-        )
-        max_consults = int(
-            getattr(am, "max_consults", DEFAULT_MAX_CONSULTS)
-            if am is not None
-            else DEFAULT_MAX_CONSULTS,
-        )
+        am = cfg.advisor_mode
+        active = am.enabled and bool(override)
         advisor = slot_label(effective_advisor_slot(cfg))
         worker_slot = slot_to_dict(effective_worker_slot(cfg))
         worker = (
@@ -397,24 +342,26 @@ class AdvisorMode(AgentMode):
             if worker_slot is not None
             else f"{advisor} (no sub-agent model configured)"
         )
-        if not available:
+        if not am.enabled:
             scope = "switched off for this agent in Configuration"
         elif active:
             scope = "this conversation"
         else:
             scope = (
-                "not selected for this conversation; pick Advisor in the "
-                "composer's mode menu or send /advisor on"
+                "not selected for this conversation. Pick Advisor in the "
+                "Loop mode menu or send /advisor on"
             )
         return (
             f"Advisor Mode: {'on' if active else 'off'} ({scope})\n"
             f"- advisor model: {advisor}\n"
             f"- worker model: {worker}\n"
-            f"- opening plan: {'on' if plan else 'off'}\n"
-            f"- mid-run auto intervention: {'on' if followup else 'off'}\n"
-            f"- consult_advisor tool: {'on' if on_demand else 'off'} "
-            f"(max {max_consults} per conversation)"
+            f"- opening plan: {'on' if am.plan_enabled else 'off'}\n"
+            "- mid-run auto intervention: "
+            f"{'on' if am.followup_enabled else 'off'}\n"
+            "- consult_advisor tool: "
+            f"{'on' if am.on_demand_enabled else 'off'} "
+            f"(max {am.max_consults} per conversation)"
         )
 
 
-__all__ = ["AdvisorMode", "AdvisorSessionState"]
+__all__ = ["AdvisorMode"]

@@ -37,15 +37,9 @@ def resolve_agent_config(ctx: "HookContext") -> "AgentProfileConfig | None":
         return None
 
 
-def mode_config(cfg: Any) -> Any:
-    """The ``advisor_mode`` section of an agent config, or ``None``."""
-    return getattr(cfg, "advisor_mode", None) if cfg is not None else None
-
-
 def is_enabled(cfg: Any) -> bool:
-    """Whether Advisor Mode is switched on in ``cfg``."""
-    am = mode_config(cfg)
-    return bool(am and getattr(am, "enabled", False))
+    """Whether Advisor Mode is switched on in ``cfg`` (``None`` = no)."""
+    return cfg is not None and cfg.advisor_mode.enabled
 
 
-__all__ = ["is_enabled", "mode_config", "resolve_agent_config"]
+__all__ = ["is_enabled", "resolve_agent_config"]

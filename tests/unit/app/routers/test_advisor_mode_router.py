@@ -72,9 +72,7 @@ def test_get_reports_state_and_models(client):
         },
         "agent_id": "agent-1",
         "advisor_model": {"provider_id": "dash", "model": "qwen3-max"},
-        "advisor_source": "main_model",
         "worker_model": {"provider_id": "dash", "model": "qwen3-8b"},
-        "worker_source": "subagent_model",
         "advisor_model_override": None,
         "worker_model_override": None,
         "advisor_thinking": "off",
@@ -87,7 +85,6 @@ def test_get_without_subagent_model(client, stored_config):
     stored_config.subagent_model = None
     body = client.get("/api/advisor-mode").json()
     assert body["worker_model"] is None
-    assert body["worker_source"] == "main_model"
     assert body["subagent_model"] is None
 
 
@@ -102,9 +99,7 @@ def test_post_sets_and_clears_the_model_overrides(client, stored_config):
     assert resp.status_code == 200
     body = resp.json()
     assert body["advisor_model"] == {"provider_id": "big", "model": "b-max"}
-    assert body["advisor_source"] == "override"
     assert body["worker_model"] == {"provider_id": "small", "model": "s-mini"}
-    assert body["worker_source"] == "override"
     assert body["advisor_model_override"] == body["advisor_model"]
     assert body["worker_model_override"] == body["worker_model"]
     # The defaults are still reported for the Console labels.
@@ -118,14 +113,19 @@ def test_post_sets_and_clears_the_model_overrides(client, stored_config):
 
     # Omitted → unchanged; explicit null → cleared.
     body = client.post("/api/advisor-mode", json={"enabled": True}).json()
-    assert body["advisor_source"] == "override"
+    assert body["advisor_model_override"] == {
+        "provider_id": "big",
+        "model": "b-max",
+    }
     body = client.post(
         "/api/advisor-mode",
         json={"advisor_model": None},
     ).json()
-    assert body["advisor_source"] == "main_model"
+    assert body["advisor_model"] == body["main_model"]
     assert body["advisor_model_override"] is None
-    assert body["worker_source"] == "override", "other override untouched"
+    assert (
+        body["worker_model_override"] == body["worker_model"]
+    ), "other override untouched"
     assert stored_config.advisor_mode.advisor_model is None
 
 

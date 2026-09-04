@@ -207,8 +207,9 @@ def test_middlewares_only_when_enabled():
     assert mw._advisor.label == "dash:qwen3-max"
     assert mw._session_id == "sess-1"
 
+    # The builder only asks active modes for middlewares.
     off = _config(enabled=False)
-    assert not mode.middlewares(_ctx(off), off)
+    assert mode.is_active(_ctx(off)) is False
 
 
 def test_middleware_env_root_prefers_project_dir(tmp_path):
@@ -375,7 +376,6 @@ async def test_leaving_the_mode_switches_everything_off(monkeypatch):
     assert mode.is_active(ctx) is True, "picked for the conversation"
     await mode._command_handler(ctx, "off")
     assert mode.is_active(ctx) is False
-    assert not mode.middlewares(ctx, cfg)
     hook_ctx = _ctx(cfg)
     await mode.hooks()[0].run(hook_ctx)
     assert not hasattr(hook_ctx.request, "model_slot_override")
@@ -683,17 +683,11 @@ def test_intervention_thresholds_come_from_the_config():
     assert trigger.consecutive_failures == 2
     assert trigger.max_interventions == 1
     assert trigger.window_size == 10, "defaults for the rest"
-    # Configs without the section (older agent.json) get the defaults.
-    bare = _config()
-    bare.advisor_mode = SimpleNamespace(
-        enabled=True,
-        plan_enabled=True,
-        followup_enabled=True,
-        on_demand_enabled=True,
-        max_consults=3,
-    )
+    # A config without the section (older agent.json) gets the defaults.
     assert (
-        AdvisorMode().build_middleware(_ctx(bare), bare)._trigger.config
+        AdvisorMode()
+        .build_middleware(_ctx(_config()), _config())
+        ._trigger.config
         == TriggerConfig()
     )
 
@@ -748,7 +742,7 @@ async def test_status_mentions_the_consult_tool(monkeypatch):
 
 def test_command_metadata_exposes_the_loop_mode_entry():
     spec = AdvisorMode().commands()[0]
-    assert spec.metadata == {"loop_name": "Advisor"}
+    assert spec.metadata == {"builtin": True, "loop_name": "Advisor"}
     assert "plans" in spec.help_text and "/advisor off" in spec.help_text
 
 

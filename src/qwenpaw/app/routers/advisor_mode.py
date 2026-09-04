@@ -67,15 +67,13 @@ class AdvisorModeUpdateRequest(BaseModel):
 def _state(config) -> dict:
     """The Advisor Mode state the Console renders.
 
-    ``advisor_model`` / ``worker_model`` are the models actually used,
-    with ``*_source`` saying where each comes from (``override`` = set in
-    the Advisor tab, ``main_model`` / ``global`` = the agent's main model,
-    ``subagent_model`` = the sub-agent slot). ``*_model_override`` echo the
-    stored overrides so the Console can show "default" vs "custom".
+    ``advisor_model`` / ``worker_model`` are the models actually used.
+    ``*_model_override`` echo the stored overrides so the Console can
+    show "default" vs "custom".
     """
     am = config.advisor_mode
-    advisor, advisor_source = resolve_advisor_slot(config)
-    worker, worker_source = resolve_worker_slot(config)
+    advisor, _advisor_source = resolve_advisor_slot(config)
+    worker, _worker_source = resolve_worker_slot(config)
     return {
         "enabled": bool(am.enabled),
         "plan_enabled": bool(am.plan_enabled),
@@ -85,9 +83,7 @@ def _state(config) -> dict:
         "intervention": am.intervention.model_dump(),
         "agent_id": config.id,
         "advisor_model": slot_to_dict(advisor),
-        "advisor_source": advisor_source,
         "worker_model": slot_to_dict(worker),
-        "worker_source": worker_source,
         "advisor_model_override": slot_to_dict(am.advisor_model),
         "worker_model_override": slot_to_dict(am.worker_model),
         "advisor_thinking": am.advisor_thinking,

@@ -2020,7 +2020,7 @@ class AdvisorInterventionConfig(BaseModel):
 
     The trigger fires on ``consecutive_failures`` failed tool calls in a
     row, or ``window_failures`` failures within the last ``window_size``
-    steps; counters reset after each intervention.
+    steps. Counters reset after each intervention.
     """
 
     consecutive_failures: int = Field(
@@ -2053,10 +2053,10 @@ class AdvisorInterventionConfig(BaseModel):
 class AdvisorModeConfig(BaseModel):
     """Configuration for Advisor Mode (stored in agent.json).
 
-    In Advisor Mode the agent's main model acts as the advisor: it writes
-    a strategic plan before the agent's first step and is consulted again
-    when the agent keeps failing. The agent itself (the worker) runs on
-    the cheaper ``subagent_model`` when one is configured.
+    In Advisor Mode the agent's primary model acts as the advisor: it
+    writes a strategic plan before the agent's first step and is consulted
+    again when the agent keeps failing. The agent itself (the worker) runs
+    on the cheaper ``subagent_model`` when one is configured.
     """
 
     enabled: bool = Field(
@@ -2095,15 +2095,15 @@ class AdvisorModeConfig(BaseModel):
     advisor_model: Optional[ModelSlotConfig] = Field(
         default=None,
         description=(
-            "Model that answers as the advisor; None means the agent's "
-            "main model"
+            "Model that answers as the advisor. None means the agent's "
+            "primary model"
         ),
     )
     worker_model: Optional[ModelSlotConfig] = Field(
         default=None,
         description=(
-            "Model the agent runs on while Advisor Mode is on; None means "
-            "the sub-agent model, or the main model when none is set"
+            "Model the agent runs on while Advisor Mode is on. None means "
+            "the sub-agent model, or the primary model when none is set"
         ),
     )
     advisor_thinking: Literal[
@@ -2115,9 +2115,8 @@ class AdvisorModeConfig(BaseModel):
     ] = Field(
         default="off",
         description=(
-            "Thinking level for the advisor's own calls. Off by default: "
-            "a thinking advisor spends most of the plan's latency "
-            "thinking; 'inherit' follows the agent / model default"
+            "Thinking level for the advisor's own calls. 'inherit' "
+            "follows the agent and model defaults"
         ),
     )
 

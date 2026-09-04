@@ -46,7 +46,7 @@ STRUCTURED_FAILURE_PREFIXES: tuple[str, ...] = (
 
 # Anchored patterns for the failures that do not start with a fixed string
 # (browser worker crashes, approval timeouts, bad kwargs, unknown tools,
-# policy denials). Without them the trigger misses most real failures.
+# policy denials).
 STRUCTURED_FAILURE_PATTERNS: tuple[str, ...] = (
     # Right tool, wrong argument name: "web_search() got an unexpected ..."
     r"^\w+\(\) got an unexpected keyword argument",
@@ -97,8 +97,7 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
         label="shell:stderr-error",
     ),
     # A fetch that "worked" but landed on an error page. Both browser
-    # tracks register the tool as "browser", so the rule is keyed to that
-    # name; keyed to the historical "browser_use" it never fired.
+    # tracks register the tool as "browser".
     SemanticRule(
         tool="browser",
         pattern=(
@@ -178,7 +177,7 @@ _CONSECUTIVE_FAILURES = 3
 _WINDOW_SIZE = 10  # steps
 _WINDOW_FAILURES = 4
 _COOLDOWN_STEPS = 0  # extra damping after a fire; counters already reset
-_MAX_INTERVENTIONS = 3  # recorded runs average 2.3
+_MAX_INTERVENTIONS = 3
 
 
 @dataclass
