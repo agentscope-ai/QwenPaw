@@ -234,6 +234,8 @@ function PersistedEmbeddingForm() {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -266,6 +268,8 @@ function PersistedDashScopeEmbeddingForm() {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
       }}
     >
       <Form form={form}>
