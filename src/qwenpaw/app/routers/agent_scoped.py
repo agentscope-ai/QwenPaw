@@ -82,6 +82,7 @@ def create_agent_scoped_router() -> APIRouter:
     from .console import router as console_router
     from .plugins import router as plugins_router
     from .checkpoints import router as checkpoints_router
+    from .portability_imports import portability_import_router
 
     router = APIRouter(prefix="/agents/{agentId}", tags=["agent-scoped"])
 
@@ -106,5 +107,6 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(console_router)
     router.include_router(plugins_router)
     router.include_router(checkpoints_router)
+    router.include_router(portability_import_router)
 
     return router

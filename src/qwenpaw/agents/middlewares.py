@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
-_AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
+_MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
     "manual_compact_memory_by_handler",
@@ -530,7 +530,7 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(request_context, dict):
             return False
         source = str(request_context.get("source") or "").strip().lower()
-        return source in _AUTOMATION_MEMORY_SKIP_SOURCES
+        return source in _MEMORY_SKIP_SOURCES
 
     @staticmethod
     def _compression_state(

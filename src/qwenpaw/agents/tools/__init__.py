@@ -59,6 +59,13 @@ from .agent_management import (  # noqa: E402
 )  # noqa: E402
 from .delegate_external_agent import delegate_external_agent  # noqa: E402
 from .make_skill_tools import materialize_skill  # noqa: E402
+from .migration_compatibility import (  # noqa: E402
+    migration_compat_finalize,
+    migration_compat_inspect,
+    migration_compat_read_file,
+    migration_compat_update,
+    migration_compat_write_file,
+)
 from .ast_tool import ast_search  # noqa: E402
 from .run_tool_batch import run_tool_batch  # noqa: E402
 from .mail_f1_tool import activate_f1_exploration_mode  # noqa: E402

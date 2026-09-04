@@ -1,0 +1,118 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.intro,
+.resultHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+
+  p {
+    margin-top: 6px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionHeading {
+  h3,
+  p {
+    margin: 0;
+  }
+
+  p {
+    margin-top: 4px;
+    color: var(--color-text-secondary);
+  }
+}
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sourceCard :global(.ant-card-body),
+.sourceCard :global(.qwenpaw-card-body) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.row,
+.assetRow {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.assetRow:last-child {
+  border-bottom: 0;
+}
+
+.groups {
+  margin-top: 12px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.center {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--color-text-secondary);
+}
+
+.logs {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+@media (max-width: 639px) {
+  .content {
+    padding: 20px 16px 32px;
+  }
+
+  .sourceGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -218,6 +218,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         self._plugin_http_app = app
 
+    def get_plugin_http_app(self) -> Optional[Any]:
+        """Return the application that owns the native plugin lifecycle."""
+        return self._plugin_http_app
+
     def register_http_router(
         self,
         plugin_id: str,

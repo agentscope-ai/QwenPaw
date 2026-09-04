@@ -2,16 +2,71 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
-import type { CronJobSpecOutput } from "../../../api/types";
+import {
+  getCronLocalProjectDir,
+  requiresCronLocalProjectMapping,
+  requiresCronImportReview,
+  type CronJobSpecOutput,
+} from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { parseErrorDetail } from "../../../utils/error";
 
 type CronJob = CronJobSpecOutput;
 
+function hasOwn(value: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * Ant Form only submits registered fields. A regular shallow replacement would
+ * therefore erase the imported-job gate and provenance fields. Pending jobs
+ * use a protected merge: migration metadata is immutable, while project_dir is
+ * the one request-context field the review UI is allowed to override.
+ */
+function mergeReviewPendingJob(original: CronJob, values: CronJob): CronJob {
+  const originalContext = original.request?.request_context ?? {};
+  const editedContext = values.request?.request_context ?? {};
+  const requestContext: Record<string, unknown> = { ...originalContext };
+
+  if (hasOwn(editedContext, "project_dir")) {
+    requestContext.project_dir =
+      typeof editedContext.project_dir === "string"
+        ? editedContext.project_dir.trim()
+        : editedContext.project_dir;
+  }
+
+  const request =
+    original.request || values.request
+      ? {
+          ...original.request,
+          ...values.request,
+          input: values.request?.input ?? original.request?.input,
+          request_context: requestContext,
+        }
+      : undefined;
+
+  return {
+    ...original,
+    ...values,
+    id: original.id,
+    enabled: false,
+    meta: original.meta,
+    dispatch: {
+      ...original.dispatch,
+      ...values.dispatch,
+      meta: original.dispatch.meta,
+    },
+    request,
+  };
+}
+
 export function useCronJobs() {
   const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [promotingJobIds, setPromotingJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const { message } = useAppMessage();
   const { t } = useTranslation();
 
@@ -141,11 +196,15 @@ export function useCronJobs() {
 
   const updateJob = async (jobId: string, values: CronJob) => {
     const original = jobs.find((j) => j.id === jobId);
-    const optimisticUpdate = { ...original, ...values };
+    const updatePayload =
+      original && requiresCronImportReview(original)
+        ? mergeReviewPendingJob(original, values)
+        : values;
+    const optimisticUpdate = { ...original, ...updatePayload };
     setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
 
     try {
-      const updated = await api.replaceCronJob(jobId, values);
+      const updated = await api.replaceCronJob(jobId, updatePayload);
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
@@ -180,6 +239,10 @@ export function useCronJobs() {
   };
 
   const toggleEnabled = async (job: CronJob) => {
+    if (requiresCronImportReview(job)) {
+      message.error(t("cronJobs.importReviewBlocked"));
+      return false;
+    }
     const updated = { ...job, enabled: !job.enabled };
     setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
 
@@ -199,6 +262,11 @@ export function useCronJobs() {
   };
 
   const executeNow = async (jobId: string) => {
+    const job = jobs.find((candidate) => candidate.id === jobId);
+    if (job && requiresCronImportReview(job)) {
+      message.error(t("cronJobs.importReviewBlocked"));
+      return false;
+    }
     try {
       await api.triggerCronJob(jobId);
       message.success("Task triggered successfully");
@@ -210,6 +278,41 @@ export function useCronJobs() {
     }
   };
 
+  const promoteImportedJob = async (jobId: string) => {
+    const job = jobs.find((candidate) => candidate.id === jobId);
+    if (!job || !requiresCronImportReview(job)) {
+      return false;
+    }
+    if (requiresCronLocalProjectMapping(job) && !getCronLocalProjectDir(job)) {
+      message.error(t("cronJobs.importReviewProjectDirRequired"));
+      return false;
+    }
+
+    setPromotingJobIds((prev) => new Set(prev).add(jobId));
+    try {
+      const promoted = await api.promoteCronJob(jobId);
+      setJobs((prev) =>
+        prev.map((candidate) =>
+          candidate.id === jobId ? (promoted as CronJob) : candidate,
+        ),
+      );
+      message.success(t("cronJobs.importReviewSuccess"));
+      return true;
+    } catch (error) {
+      console.error("Failed to promote imported cron job", error);
+      message.error(
+        getDisplayErrorMessage(error, t("cronJobs.importReviewFailed")),
+      );
+      return false;
+    } finally {
+      setPromotingJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  };
+
   return {
     jobs,
     loading,
@@ -218,5 +321,7 @@ export function useCronJobs() {
     deleteJob,
     toggleEnabled,
     executeNow,
+    promoteImportedJob,
+    promotingJobIds,
   };
 }

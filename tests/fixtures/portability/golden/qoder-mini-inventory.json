@@ -1,0 +1,70 @@
+{
+  "provider": "qoder",
+  "sessions": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "title": "Continue the Qoder fixture",
+      "cwd": "/fixture/qoder-project",
+      "history": [
+        {"kind": "user", "text": "Continue the Qoder fixture"},
+        {"kind": "message", "text": "Qoder fixture complete"}
+      ]
+    }
+  ],
+  "ignored_sessions": [
+    "22222222-2222-4222-8222-222222222222"
+  ],
+  "skills": ["portable-qoder"],
+  "mcp": [
+    {
+      "id": "qoder:mcp:filesystem",
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["server-filesystem.mjs"],
+      "url": "",
+      "plugin": ""
+    },
+    {
+      "id": "qoder:plugin-mcp:mini-plugin@local-custom:plugin-report",
+      "name": "plugin-report",
+      "transport": "streamable_http",
+      "command": "",
+      "args": [],
+      "url": "https://example.test/report-mcp",
+      "plugin": "mini-plugin@local-custom"
+    }
+  ],
+  "memory": [
+    {
+      "id": "project-memory:-fixture-project",
+      "cwd": "/fixture/qoder-project",
+      "files": ["fact.md"]
+    }
+  ],
+  "marketplaces": [
+    {
+      "id": "qoder:local-custom",
+      "name": "local-custom",
+      "type": "local_custom"
+    }
+  ],
+  "plugins": [
+    {
+      "id": "mini-plugin@local-custom",
+      "name": "mini-plugin",
+      "version": "0.1.0",
+      "adapter": "qoder_skill_only_v1"
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "id": "qoder:schedule:daily-review",
+      "name": "Daily review",
+      "type": "cron",
+      "cron": "30 9 * * *",
+      "timezone": "Asia/Shanghai",
+      "enabled_at_source": true
+    }
+  ]
+}

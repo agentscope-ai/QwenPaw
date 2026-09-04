@@ -66,6 +66,69 @@
     "genericSubTitle": "Có lỗi không mong muốn khi hiển thị trang này.",
     "reload": "Tải lại"
   },
+  "portabilityImport": {
+    "title": "Nhập dữ liệu",
+    "description": "Chuyển cuộc trò chuyện và thiết lập công cụ từ ứng dụng AI khác vào QwenPaw.",
+    "steps": {
+      "sources": "Ứng dụng",
+      "inventory": "Chọn nội dung",
+      "progress": "Nhập"
+    },
+    "chooseSources": "Chọn ứng dụng",
+    "chooseSourcesHint": "Chọn một hoặc nhiều ứng dụng đã phát hiện.",
+    "detected": "Đã phát hiện",
+    "notDetected": "Chưa phát hiện",
+    "noSources": "Không phát hiện ứng dụng AI được hỗ trợ trên thiết bị này.",
+    "continue": "Tiếp tục",
+    "scanning": "Đang kiểm tra cuộc trò chuyện và thiết lập công cụ…",
+    "chooseContent": "Chọn nội dung cần nhập",
+    "defaultSelected": "Cuộc trò chuyện và công cụ được chọn mặc định. Plugin cần xác nhận rõ ràng của bạn.",
+    "conversations": "Cuộc trò chuyện",
+    "toolsSetup": "Công cụ & thiết lập",
+    "heartbeatRequiresSessions": "Tác vụ đã lên lịch này yêu cầu nhập các cuộc trò chuyện.",
+    "items": "{{count}} mục",
+    "start": "Bắt đầu nhập",
+    "groups": {
+      "memory": "Bộ nhớ",
+      "cron": "Lịch chạy",
+      "skill": "Kỹ năng",
+      "mcp": "MCP",
+      "plugin": "Plugin"
+    },
+    "states": {
+      "pending": "Đang chờ",
+      "repairing": "Đang sửa",
+      "ready": "Đã sửa xong, chờ nhập",
+      "failed": "Thất bại",
+      "succeeded": "Thành công",
+      "existing": "Đã tồn tại"
+    },
+    "hints": {
+      "failed": "Vui lòng chỉnh sửa cấu hình liên quan theo cách thủ công.",
+      "disabled": "Đã nhập thành công nhưng vẫn tắt cho đến khi bạn xem xét và bật.",
+      "cronReview": "Đã nhập ở trạng thái tắt và bị chặn chạy cho đến khi bạn xác nhận rõ ràng trong Tác vụ Cron; sau đó hãy bật riêng."
+    },
+    "sessionStates": {
+      "failed": "Nhập thất bại",
+      "succeeded": "Đã nhập {{count}}/{{total}}",
+      "importing": "Đang nhập {{count}}/{{total}}"
+    },
+    "finished": "Nhập hoàn tất",
+    "importing": "Đang nhập dữ liệu",
+    "cancelling": "Đang dừng nhập dữ liệu",
+    "cancellingHint": "Đang chờ Agent sửa khả năng tương thích dừng an toàn.",
+    "keepOpen": "Bạn có thể xem trạng thái từng mục bên dưới. Không đóng QwenPaw trong khi nhập.",
+    "details": "Chi tiết di chuyển",
+    "targetAgent": "Agent đích: {{agent}}",
+    "selectAllFailed": "Chọn tất cả công cụ thất bại",
+    "retrySelected": "Thử lại mục đã chọn ({{count}})",
+    "retryConfirm": "Thử lại {{count}} công cụ thất bại đã chọn? Mục QwenPaw hiện có sẽ được giữ nguyên.",
+    "pluginWarningTitle": "Cảnh báo thực thi plugin",
+    "pluginWarning": "Các plugin này có thể cài đặt phụ thuộc Python, thực thi mã trong tiến trình QwenPaw và đăng ký công cụ, Hook, route hoặc lệnh toàn cục. Chọn plugin cũng sẽ nhập cấu hình và thông tin xác thực MCP liên kết ở trạng thái tắt để xem xét. Chỉ nhập plugin từ nguồn bạn tin cậy.",
+    "pluginWarningConfirm": "Tôi tin cậy nguồn của các plugin này và cho phép cài đặt phụ thuộc cũng như thực thi mã.",
+    "pluginWarningAction": "Xác nhận và nhập",
+    "done": "Hoàn tất"
+  },
   "appCenter": {
     "backToList": "Quay lại",
     "subtitle": "Quản lý ứng dụng đã cài đặt hoặc mở rộng không gian làm việc từ chợ ứng dụng.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Trò chuyện",
+    "import": "Nhập dữ liệu",
     "files": "Tệp",
     "control": "Điều khiển",
     "channels": "Kênh",

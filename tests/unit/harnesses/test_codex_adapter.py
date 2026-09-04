@@ -102,6 +102,17 @@ class FakeCodexClient:
             }
         if method == "thread/start":
             return {"thread": {"id": "thread-1"}}
+        if method == "thread/list":
+            return {
+                "data": [
+                    {
+                        "id": "external-thread-1",
+                        "preview": "An older Codex task",
+                        "cwd": "/tmp/project",
+                    },
+                ],
+                "nextCursor": None,
+            }
         if method == "turn/start":
             assert self.queue is not None
             await self.queue.put(
@@ -350,6 +361,25 @@ async def test_discovers_codex_owned_skills_as_read_only(
     assert (
         "skills/list",
         {"cwds": [str(tmp_path)], "forceReload": False},
+    ) in client.requests
+
+
+@pytest.mark.asyncio
+async def test_lists_and_reads_preexisting_codex_threads(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    threads = await adapter.list_external_threads(limit=10)
+    history = await adapter.read_external_thread("external-thread-1")
+
+    assert threads[0]["id"] == "external-thread-1"
+    assert [item.text for item in history] == ["Fix it", "Checking", "Done"]
+    assert ("thread/list", {"limit": 10}) in client.requests
+    assert (
+        "thread/read",
+        {"threadId": "external-thread-1", "includeTurns": True},
     ) in client.requests
 
 

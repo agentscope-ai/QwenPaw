@@ -274,7 +274,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         Combines results from two sources:
         1. ADBPG database (semantic search)
-        2. Local MEMORY.md and memory/*.md files (keyword matching)
+        2. Local MEMORY.md and memory/**/*.md files (keyword matching)
 
         Args:
             query (`str`):
@@ -402,7 +402,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 3,
     ) -> list[tuple[str, str]]:
-        """Keyword-search MEMORY.md and memory/*.md files."""
+        """Keyword-search MEMORY.md and memory/**/*.md files."""
         workspace = Path(self.working_dir).expanduser()
         candidates: list[Path] = []
 
@@ -412,7 +412,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         memory_dir = workspace / "memory"
         if memory_dir.is_dir():
-            candidates.extend(sorted(memory_dir.glob("*.md")))
+            candidates.extend(sorted(memory_dir.rglob("*.md")))
 
         if not candidates:
             return []

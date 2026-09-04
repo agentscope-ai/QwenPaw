@@ -66,6 +66,69 @@
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
     "reload": "Muat ulang"
   },
+  "portabilityImport": {
+    "title": "Impor",
+    "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
+    "steps": {
+      "sources": "Aplikasi",
+      "inventory": "Pilih konten",
+      "progress": "Impor"
+    },
+    "chooseSources": "Pilih aplikasi",
+    "chooseSourcesHint": "Pilih satu atau beberapa aplikasi yang terdeteksi.",
+    "detected": "Terdeteksi",
+    "notDetected": "Tidak terdeteksi",
+    "noSources": "Tidak ada aplikasi AI yang didukung terdeteksi di perangkat ini.",
+    "continue": "Lanjutkan",
+    "scanning": "Memeriksa percakapan dan pengaturan alat…",
+    "chooseContent": "Pilih yang akan diimpor",
+    "defaultSelected": "Percakapan dan alat dipilih secara default. Plugin memerlukan konfirmasi eksplisit Anda.",
+    "conversations": "Percakapan",
+    "toolsSetup": "Alat & pengaturan",
+    "heartbeatRequiresSessions": "Tugas terjadwal ini memerlukan percakapan untuk diimpor.",
+    "items": "{{count}} item",
+    "start": "Mulai impor",
+    "groups": {
+      "memory": "Memori",
+      "cron": "Jadwal",
+      "skill": "Skill",
+      "mcp": "MCP",
+      "plugin": "Plugin"
+    },
+    "states": {
+      "pending": "Menunggu",
+      "repairing": "Memperbaiki",
+      "ready": "Berhasil diperbaiki, menunggu impor",
+      "failed": "Gagal",
+      "succeeded": "Berhasil",
+      "existing": "Sudah ada"
+    },
+    "hints": {
+      "failed": "Sesuaikan konfigurasi terkait secara manual.",
+      "disabled": "Berhasil diimpor tetapi tetap nonaktif hingga Anda meninjau dan mengaktifkannya.",
+      "cronReview": "Diimpor dalam keadaan nonaktif dan tidak dapat dijalankan sampai Anda meninjaunya secara eksplisit di Tugas Cron; aktifkan secara terpisah setelahnya."
+    },
+    "sessionStates": {
+      "failed": "Impor gagal",
+      "succeeded": "{{count}}/{{total}} diimpor",
+      "importing": "Mengimpor {{count}}/{{total}}"
+    },
+    "finished": "Impor selesai",
+    "importing": "Impor sedang berjalan",
+    "cancelling": "Menghentikan impor",
+    "cancellingHint": "Menunggu Agent perbaikan kompatibilitas berhenti dengan aman.",
+    "keepOpen": "Tinjau status setiap item di bawah. Jangan tutup QwenPaw selama impor.",
+    "details": "Detail migrasi",
+    "targetAgent": "Agent tujuan: {{agent}}",
+    "selectAllFailed": "Pilih semua alat yang gagal",
+    "retrySelected": "Coba lagi yang dipilih ({{count}})",
+    "retryConfirm": "Coba lagi {{count}} alat gagal yang dipilih? Item QwenPaw yang sudah ada akan dipertahankan.",
+    "pluginWarningTitle": "Peringatan eksekusi plugin",
+    "pluginWarning": "Plugin ini dapat memasang dependensi Python, menjalankan kode dalam proses QwenPaw, serta mendaftarkan alat, Hook, rute, atau perintah global. Memilih plugin juga mengimpor konfigurasi dan kredensial MCP terikatnya dalam keadaan nonaktif untuk ditinjau. Impor hanya plugin dari sumber yang tepercaya.",
+    "pluginWarningConfirm": "Saya memercayai sumber plugin ini dan mengizinkan pemasangan dependensi serta eksekusi kode.",
+    "pluginWarningAction": "Konfirmasi dan impor",
+    "done": "Selesai"
+  },
   "appCenter": {
     "backToList": "Kembali",
     "subtitle": "Kelola aplikasi yang terpasang atau perluas workspace Anda dari pasar aplikasi.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "import": "Impor",
     "files": "File",
     "control": "Kontrol",
     "channels": "Saluran",

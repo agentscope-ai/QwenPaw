@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "mini-plugin@local-custom": [
+      {
+        "enabled": true,
+        "source": "custom",
+        "version": "0.1.0",
+        "installPath": "__QODER_HOME__/plugins/custom/mini-plugin-0.1.0"
+      }
+    ]
+  }
+}

@@ -64,6 +64,69 @@
     "genericSubTitle": "このページのレンダリング中に予期しないエラーが発生しました。",
     "reload": "再読み込み"
   },
+  "portabilityImport": {
+    "title": "インポート",
+    "description": "他の AI アプリの会話とツール設定を QwenPaw に移行します。",
+    "steps": {
+      "sources": "アプリ",
+      "inventory": "内容を選択",
+      "progress": "インポート"
+    },
+    "chooseSources": "アプリを選択",
+    "chooseSourcesHint": "検出されたアプリを複数選択できます。",
+    "detected": "検出済み",
+    "notDetected": "未検出",
+    "noSources": "対応する AI アプリがこのデバイスで見つかりませんでした。",
+    "continue": "続行",
+    "scanning": "会話とツール設定を確認しています…",
+    "chooseContent": "インポートする内容を選択",
+    "defaultSelected": "会話とツールはデフォルトで選択されます。プラグインには明示的な確認が必要です。",
+    "conversations": "会話履歴",
+    "toolsSetup": "ツールと設定",
+    "heartbeatRequiresSessions": "この定期タスクには会話のインポートが必要です。",
+    "items": "{{count}} 件",
+    "start": "インポート開始",
+    "groups": {
+      "memory": "メモリ",
+      "cron": "定期タスク",
+      "skill": "スキル",
+      "mcp": "MCP",
+      "plugin": "プラグイン"
+    },
+    "states": {
+      "pending": "待機中",
+      "repairing": "修復中",
+      "ready": "修復済み、インポート待ち",
+      "failed": "失敗",
+      "succeeded": "成功",
+      "existing": "既に存在"
+    },
+    "hints": {
+      "failed": "関連する設定を手動で修正してください。",
+      "disabled": "正常に移行しましたが、確認して有効化するまで無効のままです。",
+      "cronReview": "無効の状態でインポートされました。定期タスク画面で明示的に確認するまで実行できず、確認後に別途有効化する必要があります。"
+    },
+    "sessionStates": {
+      "failed": "インポート失敗",
+      "succeeded": "{{count}}/{{total}} 件を移行",
+      "importing": "{{count}}/{{total}} 件を移行中"
+    },
+    "finished": "インポート完了",
+    "importing": "インポート中",
+    "cancelling": "インポートを停止中",
+    "cancellingHint": "互換性修復 Agent が安全に停止するのを待っています。",
+    "keepOpen": "各項目の状態を確認できます。処理中は QwenPaw を閉じないでください。",
+    "details": "移行の詳細",
+    "targetAgent": "インポート先エージェント：{{agent}}",
+    "selectAllFailed": "失敗したツールをすべて選択",
+    "retrySelected": "選択項目を再試行 ({{count}})",
+    "retryConfirm": "選択した {{count}} 件の失敗したツールを再試行しますか？既存の QwenPaw 項目は保持されます。",
+    "pluginWarningTitle": "プラグイン実行の警告",
+    "pluginWarning": "これらのプラグインは Python 依存関係をインストールし、QwenPaw プロセスでコードを実行し、グローバルなツール、Hook、ルート、コマンドを登録する可能性があります。プラグインを選択すると、紐付く MCP の設定と認証情報もレビュー用に無効のままインポートされます。信頼できる提供元のプラグインのみをインポートしてください。",
+    "pluginWarningConfirm": "これらのプラグインの提供元を信頼し、依存関係のインストールとコード実行を許可します。",
+    "pluginWarningAction": "確認してインポート",
+    "done": "完了"
+  },
   "appCenter": {
     "backToList": "戻る",
     "subtitle": "インストール済みのアプリを管理したり、アプリマーケットからワークスペースを拡張したりできます。",
@@ -118,6 +181,7 @@
   },
   "nav": {
     "chat": "チャット",
+    "import": "インポート",
     "files": "ファイル",
     "control": "コントロール",
     "channels": "チャンネル",

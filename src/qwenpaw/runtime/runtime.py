@@ -19,6 +19,7 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator
 
+from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
 from .builder import AgentBuilder
 from .envelope import Envelope
@@ -267,6 +268,16 @@ class Runtime:
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
+        request = getattr(ctx, "request", None)
+        request_context = getattr(request, "request_context", None)
+        if isinstance(request_context, dict):
+            ephemeral = request_context.get(ACP_EPHEMERAL_META_KEY)
+            if ephemeral is True or (
+                isinstance(ephemeral, str)
+                and ephemeral.lower() in {"1", "true", "yes"}
+            ):
+                return
+
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return

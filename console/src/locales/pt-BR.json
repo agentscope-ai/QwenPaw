@@ -66,6 +66,69 @@
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Recarregar"
   },
+  "portabilityImport": {
+    "title": "Importar",
+    "description": "Traga conversas e configurações de ferramentas de outros aplicativos de IA para o QwenPaw.",
+    "steps": {
+      "sources": "Aplicativos",
+      "inventory": "Escolher conteúdo",
+      "progress": "Importar"
+    },
+    "chooseSources": "Escolha os aplicativos",
+    "chooseSourcesHint": "Selecione um ou mais aplicativos detectados.",
+    "detected": "Detectado",
+    "notDetected": "Não detectado",
+    "noSources": "Nenhum aplicativo de IA compatível foi detectado neste dispositivo.",
+    "continue": "Continuar",
+    "scanning": "Verificando conversas e configurações de ferramentas…",
+    "chooseContent": "Escolha o que importar",
+    "defaultSelected": "Conversas e ferramentas são selecionadas por padrão. Plugins exigem sua confirmação explícita.",
+    "conversations": "Conversas",
+    "toolsSetup": "Ferramentas e configurações",
+    "heartbeatRequiresSessions": "Esta tarefa agendada exige a importação das conversas.",
+    "items": "{{count}} itens",
+    "start": "Iniciar importação",
+    "groups": {
+      "memory": "Memória",
+      "cron": "Agendamentos",
+      "skill": "Skills",
+      "mcp": "MCP",
+      "plugin": "Plugins"
+    },
+    "states": {
+      "pending": "Aguardando",
+      "repairing": "Corrigindo",
+      "ready": "Corrigido, aguardando importação",
+      "failed": "Falhou",
+      "succeeded": "Concluído",
+      "existing": "Já existe"
+    },
+    "hints": {
+      "failed": "Ajuste manualmente a configuração relacionada.",
+      "disabled": "Importado com sucesso, mas mantido desativado até sua revisão e ativação.",
+      "cronReview": "Importado desativado e impedido de executar até uma revisão explícita em Tarefas Cron; depois, ative-o separadamente."
+    },
+    "sessionStates": {
+      "failed": "Falha na importação",
+      "succeeded": "{{count}}/{{total}} importados",
+      "importing": "Importando {{count}}/{{total}}"
+    },
+    "finished": "Importação concluída",
+    "importing": "Importação em andamento",
+    "cancelling": "Interrompendo importação",
+    "cancellingHint": "Aguardando o Agent de reparo de compatibilidade parar com segurança.",
+    "keepOpen": "Revise cada item abaixo. Não feche o QwenPaw durante a importação.",
+    "details": "Detalhes da migração",
+    "targetAgent": "Agente de destino: {{agent}}",
+    "selectAllFailed": "Selecionar todas as ferramentas com falha",
+    "retrySelected": "Tentar novamente as selecionadas ({{count}})",
+    "retryConfirm": "Tentar novamente {{count}} ferramentas com falha selecionadas? Itens existentes do QwenPaw serão preservados.",
+    "pluginWarningTitle": "Aviso de execução de plugin",
+    "pluginWarning": "Estes plugins podem instalar dependências Python, executar código no processo do QwenPaw e registrar ferramentas, Hooks, rotas ou comandos globais. Selecionar um plugin também importa suas configurações e credenciais MCP vinculadas, desativadas para revisão. Importe apenas plugins de fontes confiáveis.",
+    "pluginWarningConfirm": "Confio nas fontes destes plugins e permito a instalação de dependências e a execução de código.",
+    "pluginWarningAction": "Confirmar e importar",
+    "done": "Concluir"
+  },
   "appCenter": {
     "backToList": "Voltar",
     "subtitle": "Gerencie os aplicativos instalados ou amplie seu espaço de trabalho pelo mercado de aplicativos.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "import": "Importar",
     "files": "Arquivos",
     "control": "Controle",
     "channels": "Canais",

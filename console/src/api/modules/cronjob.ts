@@ -25,6 +25,12 @@ export const cronJobApi = {
       body: JSON.stringify(spec),
     }),
 
+  promoteCronJob: (jobId: string) =>
+    request<CronJobSpecOutput>(
+      `/cron/jobs/${encodeURIComponent(jobId)}/promote`,
+      { method: "POST" },
+    ),
+
   deleteCronJob: (jobId: string) =>
     request<void>(`/cron/jobs/${encodeURIComponent(jobId)}`, {
       method: "DELETE",

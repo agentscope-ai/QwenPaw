@@ -74,6 +74,10 @@ class AsyncCredentialStore:
         """Encrypt all string secrets and atomically write YAML."""
         await asyncio.to_thread(self.put_sync, record)
 
+    async def put_if_absent(self, record: CredentialRecord) -> bool:
+        """Persist *record* only when its ref is not already in use."""
+        return await asyncio.to_thread(self.put_if_absent_sync, record)
+
     async def delete(self, ref: str) -> None:
         """Remove one credential entry if present."""
         await asyncio.to_thread(self.delete_sync, ref)
@@ -145,6 +149,30 @@ class AsyncCredentialStore:
             }
             root["credentials"] = credentials
             self._write_root(root)
+
+    def put_if_absent_sync(self, record: CredentialRecord) -> bool:
+        """Synchronously persist *record* without replacing another value."""
+        if record.ref.startswith("env:"):
+            raise DriverCardError("Cannot persist env: credential refs")
+        if not record.ref:
+            raise DriverCardError("CredentialRecord.ref must be non-empty")
+        if not record.kind:
+            raise DriverCardError("CredentialRecord.kind must be non-empty")
+        self._validate_secret_values(record.secrets)
+        with self._lock:
+            root = self._read_root()
+            credentials = dict(root["credentials"])
+            if record.ref in credentials:
+                return False
+            credentials[record.ref] = {
+                "kind": record.kind,
+                "public": dict(record.public),
+                "secrets": self._encrypt_secrets(dict(record.secrets)),
+                "meta": dict(record.meta),
+            }
+            root["credentials"] = credentials
+            self._write_root(root)
+        return True
 
     def delete_sync(self, ref: str) -> None:
         """Synchronously remove one credential entry if present."""

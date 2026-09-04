@@ -19,7 +19,9 @@ from .registry import (
 from .store import (
     build_import_conflict,
     build_skill_metadata,
+    commit_pawport_skill,
     copy_skill_dir,
+    discard_prepared_pawport_skill,
     default_workspace_manifest,
     extract_zip_skills,
     get_workspace_skill_manifest_path,
@@ -136,9 +138,11 @@ class SkillService:
             entry = manifest.get("skills", {}).get(skill_name, {})
             skill = read_skill_from_dir(
                 skill_root / skill_name,
-                "builtin"
-                if entry.get("source", "customized") == "builtin"
-                else "customized",
+                (
+                    "builtin"
+                    if entry.get("source", "customized") == "builtin"
+                    else "customized"
+                ),
             )
             if skill is not None:
                 skills.append(skill)
@@ -447,12 +451,16 @@ class SkillService:
             "name": final_name,
         }
 
+    # Import planning intentionally handles validation, conflicts, and commit
+    # as one transaction-like flow.
+    # pylint: disable-next=too-many-branches
     def import_from_zip(
         self,
         data: bytes,
         enable: bool = False,
         target_name: str | None = None,
         rename_map: dict[str, str] | None = None,
+        pawport_owner: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         skill_root.mkdir(parents=True, exist_ok=True)
@@ -502,7 +510,13 @@ class SkillService:
                     )
                     continue
                 seen_names.add(skill_name)
-                exists = (skill_root / skill_name).exists()
+                target_dir = skill_root / skill_name
+                exists = target_dir.exists()
+                if exists and pawport_owner is not None:
+                    exists = not discard_prepared_pawport_skill(
+                        target_dir,
+                        pawport_owner,
+                    )
                 if exists:
                     conflicts.append(
                         build_import_conflict(
@@ -525,6 +539,7 @@ class SkillService:
                     skill_dir,
                     skill_root,
                     skill_name,
+                    pawport_owner,
                 ):
                     imported.append(skill_name)
 
@@ -547,6 +562,12 @@ class SkillService:
                 if enable:
                     for skill_name in imported:
                         self.enable_skill(skill_name)
+                if pawport_owner is not None:
+                    for skill_name in imported:
+                        commit_pawport_skill(
+                            skill_root / skill_name,
+                            pawport_owner,
+                        )
 
             return {
                 "imported": imported,

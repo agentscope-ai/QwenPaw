@@ -17,6 +17,9 @@ from .discovery import (
 
 logger = logging.getLogger(__name__)
 
+# Large ``thread/read`` responses exceed asyncio's 64 KiB default line limit.
+_STDIO_STREAM_LIMIT_BYTES = 128 * 1024 * 1024
+
 ServerRequestHandler = Callable[
     [dict[str, Any]],
     Awaitable[dict[str, Any]],
@@ -63,7 +66,12 @@ class CodexAppServerClient:
         """Start and initialize the app-server once."""
         async with self._start_lock:
             if self._process is not None and self._process.returncode is None:
-                return
+                if (
+                    self._reader_task is not None
+                    and not self._reader_task.done()
+                ):
+                    return
+                await self.stop()
             resolution = self.binary_resolution
             if resolution is None:
                 raise CodexAppServerError("Codex CLI not found")
@@ -81,6 +89,7 @@ class CodexAppServerClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ, **self._runtime_environment},
+                limit=_STDIO_STREAM_LIMIT_BYTES,
             )
             self._reader_task = asyncio.create_task(self._read_stdout())
             self._stderr_task = asyncio.create_task(self._read_stderr())
@@ -208,6 +217,7 @@ class CodexAppServerClient:
         process = self._process
         if process is None or process.stdout is None:
             return
+        error = CodexAppServerError("Codex app-server exited")
         try:
             while line := await process.stdout.readline():
                 try:
@@ -216,8 +226,13 @@ class CodexAppServerClient:
                     logger.warning("Codex emitted invalid JSON")
                     continue
                 await self._dispatch(message)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception("Codex app-server stdout reader failed")
+            detail = str(exc).strip() or type(exc).__name__
+            error = CodexAppServerError(
+                f"Codex app-server output reader failed: {detail}",
+            )
         finally:
-            error = CodexAppServerError("Codex app-server exited")
             self._fail_pending(error)
 
     async def _read_stderr(self) -> None:

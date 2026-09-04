@@ -356,10 +356,15 @@ class Workspace:
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
-            settings = dict(getattr(config, "backend_settings", {}))
             request_context = dict(
                 getattr(request, "request_context", None) or {},
             )
+            if request_context.get("source") == "portability_adaptation":
+                raise PermissionError(
+                    "PawPort compatibility workers require the qwenpaw "
+                    "backend",
+                )
+            settings = dict(getattr(config, "backend_settings", {}))
             backend_controls = request_context.pop(
                 "backend_controls",
                 {},
