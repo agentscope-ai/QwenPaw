@@ -40,6 +40,8 @@ import {
   type ComponentProps,
   type FocusEvent,
   type KeyboardEvent,
+  type MutableRefObject,
+  type RefObject,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -394,17 +396,56 @@ function selectionPointOffset(targetKey: string, targetOffset: number): number {
   return resolved ?? rawOffset;
 }
 
+export function scrollRectIntoViewWithin(
+  container: HTMLElement,
+  rect: DOMRect,
+  padding: number = 8,
+) {
+  const containerRect = container.getBoundingClientRect();
+  const visibleTop = containerRect.top + padding;
+  const visibleBottom = containerRect.bottom - padding;
+
+  if (rect.top < visibleTop) {
+    container.scrollTop -= visibleTop - rect.top;
+  } else if (rect.bottom > visibleBottom) {
+    container.scrollTop += rect.bottom - visibleBottom;
+  }
+}
+
+function scrollCurrentSelectionIntoView(container: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+
+  const range = selection.getRangeAt(0);
+  if (
+    !container.contains(range.startContainer) ||
+    !container.contains(range.endContainer)
+  ) {
+    return;
+  }
+
+  if (!("getBoundingClientRect" in range) || !("getClientRects" in range)) {
+    return;
+  }
+
+  const rangeRect = range.getBoundingClientRect();
+  const rect = rangeRect.height > 0 ? rangeRect : range.getClientRects()[0];
+  if (rect) scrollRectIntoViewWithin(container, rect);
+}
+
 function RichEditorBridge({
   value,
   editable,
+  rootRef,
   hiddenTextarea,
   editorRef,
   onRawChange,
 }: {
   value: string;
   editable: boolean;
-  hiddenTextarea: React.RefObject<HTMLTextAreaElement | null>;
-  editorRef: React.MutableRefObject<LexicalEditor | null>;
+  rootRef: RefObject<HTMLDivElement | null>;
+  hiddenTextarea: RefObject<HTMLTextAreaElement | null>;
+  editorRef: MutableRefObject<LexicalEditor | null>;
   onRawChange: (value: string, start: number, end: number) => void;
 }) {
   const [editor] = useLexicalComposerContext();
@@ -460,6 +501,10 @@ function RichEditorBridge({
             hiddenTextarea.current.selectionStart = start;
             hiddenTextarea.current.selectionEnd = end;
           }
+        });
+        window.requestAnimationFrame(() => {
+          const container = rootRef.current;
+          if (container) scrollCurrentSelectionIntoView(container);
         });
       }}
     />
@@ -632,6 +677,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
   ) {
     const { token } = theme.useToken();
     const rawValue = String(value ?? "");
+    const rootRef = useRef<HTMLDivElement>(null);
     const hiddenTextarea = useRef<HTMLTextAreaElement>(null);
     const editorRef = useRef<LexicalEditor | null>(null);
 
@@ -658,6 +704,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
 
     return (
       <div
+        ref={rootRef}
         className={`${styles.richInputRoot} ${className ?? ""}`}
         style={style}
         data-disabled={disabled || undefined}
@@ -702,6 +749,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
           <RichEditorBridge
             value={rawValue}
             editable={!disabled && !readOnly}
+            rootRef={rootRef}
             hiddenTextarea={hiddenTextarea}
             editorRef={editorRef}
             onRawChange={handleRawChange}
