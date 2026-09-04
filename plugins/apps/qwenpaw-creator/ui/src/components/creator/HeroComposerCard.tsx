@@ -152,12 +152,6 @@ export default function HeroComposerCard() {
             className="!border-none !bg-transparent !px-4 !pb-2 !pt-3 !text-sm !leading-6 !shadow-none focus:!shadow-none"
           />
 
-          <VideoTemplatePicker
-            selectedTemplateId={selectedTemplateId}
-            onTemplateSelect={setSelectedTemplateId}
-            scenario={scenario}
-          />
-
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-4 pb-2">
               {attachments.map((att) => {
@@ -319,6 +313,11 @@ export default function HeroComposerCard() {
             </button>
           ))}
         </div>
+
+        <VideoTemplatePicker
+          selectedTemplateId={selectedTemplateId}
+          onTemplateSelect={setSelectedTemplateId}
+        />
 
         {/* Content type is only meaningful for the video_edit scenario. */}
         {isVideoEdit && (
