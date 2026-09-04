@@ -1,15 +1,19 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-09-01
+date: 2026-09-03
 author: QwenPaw Team
 tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated September 1, 2026
+Last updated September 3, 2026
 
 ---
+
+**09-03 QwenPaw Community Meetup: QwenPaw Hub Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643433333230363031335f323034353035363233375f30
 
 **09-01 QwenPaw Community Meetup: Agent Mail Feature Deep Dive**
 
