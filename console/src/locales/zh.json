@@ -2707,7 +2707,7 @@
       "researchTemplate": "预算研究",
       "qualityTemplate": "质量优先",
       "blankTemplate": "空白流程",
-      "advisorMode": "顾问模式",
+      "advisor": "顾问模式",
       "advisorDescription": "主模型在智能体开始前写好计划，并在其反复失败时介入。智能体本身使用 Sub-agent 模型运行。",
       "advisorEnableDescription": "允许该智能体使用顾问模式（实验性）。",
       "advisorModels": "顾问：{{advisor}} · Worker：{{worker}}",

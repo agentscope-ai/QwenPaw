@@ -2517,7 +2517,7 @@
       "researchTemplate": "Pesquisa com orçamento",
       "qualityTemplate": "Qualidade primeiro",
       "blankTemplate": "Pipeline vazio",
-      "advisorMode": "Modo Conselheiro",
+      "advisor": "Modo Conselheiro",
       "advisorDescription": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando. O agente em si roda no modelo de subagente.",
       "advisorEnableDescription": "Disponibilizar o Modo Conselheiro para este agente (experimental).",
       "advisorModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",

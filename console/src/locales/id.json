@@ -3183,7 +3183,7 @@
       "researchTemplate": "Riset beranggaran",
       "qualityTemplate": "Utamakan kualitas",
       "blankTemplate": "Pipeline kosong",
-      "advisorMode": "Mode Penasihat",
+      "advisor": "Mode Penasihat",
       "advisorDescription": "Model utama menyusun rencana sebelum agen mulai dan turun tangan saat agen terus gagal. Agen sendiri berjalan pada model sub-agen.",
       "advisorEnableDescription": "Sediakan Mode Penasihat untuk agen ini (eksperimental).",
       "advisorModels": "Penasihat: {{advisor}} · Pekerja: {{worker}}",

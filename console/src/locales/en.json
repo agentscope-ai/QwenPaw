@@ -2849,7 +2849,7 @@
       "researchTemplate": "Budgeted research",
       "qualityTemplate": "Quality first",
       "blankTemplate": "Blank pipeline",
-      "advisorMode": "Advisor Mode",
+      "advisor": "Advisor Mode",
       "advisorDescription": "The primary model writes a plan before the agent starts and steps in when it keeps failing. The agent itself runs on the sub-agent model.",
       "advisorEnableDescription": "Make Advisor Mode available for this agent (experimental).",
       "advisorModels": "Advisor: {{advisor}} · Worker: {{worker}}",

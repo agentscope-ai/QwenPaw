@@ -2279,7 +2279,7 @@
       "researchTemplate": "予算付き調査",
       "qualityTemplate": "品質優先",
       "blankTemplate": "空のパイプライン",
-      "advisorMode": "アドバイザーモード",
+      "advisor": "アドバイザーモード",
       "advisorDescription": "メインモデルがエージェントの開始前に計画を作成し、失敗が続くと介入します。エージェント自体はサブエージェントモデルで動作します。",
       "advisorEnableDescription": "このエージェントでアドバイザーモードを使えるようにする（実験的）。",
       "advisorModels": "アドバイザー：{{advisor}} · ワーカー：{{worker}}",

@@ -2028,7 +2028,7 @@
       "researchTemplate": "Nghiên cứu có ngân sách",
       "qualityTemplate": "Ưu tiên chất lượng",
       "blankTemplate": "Pipeline trống",
-      "advisorMode": "Chế độ cố vấn",
+      "advisor": "Chế độ cố vấn",
       "advisorDescription": "Mô hình chính lập kế hoạch trước khi agent bắt đầu và can thiệp khi agent liên tục thất bại. Bản thân agent chạy trên mô hình sub-agent.",
       "advisorEnableDescription": "Cho phép agent này dùng Chế độ cố vấn (thử nghiệm).",
       "advisorModels": "Cố vấn: {{advisor}} · Worker: {{worker}}",
