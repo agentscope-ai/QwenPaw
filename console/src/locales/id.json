@@ -676,11 +676,41 @@
       "review": {
         "description": "Tinjau perubahan ruang kerja yang belum di-commit dengan Codex"
       },
-      "status": {
-        "description": "Tampilkan akun agen, model, dan ruang kerja saat ini"
-      },
       "goal": {
         "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
+      },
+      "new": {
+        "description": "Mulai sesi percakapan baru"
+      },
+      "history": {
+        "description": "Tampilkan atau ringkas riwayat percakapan"
+      },
+      "dream": {
+        "description": "Biarkan agen berefleksi dan menghasilkan ide bebas"
+      },
+      "memorize": {
+        "description": "Simpan memori yang dapat dipanggil kembali oleh agen"
+      },
+      "message": {
+        "description": "Kirim pesan satu kali ke agen"
+      },
+      "system_prompt": {
+        "description": "Lihat atau segarkan system prompt"
+      },
+      "restart": {
+        "description": "Mulai ulang daemon QwenPaw"
+      },
+      "status": {
+        "description": "Tampilkan status daemon QwenPaw"
+      },
+      "version": {
+        "description": "Tampilkan info versi QwenPaw"
+      },
+      "logs": {
+        "description": "Lihat log daemon terbaru"
+      },
+      "plan": {
+        "description": "Buat rencana terstruktur untuk memecah tugas"
       }
     },
     "attachments": {

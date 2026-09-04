@@ -34,27 +34,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# User-facing conversation commands and their summaries, used when
-# advertising commands to clients (e.g. the ACP
-# ``available_commands_update`` notification). Intentionally a small,
-# curated subset of ``SYSTEM_COMMANDS`` — only the conversation commands
-# meant to be typed by users are advertised (``/clear``, ``/compact``).
-# The rest are still handled if typed but are not advertised, to keep the
-# ACP command palette focused:
-#   - ``new`` overlaps the dedicated ACP ``new_session`` affordance (clients
-#     start a fresh session natively); ``/clear`` covers the in-session
-#     "start over" need, so ``/new`` is not advertised over ACP.
-#   - ``history``, ``plan``, ``compact_str``, ``summarize_status``,
-#     ``message``, ``dump_history``, ``load_history``, ``proactive`` are
-#     internal/programmatic.
-# Descriptions mirror the console command palette copy
-# (``console/src/locales/en.json`` → ``chat.commands``) where they overlap,
-# so the same wording is shown across the web UI and ACP clients.
+# User-facing descriptions for conversation commands. This dict is the
+# canonical source: ACP broadcasts via ``available_commands_update`` are
+# derived from it by ``builtin_commands._collect_conversation_specs()``,
+# and the console command palette copy
+# (``console/src/locales/en.json`` → ``chat.commands``) matches it where
+# they overlap, so the same wording is shown across the web UI and ACP
+# clients.
 SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "clear": "Clear the conversation context",
     "compact": (
         "Compact the conversation context; optional instruction supported"
     ),
+    "new": "Start a new conversation session",
+    "history": "Show or compact conversation history",
+    "plan": "View or manage the agent's plan/todo list",
+    "dream": "Let the agent reflect and generate ideas freely",
+    "memorize": "Save a memory the agent can recall later",
+    "message": "Send a one-shot message to the agent",
+    "system_prompt": "View or refresh the system prompt",
 }
 # Manual ``/compact`` skips the auto ``trigger_ratio`` gate and runs compaction
 # directly; the field is constrained ``gt=0``, so we use a negligible value

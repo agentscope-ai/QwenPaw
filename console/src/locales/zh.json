@@ -3176,14 +3176,41 @@
       "review": {
         "description": "使用 Codex 审查工作区中尚未提交的变更"
       },
-      "status": {
-        "description": "查看当前智能体账户、模型和工作区"
-      },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"
       },
       "goal": {
         "description": "Goal循环 — Agent围绕目标持续执行，通过Rubric评估自动判断完成"
+      },
+      "new": {
+        "description": "开始新的对话会话"
+      },
+      "history": {
+        "description": "显示或压缩对话历史"
+      },
+      "dream": {
+        "description": "让 Agent 自由反思并产生想法"
+      },
+      "memorize": {
+        "description": "保存记忆供 Agent 以后调用"
+      },
+      "message": {
+        "description": "向 Agent 发送一次性消息"
+      },
+      "system_prompt": {
+        "description": "查看或刷新系统提示"
+      },
+      "restart": {
+        "description": "重启 QwenPaw 守护进程"
+      },
+      "status": {
+        "description": "显示 QwenPaw 守护进程状态"
+      },
+      "version": {
+        "description": "显示 QwenPaw 版本信息"
+      },
+      "logs": {
+        "description": "查看最近的守护进程日志"
       }
     },
     "attachments": {

@@ -3319,14 +3319,41 @@
       "review": {
         "description": "Review uncommitted workspace changes with Codex"
       },
-      "status": {
-        "description": "Show the current agent account, model, and workspace"
-      },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"
       },
       "goal": {
         "description": "Goal loop — Agent pursues a goal continuously, auto-evaluates via Rubric"
+      },
+      "new": {
+        "description": "Start a new conversation session"
+      },
+      "history": {
+        "description": "Show or compact conversation history"
+      },
+      "dream": {
+        "description": "Let the agent reflect and generate ideas freely"
+      },
+      "memorize": {
+        "description": "Save a memory the agent can recall later"
+      },
+      "message": {
+        "description": "Send a one-shot message to the agent"
+      },
+      "system_prompt": {
+        "description": "View or refresh the system prompt"
+      },
+      "restart": {
+        "description": "Restart the QwenPaw daemon"
+      },
+      "status": {
+        "description": "Show the QwenPaw daemon status"
+      },
+      "version": {
+        "description": "Show QwenPaw version info"
+      },
+      "logs": {
+        "description": "View recent daemon logs"
       }
     },
     "attachments": {

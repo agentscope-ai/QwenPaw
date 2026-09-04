@@ -1180,13 +1180,34 @@ class PawApp(App):
 
 
 def _local_commands() -> list[SlashCommand]:
-    """Slash commands handled by the TUI itself. Model/provider commands are
-    QwenPaw's and are forwarded to the agent, not listed here."""
+    """Slash commands shown in the TUI autocomplete menu.
+
+    Includes TUI-local commands (help, resume, theme, inspect) as well as
+    system commands forwarded to the agent.  The latter are duplicated here
+    so autocomplete is populated immediately, before the ACP
+    ``available_commands_update`` event arrives."""
     commands = [
         SlashCommand("help", "show QwenPaw TUI shortcuts"),
         SlashCommand("resume", "resume a previous session"),
         SlashCommand("theme", "open theme gallery or apply a vibe"),
         SlashCommand("inspect", "toggle deeper thought/tool detail"),
+        # System commands forwarded to the agent. Listed here so they
+        # appear in slash autocomplete even before the ACP event arrives.
+        SlashCommand("clear", "clear the conversation context"),
+        SlashCommand("compact", "compact the conversation context"),
+        SlashCommand("new", "start a new conversation session"),
+        SlashCommand("history", "show or compact conversation history"),
+        SlashCommand("plan", "view or manage the agent's plan/todo list"),
+        SlashCommand("dream", "let the agent reflect and generate ideas"),
+        SlashCommand("memorize", "save a memory for later recall"),
+        SlashCommand("system_prompt", "view or refresh the system prompt"),
+        SlashCommand("message", "send a one-shot message to the agent"),
+        SlashCommand("model", "show or switch the AI model"),
+        SlashCommand("skills", "list chat-available skills"),
+        SlashCommand("restart", "restart the QwenPaw daemon"),
+        SlashCommand("status", "show the QwenPaw daemon status"),
+        SlashCommand("version", "show QwenPaw version info"),
+        SlashCommand("logs", "view recent daemon logs"),
     ]
     commands.extend(
         SlashCommand(
@@ -1212,7 +1233,18 @@ _HELP_TEXT = """Slash commands:
 /model reset — reset to the global default model
 /clear — clear the current session context
 /compact — compact current context
-/skills — list enabled skills"""
+/new — start a new conversation session
+/history — show or compact conversation history
+/plan — view or manage the agent's plan/todo list
+/dream — let the agent reflect and generate ideas
+/memorize — save a memory for later recall
+/system_prompt — view or refresh the system prompt
+/message — send a one-shot message to the agent
+/skills — list enabled skills
+/restart — restart the QwenPaw daemon
+/status — show the QwenPaw daemon status
+/version — show QwenPaw version info
+/logs — view recent daemon logs"""
 
 
 _LONG_PASTE_CHAR_THRESHOLD = 2000

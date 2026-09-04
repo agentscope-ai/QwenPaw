@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 
-def _make_daemon_adapter(subcommand: str) -> CommandSpec:
+def _make_daemon_adapter(
+    subcommand: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
     """Create a :class:`CommandSpec` for one daemon subcommand."""
 
     async def _handler(ctx: Any, args: str) -> "Msg | None":
@@ -67,6 +71,7 @@ def _make_daemon_adapter(subcommand: str) -> CommandSpec:
         name=subcommand,
         handler=_handler,
         category="daemon",
+        help_text=help_text,
     )
 
 
@@ -135,12 +140,33 @@ def _make_daemon_compound_adapter() -> CommandSpec:
     )
 
 
+# Daemon commands that should be advertised via ACP with descriptions.
+_ADVERTISED_DAEMON_COMMANDS: dict[str, str] = {
+    "restart": "Restart the QwenPaw daemon",
+    "status": "Show the QwenPaw daemon status",
+    "version": "Show QwenPaw version info",
+    "logs": "View recent daemon logs",
+}
+
+
 def _collect_daemon_specs() -> list[CommandSpec]:
     specs = [
-        _make_daemon_adapter("restart"),
-        _make_daemon_adapter("status"),
-        _make_daemon_adapter("version"),
-        _make_daemon_adapter("logs"),
+        _make_daemon_adapter(
+            "restart",
+            help_text=_ADVERTISED_DAEMON_COMMANDS.get("restart", ""),
+        ),
+        _make_daemon_adapter(
+            "status",
+            help_text=_ADVERTISED_DAEMON_COMMANDS.get("status", ""),
+        ),
+        _make_daemon_adapter(
+            "version",
+            help_text=_ADVERTISED_DAEMON_COMMANDS.get("version", ""),
+        ),
+        _make_daemon_adapter(
+            "logs",
+            help_text=_ADVERTISED_DAEMON_COMMANDS.get("logs", ""),
+        ),
     ]
     # reload-config has an underscore alias
     rc_spec = _make_daemon_adapter("reload-config")

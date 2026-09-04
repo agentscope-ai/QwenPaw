@@ -1357,8 +1357,8 @@ class QwenPawACPAgent(Agent):
         """Build slash-command list from workspace registry.
 
         Uses ``advertisable_commands()`` to dynamically query registered
-        commands with non-empty ``help_text``, excluding daemon commands
-        and ACP-native affordances.
+        commands with non-empty ``help_text``, excluding ACP-native
+        affordances that clients handle themselves.
         """
         # Commands that are intentionally hidden from autocomplete because
         # the TUI handles them locally or ACP exposes a clearer native
@@ -1368,7 +1368,6 @@ class QwenPawACPAgent(Agent):
                 "approval",
                 "approve",
                 "deny",
-                "new",
                 "stop",
             },
         )
@@ -1388,7 +1387,6 @@ class QwenPawACPAgent(Agent):
         commands = [
             AvailableCommand(name=name, description=desc)
             for name, desc in registry.advertisable_commands(
-                exclude_categories=frozenset({"daemon"}),
                 exclude_names=_ACP_NATIVE_AFFORDANCES,
             )
         ]

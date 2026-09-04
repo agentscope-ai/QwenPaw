@@ -678,9 +678,6 @@
       "deny": {
         "description": "Từ chối yêu cầu công cụ đang chờ"
       },
-      "history": {
-        "description": "Hiển thị lịch sử cuộc trò chuyện"
-      },
       "mission": {
         "description": "Chế độ Mission — Phân tách nhiệm vụ cho sub-agent với ngữ cảnh tách biệt"
       },
@@ -697,7 +694,37 @@
         "description": "Dùng Codex để đánh giá các thay đổi chưa commit trong không gian làm việc"
       },
       "status": {
-        "description": "Hiển thị tài khoản tác nhân, mô hình và không gian làm việc hiện tại"
+        "description": "Hiển thị trạng thái daemon QwenPaw"
+      },
+      "new": {
+        "description": "Bắt đầu phiên trò chuyện mới"
+      },
+      "history": {
+        "description": "Hiển thị hoặc nén lịch sử cuộc trò chuyện"
+      },
+      "dream": {
+        "description": "Để agent tự do phản ánh và tạo ý tưởng"
+      },
+      "memorize": {
+        "description": "Lưu ký ức để agent có thể gọi lại sau"
+      },
+      "message": {
+        "description": "Gửi tin nhắn một lần đến agent"
+      },
+      "system_prompt": {
+        "description": "Xem hoặc làm mới system prompt"
+      },
+      "restart": {
+        "description": "Khởi động lại daemon QwenPaw"
+      },
+      "version": {
+        "description": "Hiển thị thông tin phiên bản QwenPaw"
+      },
+      "logs": {
+        "description": "Xem nhật ký daemon gần đây"
+      },
+      "plan": {
+        "description": "Tạo kế hoạch có cấu trúc để phân tách nhiệm vụ"
       }
     },
     "turnUsagePopover": {

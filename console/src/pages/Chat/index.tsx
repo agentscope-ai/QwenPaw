@@ -2803,12 +2803,62 @@ export default function ChatPage() {
       {
         command: "/new",
         value: "new",
-        description: "",
+        description: t("chat.commands.new.description"),
       },
       {
         command: "/clear",
         value: "clear",
         description: t("chat.commands.clear.description"),
+      },
+      {
+        command: "/history",
+        value: "history",
+        description: t("chat.commands.history.description"),
+      },
+      {
+        command: "/plan",
+        value: "plan",
+        description: t("chat.commands.plan.description"),
+      },
+      {
+        command: "/dream",
+        value: "dream",
+        description: t("chat.commands.dream.description"),
+      },
+      {
+        command: "/memorize",
+        value: "memorize",
+        description: t("chat.commands.memorize.description"),
+      },
+      {
+        command: "/message",
+        value: "message",
+        description: t("chat.commands.message.description"),
+      },
+      {
+        command: "/system_prompt",
+        value: "system_prompt",
+        description: t("chat.commands.system_prompt.description"),
+      },
+      {
+        command: "/restart",
+        value: "restart",
+        description: t("chat.commands.restart.description"),
+      },
+      {
+        command: "/status",
+        value: "status",
+        description: t("chat.commands.status.description"),
+      },
+      {
+        command: "/version",
+        value: "version",
+        description: t("chat.commands.version.description"),
+      },
+      {
+        command: "/logs",
+        value: "logs",
+        description: t("chat.commands.logs.description"),
       },
     ];
     const nativeCommands: CommandSuggestion[] = usesQwenPawBackend

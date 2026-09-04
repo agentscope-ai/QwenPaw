@@ -2951,11 +2951,41 @@
       "review": {
         "description": "Revisar com o Codex as alterações não commitadas no workspace"
       },
-      "status": {
-        "description": "Mostrar a conta, o modelo e o workspace atuais do agente"
-      },
       "goal": {
         "description": "Loop Goal — Agente persegue objetivo continuamente, auto-avalia via Rubric"
+      },
+      "new": {
+        "description": "Iniciar uma nova sessão de conversa"
+      },
+      "history": {
+        "description": "Exibir ou compactar o histórico de conversas"
+      },
+      "dream": {
+        "description": "Deixar o agente refletir e gerar ideias livremente"
+      },
+      "memorize": {
+        "description": "Salvar uma memória para o agente recordar depois"
+      },
+      "message": {
+        "description": "Enviar uma mensagem única ao agente"
+      },
+      "system_prompt": {
+        "description": "Visualizar ou atualizar o system prompt"
+      },
+      "restart": {
+        "description": "Reiniciar o daemon do QwenPaw"
+      },
+      "status": {
+        "description": "Mostrar o status do daemon do QwenPaw"
+      },
+      "version": {
+        "description": "Mostrar informações da versão do QwenPaw"
+      },
+      "logs": {
+        "description": "Visualizar logs recentes do daemon"
+      },
+      "plan": {
+        "description": "Criar um plano estruturado para decompor a tarefa"
       }
     },
     "attachments": {

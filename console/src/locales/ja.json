@@ -2707,11 +2707,41 @@
       "review": {
         "description": "Codex で未コミットのワークスペース変更をレビュー"
       },
-      "status": {
-        "description": "現在のエージェントアカウント、モデル、ワークスペースを表示"
-      },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
+      },
+      "new": {
+        "description": "新しい会話セッションを開始"
+      },
+      "history": {
+        "description": "会話履歴の表示または圧縮"
+      },
+      "dream": {
+        "description": "エージェントに自由な発想と内省をさせる"
+      },
+      "memorize": {
+        "description": "後で呼び出せるメモリを保存"
+      },
+      "message": {
+        "description": "エージェントにワンショットメッセージを送信"
+      },
+      "system_prompt": {
+        "description": "システムプロンプトの表示または更新"
+      },
+      "restart": {
+        "description": "QwenPaw デーモンを再起動"
+      },
+      "status": {
+        "description": "QwenPaw デーモンの状態を表示"
+      },
+      "version": {
+        "description": "QwenPaw のバージョン情報を表示"
+      },
+      "logs": {
+        "description": "最近のデーモンログを表示"
+      },
+      "plan": {
+        "description": "タスクをサブタスクに分解する構造化プランを作成"
       }
     },
     "attachments": {
