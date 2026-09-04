@@ -744,7 +744,22 @@ class GovernancePolicy:
                     source=_findings_source(findings),
                 )
         else:
-            findings = self._sensitive_path_scan(tc_spec, tool_type)
+            try:
+                findings = self._sensitive_path_scan(tc_spec, tool_type)
+            except Exception:
+                # Sensitive-path protection is mandatory in OFF mode. A
+                # detector failure must not be treated as a clean scan.
+                logger.exception(
+                    "mandatory sensitive path scan failed; denying tool call",
+                )
+                return GovernanceDecision(
+                    action=GovernanceAction.DENY,
+                    reason=(
+                        "Sensitive path protection unavailable; "
+                        "tool call denied"
+                    ),
+                    source="sensitive_paths",
+                )
 
         sensitive_path_findings = [
             finding
@@ -933,23 +948,17 @@ class GovernancePolicy:
         OFF disables optional deep detectors, but it must not disable the
         file guard. Keeping this narrow avoids changing OFF's behavior for
         unrelated pattern/evasion findings while preserving the security
-        boundary for configured and built-in sensitive paths.
+        boundary for configured and built-in sensitive paths. Exceptions
+        propagate to :meth:`evaluate`, which fails closed.
         """
-        try:
-            from .detectors import detect_sensitive_paths
+        from .detectors import detect_sensitive_paths
 
-            return detect_sensitive_paths(
-                tool_name=tc_spec.tool_name,
-                target=tc_spec.target,
-                tool_type=tool_type,
-                sensitive_paths=self._resolve_sensitive_paths(),
-            )
-        except Exception as exc:
-            logger.warning(
-                "sensitive path scan failed: %s; continuing without",
-                exc,
-            )
-            return []
+        return detect_sensitive_paths(
+            tool_name=tc_spec.tool_name,
+            target=tc_spec.target,
+            tool_type=tool_type,
+            sensitive_paths=self._resolve_sensitive_paths(),
+        )
 
     def _resolve_sensitive_paths(self) -> list[str]:
         """Return the effective sensitive paths for the active file guard."""

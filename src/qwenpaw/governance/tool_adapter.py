@@ -35,30 +35,6 @@ _NO_RETRY_INSTRUCTION = (
 )
 
 
-def _is_execution_level_off() -> bool:
-    """Check if execution_level is 'off' (dev mode pass-through).
-
-    Reads directly from policy.yaml (without needing a governor) to
-    support the case where governor initialization failed but the user
-    explicitly configured execution_level=off for development.
-    """
-    try:
-        from pathlib import Path
-
-        import yaml
-
-        from ..constant import WORKING_DIR
-
-        policy_path = Path(WORKING_DIR) / ".qwenpaw" / "policy.yaml"
-        if not policy_path.exists():
-            return False
-        with open(policy_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        return isinstance(data, dict) and data.get("execution_level") == "off"
-    except Exception:
-        return False
-
-
 def _resolve_effective_approval_level(
     request_context: dict[str, str] | None,
 ) -> Optional[Any]:
@@ -310,11 +286,15 @@ async def _policy_tool_check_permissions(
         # audit first so builtin/file-guard ASK and DENY decisions cannot be
         # bypassed by the mode short-circuit.
         if governor is None or not hasattr(governor, "policy"):
-            # Preserve the existing development/test pass-through fallback
-            # when no policy object is available to evaluate.
-            _prepare_off_mode_sandbox(self, governor)
+            # Sensitive-path protection cannot be guaranteed without a
+            # policy object, so OFF mode fails closed here as well.
+            logger.error(
+                "PolicyGuardedTool: OFF-mode governance unavailable for "
+                "tool '%s' — denying.",
+                getattr(self, "name", "Unknown"),
+            )
             return PermissionDecision(
-                behavior=PermissionBehavior.ALLOW,
+                behavior=PermissionBehavior.DENY,
                 message=(
                     "governance: approval_level=off, " "governor unavailable."
                 ),
@@ -331,13 +311,6 @@ async def _policy_tool_check_permissions(
         governor.policy.execution_level = effective_level.value
 
     if governor is None:
-        # Check if execution_level is "off" (dev mode) — allow pass-through
-        if _is_execution_level_off():
-            return PermissionDecision(
-                behavior=PermissionBehavior.ALLOW,
-                message="governance: execution_level=off (dev mode), "
-                "governor unavailable — pass-through.",
-            )
         # Fail-closed: if governance layer failed to initialize, deny all
         # tool calls rather than silently allowing unguarded execution.
         logger.error(
