@@ -11,19 +11,11 @@ Three separable pieces, so each can be tuned without touching the others:
 * ``TriggerConfig`` — the thresholds, defaulting to the module constants.
 * ``InterventionTrigger`` — the counters and the fire/reset policy.
 
-Thresholds were picked against 56 recorded PawBench trajectories:
-
-* ``window`` (4 failures in 10 steps) separates struggling runs from
-  healthy ones better than tighter windows — mean score 0.384 for runs it
-  fires on vs 0.565 for runs it does not.
-* ``consecutive`` (3 in a row) never fires alone, but fires *earlier* than
-  the window in 7 of 10 runs (up to 7 steps earlier), which buys back
-  wasted steps. Both conditions are therefore kept, OR'd together.
-
-Consecutive failures also flag a harder failure: the same call repeated
-verbatim (a write_file emitted three times with no ``content``) is a stuck
-loop, whereas scattered failures are usually edit→build oscillation. The
-distinction is exposed as ``TriggerEvent.severity`` so the caller can
+The two conditions are OR'd: the window (4 failures in 10 steps) tells
+struggling runs from healthy ones, and a consecutive streak (3 in a row)
+fires earlier when the agent is stuck on one call. A streak also marks the
+harder failure — the same call repeated verbatim rather than an edit→build
+oscillation — exposed as ``TriggerEvent.severity`` so the caller can
 escalate its wording.
 """
 from __future__ import annotations
@@ -52,12 +44,9 @@ STRUCTURED_FAILURE_PREFIXES: tuple[str, ...] = (
     "Approval for",
 )
 
-# Anchored patterns for the failures that do not start with a fixed string.
-# Measured over one 150-task run, these plus the prefixes above take failure
-# recall from 3/247 to 247/247: browser worker crash 141, approval timeout
-# 45, bad kwarg 35, ToolNotFoundError 24, denied by policy 2. Before this
-# the trigger was blind enough that an agent re-issued one failing call 97
-# times without the advisor ever being consulted.
+# Anchored patterns for the failures that do not start with a fixed string
+# (browser worker crashes, approval timeouts, bad kwargs, unknown tools,
+# policy denials). Without them the trigger misses most real failures.
 STRUCTURED_FAILURE_PATTERNS: tuple[str, ...] = (
     # Right tool, wrong argument name: "web_search() got an unexpected ..."
     r"^\w+\(\) got an unexpected keyword argument",
