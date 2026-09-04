@@ -109,12 +109,22 @@ export function AdvisorSetupPopover({
     }
   };
 
+  // Show the default slots the way the options are named (provider display
+  // name + model name) and put the model first, so a truncated label still
+  // shows which model it is.
+  const displayName = (slot: Slot) => {
+    if (!slot) return "-";
+    const key = slotKey(slot);
+    return (
+      options.find((option) => option.value === key)?.label ?? slotLabel(slot)
+    );
+  };
   const advisorDefault = t("loop.advisorSetup.mainModelDefault", {
-    model: slotLabel(state.main_model) || "-",
+    model: displayName(state.main_model),
   });
   const workerDefault = state.subagent_model
     ? t("loop.advisorSetup.subagentDefault", {
-        model: slotLabel(state.subagent_model),
+        model: displayName(state.subagent_model),
       })
     : t("loop.advisorSetup.noSubagent");
 

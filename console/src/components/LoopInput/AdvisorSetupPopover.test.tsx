@@ -88,12 +88,15 @@ describe("AdvisorSetupPopover", () => {
   it("shows the defaults for both roles and the models in effect", async () => {
     renderWithProviders(<AdvisorSetupPopover open onOpenChange={() => {}} />);
     const setup = await screen.findByTestId("advisor-setup");
-    expect(setup).toHaveTextContent(
-      "loop.advisorSetup.mainModelDefault:dash / qwen3-max",
+    // Once the provider list is in, the default is named like the options
+    // (provider display name + model name), model first.
+    await waitFor(() =>
+      expect(setup).toHaveTextContent(
+        "loop.advisorSetup.mainModelDefault:DashScope / Qwen3 Max",
+      ),
     );
     expect(setup).toHaveTextContent("loop.advisorSetup.noSubagent");
     expect(setup).toHaveTextContent("loop.advisorSetup.summary");
-    await waitFor(() => expect(providerApi.listProviders).toHaveBeenCalled());
   });
 
   it("saves a worker model for the agent", async () => {
