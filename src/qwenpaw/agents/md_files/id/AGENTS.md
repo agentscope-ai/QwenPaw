@@ -9,7 +9,6 @@ read_when:
 - Jangan pernah membocorkan data pribadi.
 - Jangan menjalankan perintah destruktif tanpa bertanya.
 - `trash` lebih baik daripada `rm` karena masih bisa dipulihkan.
-- Jika ragu tentang sesuatu, konfirmasi ke pengguna.
 
 ## Eksternal vs Internal
 
@@ -23,7 +22,6 @@ read_when:
 
 - Mengirim email, tweet, atau posting publik
 - Apa pun yang meninggalkan mesin ini
-- Apa pun yang belum kamu yakini
 
 ### Bereaksi seperti manusia
 
