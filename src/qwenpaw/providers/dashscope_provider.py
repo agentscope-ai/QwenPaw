@@ -19,7 +19,7 @@ from agentscope.model import ChatModelBase
 from pydantic import Field
 
 from .provider import ModelInfo
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .capping_formatter import DASHSCOPE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
 from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
 from .openai_provider import (
@@ -40,7 +40,7 @@ class DashScopeProvider(OpenAIProvider):
     thinking_param_style: str = Field(default="budget")
 
     max_inline_media_bytes: int = Field(
-        default=MAX_INLINE_MEDIA_BYTES,
+        default=DASHSCOPE_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
@@ -50,6 +50,9 @@ class DashScopeProvider(OpenAIProvider):
             "conversation history. 0 disables capping."
         ),
     )
+    max_image_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
 
     @staticmethod
     def _is_non_chat_model(model_id: str) -> bool:
@@ -280,6 +283,9 @@ class DashScopeProvider(OpenAIProvider):
             extra_generate_kwargs=extra_generate_kwargs,
             formatter=_CappingDashScopeFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

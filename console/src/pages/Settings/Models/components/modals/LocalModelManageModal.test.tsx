@@ -391,7 +391,7 @@ describe("LocalModelManageModal", () => {
 
       // the no-downloaded-model hint (translation key) must be shown
       expect(
-        screen.getByText("models.localNoDownloadedModelsHint"),
+        await screen.findByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
     });
   });

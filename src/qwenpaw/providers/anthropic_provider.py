@@ -31,8 +31,12 @@ from qwenpaw.providers.provider import (
 )
 
 from ..utils.logging import sanitize_log_value
-from .capping_formatter import _CappingAnthropicFormatter
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .capping_formatter import (
+    ANTHROPIC_AUDIO_BYTES,
+    ANTHROPIC_IMAGE_BYTES,
+    ANTHROPIC_VIDEO_BYTES,
+    _CappingAnthropicFormatter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +85,7 @@ class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
     max_inline_media_bytes: int = Field(
-        default=MAX_INLINE_MEDIA_BYTES,
+        default=ANTHROPIC_AUDIO_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
@@ -91,6 +95,9 @@ class AnthropicProvider(Provider):
             "conversation history. 0 disables capping."
         ),
     )
+    max_image_bytes: int | None = Field(default=ANTHROPIC_IMAGE_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=ANTHROPIC_VIDEO_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=ANTHROPIC_AUDIO_BYTES, ge=0)
 
     # Cached AsyncClient for auth_token mode; re-created when auth_mode
     # changes so that the transport is always consistent with the current
@@ -359,6 +366,9 @@ class AnthropicProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingAnthropicFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
             ),
         )
 

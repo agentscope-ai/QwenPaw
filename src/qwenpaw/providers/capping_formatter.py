@@ -22,6 +22,7 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
+import base64
 from typing import Any, ClassVar
 
 # The capping formatters below override agentscope's ``_format_*_source``
@@ -50,6 +51,25 @@ from ..utils.media_paths import local_media_path
 # base64 into the model request body.  See the module docstring for the
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
+
+MB = 1024 * 1024
+OPENAI_IMAGE_BYTES = 20 * MB
+OPENAI_VIDEO_BYTES = 20 * MB
+OPENAI_AUDIO_BYTES = 25 * MB
+ANTHROPIC_IMAGE_BYTES = 5 * MB
+ANTHROPIC_VIDEO_BYTES = 0
+ANTHROPIC_AUDIO_BYTES = 32 * MB
+GEMINI_MEDIA_BYTES = 20 * MB
+DASHSCOPE_MEDIA_BYTES = 7 * MB
+VOLCENGINE_IMAGE_BYTES = 10 * MB
+VOLCENGINE_VIDEO_BYTES = 50 * MB
+VOLCENGINE_AUDIO_BYTES = 25 * MB
+MINIMAX_IMAGE_BYTES = 10 * MB
+MIMO_MEDIA_BYTES = 50 * MB
+LOCAL_MEDIA_BYTES = 0
+OPENROUTER_IMAGE_BYTES = 20 * MB
+OPENROUTER_VIDEO_BYTES = 50 * MB
+OPENROUTER_AUDIO_BYTES = 50 * MB
 
 _DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
     "audio/mpeg": "mp3",
@@ -86,33 +106,56 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
     _inline_media_size = staticmethod(inline_media_size)
 
-    def _placeholder_text(self, kind: str, size: int) -> str:
+    def _max_bytes_for_kind(self, kind: str) -> int:
+        kind_cap = {
+            "image": getattr(self, "max_image_bytes", None),
+            "video": getattr(self, "max_video_bytes", None),
+            "audio": getattr(self, "max_audio_bytes", None),
+        }.get(kind)
+        return self.max_bytes if kind_cap is None else kind_cap
+
+    def _placeholder_text(self, kind: str, size: int, max_bytes: int) -> str:
         return (
             f"[{kind} omitted from model context: local file is "
             f"{size} bytes, exceeds inline limit of "
-            f"{self.max_bytes} bytes]"
+            f"{max_bytes} bytes]"
         )
 
-    def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
+    def _placeholder(
+        self,
+        kind: str,
+        size: int,
+        max_bytes: int | None = None,
+    ) -> dict[str, Any]:
         """Provider-shaped text placeholder for an oversized media block.
 
         Default shape (``{"type": "text", "text": ...}``) matches the
         OpenAI / Anthropic / DashScope wire formats; Gemini overrides this
         to its ``{"text": ...}`` part shape.
         """
-        return {"type": "text", "text": self._placeholder_text(kind, size)}
+        return {
+            "type": "text",
+            "text": self._placeholder_text(
+                kind,
+                size,
+                self._max_bytes_for_kind(kind)
+                if max_bytes is None
+                else max_bytes,
+            ),
+        }
 
     def _maybe_cap(self, source: Any, kind: str) -> dict[str, Any] | None:
         """Return a placeholder dict if *source* exceeds the cap, else None.
 
         ``None`` means "no capping decision — defer to the base formatter".
         """
-        if self.max_bytes <= 0:
+        max_bytes = self._max_bytes_for_kind(kind)
+        if max_bytes <= 0:
             return None
         size = self._inline_media_size(source)
-        if size is None or size <= self.max_bytes:
+        if size is None or size <= max_bytes:
             return None
-        return self._placeholder(kind, size)
+        return self._placeholder(kind, size, max_bytes)
 
     def _unprepared_local_placeholder(
         self,
@@ -139,6 +182,10 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     """OpenAI formatter that caps oversized local image/audio media."""
+
+    max_image_bytes: int | None = Field(default=None, ge=0)
+    max_video_bytes: int | None = Field(default=None, ge=0)
+    max_audio_bytes: int | None = Field(default=None, ge=0)
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
@@ -173,6 +220,42 @@ class _CappingAnthropicFormatter(
 ):
     """Anthropic formatter that caps oversized image and PDF media."""
 
+    max_image_bytes: int | None = Field(default=None, ge=0)
+    max_video_bytes: int | None = Field(default=None, ge=0)
+    max_audio_bytes: int | None = Field(default=None, ge=0)
+
+    def _format_anthropic_source(
+        self,
+        source: URLSource | Base64Source,
+        block_type: str,
+    ) -> dict[str, Any]:
+        if block_type == "image":
+            return super()._format_image_source(source)
+        if isinstance(source, Base64Source):
+            return {
+                "type": block_type,
+                "source": {
+                    "type": "base64",
+                    "media_type": source.media_type,
+                    "data": source.data,
+                },
+            }
+        if isinstance(source, URLSource) and str(source.url).startswith(
+            "file://",
+        ):
+            file_path = str(source.url).removeprefix("file://")
+            with open(file_path, "rb") as handle:
+                data = base64.b64encode(handle.read()).decode("utf-8")
+            return {
+                "type": block_type,
+                "source": {
+                    "type": "base64",
+                    "media_type": source.media_type,
+                    "data": data,
+                },
+            }
+        raise ValueError(f"Unsupported Anthropic {block_type} source")
+
     def _format_source(
         self,
         source: URLSource | Base64Source,
@@ -184,7 +267,7 @@ class _CappingAnthropicFormatter(
         unprepared = self._unprepared_local_placeholder(source, block_type)
         if unprepared is not None:
             return unprepared
-        return super()._format_source(source, block_type)
+        return self._format_anthropic_source(source, block_type)
 
 
 class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
@@ -196,8 +279,25 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     so :meth:`_placeholder` is overridden accordingly.
     """
 
-    def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
-        return {"text": self._placeholder_text(kind, size)}
+    max_image_bytes: int | None = Field(default=None, ge=0)
+    max_video_bytes: int | None = Field(default=None, ge=0)
+    max_audio_bytes: int | None = Field(default=None, ge=0)
+
+    def _placeholder(
+        self,
+        kind: str,
+        size: int,
+        max_bytes: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "text": self._placeholder_text(
+                kind,
+                size,
+                self._max_bytes_for_kind(kind)
+                if max_bytes is None
+                else max_bytes,
+            ),
+        }
 
     def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
         return {
@@ -211,10 +311,12 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "media")
+        media_type = getattr(source, "media_type", "") or ""
+        kind = media_type.split("/", maxsplit=1)[0] or "media"
+        capped = self._maybe_cap(source, kind)
         if capped is not None:
             return capped
-        unprepared = self._unprepared_local_placeholder(source, "media")
+        unprepared = self._unprepared_local_placeholder(source, kind)
         if unprepared is not None:
             return unprepared
         return super()._format_media_source(source)
@@ -225,6 +327,10 @@ class _CappingDashScopeFormatter(
     CappingFormatterMixin,
 ):
     """DashScope formatter capping oversized local image/video/audio media."""
+
+    max_image_bytes: int | None = Field(default=None, ge=0)
+    max_video_bytes: int | None = Field(default=None, ge=0)
+    max_audio_bytes: int | None = Field(default=None, ge=0)
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
@@ -290,14 +396,29 @@ class _CappingOpenAIResponseFormatter(
 ):
     """OpenAI Responses API formatter that caps oversized local media."""
 
-    def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
+    max_image_bytes: int | None = Field(default=None, ge=0)
+    max_video_bytes: int | None = Field(default=None, ge=0)
+    max_audio_bytes: int | None = Field(default=None, ge=0)
+
+    def _placeholder(
+        self,
+        kind: str,
+        size: int,
+        max_bytes: int | None = None,
+    ) -> dict[str, Any]:
         # Responses API uses ``input_text`` / ``output_text`` — not the
         # generic ``text`` type used by Chat Completions.  Capped media
         # almost always comes from user messages, so ``input_text`` is
         # the correct type here.
         return {
             "type": "input_text",
-            "text": self._placeholder_text(kind, size),
+            "text": self._placeholder_text(
+                kind,
+                size,
+                self._max_bytes_for_kind(kind)
+                if max_bytes is None
+                else max_bytes,
+            ),
         }
 
     def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:

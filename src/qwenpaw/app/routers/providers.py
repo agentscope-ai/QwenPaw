@@ -118,6 +118,38 @@ class ProviderConfigRequest(BaseModel):
             "(e.g., openai.chat.completions, anthropic.messages)."
         ),
     )
+    max_inline_media_bytes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Default maximum size in bytes for local media inlined into "
+            "model requests. 0 disables capping."
+        ),
+    )
+    max_image_bytes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional image-specific inline media cap. Unset inherits the "
+            "default media cap."
+        ),
+    )
+    max_video_bytes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional video-specific inline media cap. Unset inherits the "
+            "default media cap."
+        ),
+    )
+    max_audio_bytes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional audio-specific inline media cap. Unset inherits the "
+            "default media cap."
+        ),
+    )
     custom_headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Custom HTTP headers to include in every API request.",
@@ -343,6 +375,14 @@ async def configure_provider(
         "custom_headers": body.custom_headers,
         "auth_mode": body.auth_mode,
     }
+    for cap_field in (
+        "max_inline_media_bytes",
+        "max_image_bytes",
+        "max_video_bytes",
+        "max_audio_bytes",
+    ):
+        if cap_field in body.model_fields_set:
+            config[cap_field] = getattr(body, cap_field)
     # Renaming is restricted to custom providers so built-in
     # provider names stay immutable.
     name = body.name.strip() if body.name else None

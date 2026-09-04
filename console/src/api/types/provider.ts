@@ -68,6 +68,14 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Default byte cap for local media inlined into model requests. 0 disables capping. */
+  max_inline_media_bytes?: number;
+  /** Optional image-specific byte cap. null/undefined inherits max_inline_media_bytes. */
+  max_image_bytes?: number | null;
+  /** Optional video-specific byte cap. null/undefined inherits max_inline_media_bytes. */
+  max_video_bytes?: number | null;
+  /** Optional audio-specific byte cap. null/undefined inherits max_inline_media_bytes. */
+  max_audio_bytes?: number | null;
   /** Custom HTTP headers sent with every request to this provider. */
   custom_headers?: Record<string, string>;
   /** Authentication mode: 'api_key' (x-api-key) or 'auth_token' (Authorization: Bearer). */
@@ -109,6 +117,10 @@ export interface ProviderConfigRequest {
   name?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  max_inline_media_bytes?: number;
+  max_image_bytes?: number | null;
+  max_video_bytes?: number | null;
+  max_audio_bytes?: number | null;
   custom_headers?: Record<string, string>;
   auth_mode?: "api_key" | "auth_token";
 }

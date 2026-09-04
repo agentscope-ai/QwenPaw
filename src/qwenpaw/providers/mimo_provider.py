@@ -14,12 +14,20 @@ from __future__ import annotations
 
 from typing import List
 
+from pydantic import Field
+
+from .capping_formatter import MIMO_MEDIA_BYTES
 from .openai_provider import OpenAIProvider, _is_non_chat_model
 from .provider import ModelInfo
 
 
 class MiMoProvider(OpenAIProvider):
     """Exclude non-chat (ASR/TTS) models from MiMo discovery results."""
+
+    max_inline_media_bytes: int = Field(default=MIMO_MEDIA_BYTES, ge=0)
+    max_image_bytes: int | None = Field(default=MIMO_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=MIMO_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=MIMO_MEDIA_BYTES, ge=0)
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch only catalog entries compatible with chat completions."""
