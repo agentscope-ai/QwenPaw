@@ -4336,8 +4336,6 @@
     "checkAgentTaskDefault": "Check task",
     "delegateExternalAgent": "Delegate {{runner}}",
     "delegateExternalAgentDefault": "Delegate external agent",
-    "materializeSkill": "Create {{skill}}",
-    "materializeSkillDefault": "Create skill",
     "shell": "Run {{command}}",
     "shellDefault": "Run command",
     "runToolBatch": "Run workflow {{workflow}}",

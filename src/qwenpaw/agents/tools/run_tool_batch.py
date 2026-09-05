@@ -1061,10 +1061,7 @@ def _load_actions_from_file(
     args: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     actions = _load_batch_file(file_path)
-    if not args:
-        return actions
-
-    return _resolve_args(actions, args)
+    return _resolve_args(actions, args or {})
 
 
 def _validate_batch_actions(actions: Any) -> list[dict[str, Any]]:
@@ -1142,14 +1139,15 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     - ``wait`` (float, optional): Seconds to sleep after this step.
 
     Use ``${args.<name>}`` placeholders in argument values for parts
-    that vary at runtime. Use ``${steps.<index>.<path>}`` to reference
-    an action by its zero-based position in the batch JSON, not by the
-    execution count. If a loop jumps back to the same action, that action
-    keeps the same ``steps.<index>`` reference; it resolves to that
-    action's most recent execution result. Use ``${vars.<name>}`` to
-    reference runtime variables created by ``set_var``. The brace-delimited
-    syntax is required so that placeholders are unambiguous inside
-    mixed-content strings (e.g. shell commands).
+    that vary at runtime. Every referenced argument path is required;
+    ``args`` may be omitted when the file contains no argument placeholders.
+    Use ``${steps.<index>.<path>}`` to reference an action by its zero-based
+    position in the batch JSON, not by the execution count. If a loop jumps
+    back to the same action, that action keeps the same ``steps.<index>``
+    reference; it resolves to that action's most recent execution result.
+    Use ``${vars.<name>}`` to reference runtime variables created by
+    ``set_var``. The brace-delimited syntax is required so that placeholders
+    are unambiguous inside mixed-content strings (e.g. shell commands).
 
     Combine ``set_var``, ``goto``, and ``label`` to build loops — for
     example, iterating over a dynamic list, retrying until a condition
