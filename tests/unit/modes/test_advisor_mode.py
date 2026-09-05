@@ -70,7 +70,7 @@ def _ctx(cfg=None, request=None, workspace_dir=None):
 
 
 def test_conversations_start_in_the_default_loop():
-    """``enabled`` makes the mode available; a conversation is in Advisor
+    """``enabled`` makes the mode available. A conversation is in Advisor
     Mode only after it was picked (``/advisor``)."""
     mode = AdvisorMode()
     assert mode.is_available(_config(enabled=True)) is True
@@ -95,7 +95,7 @@ def test_inactive_when_config_unavailable(monkeypatch):
 def test_is_active_reads_no_config_until_the_conversation_picked_it(
     monkeypatch,
 ):
-    """``is_active`` runs on every gated hook; the cheap session check
+    """``is_active`` runs on every gated hook, so the cheap session check
     comes first so unrelated conversations never load agent config."""
     loads = []
     monkeypatch.setattr(
@@ -247,7 +247,7 @@ async def test_command_status_reports_models(monkeypatch):
     )
     mode = AdvisorMode()
     text = _text(await mode._command_handler(_ctx(), "status"))
-    assert "Advisor Mode: off, not selected for this conversation" in text
+    assert "Advisor Mode: off. Not selected for this conversation" in text
     mode.session_state("sess-1").override = True
     reply = await mode._command_handler(_ctx(), "status")
     text = _text(reply)
@@ -262,7 +262,7 @@ async def test_command_status_without_subagent_model(monkeypatch):
         lambda _agent_id: _config(enabled=False, sub=None),
     )
     text = _text(await AdvisorMode()._command_handler(_ctx(), ""))
-    assert "Advisor Mode: off, switched off for this agent" in text
+    assert "Advisor Mode: off. It is switched off for this agent" in text
     assert "no sub-agent model configured" in text
 
 
@@ -293,7 +293,7 @@ async def test_command_refuses_to_start_when_switched_off(monkeypatch):
 
 async def test_command_refuses_while_another_mode_is_active(monkeypatch):
     """Like ``/goal``, ``/advisor`` does not start on top of another
-    explicit mode; Advisor itself being active is not a conflict."""
+    explicit mode. Advisor itself being active is not a conflict."""
     cfg = _config()
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
@@ -323,7 +323,7 @@ async def test_command_on_off_switches_this_conversation(
     arg,
     expected,
 ):
-    """/advisor on|off switches the session only; agent.json is never
+    """/advisor on|off switches the session only. agent.json is never
     written."""
     stored = _config(enabled=True)
     monkeypatch.setattr(
@@ -340,7 +340,7 @@ async def test_command_on_off_switches_this_conversation(
     assert (
         "Advisor Mode: on for this conversation"
         if expected
-        else "Advisor Mode: off, not selected for this conversation"
+        else "Advisor Mode: off. Not selected for this conversation"
     ) in text
 
 
@@ -416,7 +416,7 @@ async def test_advisor_builds_model_once_and_sends_msgs(monkeypatch):
         created.append(kwargs)
         return _Model(), None
 
-    # Patched at the source module: ``advisor.py`` imports lazily.
+    # Patched at the source module: ``models.py`` imports the factory lazily.
     monkeypatch.setattr(
         "qwenpaw.agents.model_factory.create_model_and_formatter_async",
         fake_factory,
@@ -532,7 +532,7 @@ def test_tool_is_registered_and_mode_gated():
 
 
 def test_advisor_mode_counts_as_the_explicit_loop_mode():
-    """Listed in the composer's mode menu like /goal; while active it
+    """Listed in the composer's mode menu like /goal. While active it
     counts as the explicit mode of the conversation."""
     mode = _picked()
     ctx = _ctx(_config(enabled=True))
@@ -636,7 +636,7 @@ async def test_session_state_carries_history_and_budget_across_requests(
 
 
 async def test_plan_is_written_once_per_conversation():
-    """The second user turn of a conversation gets no new opening plan;
+    """The second user turn of a conversation gets no new opening plan.
     it relies on the mid-run intervention and on-demand questions."""
     from agentscope.message import UserMsg
 
@@ -761,7 +761,7 @@ def test_command_metadata_exposes_the_loop_mode_entry():
 
 
 def test_consult_tool_is_registered_with_governance():
-    """Unregistered tools are denied by policy; the mode registers its
+    """Unregistered tools are denied by policy, so the mode registers its
     tool as internal so the agent can call it without approval."""
     from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
     from qwenpaw.modes.advisor.tools import CONSULT_POLICY_NAME

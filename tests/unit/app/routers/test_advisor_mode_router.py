@@ -111,7 +111,7 @@ def test_post_sets_and_clears_the_model_overrides(client, stored_config):
     assert stored_config.advisor_mode.advisor_model.model == "b-max"
     assert stored_config.advisor_mode.worker_model.model == "s-mini"
 
-    # Omitted → unchanged; explicit null → cleared.
+    # Omitted fields are unchanged, an explicit null clears the override.
     body = client.post("/api/advisor-mode", json={"enabled": True}).json()
     assert body["advisor_model_override"] == {
         "provider_id": "big",

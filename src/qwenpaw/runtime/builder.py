@@ -1433,9 +1433,7 @@ class AgentBuilder:
         )
         mws.append(VisualCompressionMiddleware(visual_config))
 
-        # Mode-contributed middlewares (innermost). Every registered mode
-        # that is active for this request may add request-scoped
-        # middlewares, e.g. Advisor Mode's AdvisorMiddleware.
+        # Mode-contributed middlewares (innermost).
         mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
 
         return mws

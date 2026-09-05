@@ -34,15 +34,10 @@ def _has_model_override(request: Any) -> bool:
 class WorkerModelHook(ModeGatedHook):
     """Run the agent on the worker model while the advisor keeps its own.
 
-    By default Advisor Mode reuses the agent's two existing model slots:
-    the primary ``active_model`` answers as the advisor and the cheaper
-    ``subagent_model`` (when one is configured) runs the agent itself.
-    ``advisor_mode.worker_model`` overrides the latter (see
-    :func:`resolve_worker_slot`). This hook applies the swap by setting
+    Sets the worker slot (see :func:`resolve_worker_slot`) as
     ``model_slot_override`` on the request before :class:`AgentBuilder`
     builds the model, the same path a spawned subagent uses. An override
-    already present on the request (an explicit per-request model) always
-    wins.
+    already on the request wins.
     """
 
     phase = Phase.PRE_AGENT_BUILD

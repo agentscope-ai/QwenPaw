@@ -88,10 +88,10 @@ class AdvisorMode(AgentMode):
       the agent offers the mode at all (composer menu, ``/advisor``).
     * ``is_active``: the conversation's ``/advisor`` switch, which only
       counts while the mode is available.
-    * ``hooks`` swaps the agent onto ``subagent_model`` before the build
+    * ``hooks`` swaps the agent onto the worker model before the build
       (:class:`WorkerModelHook`).
     * ``middlewares`` contributes :class:`AdvisorMiddleware`, which asks
-      the advisor (the primary model) for a plan and re-consults it mid-run.
+      the advisor for a plan and re-consults it mid-run.
     * ``tools`` registers the real ``consult_advisor`` tool so the agent
       can ask on its own.
     * ``commands`` registers ``/advisor``, which also makes the mode
@@ -107,7 +107,6 @@ class AdvisorMode(AgentMode):
         from .tools import register_advisor_tools_governance
 
         super().setup(workspace)
-        # Without this the governor denies the tool by policy.
         register_advisor_tools_governance()
 
     # ── per-session state ───────────────────────────────────────────────
@@ -151,14 +150,10 @@ class AdvisorMode(AgentMode):
         return is_enabled(agent_config)
 
     def is_active(self, ctx: HookContext) -> bool:
-        """On for this conversation.
-
-        Conversations start in the default loop. Advisor Mode is on only
-        after it was picked for the conversation (the composer's mode
-        menu sends ``/advisor <task>``. ``/advisor on`` does the same
-        anywhere slash commands work) — and only while the agent has the
-        mode switched on in Configuration.
-        """
+        """On for this conversation: only after it was picked (the
+        composer's mode menu sends ``/advisor <task>``, and ``/advisor on``
+        does the same anywhere slash commands work), and only while the
+        agent has the mode switched on in Configuration."""
         key = self._session_key(ctx)
         state = self._sessions.get(key) if key else None
         if state is None or not state.override:
@@ -191,7 +186,7 @@ class AdvisorMode(AgentMode):
         self,
         ctx: HookContext,
         agent_config: object,
-    ) -> list:
+    ) -> list[Any]:
         cfg = agent_config or resolve_agent_config(ctx)
         return [self.build_middleware(ctx, cfg)]
 
@@ -332,14 +327,14 @@ class AdvisorMode(AgentMode):
         )
         if not am.enabled:
             headline = (
-                "Advisor Mode: off, switched off for this agent in "
-                "Configuration."
+                "Advisor Mode: off. It is switched off for this agent in "
+                "Configuration → Agent Loop Settings → Advisor."
             )
         elif active:
             headline = "Advisor Mode: on for this conversation."
         else:
             headline = (
-                "Advisor Mode: off, not selected for this conversation. "
+                "Advisor Mode: off. Not selected for this conversation. "
                 "Pick Advisor in the Loop mode menu or send `/advisor on`."
             )
         return (

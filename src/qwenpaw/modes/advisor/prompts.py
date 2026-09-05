@@ -197,8 +197,7 @@ TRIGGER_NOTES = {
     "window": "Failures keep recurring over the last several steps.",
 }
 
-# Introduces the workspace listing to the advisor. Keep the wording
-# neutral so provider content filters do not reject the request.
+# Introduces the workspace listing to the advisor.
 ENV_SECTION_HEADER = (
     "Workspace file listing. Paths are relative to the workspace root, "
     "sizes are in bytes, and a trailing slash marks a directory:"

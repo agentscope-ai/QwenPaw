@@ -21,7 +21,6 @@ from qwenpaw.config.config import AdvisorInterventionConfig
 from qwenpaw.modes.advisor.middleware import (
     _LiveExchange,
     CONSULT_BUDGET_EXHAUSTED,
-    DEFAULT_MAX_CONSULTS,
     FOLLOWUP_TOOL_NAME,
     PLAN_TOOL_NAME,
     AdvisorMiddleware,
@@ -56,7 +55,7 @@ class _Agent:
 
 class _Advisor:
     """Scripted advisor: replies come from ``replies`` in order (an
-    Exception entry raises); the last entry repeats."""
+    Exception entry raises). The last entry repeats."""
 
     label = "stub:advisor"
 
@@ -79,7 +78,7 @@ class _Advisor:
 
 
 def make_mw(
-    replies=("ADJUST\nStop retrying that; take another route.",),
+    replies=("ADJUST\nStop retrying that. Take another route.",),
     *,
     log_dir=None,
     **trigger_kw,
@@ -180,7 +179,7 @@ async def test_advice_is_injected_where_the_agent_can_see_it():
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
     block = followups(agent)[0]
-    assert block.output == "Stop retrying that; take another route."
+    assert block.output == "Stop retrying that. Take another route."
     assert agent.state.context[-1].content[0].name == FOLLOWUP_TOOL_NAME
 
 
@@ -241,7 +240,7 @@ async def test_followups_are_stateful_and_accumulate():
 
 
 async def test_each_result_is_counted_once():
-    """The whole context is rescanned per call; old results must not
+    """The whole context is rescanned per call, so old results must not
     re-fire."""
     mw, agent = make_mw(), _Agent()
     add_result(agent, "execute_shell_command", {"command": "a"}, FAIL)
@@ -257,14 +256,14 @@ async def test_injected_advice_is_not_read_back_as_a_failure():
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
     before = len(mw.advisor.calls)
-    for _ in range(4):  # advice now sits in context; rescanning ignores it
+    for _ in range(4):  # advice now sits in context, rescanning ignores it
         await mw._check_and_intervene(agent)
     assert len(mw.advisor.calls) == before
 
 
 async def test_pydantic_tool_results_are_scanned_too():
     """Real AgentScope contexts hold pydantic blocks with TextBlock
-    outputs, not dicts; the scan must read those as well."""
+    outputs, not dicts. The scan must read those as well."""
     mw, agent = make_mw(), _Agent()
     for i in range(3):
         call_id = f"p{i}"
@@ -370,13 +369,13 @@ async def test_continue_is_not_injected_but_is_remembered():
 
 async def test_adjust_injects_only_the_body_not_the_verdict_line():
     mw, agent = (
-        make_mw(["ADJUST\nStop using heredocs; write a file."]),
+        make_mw(["ADJUST\nStop using heredocs. Write a file."]),
         _Agent(),
     )
     for i in range(3):
         add_result(agent, "execute_shell_command", {"command": f"c{i}"}, FAIL)
         await mw._check_and_intervene(agent)
-    assert followups(agent)[0].output == "Stop using heredocs; write a file."
+    assert followups(agent)[0].output == "Stop using heredocs. Write a file."
 
 
 async def test_malformed_reply_retries_the_same_request():
@@ -659,7 +658,7 @@ def test_workspace_listing_handles_missing_root(tmp_path):
 
 
 async def test_results_already_in_context_are_not_counted():
-    """A new request re-scans the whole context; failures from earlier
+    """A new request re-scans the whole context, so failures from earlier
     turns must not trigger an intervention now."""
     mw, agent = make_mw(), _Agent()
     mw._baselined = False  # fresh middleware for a new request
@@ -798,7 +797,7 @@ async def test_agents_without_the_hook_are_fine():
 
 
 class _LiveAgent(_Agent):
-    """Agent that takes injected events; records them in order."""
+    """Agent that takes injected events and records them in order."""
 
     def __init__(self):
         super().__init__()
@@ -956,7 +955,7 @@ async def test_consult_stream_yields_the_reply_in_pieces():
     pieces = await _pieces(mw, "which route?")
     assert len(pieces) >= 2, "streamed, not delivered in one go"
     assert "".join(pieces) == "Take the other route, it is shorter."
-    assert mw.consults_left == DEFAULT_MAX_CONSULTS - 1, "counted once"
+    assert mw.consults_left == 32 - 1, "counted once"
     assert "which route?" in mw.advisor.calls[-1][-1]["content"]
 
 
@@ -1002,8 +1001,7 @@ async def test_rejected_followup_samples_do_not_enter_the_history():
 
 
 def test_advisor_never_sees_its_own_tool():
-    """Listing ``consult_advisor`` made the advisor open every plan with
-    "first, call consult_advisor"."""
+    """The advisor never sees its own tool in the list it plans with."""
     schemas = [
         {"function": {"name": PLAN_TOOL_NAME, "description": "ask"}},
         {"function": {"name": FOLLOWUP_TOOL_NAME, "description": "x"}},

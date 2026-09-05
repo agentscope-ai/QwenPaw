@@ -78,7 +78,7 @@ The setting is stored per agent in `agent.json`:
 
 `max_consults` caps the agent's own questions per conversation (default 32). Past the cap the tool answers with a short notice and the agent carries on. Automatic interventions have their own cap (`max_interventions`, see below). With the opening plan switched off, the advisor is only consulted automatically (auto intervention) or by the agent (`consult_advisor`). The follow-up and consultation requests always carry the task itself, so they work without a plan.
 
-Advisor Mode composes with Coding Mode. In this version it is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
+Advisor Mode composes with Coding Mode. It is a loop mode of its own, so a conversation is either in Advisor Mode or in another loop mode (`/goal`, mission, custom loops), not both.
 
 It takes effect on the next message. No restart is needed.
 

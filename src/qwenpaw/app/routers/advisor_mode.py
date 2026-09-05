@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Advisor Mode API endpoints.
 
-Provides endpoints for reading and toggling Advisor Mode per agent. The
-state lives in ``agent.json`` under ``advisor_mode`` and is read by
-``AgentBuilder`` on every request, so a change takes effect on the next
-message without an agent reload.
+Endpoints for reading and updating Advisor Mode per agent. The state
+lives in ``agent.json`` under ``advisor_mode`` and is read on every
+request, so a change takes effect on the next message.
 """
 from __future__ import annotations
 
@@ -109,7 +108,7 @@ async def get_advisor_mode(request: Request) -> dict:
 
 @router.post(
     "",
-    summary="Enable or disable Advisor Mode for the current agent",
+    summary="Update Advisor Mode settings for the current agent",
 )
 async def post_advisor_mode_update(
     body: AdvisorModeUpdateRequest,

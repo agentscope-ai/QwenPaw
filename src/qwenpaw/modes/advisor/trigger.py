@@ -28,19 +28,14 @@ from typing import Any, Iterable
 from ...config.config import AdvisorInterventionConfig
 
 # ── Layer 1: structured failure signals ─────────────────────────────────
-# Substring matches over the WHOLE tool output are unsafe: a browser
-# snapshot of a 404 page legitimately contains "Not Found" while the tool
-# call itself succeeded. These prefixes/markers are emitted by the tool
-# layer itself, not by the content it returns.
+# These prefixes and markers are emitted by the tool layer itself, never
+# by the content a tool returns, so they are matched at the start of the
+# observation.
 STRUCTURED_FAILURE_PREFIXES: tuple[str, ...] = (
     "Command failed",
     "Input validation failed",
     "Error:",
-    # The tool layer's retryable-failure envelope, and the three refusals it
-    # does not cover. All four are emitted as the whole observation, so they
-    # are matched as prefixes: a file whose CONTENT discusses
-    # ToolNotFoundError is not a failed call, which is the same trap the
-    # note above describes.
+    # Emitted as the whole observation, so matched as prefixes.
     "[RETRYABLE]",
     "ToolNotFoundError",
     "Approval for",

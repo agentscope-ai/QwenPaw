@@ -73,17 +73,15 @@ def test_search_zero_results(detector):
 
 
 def test_browser_error_page(detector):
-    """The tool is registered as "browser"; the historical "browser_use"
-    name is not a tool anything calls, so the rule must not key to it."""
+    """Rules apply to the registered tool name, "browser"."""
     out = '{"ok": true, "url": "https://x/404", "title": "404 Not Found"}'
     assert detector.classify("browser", out).is_failure
     assert not detector.classify("browser_use", out).is_failure
 
 
 def test_404_page_body_is_not_a_failure(detector):
-    """Regression: a *successful* snapshot whose CONTENT mentions
-    'Not Found'. Only the structured status and tool-scoped rules may
-    decide."""
+    """A successful snapshot whose content mentions 'Not Found' is not a
+    failure. Only the structured status and tool-scoped rules decide."""
     out = (
         '{\n  "ok": true,\n  "snapshot": "- document:\\n  - main:\\n'
         '      - img \\"404\\"\\n      - heading \\"Not Found\\" [ref=e9]\\n'
