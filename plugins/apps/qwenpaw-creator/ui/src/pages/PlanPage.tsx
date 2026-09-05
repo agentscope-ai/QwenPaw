@@ -148,6 +148,7 @@ export default function PlanPage() {
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
   const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [comparePreviewOpen, setComparePreviewOpen] = useState(true);
   const composeAttemptedGeneration = useRef<number | null>(null);
   const hadPendingReviews = useRef(false);
   const handledComposeTask = useRef<string | null>(null);
@@ -834,9 +835,9 @@ export default function PlanPage() {
                 durationTick={displayDurationTick}
                 playheadTick={clampedPlayheadTick}
                 selectedElementId={selectedElementId}
-                previewOpen
+                previewOpen={comparePreviewOpen}
                 tasks={tasks}
-                onPreviewOpenChange={() => {}}
+                onPreviewOpenChange={setComparePreviewOpen}
                 onPlayheadChange={(tick) =>
                   movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
                 }
@@ -884,9 +885,9 @@ export default function PlanPage() {
                 )}
                 playheadTick={clampedPlayheadTick}
                 selectedElementId={null}
-                previewOpen
+                previewOpen={comparePreviewOpen}
                 tasks={tasks}
-                onPreviewOpenChange={() => {}}
+                onPreviewOpenChange={setComparePreviewOpen}
                 onPlayheadChange={(tick) =>
                   movePlayhead(
                     Math.max(
