@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -38,13 +37,6 @@ _LOOP_DESCRIPTION = (
     "Let a stronger model plan and step in while a cheaper one does the "
     "work."
 )
-
-# How many conversations keep their advisor state (per-conversation switch,
-# advisor history, consult budget) per mode instance. The least recently
-# used conversation is dropped past this, which bounds memory on a
-# long-running server.
-_MAX_SESSIONS = 64
-
 
 _UNAVAILABLE_NOTICE = (
     "Advisor Mode is switched off for this agent. Turn it on in "
@@ -109,7 +101,7 @@ class AdvisorMode(AgentMode):
     name = "advisor"
 
     def __init__(self) -> None:
-        self._sessions: "OrderedDict[str, AdvisorSessionState]" = OrderedDict()
+        self._sessions: dict[str, AdvisorSessionState] = {}
 
     def setup(self, workspace: object) -> None:
         from .tools import register_advisor_tools_governance
@@ -131,9 +123,6 @@ class AdvisorMode(AgentMode):
         if state is None:
             state = AdvisorSessionState()
             self._sessions[session_id] = state
-        self._sessions.move_to_end(session_id)
-        while len(self._sessions) > _MAX_SESSIONS:
-            self._sessions.popitem(last=False)
         return state
 
     def current_middleware(self) -> AdvisorMiddleware | None:
@@ -307,8 +296,12 @@ class AdvisorMode(AgentMode):
 
         if word in ("on", "off"):
             enabled = word == "on"
-            if key:
-                self.session_state(key).override = enabled
+            if key and enabled:
+                self.session_state(key).override = True
+            elif key:
+                # Leaving the mode ends the advisor's session, plan
+                # included, like a finished goal.
+                self._sessions.pop(key, None)
             return _system_message(self._status_text(cfg, enabled))
 
         # Anything else is a task: start the mode and let the agent run it.
