@@ -19,6 +19,7 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.modes.advisor import AdvisorMiddleware, AdvisorMode
 from qwenpaw.modes.advisor import mode as mode_module
+from qwenpaw.modes.advisor.config import is_enabled
 from qwenpaw.modes.advisor import models as models_module
 from qwenpaw.modes.advisor.hooks import WorkerModelHook
 from qwenpaw.modes.advisor.tools import CONSULT_TOOL_NAME
@@ -73,8 +74,8 @@ def test_conversations_start_in_the_default_loop():
     """``enabled`` makes the mode available. A conversation is in Advisor
     Mode only after it was picked (``/advisor``)."""
     mode = AdvisorMode()
-    assert mode.is_available(_config(enabled=True)) is True
-    assert mode.is_available(_config(enabled=False)) is False
+    assert is_enabled(_config(enabled=True)) is True
+    assert is_enabled(_config(enabled=False)) is False
     assert mode.is_active(_ctx(_config(enabled=True))) is False
     mode.session_state("sess-1").override = True
     assert mode.is_active(_ctx(_config(enabled=True))) is True

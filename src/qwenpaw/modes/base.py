@@ -67,19 +67,6 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
-    def is_available(  # noqa: ARG002
-        self,
-        agent_config: object,  # pylint: disable=unused-argument
-    ) -> bool:
-        """Whether this mode can be started for an agent at all.
-
-        Checked by the loop catalog (``/api/loops``) so a mode that is
-        switched off for an agent is not offered in the chat composer.
-        Default: always available. Distinct from ``is_active``, which says
-        whether the mode is *on* for one conversation.
-        """
-        return True
-
     def middlewares(  # noqa: ARG002
         self,
         ctx: HookContext,  # pylint: disable=unused-argument

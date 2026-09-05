@@ -70,6 +70,17 @@ BUILTIN_LOOPS = (
     ),
 )
 
+ADVISOR_LOOP = LoopModeInfo(
+    id="advisor",
+    name="advisor",
+    slash_command="advisor",
+    description=(
+        "Let a stronger model plan and step in while a cheaper one does "
+        "the work."
+    ),
+    source="builtin",
+)
+
 
 def _session_context_state(
     saved_state: dict[str, Any] | None,
@@ -343,6 +354,12 @@ def _build_loop_catalog(
         "goal": "goal",
         "mission": "mission",
     }
+    # Advisor is bundled like goal and mission but only offered once it is
+    # switched on for the agent.
+    advisor_mode = getattr(workspace.config, "advisor_mode", None)
+    if getattr(advisor_mode, "enabled", False) is True:
+        result.append(ADVISOR_LOOP)
+        runtime_modes["advisor"] = "advisor"
     for mode in workspace.config.running.loop.custom_modes:
         if not mode.enabled:
             continue
@@ -358,11 +375,7 @@ def _build_loop_catalog(
         )
         runtime_modes[descriptor_id] = descriptor_id
 
-    builtin_names = {"default", "goal", "mission"}
-    # Modes bundled with QwenPaw that register like plugins. They are listed
-    # with the built-in loops under a bare id, so the Console names them
-    # from its own i18n.
-    bundled_names = {"advisor"}
+    builtin_names = {"default", "goal", "mission", "advisor"}
     for mode in getattr(workspace.plugins, "modes", []):
         runtime_name = getattr(mode, "name", "")
         if (
@@ -373,9 +386,6 @@ def _build_loop_catalog(
         ):
             continue
         try:
-            is_available = getattr(mode, "is_available", None)
-            if callable(is_available) and not is_available(workspace.config):
-                continue
             commands = mode.commands()
         except Exception:
             logger.warning(
@@ -388,8 +398,7 @@ def _build_loop_catalog(
             continue
         command = commands[0]
         metadata = command.metadata or {}
-        bundled = runtime_name in bundled_names
-        descriptor_id = runtime_name if bundled else f"plugin:{runtime_name}"
+        descriptor_id = f"plugin:{runtime_name}"
         name_i18n = _as_str_dict(metadata.get("name_i18n"))
         description_i18n = _as_str_dict(metadata.get("description_i18n"))
         result.append(
@@ -398,7 +407,7 @@ def _build_loop_catalog(
                 name=str(metadata.get("loop_name") or runtime_name),
                 slash_command=command.name,
                 description=command.help_text,
-                source="builtin" if bundled else "plugin",
+                source="plugin",
                 name_i18n=name_i18n or None,
                 description_i18n=description_i18n or None,
             ),
