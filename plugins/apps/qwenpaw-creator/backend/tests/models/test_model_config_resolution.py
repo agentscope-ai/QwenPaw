@@ -132,6 +132,24 @@ def test_unconfigured_concurrency_follows_the_scheduler_dispatch_cap(
     assert OpenAIImageModel.from_config().concurrency == expected
 
 
+def test_qwen_image3_uses_long_multireference_timeout_by_default(
+    monkeypatch,
+) -> None:
+    for name in (
+        "DASHSCOPE_IMAGE_TIMEOUT",
+        "IMAGE_TIMEOUT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DASHSCOPE_IMAGE_MODEL_NAME", "qwen-image-3.0-pro")
+    with _tool_configs():
+        assert DashScopeImageModel.from_config().timeout == 900
+
+    monkeypatch.setenv("DASHSCOPE_IMAGE_MODEL_NAME", "qwen-image-2.0-pro")
+    with _tool_configs():
+        # Other DashScope families stay on the shared 480s baseline.
+        assert DashScopeImageModel.from_config().timeout == 480
+
+
 # ---------------------------------------------------------------------------
 # Video concurrency and endpoint URLs
 # ---------------------------------------------------------------------------

@@ -24,6 +24,14 @@ def _owner_entity_id(owner_ref: str | None) -> str | None:
 
 
 def _entity_ids(creation: R2VCreation) -> list[str]:
+    """Return the stable semantic order used by prompt reference mappings.
+
+    Preserve the long-lived provider-facing order: characters establish
+    identity first, the scene anchors the world, and props follow. This order
+    is part of the authored ``[Image N]`` contract; changing it for aesthetic
+    preference would silently swap responsibilities in stored video prompts.
+    """
+
     return list(
         dict.fromkeys(
             [

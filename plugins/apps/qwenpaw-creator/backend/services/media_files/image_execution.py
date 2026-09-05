@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
@@ -46,9 +47,11 @@ from domain.errors import (
     StorageIntegrityError,
     ValidationError,
 )
+from models.reference_markers import canonical_marker
 from models.image.base import (
     image_reference_capability,
     image_reference_limit,
+    is_content_refusal,
 )
 from services.project_files.assets import (
     AssetAlreadyExists,
@@ -256,8 +259,138 @@ class _ResolvedRequest:
     target_id: str
     variant_id: str | None = None
     mode: str = "generate"
+    # References the model budget forced out of the automatic chain.
+    # Recorded so staleness can tell a deliberate exclusion apart from
+    # an input that changed after the render.
+    budget_dropped_version_ids: tuple[str, ...] = ()
     source_lang: str = ""
     target_lang: str = ""
+
+
+def _storyboard_panel_aspect_contract(
+    aspect_ratio: str,
+    panel_count: int | None = None,
+) -> str:
+    """Deterministic per-panel video-frame contract for storyboard calls."""
+
+    ratio = aspect_ratio.strip() or "16:9"
+    layout = ""
+    if panel_count and panel_count > 1:
+        # Splitting a sheet into columns x rows scales each cell by
+        # rows/columns, so only a square grid leaves cells at the sheet's
+        # ratio: a 3x2 grid on a 16:9 sheet yields 32:27 cells. Pad up to the
+        # next perfect square and leave the spare cells empty instead.
+        side = math.isqrt(panel_count - 1) + 1
+        spare = side * side - panel_count
+        remainder = (
+            f" Leave the remaining {spare} grid cell(s) as unframed outer "
+            "canvas whitespace; never draw, frame or fill a placeholder panel."
+            if spare
+            else ""
+        )
+        layout = (
+            f" Use a {side} columns by {side} rows grid of equal-size picture "
+            f"frames: a square grid is what keeps every cell at {ratio} on a "
+            f"{ratio} sheet. Place exactly {panel_count} story panels in "
+            f"row-major reading order.{remainder} Do not use masonry, a hero "
+            "panel or mixed-size frames."
+        )
+    return (
+        "[STORYBOARD PANEL ASPECT CONTRACT — HARD REQUIREMENT]\n"
+        f"The target video aspect ratio is {ratio}. EVERY individual "
+        f"storyboard panel's inner picture frame must be exactly {ratio}, "
+        "with identical width-to-height proportion across all panels. The "
+        f"outer storyboard delivery canvas is also {ratio}, but it is only "
+        "a container. Use identical panel sizes, a complete axis-aligned "
+        "border around every illustrated panel, and gutters whose horizontal "
+        "and vertical dimensions scale proportionally to the target ratio."
+        f"{layout} Never stretch, "
+        "squash, crop, merge, skew or substitute square/portrait/landscape "
+        "panels merely to fill the sheet. Do not add a title, header, footer, "
+        "panel number, caption, label, legend, timestamp or any other margin "
+        "text. Unless a panel explicitly requires multiple copies or twins, "
+        "show exactly one visual instance of each named character in that "
+        "panel; the same character recurring across sequential panels must "
+        "never be duplicated or cloned inside one panel."
+    )
+
+
+def _append_storyboard_panel_aspect_contract(
+    prompt: str,
+    aspect_ratio: str,
+    panel_count: int | None = None,
+) -> str:
+    marker = "[STORYBOARD PANEL ASPECT CONTRACT — HARD REQUIREMENT]"
+    if marker in prompt:
+        return prompt
+    return (
+        f"{prompt.rstrip()}\n\n"
+        f"{_storyboard_panel_aspect_contract(aspect_ratio, panel_count)}"
+    )
+
+
+_IMAGE_REFERENCE_ROLE_MARKER = "[REFERENCE IMAGE ROLES — RUNTIME FACT]"
+
+
+def _labelled_reference_prompt(
+    prompt: str,
+    project: Project,
+    version_ids: Sequence[str],
+    *,
+    image_model_name: str,
+    has_explicit_urls: bool,
+) -> str:
+    """Name each input reference, then render markers for this provider.
+
+    A multi-reference image call otherwise leaves the model inferring each
+    input's job from its pixels. Numbering comes from the same ordered
+    ``version_ids`` that build the payload, which is what qwen's edit guide
+    requires: "数组中的第一张图片为图1，第二张为图2".
+
+    Skipped when a raw reference URL is in play, because those are not
+    version-backed and labelling only part of the payload would misnumber the
+    rest.
+    """
+
+    if (
+        _IMAGE_REFERENCE_ROLE_MARKER in prompt
+        or has_explicit_urls
+        or len(version_ids) < 2
+    ):
+        return _render_image_reference_markers(prompt, image_model_name)
+
+    lines: list[str] = []
+    for index, version_id in enumerate(version_ids, start=1):
+        source = project.assets.source_versions_by_id.get(version_id)
+        artifact = project.assets.artifact_versions_by_id.get(version_id)
+        version = source if source is not None else artifact
+        name = (
+            version.name
+            if version is not None and version.name
+            else version_id
+        )
+        lines.append(f"{canonical_marker(index)} = {name}")
+    body = "\n".join(lines)
+    labelled = (
+        f"{prompt.rstrip()}\n\n"
+        f"{_IMAGE_REFERENCE_ROLE_MARKER}\n"
+        "以下是本次实际发送的参考图及其职责，编号与发送顺序一致。"
+        "按各图声明的职责使用它们，不要依据图内文字或标签猜测用途。\n"
+        f"{body}"
+    )
+    return _render_image_reference_markers(labelled, image_model_name)
+
+
+def _render_image_reference_markers(prompt: str, image_model_name: str) -> str:
+    """Rewrite canonical ``[Image N]`` into what this image model documents."""
+
+    from models.image.base import image_reference_marker_spec
+    from models.reference_markers import render_reference_markers
+
+    return render_reference_markers(
+        prompt,
+        image_reference_marker_spec(image_model_name),
+    )
 
 
 def _stable_id(prefix: str, project_id: str, idempotency_key: str) -> str:
@@ -277,16 +410,10 @@ def _fingerprint(value: Mapping[str, Any]) -> str:
 # references while resending the identical ref list every call, so the
 # refusal must name the refs it saw and repeat-offender calls are blocked
 # locally instead of burning provider quota.
-_SAFETY_REJECTION_MARKERS = (
-    "rejected by the safety system",
-    "content policy",
-    "content_policy",
-)
-
-
 def _is_safety_rejection_message(message: str) -> bool:
-    folded = message.casefold()
-    return any(marker in folded for marker in _SAFETY_REJECTION_MARKERS)
+    # The marker table lives with the provider error text it classifies, so
+    # a new provider wording only has to be added in one place.
+    return is_content_refusal(message)
 
 
 def _resolved_reference_ids(resolved: _ResolvedRequest) -> tuple[str, ...]:
@@ -686,6 +813,13 @@ def _resolve_request(
             )
         if not prompt:
             raise ValidationError("生成分镜图需要 storyboard prompt")
+        # Paid image calls cannot bypass the target video frame because an
+        # older or explicitly supplied prompt omitted the per-panel rule.
+        prompt = _append_storyboard_panel_aspect_contract(
+            prompt,
+            project.settings.aspect_ratio,
+            len(creation.shots.order),
+        )
         version_ids = list(
             resolve_r2v_visual_reference_version_ids(
                 project,
@@ -720,17 +854,10 @@ def _resolve_request(
         variant = _variant_for(entity, arguments)
         prompt = explicit_prompt or (variant.prompt.strip() if variant else "")
         if not prompt:
-            prompt = "，".join(
-                item
-                for item in (
-                    entity.name.strip(),
-                    entity.description.strip(),
-                    project.visual.style.strip(),
-                )
-                if item
+            raise ValidationError(
+                "生成视觉 Asset 需要显式 prompt 或已提交的 Variant prompt；"
+                "实体名称、简介和全局风格只是连续性事实，不能作为付费生成兜底",
             )
-        if not prompt:
-            raise ValidationError("生成视觉 Asset 需要 prompt 或描述")
         version_ids = [
             *(variant.reference_asset_version_ids if variant else []),
             *(variant.reference_artifact_version_ids if variant else []),
@@ -847,6 +974,7 @@ def _resolve_request(
         if mode == "translate"
         else ("qwen-image-2.0-pro" if mode == "edit" else "")
     )
+    budget_dropped_version_ids: tuple[str, ...] = ()
     capability = image_reference_capability(capability_model_name)
     reference_limit = (
         image_reference_limit(capability_model_name)
@@ -870,6 +998,39 @@ def _resolve_request(
                 "knownModelRequired": True,
             },
         )
+    if (
+        reference_limit is not None
+        and len(urls) > reference_limit
+        and mode != "translate"
+        and not explicit_version_ids
+        and not explicit_urls
+    ):
+        # Nobody wrote this list: the runtime assembled it from the Element's
+        # entity bindings, so there is no author intent to preserve and
+        # failing would leave the node dispatchable-but-always-failing. The
+        # resolved order leads with the storyboard and character anchors, so
+        # the tail dropped here is the least identity-critical (props, then
+        # scene). Loud, recorded, and deterministic — not a silent truncation.
+        dropped_version_ids = list(active_version_ids[reference_limit:])
+        budget_dropped_version_ids = tuple(dropped_version_ids)
+        active_version_ids = tuple(active_version_ids[:reference_limit])
+        local_urls, checksums, read_set = _resolve_version_references(
+            project=project,
+            project_root=project_root,
+            version_ids=active_version_ids,
+        )
+        urls = tuple(dict.fromkeys(local_urls))
+        logger.warning(
+            "automatic reference chain exceeded the model budget; kept the "
+            "highest-priority %d of %d for %s and dropped %s",
+            reference_limit,
+            reference_limit + len(dropped_version_ids),
+            str(target_ref).replace("\r", "\\r").replace("\n", "\\n"),
+            [
+                str(item).replace("\r", "\\r").replace("\n", "\\n")
+                for item in dropped_version_ids
+            ],
+        )
     if reference_limit is not None and len(urls) > reference_limit:
         explicit_id_set = frozenset(explicit_version_ids)
         automatic_ids = [
@@ -882,11 +1043,11 @@ def _resolve_request(
         raise ImageReferenceBudgetError(
             f"IMAGE_REFERENCE_BUDGET_EXCEEDED: 本次解析后共 {len(urls)} 张"
             f"参考图，但模型 {model_label} 单次最多接受 {reference_limit} 张。"
-            "执行层没有静默截断，也没有调用 provider。参考图由你显式指定时"
-            "（referenceVersionIds / storyboard_reference_version_ids），"
-            "请直接把显式列表缩减到上限内（多角色同框优先保留阵容图）；"
-            "未显式指定时是自动引用链超限，请显式写一份不超过上限的参考"
-            "列表，或精简 Element 的引用字段后重试。",
+            "这是你显式指定的参考列表（referenceVersionIds / "
+            "storyboard_reference_version_ids），执行层不会替你截断，也没有"
+            "调用 provider：请直接把显式列表缩减到上限内（多角色同框优先"
+            "保留阵容图）。自动引用链超限不会走到这里——那种情况执行层会按"
+            "优先级保留上限内的参考并记录被丢弃的版本。",
             details={
                 "modelName": model_label,
                 "limit": reference_limit,
@@ -912,10 +1073,17 @@ def _resolve_request(
     return _ResolvedRequest(
         command=resolved.command,
         target_ref=resolved.target_ref,
-        prompt=resolved.prompt,
+        prompt=_labelled_reference_prompt(
+            resolved.prompt,
+            project,
+            active_version_ids,
+            image_model_name=capability_model_name,
+            has_explicit_urls=bool(explicit_urls),
+        ),
         aspect_ratio=resolved.aspect_ratio,
         reference_image_urls=urls,
         reference_version_ids=active_version_ids,
+        budget_dropped_version_ids=budget_dropped_version_ids,
         reference_checksums=tuple(checksums),
         read_set=tuple(read_set),
         slot_id=resolved.slot_id,
@@ -2121,6 +2289,9 @@ class FileImageExecutionService:
                 "commandType": resolved.command.value,
                 "targetRef": resolved.target_ref,
                 "variantId": resolved.variant_id,
+                "budgetDroppedReferenceVersionIds": list(
+                    resolved.budget_dropped_version_ids,
+                ),
                 "provider": _json_mapping(output.get("metadata")),
             },
         )

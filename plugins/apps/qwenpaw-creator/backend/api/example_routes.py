@@ -19,8 +19,10 @@ import hashlib
 import json
 import os
 import re
+import sys
 import shutil
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -39,6 +41,7 @@ from services.project_files.store import (
     UnsafeProjectPath,
     _safe_project_id,
 )
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.locking import CrossProcessFileLock
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
@@ -210,7 +213,7 @@ class _ExampleProgressWriter:
             )
             temporary = self._path.with_suffix(f".{uuid4().hex}.tmp")
             temporary.write_text(payload, encoding="utf-8")
-            os.replace(temporary, self._path)
+            atomic_replace_path(temporary, self._path)
         except OSError:
             # Progress is best effort; a write failure must never break the
             # download itself.
@@ -298,6 +301,93 @@ def _download_archive(
         )
 
 
+_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"\\|?*]')
+
+
+def _sanitize_zip_entry(name: str) -> str:
+    """Replace Windows-reserved characters in each path component."""
+
+    parts = name.split("/")
+    return "/".join(_WINDOWS_UNSAFE_CHARS.sub("_", p) for p in parts)
+
+
+def _win_long_path(path: Path) -> Path:
+    r"""Bypass Windows MAX_PATH (260 char) limit by adding the ``\\?\`` prefix."""
+    if sys.platform != "win32":
+        return path
+    abs_path = os.path.abspath(path)
+    if len(abs_path) > 240 and not abs_path.startswith("\\\\?\\"):
+        return Path("\\\\?\\" + abs_path)
+    return path
+
+
+def _extract_example_archive(archive_path: Path, extract_dir: Path) -> None:
+    """Unpack a zip, sanitizing entry names and guarding against path traversal."""
+
+    resolved_base = extract_dir.resolve()
+    with zipfile.ZipFile(archive_path) as archive:
+        for info in archive.infolist():
+            safe_name = _sanitize_zip_entry(info.filename)
+            target_path = (extract_dir / safe_name).resolve()
+            if not target_path.is_relative_to(resolved_base):
+                raise StorageIntegrityError(
+                    f"archive entry escapes extraction root: "
+                    f"{info.filename!r}",
+                )
+            if info.is_dir():
+                _win_long_path(target_path).mkdir(parents=True, exist_ok=True)
+            else:
+                _win_long_path(target_path.parent).mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                with archive.open(info) as src, _win_long_path(
+                    target_path,
+                ).open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
+
+def _sanitize_extracted_content_for_windows(extract_dir: Path) -> None:
+    """Rewrite ``source:{id}`` path references in project.json.
+
+    The source analysis service names directories ``source:{id}``; the ``:``
+    is illegal on Windows.  This function rewrites the ``relative_uri``
+    fields in ``project.json`` to match the sanitized directory names.
+    """
+
+    project_path = extract_dir
+    for child in extract_dir.iterdir():
+        if child.is_dir() and child.name.startswith("project-"):
+            project_path = child / "project.json"
+            break
+    else:
+        project_path = extract_dir / "project.json"
+
+    if not project_path.is_file():
+        return
+
+    try:
+        document = json.loads(project_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+
+    files = document.get("assets", {}).get("files_by_id", {})
+    changed = False
+    for record in files.values():
+        if not isinstance(record, dict):
+            continue
+        relative_uri = record.get("relative_uri")
+        if isinstance(relative_uri, str) and ":" in relative_uri:
+            record["relative_uri"] = relative_uri.replace(":", "_")
+            changed = True
+
+    if changed:
+        project_path.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
 def _materialize_example(entry: dict[str, Any], data_root: Path) -> str:
     """Idempotently publish the example Project from its remote archive."""
 
@@ -313,19 +403,14 @@ def _materialize_example(entry: dict[str, Any], data_root: Path) -> str:
     try:
         archive_path = extract_dir / "archive.zip"
         _download_archive(entry, archive_path, data_root)
-        # Pure ZipInfo-level filesystem preflight; no request-scoped state, so
-        # it is safe to run inside asyncio.to_thread worker threads.
         _validate_import_archive(archive_path)
         try:
-            shutil.unpack_archive(
-                str(archive_path),
-                extract_dir=extract_dir,
-                format="zip",
-            )
+            _extract_example_archive(archive_path, extract_dir)
         except Exception as exc:
             raise StorageIntegrityError(
                 f"灵感示例归档无法解包: {entry['id']}",
             ) from exc
+        _sanitize_extracted_content_for_windows(extract_dir)
         archive_path.unlink(missing_ok=True)
         staged = extract_dir / project_id
         if not (staged / "project.json").is_file():

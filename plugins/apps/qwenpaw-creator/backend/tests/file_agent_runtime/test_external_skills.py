@@ -97,6 +97,64 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert not invalid.available
 
 
+def test_professional_media_prompt_skill_is_builtin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The Creator ships the detailed prompt compiler without config."""
+
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    external_skills._clear_load_cache()
+
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    skill = loaded["professional-media-prompts"]
+    assert "正方形网格（N 列×N 行）" in skill.skill_md
+    assert "只有列数等于行数时单格才等于外层画幅" in skill.skill_md
+    assert "2–4 格→2×2，5–9 格→3×3" in skill.skill_md
+    assert "同一格内每个已命名角色只能" in skill.skill_md
+    assert "`clear spatial labels` 和 `no text`" in skill.skill_md
+    # One authored convention replaced the per-provider dialect table.
+    assert "引用参考图统一写 `[Image 1]`" in skill.skill_md
+    assert "不要写任何模型的原生语法" in skill.skill_md
+    assert skill.available
+    parsed = external_skills.parse_skill_md(skill.skill_md)
+    assert "角色身份板/设定图" in parsed["description"]
+    assert "电影分镜图" in parsed["body"]
+    assert "参考资产职责映射" in parsed["body"]
+    assert "Seedance 2.5" in parsed["body"]
+    # The per-provider dialect table is gone: one authored convention, with
+    # the runtime rendering it to each provider's documented syntax.
+    assert "引用参考图统一写 `[Image 1]`" in parsed["body"]
+    assert "Runtime 在提交前" in parsed["body"]
+    assert "每一个独立面板内部画框" in parsed["body"]
+
+
+def test_visual_asset_design_skill_is_builtin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The visual doctrine retired from the specialist ships as a skill."""
+
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    external_skills._clear_load_cache()
+
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    skill = loaded["visual-asset-design"]
+    assert skill.available
+    parsed = external_skills.parse_skill_md(skill.skill_md)
+    assert "VisualVariant" in parsed["description"]
+    assert "电影感艺术身份板" in parsed["body"]
+    assert "规避图片审核误判（硬性）" in parsed["body"]
+    assert "构图与镜头语言" in parsed["body"]
+    viewed = external_skills.view_skill(skill_name="visual-asset-design")
+    assert viewed["ok"] is True
+    assert "序列关键帧参考图" in viewed["content"]
+
+
 # ── Driver loop: progressive disclosure end to end ───────────────────────────
 
 

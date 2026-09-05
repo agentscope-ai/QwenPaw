@@ -21,8 +21,9 @@ Project
 │   ├── entities.items[entityId]      # VisualEntity：kind、name、description、continuity、required_variant_ids、canonical_variant_id
 │   │   └── variants.items[variantId] # VisualVariant：requirements、prompt、参考、生成版本与独立 selected_artifact_version_id、derived_from_variant_id
 │   └── cast_lineups.items[lineupId]  # VisualCastLineup：多角色阵容图（群体锚点）：character_refs 顺序即站位、relative_notes、生成/选定版本
-├── timelines                         # Timeline 的 EntityCollection
+├── timelines                         # Timeline 的 EntityCollection；一条 Timeline = 一个叙事节点（单视频 / 剧集）
 │   └── items[timelineId]
+│       ├── title, synopsis, planned_duration_seconds   # 叙事节点展示字段（可直接用 patch_project 起草/修改分集结构）
 │       ├── edit_plan                 # 剪辑品味契约（可为 null）：concept、dials(energy/density/decoration: low|mid|high)、signature_device、pacing、design_floor(opening/transitions/body/ending)、mechanical_exemption、scene_ledger[]
 │       └── elements_by_id
 │           └── span, location, z_index, creation, outputs, render_source
@@ -32,6 +33,7 @@ Project
 ### 基础不变量
 
 - `EntityCollection` 始终由 `items` 和 `order` 组成；两者 ID 集合必须完全一致且顺序不重复。
+- 结构起草（structure_draft）：多集项目直接用 `patch_project` 批量创建/更新 `timelines.items[*]`（title/synopsis/planned_duration_seconds，顺序写入 `timelines.order`，顺序即叙事顺序）。每条 Timeline 的剧本正文不写入 project.json——它是该 timeline 的 `timeline_script` artifact（markdown 文件），由剧本生成服务写回 `assets`。
 - `variants` 只存在于 `visual.entities.items[<entityId>].variants`；`visual` 顶层没有 `variants` 字段。
 - `required_variant_ids` 是用户需求中全部必需视觉状态的结构化合同。先完整列出，再逐项建立 `variants`；不得把它缩减成当前已经创建的 Variant。每个实际 Variant ID 都必须已在该清单中声明。
 - R2V Element 通过 `creation.visual_variant_refs[entityId]=variantId` 绑定本段使用的角色/场景/道具状态；引用多 Variant 实体时不得依赖实体级默认图。`visual_variant_refs` 的每个 entityId 必须同时出现在本 creation 顶层的 `character_refs`/`prop_refs`/`scene_ref` 中；Shot 级 `character_refs` 不能替代 creation 级引用，绑定前先把实体加入对应引用列表。

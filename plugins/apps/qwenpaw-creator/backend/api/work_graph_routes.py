@@ -55,6 +55,7 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
                 "status": node.status.value,
                 "deps": list(node.deps),
                 "lane": node.lane,
+                "timelineId": node.timeline_id,
                 "taskId": node.task_id,
                 "progress": node.progress,
                 "error": node.error,

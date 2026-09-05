@@ -12,11 +12,12 @@ import { creatorTargetLabel, taskKindLabel } from "@/lib/creatorPresentation";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { navigateToLocator } from "@/routing/locators";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
+import { useTimelineStore } from "@/store/timelineStore";
 import i18n from "@/i18n";
 
 const BUTTON_BASE =
   "rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50";
-const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-accent)] text-white hover:opacity-90`;
+const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] hover:opacity-90`;
 const BUTTON_GHOST = `${BUTTON_BASE} border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`;
 
 export function authorizationApprovalPayload(
@@ -121,7 +122,10 @@ export function authorizationJumpTarget(
   const targetRef = authorization.targetRef ?? "";
   if (targetRef.startsWith("element:")) {
     const elementId = targetRef.slice("element:".length);
-    const timeline = selectPrimaryTimeline(project ?? null);
+    const timeline = selectPrimaryTimeline(
+      project ?? null,
+      useTimelineStore.getState().activeTimelineId,
+    );
     const operation =
       typeof authorization.scope.operation === "string"
         ? authorization.scope.operation.toLowerCase()

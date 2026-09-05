@@ -1006,15 +1006,35 @@ class ProjectCommitBoundary:
                 or not entry.is_dir()
             ):
                 continue
-            journal = AtomicJsonRecordStore(
+            journal_store = AtomicJsonRecordStore(
                 entry / "journal.json",
                 ProjectCommitJournal,
-            ).read_or_none()
+            )
+            journal = journal_store.read_or_none()
             if journal is None:
                 raise PendingProjectRecoveryError(
                     f"Runtime transaction has no journal: {entry.name}",
                 )
             if journal.state is CommitJournalState.PROJECT_REPLACED:
+                # If final_etag doesn't match current authority_etag, the project
+                # has moved past this transaction. Mark it as ABORTED to unblock.
+                if journal.final_etag != authority_etag:
+                    logger.warning(
+                        "Auto-aborting stale PROJECT_REPLACED transaction %s: "
+                        "final_etag=%s != authority_etag=%s",
+                        journal.transaction_id,
+                        journal.final_etag,
+                        authority_etag,
+                    )
+                    aborted_journal = journal.model_copy(
+                        update={
+                            "state": CommitJournalState.ABORTED,
+                            "error": "auto-aborted: project moved past this transaction",
+                            "updated_at": datetime.now(UTC),
+                        },
+                    )
+                    journal_store.write(aborted_journal)
+                    continue
                 raise PendingProjectRecoveryError(
                     f"Project transaction requires recovery: {journal.transaction_id}",
                 )

@@ -27,11 +27,21 @@ from domain.enums import SpecialistRole
 CHECKPOINT_PLAN = "plan"
 CHECKPOINT_DESIGN = "design"
 CHECKPOINT_DIRECTION = "direction"
+# Blueprint ladder (方案 3.1)：多集项目在生成开始前先确认叙事结构
+# （timelines），再逐节点审阅剧本 artifact。
+CHECKPOINT_STRUCTURE = "structure"
+CHECKPOINT_SCRIPT = "script"
 
 CHECKPOINT_OPERATION_PREFIX = "creation_checkpoint"
 CHECKPOINT_PROVIDER = "creator-checkpoint"
 
 _CHECKPOINT_SUMMARIES = {
+    CHECKPOINT_STRUCTURE: (
+        "结构检查点：确认分集结构（各集标题与梗概）之后再" "起草剧本与生成媒体。通过后本项目不再重复询问。"
+    ),
+    CHECKPOINT_SCRIPT: (
+        "剧本检查点：确认各集剧本草稿之后再进入设计与分镜，" "文本阶段修改的成本远低于媒体阶段。通过后本项目不再重复询问。"
+    ),
     CHECKPOINT_PLAN: (
         "计划检查点：确认分镜切分、镜头与各 Element 的 prompt 之后再开始生成。" "通过后本项目不再重复询问。"
     ),
@@ -42,15 +52,19 @@ _CHECKPOINT_SUMMARIES = {
 }
 
 _CHECKPOINT_LABELS = {
+    CHECKPOINT_STRUCTURE: "结构确认",
+    CHECKPOINT_SCRIPT: "剧本确认",
     CHECKPOINT_PLAN: "计划确认",
     CHECKPOINT_DESIGN: "设计确认",
     CHECKPOINT_DIRECTION: "方向确认",
 }
 
 
-def required_checkpoint_phases(
+def required_checkpoint_phases(  # pylint: disable=too-many-return-statements  # noqa: E501
     tool_name: str,
     role: SpecialistRole,
+    *,
+    timeline_count: int | None = None,
 ) -> tuple[str, ...]:
     """Return the checkpoints a media tool call must clear, in order.
 
@@ -65,6 +79,14 @@ def required_checkpoint_phases(
     creative direction gate itself is conversational (the editing
     director proposes three cards and blocks for the user's pick), not a
     tool-admission phase — see the editing-director prompt.
+
+    Blueprint ladder (方案 3.1)：``timeline_count`` 由调用方从 project
+    传入（本函数拿不到 project，只拿工具名与角色）。多集/分支项目
+    （timeline_count > 1）在计划之前先确认叙事结构与剧本；单 timeline
+    项目 structure/script 恒静默（None 视同单 timeline，保证旧调用点
+    行为不变）。``creation_checkpoints.mode=skip``（yolo）已由
+    get_execution_mode() 强制折算为 ``delegated``，因此 skip 下这里
+    对全部 phase 静默——沿用既有 skip 语义路径。
     """
 
     from models.config import (
@@ -76,8 +98,14 @@ def required_checkpoint_phases(
     execution_mode = get_execution_mode()
     if execution_mode == EXECUTION_MODE_DELEGATED:
         return ()
+    script_flow = timeline_count is not None and timeline_count > 1
     if tool_name == "image_generation":
         if role is SpecialistRole.VISUAL_DEVELOPMENT:
+            if script_flow:
+                # 多集项目的角色/场景设计基于已确认的结构；剧本检查点
+                # 在分镜/视频（storyboard 消费方）之前生效即可，设计图
+                # 可与剧本审阅并行推进。
+                return (CHECKPOINT_STRUCTURE, CHECKPOINT_PLAN)
             return (CHECKPOINT_PLAN,)
     elif tool_name != "r2v_generation":
         return ()
@@ -85,6 +113,13 @@ def required_checkpoint_phases(
         # One scope confirmation for iterations on a delivered cut.
         return (CHECKPOINT_PLAN,)
     # Storyboard images consume the approved designs.
+    if script_flow:
+        return (
+            CHECKPOINT_STRUCTURE,
+            CHECKPOINT_SCRIPT,
+            CHECKPOINT_PLAN,
+            CHECKPOINT_DESIGN,
+        )
     return (CHECKPOINT_PLAN, CHECKPOINT_DESIGN)
 
 
@@ -146,5 +181,17 @@ def checkpoint_recovery(phase: str) -> str:
             "用户尚未确认角色/场景设计图。请不要重试生成：向用户说明已生成的"
             "设计图，等待用户在决策托盘中确认设计检查点，"
             "或按用户的修改意见先重做设计图。"
+        )
+    if phase == CHECKPOINT_STRUCTURE:
+        return (
+            "用户尚未确认分集/分支结构。请不要重试生成：向用户说明当前的"
+            "结构草案（各集标题、梗概与叙事分支），等待用户在决策托盘中确认"
+            "结构检查点，或按用户的修改意见先调整结构。"
+        )
+    if phase == CHECKPOINT_SCRIPT:
+        return (
+            "用户尚未确认剧本草稿。请不要重试生成：向用户说明当前的剧本"
+            "内容，等待用户在决策托盘中确认剧本检查点，"
+            "或按用户的修改意见先修订剧本。"
         )
     return "用户尚未确认对应的创作检查点。请等待用户确认，不要重试生成。"

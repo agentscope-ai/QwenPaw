@@ -14,18 +14,22 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Iterable, Mapping, Sequence
 
-from domain.enums import TaskKind, TaskStatus
+from domain.enums import CreatorCommandType, TaskKind, TaskStatus
+from services.prompt_text import dialogue_match_key, dialogue_spoken_lines
 from services.project_files.models import (
     ArtifactVersionRenderSource,
+    narrative_timeline_ids,
     ElementOutputRenderSource,
+    I2VCreation,
     Project,
     R2VCreation,
+    S2VCreation,
     SourceVersionRenderSource,
+    T2VCreation,
 )
 
 
@@ -42,23 +46,38 @@ class WorkNodeStatus(StrEnum):
 # Node kinds the scheduler may dispatch without a model turn: their
 # generation parameters are deterministically assembled from project.json.
 DISPATCHABLE_KINDS = frozenset(
-    {"visual", "lineup", "storyboard", "video", "compose"},
+    {
+        "script",
+        "visual",
+        "lineup",
+        "storyboard",
+        "video",
+        "compose",
+    },
 )
 
 
 @dataclass(frozen=True, slots=True)
 class WorkNode:
     node_id: str
-    kind: str  # visual | lineup | storyboard | video | compose
+    kind: str  # script|visual|lineup|storyboard|video|compose
     label: str
     status: WorkNodeStatus
     deps: tuple[str, ...] = ()
     lane: str = ""
+    # Narrative-node scope (方案 3.2)：script/storyboard/video/compose 节点
+    # 归属的 timeline；项目级节点（visual/lineup）为 None。
+    timeline_id: str | None = None
     # Actionable context for UI and the completion loop.
     task_id: str | None = None
     progress: float | None = None
     error: str | None = None
     missing: tuple[str, ...] = ()  # unmet dependency node ids / reasons
+    # True when every reason in ``missing`` is repairable by rewriting
+    # authored Project text (prompt, dialogue). The completion loop returns
+    # these in every review mode because the repair costs no media call, so
+    # it must not depend on the human-readable wording of ``missing``.
+    authored_text_gap: bool = False
     locator: dict[str, Any] = field(default_factory=dict)
     # Dispatch recipe (command + targetRef) for scheduler / manual retry.
     command: str | None = None
@@ -181,13 +200,18 @@ class WorkGraph:
 
         FAILED nodes need parameter changes; GATED nodes whose unmet
         dependencies are not themselves machine-dispatchable need
-        structural work (missing prompts, missing bindings).
+        structural work (missing prompts, missing bindings); STALE nodes
+        need the model to regenerate content after upstream changes.
         """
 
         by_id = self.by_id
         blocked: list[WorkNode] = []
         for node in self.nodes:
             if node.status is WorkNodeStatus.FAILED:
+                blocked.append(node)
+                continue
+            if node.status is WorkNodeStatus.STALE:
+                # STALE nodes always need model work to regenerate
                 blocked.append(node)
                 continue
             if node.status is not WorkNodeStatus.GATED:
@@ -305,30 +329,6 @@ def _upstream_missing(
     )
 
 
-def _dialogue_match_key(text: str) -> str:
-    return "".join(text.split())
-
-
-# Speaker prefixes ("老板娘：…" / "Regular: …") and stage directions
-# ("（回头）") belong to the shot plan, not to the spoken line itself — the
-# prompt naturally rephrases them ("她温和地说：“…”"), so requiring them
-# verbatim makes the gate unsatisfiable (field run 2026-08-12, project
-# 27dc: three YOLO continuation rounds burned against exactly this).
-_DIALOGUE_SPEAKER_PREFIX = re.compile(r"^[^：:]{1,20}[：:]\s*")
-_DIALOGUE_STAGE_DIRECTION = re.compile(r"[（(][^）)]*[）)]")
-
-
-def _dialogue_spoken_lines(dialogue: str) -> tuple[str, ...]:
-    """The spoken sentences of a shot's dialogue field, one per line."""
-    lines: list[str] = []
-    for raw in dialogue.splitlines():
-        line = _DIALOGUE_SPEAKER_PREFIX.sub("", raw.strip())
-        line = _DIALOGUE_STAGE_DIRECTION.sub("", line).strip()
-        if line:
-            lines.append(line)
-    return tuple(lines)
-
-
 def _video_prompt_dialogue_gaps(creation: R2VCreation) -> tuple[str, ...]:
     """Shots whose spoken lines never reached the committed video prompt.
 
@@ -343,14 +343,14 @@ def _video_prompt_dialogue_gaps(creation: R2VCreation) -> tuple[str, ...]:
     prefixes and stage directions so natural prompt phrasing never causes
     a false gap.
     """
-    prompt = _dialogue_match_key(creation.video_prompt or "")
+    prompt = dialogue_match_key(creation.video_prompt or "")
     gaps: list[str] = []
     for shot_id in creation.shots.order:
         shot = creation.shots.items.get(shot_id)
         if shot is None:
             continue
-        for line in _dialogue_spoken_lines(shot.dialogue or ""):
-            if _dialogue_match_key(line) not in prompt:
+        for line in dialogue_spoken_lines(shot.dialogue or ""):
+            if dialogue_match_key(line) not in prompt:
                 gaps.append(f"video_prompt 缺台词原文：{shot_id}")
                 break
     return tuple(gaps)
@@ -413,29 +413,90 @@ def _slot_selected(project: Project, slot_id: str) -> str | None:
     return slot.selected_version_id
 
 
+# Ledger fingerprints used to interpolate the configured model names in
+# plaintext, separated by "|". Those keys cannot be compared against today's
+# digest form, and reading the mismatch as drift would flip every artifact
+# rendered before the upgrade from DONE to READY — re-billing the user for
+# storyboards they had already accepted, and replacing them.
+_LEGACY_LEDGER_KEY_MARKER = "|img:"
+
+
+def dispatch_key_predates_digest_ledger(key: str) -> bool:
+    """Whether a durable idempotency key predates the digest ledger format."""
+
+    return _LEGACY_LEDGER_KEY_MARKER in key
+
+
 def _artifact_is_stale(
     project: Project,
     version_id: str | None,
     upstream_selected: Iterable[str | None],
+    *,
+    node_id: str = "",
+    dispatch_fingerprint: str = "",
+    tasks: Sequence[Any] = (),
 ) -> bool:
-    """True when provenance shows an upstream selection changed since.
+    """True when provenance or an automatic dispatch input changed since.
 
-    Conservative: only flags when the artifact recorded provenance refs
-    and an upstream node's *current* selection is absent from them. An
-    empty provenance never flags.
+    An explicit lifecycle ``stale`` flag is authoritative for every artifact,
+    including manual ones, but returns the terminal STALE state rather than a
+    scheduler-dispatchable READY state. Otherwise this is conservative: it
+    only flags recorded provenance mismatches. For scheduler-owned artifacts,
+    the durable Task idempotency key also records the work-graph fingerprint;
+    this catches prompt/aspect/panel-count changes that do not appear in media
+    provenance. Agent/manual artifacts without a graph identity remain
+    conservative instead of being invalidated by a guessed fingerprint.
     """
 
     if not version_id:
         return False
     artifact = project.assets.artifact_versions_by_id.get(version_id)
-    if artifact is None or not artifact.provenance_refs:
+    if artifact is None:
         return False
-    provenance = {
-        ref.removeprefix("artifact-version:").removeprefix("asset-version:")
-        for ref in artifact.provenance_refs
-    }
-    for selected in upstream_selected:
-        if selected and selected not in provenance:
+    if artifact.stale:
+        # STALE is intentionally excluded from ready_media_nodes(). This is a
+        # visible review signal, never permission to regenerate manual media.
+        return True
+    if artifact.provenance_refs:
+        provenance = {
+            ref.removeprefix("artifact-version:").removeprefix(
+                "asset-version:",
+            )
+            for ref in artifact.provenance_refs
+        }
+        # The model's reference budget can force a reference out of the
+        # automatic chain. It is absent from provenance by design, so treating
+        # it as drift would mark the artifact stale for good.
+        budget_dropped = {
+            str(item)
+            for item in (
+                artifact.metadata.get("budgetDroppedReferenceVersionIds") or ()
+            )
+        }
+        for selected in upstream_selected:
+            if (
+                selected
+                and selected not in provenance
+                and selected not in budget_dropped
+            ):
+                return True
+    if node_id and dispatch_fingerprint:
+        task_id = str(artifact.metadata.get("taskId") or "")
+        task = next(
+            (
+                candidate
+                for candidate in tasks
+                if str(getattr(candidate, "task_id", "")) == task_id
+            ),
+            None,
+        )
+        key = str(getattr(task, "idempotency_key", "") or "")
+        graph_prefix = f"dag-{node_id}-"
+        if (
+            not dispatch_key_predates_digest_ledger(key)
+            and key.startswith(graph_prefix)
+            and not key.startswith(f"{graph_prefix}{dispatch_fingerprint}")
+        ):
             return True
     return False
 
@@ -483,6 +544,21 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 fingerprint,
             ):
                 status, task = WorkNodeStatus.READY, None
+            missing: tuple[str, ...] = ()
+            authored_text_gap = False
+            if (
+                status is WorkNodeStatus.READY
+                and not (variant.prompt or "").strip()
+            ):
+                # Entity descriptions are continuity facts, not production
+                # prompts.  Dispatching their one-line fallback caused real
+                # qwen-image jobs to race ahead of visual development during
+                # a 60-second acceptance run (2026-08-24).  Keep the node in
+                # the model-required lane until the committed Variant owns a
+                # deliberate prompt, just as storyboards already do.
+                status = WorkNodeStatus.GATED
+                missing = ("visual_prompt 缺失",)
+                authored_text_gap = True
             add(
                 WorkNode(
                     node_id=node_id,
@@ -497,6 +573,8 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                         if status is WorkNodeStatus.FAILED
                         else None
                     ),
+                    missing=missing,
+                    authored_text_gap=authored_text_gap,
                     locator={"page": "assets", "assetId": entity_id},
                     command="GENERATE_ASSET",
                     target_ref=f"asset:{entity_id}",
@@ -587,180 +665,313 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             ),
         )
 
+    # ---- Lane: timeline scripts (blueprint script flow) ---------------
+    # 每条 timeline 一个 kind="script" 节点：slot 无版本→READY，selected
+    # 版本存在且未 stale→DONE，版本 stale→STALE。剧本流仅在项目启用时
+    # 生效（存在 timeline_script slot 或多 timeline）；旧项目（单
+    # timeline 且无 script slot）不生成 script 节点，行为零回退。
+    live_timeline_ids = narrative_timeline_ids(project)
+    script_flow = len(live_timeline_ids) > 1
+    script_node_by_timeline: dict[str, str] = {}
+    for timeline_id in live_timeline_ids:
+        timeline = project.timelines.items[timeline_id]
+        slot = project.assets.artifact_slots_by_id.get(
+            f"script:{timeline_id}",
+        )
+        if slot is None and not script_flow:
+            continue
+        node_id = f"script:{timeline_id}"
+        selected = slot.selected_version_id if slot is not None else None
+        version = (
+            project.assets.artifact_versions_by_id.get(selected)
+            if selected
+            else None
+        )
+        key = (TaskKind.SCRIPT_DRAFT.value, f"timeline:{timeline_id}")
+        task = active.get(key)
+        failure = failed.get(key)
+        fingerprint = _fingerprint(
+            node_id,
+            timeline.title,
+            timeline.synopsis,
+            project.strategy.creative_brief,
+        )
+        if task is not None:
+            status = WorkNodeStatus.RUNNING
+        elif version is not None:
+            status = (
+                WorkNodeStatus.STALE if version.stale else WorkNodeStatus.DONE
+            )
+        elif failure is not None and not _failure_inputs_changed(
+            failure,
+            node_id,
+            fingerprint,
+        ):
+            status = WorkNodeStatus.FAILED
+        else:
+            status = WorkNodeStatus.READY
+        add(
+            WorkNode(
+                node_id=node_id,
+                kind="script",
+                label=f"{timeline.title or timeline_id} · 剧本",
+                status=status,
+                lane=timeline.title or f"timeline:{timeline_id}",
+                timeline_id=timeline_id,
+                task_id=getattr(task, "task_id", None),
+                progress=getattr(task, "progress", None),
+                error=(
+                    _task_error_summary(failure)
+                    if status is WorkNodeStatus.FAILED
+                    else None
+                ),
+                locator={"page": "blueprint", "timelineId": timeline_id},
+                command="GENERATE_TIMELINE_SCRIPT",
+                target_ref=f"timeline:{timeline_id}",
+                dispatch_fingerprint=fingerprint,
+            ),
+        )
+        script_node_by_timeline[timeline_id] = node_id
+
     # ---- Lanes per element: storyboard -> video ----------------------
     video_node_ids: list[str] = []
-    for timeline_id in project.timelines.order:
+    for timeline_id in live_timeline_ids:
         timeline = project.timelines.items[timeline_id]
+        script_node = script_node_by_timeline.get(timeline_id)
         for element_id, element in timeline.elements_by_id.items():
             creation = element.creation
-            if not element.enabled or not isinstance(creation, R2VCreation):
+            if not element.enabled:
+                continue
+            if not isinstance(
+                creation,
+                (R2VCreation, T2VCreation, I2VCreation, S2VCreation),
+            ):
                 continue
             lane = f"element:{element_id}"
             label = element.label or element_id
+            creation_type = getattr(creation, "type", "r2v")
 
-            deps: list[str] = []
-            for ref in creation.cast_lineup_refs:
-                deps.append(f"lineup:{ref}")
-            for entity_id, variant_id in sorted(
-                creation.visual_variant_refs.items(),
-            ):
-                deps.append(f"visual:{entity_id}:{variant_id}")
-            # Field run 2026-08-06: the graph marked storyboards READY on
-            # explicit variant bindings alone while the execution gate
-            # refused them — scene/prop entities referenced by the shots
-            # had no artwork yet. The dependency set must mirror
-            # visual_design_readiness exactly: every referenced entity,
-            # not only the explicitly bound ones.
-            gate_missing = _storyboard_gate_dependencies(
-                project,
-                creation,
-                deps,
-            )
+            storyboard_id: str | None = None
+            storyboard_slot: str | None = None
 
-            storyboard_id = f"storyboard:{element_id}"
-            storyboard_slot = _slot_selected(
-                project,
-                f"element:{element_id}:storyboard",
-            )
-            key = (TaskKind.IMAGE_GENERATION.value, f"element:{element_id}")
-            task = active.get(key)
-            failure = failed.get(key)
-            missing = (*_upstream_missing(deps, statuses), *gate_missing)
-            upstream_selected = _element_upstream_selected(project, creation)
-            # Mirrors the submit path: agent-specified references are
-            # authoritative, so they (not the auto chain) must drive the
-            # fingerprint and staleness — editing the explicit list has to
-            # reopen dispatch and flag a stale artifact.
-            storyboard_refs: list[str | None] = (
-                list(creation.storyboard_reference_version_ids)
-                or upstream_selected
-            )
-            fingerprint = _fingerprint(
-                storyboard_id,
-                creation.storyboard_prompt,
-                sorted(selected for selected in storyboard_refs if selected),
-            )
-            if task is not None:
-                status = WorkNodeStatus.RUNNING
-            elif storyboard_slot:
-                status = (
-                    WorkNodeStatus.STALE
-                    if _artifact_is_stale(
-                        project,
-                        storyboard_slot,
-                        storyboard_refs,
-                    )
-                    else WorkNodeStatus.DONE
+            if creation_type == "r2v":
+                # R2V: storyboard + video dual-node structure; only r2v
+                # elements produce a storyboard (T2V/I2V/S2V creations carry
+                # no shots, storyboard prompt or reference stacks).
+                deps: list[str] = []
+                # 剧本流下分镜等待本 timeline 的剧本节点（方案 3.3：
+                # script 通过 → 该 timeline 的 shots/分镜/生成）。
+                if script_node is not None:
+                    deps.append(script_node)
+                for ref in creation.cast_lineup_refs:
+                    deps.append(f"lineup:{ref}")
+                for entity_id, variant_id in sorted(
+                    creation.visual_variant_refs.items(),
+                ):
+                    deps.append(f"visual:{entity_id}:{variant_id}")
+                gate_missing = _storyboard_gate_dependencies(
+                    project,
+                    creation,
+                    deps,
                 )
-            elif missing:
-                status = WorkNodeStatus.GATED
-            elif failure is not None and not _failure_inputs_changed(
-                failure,
-                storyboard_id,
-                fingerprint,
-            ):
-                status = WorkNodeStatus.FAILED
-            elif not (creation.storyboard_prompt or "").strip():
-                # No prompt yet: needs model work, surfaced as GATED with
-                # a non-node reason so the completion loop names it.
-                status = WorkNodeStatus.GATED
-                missing = ("storyboard_prompt 缺失",)
-            else:
-                status = WorkNodeStatus.READY
-            add(
-                WorkNode(
-                    node_id=storyboard_id,
-                    kind="storyboard",
-                    label=f"{label} · 分镜",
-                    status=status,
-                    deps=tuple(deps),
-                    lane=lane,
-                    task_id=getattr(task, "task_id", None),
-                    progress=getattr(task, "progress", None),
-                    error=(
-                        _task_error_summary(failure)
-                        if status is WorkNodeStatus.FAILED
-                        else None
-                    ),
-                    missing=missing,
-                    locator={"page": "plan", "elementId": element_id},
-                    command="GENERATE_STORYBOARD_IMAGE",
-                    target_ref=f"element:{element_id}",
-                    dispatch_fingerprint=fingerprint,
-                ),
-            )
 
+                storyboard_id = f"storyboard:{element_id}"
+                storyboard_slot = _slot_selected(
+                    project,
+                    f"element:{element_id}:storyboard",
+                )
+                key = (
+                    TaskKind.IMAGE_GENERATION.value,
+                    f"element:{element_id}",
+                )
+                task = active.get(key)
+                failure = failed.get(key)
+                missing = (*_upstream_missing(deps, statuses), *gate_missing)
+                authored_text_gap = False
+                upstream_selected = _element_upstream_selected(
+                    project,
+                    creation,
+                )
+                # Mirrors the submit path: agent-specified references are
+                # authoritative, so they (not the auto chain) must drive the
+                # fingerprint and staleness — editing the explicit list has
+                # to reopen dispatch and flag a stale artifact.
+                storyboard_refs: list[str | None] = (
+                    list(
+                        creation.storyboard_reference_version_ids,
+                    )
+                    or upstream_selected
+                )
+                fingerprint = _fingerprint(
+                    storyboard_id,
+                    creation.storyboard_prompt,
+                    project.settings.aspect_ratio,
+                    len(creation.shots.order),
+                    sorted(
+                        selected for selected in storyboard_refs if selected
+                    ),
+                )
+                if task is not None:
+                    status = WorkNodeStatus.RUNNING
+                elif storyboard_slot:
+                    status = (
+                        WorkNodeStatus.STALE
+                        if _artifact_is_stale(
+                            project,
+                            storyboard_slot,
+                            storyboard_refs,
+                            node_id=storyboard_id,
+                            dispatch_fingerprint=fingerprint,
+                            tasks=tasks,
+                        )
+                        else WorkNodeStatus.DONE
+                    )
+                elif missing:
+                    status = WorkNodeStatus.GATED
+                elif failure is not None and not _failure_inputs_changed(
+                    failure,
+                    storyboard_id,
+                    fingerprint,
+                ):
+                    status = WorkNodeStatus.FAILED
+                elif not (creation.storyboard_prompt or "").strip():
+                    # No prompt yet: needs model work, surfaced as GATED with
+                    # a non-node reason so the completion loop names it.
+                    status = WorkNodeStatus.GATED
+                    missing = ("storyboard_prompt 缺失",)
+                    authored_text_gap = True
+                else:
+                    status = WorkNodeStatus.READY
+                add(
+                    WorkNode(
+                        node_id=storyboard_id,
+                        kind="storyboard",
+                        label=f"{label} · 分镜",
+                        status=status,
+                        deps=tuple(deps),
+                        lane=lane,
+                        timeline_id=timeline_id,
+                        task_id=getattr(task, "task_id", None),
+                        progress=getattr(task, "progress", None),
+                        error=(
+                            _task_error_summary(failure)
+                            if status is WorkNodeStatus.FAILED
+                            else None
+                        ),
+                        missing=missing,
+                        authored_text_gap=authored_text_gap,
+                        locator={"page": "plan", "elementId": element_id},
+                        command="GENERATE_STORYBOARD_IMAGE",
+                        target_ref=f"element:{element_id}",
+                        dispatch_fingerprint=fingerprint,
+                    ),
+                )
+
+            # Video node for all types
             video_id = f"video:{element_id}"
             video_slot = _slot_selected(project, f"element:{element_id}:main")
             key = (TaskKind.R2V_GENERATION.value, f"element:{element_id}")
             task = active.get(key)
             failure = failed.get(key)
-            storyboard_done = statuses[storyboard_id] in (
-                WorkNodeStatus.DONE,
-                WorkNodeStatus.STALE,
+
+            # Determine storyboard dependency and upstream refs
+            storyboard_done = True
+            storyboard_dep: tuple[str, ...] = ()
+            if creation_type == "r2v" and storyboard_id is not None:
+                storyboard_done = statuses[storyboard_id] in (
+                    WorkNodeStatus.DONE,
+                    WorkNodeStatus.STALE,
+                )
+                storyboard_dep = (storyboard_id,)
+            upstream_selected = _video_upstream_refs(
+                creation_type,
+                creation,
+                project,
             )
+
+            # Fingerprint based on creation type
             fingerprint = _fingerprint(
-                video_id,
-                creation.video_prompt,
-                storyboard_slot,
-                sorted(creation.video_reference_version_ids),
+                *_video_fingerprint_parts(
+                    creation_type,
+                    creation,
+                    video_id,
+                    storyboard_slot,
+                ),
             )
+
             video_missing: tuple[str, ...] = ()
+            video_text_gap = False
             if task is not None:
                 status = WorkNodeStatus.RUNNING
             elif video_slot:
+                # T2V has no upstream references (upstream_selected is []),
+                # so _artifact_is_stale always returns False for T2V.
+                # Prompt-only changes are caught by the dispatch fingerprint
+                # for failure-parking, but do NOT trigger STALE re-generation.
+                upstream_for_stale = (
+                    [storyboard_slot]
+                    if creation_type == "r2v"
+                    else upstream_selected
+                )
                 status = (
                     WorkNodeStatus.STALE
                     if _artifact_is_stale(
                         project,
                         video_slot,
-                        [
-                            storyboard_slot,
-                            *creation.video_reference_version_ids,
-                        ],
+                        upstream_for_stale,
                     )
                     else WorkNodeStatus.DONE
                 )
             elif not storyboard_done:
                 status = WorkNodeStatus.GATED
-                video_missing = (storyboard_id,)
+                video_missing = (storyboard_id,) if storyboard_id else ()
             elif failure is not None and not _failure_inputs_changed(
                 failure,
                 video_id,
                 fingerprint,
             ):
                 status = WorkNodeStatus.FAILED
-            elif not (creation.video_prompt or "").strip():
-                # No prompt yet: model work, mirrored on the storyboard
-                # node's "prompt missing" reason so the completion loop
-                # names the gap instead of dispatching into a
-                # ValidationError.
+            elif (
+                creation_type != "s2v"
+                and not (creation.video_prompt or "").strip()
+            ):
+                # S2V uses script, not video_prompt
                 status = WorkNodeStatus.GATED
                 video_missing = ("video_prompt 缺失",)
-            elif dialogue_gaps := _video_prompt_dialogue_gaps(creation):
-                # Planned dialogue must be quoted verbatim in the video
-                # prompt before dispatch — see _video_prompt_dialogue_gaps.
-                status = WorkNodeStatus.GATED
-                video_missing = dialogue_gaps
-            elif absence_gap := _element_dialogue_density_gap(
-                creation,
-                project.scenario,
-            ):
-                # Element dialogue density below min_dialogue_ratio —
-                # the model wrote a silent film or too-sparse dialogue.
-                # See _element_dialogue_density_gap.
-                status = WorkNodeStatus.GATED
-                video_missing = (absence_gap,)
+                video_text_gap = True
             else:
-                status = WorkNodeStatus.READY
+                gates = _video_readiness_gates(
+                    creation_type,
+                    creation,
+                    project,
+                )
+                if gates is not None:
+                    status = WorkNodeStatus.GATED
+                    video_missing = gates
+                    # R2V gates are prompt-authoring gaps (dialogue coverage
+                    # and density); S2V/I2V gates are missing asset inputs.
+                    video_text_gap = creation_type == "r2v"
+                else:
+                    status = WorkNodeStatus.READY
+
+            # Command and dispatch arguments based on creation type
+            command, dispatch_arguments = _video_dispatch_command(
+                creation_type,
+            )
+
             add(
                 WorkNode(
                     node_id=video_id,
                     kind="video",
                     label=f"{label} · 视频",
                     status=status,
-                    deps=(storyboard_id,),
+                    deps=(
+                        (script_node, *storyboard_dep)
+                        if script_node is not None
+                        else storyboard_dep
+                    ),
                     lane=lane,
+                    timeline_id=timeline_id,
                     task_id=getattr(task, "task_id", None),
                     progress=getattr(task, "progress", None),
                     error=(
@@ -769,42 +980,53 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                         else None
                     ),
                     missing=video_missing,
+                    authored_text_gap=video_text_gap,
                     locator={"page": "plan", "elementId": element_id},
-                    command="GENERATE_R2V_VIDEO",
+                    command=command,
                     target_ref=f"element:{element_id}",
+                    dispatch_arguments=dispatch_arguments,
                     dispatch_fingerprint=fingerprint,
                 ),
             )
             video_node_ids.append(video_id)
 
-    # ---- Final compose ------------------------------------------------
-    # Any timeline whose main track carries enabled content (R2V, Edit or
-    # motion-clip Elements) ends in one deterministic master render. The
-    # node is machine-dispatchable so an unattended (delegated) project
-    # reaches its final cut without a user pressing "render"; the scene
-    # ledger gate mirrors validate_scene_ledger_locked so dispatch never
-    # burns a compose the backend door would reject.
+    # ---- Final compose (one node per content-bearing timeline) ---------
+    # Each timeline whose main track carries enabled content (R2V, T2V, I2V,
+    # S2V, Edit or motion-clip Elements) gets its own deterministic master
+    # render. The node is machine-dispatchable so an unattended (delegated)
+    # project reaches its final cut without a user pressing "render"; the
+    # scene ledger gate mirrors validate_scene_ledger_locked so dispatch
+    # never burns a compose the backend door would reject.
     from services.project_files.models import (
         EditCreation,
         MotionClipCreation,
     )
 
-    compose_timeline_id: str | None = None
-    for timeline_id in project.timelines.order:
-        timeline = project.timelines.items[timeline_id]
-        has_content = any(
+    def _timeline_has_content(tid: str) -> bool:
+        tl = project.timelines.items[tid]
+        return any(
             element.enabled
             and isinstance(
                 element.creation,
-                (R2VCreation, EditCreation, MotionClipCreation),
+                (
+                    R2VCreation,
+                    T2VCreation,
+                    I2VCreation,
+                    S2VCreation,
+                    EditCreation,
+                    MotionClipCreation,
+                ),
             )
-            for element in timeline.elements_by_id.values()
+            for element in tl.elements_by_id.values()
         )
-        if has_content:
-            compose_timeline_id = timeline_id
-            break
-    if compose_timeline_id is not None:
+
+    for compose_timeline_id in (
+        tid for tid in live_timeline_ids if _timeline_has_content(tid)
+    ):
         timeline = project.timelines.items[compose_timeline_id]
+        node_id = f"compose:{compose_timeline_id}"
+        timeline_target = f"timeline:{compose_timeline_id}"
+        timeline_render_slot_id = f"timeline:{compose_timeline_id}:render"
         missing = _upstream_missing(video_node_ids, statuses)
         scene_gaps: list[str] = []
         plan = getattr(timeline, "edit_plan", None)
@@ -831,21 +1053,26 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 item
                 for (kind, _), item in active.items()
                 if kind == TaskKind.COMPOSE.value
+                and str(
+                    item.metadata.get("targetRef") or "",
+                )
+                == timeline_target
             ),
             None,
         )
         final_slot = next(
             (
                 slot.selected_version_id
-                for slot in project.assets.artifact_slots_by_id.values()
-                if slot.kind == "final_video" and slot.selected_version_id
+                for slot_id, slot in (
+                    project.assets.artifact_slots_by_id.items()
+                )
+                if slot.kind == "final_video"
+                and slot.selected_version_id
+                and slot_id == timeline_render_slot_id
             ),
             None,
         )
         if final_slot is not None:
-            # A stale master render (edit impact marked it after content
-            # changes) must not read as DONE, or the unattended pipeline
-            # would stop one compose short of the corrected final cut.
             version = project.assets.artifact_versions_by_id.get(final_slot)
             if version is not None and (
                 getattr(version, "stale", False)
@@ -862,25 +1089,21 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             status = WorkNodeStatus.READY
         add(
             WorkNode(
-                node_id="compose:final",
+                node_id=node_id,
                 kind="compose",
-                label="最终合成",
+                label=f"最终合成 ({timeline.name or compose_timeline_id})",
                 status=status,
                 deps=tuple(video_node_ids),
                 lane="compose",
+                timeline_id=compose_timeline_id,
                 task_id=getattr(task, "task_id", None),
                 progress=getattr(task, "progress", None),
                 missing=missing,
                 locator={"page": "plan"},
                 command="COMPOSE_FINAL_VIDEO",
-                target_ref=f"timeline:{compose_timeline_id}",
-                # The fingerprint must change whenever the rendered output
-                # would: spans alone miss re-picked source ranges
-                # (render_source), edited overlays/motion documents and
-                # regenerated media versions, which previously replayed a
-                # stale compose as an idempotent no-op.
+                target_ref=timeline_target,
                 dispatch_fingerprint=_fingerprint(
-                    "compose:final",
+                    node_id,
                     timeline.color_grade,
                     sorted(
                         (
@@ -1002,7 +1225,7 @@ def _declared_pending_lineup_nodes(project: Project) -> list[str]:
     """
 
     pending: list[str] = []
-    for timeline_id in project.timelines.order:
+    for timeline_id in narrative_timeline_ids(project):
         timeline = project.timelines.items[timeline_id]
         for element in timeline.elements_by_id.values():
             creation = element.creation
@@ -1067,6 +1290,128 @@ def _entity_selected_any(entity: Any) -> str | None:
         if variant.selected_artifact_version_id:
             return variant.selected_artifact_version_id
     return entity.selected_artifact_version_id
+
+
+def _video_fingerprint_parts(
+    creation_type: str,
+    creation: R2VCreation | T2VCreation | I2VCreation | S2VCreation,
+    video_id: str,
+    storyboard_slot: str | None,
+) -> tuple:
+    """Return the fingerprint components for a video node by creation type."""
+    if creation_type == "t2v":
+        return (video_id, creation.video_prompt)
+    if creation_type == "i2v":
+        return (
+            video_id,
+            creation.video_prompt,
+            creation.first_frame_version_id,
+        )
+    if creation_type == "s2v":
+        return (
+            video_id,
+            creation.script,
+            creation.portrait_version_id,
+            creation.audio_version_id,
+        )
+    # R2V
+    assert isinstance(creation, R2VCreation)
+    return (
+        video_id,
+        creation.video_prompt,
+        storyboard_slot,
+        sorted(creation.video_reference_version_ids),
+    )
+
+
+def _video_upstream_refs(
+    creation_type: str,
+    creation: R2VCreation | T2VCreation | I2VCreation | S2VCreation,
+    project: Project,
+) -> list[str]:
+    """Return upstream version ids for staleness check by creation type.
+
+    Returns a list of non-None version ids that this node depends on.
+    Missing ids are excluded (not returned as None).
+    """
+    if creation_type == "r2v":
+        assert isinstance(creation, R2VCreation)
+        return [
+            ref
+            for ref in _element_upstream_selected(project, creation)
+            if ref is not None
+        ]
+    if creation_type == "i2v":
+        assert isinstance(creation, I2VCreation)
+        return (
+            [creation.first_frame_version_id]
+            if creation.first_frame_version_id
+            else []
+        )
+    if creation_type == "s2v":
+        assert isinstance(creation, S2VCreation)
+        refs: list[str] = []
+        if creation.portrait_version_id:
+            refs.append(creation.portrait_version_id)
+        if creation.audio_version_id:
+            refs.append(creation.audio_version_id)
+        return refs
+    return []
+
+
+def _video_readiness_gates(
+    creation_type: str,
+    creation: R2VCreation | T2VCreation | I2VCreation | S2VCreation,
+    project: Project,
+) -> tuple[str, ...] | None:
+    """Return missing reasons if the video node is gated, else None.
+
+    Note: T2V's video_prompt check is handled by the caller before invoking
+    this function. This function only checks additional gates beyond the
+    prompt requirement.
+    """
+    if creation_type == "s2v":
+        assert isinstance(creation, S2VCreation)
+        gaps: list[str] = []
+        if not creation.portrait_version_id:
+            gaps.append("portrait_version_id 缺失")
+        if not creation.audio_version_id:
+            gaps.append("audio_version_id 缺失")
+        return tuple(gaps) if gaps else None
+    if creation_type == "r2v":
+        assert isinstance(creation, R2VCreation)
+        if dialogue_gaps := _video_prompt_dialogue_gaps(creation):
+            # Planned dialogue must be quoted verbatim in the video
+            # prompt before dispatch — see _video_prompt_dialogue_gaps.
+            return dialogue_gaps
+        if absence_gap := _element_dialogue_density_gap(
+            creation,
+            project.scenario,
+        ):
+            # Element dialogue density below min_dialogue_ratio — the
+            # model wrote a silent film or too-sparse dialogue. See
+            # _element_dialogue_density_gap.
+            return (absence_gap,)
+        return None
+    if creation_type == "i2v":
+        assert isinstance(creation, I2VCreation)
+        if not creation.first_frame_version_id:
+            return ("first_frame_version_id 缺失",)
+    # t2v: no extra gates beyond video_prompt (checked by caller)
+    return None
+
+
+def _video_dispatch_command(
+    creation_type: str,
+) -> tuple[str, dict[str, Any]]:
+    """Return (command, dispatch_arguments) for a video node."""
+    if creation_type == "s2v":
+        return CreatorCommandType.GENERATE_S2V_VIDEO.value, {}
+    if creation_type == "t2v":
+        return CreatorCommandType.GENERATE_R2V_VIDEO.value, {"mode": "t2v"}
+    if creation_type == "i2v":
+        return CreatorCommandType.GENERATE_R2V_VIDEO.value, {"mode": "i2v"}
+    return CreatorCommandType.GENERATE_R2V_VIDEO.value, {}
 
 
 def _element_upstream_selected(

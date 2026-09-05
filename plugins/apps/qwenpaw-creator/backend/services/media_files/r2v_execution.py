@@ -92,7 +92,7 @@ from services.media_files.visual_reference_resolution import (
 )
 from services.observability import report_error
 from services.project_files.remote_cache import public_source_url
-from services.project_files.store import ProjectSnapshot
+from services.project_files.store import ProjectSnapshot, ProjectStoreError
 from services.run_review.media_review import (
     release_media_review_reservation,
     reserve_media_review,
@@ -122,7 +122,11 @@ from utils.paths import media_task_scope, task_work_root
 
 # pylint: enable=no-name-in-module
 
-from .secure_video_stream import MaterializedVideo, materialize_r2v_video
+from .secure_video_stream import (
+    MaterializedVideo,
+    PeerAddressMismatchError,
+    materialize_r2v_video,
+)
 
 _MAX_VIDEO_BYTES = 256 * 1024 * 1024
 _SUBMIT_TIMEOUT_SECONDS = 180.0
@@ -152,6 +156,8 @@ _TERMINAL_TASKS = frozenset(
 logger = setup_logger("services.media_files.r2v_execution")
 
 _GOOGLE_API_KEY_AUTH = "x-goog-api-key"
+# Matches models.video_backends.minimax_sglang.BEARER_DOWNLOAD_AUTH.
+_BEARER_VIDEO_API_KEY_AUTH = "authorization-bearer"
 _CREDENTIAL_QUERY_NAMES = frozenset(
     {"key", "api_key", "token", "access_token"},
 )
@@ -198,14 +204,46 @@ def _provider_download_headers(result: Mapping[str, Any]) -> dict[str, str]:
     auth = str(result.get("download_auth") or "")
     if not auth:
         return {}
-    if auth != _GOOGLE_API_KEY_AUTH:
+    if auth not in (_GOOGLE_API_KEY_AUTH, _BEARER_VIDEO_API_KEY_AUTH):
         raise ValidationError(f"未知 provider 下载鉴权类型: {auth}")
     from models import config as model_config
 
     api_key = model_config.get_video_api_key()
     if not api_key:
-        raise ValidationError("Veo 视频下载需要当前模型配置中的 API Key")
+        raise ValidationError(
+            "Veo 视频下载需要当前模型配置中的 API Key"
+            if auth == _GOOGLE_API_KEY_AUTH
+            else "受保护的自部署视频下载需要当前模型配置中的 API Key",
+        )
+    if auth == _BEARER_VIDEO_API_KEY_AUTH:
+        return {"Authorization": f"Bearer {api_key}"}
     return {_GOOGLE_API_KEY_AUTH: api_key}
+
+
+def _provider_trusted_private_origins() -> frozenset[tuple[str, str, int]]:
+    """Origins of operator-configured self-hosted video endpoints.
+
+    Only the exact scheme/host/port the user typed into the active
+    ``minimax_sglang`` configuration may resolve to a non-global address
+    during result materialization; every other provider URL — including
+    redirects off this origin — keeps the public-network requirement.
+    Derived from live config at download time, never from durable state.
+    """
+
+    from models import config as model_config
+
+    if model_config.get_video_backend() != "minimax_sglang":
+        return frozenset()
+    parsed = urlsplit(str(model_config.get_video_base_url() or ""))
+    scheme = parsed.scheme.casefold()
+    host = (parsed.hostname or "").casefold()
+    if scheme not in {"http", "https"} or not host:
+        return frozenset()
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return frozenset()
+    return frozenset({(scheme, host, port)})
 
 
 class VideoReferenceBudgetError(ValidationError):
@@ -241,6 +279,7 @@ class R2VProvider(Protocol):
         mode: str = "r2v",
         first_frame_url: str | None = None,
         video_url: str | None = None,
+        reference_voice_urls: Sequence[str] = (),
     ) -> str:
         ...
 
@@ -281,6 +320,7 @@ class ExistingR2VProvider:
         mode: str = "r2v",
         first_frame_url: str | None = None,
         video_url: str | None = None,
+        reference_voice_urls: Sequence[str] = (),
     ) -> str:
         from models.video_model import submit_video_task
 
@@ -295,6 +335,9 @@ class ExistingR2VProvider:
             mode=mode,
             first_frame_url=first_frame_url,
             video_url=video_url,
+            reference_voice_urls=(
+                list(reference_voice_urls) if reference_voice_urls else None
+            ),
         )
 
     async def poll(self, provider_task_id: str) -> Mapping[str, Any]:
@@ -408,6 +451,10 @@ class _ResolvedR2V:
     slot_kind: str
     owner_ref: str
     mode: str = "r2v"
+    # Parallel to reference_urls: the enrolled character-voice sample audio
+    # bound to each reference ("" = none). Only filled when the configured
+    # video model documents an audio reference input.
+    reference_voice_urls: tuple[str, ...] = ()
     first_frame_version_id: str = ""
     first_frame_url: str = ""
     video_version_id: str = ""
@@ -492,6 +539,14 @@ def _failed_task_conflict(
 def _is_transient_materialize_error(error: BaseException) -> bool:
     if isinstance(error, httpx.TransportError):
         return True
+    # Large public CDNs can legitimately rotate the selected edge between
+    # getaddrinfo and the TLS connection.  The secure downloader still rejects
+    # that individual hop (so DNS rebinding remains fail-closed), then a fresh
+    # materialization attempt performs a new DNS resolution and connection.
+    # Treat only this exact peer-pinning rejection as transient; private,
+    # reserved or malformed addresses remain deterministic validation errors.
+    if isinstance(error, PeerAddressMismatchError):
+        return True
     return is_transient_error_message(str(error))
 
 
@@ -517,20 +572,25 @@ def _json_mapping(value: Any, *, label: str) -> dict[str, Any]:
     return decoded
 
 
-def _target_element_id(target_ref: str) -> str:
-    return target_element_id(target_ref, command="GENERATE_R2V_VIDEO")
+def _target_element_id(
+    target_ref: str,
+    command: str = "GENERATE_R2V_VIDEO",
+) -> str:
+    return target_element_id(target_ref, command=command)
 
 
 def _duration(value: Any) -> int:
     if isinstance(value, bool):
-        raise ValidationError("R2V durationSeconds 必须是整数")
+        raise ValidationError("R2V durationSeconds 必须是数字")
     try:
         number = float(value)
     except (TypeError, ValueError) as error:
-        raise ValidationError("R2V durationSeconds 必须是整数") from error
-    if not number.is_integer() or not 1 <= number <= 60:
-        raise ValidationError("R2V durationSeconds 必须是 1 到 60 的整数")
-    return int(number)
+        raise ValidationError("R2V durationSeconds 必须是数字") from error
+    if not 1 <= number <= 60:
+        raise ValidationError("R2V durationSeconds 必须在 1 到 60 秒之间")
+    # Shots are planned at sub-second precision but providers only accept
+    # whole seconds — round instead of rejecting the whole dispatch.
+    return max(1, round(number))
 
 
 def _indexed_path(project_root: Path, indexed: IndexedFile) -> Path:
@@ -1021,6 +1081,154 @@ def _assert_r2v_reference_budget(
         )
 
 
+_REFERENCE_ROLE_MARKER = "[REFERENCE IMAGE ROLES — RUNTIME FACT]"
+
+
+def _resolve_reference_voices(
+    *,
+    project: Project,
+    project_root: Path,
+    creation: Any,
+    version_ids: Sequence[str],
+) -> tuple[tuple[str, ...], list[dict[str, Any]]]:
+    """Pair each reference version with its character's enrolled voice.
+
+    Returns ``(voice_urls, read_entries)`` where *voice_urls* parallels
+    ``version_ids`` ("" = no voice). Only characters referenced by the
+    creation whose enrolled voice keeps a sample audio contribute; the
+    sample rides with the character's own reference image so providers
+    that document per-subject voices (wan2.7) bind them correctly and
+    standalone-audio providers (wan3.0 / Seedance 2.x) receive the same
+    deduplicated set.
+    """
+
+    from models import config as model_config
+    from models.video_capabilities import video_reference_voice_support
+
+    if (
+        video_reference_voice_support(
+            model_config.get_video_model_name(),
+            model_config.get_video_backend(),
+        )
+        is None
+    ):
+        return (), []
+
+    voice_by_version: dict[str, str] = {}
+    read_entries: list[dict[str, Any]] = []
+    resolved_samples: dict[str, str] = {}
+    for entity_ref in getattr(creation, "character_refs", ()) or ():
+        entity = project.visual.entities.items.get(entity_ref)
+        if entity is None or entity.kind != "character":
+            continue
+        voice = entity.voice
+        if voice is None or not voice.sample_source_version_id:
+            continue
+        contributed = {
+            variant.selected_artifact_version_id
+            for variant in entity.variants.items.values()
+            if variant.selected_artifact_version_id
+        }
+        if entity.selected_artifact_version_id:
+            contributed.add(entity.selected_artifact_version_id)
+        matched = [vid for vid in version_ids if vid in contributed]
+        if not matched:
+            continue
+        sample_id = voice.sample_source_version_id
+        sample_url = resolved_samples.get(sample_id)
+        if sample_url is None:
+            sample_url, _checksum, _ref, entry = _resolve_single_media_version(
+                project=project,
+                project_root=project_root,
+                version_id=sample_id,
+                media_prefix="audio/",
+                label="characterVoiceSample",
+            )
+            resolved_samples[sample_id] = sample_url
+            read_entries.append(entry)
+        for vid in matched:
+            voice_by_version.setdefault(vid, sample_url)
+    if not voice_by_version:
+        return (), []
+    return (
+        tuple(voice_by_version.get(vid, "") for vid in version_ids),
+        read_entries,
+    )
+
+
+def _append_reference_role_mapping(
+    prompt: str,
+    project: Project,
+    version_ids: Sequence[str],
+    *,
+    storyboard_id: str,
+) -> str:
+    """State what each numbered reference image actually is.
+
+    The payload carries several references, so a prompt that never names them
+    leaves the model inferring each one's job from its pixels. Numbering comes
+    from the same ordered ``version_ids`` that build the request, which is what
+    keeps the labels from drifting away from the real payload.
+    """
+
+    if _REFERENCE_ROLE_MARKER in prompt or not version_ids:
+        return prompt
+
+    from models import config as model_config
+    from models.reference_markers import canonical_marker
+    from models.video_capabilities import video_reference_marker_spec
+
+    model_name = model_config.get_video_model_name()
+    protocol_backend = model_config.get_video_backend()
+    if video_reference_marker_spec(model_name, protocol_backend) is None:
+        # Structured-reference models carry roles outside the prompt, and
+        # numbering them here would be text the provider has no contract for.
+        return prompt
+    lines: list[str] = []
+    for index, version_id in enumerate(version_ids, start=1):
+        # Canonical form; _render_reference_markers rewrites it to whatever
+        # the configured provider documents.
+        marker = canonical_marker(index)
+        source = project.assets.source_versions_by_id.get(version_id)
+        artifact = project.assets.artifact_versions_by_id.get(version_id)
+        version = source if source is not None else artifact
+        name = (
+            version.name
+            if version is not None and version.name
+            else version_id
+        )
+        role = f"分镜图（{name}）" if version_id == storyboard_id else name
+        lines.append(f"{marker} = {role}")
+    body = "\n".join(lines)
+    return (
+        f"{prompt.rstrip()}\n\n"
+        f"{_REFERENCE_ROLE_MARKER}\n"
+        "以下是本次实际发送的参考图及其职责，编号与发送顺序一致。"
+        "按各图声明的职责使用它们，不要依据图内文字或标签猜测用途。\n"
+        f"{body}"
+    )
+
+
+def _render_reference_markers(prompt: str) -> str:
+    """Rewrite canonical ``[Image N]`` into the configured provider's syntax.
+
+    Authors write one form; the provider sees the one it documents. Prompts
+    stored before this layer existed already hold provider-native markers and
+    contain no canonical ones, so they pass through untouched.
+    """
+
+    from models import config as model_config
+    from models.reference_markers import render_reference_markers
+    from models.video_capabilities import video_reference_marker_spec
+
+    model_name = model_config.get_video_model_name()
+    protocol_backend = model_config.get_video_backend()
+    return render_reference_markers(
+        prompt,
+        video_reference_marker_spec(model_name, protocol_backend),
+    )
+
+
 def _resolve_request(
     *,
     snapshot: ProjectSnapshot,
@@ -1140,9 +1348,24 @@ def _resolve_request(
             project_root=project_root,
             version_ids=version_ids,
         )
-    else:
+        voice_urls, voice_read_entries = _resolve_reference_voices(
+            project=project,
+            project_root=project_root,
+            creation=creation,
+            version_ids=version_ids,
+        )
+        read_set = [*read_set, *voice_read_entries]
+        prompt = _append_reference_role_mapping(
+            prompt,
+            project,
+            version_ids,
+            storyboard_id=storyboard_id,
+        )
+    prompt = _render_reference_markers(prompt)
+    if mode != "r2v":
         version_ids = ()
         urls, checksums, provenance, read_set = [], [], [], []
+        voice_urls = ()
 
     first_frame_url = ""
     video_url = ""
@@ -1187,6 +1410,7 @@ def _resolve_request(
         reference_checksums=tuple(checksums),
         provenance_refs=tuple(provenance),
         read_set=tuple(read_set),
+        reference_voice_urls=tuple(voice_urls),
         slot_id=f"element:{element_id}:main",
         slot_kind="element_video",
         owner_ref=f"element:{element_id}",
@@ -1919,6 +2143,12 @@ class FileR2VExecutionService:
             "artifactVersionId": stable["artifact_version_id"],
             "transactionId": stable["transaction_id"],
         }
+        if any(resolved.reference_voice_urls):
+            # Joins the frozen request only when a voice actually rides
+            # along, so legacy tasks keep their fingerprint identity.
+            payload["referenceVoiceUrls"] = list(
+                resolved.reference_voice_urls,
+            )
         if resolved.mode != "r2v":
             # Only non-default modes join the frozen request so legacy r2v
             # tasks keep their fingerprint identity across the upgrade.
@@ -2275,6 +2505,17 @@ class FileR2VExecutionService:
             except asyncio.CancelledError:
                 raise
             except RecordNotFoundError:
+                return
+            except ProjectStoreError as error:
+                # An unparseable project.json never becomes parseable, so
+                # retrying is a hot loop that only floods the log. The corrupt
+                # Project is already surfaced by the recovery scan.
+                logger.warning(
+                    "abandoning deferred R2V terminal recovery for %s/%s: %s",
+                    _log_safe(project_id),
+                    _log_safe(task_id),
+                    error,
+                )
                 return
             except _R2VClaimLost:
                 delay = min(
@@ -2880,6 +3121,11 @@ class FileR2VExecutionService:
                                 else None
                             ),
                         }
+                    if request.get("referenceVoiceUrls"):
+                        # Same legacy-signature courtesy as above.
+                        extra_arguments["reference_voice_urls"] = tuple(
+                            str(item) for item in request["referenceVoiceUrls"]
+                        )
                     return await self.provider.submit(
                         prompt=str(request["prompt"]),
                         reference_image_urls=tuple(request["referenceUrls"]),
@@ -3737,6 +3983,9 @@ class FileR2VExecutionService:
                     request_headers=_provider_download_headers(
                         claim.provider_result,
                     ),
+                    trusted_private_origins=(
+                        _provider_trusted_private_origins()
+                    ),
                 )
             except Exception as error:
                 if attempt >= len(delays) or not (
@@ -4251,25 +4500,52 @@ class FileR2VExecutionService:
             _, element = find_timeline_element(project, element_id)
         except Exception:
             return False
-        if not isinstance(element.creation, R2VCreation):
-            return False
-        selected = selected_element_output(project, element, "storyboard")
-        storyboard_id = selected[1] if selected is not None else None
-        if not storyboard_id:
-            return False
-        current_refs = list(
-            dict.fromkeys(
-                [
-                    storyboard_id,
-                    *resolve_r2v_visual_reference_version_ids(
-                        project,
-                        element.creation,
-                        element.creation.video_reference_version_ids,
-                    ),
-                ],
-            ),
-        )
-        return current_refs == [str(item) for item in frozen_refs]
+        creation = element.creation
+        creation_type = getattr(creation, "type", "r2v")
+        if creation_type == "r2v":
+            if not isinstance(creation, R2VCreation):
+                return False
+            selected = selected_element_output(project, element, "storyboard")
+            storyboard_id = selected[1] if selected is not None else None
+            if not storyboard_id:
+                return False
+            current_refs = list(
+                dict.fromkeys(
+                    [
+                        storyboard_id,
+                        *resolve_r2v_visual_reference_version_ids(
+                            project,
+                            creation,
+                            creation.video_reference_version_ids,
+                        ),
+                    ],
+                ),
+            )
+            return current_refs == [str(item) for item in frozen_refs]
+        elif creation_type == "t2v":
+            if not isinstance(creation, T2VCreation):
+                return False
+            return not frozen_refs
+        elif creation_type == "i2v":
+            if not isinstance(creation, I2VCreation):
+                return False
+            resolved_first_frame = raw.get("firstFrameVersionId") or ""
+            current_refs = (
+                [resolved_first_frame] if resolved_first_frame else []
+            )
+            return current_refs == [str(item) for item in frozen_refs]
+        elif creation_type == "s2v":
+            if not isinstance(creation, S2VCreation):
+                return False
+            current_refs = []
+            s2v_image = raw.get("s2vImageVersionId") or ""
+            s2v_audio = raw.get("s2vAudioVersionId") or ""
+            if s2v_image:
+                current_refs.append(s2v_image)
+            if s2v_audio:
+                current_refs.append(s2v_audio)
+            return current_refs == [str(item) for item in frozen_refs]
+        return False
 
     async def _converge(
         self,
@@ -5117,6 +5393,9 @@ async def execute_file_s2v_command(
 ) -> FileR2VDispatch:
     """Digital-human (wan2.2-s2v) dispatch through the R2V durable poller."""
 
+    # Same wallet fuse as the r2v/image entry points: the scheduler now
+    # auto-dispatches s2v nodes with no per-call human authorization.
+    ensure_media_call_budget(services, project_id)
     return await file_r2v_execution_service(services).dispatch(
         project_id=project_id,
         target_ref=target_ref,
@@ -5131,22 +5410,43 @@ async def preflight_s2v_face_detect(
     services: CreatorFileServices,
     *,
     project_id: str,
+    target_ref: str = "",
     arguments: Mapping[str, Any],
 ) -> None:
     """Free wan2.2-s2v-detect gate that runs before execution authorization.
 
     A failed portrait check raises a readable ``ValidationError`` so the
     agent can pick another image without any authorization being created.
+    Falls back to creation.portrait_version_id if characterImageRef is
+    not provided in arguments.
     """
 
     from models.s2v_model import detect_face
 
     image_ref = str(arguments.get("characterImageRef") or "").strip()
+    snapshot = None
+    if not image_ref and target_ref:
+        # Fall back to the element's declared portrait
+        snapshot = await asyncio.to_thread(services.projects.read, project_id)
+        element_id = _target_element_id(
+            target_ref,
+            command="GENERATE_S2V_VIDEO",
+        )
+        _, element = find_timeline_element(snapshot.project, element_id)
+        creation = element.creation
+        if isinstance(creation, S2VCreation):
+            image_ref = str(creation.portrait_version_id or "").strip()
+        else:
+            raise ValidationError(
+                "仅 creation.type=s2v 的 Element 可以生成数字人视频",
+            )
     if not image_ref:
         raise ValidationError(
-            "s2v_generation 需要 characterImageRef（exact 人像图 version id）",
+            "s2v_generation 需要 characterImageRef 或 "
+            "creation.portrait_version_id（exact 人像图 version id）",
         )
-    snapshot = await asyncio.to_thread(services.projects.read, project_id)
+    if snapshot is None:
+        snapshot = await asyncio.to_thread(services.projects.read, project_id)
     image_url, _, _, _ = _resolve_single_media_version(
         project=snapshot.project,
         project_root=services.projects.project_root(project_id),

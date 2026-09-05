@@ -176,35 +176,21 @@ def render_taste_principles(role: str) -> str:
             "video-edit skill），应当遵循（建议性准则，不是门禁）：",
         ]
     if role in {"creator_agent", "ai_editing_director"}:
+        rhythm_principle = (
+            "开场是否尽快建立关注点？能量是否有快慢变化？需要停留的时刻是否"
+            "真正停住？长镜头只在叙事和可执行动作支持时使用，不设统一的 7 秒 "
+            "Shot 上限。"
+            if role == "creator_agent"
+            else rhythm.anchor_questions
+        )
         lines += [
             f"- 概念先行：{concept.anchor_questions}（素材流水账不是概念）。",
-            f"- 节奏：{rhythm.anchor_questions}",
+            f"- 节奏：{rhythm_principle}",
             f"- 克制：{restraint.anchor_questions}",
             (
                 "- 设计底线：有开场处理、每个场景至少一个设计化节拍、有收束式结尾；"
                 "避免：" + "；".join(COMMON_FAILURES[:5]) + "。"
             ),
-        ]
-    if role == "r2v_generation_director":
-        motion = next(
-            check
-            for check in SCENE_REVIEW_CHECKS
-            if check.key == "motion_quality"
-        )
-        lines += [
-            f"- 概念先行：{concept.anchor_questions}",
-            f"- 镜头与首尾帧：{motion.description}",
-            "- 主体一致：分镜计划声明的主体/场景/道具必须真的出现在画面中，声明而未落地即失败。",
-        ]
-    if role == "visual_development_agent":
-        composition = next(
-            check
-            for check in SCENE_REVIEW_CHECKS
-            if check.key == "composition_safety"
-        )
-        lines += [
-            f"- 构图安全：{composition.description}",
-            "- 一致性：角色/场景设计图之间保持造型、配色与光线的一致性；文字元素不得乱码或使用占位字形。",
         ]
     return "\n".join(lines)
 

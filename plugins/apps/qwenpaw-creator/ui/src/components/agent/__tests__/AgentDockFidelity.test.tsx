@@ -95,7 +95,7 @@ describe("AgentDock origin/main visible fidelity", () => {
     seedCreatorSession();
   });
 
-  it("matches the right-edge handle trigger and exact 440x620 floating shell", async () => {
+  it("matches the right-edge handle trigger and exact 340x620 floating shell", async () => {
     useAgentDockUiStore.getState().setOpen(false);
     renderDock();
     const trigger = screen.getByRole("button", { name: "创作助手" });
@@ -105,9 +105,9 @@ describe("AgentDock origin/main visible fidelity", () => {
     fireEvent.click(trigger);
     const dock = document.querySelector<HTMLElement>("[data-agent-dock]")!;
     await waitFor(() =>
-      expect(dock).toHaveStyle({ width: "440px", height: "620px" }),
+      expect(dock).toHaveStyle({ width: "340px", height: "620px" }),
     );
-    expect(dock).toHaveAttribute("data-agent-dock-width", "440");
+    expect(dock).toHaveAttribute("data-agent-dock-width", "340");
     expect(dock).toHaveAttribute("data-agent-dock-height", "620");
     expect(screen.getByText("创作助手")).toBeInTheDocument();
     // Top-bar entries dropped from the redesigned shell:
@@ -182,7 +182,7 @@ describe("AgentDock origin/main visible fidelity", () => {
     fireEvent.pointerMove(window, { clientX: 380, clientY: 40 });
     fireEvent.pointerUp(window);
     await waitFor(() => {
-      expect(useAgentDockUiStore.getState().width).toBe(500);
+      expect(useAgentDockUiStore.getState().width).toBe(400);
       expect(useAgentDockUiStore.getState().height).toBe(680);
     });
 

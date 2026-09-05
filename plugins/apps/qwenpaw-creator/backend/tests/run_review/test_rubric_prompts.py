@@ -25,8 +25,6 @@ _PROMPTS_DIR = _BACKEND / "services" / "file_agent_runtime" / "prompts"
 _TASTE_ROLES = {
     "creator_agent": "creator_agent.system.txt",
     "ai_editing_director": "ai_editing_director.system.txt",
-    "r2v_generation_director": "r2v_generation_director.system.txt",
-    "visual_development_agent": "visual_development_agent.system.txt",
 }
 
 

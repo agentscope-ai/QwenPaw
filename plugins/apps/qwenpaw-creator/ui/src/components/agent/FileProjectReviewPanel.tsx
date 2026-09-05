@@ -21,6 +21,7 @@ import { navigateToLocator } from "@/routing/locators";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import DiffView from "./DiffView";
 import RejectionFeedbackModal from "./RejectionFeedbackModal";
@@ -254,7 +255,10 @@ export default function FileProjectReviewPanel({
   >([]);
 
   const elementNames = (() => {
-    const timeline = selectPrimaryTimeline(project);
+    const timeline = selectPrimaryTimeline(
+      project,
+      useTimelineStore.getState().activeTimelineId,
+    );
     const names: Record<string, string> = {};
     if (timeline) {
       Object.values(timeline.elements_by_id).forEach((element) => {
@@ -264,7 +268,8 @@ export default function FileProjectReviewPanel({
     return names;
   })();
   const ticksPerSecond =
-    selectPrimaryTimeline(project)?.ticks_per_second ?? 1000;
+    selectPrimaryTimeline(project, useTimelineStore.getState().activeTimelineId)
+      ?.ticks_per_second ?? 1000;
   const assetName = (assetId: string): string =>
     project?.visual.entities.items[assetId]?.name || assetId;
   const mediaOwnerLine = (locator: Record<string, string>): string => {
@@ -380,7 +385,7 @@ export default function FileProjectReviewPanel({
             type="button"
             disabled={busy || pending.length === 0}
             onClick={() => void submit(pending, "ACCEPT")}
-            className="rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50"
+            className="rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[10px] font-medium text-[var(--color-bg-primary)] disabled:opacity-50"
           >
             {mediaLocator ? t("fileReview.keep") : t("fileReview.keepAll")}
           </button>

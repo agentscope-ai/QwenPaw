@@ -36,6 +36,7 @@ from services.runtime_files.models import (
 from utils.logger import setup_logger
 
 from .assets import AssetFileStore
+from .auto_snapshot import auto_snapshot_timelines, frozen_snapshot_edits
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
@@ -552,6 +553,8 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "用一组小而扁平的操作列表修改 Project，适用于 90% 的日常写入"
             "（新建/更新实体、Element、改字段）；需要计算的复杂变换才用 "
             "jq_project。每个 op 独立且浅（value 嵌套勿超 2 层）："
+            "ops 必须直接传 JSON 数组，绝不能把数组序列化为字符串；长 Prompt "
+            "正文应拆成后续独立 add/replace op，避免换行或冒号触发二次解析。"
             'add/replace/remove 用 RFC 6901 path（如 "/timelines/items/'
             'timeline:main/elements_by_id/elem:x"，数组末尾用 "-"）；'
             "upsert_entity 用于 EntityCollection（如 visual.entities 或某实体的 "
@@ -991,7 +994,12 @@ class AgentProjectTools:
             string_args=request.string_args,
             json_args=request.json_args,
         )
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
+        auto_snapshot_timelines(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
         normalized_pointers = normalize_project_candidate(candidate)
         base_data = base.project.model_dump(mode="json")
         changed_protected = [
@@ -1057,6 +1065,29 @@ class AgentProjectTools:
                 update={"cut_advisory": cut_advisory},
             )
         return commit_result
+
+    def _reject_frozen_snapshot_edits(
+        self,
+        base: ProjectSnapshot,
+        candidate: dict[str, Any],
+    ) -> None:
+        """Snapshot timelines are frozen copies outside the work graph:
+        an element written into one is never scheduled, so accepting the
+        commit would silently strand the content. Fail closed and steer
+        the writer to the live timeline instead."""
+        violations = frozen_snapshot_edits(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
+        if violations:
+            raise AgentProjectToolError(
+                "历史快照是冻结副本，不能修改其中的元素："
+                + ", ".join(violations)
+                + "。快照不会进入生产图，写入的内容永远不会被排产；"
+                "请改为修改对应的 live 时间线（如 timeline:main）。",
+                code="SNAPSHOT_TIMELINE_FROZEN",
+                details={"snapshotTimelineIds": violations},
+            )
 
     def _apply_agent_edit_impacts(
         self,
@@ -1371,7 +1402,12 @@ class AgentProjectTools:
         base = self._base(request.project_id)
         candidate = base.project.model_dump(mode="json")
         apply_patch_ops(candidate, request.ops)
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
+        auto_snapshot_timelines(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
         normalized_pointers = normalize_project_candidate(candidate)
         sync_fence = self._begin_sync_review_fence(
             base.project.model_dump(mode="json"),

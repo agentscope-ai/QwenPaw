@@ -107,6 +107,7 @@ REVIEWED_COMMANDS: dict[str, str] = {
     "GENERATE_ASSET": "image",
     "GENERATE_STORYBOARD_IMAGE": "image",
     "GENERATE_R2V_VIDEO": "element_video",
+    "GENERATE_S2V_VIDEO": "element_video",
 }
 
 
@@ -940,12 +941,25 @@ async def run_media_review_loop(
             owner=owner,
         )
         if admitted is None:
+            reason = await asyncio.to_thread(
+                admission.media_skip_reason,
+                reports_root,
+                slot_id=slot_id,
+                version_id=version_id,
+            )
+            if reason == "budget_spent":
+                logger.warning(
+                    "media review budget exhausted for slot %s: new "
+                    "versions of this artifact will no longer be "
+                    "auto-reviewed",
+                    slot_id,
+                )
             trace_event(
                 "run_review.media_skipped",
                 component=_TRACE_COMPONENT,
                 attributes={
                     "artifactRef": f"artifact-version:{version_id}",
-                    "reason": "already_reviewed_or_budget_spent",
+                    "reason": reason,
                 },
                 projectId=project_id,
             )

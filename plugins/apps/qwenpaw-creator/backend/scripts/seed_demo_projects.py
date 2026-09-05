@@ -45,7 +45,7 @@ DEMOS: tuple[DemoProject, ...] = (
         goal=(
             "请制作一部约 36 秒、16:9、720P 的三段式短剧《雪夜重逢》。"
             "先在 Timeline 上规划 R2V Element 与 Shot，再补齐角色、雪夜车站场景与关键道具的视觉资产；"
-            "每个 R2V Element 不超过 15 秒，人物造型和环境光线要连续。"
+            "每个 R2V Element 使用当前视频模型允许的时长，人物造型和环境光线要连续。"
         ),
         brief_name="雪夜重逢创作要求.txt",
         brief_text=(

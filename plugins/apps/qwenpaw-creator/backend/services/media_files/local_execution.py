@@ -2655,10 +2655,14 @@ def _edit_overlays(
                 # data (non-empty text = caption).  vibe="summary" is the
                 # migrated interview_summary presentation and keeps the
                 # interview card fallback instead of the pet-OS bubble.
+                # Pet-OS bubble (with animal emoji) is only used when the
+                # project content_type is "pets"; otherwise fall back to
+                # the plain interview_summary card style.
                 "kind": (
-                    "interview_summary"
-                    if overlay.creation.vibe == "summary"
-                    else "pet_os"
+                    "pet_os"
+                    if overlay.creation.vibe != "summary"
+                    and project.settings.content_type == "pets"
+                    else "interview_summary"
                 ),
                 "text": overlay.creation.text,
                 "vibe": overlay.creation.vibe,

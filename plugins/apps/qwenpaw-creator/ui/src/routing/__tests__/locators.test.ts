@@ -22,6 +22,19 @@ describe("pathForLocator", () => {
     expect(pathForLocator("p1", { page: "assets" })).toBe("/project/p1/assets");
   });
 
+  it("maps blueprint locators to the project root", () => {
+    expect(pathForLocator("p1", { page: "blueprint" })).toBe("/project/p1");
+  });
+
+  it("carries the timelineId of a blueprint locator as a query parameter", () => {
+    expect(
+      pathForLocator("p1", {
+        page: "blueprint",
+        timelineId: "timeline:ep2",
+      }),
+    ).toBe("/project/p1?timeline=timeline%3Aep2");
+  });
+
   it("defaults unknown pages to plan", () => {
     expect(pathForLocator("p1", { page: "plan" })).toBe("/project/p1/plan");
   });

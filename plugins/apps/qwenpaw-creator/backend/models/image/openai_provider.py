@@ -288,7 +288,7 @@ class OpenAIImageModel(BaseImageModel):
             "model": self.model_name,
             "prompt": prompt,
             "n": 1,
-            "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1536x1024"),
+            "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1024x1024"),
             "quality": self.quality,
             "output_format": "png",
             "stream": False,
@@ -346,7 +346,7 @@ class OpenAIImageModel(BaseImageModel):
                 {
                     "type": "image_generation",
                     "model": self.model_name,
-                    "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1536x1024"),
+                    "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1024x1024"),
                     "quality": self.quality,
                     "output_format": "png",
                 },

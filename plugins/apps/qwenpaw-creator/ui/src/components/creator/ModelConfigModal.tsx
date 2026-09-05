@@ -119,10 +119,17 @@ export const VIDEO_PROTOCOLS = [
   "Volcano Engine（火山引擎）",
   "Google Gemini（Veo）",
   "MiniMax（海螺）",
+  "MiniMax H3（SGLang 自部署）",
   "Kling（可灵官方）",
   "Vidu（官方）",
   "Aliyun Token Plan",
 ];
+
+// Self-hosted SGLang serves without authentication unless started with
+// --api-key, so the API key is optional for these video protocols.
+export const KEY_OPTIONAL_VIDEO_PROTOCOLS = new Set([
+  "MiniMax H3（SGLang 自部署）",
+]);
 
 // Display-only labels for the protocol dropdowns: the stored protocol
 // strings double as backend match keys (substring checks in the host),
@@ -148,6 +155,7 @@ export const PROTOCOL_LABEL_KEYS: Record<string, string> = {
   Ideogram: "modelConfig.protocols.ideogram",
   "Google Gemini（Veo）": "modelConfig.protocols.googleGeminiVeo",
   "MiniMax（海螺）": "modelConfig.protocols.minimaxHailuo",
+  "MiniMax H3（SGLang 自部署）": "modelConfig.protocols.minimaxH3Sglang",
   "Kling（可灵官方）": "modelConfig.protocols.klingOfficial",
   "Vidu（官方）": "modelConfig.protocols.viduOfficial",
   "小米 MiMo": "modelConfig.protocols.xiaomiMimo",
@@ -362,15 +370,31 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   },
   "MiniMax（海螺）": {
     base_url: "https://api.minimax.io",
-    // Hailuo: 768P at 6/10s, 1080P at 6s (Hailuo-02 also has 512P);
-    // S2V-01 is the only subject
+    // MiniMax-H3/H3-Max speak the v2 content API (480P/768P/2K, 4-15s,
+    // omni references). Hailuo: 768P at 6/10s, 1080P at 6s (Hailuo-02
+    // also has 512P); S2V-01 is the only subject
     // reference model (1 character image). China endpoint:
     // https://api.minimaxi.com
     models: [
+      "MiniMax-H3",
+      "MiniMax-H3-Max",
       "MiniMax-Hailuo-2.3",
       "MiniMax-Hailuo-2.3-Fast",
       "MiniMax-Hailuo-02",
       "S2V-01",
+    ],
+  },
+  "MiniMax H3（SGLang 自部署）": {
+    base_url: "http://localhost:30010",
+    // One SGLang instance loads one checkpoint variant (`sglang serve
+    // --model-variant fl2va|ref2va`), so the model name records which
+    // variant the endpoint serves: FL2VA = t2v/i2v (port 30010 in the
+    // official examples), Ref2VA = omni-reference r2v (port 30011).
+    // Self-hosted H3-Base renders 768P only.
+    models: ["MiniMax-H3-FL2VA", "MiniMax-H3-Ref2VA"],
+    base_url_options: [
+      { label: "FL2VA (30010)", value: "http://localhost:30010" },
+      { label: "Ref2VA (30011)", value: "http://localhost:30011" },
     ],
   },
   "Kling（可灵官方）": {
@@ -1537,7 +1561,9 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       if (type === "vlm" && config.vlm.use_llm) {
         item = config.llm;
       }
-      const isFree = isFreeTierProtocol(item.protocol, hostProviders);
+      const isFree =
+        isFreeTierProtocol(item.protocol, hostProviders) ||
+        (type === "video" && KEY_OPTIONAL_VIDEO_PROTOCOLS.has(item.protocol));
       const hasKey = isFree
         ? true
         : (type === "asr" && config.asr.reuse_llm_key) ||

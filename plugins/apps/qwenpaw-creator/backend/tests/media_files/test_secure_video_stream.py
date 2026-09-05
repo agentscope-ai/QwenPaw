@@ -15,7 +15,10 @@ import pytest
 
 from domain.errors import StorageIntegrityError, ValidationError
 from services.media_files import secure_video_stream
-from services.media_files.secure_video_stream import SecureR2VVideoMaterializer
+from services.media_files.secure_video_stream import (
+    PeerAddressMismatchError,
+    SecureR2VVideoMaterializer,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -295,7 +298,7 @@ async def test_remote_rejects_peer_outside_dns_set_and_private_dns(
             headers={"content-type": "video/mp4"},
         )
 
-    with pytest.raises(ValidationError, match="预解析集合"):
+    with pytest.raises(PeerAddressMismatchError, match="预解析集合"):
         await _materialize(
             {"url": "https://video.example/result", "media_type": "video/mp4"},
             project_root,
@@ -316,6 +319,50 @@ async def test_remote_rejects_peer_outside_dns_set_and_private_dns(
         )
     assert requests == 1
     assert not list(scratch.glob("r2v-materialized-*"))
+
+
+@_run_async
+async def test_trusted_private_origin_allows_only_the_exact_self_hosted_hop(
+    tmp_path: Path,
+) -> None:
+    """A configured SGLang origin may resolve privately; nothing else may."""
+
+    project_root, _scratch = _scope(tmp_path)
+    trusted = frozenset({("http", "sglang.local", 30010)})
+    transport = httpx.MockTransport(
+        lambda _request: _response(
+            200,
+            peer="127.0.0.1",
+            content=_MP4,
+            headers={"content-type": "video/mp4"},
+        ),
+    )
+
+    result = await _materialize(
+        {
+            "url": "http://sglang.local:30010/v1/videos/vid-1/content",
+            "media_type": "video/mp4",
+        },
+        project_root,
+        resolver=_resolver_for({"sglang.local": "127.0.0.1"}),
+        transport=transport,
+        trusted_private_origins=trusted,
+    )
+    assert result.source_kind == "remote"
+    assert result.path.read_bytes() == _MP4
+
+    # A different port is a different origin: the allowance does not apply.
+    with pytest.raises(ValidationError, match="私有|保留"):
+        await _materialize(
+            {
+                "url": "http://sglang.local:30011/v1/videos/vid-1/content",
+                "media_type": "video/mp4",
+            },
+            project_root,
+            resolver=_resolver_for({"sglang.local": "127.0.0.1"}),
+            transport=transport,
+            trusted_private_origins=trusted,
+        )
 
 
 @_run_async

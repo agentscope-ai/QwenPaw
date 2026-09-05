@@ -301,9 +301,16 @@ export function deriveAgentLiveStatus(
 
   // CANCELLED is terminal. IDLE remains actionable: an optimistic
   // queued message must be visible while the backend transitions to RUNNING.
+  // Async delegations and runtime tasks outlive the mainline run, so an
+  // IDLE session with live background work keeps the working indicator —
+  // otherwise the project looks stalled while a specialist still edits.
+  const hasActiveBackgroundWork =
+    Object.values(subagentActivities).some((activity) => !activity.completed) ||
+    tasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status)) ||
+    (agentStatusBar?.activity?.runningTaskCount ?? 0) > 0;
   if (
     session?.status === "CANCELLED" ||
-    (session?.status === "IDLE" && !hasQueuedInput)
+    (session?.status === "IDLE" && !hasQueuedInput && !hasActiveBackgroundWork)
   )
     return {
       state: "idle",

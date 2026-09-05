@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 from services.runtime_files.atomic_store import (
+    atomic_replace_path,
     fsync_directory as runtime_fsync_directory,
 )
 from services.runtime_files.locking import CrossProcessFileLock
@@ -512,8 +513,15 @@ class ProjectStore:
         project_id: str,
         *,
         expected_etag: str | None = None,
+        cascade: bool = True,
     ) -> None:
-        """Atomically remove a Project from discovery, then delete its tree."""
+        """Atomically remove a Project from discovery, then delete its tree.
+
+        When *cascade* is ``False`` only ``project.json`` is removed so the
+        project vanishes from listings but assets, sessions and observability
+        data remain on disk.  When ``True`` (default) the entire directory
+        tree is deleted.
+        """
 
         safe_id = _safe_project_id(project_id)
         tombstone: Path | None = None
@@ -524,9 +532,22 @@ class ProjectStore:
                     f"Project ETag conflict: expected={expected_etag}, actual={current.etag}",
                 )
             project_root = self.project_root(safe_id)
+
+            if not cascade:
+                manifest = project_root / "project.json"
+                try:
+                    manifest.unlink()
+                except FileNotFoundError:
+                    pass
+                logger.info(
+                    "project manifest deleted (data retained): %s",
+                    safe_id,
+                )
+                return
+
             tombstone = self.root / f".deleted-{safe_id}-{uuid4().hex}"
             try:
-                os.replace(project_root, tombstone)
+                atomic_replace_path(project_root, tombstone)
                 _fsync_directory(self.root)
             except OSError as exc:
                 raise ProjectStoreError(
@@ -623,6 +644,7 @@ class ProjectStore:
         project_id: str,
         *,
         shared: bool = False,
+        cross_thread_hold: bool = False,
     ) -> CrossProcessFileLock:
         """Guard a Project lifetime without serializing unrelated Runtime domains.
 
@@ -638,6 +660,7 @@ class ProjectStore:
             / f"project-{_safe_project_id(project_id)}.lock",
             timeout_seconds=10.0,
             shared=shared,
+            cross_thread_hold=cross_thread_hold,
         )
 
     def _checked_payload(self, project: Project) -> bytes:
@@ -664,7 +687,7 @@ class ProjectStore:
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, target)
+            atomic_replace_path(temp_path, target)
             _fsync_directory(project_root)
             _fsync_directory(temp_dir)
         except Exception:

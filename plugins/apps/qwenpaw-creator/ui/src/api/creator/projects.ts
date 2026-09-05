@@ -174,8 +174,12 @@ export function createProject(
   });
 }
 
-export function deleteProject(projectId: string): Promise<void> {
-  return creatorRequest(`/projects/${encodeURIComponent(projectId)}`, {
+export function deleteProject(
+  projectId: string,
+  cascade = true,
+): Promise<void> {
+  const params = cascade ? "" : "?cascade=false";
+  return creatorRequest(`/projects/${encodeURIComponent(projectId)}${params}`, {
     method: "DELETE",
     headers: { "Idempotency-Key": newClientId("delete-project") },
   });

@@ -365,6 +365,9 @@ export function useProjectLaunch(options?: {
   const [aspectRatio, setAspectRatio] = useState<string>(
     initialValues?.aspectRatio ?? "16:9",
   );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    null,
+  );
   const [attachments, setAttachments] = useState<AttachmentDraft[]>(() =>
     (initialValues?.sourceUrls ?? []).map((url) => ({
       kind: "url" as const,
@@ -532,6 +535,7 @@ export function useProjectLaunch(options?: {
         resolution,
         aspectRatio,
         contentType: isVideoEdit ? contentType : null,
+        templateId: selectedTemplateId ?? undefined,
         // With no assets, let Project creation persist the first Goal and
         // message atomically.  This avoids an observable IDLE Project between
         // navigation and the follow-up /messages request.
@@ -614,6 +618,8 @@ export function useProjectLaunch(options?: {
     setResolution,
     aspectRatio,
     setAspectRatio,
+    selectedTemplateId,
+    setSelectedTemplateId,
     attachments,
     addFiles,
     addUrl,

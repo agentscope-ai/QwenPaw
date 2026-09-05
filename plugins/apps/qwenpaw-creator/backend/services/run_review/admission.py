@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.locking import CrossProcessFileLock
 from utils.logger import setup_logger
 
@@ -35,6 +35,11 @@ _CLAIM_TTL_SECONDS = 30 * 60
 _REVIEWED_HISTORY_LIMIT = 50
 _SYNC_HASH_HISTORY_LIMIT = 20
 _SYNC_FENCE_TTL_SECONDS = 5 * 60
+# An awaiting_repair blocker must outlive the following agent repair turn
+# (bounded by the 600s model-turn timeout), not just the inline reviewer.
+# Expiring it at the fence TTL dispatched paid generation from the exact
+# rejected content the blocker exists to gate.
+_SYNC_BLOCKER_TTL_SECONDS = 15 * 60
 
 # Advisory rounds per artifact slot (media) / per pointer group (sync).
 MAX_MEDIA_REVIEW_ROUNDS = 2
@@ -57,7 +62,7 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    os.replace(staging, path)
+    atomic_replace_path(staging, path)
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
@@ -116,8 +121,11 @@ def admit_media_round(
     """Atomically claim the next advisory round for one artifact version.
 
     Returns the round number, or ``None`` when the version was already
-    reviewed, another live claim holds it, or the slot's advisory budget is
-    spent. A newer version always supersedes an in-flight claim.
+    reviewed, this owner already holds a live claim on it, or the slot's
+    advisory budget is spent.  A claim written by another owner token is a
+    crash leftover (dead process or event loop) and is reclaimed
+    immediately — one live scheduler per data root is the supported
+    topology.  A newer version always supersedes an in-flight claim.
     """
     owner = owner or owner_token()
     state_path = _media_state_path(reports_root, slot_id)
@@ -167,6 +175,44 @@ def admit_media_round(
         )
         write_json(state_path, state)
     return round_number
+
+
+def media_skip_reason(
+    reports_root: Path,
+    *,
+    slot_id: str,
+    version_id: str,
+) -> str:
+    """Best-effort reason why :func:`admit_media_round` returned ``None``.
+
+    Read-only and total: budget exhaustion is otherwise silent — the quality
+    gate just stops reviewing new versions — so callers surface this to
+    logs/traces.  A malformed state file yields ``"unknown"`` rather than an
+    exception, which upstream would report as a review-loop failure.
+    """
+
+    try:
+        state = read_json(_media_state_path(reports_root, slot_id)) or {}
+        reviewed = [
+            str(item) for item in state.get("reviewed_version_ids") or []
+        ]
+        if version_id in reviewed:
+            return "already_reviewed"
+        claim = state.get("claim")
+        if isinstance(claim, Mapping) and (
+            claim.get("version_id") == version_id
+        ):
+            return "claim_in_progress"
+        attempts_started = max(
+            int(state.get("rounds_completed") or 0),
+            int(state.get("attempts_started") or 0),
+            len(reviewed),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return "unknown"
+    if attempts_started >= MAX_MEDIA_REVIEW_ROUNDS:
+        return "budget_spent"
+    return "unknown"
 
 
 def release_media_claim(
@@ -388,31 +434,39 @@ def clear_sync_blocker(reports_root: Path, *, pointer_group: str) -> None:
 
 
 def active_sync_fences(reports_root: Path) -> tuple[dict[str, Any], ...]:
-    """Return live fences and garbage-collect crash leftovers.
+    """Return live fences/blockers and garbage-collect crash leftovers.
 
     Inline review is fail-open. A process crash cannot leave the unattended
-    scheduler permanently blocked, so a fence older than the review timeout
-    envelope is ignored and removed.
+    scheduler permanently blocked, so an entry older than its timeout
+    envelope is ignored and removed.  Fences only cover the inline reviewer;
+    awaiting_repair blockers cover the following agent repair turn and
+    therefore carry a longer TTL.
     """
 
     now = datetime.now(UTC)
     active: list[dict[str, Any]] = []
     try:
-        paths = [
-            *_sync_fence_dir(reports_root).glob("*.json"),
-            *_sync_blocker_dir(reports_root).glob("*.json"),
+        candidates = [
+            *(
+                (path, _SYNC_FENCE_TTL_SECONDS)
+                for path in _sync_fence_dir(reports_root).glob("*.json")
+            ),
+            *(
+                (path, _SYNC_BLOCKER_TTL_SECONDS)
+                for path in _sync_blocker_dir(reports_root).glob("*.json")
+            ),
         ]
     except OSError:
         return ()
-    for path in paths:
+    for path, ttl_seconds in candidates:
         payload = read_json(path)
         raw_created = str((payload or {}).get("created_at") or "")
         try:
             created = datetime.fromisoformat(raw_created)
             age = (now - created).total_seconds()
         except (TypeError, ValueError):
-            age = _SYNC_FENCE_TTL_SECONDS + 1
-        if payload is not None and 0 <= age < _SYNC_FENCE_TTL_SECONDS:
+            age = ttl_seconds + 1
+        if payload is not None and 0 <= age < ttl_seconds:
             active.append(payload)
             continue
         try:
@@ -530,6 +584,7 @@ __all__ = [
     "end_sync_fence",
     "finalize_media_round",
     "hold_sync_blocker",
+    "media_skip_reason",
     "owner_token",
     "read_json",
     "release_media_claim",

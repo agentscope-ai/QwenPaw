@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import asyncio
 import inspect
 import json
+import os
 
 from typing import Any, Protocol
 
@@ -622,6 +623,28 @@ def _build_chat_model(
     )
 
 
+def default_model_turn_timeout_seconds() -> float:
+    """Per-turn budget shared by the driver and the transport timeout.
+
+    Planning turns that emit a full Element structure in one response
+    legitimately exceed 300s on slower endpoints, so the floor is 600s;
+    ``CREATOR_MODEL_TURN_TIMEOUT_SECONDS`` raises it per deployment.
+    Invalid or non-positive overrides fall back to 600.
+    """
+    raw = os.environ.get("CREATOR_MODEL_TURN_TIMEOUT_SECONDS", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return 600.0
+
+
+DEFAULT_MODEL_TURN_TIMEOUT_SECONDS = default_model_turn_timeout_seconds()
+
+
 class AgentScopeAgentChatClient:
     """Direct AgentScope 2.0.4 model adapter for file Runtime turns.
 
@@ -635,9 +658,9 @@ class AgentScopeAgentChatClient:
         self,
         model: ChatModelBase | None = None,
         *,
-        # Keep in sync with driver.DEFAULT_MODEL_TURN_TIMEOUT_SECONDS so
-        # the transport timeout never undercuts the turn budget.
-        timeout_seconds: float = 300.0,
+        # Shares default_model_turn_timeout_seconds with the driver turn
+        # budget so the transport timeout never undercuts it.
+        timeout_seconds: float = DEFAULT_MODEL_TURN_TIMEOUT_SECONDS,
         # ``None`` omits the parameter entirely so the provider/model keeps
         # control over its own output budget.
         max_tokens: int | None = None,

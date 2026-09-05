@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from pydantic import ValidationError
 from services.media_files.local_execution import _timeline_speech_windows
 from services.project_files.migrations import migrate_project_document
 from services.project_files.models import AudioCreation, Project
+from services.project_files.serialization import load_project_json
 
 
 pytestmark = pytest.mark.unit
@@ -249,6 +251,81 @@ def test_v8_migration_stamps_roles_and_the_result_stays_loadable() -> None:
     assert "role" not in elements["r2v-1"]["creation"]
     assert migrated["schema_version"] == 9
     Project.model_validate(migrated)  # loadable, or the migration failed
+
+
+def test_pre_merge_v9_document_missing_roles_is_repaired_on_load() -> None:
+    """Two "schema v9" lineages merged: pr-150's original v9 exported
+    documents without ``creation.role`` on audio Elements. They already
+    say schema_version=9, so the v8->v9 migration never runs — loading
+    must apply the same stamping as an idempotent same-version repair
+    instead of failing validation with "role Field required".
+    """
+
+    raw = _with_elements(
+        _r2v_element(
+            "r2v-1",
+            start_tick=0,
+            duration_tick=5_000,
+            dialogue="我今天去了一个地方",
+        ),
+        _audio_element(  # overlaps the voiced span: sfx
+            "audio-overlapping",
+            start_tick=0,
+            duration_tick=8_000,
+            role=None,
+        ),
+        _audio_element(  # clear of the voiced span: narration
+            "audio-clear",
+            start_tick=5_000,
+            duration_tick=3_000,
+            role=None,
+        ),
+        _audio_element(  # explicit role is authoritative
+            "audio-explicit",
+            start_tick=0,
+            duration_tick=2_000,
+            role="bgm",
+        ),
+    )
+    assert raw["schema_version"] == 9  # the exact failing import shape
+
+    # The archive-import path parses JSON and calls load_project_document.
+    project = load_project_json(json.dumps(raw))
+
+    elements = project.timelines.items["timeline:main"].elements_by_id
+    assert elements["audio-overlapping"].creation.role == "sfx"
+    assert elements["audio-clear"].creation.role == "narration"
+    assert elements["audio-explicit"].creation.role == "bgm"
+
+    # Idempotent: a second pass over the repaired document is a no-op.
+    repaired = migrate_project_document(raw)
+    assert migrate_project_document(repaired) == repaired
+
+
+def test_v9_document_with_roles_is_not_altered_by_the_repair() -> None:
+    raw = _with_elements(
+        _r2v_element(
+            "r2v-1",
+            start_tick=0,
+            duration_tick=5_000,
+            dialogue="我今天去了一个地方",
+        ),
+        _audio_element(
+            "audio-bgm",
+            start_tick=0,
+            duration_tick=8_000,
+            role="bgm",
+        ),
+        _audio_element(
+            "audio-narration",
+            start_tick=5_000,
+            duration_tick=3_000,
+            role="narration",
+        ),
+    )
+    assert raw["schema_version"] == 9
+
+    assert migrate_project_document(raw) == raw
 
 
 def test_narration_overlapping_dialogue_element_is_rejected() -> None:

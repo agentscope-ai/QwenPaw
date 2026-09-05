@@ -139,39 +139,43 @@ describe("R2V Workbench page", () => {
       "src",
       "/api/qwenpaw-creator/media/artifacts/r2v-window-v1",
     );
-    expect(screen.getByText("@圆润大橘猫")).toBeInTheDocument();
-    // Images owned by an already-referenced visual entity must not be
-    // duplicated as "materials".
-    expect(screen.queryByText("@橘猫角色锚点")).toBeNull();
+    // 设计 84:38986 右栏只保留生成结果与元信息：引用素材/资产绑定不再渲染。
+    expect(screen.queryByText(/引用素材/)).toBeNull();
+    expect(screen.queryByText("资产绑定")).toBeNull();
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "element:r2v-window",
     );
   });
 
-  it("shows the runtime-resolved video model instead of creation.recipe.model", async () => {
-    installMockFetch(modelRoutes("happyhorse-1.1-r2v"));
-    renderWorkbench();
-
-    expect(await screen.findByText("happyhorse-1.1-r2v")).toBeInTheDocument();
-  });
-
   it("round-trips between the Plan detail CTA and the workbench", async () => {
     renderWorkbench("/project/p1/plan?element=r2v-window");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /进入制作工作台（参考生视频）/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /去制作台编辑/ }));
+    // 制作台以工作区整页视图打开（片段编辑层设计，不再跳转独立路由）。
     await waitFor(() =>
       expect(
         screen.getByText(/视频方案 \/ 午饭名场面 \/ 制作工作台/),
       ).toBeInTheDocument(),
     );
+    expect(
+      document.querySelector("[data-workbench-modal='r2v-window']"),
+    ).toBeInTheDocument();
 
+    // 整页制作台通过页头「返回视频方案」箭头关闭。
     fireEvent.click(screen.getByRole("button", { name: "返回视频方案" }));
     await waitFor(() =>
-      expect(screen.getByText("创作总纲")).toBeInTheDocument(),
+      expect(
+        document.querySelector("[data-workbench-modal='r2v-window']"),
+      ).not.toBeInTheDocument(),
     );
-    expect(screen.getByDisplayValue("暖色餐厅窗外的橘猫")).toBeInTheDocument();
+    // The creative brief moved to the blueprint page; episode switching
+    // lives in the workspace sidebar, so the plan page greets with the
+    // timeline-title heading.
+    expect(
+      screen.getByRole("heading", { name: "第1集 · 晨光出发" }),
+    ).toBeInTheDocument();
+    // Prompt 编辑已迁往制作台；详情回落为关键信息总览。
+    expect(screen.getByText("创作意图")).toBeInTheDocument();
   });
 
   it("keeps non-R2V Elements out of the workbench with a way back", () => {
@@ -199,20 +203,121 @@ describe("R2V Workbench page", () => {
       "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/shots/items/shot:window/description",
     ],
   ])(
-    "commits %s edits through the Project CAS Patch endpoint",
+    "auto-saves %s edits through the Project CAS Patch endpoint on blur",
     async (_field, current, next, path) => {
       const calls = patchRoutes(cloneProject());
       renderWorkbench();
 
       const input = screen.getByDisplayValue(current);
       fireEvent.change(input, { target: { value: next } });
-      fireEvent.blur(input);
-      // Blur alone stages the edit; only the explicit apply commits it.
+      // Typing alone never commits; leaving the field is the save boundary.
       expect(calls.some((call) => call.method === "PATCH")).toBe(false);
-      fireEvent.click(screen.getByRole("button", { name: "应用修改（1）" }));
+      fireEvent.blur(input);
       await expectPatch(calls, path, next);
     },
   );
+
+  it("dispatches the video node from the prompt-card regenerate button", async () => {
+    const { calls } = installMockFetch([
+      ...modelRoutes("wan2.7-r2v"),
+      { match: "/specialist-runs", response: { json: { items: [] } } },
+      { match: "/projects/p1/tasks", response: { json: { items: [] } } },
+      {
+        match: "/work-graph/nodes/video%3Ar2v-window/dispatch",
+        method: "POST",
+        response: {
+          json: { ok: true, nodeId: "video:r2v-window", dispatched: true },
+        },
+      },
+    ]);
+    const { container } = renderWorkbench();
+
+    fireEvent.click(container.querySelector('[data-stage-tab="vd"]')!);
+    fireEvent.click(
+      container.querySelector(
+        '[data-prompt-regenerate="element:r2v-window/creation/video_prompt"]',
+      )!,
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.method === "POST" &&
+            call.url.includes("/work-graph/nodes/video%3Ar2v-window/dispatch"),
+        ),
+      ).toBe(true),
+    );
+    // Clean draft: regenerate must not fire a project PATCH.
+    expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  it("applies a dirty prompt draft before dispatching regeneration", async () => {
+    const updated = cloneProject();
+    updated.generation = 4;
+    const { calls } = installMockFetch([
+      ...modelRoutes("wan2.7-r2v"),
+      { match: "/specialist-runs", response: { json: { items: [] } } },
+      { match: "/projects/p1/tasks", response: { json: { items: [] } } },
+      {
+        match: "/projects/p1/project",
+        method: "PATCH",
+        response: {
+          json: {
+            projectId: "p1",
+            generation: 4,
+            etag: '"sha256:g4"',
+            changedPointers: [],
+            project: updated,
+          },
+        },
+      },
+      {
+        match: "/work-graph/nodes/storyboard%3Ar2v-window/dispatch",
+        method: "POST",
+        response: {
+          json: { ok: true, nodeId: "storyboard:r2v-window", dispatched: true },
+        },
+      },
+    ]);
+    const { container } = renderWorkbench();
+
+    const sbPanel = container.querySelector('[data-stage-panel="sb"]')!;
+    fireEvent.change(sbPanel.querySelector("textarea")!, {
+      target: { value: "新的分镜 Prompt" },
+    });
+    fireEvent.click(
+      container.querySelector(
+        '[data-prompt-regenerate="element:r2v-window/creation/storyboard_prompt"]',
+      )!,
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.method === "POST" &&
+            call.url.includes(
+              "/work-graph/nodes/storyboard%3Ar2v-window/dispatch",
+            ),
+        ),
+      ).toBe(true),
+    );
+    // The new prompt must be persisted before the node is dispatched.
+    const patchIndex = calls.findIndex((call) => call.method === "PATCH");
+    const dispatchIndex = calls.findIndex(
+      (call) => call.method === "POST" && call.url.includes("/dispatch"),
+    );
+    expect(patchIndex).toBeGreaterThanOrEqual(0);
+    expect(patchIndex).toBeLessThan(dispatchIndex);
+    expect(calls[patchIndex].body).toMatchObject({
+      operations: [
+        {
+          op: "replace",
+          path: "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/storyboard_prompt",
+          value: "新的分镜 Prompt",
+        },
+      ],
+    });
+  });
 
   it("switches the current video version through a slot selection patch", async () => {
     seedProject(withSecondVideoVersion());
@@ -238,7 +343,7 @@ describe("R2V Workbench page", () => {
     );
   });
 
-  it("numbers references authoritatively, refs by kind, and drops stale numbering on dirty drafts", async () => {
+  it("keeps the right rail to result and meta per the segment-editor design", async () => {
     installMockFetch([
       {
         match: "/models/resolved",
@@ -270,26 +375,132 @@ describe("R2V Workbench page", () => {
         },
       },
     ]);
+    // 绑定一个还没生成设计图的道具：卡片必须以虚线占位形态出现。
+    const project = cloneProject();
+    project.visual.entities.order.push("lantern");
+    project.visual.entities.items["lantern"] = {
+      entity_id: "lantern",
+      kind: "prop",
+      name: "旧灯笼",
+      description: "",
+      continuity: "",
+      required_variant_ids: [],
+      variants: { order: [], items: {} },
+      selected_artifact_version_id: null,
+    };
+    const r2vDraft =
+      project.timelines.items["timeline:main"].elements_by_id["r2v-window"];
+    if (r2vDraft.creation.type === "r2v")
+      r2vDraft.creation.prop_refs = ["lantern"];
+    seedProject(project);
+    const { container } = renderWorkbench();
+
+    // 右栏 = 生成结果 + 相关资产分组；阶段状态不再展示，旧的
+    // 引用素材列表/资产绑定下拉也不回归（权威 [Image N] 只服务 prompt 胶囊）。
+    expect(await screen.findByText("相关资产")).toBeInTheDocument();
+    expect(screen.getByText("视频生成结果")).toBeInTheDocument();
+    expect(screen.getByText("分镜图生成结果")).toBeInTheDocument();
+    expect(screen.queryByText("阶段状态")).toBeNull();
+    expect(screen.queryByText(/引用素材/)).toBeNull();
+    expect(screen.queryByText("资产绑定")).toBeNull();
+    // 添加入口只有标题行一个 +；空分类（场景/素材）不渲染分组。
+    expect(container.querySelectorAll("[data-add-asset]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-add-entity]")).toHaveLength(0);
+    const rail = container.querySelector("[data-r2v-workbench] aside")!;
+    expect(rail.textContent).not.toContain("场景");
+    expect(rail.textContent).not.toContain("素材");
+    // 已绑定的橘猫与灯笼卡可移除；未生成的灯笼是虚线占位卡（渲染「未生成」），
+    // 已生成的卡不再标注「设计已完成」。
+    expect(screen.getByText("圆润大橘猫")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("移除引用")).toHaveLength(2);
+    expect(screen.getByText("旧灯笼")).toBeInTheDocument();
+    expect(screen.getByText("未生成")).toBeInTheDocument();
+    expect(screen.queryByText("设计已完成")).toBeNull();
+    // 提示词卡固定引用预览（无原文切换），编辑胶囊在重新生成左侧。
+    expect(screen.queryByText("编辑原文")).toBeNull();
+    expect(screen.queryByText("引用预览")).toBeNull();
+    const editPill = container.querySelector(
+      '[data-prompt-edit="element:r2v-window/creation/storyboard_prompt"]',
+    )!;
+    expect(editPill.nextElementSibling).toHaveAttribute(
+      "data-prompt-regenerate",
+      "element:r2v-window/creation/storyboard_prompt",
+    );
+    expect(
+      container.querySelectorAll(
+        "[data-r2v-workbench] aside [role='combobox']",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("adds assets through the thumbnail asset picker", async () => {
+    const calls = patchRoutes(cloneProject());
+    const { container } = renderWorkbench();
+
+    // 单一 + 打开缩略版资产库：分类筛选 + 已绑定项预选中。
+    fireEvent.click(container.querySelector("[data-add-asset]")!);
+    expect(await screen.findByText("添加相关资产")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-picker-asset="cat"]'),
+    ).toBeInTheDocument();
+    // 未做任何更改的确认必须是零改动：不产生 PATCH（顺序也不得被重排）。
+    fireEvent.click(document.querySelector("[data-picker-confirm]")!);
+    expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+
+    // 点选素材候选（橘猫原始视频）并确认 → 一次性静默落盘。
+    fireEvent.click(container.querySelector("[data-add-asset]")!);
+    fireEvent.click(
+      document.querySelector('[data-picker-asset="cat-video-v1"]')!,
+    );
+    fireEvent.click(document.querySelector("[data-picker-confirm]")!);
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PATCH")).toBe(true),
+    );
+    const operations = (
+      calls.find((call) => call.method === "PATCH")!.body as {
+        operations: Array<{ path: string; value?: unknown }>;
+      }
+    ).operations;
+    expect(
+      operations.some(
+        (op) =>
+          op.path ===
+            "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/video_reference_version_ids" &&
+          Array.isArray(op.value) &&
+          (op.value as string[]).includes("cat-video-v1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("removes a bound character from the rail and persists via CAS patch", async () => {
+    const updated = cloneProject();
+    const r2vElement =
+      updated.timelines.items["timeline:main"].elements_by_id["r2v-window"];
+    if (r2vElement.creation.type === "r2v") {
+      r2vElement.creation.character_refs = [];
+      r2vElement.creation.visual_variant_refs = {};
+    }
+    const calls = patchRoutes(updated);
     renderWorkbench();
 
-    // The [Image N] badges follow the backend preview, and clicking a row
-    // selects the kind-correct ref (sources are asset versions).
-    await screen.findByText("[Image 1]");
-    fireEvent.click(screen.getByText("@橘猫原始视频").closest("button")!);
-    expect(useCreatorInteractionStore.getState().selectedRef).toBe(
-      "asset-version:cat-video-v1",
+    // 移除引用是离散动作 = 语义边界：点击后草稿直接静默落盘。
+    fireEvent.click(screen.getByLabelText("移除引用"));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PATCH")).toBe(true),
     );
-    fireEvent.click(screen.getByText("@分镜图").closest("button")!);
-    expect(useCreatorInteractionStore.getState().selectedRef).toBe(
-      "artifact-version:sb-window-v1",
-    );
-
-    // A dirty draft invalidates the committed numbering until Apply: the
-    // stale badges disappear and the pending-apply notice takes over.
-    fireEvent.change(screen.getByDisplayValue("镜头缓慢推近，橘猫眨眼"), {
-      target: { value: "镜头快速推近" },
-    });
-    await waitFor(() => expect(screen.queryByText("[Image 1]")).toBeNull());
-    expect(screen.getByText(/权威序号将在应用更改后更新/)).toBeInTheDocument();
+    const operations = (
+      calls.find((call) => call.method === "PATCH")!.body as {
+        operations: Array<{ path: string; value?: unknown }>;
+      }
+    ).operations;
+    expect(
+      operations.some(
+        (op) =>
+          op.path ===
+            "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/character_refs" &&
+          Array.isArray(op.value) &&
+          op.value.length === 0,
+      ),
+    ).toBe(true);
   });
 });

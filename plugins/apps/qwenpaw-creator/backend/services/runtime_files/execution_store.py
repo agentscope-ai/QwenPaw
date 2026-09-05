@@ -22,6 +22,7 @@ import logging
 import os
 from pathlib import Path
 import secrets
+import shutil
 import stat
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -59,6 +60,12 @@ logger = logging.getLogger("qwenpaw.creator.runtime_files.execution_store")
 def _log_safe(value: object) -> str:
     """Neutralise CR/LF so identifier values cannot forge log lines."""
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _remove_tree(path: Path) -> None:
+    """Drop a crash-leftover directory (staging remnant or headless run)."""
+
+    shutil.rmtree(path, ignore_errors=True)
 
 
 class ExecutionStoreError(RuntimeFileError):
@@ -256,17 +263,41 @@ class ProjectExecutionStore:
             )
         self._require_project(project_id)
         with self._project_lock(project_id):
-            store = self._run_store(project_id, run_id)
-            created = store.try_create(candidate)
-            if created is not None:
-                return created.value
-            existing = store.read()
-            self._assert_run_identity(existing, project_id, run_id)
-            if self._equivalent(existing, candidate):
-                return existing
-            raise ExecutionPayloadConflict(
-                f"SpecialistRun already exists with different payload: {run_id}",
+            final_dir = self._runtime_root(project_id) / "runs" / run_id
+            if (final_dir / "run.json").exists():
+                existing = self._run_store(project_id, run_id).read()
+                self._assert_run_identity(existing, project_id, run_id)
+                if self._equivalent(existing, candidate):
+                    return existing
+                raise ExecutionPayloadConflict(
+                    f"SpecialistRun already exists with different payload: {run_id}",
+                )
+            if final_dir.exists():
+                # A directory without its head record predates the atomic
+                # directory publish (a crash between mkdir and the head
+                # write); it can never become a valid run and would fail
+                # every lock-free list read.
+                _remove_tree(final_dir)
+            # Lock-free listers iterate runs/ and read run.json immediately,
+            # so the directory must only become visible with its head record
+            # already published: stage outside runs/, then rename the whole
+            # directory into place (atomic on one filesystem).
+            staging_dir = (
+                self._runtime_root(project_id) / "runs-staging" / run_id
             )
+            if staging_dir.exists():
+                _remove_tree(staging_dir)
+            staging_store: AtomicJsonRecordStore[
+                SpecialistRunRecord
+            ] = AtomicJsonRecordStore(
+                staging_dir / "run.json",
+                SpecialistRunRecord,
+                locked=False,
+            )
+            created = staging_store.create(candidate)
+            final_dir.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(staging_dir, final_dir)
+            return created.value
 
     create_run = create_specialist_run
 
@@ -1822,36 +1853,27 @@ class ProjectExecutionStore:
 
     @contextmanager
     def _project_lock_read(self, project_id: str):
-        """Shared-lock variant of :meth:`_project_lock` for read-only paths.
+        """Lock-free guard for read-only paths.
 
-        Both locks are taken as ``LOCK_SH`` so concurrent readers never block
-        each other; they only wait for a writer.  Callers must not mutate any
-        file under this lock.
+        Reads never take locks: records are published by atomic replacement,
+        so a reader always observes a complete old or new file.  Callers must
+        not mutate any file under this guard.
         """
         project_id = self._safe(project_id, "project_id")
-        with CrossProcessFileLock(
-            self.data_root / ".locks" / f"project-{project_id}.lock",
-            timeout_seconds=self.lock_timeout_seconds,
-            shared=True,
-        ):
-            self._require_project(project_id)
-            with CrossProcessFileLock(
-                self._runtime_root(project_id)
-                / "locks"
-                / "execution-runtime.lock",
-                timeout_seconds=self.lock_timeout_seconds,
-                shared=True,
-            ):
-                yield
+        self._require_project(project_id)
+        yield
 
     def _run_store(
         self,
         project_id: str,
         run_id: str,
     ) -> AtomicJsonRecordStore[SpecialistRunRecord]:
+        # Writers all hold the exclusive execution-runtime domain lock, so
+        # the per-record lock would only add file opens and a second timeout.
         return AtomicJsonRecordStore(
             self._runtime_root(project_id) / "runs" / run_id / "run.json",
             SpecialistRunRecord,
+            locked=False,
         )
 
     def _messages_store(
@@ -1888,6 +1910,7 @@ class ProjectExecutionStore:
         return AtomicJsonRecordStore(
             self._runtime_root(project_id) / "tasks" / task_id / "task.json",
             TaskRecord,
+            locked=False,
         )
 
     def _attempts_store(
@@ -1913,6 +1936,7 @@ class ProjectExecutionStore:
             / "authorizations"
             / f"{authorization_id}.json",
             ExecutionAuthorizationRecord,
+            locked=False,
         )
 
     def _authorization_records(
@@ -1944,6 +1968,7 @@ class ProjectExecutionStore:
         return AtomicJsonRecordStore(
             self._runtime_root(project_id) / "quarantine" / f"{task_id}.json",
             QuarantinedTaskResult,
+            locked=False,
         )
 
 

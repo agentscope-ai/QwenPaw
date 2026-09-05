@@ -146,12 +146,16 @@ describe("PlanPage Timeline/Element frontend", () => {
     ]);
     const { container } = renderPage("/project/p1/plan?element=r2v-window");
 
-    expect(screen.getByText("创作总纲")).toBeInTheDocument();
+    // The creative brief moved to the blueprint page; episode switching
+    // lives in the workspace sidebar now, so the page itself shows the
+    // timeline-title heading only.
+    expect(screen.getAllByText("第1集 · 晨光出发").length).toBeGreaterThan(0);
+    expect(screen.queryByText("创作总纲")).not.toBeInTheDocument();
     expect(screen.getByText("6 项内容")).toBeInTheDocument();
-    expect(screen.getByText(/4 轨/)).not.toHaveTextContent("可上下滚动");
     expect(screen.getAllByText("午饭名场面").length).toBeGreaterThan(0);
-    expect(screen.getByText("分镜描述")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("暖色餐厅窗外的橘猫")).toBeInTheDocument();
+    // 总览层：分镜/视频 Prompt 的全量编辑迁往制作台悬浮窗，详情保留创作语境字段。
+    expect(screen.getByText("创作意图")).toBeInTheDocument();
+    expect(screen.queryByText("分镜描述")).not.toBeInTheDocument();
 
     // Detail edits stay local on blur and commit via CAS Patch on Apply.
     const name = screen.getByDisplayValue("午饭名场面");
@@ -182,63 +186,37 @@ describe("PlanPage Timeline/Element frontend", () => {
     ).toBe("新的午饭名场面");
   });
 
-  it("shows every active Element at a collapsed point, attaches it to AgentDock and keeps candidates clickable", async () => {
+  it("moves the playhead from a chart click and opens a block's overview in the rail", async () => {
     const { container } = renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "收起时间轴" }));
-    expect(
-      container.querySelector("[data-element-block]"),
-    ).not.toBeInTheDocument();
     const chart = container.querySelector("[data-timeline-chart]")!;
     installTimelineRect(chart);
 
-    // 7.5s of a 20s Timeline. This point contains five overlapping Elements.
+    // 7.5s of a 20s Timeline: the transport timecode follows the click.
     const x = 80 + ((1000 - 92) * 7.5) / 20;
     fireEvent.pointerDown(chart, { pointerId: 1, clientX: x });
     fireEvent.pointerUp(chart, { pointerId: 1, clientX: x });
-
-    const candidates = container.querySelector(
-      "[data-timeline-point-candidates]",
-    );
-    expect(candidates).toBeInTheDocument();
-    expect(candidates?.textContent).toContain("5");
-    expect(
-      screen.getByRole("button", { name: "晨光到午后的转场" }),
-    ).toBeInTheDocument();
-
-    // Candidates stay clickable and select the Element.
-    const candidate = screen
-      .getAllByRole("button", { name: "晨光到午后的转场" })
-      .find((button) => !button.hasAttribute("data-element-block"))!;
-    fireEvent.mouseDown(candidate);
-    fireEvent.click(candidate);
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "晨光到午后的转场" }),
+        container.querySelector("[data-timeline-timecode]")?.textContent,
+      ).toContain("00:07.5"),
+    );
+
+    // Clicking a track block selects the element; its overview fills the
+    // right rail (the element list panel no longer exists).
+    const block = container.querySelector(
+      '[data-element-block="edit-opening"]',
+    ) as HTMLElement;
+    fireEvent.click(block);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "开场 · 晨光中的小猫" }),
       ).toBeInTheDocument(),
     );
-
-    // Re-selecting the point attaches it to AgentDock and clears the button.
-    fireEvent.pointerDown(chart, { pointerId: 2, clientX: x });
-    fireEvent.pointerUp(chart, { pointerId: 2, clientX: x });
-    fireEvent.click(screen.getByRole("button", { name: "添加到对话" }));
-    expect(useAgentDockUiStore.getState().selection).toMatchObject({
-      kind: "timeline_point",
-      timelineId: "timeline:main",
-      startTick: 7500,
-      endTick: 7500,
-    });
-    expect(useAgentDockUiStore.getState().selection?.elementIds).toHaveLength(
-      5,
-    );
-    expect(
-      screen.queryByRole("button", { name: "添加到对话" }),
-    ).not.toBeInTheDocument();
   });
 
-  it("auto-plays a fresh final render in an aspect-ratio-aware preview and downloads it without a new compose", async () => {
+  it("auto-plays a fresh final render in an aspect-ratio-aware preview and hosts the download/export entry", async () => {
     const { calls } = installMockFetch([]);
     const { container } = renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "视频预览" }));
 
     const preview = container.querySelector(
       "[data-timeline-video-preview]",
@@ -256,18 +234,18 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(chip).toHaveTextContent("成片");
     expect(chip?.tagName).not.toBe("BUTTON");
 
-    // The fresh render also downloads directly — no re-compose command fires.
-    fireEvent.click(screen.getByRole("button", { name: "下载 / 导出" }));
-    const downloadItem = await screen.findByRole("menuitem", {
-      name: /下载成片/,
-    });
-    expect(downloadItem).not.toHaveAttribute("aria-disabled", "true");
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => undefined);
-    fireEvent.click(downloadItem);
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
-    clickSpy.mockRestore();
+    // The export home moved to the blueprint header (design 84:30317); the
+    // plan header hosts 脚本方案 (drill-up) and 合成成片 instead, and rendering
+    // never re-composes on mount.
+    expect(
+      screen.queryByRole("button", { name: "下载 / 导出" }),
+    ).not.toBeInTheDocument();
+    expect(container.querySelector("[data-open-blueprint]")).toHaveTextContent(
+      "脚本方案",
+    );
+    expect(
+      screen.getByRole("button", { name: "合成成片" }),
+    ).toBeInTheDocument();
     expect(calls.some((call) => call.url.includes("/render"))).toBe(false);
     expect(calls.some((call) => call.url.includes("/commands"))).toBe(false);
   });
@@ -286,7 +264,6 @@ describe("PlanPage Timeline/Element frontend", () => {
   ])("falls back to the live preview when %s", (_name, seed, chip) => {
     seed();
     const { container } = renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "视频预览" }));
 
     expect(
       container.querySelector("[data-timeline-live-preview]"),
@@ -323,9 +300,10 @@ describe("PlanPage Timeline/Element frontend", () => {
       renderPage();
 
       // All main-track elements ready and no final render → auto-compose.
-      expect(
-        screen.getByRole("button", { name: "下载 / 导出" }),
-      ).toHaveAttribute("title", "等待成片合成");
+      expect(screen.getByRole("button", { name: "合成成片" })).toHaveAttribute(
+        "title",
+        "点击合成成片",
+      );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1600);
       });
@@ -367,7 +345,7 @@ describe("PlanPage Timeline/Element frontend", () => {
     unmount();
   });
 
-  it("marks generating Elements and keeps download disabled while any compose element is not ready", async () => {
+  it("marks generating Elements and keeps the export entry inert while content generates", async () => {
     const project = cloneProject();
     project.assets.artifact_slots_by_id[
       "element:r2v-window:video"
@@ -400,88 +378,37 @@ describe("PlanPage Timeline/Element frontend", () => {
       block.querySelector(".element-generating-stripes"),
     ).toBeInTheDocument();
 
-    const trigger = screen.getByRole("button", { name: "下载 / 导出" });
-    expect(trigger).toHaveAttribute(
-      "title",
-      expect.stringContaining("项内容生成中"),
-    );
-    // Only the download menu item is gated; export stays available.
-    fireEvent.click(trigger);
-    const downloadItem = await screen.findByRole("menuitem", {
-      name: /下载成片/,
-    });
-    expect(downloadItem).toHaveAttribute("aria-disabled", "true");
+    // The plan header hosts 脚本方案 + 合成成片 (design 84:36801); the export
+    // home moved to the blueprint, and nothing auto-fires while content is
+    // still generating.
     expect(
-      screen.getByRole("menuitem", { name: /导出项目/ }),
-    ).not.toHaveAttribute("aria-disabled", "true");
+      screen.queryByRole("button", { name: "下载 / 导出" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /脚本方案/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "合成成片" }),
+    ).toBeInTheDocument();
     expect(calls.some((call) => call.url.includes("/render"))).toBe(false);
   });
 
-  it("derives the playhead panel content from timeline + playheadTick", async () => {
-    seedProject();
-    renderPage();
-    const header = () =>
-      (screen.getByText(/^时间点:/).textContent ?? "").replace(/\s+/g, "");
-    expect(header()).toContain("时间点:0s");
-    const atZero = header();
-    expect(atZero).not.toContain("0项内容");
-
-    // Keyboard End moves the playhead; the panel must follow (regression:
-    // it used to keep showing the stale click-time list).
-    fireEvent.keyDown(document.body, { key: "End" });
-    await waitFor(() => expect(header()).toContain("时间点:20s"));
-    expect(header()).toContain("0项内容");
-
-    fireEvent.keyDown(document.body, { key: "Home" });
-    await waitFor(() => expect(header()).toBe(atZero));
-    // Rendered once on the track and once in the playhead content list.
-    expect(screen.getAllByText("开场 · 晨光中的小猫")).toHaveLength(2);
-  });
-
-  it("labels lane and range selections as selections, never as playhead content", async () => {
+  // The playhead content panel (ElementList) was removed by the redesign:
+  // elements are selected directly on the bottom tracks (design 83:13383).
+  it("attaches a dragged range selection to AgentDock", async () => {
     seedProject();
     const { container } = renderPage();
-    const header = () =>
-      (screen.getByText(/^(时间点:|已选择)/).textContent ?? "").replace(
-        /\s+/g,
-        "",
-      );
-    const summary = () =>
-      (
-        container.querySelector("[data-timeline-playhead-summary]")
-          ?.textContent ?? ""
-      ).replace(/\s+/g, "");
-    // The canvas summary always derives from the playhead (0s here); #90
-    // fixed the badge to one interpolated "0s·{count}项内容" message.
-    const derivedAtZero = summary();
-    expect(derivedAtZero).toContain("0s·");
-    expect(derivedAtZero).toContain("2项内容");
-
-    // Whole-lane click: pinned selection semantics, not "active at 0s".
-    fireEvent.click(
-      container.querySelector('[title*="点击选取整行"]') as HTMLElement,
-    );
-    await waitFor(() => expect(header()).toContain("已选择"));
-    expect(header()).not.toContain("时间点");
-    // The top summary must keep the derived playhead count — never adopt
-    // the pinned selection count.
-    expect(summary()).toBe(derivedAtZero);
-    expect(document.querySelector('[title="已选择"]')).toBeInTheDocument();
-
-    // Shift range selection keeps the same selection semantics.
     const chart = container.querySelector("[data-timeline-chart]")!;
     installTimelineRect(chart);
+
     const x1 = 80 + ((1000 - 92) * 2) / 20;
     const x2 = 80 + ((1000 - 92) * 9) / 20;
     fireEvent.pointerDown(chart, { pointerId: 9, clientX: x1, shiftKey: true });
     fireEvent.pointerMove(chart, { pointerId: 9, clientX: x2 });
     fireEvent.pointerUp(chart, { pointerId: 9, clientX: x2 });
-    await waitFor(() => expect(header()).toContain("已选择"));
-    expect(header()).not.toContain("时间点");
-    expect(summary()).toBe(derivedAtZero);
 
     // The dragged range attaches to AgentDock and clears the range UI.
-    fireEvent.click(screen.getByRole("button", { name: "添加到对话" }));
+    fireEvent.click(await screen.findByRole("button", { name: "添加到对话" }));
     expect(useAgentDockUiStore.getState().selection).toMatchObject({
       kind: "timeline_range",
       timelineId: "timeline:main",
@@ -491,10 +418,5 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(
       screen.queryByRole("button", { name: "添加到对话" }),
     ).not.toBeInTheDocument();
-
-    // Any playhead motion falls back to derived playhead content.
-    fireEvent.keyDown(document.body, { key: "Home" });
-    await waitFor(() => expect(header()).toContain("时间点:0s"));
-    expect(summary()).toBe(derivedAtZero);
   });
 });

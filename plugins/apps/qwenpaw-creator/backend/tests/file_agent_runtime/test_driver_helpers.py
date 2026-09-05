@@ -128,3 +128,138 @@ def test_unselected_video_slot_is_still_unfinished():
     )
 
     assert _unfinished_video_element_ids(project) == ["elem:a"]
+
+
+# ---- artifact 选区解析注入（方案 3.5b）----------------------------------
+
+
+def _script_selection_project(tmp_path):
+    """带一个 timeline_script 版本（含落盘文件）的 Project。"""
+
+    import hashlib
+    from datetime import UTC, datetime
+
+    from services.project_files.script_artifacts import (
+        add_script_version,
+        script_file_relative_uri,
+    )
+
+    project = Project.new(project_id="p-selection", name="Selection")
+    text = (
+        "## 场 1 · 内景 · 旧宅大厅 · 夜\n\n"
+        + "铺垫。" * 200
+        + "\n\n**林晚**（低声）：这里……和二十年前一模一样。\n"
+    )
+    checksum = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    version = add_script_version(
+        project,
+        "timeline:main",
+        text,
+        file_id="file-script-sel",
+        checksum=checksum,
+        name="剧本 v1",
+        now=datetime(2026, 8, 15, tzinfo=UTC),
+        based_on_generation=0,
+    )
+    payload_path = tmp_path / script_file_relative_uri("file-script-sel")
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.write_text(text, encoding="utf-8")
+    return project, version, text
+
+
+def test_parse_artifact_selection_path():
+    from services.file_agent_runtime.driver import (
+        _parse_artifact_selection_path,
+    )
+
+    assert _parse_artifact_selection_path(
+        "artifact:script:timeline:main@artifact-1",
+    ) == ("script:timeline:main", "artifact-1")
+    # 非 artifact path（RFC 6901 指针）与残缺形式一律不解析。
+    assert _parse_artifact_selection_path("/strategy/creative_brief") is None
+    assert _parse_artifact_selection_path("artifact:slot-only") is None
+    assert _parse_artifact_selection_path("artifact:@v") is None
+    assert _parse_artifact_selection_path(None) is None
+
+
+def test_artifact_selection_injects_window_around_offsets(tmp_path):
+    from services.file_agent_runtime.driver import _artifact_selection_note
+
+    project, version, text = _script_selection_project(tmp_path)
+    target = "这里……和二十年前一模一样。"
+    start = text.index(target)
+    end = start + len(target)
+
+    note = _artifact_selection_note(
+        project,
+        tmp_path,
+        {
+            "path": f"artifact:script:timeline:main@{version.version_id}",
+            "start": start,
+            "end": end,
+            "label": "剧本正文",
+        },
+    )
+
+    assert note is not None
+    assert f"«{target}»" in note
+    assert f"字符 {start}-{end}" in note
+    # 窗口截断：正文远超 ±300 字符，注入必须带省略号且不含全文开头。
+    assert note.count("…") >= 1
+    assert "## 场 1" not in note
+
+
+def test_invalid_selection_reports_fallback_note(tmp_path):
+    from services.file_agent_runtime.driver import _artifact_selection_note
+
+    project, version, _ = _script_selection_project(tmp_path)
+    # 过期版本：报告选区版本已过期并指出当前版本。
+    stale = _artifact_selection_note(
+        project,
+        tmp_path,
+        {
+            "path": "artifact:script:timeline:main@artifact-older",
+            "start": 0,
+            "end": 5,
+        },
+    )
+    assert stale is not None
+    assert "选区所在版本已过期" in stale
+    assert version.version_id in stale
+    # 未知槽位：报告选区目标已不存在。
+    missing = _artifact_selection_note(
+        project,
+        tmp_path,
+        {"path": "artifact:script:timeline:ghost@v1"},
+    )
+    assert missing is not None
+    assert "已不存在" in missing
+
+
+def test_message_text_appends_selection_notes(tmp_path):
+    from types import SimpleNamespace
+
+    from services.file_agent_runtime.driver import _message_text
+
+    project, version, text = _script_selection_project(tmp_path)
+    message = SimpleNamespace(
+        content_parts=[],
+        metadata={
+            "context": {
+                "selection": {
+                    "path": (
+                        "artifact:script:timeline:main"
+                        f"@{version.version_id}"
+                    ),
+                    "start": 0,
+                    "end": 4,
+                    "text": text[:4],
+                },
+            },
+        },
+    )
+    rendered = _message_text(message, project=project, project_root=tmp_path)
+    assert "[选区上下文" in rendered
+    # 不带 project 上下文时保持旧行为：只透传结构化 JSON。
+    rendered_plain = _message_text(message)
+    assert "[选区上下文" not in rendered_plain
