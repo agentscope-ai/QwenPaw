@@ -39,8 +39,10 @@ _LOOP_DESCRIPTION = (
     "work."
 )
 
-# How many chat sessions' advisor state to keep per mode instance. Nothing
-# else removes a session, so the cap bounds memory on a long-running server.
+# How many conversations keep their advisor state (per-conversation switch,
+# advisor history, consult budget) per mode instance. The least recently
+# used conversation is dropped past this, which bounds memory on a
+# long-running server.
 _MAX_SESSIONS = 64
 
 
