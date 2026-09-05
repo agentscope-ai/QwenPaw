@@ -1194,7 +1194,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _reasoning_events(self, tool_choice: Any) -> Any:
         """The base reasoning stream, with injected exchanges merged in
-        when a middleware emits them (otherwise the stream is untouched)."""
+        when a middleware emits them."""
         inner = super()._reasoning(tool_choice=tool_choice)
         queue = self._injected_events
         if queue is None:

@@ -25,9 +25,7 @@ logger = logging.getLogger(__name__)
 CONSULT_TOOL_NAME = "consult_advisor"
 CONSULT_POLICY_NAME = "ConsultAdvisor"
 
-# Keep this short: it is part of every model call in Advisor Mode. The
-# "when" matters more than the "how" — over-use burns the budget, under-use
-# leaves the advisor idle.
+# Part of every model call in Advisor Mode, so kept short.
 CONSULT_TOOL_DESCRIPTION = (
     "Ask your advisor (a stronger planning model that already wrote your "
     "plan) for strategic guidance. Use it at a real decision point, before "
@@ -48,9 +46,9 @@ def register_advisor_tools_governance() -> None:
     """Register ``consult_advisor`` with the governance registry.
 
     Mode tools are not picked up by the builtin ``@tool_descriptor``
-    scan, and an unregistered tool is denied by policy ("'ConsultAdvisor'
-    is denied by policy"). Registering it as an *internal* tool lets the
-    agent call it without approval, like Goal mode's ``get_goal``.
+    scan, so ``consult_advisor`` is registered here as an internal tool,
+    like Goal mode's ``get_goal``, and the agent can call it without
+    approval.
     """
     try:
         from ...governance.tool_registry import (

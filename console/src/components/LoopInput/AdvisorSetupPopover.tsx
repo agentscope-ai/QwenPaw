@@ -1,6 +1,6 @@
 import { Popover, Select } from "antd";
 import type { TooltipPlacement } from "antd/es/tooltip";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -9,42 +9,12 @@ import {
   slotLabel,
   type Slot,
 } from "../../api/modules/advisorMode";
-import { providerApi } from "../../api/modules/provider";
-import {
-  buildEligibleProviders,
-  type EligibleProvider,
-} from "../../pages/Chat/ModelSelector/modelSelectorModels";
+import { useEligibleProviders } from "../../pages/Chat/ModelSelector/useEligibleProviders";
 import { useAdvisorMode } from "../../stores/advisorModeStore";
 import { useSyncAdvisorMode } from "../../stores/useSyncAdvisorMode";
 import styles from "./index.module.less";
 
-/** Loop-catalog id of Advisor Mode (bundled, listed with the built-ins). */
-export const ADVISOR_LOOP_MODE_ID = "advisor";
-
 const DEFAULT_KEY = "";
-
-/** The providers and models a slot can be set to, fetched once. */
-export function useEligibleProviders(
-  enabled: boolean,
-): EligibleProvider[] | null {
-  const [providers, setProviders] = useState<EligibleProvider[] | null>(null);
-  useEffect(() => {
-    if (!enabled || providers !== null) return;
-    let cancelled = false;
-    providerApi
-      .listProviders()
-      .then((list) => {
-        if (!cancelled) setProviders(buildEligibleProviders(list));
-      })
-      .catch(() => {
-        if (!cancelled) setProviders([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, providers]);
-  return providers;
-}
 
 interface AdvisorSetupPopoverProps {
   open: boolean;
@@ -114,9 +84,8 @@ export function AdvisorSetupPopover({
     }
   };
 
-  // Show the default slots the way the options are named (provider display
-  // name + model name) and put the model first, so a truncated label still
-  // shows which model it is.
+  // Name the default slots the way the options are named (provider
+  // display name and model name).
   const displayName = (slot: Slot) => {
     if (!slot) return "-";
     const key = slotKey(slot);

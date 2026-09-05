@@ -4,16 +4,14 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { slotKey, type Slot } from "@/api/modules/advisorMode";
-import {
-  ADVISOR_LOOP_MODE_ID,
-  AdvisorSetupPopover,
-  useEligibleProviders,
-} from "@/components/LoopInput/AdvisorSetupPopover";
+import { AdvisorSetupPopover } from "@/components/LoopInput/AdvisorSetupPopover";
 import { useAdvisorMode } from "@/stores/advisorModeStore";
+import { ADVISOR_LOOP_MODE_ID } from "@/constants/loopMode";
 import { useLoopStore } from "@/stores/loopStore";
+import { useEligibleProviders } from "./useEligibleProviders";
 
-import pillStyles from "./AdvisorModelsPill.module.less";
 import styles from "./index.module.less";
+import pillStyles from "./AdvisorModelsPill.module.less";
 
 /** Whether the current chat is an Advisor conversation (running, or a new
  * one with Advisor picked in the composer). */

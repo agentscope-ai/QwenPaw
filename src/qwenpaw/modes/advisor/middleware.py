@@ -60,6 +60,7 @@ from agentscope.message import (
 )
 from agentscope.middleware import MiddlewareBase
 
+from ...config.config import AdvisorModeConfig
 from .prompts import (
     FALLBACK_ADVICE,
     ADVISOR_SYSTEM_PROMPT,
@@ -70,6 +71,7 @@ from .prompts import (
     SEVERITY_NOTES,
     TRIGGER_NOTES,
 )
+from .tools import CONSULT_TOOL_NAME
 from .trigger import InterventionTrigger, ObservedStep, TriggerEvent
 
 if TYPE_CHECKING:
@@ -82,15 +84,14 @@ logger = logging.getLogger(__name__)
 # Names of the injected pseudo tool calls. ``PLAN_TOOL_NAME`` is also the
 # name of the real on-demand tool, so the opening plan reads as an earlier
 # call of the same tool.
-PLAN_TOOL_NAME = "consult_advisor"
+PLAN_TOOL_NAME = CONSULT_TOOL_NAME
 FOLLOWUP_TOOL_NAME = "consult_advisor_followup"
 
 # Tool output can be tens of KB. The advisor only needs enough to judge.
 _MAX_OUTPUT_CHARS = 800
 _MAX_ARGS_CHARS = 300
 
-# The plan is the whole point of advisor mode, so a failed call is retried
-# rather than silently skipped.
+# A failed plan call is retried.
 _PLAN_ATTEMPTS = 3
 _PLAN_RETRY_DELAY_S = 2.0
 
@@ -99,19 +100,14 @@ _ADJUST = "ADJUST"
 # Re-ask the same question when the verdict line is missing.
 _FOLLOWUP_FORMAT_ATTEMPTS = 3
 
-# Default on-demand budget per conversation.
-DEFAULT_MAX_CONSULTS = 32
 CONSULT_BUDGET_EXHAUSTED = (
     "The advisor is not available for further consultation in this "
     f"conversation. {FALLBACK_ADVICE}"
 )
 
-# What the agent sees as the arguments of the injected calls. The real
-# requests are large (the plan request carries the tool list, environment
-# context and planning guidelines. The follow-up carries the agent's own
-# failures). Echoing them back would double the context cost and re-show
-# the errors verbatim. A fixed stand-in keeps each call short and identical
-# every time.
+# What the agent sees as the arguments of the injected calls: a short
+# fixed question, so the full advisor requests are not echoed back into
+# its context.
 _PLAN_CALL_ARGS = {
     "question": "Before I start, how should I approach this task?",
 }
@@ -330,9 +326,9 @@ class _LiveExchange:
     The tool call is opened the moment the advisor is asked, the reply is
     relayed as it streams in and the call is closed once the answer (or
     the failure) is in, so the user watches the plan being written
-    instead of a spinner. Agents that do not take injected events (plain
-    AgentScope agents, test doubles) leave ``active`` False and every
-    update is a no-op. The exchange still lands in their context.
+    instead of a spinner. Agents without ``emit_injected_event`` leave
+    ``active`` False and every update is a no-op. The exchange still lands
+    in their context.
     """
 
     def __init__(
@@ -463,7 +459,7 @@ class AdvisorMiddleware(MiddlewareBase):
         advisor_history: list[dict[str, str]] | None = None,
         plan_enabled: bool = True,
         on_demand_enabled: bool = True,
-        max_consults: int = DEFAULT_MAX_CONSULTS,
+        max_consults: int = AdvisorModeConfig().max_consults,
         consults_used: int = 0,
         plan_injected: bool = False,
     ) -> None:
@@ -585,23 +581,18 @@ class AdvisorMiddleware(MiddlewareBase):
             and not self._plan_injected
             and self._plan_error is None
         ):
-            # Only consume the flag once a plan is actually in context. A
-            # rejected advisor call must not silently downgrade the run.
-            # Once every attempt has failed (``_plan_error``), the rest of
-            # this run goes without a plan and gets the watcher below
-            # instead of another round of retries on every step.
+            # The flag is set only once a plan is in context. After every
+            # attempt has failed (``_plan_error``) the rest of this run
+            # goes without a plan.
             injected = await self._inject_plan(
                 agent,
                 tools=input_kwargs.get("tools"),
             )
             self._plan_injected = injected is not None
         elif self._followup_enabled:
-            # Tool results reach the context between model calls, so this
-            # is where new ones show up. Deliberately NOT the on_acting
-            # hook: that wraps raw tool execution only, and schema-
-            # validation failures (e.g. write_file called with no
-            # ``content``) are raised before it, so on_acting never sees
-            # the very loop we most want to break.
+            # Tool results reach the context between model calls, so new
+            # ones are scanned here. ``on_acting`` wraps tool execution
+            # only and never sees schema-validation failures.
             injected = await self._check_and_intervene(agent)
         else:
             # Keep the recent-steps window current for on-demand consults
@@ -850,8 +841,7 @@ class AdvisorMiddleware(MiddlewareBase):
             FOLLOWUP_TOOL_NAME,
             _FOLLOWUP_CALL_ARGS,
         )
-        # Re-ask the SAME request on a malformed reply — a fresh sample of
-        # the same question, not a follow-up question about the bad answer.
+        # Re-ask the same request when the reply has no verdict line.
         for attempt in range(1, _FOLLOWUP_FORMAT_ATTEMPTS + 1):
             try:
                 advice = await self._call_advisor(
@@ -896,10 +886,8 @@ class AdvisorMiddleware(MiddlewareBase):
         record.update({"action": action, "advice": advice})
         self._record_intervention(record)
 
-        # CONTINUE carries no new instruction. The advisor still remembers
-        # it (``_call_advisor`` recorded the exchange), but putting "keep
-        # going" in front of the agent only grows an already-large context
-        # and can read as an endorsement of whatever it is currently doing.
+        # CONTINUE carries no new instruction, so nothing is put in front
+        # of the agent. The advisor still has it in its history.
         if action == _CONTINUE:
             logger.info(
                 "AdvisorMiddleware: advisor said %s, nothing injected",
@@ -988,8 +976,8 @@ class AdvisorMiddleware(MiddlewareBase):
                     live.note(f"(advisor call failed: {exc}. Retrying)")
                     await asyncio.sleep(_PLAN_RETRY_DELAY_S * attempt)
         else:
-            # Every attempt failed. Say so loudly: a silent miss here turns
-            # the run into a plain run wearing advisor overheads.
+            # Every attempt failed. Record it so the run is reported as
+            # having gone without a plan.
             logger.error(
                 "AdvisorMiddleware: NO PLAN INJECTED after %d attempts: %s",
                 _PLAN_ATTEMPTS,
@@ -1070,12 +1058,7 @@ class AdvisorMiddleware(MiddlewareBase):
         self._save_transcript()
 
     def _save_transcript(self) -> None:
-        """Persist the advisor exchange for debugging and analysis.
-
-        Written under ``~/.qwenpaw/advisor/<agent_id>/<session>.json``, outside
-        the agent workspace on purpose, so the agent's own file searches
-        never surface the advisor's log as task material.
-        """
+        """Persist the advisor exchange for debugging and analysis."""
         if self._log_dir is None:
             return
         try:
@@ -1106,10 +1089,8 @@ class AdvisorMiddleware(MiddlewareBase):
     def _format_tool_list(tools: list[dict] | None) -> str:
         """Render tool names and descriptions for the advisor.
 
-        ``tools`` are the schemas of the model call in flight — the very
-        list the agent is given on this call — so the advisor plans with
-        exactly the tools the worker has, and there is one place that
-        decides what those are.
+        ``tools`` are the schemas of the model call in flight, so the
+        advisor plans with exactly the tools the worker has.
         """
         lines = []
         for schema in tools or []:
@@ -1126,9 +1107,8 @@ class AdvisorMiddleware(MiddlewareBase):
     def _extract_instruction(context: list[Msg]) -> str:
         """The text of the latest user message in *context*.
 
-        The context of a chat session carries every earlier turn. The
-        follow-up and consultation requests must describe the message the
-        agent is answering now, not the first one of the conversation.
+        Follow-up and consultation requests describe the message the
+        agent is answering now.
         """
         for msg in reversed(context):
             if getattr(msg, "role", None) != "user":

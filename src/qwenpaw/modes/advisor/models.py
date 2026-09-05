@@ -2,14 +2,14 @@
 """The advisor model, resolved through QwenPaw's model factory.
 
 By default Advisor Mode reuses the agent's existing model settings: the
-*main* model (``active_model``) is the advisor and the cheaper
-``subagent_model`` — when configured — runs the agent itself (the worker).
-Both can be overridden per agent
-in ``advisor_mode.advisor_model`` / ``advisor_mode.worker_model`` (the
-Advisor tab of Agent Loop Settings).
-Going through :func:`create_model_and_formatter_async` means the advisor
-inherits provider routing, retries, rate limiting and token accounting
-exactly like every other model call in QwenPaw.
+primary model (``active_model``) is the advisor and the cheaper
+``subagent_model``, when configured, runs the agent itself (the worker).
+Both can be overridden per agent in ``advisor_mode.advisor_model`` /
+``advisor_mode.worker_model`` (the Advisor models panel in the chat, or
+``POST /api/advisor-mode``). Going through
+:func:`create_model_and_formatter_async` means the advisor inherits
+provider routing, retries, rate limiting and token accounting exactly like
+every other model call in QwenPaw.
 """
 from __future__ import annotations
 
@@ -124,9 +124,8 @@ class AdvisorClient:
         self._agent_id = agent_id
         self._agent_config = agent_config
         self._model_slot = model_slot
-        # ``advisor_mode.advisor_thinking``: the advisor's own thinking
-        # level. A long think before a short plan is most of the wait the
-        # user sees, so it is separate from the agent's level.
+        # The advisor's own thinking level (``advisor_mode.advisor_thinking``),
+        # separate from the agent's.
         self._thinking = thinking or "inherit"
         self._model: Any = None
 

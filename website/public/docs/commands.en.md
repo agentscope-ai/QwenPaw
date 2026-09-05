@@ -1074,7 +1074,7 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ---
 
-### `/advisor` - Advisor Mode
+## Advisor Mode — Plan and Step In
 
 Run the conversation in Advisor Mode: a stronger model writes a plan before the agent starts and steps in when it keeps failing, while the agent itself does the work.
 

@@ -278,7 +278,7 @@ describe("advisor setup", () => {
     name: "Advisor",
     slash_command: "advisor",
     description: "Advisor mode",
-    source: "plugin",
+    source: "builtin",
   };
 
   beforeEach(() => {
@@ -291,7 +291,7 @@ describe("advisor setup", () => {
     renderWithProviders(<LoopModeSelector />);
     expect(screen.queryByTestId("advisor-setup")).toBeNull();
     await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
-    await user.click(await screen.findByRole("option", { name: /Advisor/ }));
+    await user.click(await screen.findByRole("option", { name: /advisor/i }));
     expect(await screen.findByTestId("advisor-setup")).toBeInTheDocument();
   });
 });

@@ -22,6 +22,7 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
+import { ADVISOR_LOOP_MODE_ID } from "../../constants/loopMode";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { OsDrawer } from "../../os/OsOverlay";
 import { InlineMarkdown } from "../Markdown/InlineMarkdown";
@@ -29,10 +30,7 @@ import {
   resolveLoopModeDescriptionMarkdown,
   resolveLoopModeName,
 } from "../../utils/loopModeDescription";
-import {
-  ADVISOR_LOOP_MODE_ID,
-  AdvisorSetupPopover,
-} from "./AdvisorSetupPopover";
+import { AdvisorSetupPopover } from "./AdvisorSetupPopover";
 import styles from "./index.module.less";
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
