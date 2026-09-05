@@ -1071,6 +1071,21 @@ qwenpaw daemon version --agent-id abc123
 
 ---
 
+## 顾问模式 — 规划与介入
+
+让对话在顾问模式下运行：更强的模型在智能体开始前写好计划，并在其反复失败时介入，智能体本身负责干活。
+
+```
+/advisor <任务描述>
+/advisor on
+/advisor off
+/advisor status
+```
+
+完整指南请参阅 [顾问模式](./advisor-mode)。
+
+---
+
 ## Mission 模式 — 多 Agent 自主执行
 
 将大型任务拆解为多个用户故事，通过 **master → worker → verifier** 流水线自动完成，上下文隔离防止信息腐烂。

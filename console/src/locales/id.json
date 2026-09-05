@@ -2953,6 +2953,8 @@
       "defaultTab": "Default",
       "goalTab": "Tujuan",
       "missionTab": "Misi",
+      "advisorTab": "Penasihat",
+      "advisorPipeline": "Alur penasihat",
       "defaultDescription": "Loop ReAct terjaga standar di luar mode eksplisit.",
       "goalDescription": "Loop persisten berbatas untuk tujuan yang dapat diverifikasi.",
       "missionDescription": "Pipeline persisten untuk misi panjang dan bertahap.",
@@ -3073,7 +3075,40 @@
       "safeTemplate": "Jalankan aman",
       "researchTemplate": "Riset beranggaran",
       "qualityTemplate": "Utamakan kualitas",
-      "blankTemplate": "Pipeline kosong"
+      "blankTemplate": "Pipeline kosong",
+      "advisor": "Mode Penasihat",
+      "advisorDescription": "Model utama menyusun rencana sebelum agen mulai dan turun tangan saat agen terus gagal. Agen sendiri berjalan pada model sub-agen.",
+      "advisorEnableDescription": "Sediakan Mode Penasihat untuk agen ini (eksperimental).",
+      "advisorModels": "Penasihat: {{advisor}} · Pekerja: {{worker}}",
+      "advisorEnableHelp": "Percakapan tetap dimulai di loop default. Saat aktif, Penasihat muncul di menu mode Loop pada kotak input dan perintah /advisor tersedia. Setiap percakapan memilihnya sendiri. Di kanal dan prompt cron, kirim /advisor on.",
+      "advisorModelsTitle": "Model penasihat dan pekerja",
+      "advisorModelsHelp": "Secara default penasihat memakai model utama agen dan pekerja (agen itu sendiri) berjalan pada model sub-agen. Keduanya diatur di pemilih model obrolan, model sub-agen di bagian Perutean model agen. Untuk mengunci salah satu peran ke model lain, buka panel Model penasihat dari header obrolan atau menu mode Loop.",
+      "advisorSameAsAdvisor": "sama dengan penasihat",
+      "advisorThinking": "Pemikiran penasihat",
+      "advisorThinkingTooltip": "Tingkat pemikiran untuk panggilan penasihat sendiri. Nonaktif membuat rencana paling cepat. Default model mengikuti pengaturan agen dan model.",
+      "advisorPlanTitle": "Rencana pembuka",
+      "advisorPlanDescription": "Penasihat menulis rencana sebelum langkah pertama agen.",
+      "advisorPlanHelp": "Rencana disuntikkan ke konteks agen sebagai panggilan dan hasil consult_advisor, dan ditampilkan di obrolan saat sedang ditulis.",
+      "advisorFollowupTitle": "Intervensi otomatis di tengah jalan",
+      "advisorFollowupDescription": "QwenPaw memantau hasil alat dan memanggil penasihat saat agen terus gagal.",
+      "advisorFollowupHelp": "Dipicu saat kegagalan berturut-turut, atau kegagalan dalam jendela terakhir, mencapai jumlah yang diatur di bawah, paling banyak sejumlah yang ditentukan per jalankan. Penghitung direset setelah setiap intervensi. Penasihat menjawab CONTINUE, atau ADJUST dengan rencana yang direvisi.",
+      "advisorOnDemandTitle": "Konsultasi sesuai permintaan",
+      "advisorOnDemandDescription": "Agen boleh bertanya sendiri kepada penasihat melalui alat consult_advisor.",
+      "advisorOnDemandHelp": "Alat ini meminta agen bertanya hanya pada titik keputusan yang nyata. Melewati batas di bawah, alat menjawab dengan pemberitahuan singkat dan agen melanjutkan.",
+      "advisorMaxConsults": "Konsultasi maksimum per percakapan",
+      "advisorMaxConsultsTooltip": "Hanya menghitung panggilan consult_advisor dari agen sendiri. Rencana pembuka dan intervensi otomatis tidak dihitung.",
+      "advisorIntervention": {
+        "consecutive_failures": "Kegagalan berturut-turut",
+        "consecutive_failuresTooltip": "Panggilan alat yang gagal berturut-turut sebelum penasihat dikonsultasikan.",
+        "window_failures": "Kegagalan dalam jendela",
+        "window_failuresTooltip": "Panggilan alat yang gagal dalam jendela sebelum penasihat dikonsultasikan.",
+        "window_size": "Ukuran jendela (langkah)",
+        "window_sizeTooltip": "Berapa banyak panggilan alat terakhir yang dicakup jendela kegagalan.",
+        "max_interventions": "Intervensi maksimum per jalankan",
+        "max_interventionsTooltip": "Intervensi otomatis yang diizinkan dalam satu jalankan. 0 menonaktifkan.",
+        "cooldown_steps": "Jeda (langkah)",
+        "cooldown_stepsTooltip": "Panggilan alat yang ditunggu setelah intervensi sebelum yang berikutnya dapat dipicu."
+      }
     },
     "doomLoopEnabled": "Perlindungan Perilaku Berulang",
     "doomLoopEnabledTooltip": "Intervensi otomatis saat agen terjebak mengulangi tindakan yang sama",
@@ -3438,7 +3473,21 @@
       "mission": {
         "name": "Misi",
         "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
+      },
+      "advisor": {
+        "name": "Penasihat",
+        "description": "Biarkan model yang lebih kuat merencanakan dan turun tangan sementara model yang lebih murah mengerjakan."
       }
+    },
+    "advisorSetup": {
+      "title": "Model penasihat",
+      "hint": "Default mengikuti model utama agen (penasihat) dan model sub-agen (pekerja). Pilihan di sini disimpan untuk agen ini.",
+      "advisorModel": "Model penasihat",
+      "workerModel": "Model pekerja",
+      "subagentDefault": "{{model}} · default: model sub-agen",
+      "noSubagent": "Sama dengan penasihat · default: model sub-agen belum diatur",
+      "pairTooltip": "Model penasihat → pekerja percakapan ini",
+      "primaryModelDefault": "{{model}} · default: model utama"
     }
   }
 }

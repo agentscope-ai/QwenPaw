@@ -308,6 +308,7 @@
     "mailbox": "邮箱管理与自动化",
     "tui": "终端界面",
     "multiAgent": "多智能体",
+    "advisorMode": "顾问模式",
     "models": "模型",
     "channels": "频道配置",
     "skills": "Skills",

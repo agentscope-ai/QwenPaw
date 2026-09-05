@@ -54,6 +54,7 @@ from .migration import (
 )
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
+from .routers.advisor_mode import router as advisor_mode_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
@@ -876,6 +877,9 @@ app.include_router(approval_router, prefix="/api")
 
 # Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
+
+# Advisor Mode router: /api/advisor-mode
+app.include_router(advisor_mode_router, prefix="/api")
 
 # Loops router: /api/loops
 app.include_router(loops_router, prefix="/api")

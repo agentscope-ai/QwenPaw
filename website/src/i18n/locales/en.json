@@ -308,6 +308,7 @@
     "mailbox": "Mailbox Management",
     "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
+    "advisorMode": "Advisor Mode",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",

@@ -2352,6 +2352,8 @@
       "defaultTab": "Padrão",
       "goalTab": "Meta",
       "missionTab": "Missão",
+      "advisorTab": "Conselheiro",
+      "advisorPipeline": "Pipeline do conselheiro",
       "defaultDescription": "Loop ReAct protegido padrão usado fora de um modo explícito.",
       "goalDescription": "Loop persistente e limitado para metas verificáveis.",
       "missionDescription": "Pipeline persistente para missões longas e com várias etapas.",
@@ -2472,7 +2474,40 @@
       "safeTemplate": "Execução segura",
       "researchTemplate": "Pesquisa com orçamento",
       "qualityTemplate": "Qualidade primeiro",
-      "blankTemplate": "Pipeline vazio"
+      "blankTemplate": "Pipeline vazio",
+      "advisor": "Modo Conselheiro",
+      "advisorDescription": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando. O agente em si roda no modelo de subagente.",
+      "advisorEnableDescription": "Disponibilizar o Modo Conselheiro para este agente (experimental).",
+      "advisorModels": "Conselheiro: {{advisor}} · Trabalhador: {{worker}}",
+      "advisorEnableHelp": "As conversas continuam começando no loop padrão. Com isto ligado, Conselheiro aparece no menu de modo Loop da entrada do chat e o comando /advisor fica disponível. Cada conversa entra ao escolhê-lo. Em canais e prompts de cron, envie /advisor on.",
+      "advisorModelsTitle": "Modelos do conselheiro e do trabalhador",
+      "advisorModelsHelp": "Por padrão o conselheiro usa o modelo principal do agente e o trabalhador (o próprio agente) roda no modelo de subagente. Ambos são definidos no seletor de modelo do chat, o modelo de subagente em Roteamento de modelo do agente. Para fixar qualquer papel em outro modelo, abra o painel Modelos do conselheiro no cabeçalho do chat ou no menu de modo Loop.",
+      "advisorSameAsAdvisor": "igual ao conselheiro",
+      "advisorThinking": "Raciocínio do conselheiro",
+      "advisorThinkingTooltip": "Nível de raciocínio das chamadas do próprio conselheiro. Desligado mantém o plano rápido. Padrão do modelo segue as configurações do agente e do modelo.",
+      "advisorPlanTitle": "Plano inicial",
+      "advisorPlanDescription": "O conselheiro escreve um plano antes do primeiro passo do agente.",
+      "advisorPlanHelp": "O plano é injetado no contexto do agente como uma chamada e resultado de consult_advisor, e aparece no chat enquanto está sendo escrito.",
+      "advisorFollowupTitle": "Intervenção automática no meio da execução",
+      "advisorFollowupDescription": "O QwenPaw observa os resultados das ferramentas e chama o conselheiro quando o agente continua falhando.",
+      "advisorFollowupHelp": "Dispara quando as falhas seguidas, ou as falhas dentro da janela recente, atingem os limites abaixo, no máximo um número definido de vezes por execução. Os contadores zeram após cada intervenção. O conselheiro responde CONTINUE, ou ADJUST com um plano revisado.",
+      "advisorOnDemandTitle": "Consulta sob demanda",
+      "advisorOnDemandDescription": "O agente pode perguntar ao conselheiro por conta própria pela ferramenta consult_advisor.",
+      "advisorOnDemandHelp": "A ferramenta orienta o agente a perguntar apenas em um ponto de decisão real. Acima do limite abaixo ela responde com um aviso curto e o agente segue em frente.",
+      "advisorMaxConsults": "Máximo de consultas por conversa",
+      "advisorMaxConsultsTooltip": "Conta apenas as chamadas consult_advisor do próprio agente. O plano inicial e as intervenções automáticas não contam.",
+      "advisorIntervention": {
+        "consecutive_failures": "Falhas seguidas",
+        "consecutive_failuresTooltip": "Chamadas de ferramenta falhas seguidas antes de o conselheiro ser consultado.",
+        "window_failures": "Falhas na janela",
+        "window_failuresTooltip": "Chamadas de ferramenta falhas dentro da janela antes de o conselheiro ser consultado.",
+        "window_size": "Tamanho da janela (passos)",
+        "window_sizeTooltip": "Quantas chamadas de ferramenta recentes a janela de falhas abrange.",
+        "max_interventions": "Máximo de intervenções por execução",
+        "max_interventionsTooltip": "Intervenções automáticas permitidas em uma execução. 0 desativa.",
+        "cooldown_steps": "Resfriamento (passos)",
+        "cooldown_stepsTooltip": "Chamadas de ferramenta a esperar após uma intervenção antes da próxima poder disparar."
+      }
     },
     "doomLoopEnabled": "Proteção contra Repetição",
     "doomLoopEnabledTooltip": "Intervir automaticamente quando o agente fica preso repetindo as mesmas ações",
@@ -4099,7 +4134,21 @@
       "mission": {
         "name": "Missão",
         "description": "Execute uma tarefa estruturada e persistente em várias etapas."
+      },
+      "advisor": {
+        "name": "Conselheiro",
+        "description": "Deixe um modelo mais forte planejar e intervir enquanto um mais barato faz o trabalho."
       }
+    },
+    "advisorSetup": {
+      "title": "Modelos do conselheiro",
+      "hint": "Os padrões seguem o modelo principal do agente (conselheiro) e o modelo de subagente (trabalhador). A escolha aqui é salva para este agente.",
+      "advisorModel": "Modelo do conselheiro",
+      "workerModel": "Modelo do trabalhador",
+      "subagentDefault": "{{model}} · padrão: modelo de subagente",
+      "noSubagent": "Igual ao conselheiro · padrão: sem modelo de subagente",
+      "pairTooltip": "Modelos conselheiro → trabalhador desta conversa",
+      "primaryModelDefault": "{{model}} · padrão: modelo principal"
     }
   }
 }

@@ -2465,6 +2465,8 @@
       "defaultTab": "默认",
       "goalTab": "目标",
       "missionTab": "任务",
+      "advisorTab": "顾问",
+      "advisorPipeline": "顾问流程",
       "defaultDescription": "未启用显式模式时使用的标准受控 ReAct Loop。",
       "goalDescription": "面向具体、可验证目标的有界持续 Loop。",
       "missionDescription": "面向长时、多步骤任务的持续执行流程。",
@@ -2585,7 +2587,40 @@
       "safeTemplate": "安全运行",
       "researchTemplate": "预算研究",
       "qualityTemplate": "质量优先",
-      "blankTemplate": "空白流程"
+      "blankTemplate": "空白流程",
+      "advisor": "顾问模式",
+      "advisorDescription": "主模型在智能体开始前写好计划，并在其反复失败时介入。智能体本身使用 Sub-agent 模型运行。",
+      "advisorEnableDescription": "允许该智能体使用顾问模式（实验性）。",
+      "advisorModels": "顾问：{{advisor}} · Worker：{{worker}}",
+      "advisorEnableHelp": "对话仍然从默认循环开始。开启后，输入栏的 Loop 模式菜单里会出现「顾问」，/advisor 命令也可以使用。每个对话单独选择是否启用。在渠道和定时任务的提示词里发送 /advisor on。",
+      "advisorModelsTitle": "顾问模型与 Worker 模型",
+      "advisorModelsHelp": "默认情况下，顾问使用智能体的主模型，Worker（智能体本身）使用 Sub-agent 模型。两者都在聊天的模型选择器里设置，Sub-agent 模型在其中的「Agent 模型路由」里。要把任一角色固定到其它模型，从聊天标题栏或 Loop 模式菜单打开「顾问模型」面板。",
+      "advisorSameAsAdvisor": "与顾问相同",
+      "advisorThinking": "顾问思考",
+      "advisorThinkingTooltip": "顾问自身调用的思考档位。关闭时计划出得最快。「模型默认」跟随智能体和模型的设置。",
+      "advisorPlanTitle": "开场计划",
+      "advisorPlanDescription": "智能体迈出第一步前，先由顾问写一份计划。",
+      "advisorPlanHelp": "计划以 consult_advisor 调用及其结果的形式注入智能体上下文，并在聊天中边写边显示。",
+      "advisorFollowupTitle": "中途自动介入",
+      "advisorFollowupDescription": "QwenPaw 监测工具结果，智能体反复失败时自动咨询顾问。",
+      "advisorFollowupHelp": "连续失败或最近窗口内失败达到下方设定的次数时触发，每次运行最多介入设定的次数。每次介入后计数器重置。顾问回复 CONTINUE，或 ADJUST 加一份修正计划。",
+      "advisorOnDemandTitle": "主动咨询",
+      "advisorOnDemandDescription": "允许智能体通过 consult_advisor 工具主动向顾问提问。",
+      "advisorOnDemandHelp": "工具描述会告诉智能体只在真正的决策点提问。超过下方上限后，工具只返回一条简短提示，智能体继续执行。",
+      "advisorMaxConsults": "每个对话最多咨询次数",
+      "advisorMaxConsultsTooltip": "只统计智能体自己发起的 consult_advisor 调用，开场计划和自动介入不计入。",
+      "advisorIntervention": {
+        "consecutive_failures": "连续失败次数",
+        "consecutive_failuresTooltip": "工具调用连续失败达到该次数时咨询顾问。",
+        "window_failures": "窗口内失败次数",
+        "window_failuresTooltip": "最近窗口内工具调用失败达到该次数时咨询顾问。",
+        "window_size": "窗口大小（步）",
+        "window_sizeTooltip": "失败窗口覆盖最近多少次工具调用。",
+        "max_interventions": "每次运行最多介入次数",
+        "max_interventionsTooltip": "一次运行中允许的自动介入次数，0 表示关闭。",
+        "cooldown_steps": "冷却（步）",
+        "cooldown_stepsTooltip": "一次介入后再经过多少次工具调用才允许下一次触发。"
+      }
     },
     "doomLoopEnabled": "重复行为保护",
     "doomLoopEnabledTooltip": "当 Agent 陷入重复相同操作时自动介入",
@@ -4549,7 +4584,21 @@
       "mission": {
         "name": "任务",
         "description": "运行结构化、可持续的多步骤任务。"
+      },
+      "advisor": {
+        "name": "顾问",
+        "description": "让更强的模型规划并在卡住时介入，便宜的模型干活。"
       }
+    },
+    "advisorSetup": {
+      "title": "顾问模型",
+      "hint": "默认跟随智能体的主模型（顾问）和 Sub-agent 模型（Worker）。这里的选择会为该智能体保存。",
+      "advisorModel": "顾问模型",
+      "workerModel": "Worker 模型",
+      "subagentDefault": "{{model}} · 默认：Sub-agent 模型",
+      "noSubagent": "与顾问相同 · 默认：未设置 Sub-agent 模型",
+      "pairTooltip": "本对话的顾问 → Worker 模型",
+      "primaryModelDefault": "{{model}} · 默认：主模型"
     }
   }
 }

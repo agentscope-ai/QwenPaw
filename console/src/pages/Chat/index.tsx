@@ -43,6 +43,10 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
+import {
+  AdvisorModelsPill,
+  useIsAdvisorConversation,
+} from "./ModelSelector/AdvisorModelsPill";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
@@ -1284,6 +1288,8 @@ export default function ChatPage() {
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const backendCapabilities = selectedAgentInfo?.backend_capabilities;
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
+  // An Advisor conversation runs two models, so its pill shows the pair.
+  const advisorConversation = useIsAdvisorConversation();
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
   const supportsAttachments = supportsAgentAttachments(
@@ -3137,7 +3143,11 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             {usesQwenPawBackend ? (
-              <ModelSelector />
+              advisorConversation ? (
+                <AdvisorModelsPill />
+              ) : (
+                <ModelSelector />
+              )
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}

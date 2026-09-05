@@ -2607,6 +2607,8 @@
       "defaultTab": "Default",
       "goalTab": "Goal",
       "missionTab": "Mission",
+      "advisorTab": "Advisor",
+      "advisorPipeline": "Advisor pipeline",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
       "goalDescription": "A bounded persistent loop for concrete, verifiable goals.",
       "missionDescription": "A persistent pipeline for longer-running, multi-step missions.",
@@ -2727,7 +2729,40 @@
       "safeTemplate": "Safe run",
       "researchTemplate": "Budgeted research",
       "qualityTemplate": "Quality first",
-      "blankTemplate": "Blank pipeline"
+      "blankTemplate": "Blank pipeline",
+      "advisor": "Advisor Mode",
+      "advisorDescription": "The primary model writes a plan before the agent starts and steps in when it keeps failing. The agent itself runs on the sub-agent model.",
+      "advisorEnableDescription": "Make Advisor Mode available for this agent (experimental).",
+      "advisorModels": "Advisor: {{advisor}} · Worker: {{worker}}",
+      "advisorEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the Loop mode menu of the chat input and the /advisor command is available. Each conversation opts in by picking it. In channels and cron prompts, send /advisor on.",
+      "advisorModelsTitle": "Advisor and worker models",
+      "advisorModelsHelp": "By default the advisor uses the agent's primary model and the worker (the agent itself) runs on the sub-agent model. Both are set in the chat model selector, the sub-agent model under Agent model routing. To pin either role to another model, open the Advisor models panel from the chat header or the Loop mode menu.",
+      "advisorSameAsAdvisor": "same as the advisor",
+      "advisorThinking": "Advisor thinking",
+      "advisorThinkingTooltip": "Thinking level for the advisor's own calls. Off keeps the plan fast. Model default follows the agent and model settings.",
+      "advisorPlanTitle": "Opening plan",
+      "advisorPlanDescription": "The advisor writes a plan before the agent's first step.",
+      "advisorPlanHelp": "The plan is injected into the agent's context as a consult_advisor call and result, and shown in the chat while it is being written.",
+      "advisorFollowupTitle": "Mid-run auto intervention",
+      "advisorFollowupDescription": "QwenPaw watches tool results and calls the advisor when the agent keeps failing.",
+      "advisorFollowupHelp": "Fires after several failures in a row, or several within the recent window (thresholds below), at most a set number of times per run. Counters reset after each intervention. The advisor answers CONTINUE, or ADJUST with a revised plan.",
+      "advisorOnDemandTitle": "On-demand consultation",
+      "advisorOnDemandDescription": "The agent may ask the advisor itself through the consult_advisor tool.",
+      "advisorOnDemandHelp": "The tool tells the agent to ask only at a real decision point. Past the cap below, it answers with a short notice and the agent carries on.",
+      "advisorMaxConsults": "Maximum consultations per conversation",
+      "advisorMaxConsultsTooltip": "Counts only the agent's own consult_advisor calls. The opening plan and automatic interventions are not counted.",
+      "advisorIntervention": {
+        "consecutive_failures": "Failures in a row",
+        "consecutive_failuresTooltip": "Failed tool calls in a row before the advisor is consulted.",
+        "window_failures": "Failures in the window",
+        "window_failuresTooltip": "Failed tool calls within the window before the advisor is consulted.",
+        "window_size": "Window size (steps)",
+        "window_sizeTooltip": "How many recent tool calls the failure window spans.",
+        "max_interventions": "Maximum interventions per run",
+        "max_interventionsTooltip": "Automatic interventions allowed in one run. 0 disables them.",
+        "cooldown_steps": "Cooldown (steps)",
+        "cooldown_stepsTooltip": "Tool calls to wait after an intervention before the next one can fire."
+      }
     },
     "doomLoopEnabled": "Repetition Protection",
     "doomLoopEnabledTooltip": "Automatically intervene when the agent gets stuck repeating the same actions",
@@ -4531,7 +4566,21 @@
       "mission": {
         "name": "Mission",
         "description": "Run a structured, persistent multi-step task."
+      },
+      "advisor": {
+        "name": "Advisor",
+        "description": "Let a stronger model plan and step in while a cheaper one does the work."
       }
+    },
+    "advisorSetup": {
+      "title": "Advisor models",
+      "hint": "Defaults follow the agent's primary model (advisor) and sub-agent model (worker). A choice here is saved for this agent.",
+      "advisorModel": "Advisor model",
+      "workerModel": "Worker model",
+      "subagentDefault": "{{model}} · default: sub-agent model",
+      "noSubagent": "Same as the advisor · default: no sub-agent model set",
+      "pairTooltip": "Advisor → worker models of this conversation",
+      "primaryModelDefault": "{{model}} · default: primary model"
     }
   }
 }

@@ -1805,6 +1805,8 @@
       "defaultTab": "Mặc định",
       "goalTab": "Mục tiêu",
       "missionTab": "Nhiệm vụ",
+      "advisorTab": "Cố vấn",
+      "advisorPipeline": "Quy trình cố vấn",
       "defaultDescription": "Loop ReAct được bảo vệ tiêu chuẩn ngoài chế độ cụ thể.",
       "goalDescription": "Loop liên tục có giới hạn cho mục tiêu có thể xác minh.",
       "missionDescription": "Pipeline liên tục cho nhiệm vụ dài và nhiều bước.",
@@ -1925,7 +1927,40 @@
       "safeTemplate": "Chạy an toàn",
       "researchTemplate": "Nghiên cứu có ngân sách",
       "qualityTemplate": "Ưu tiên chất lượng",
-      "blankTemplate": "Pipeline trống"
+      "blankTemplate": "Pipeline trống",
+      "advisor": "Chế độ cố vấn",
+      "advisorDescription": "Mô hình chính lập kế hoạch trước khi agent bắt đầu và can thiệp khi agent liên tục thất bại. Bản thân agent chạy trên mô hình sub-agent.",
+      "advisorEnableDescription": "Cho phép agent này dùng Chế độ cố vấn (thử nghiệm).",
+      "advisorModels": "Cố vấn: {{advisor}} · Worker: {{worker}}",
+      "advisorEnableHelp": "Cuộc trò chuyện vẫn bắt đầu ở vòng lặp mặc định. Khi bật, Cố vấn xuất hiện trong menu chế độ Loop của ô nhập và lệnh /advisor khả dụng. Mỗi cuộc trò chuyện tự chọn để bật. Trong kênh và prompt cron, gửi /advisor on.",
+      "advisorModelsTitle": "Mô hình cố vấn và worker",
+      "advisorModelsHelp": "Mặc định cố vấn dùng mô hình chính của agent và worker (chính agent) chạy trên mô hình sub-agent. Cả hai được đặt trong bộ chọn mô hình của chat, mô hình sub-agent nằm trong Định tuyến mô hình agent. Để cố định một vai trò vào mô hình khác, mở bảng Mô hình cố vấn từ tiêu đề chat hoặc menu chế độ Loop.",
+      "advisorSameAsAdvisor": "giống cố vấn",
+      "advisorThinking": "Suy nghĩ của cố vấn",
+      "advisorThinkingTooltip": "Mức suy nghĩ cho các lời gọi của chính cố vấn. Tắt giúp kế hoạch ra nhanh nhất. Mặc định của mô hình theo cài đặt của agent và mô hình.",
+      "advisorPlanTitle": "Kế hoạch mở đầu",
+      "advisorPlanDescription": "Cố vấn viết kế hoạch trước bước đầu tiên của agent.",
+      "advisorPlanHelp": "Kế hoạch được đưa vào ngữ cảnh của agent dưới dạng lời gọi consult_advisor và kết quả, và hiển thị trong chat ngay khi đang được viết.",
+      "advisorFollowupTitle": "Tự động can thiệp giữa chừng",
+      "advisorFollowupDescription": "QwenPaw theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại.",
+      "advisorFollowupHelp": "Kích hoạt khi số lần thất bại liên tiếp, hoặc trong cửa sổ gần đây, đạt ngưỡng đặt bên dưới, tối đa số lần đã đặt mỗi lượt chạy. Bộ đếm được đặt lại sau mỗi lần can thiệp. Cố vấn trả lời CONTINUE, hoặc ADJUST kèm kế hoạch sửa đổi.",
+      "advisorOnDemandTitle": "Tham vấn theo yêu cầu",
+      "advisorOnDemandDescription": "Agent có thể tự hỏi cố vấn qua công cụ consult_advisor.",
+      "advisorOnDemandHelp": "Công cụ yêu cầu agent chỉ hỏi ở điểm quyết định thực sự. Vượt giới hạn bên dưới, công cụ trả về một thông báo ngắn và agent tiếp tục.",
+      "advisorMaxConsults": "Số lần tham vấn tối đa mỗi cuộc trò chuyện",
+      "advisorMaxConsultsTooltip": "Chỉ tính các lời gọi consult_advisor do agent tự thực hiện. Kế hoạch mở đầu và can thiệp tự động không tính.",
+      "advisorIntervention": {
+        "consecutive_failures": "Thất bại liên tiếp",
+        "consecutive_failuresTooltip": "Số lời gọi công cụ thất bại liên tiếp trước khi hỏi cố vấn.",
+        "window_failures": "Thất bại trong cửa sổ",
+        "window_failuresTooltip": "Số lời gọi công cụ thất bại trong cửa sổ trước khi hỏi cố vấn.",
+        "window_size": "Kích thước cửa sổ (bước)",
+        "window_sizeTooltip": "Cửa sổ thất bại bao gồm bao nhiêu lời gọi công cụ gần nhất.",
+        "max_interventions": "Số lần can thiệp tối đa mỗi lượt",
+        "max_interventionsTooltip": "Số lần can thiệp tự động cho phép trong một lượt chạy. 0 để tắt.",
+        "cooldown_steps": "Thời gian chờ (bước)",
+        "cooldown_stepsTooltip": "Số lời gọi công cụ cần chờ sau một lần can thiệp trước khi lần tiếp theo có thể kích hoạt."
+      }
     },
     "doomLoopEnabled": "Bảo vệ hành vi lặp lại",
     "doomLoopEnabledTooltip": "Tự động can thiệp khi agent bị kẹt lặp lại cùng một hành động",
@@ -2622,7 +2657,21 @@
       "mission": {
         "name": "Nhiệm vụ",
         "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
+      },
+      "advisor": {
+        "name": "Cố vấn",
+        "description": "Để mô hình mạnh hơn lập kế hoạch và can thiệp trong khi mô hình rẻ hơn làm việc."
       }
+    },
+    "advisorSetup": {
+      "title": "Mô hình cố vấn",
+      "hint": "Mặc định theo mô hình chính của agent (cố vấn) và mô hình sub-agent (worker). Lựa chọn ở đây được lưu cho agent này.",
+      "advisorModel": "Mô hình cố vấn",
+      "workerModel": "Mô hình worker",
+      "subagentDefault": "{{model}} · mặc định: mô hình sub-agent",
+      "noSubagent": "Giống cố vấn · mặc định: chưa đặt mô hình sub-agent",
+      "pairTooltip": "Mô hình cố vấn → worker của cuộc trò chuyện này",
+      "primaryModelDefault": "{{model}} · mặc định: mô hình chính"
     }
   }
 }

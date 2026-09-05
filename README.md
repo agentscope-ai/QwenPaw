@@ -72,7 +72,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   |-----------|------------|
   | **Agent OS — Workspace** | Three pillars per agent: **Resources** (transparent on disk), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
   | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
-  | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
+  | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, Advisor Mode, more to come) with composable approval gates. |
   | **Scroll Context** | Every turn persisted; evicted turns indexed with on-demand recall — nothing summarized away. |
   | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base** | Continuously turns conversations and resources into readable, editable, searchable, and linked Markdown memory. |
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |

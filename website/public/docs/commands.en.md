@@ -1072,6 +1072,21 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ---
 
+## Advisor Mode — Plan and Step In
+
+Run the conversation in Advisor Mode: a stronger model writes a plan before the agent starts and steps in when it keeps failing, while the agent itself does the work.
+
+```
+/advisor <task description>
+/advisor on
+/advisor off
+/advisor status
+```
+
+For a full guide, see [Advisor Mode](./advisor-mode).
+
+---
+
 ## Mission Mode — Multi-Agent Autonomous Execution
 
 Decompose large tasks into user stories and complete them through a **master → worker → verifier** pipeline with context isolation.

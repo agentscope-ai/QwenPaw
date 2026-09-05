@@ -11,6 +11,7 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -30,6 +31,7 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
+from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
 from ..modes.coding import CodingModeMixin
@@ -157,6 +159,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
+    # Events a middleware wants shown in the chat stream (an injected
+    # advisor plan, for example). ``__init__`` arms the queue only when a
+    # middleware says it emits them. ``_reasoning`` then merges them live
+    # into the events it forwards.
+    _injected_events: asyncio.Queue[Any] | None = None
+
     def __init__(
         self,
         *,
@@ -184,6 +192,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
+        if any(
+            getattr(mw, "emits_injected_exchanges", False)
+            for mw in middlewares
+        ):
+            self._injected_events = asyncio.Queue()
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
         # native AgentScope compression (see compress_context /
@@ -819,7 +832,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
 
         try:
-            async for evt in super()._reasoning(tool_choice=tool_choice):
+            async for evt in self._reasoning_events(tool_choice):
                 acknowledge_seen_results(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
@@ -868,9 +881,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._strip_media_blocks_from_memory()
 
             try:
-                async for evt in super()._reasoning(
-                    tool_choice=tool_choice,
-                ):
+                async for evt in self._reasoning_events(tool_choice):
                     acknowledge_seen_results(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
@@ -1060,6 +1071,32 @@ class QwenPawAgent(CodingModeMixin, Agent):
             mt = getattr(source, "media_type", "") or ""
             return mt.startswith(self._MEDIA_MIME_PREFIXES)
         return False
+
+    # ------------------------------------------------------------------
+    # Middleware-injected exchanges, surfaced to the UI as tool calls
+    # ------------------------------------------------------------------
+
+    def _reasoning_events(self, tool_choice: Any) -> Any:
+        """The base reasoning stream, with injected exchanges merged in
+        when a middleware emits them."""
+        inner = super()._reasoning(tool_choice=tool_choice)
+        queue = self._injected_events
+        if queue is None:
+            return inner
+        return merge_injected_events(inner, queue)
+
+    def emit_injected_event(self, event: Any) -> bool:
+        """Show ``event`` in the chat stream as soon as possible.
+
+        Middlewares run inside a model call while the UI only sees what
+        ``_reasoning`` yields, so this queue is the bridge. Returns False
+        when no middleware armed the queue (the event is dropped).
+        """
+        queue = self._injected_events
+        if queue is None:
+            return False
+        queue.put_nowait(event)
+        return True
 
     # ------------------------------------------------------------------
     # Tool call enhancement: hint injection + hook registration
