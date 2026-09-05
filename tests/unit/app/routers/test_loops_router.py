@@ -457,8 +457,8 @@ def test_loop_catalog_hides_modes_switched_off_for_the_agent(
     client,
     workspace,
 ) -> None:
-    """A mode whose ``is_available(agent_config)`` is False is not offered
-    in the composer. Advisor Mode uses this for its Configuration switch."""
+    """Advisor is offered in the composer only once it is switched on for
+    the agent."""
     from qwenpaw.config.config import AgentProfileConfig
     from qwenpaw.modes.advisor import AdvisorMode
 

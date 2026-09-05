@@ -84,8 +84,6 @@ class AdvisorSessionState:
 class AdvisorMode(AgentMode):
     """Bundle for Advisor Mode behaviour.
 
-    * ``is_available``: ``agent_config.advisor_mode.enabled`` — whether
-      the agent offers the mode at all (composer menu, ``/advisor``).
     * ``is_active``: the conversation's ``/advisor`` switch, which only
       counts while the mode is available.
     * ``hooks`` swaps the agent onto the worker model before the build
@@ -144,10 +142,6 @@ class AdvisorMode(AgentMode):
             logger.info("Advisor Mode: reset session %s", key)
 
     # ── AgentMode surface ───────────────────────────────────────────────
-
-    def is_available(self, agent_config: object) -> bool:
-        """Offered in the composer only when switched on for the agent."""
-        return is_enabled(agent_config)
 
     def is_active(self, ctx: HookContext) -> bool:
         """On for this conversation: only after it was picked (the
