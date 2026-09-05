@@ -22,6 +22,10 @@ import httpx
 from mcp import types as mcp_types
 
 from ...__version__ import __version__ as _QWENPAW_VERSION
+from ...mcp_timeout import (
+    DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    is_mcp_request_timeout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +464,7 @@ class _HttpClientBase:
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        tool_call_timeout: float = DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
         **client_kwargs: Any,
     ) -> None:
         for label, value in (
@@ -481,7 +486,11 @@ class _HttpClientBase:
         self.url = url
         self.headers = headers
         self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
+        self.tool_call_timeout = tool_call_timeout
+        self.sse_read_timeout = max(
+            _timeout_seconds(sse_read_timeout),
+            float(tool_call_timeout),
+        )
         self.client_kwargs = dict(client_kwargs)
         self.is_stateful = False
         self.is_connected = False
@@ -519,20 +528,44 @@ class HttpStatelessClient(_HttpClientBase):
         self._tool_param_headers: dict[str, list[_HeaderBinding]] = {}
         self._tools_listed = False
 
+    def _new_http_client(self) -> httpx.AsyncClient:
+        timeout = _timeout_seconds(self.timeout)
+        read_timeout = _timeout_seconds(self.sse_read_timeout)
+        return _AsyncClient(
+            headers=_headers_without_session_id(self.headers),
+            timeout=httpx.Timeout(
+                connect=timeout,
+                read=read_timeout,
+                write=timeout,
+                pool=timeout,
+            ),
+            follow_redirects=self._follow_redirects,
+            **self.client_kwargs,
+        )
+
+    async def _reset_http_client_after_deadline(self) -> None:
+        """Replace the connection pool cancelled by a local call deadline."""
+        old_http = self._http
+        if not isinstance(old_http, httpx.AsyncClient):
+            return
+        self.is_connected = False
+        self._http = None
+        try:
+            await old_http.aclose()
+        except Exception as exc:
+            logger.warning(
+                "Error closing timed-out MCP client %r: %s",
+                self.name,
+                exc,
+            )
+        self._http = self._new_http_client()
+        self.is_connected = True
+
     async def connect(self, timeout: float = 30.0) -> None:
         """Connect and negotiate the modern protocol version."""
         if self.is_connected or self._http is not None:
             raise _already_connected(self.name)
-        t = _timeout_seconds(self.timeout)
-        r = _timeout_seconds(self.sse_read_timeout)
-        # Drop leftover session ids without mutating caller-owned headers.
-        headers = _headers_without_session_id(self.headers)
-        self._http = _AsyncClient(
-            headers=headers,
-            timeout=httpx.Timeout(connect=t, read=r, write=t, pool=t),
-            follow_redirects=self._follow_redirects,
-            **self.client_kwargs,
-        )
+        self._http = self._new_http_client()
         try:
             await asyncio.wait_for(self._negotiate(), timeout=timeout)
         except BaseException:
@@ -641,8 +674,6 @@ class HttpStatelessClient(_HttpClientBase):
     async def call_tool(self, name: str, arguments: dict | None = None):
         """Call a tool, mirroring ``x-mcp-header`` params into HTTP headers."""
         self._validate_connection()
-        if not self._tools_listed:
-            await self.list_tools()
 
         async def _call() -> Any:
             return await self._rpc(
@@ -656,13 +687,47 @@ class HttpStatelessClient(_HttpClientBase):
                 or None,
             )
 
+        async def _call_sequence() -> Any:
+            if not self._tools_listed:
+                await self.list_tools()
+            try:
+                return await _call()
+            except _JsonRpcError as exc:
+                if exc.code != _JSONRPC_HEADER_MISMATCH:
+                    raise
+                await self.list_tools()
+                return await _call()
+
+        task = asyncio.create_task(_call_sequence())
         try:
-            result = await _call()
-        except _JsonRpcError as exc:
-            if exc.code != _JSONRPC_HEADER_MISMATCH:
+            done, _ = await asyncio.wait(
+                (task,),
+                timeout=self.tool_call_timeout,
+            )
+        except BaseException:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        if not done:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await self._reset_http_client_after_deadline()
+            raise TimeoutError(
+                f"MCP tool call '{name}' on client '{self.name}' timed "
+                f"out after {self.tool_call_timeout:g}s",
+            )
+        try:
+            result = task.result()
+        except Exception as exc:
+            if not is_mcp_request_timeout(
+                exc,
+                json_rpc_error_type=_JsonRpcError,
+            ):
                 raise
-            await self.list_tools()
-            result = await _call()
+            raise TimeoutError(
+                f"MCP tool call '{name}' on client '{self.name}' timed "
+                f"out after {self.tool_call_timeout:g}s",
+            ) from exc
         normalized = _normalize_call_tool_result(result)
         if isinstance(normalized, dict):
             result_type = normalized.get("resultType")
@@ -893,6 +958,7 @@ class HttpAutoClient(_HttpClientBase):
             "headers": _headers_without_session_id(self.headers) or None,
             "timeout": self.timeout,
             "sse_read_timeout": self.sse_read_timeout,
+            "tool_call_timeout": self.tool_call_timeout,
             **kw,
         }
         deadline = time.monotonic() + float(timeout)

@@ -19,6 +19,7 @@ from qwenpaw.drivers.adapters.mcp_legacy_config import (
 from qwenpaw.drivers.contracts import CredentialRef
 from qwenpaw.drivers.credentials.bindings import resolve_binding
 from qwenpaw.drivers.credentials.types import ResolvedCredential
+from qwenpaw.mcp_timeout import DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS
 
 # --- plan_env_ref_bindings unit behavior ---
 
@@ -63,6 +64,27 @@ def test_plan_multi_ref_is_reported_and_kept_plain() -> None:
 
 
 # --- end-to-end migration behavior ---
+
+
+def test_migration_reads_timeout_from_non_pydantic_config() -> None:
+    default_card, _ = legacy_mcp_client_to_driver(
+        "default",
+        SimpleNamespace(transport="stdio", command="run-server"),
+    )
+    configured_card, _ = legacy_mcp_client_to_driver(
+        "configured",
+        SimpleNamespace(
+            transport="stdio",
+            command="run-server",
+            tool_call_timeout=42,
+        ),
+    )
+
+    assert (
+        default_card.endpoint["tool_call_timeout"]
+        == DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS
+    )
+    assert configured_card.endpoint["tool_call_timeout"] == 42
 
 
 def test_migration_links_header_env_ref_and_never_persists_key() -> None:

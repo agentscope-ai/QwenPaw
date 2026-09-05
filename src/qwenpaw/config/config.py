@@ -35,6 +35,11 @@ from qwenpaw.exceptions import (
     AgentConfigConflictError,
     ConfigurationException,
 )
+from qwenpaw.mcp_timeout import (
+    DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    MCPToolCallTimeout,
+    mcp_tool_call_timeout_field,
+)
 
 from .timezone import detect_system_timezone
 from ..constant import (
@@ -2493,6 +2498,9 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    tool_call_timeout: MCPToolCallTimeout = mcp_tool_call_timeout_field(
+        DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -2540,6 +2548,15 @@ class MCPClientConfig(BaseModel):
                 normalized,
                 normalized,
             )
+
+        if payload.get("tool_call_timeout") is None:
+            if (
+                payload.get("transport", "stdio") == "stdio"
+                and "timeout" in payload
+            ):
+                payload["tool_call_timeout"] = payload["timeout"]
+            else:
+                payload.pop("tool_call_timeout", None)
 
         return payload
 

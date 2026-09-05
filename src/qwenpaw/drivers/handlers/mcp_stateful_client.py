@@ -31,6 +31,11 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
+from ...mcp_timeout import (
+    DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
+    is_mcp_request_timeout,
+)
+
 logger = logging.getLogger(__name__)
 
 # anyio is a required transitive dependency of the mcp package, so it is
@@ -178,6 +183,7 @@ class _MCPClientMixin:
     session: ClientSession | None
     is_connected: bool
     is_stateful: bool
+    tool_call_timeout: float
     _oauth_required: bool
     _cached_tools: Any
     _stop_event: asyncio.Event
@@ -570,13 +576,20 @@ class _MCPClientMixin:
 
         Raises:
             RuntimeError: If not connected or session was replaced
+            TimeoutError: If the tool call exceeds ``tool_call_timeout``
         """
         self._validate_connection()
         session, closed = self.session, self._session_closed
         if session is None:
             raise self._not_connected_error()
         try:
-            coro = session.call_tool(name, arguments or {})
+            coro = session.call_tool(
+                name,
+                arguments or {},
+                read_timeout_seconds=timedelta(
+                    seconds=self.tool_call_timeout,
+                ),
+            )
             return await self._await_rpc(coro, closed)
         except Exception as exc:
             # No same-session retry: the server may already have run it.
@@ -587,6 +600,11 @@ class _MCPClientMixin:
             if isinstance(exc, _SessionGoneError):
                 raise RuntimeError(
                     f"MCP client '{self.name}' request was aborted.",
+                ) from exc
+            if is_mcp_request_timeout(exc):
+                raise TimeoutError(
+                    f"MCP tool call '{name}' on client '{self.name}' timed "
+                    f"out after {self.tool_call_timeout:g}s",
                 ) from exc
             self._handle_transport_error(exc, session)
             raise
@@ -888,6 +906,7 @@ class StdIOStatefulClient(_MCPClientMixin):
             "replace",
         ] = "strict",
         read_timeout_seconds: float = 60 * 5,
+        tool_call_timeout: float = DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
     ) -> None:
         """Initialize the StdIO MCP client.
 
@@ -900,6 +919,7 @@ class StdIOStatefulClient(_MCPClientMixin):
             encoding: The text encoding used when sending/receiving messages
             encoding_error_handler: The text encoding error handler
             read_timeout_seconds: The read timeout seconds
+            tool_call_timeout: Maximum duration of one tool call in seconds
 
         Raises:
             TypeError: If name or command is not a string
@@ -922,6 +942,7 @@ class StdIOStatefulClient(_MCPClientMixin):
             encoding_error_handler=encoding_error_handler,
         )
         self.read_timeout_seconds = read_timeout_seconds
+        self.tool_call_timeout = tool_call_timeout
 
         # Lifecycle management
         self._lifecycle_task: asyncio.Task | None = None
@@ -981,6 +1002,7 @@ class HttpStatefulClient(_MCPClientMixin):
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        tool_call_timeout: float = DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS,
         **client_kwargs: Any,
     ) -> None:
         """Initialize the HTTP MCP client.
@@ -992,6 +1014,7 @@ class HttpStatefulClient(_MCPClientMixin):
             headers: Additional headers to include in the HTTP request
             timeout: The timeout for the HTTP request in seconds
             sse_read_timeout: The timeout for reading SSE in seconds
+            tool_call_timeout: Maximum duration of one tool call in seconds
             **client_kwargs: Additional keyword arguments for the client
 
         Raises:
@@ -1018,8 +1041,16 @@ class HttpStatefulClient(_MCPClientMixin):
         self.url = url
         self.headers = headers
         self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
-        self.read_timeout_seconds = sse_read_timeout
+        sse_read_timeout_seconds = (
+            sse_read_timeout.total_seconds()
+            if isinstance(sse_read_timeout, timedelta)
+            else float(sse_read_timeout)
+        )
+        self.sse_read_timeout = max(
+            sse_read_timeout_seconds,
+            float(tool_call_timeout),
+        )
+        self.tool_call_timeout = tool_call_timeout
         self.client_kwargs = client_kwargs
 
         # Lifecycle management

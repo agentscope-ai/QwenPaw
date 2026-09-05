@@ -18,17 +18,23 @@ behind the ``fail_under`` gate.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import httpx
 import pytest
 from mcp.shared.exceptions import McpError
 from mcp.types import CONNECTION_CLOSED, ErrorData
 
+import qwenpaw.drivers.handlers.mcp as mcp_handler
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
+from qwenpaw.drivers.contracts import DriverCard
+from qwenpaw.drivers.errors import DriverCardError
+from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
     HttpStatefulClient,
     _is_401_error,
     _is_transport_error,
 )
+from qwenpaw.mcp_timeout import DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS
 
 
 def _client() -> HttpStatefulClient:
@@ -621,7 +627,13 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     c.is_connected = True
 
     class FakeSession:
-        async def call_tool(self, name: str, args: dict) -> None:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
             raise ConnectionResetError("pipe broke")
 
     c.session = FakeSession()  # type: ignore[assignment]
@@ -640,7 +652,13 @@ async def test_call_tool_does_not_reconnect_for_generic_server_error():
     )
 
     class FakeSession:
-        async def call_tool(self, name: str, args: dict) -> None:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
             raise error
 
     c.session = FakeSession()  # type: ignore[assignment]
@@ -661,6 +679,377 @@ async def test_call_tool_aborts_when_session_invalidated_mid_request():
             await asyncio.wait_for(c.call_tool("foo", {}), timeout=1)
         await t
         assert not c._reload_event.is_set() and bool(nxt) is c.is_connected
+
+
+async def test_call_tool_passes_sdk_read_timeout():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.read_timeout_seconds = None
+
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> str:
+            del args
+            self.read_timeout_seconds = read_timeout_seconds
+            return f"{name}:ok"
+
+    session = FakeSession()
+    c.session = session  # type: ignore[assignment]
+
+    assert await c.call_tool("healthy") == "healthy:ok"
+    assert session.read_timeout_seconds == timedelta(seconds=0.01)
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
+async def test_call_tool_maps_sdk_timeout_without_reconnect():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise McpError(ErrorData(code=408, message="Timed out"))
+
+    c.session = FakeSession()  # type: ignore[assignment]
+
+    with pytest.raises(
+        TimeoutError,
+        match="MCP tool call 'slow' on client 'slow-client' timed out "
+        "after 0.01s",
+    ):
+        await c.call_tool("slow")
+
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
+async def test_call_tool_maps_http_timeout_without_reconnect():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise httpx.ReadTimeout("read timed out")
+
+    c.session = FakeSession()  # type: ignore[assignment]
+
+    with pytest.raises(
+        TimeoutError,
+        match="MCP tool call 'slow' on client 'slow-client' timed out "
+        "after 0.01s",
+    ):
+        await c.call_tool("slow")
+
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
+@pytest.mark.parametrize(
+    "timeout_type",
+    [httpx.ConnectTimeout, httpx.WriteTimeout, httpx.PoolTimeout],
+)
+async def test_call_tool_reconnects_for_non_read_http_timeout(timeout_type):
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+    error = timeout_type(
+        "transport timed out",
+        request=httpx.Request("POST", "http://x"),
+    )
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise error
+
+    session = FakeSession()
+    c.session = session  # type: ignore[assignment]
+
+    with pytest.raises(timeout_type) as exc_info:
+        await c.call_tool("slow")
+
+    assert exc_info.value is error
+    assert c.session is None
+    assert c.is_connected is False
+    assert c._reload_event.is_set()
+
+
+async def test_call_tool_does_not_treat_arbitrary_code_408_as_mcp_timeout():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+
+    class FakeCodeError(Exception):
+        code = 408
+
+    error = FakeCodeError("not an MCP timeout")
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise error
+
+    session = FakeSession()
+    c.session = session  # type: ignore[assignment]
+
+    with pytest.raises(FakeCodeError) as exc_info:
+        await c.call_tool("slow")
+
+    assert exc_info.value is error
+    assert c.session is session
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
+async def test_call_tool_maps_grouped_http_timeout_without_reconnect():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise ExceptionGroup(
+                "streamable HTTP task group failed",
+                [httpx.ReadTimeout("read timed out")],
+            )
+
+    session = FakeSession()
+    c.session = session  # type: ignore[assignment]
+
+    with pytest.raises(
+        TimeoutError,
+        match="MCP tool call 'slow' on client 'slow-client' timed out "
+        "after 0.01s",
+    ):
+        await c.call_tool("slow")
+
+    assert c.session is session
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
+
+
+async def test_call_tool_preserves_mixed_exception_group():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        tool_call_timeout=0.01,
+    )
+    c.is_connected = True
+    timeout = httpx.ReadTimeout("read timed out")
+    non_timeout = ValueError("invalid response")
+    group = ExceptionGroup(
+        "streamable HTTP task group failed",
+        [timeout, non_timeout],
+    )
+
+    class FakeSession:
+        async def call_tool(
+            self,
+            name: str,
+            args: dict,
+            read_timeout_seconds=None,
+        ) -> None:
+            del name, args, read_timeout_seconds
+            raise group
+
+    session = FakeSession()
+    c.session = session  # type: ignore[assignment]
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await c.call_tool("slow")
+
+    assert exc_info.value is group
+    assert exc_info.value.exceptions == (timeout, non_timeout)
+
+
+def test_http_client_read_timeout_covers_tool_call_timeout():
+    c = HttpStatefulClient(
+        "slow-client",
+        "streamable_http",
+        "http://x",
+        sse_read_timeout=30,
+        tool_call_timeout=600,
+    )
+
+    assert c.sse_read_timeout == 600
+    assert not hasattr(c, "read_timeout_seconds")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        {
+            "transport": "stdio",
+            "command": "python",
+            "tool_call_timeout": 4.5,
+        },
+        {
+            "transport": "streamable_http",
+            "url": "http://x",
+            "tool_call_timeout": 4.5,
+        },
+    ],
+)
+async def test_driver_handler_passes_tool_call_timeout(
+    endpoint: dict,
+    monkeypatch,
+):
+    instances = []
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+            instances.append(self)
+
+        async def connect(self) -> None:
+            pass
+
+        async def close(self, ignore_errors: bool = True) -> None:
+            pass
+
+    monkeypatch.setattr(mcp_handler, "StdIOStatefulClient", FakeClient)
+    monkeypatch.setattr(mcp_handler, "HttpStatefulClient", FakeClient)
+    monkeypatch.setattr(mcp_handler, "HttpAutoClient", FakeClient)
+
+    handler = object.__new__(MCPDriverHandler)
+    handler._card = DriverCard(
+        name="slow-client",
+        protocol="mcp",
+        endpoint=endpoint,
+    )
+    handler._client = None
+
+    async def resolve_credentials():
+        return {}
+
+    handler._resolve_credentials = resolve_credentials
+
+    await handler._setup()
+
+    assert instances[0].kwargs["tool_call_timeout"] == 4.5
+
+
+async def test_driver_handler_uses_default_tool_call_timeout(monkeypatch):
+    instances = []
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+            instances.append(self)
+
+        async def connect(self) -> None:
+            pass
+
+        async def close(self, ignore_errors: bool = True) -> None:
+            pass
+
+    monkeypatch.setattr(mcp_handler, "StdIOStatefulClient", FakeClient)
+
+    handler = object.__new__(MCPDriverHandler)
+    handler._card = DriverCard(
+        name="slow-client",
+        protocol="mcp",
+        endpoint={
+            "transport": "stdio",
+            "command": "python",
+        },
+    )
+    handler._client = None
+
+    async def resolve_credentials():
+        return {}
+
+    handler._resolve_credentials = resolve_credentials
+
+    await handler._setup()
+
+    assert (
+        instances[0].kwargs["tool_call_timeout"]
+        == DEFAULT_MCP_TOOL_CALL_TIMEOUT_SECONDS
+    )
+
+
+@pytest.mark.parametrize("value", [0, -1, "", "not-a-number"])
+def test_validate_mcp_endpoint_rejects_invalid_tool_call_timeout(value):
+    with pytest.raises(DriverCardError, match="endpoint.tool_call_timeout"):
+        mcp_handler.validate_mcp_endpoint(
+            DriverCard(
+                name="slow-client",
+                protocol="mcp",
+                endpoint={
+                    "transport": "stdio",
+                    "command": "python",
+                    "tool_call_timeout": value,
+                },
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# connect / reload preconditions
+# ---------------------------------------------------------------------------
 
 
 async def test_connect_raises_when_already_connected():
