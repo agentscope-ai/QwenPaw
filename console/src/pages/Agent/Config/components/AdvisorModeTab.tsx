@@ -25,6 +25,7 @@ import {
 import { useSyncAdvisorMode } from "../../../../stores/useSyncAdvisorMode";
 import styles from "../index.module.less";
 import loopStyles from "./AgentLoopCard.module.less";
+import tabStyles from "./AdvisorModeTab.module.less";
 import { BuiltInIntro, LockedGateCard } from "./LoopModeShared";
 
 /**
@@ -161,7 +162,7 @@ export function AdvisorModeTab() {
       {!loading && state.enabled ? (
         <>
           <div
-            className={`${loopStyles.pipelineHeader} ${loopStyles.pipelineHeaderAfterCard}`}
+            className={`${loopStyles.pipelineHeader} ${tabStyles.pipelineHeader}`}
           >
             {t("agentConfig.loopMode.advisorPipeline", "Advisor pipeline")}
           </div>
@@ -174,7 +175,7 @@ export function AdvisorModeTab() {
               {t("agentConfig.loopMode.advisorModelsHelp")}
             </p>
             <div
-              className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
+              className={`${loopStyles.fieldGrid} ${tabStyles.thresholdGrid}`}
             >
               <Form.Item
                 label={t("agentConfig.loopMode.advisorThinking")}
@@ -222,7 +223,7 @@ export function AdvisorModeTab() {
               {t("agentConfig.loopMode.advisorFollowupHelp")}
             </p>
             <div
-              className={`${loopStyles.fieldGrid} ${loopStyles.advisorFieldGrid}`}
+              className={`${loopStyles.fieldGrid} ${tabStyles.thresholdGrid}`}
             >
               {INTERVENTION_FIELDS.map(({ key, min, max }) => (
                 <Form.Item
