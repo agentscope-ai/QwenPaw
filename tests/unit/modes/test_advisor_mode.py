@@ -335,7 +335,7 @@ async def test_command_on_off_switches_this_conversation(
     reply = await mode._command_handler(ctx, arg)
     assert stored.advisor_mode.enabled is True, "config untouched"
     assert mode.is_active(ctx) is expected
-    assert mode.session_state("sess-1").override is expected
+    assert ("sess-1" in mode._sessions) is expected
     text = _text(reply)
     assert (
         "Advisor Mode: on for this conversation"
@@ -724,12 +724,22 @@ async def test_conversation_reset_forgets_the_session():
     assert fresh.consults_used == 0
 
 
-def test_session_registry_is_bounded():
-    mode = AdvisorMode()
-    for i in range(80):
-        mode.session_state(f"s{i}")
-    assert len(mode._sessions) == 64
-    assert "s0" not in mode._sessions and "s79" in mode._sessions
+async def test_leaving_the_mode_drops_the_session(monkeypatch):
+    """``/advisor off`` forgets the conversation's advisor state, so a
+    later ``/advisor on`` starts over with a fresh plan."""
+    cfg = _config()
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: cfg,
+    )
+    mode = _picked()
+    mode.build_middleware(_ctx(cfg), cfg).advisor_history.append(
+        {"role": "user", "content": "x"},
+    )
+    await mode._command_handler(_ctx(cfg), "off")
+    assert "sess-1" not in mode._sessions
+    await mode._command_handler(_ctx(cfg), "on")
+    assert mode.build_middleware(_ctx(cfg), cfg).advisor_history == []
 
 
 async def test_status_mentions_the_consult_tool(monkeypatch):
