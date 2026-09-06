@@ -334,6 +334,17 @@ def _empty_sse_response() -> StreamingResponse:
     )
 
 
+def _enqueue_console_followup(workspace, native_payload: dict[str, Any]) -> None:
+    """Queue a follow-up console message for the session queue consumer."""
+    channel_manager = workspace.channel_manager
+    if channel_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel manager not available",
+        )
+    channel_manager.enqueue("console", native_payload)
+
+
 def _tail_text_file(
     path: Path,
     *,
@@ -430,13 +441,8 @@ async def post_console_chat(
         )
         if not is_new_run:
             await tracker.detach_subscriber(chat.id, queue)
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "A task is already running for this chat. Wait for it "
-                    "to finish or use a different session_id."
-                ),
-            )
+            _enqueue_console_followup(workspace, native_payload)
+            return _empty_sse_response()
 
         # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:

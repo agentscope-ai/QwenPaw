@@ -564,7 +564,8 @@ class BaseChannel(ABC):
                 exc_info=True,
             )
 
-        queue, is_new = await self._workspace.task_tracker.attach_or_start(
+        tracker = self._workspace.task_tracker
+        queue, is_new = await tracker.attach_or_start(
             chat.id,
             payload,
             self._stream_with_tracker,
@@ -572,12 +573,21 @@ class BaseChannel(ABC):
             on_finished=self._workspace.chat_manager.mark_chat_finished,
         )
 
+        if not is_new:
+            await tracker.detach_subscriber(chat.id, queue)
+            while await tracker.get_status(chat.id) == "running":
+                await asyncio.sleep(0.05)
+            queue, is_new = await tracker.attach_or_start(
+                chat.id,
+                payload,
+                self._stream_with_tracker,
+                owner=self._workspace,
+                on_finished=self._workspace.chat_manager.mark_chat_finished,
+            )
+
         if is_new:
             try:
-                async for _ in self._workspace.task_tracker.stream_from_queue(
-                    queue,
-                    chat.id,
-                ):
+                async for _ in tracker.stream_from_queue(queue, chat.id):
                     pass
             except asyncio.CancelledError:
                 logger.info(
@@ -587,10 +597,9 @@ class BaseChannel(ABC):
                 raise
         else:
             logger.warning(
-                f"Message ignored (task already running): "
+                f"Message ignored (task still running): "
                 f"chat_id={chat.id} "
-                f"session={sanitize_log_value(session_id[:30])}. "
-                f"This should not happen with UnifiedQueueManager.",
+                f"session={sanitize_log_value(session_id[:30])}.",
             )
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
