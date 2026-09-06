@@ -715,6 +715,11 @@ class ToolCoordinator:
             )
             entry.end_state = "interrupted"
         except Exception as exc:
+            logger.exception(
+                "Tool handler failed for %s/%s",
+                entry.ctx.tool_name,
+                entry.ctx.tool_call_id,
+            )
             entry.final_response = ToolResponse(
                 content=[
                     TextBlock(type="text", text=f"Tool error: {exc}"),
