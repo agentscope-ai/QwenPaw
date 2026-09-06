@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
@@ -1475,3 +1476,55 @@ async def test_request_offload_rejects_short_kill_without_bound():
         force=True,
     )
     await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.fixture()
+def _coordinator_caplog(caplog: pytest.LogCaptureFixture):
+    """Capture logs from qwenpaw.tool_calls._coordinator."""
+    target = logging.getLogger("qwenpaw")
+    old_propagate = target.propagate
+    target.propagate = True
+    with caplog.at_level(
+        logging.ERROR,
+        logger="qwenpaw.tool_calls._coordinator",
+    ):
+        yield
+    target.propagate = old_propagate
+
+
+@pytest.mark.asyncio
+async def test_drain_logs_handler_exception(_coordinator_caplog, caplog):
+    """Exceptions in next_handler must be logged with traceback."""
+    coordinator = ToolCoordinator()
+    tool_call = _ToolCall(id="call-drain-err", name="boom_tool")
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        raise RuntimeError("handler exploded")
+        yield _text_response(tool_call.id, "unreachable")  # pragma: no cover
+
+    events = await _collect(
+        coordinator.execute(
+            tool_call=tool_call,
+            next_handler=next_handler,
+            session_id="session-drain-err",
+            agent_id="agent-1",
+            root_session_id="root-1",
+        ),
+    )
+
+    assert len(events) == 1
+    response = events[0]
+    assert response.state == ToolResultState.ERROR
+    assert "Tool error: handler exploded" in response.content[0].text
+
+    error_records = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.ERROR
+        and "Tool handler failed" in record.getMessage()
+    ]
+    assert len(error_records) == 1
+    assert error_records[0].exc_info is not None
+    assert error_records[0].exc_info[0] is RuntimeError
