@@ -839,20 +839,33 @@ class TestConsumeWithTracker:
 
         mock_chat_manager.get_or_create_chat.assert_called_once()
 
-    async def test_consume_with_tracker_existing_task_logs_warning(
+    async def test_consume_with_tracker_waits_for_idle_then_starts(
         self,
         base_channel,
     ):
-        """When task already exists, should log warning and not start new."""
+        """When a router-started run is active, wait and start a new run."""
         mock_workspace = MagicMock()
         mock_chat_manager = AsyncMock()
 
-        # Create async mock that returns is_new=False
+        attach_calls = 0
+
         async def mock_attach_or_start(*args, **kwargs):
-            return (MagicMock(), False)  # (queue, is_new) - is_new=False
+            nonlocal attach_calls
+            attach_calls += 1
+            return (MagicMock(), attach_calls > 1)
+
+        async def mock_get_status(_chat_id):
+            return "idle"
+
+        async def mock_stream(*args, **kwargs):
+            if False:
+                yield None
 
         mock_task_tracker = MagicMock()
         mock_task_tracker.attach_or_start = mock_attach_or_start
+        mock_task_tracker.detach_subscriber = AsyncMock()
+        mock_task_tracker.get_status = mock_get_status
+        mock_task_tracker.stream_from_queue = mock_stream
 
         mock_workspace.chat_manager = mock_chat_manager
         mock_workspace.task_tracker = mock_task_tracker
@@ -879,7 +892,8 @@ class TestConsumeWithTracker:
                 mock_payload,
             )
 
-        # Test passed if we reach here (warning was logged for is_new=False)
+        assert attach_calls == 2
+        mock_task_tracker.detach_subscriber.assert_awaited_once()
 
 
 @pytest.mark.asyncio

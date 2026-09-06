@@ -16,8 +16,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.responses import StreamingResponse
 
 from qwenpaw.app.routers.console import _extract_session_and_payload
 from qwenpaw.app.task_tracker import TaskTracker
@@ -181,12 +182,12 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
 
 
 @pytest.mark.asyncio
-async def test_new_message_rejects_active_run(
+async def test_new_message_enqueues_when_active_run(
     app,
     console_workspace,
     monkeypatch,
 ):
-    """A non-reconnect payload must not silently attach to an active run."""
+    """A non-reconnect payload must enqueue when a run is already active."""
     from starlette.requests import Request
     from qwenpaw.app.routers import console
 
@@ -203,6 +204,7 @@ async def test_new_message_rejects_active_run(
         "_persist_pending_project_dirs",
         AsyncMock(side_effect=lambda _ws, chat, _payload: chat),
     )
+    console_workspace.channel_manager.enqueue = MagicMock()
 
     request = Request(
         scope={
@@ -215,29 +217,32 @@ async def test_new_message_rejects_active_run(
     )
 
     try:
-        with pytest.raises(HTTPException) as exc_info:
-            await console.post_console_chat(
-                request_data={
-                    "session_id": "console:default",
-                    "user_id": "default",
-                    "channel": "console",
-                    "input": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "new message"},
-                            ],
-                        },
-                    ],
-                },
-                request=request,
-            )
+        response = await console.post_console_chat(
+            request_data={
+                "session_id": "console:default",
+                "user_id": "default",
+                "channel": "console",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "new message"},
+                        ],
+                    },
+                ],
+            },
+            request=request,
+        )
     finally:
         release.set()
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == (
-        "A task is already running for this chat. Wait for it to finish or "
-        "use a different session_id."
+    assert isinstance(response, StreamingResponse)
+    assert response.media_type == "text/event-stream"
+    console_workspace.channel_manager.enqueue.assert_called_once()
+    enqueue_payload = (
+        console_workspace.channel_manager.enqueue.call_args[0][1]
     )
+    first_part = enqueue_payload["content_parts"][0]
+    text = first_part.get("text") if isinstance(first_part, dict) else first_part.text
+    assert text == "new message"
     assert console_workspace.console_channel.stream_calls == []
