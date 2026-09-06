@@ -370,7 +370,7 @@ export default function SessionProjectDirectory({
   const isBound = (path: string) =>
     dirs.some((entry) => exactSamePath(entry.path, path));
 
-  /** Queue a single-clicked folder as the next one to bind. */
+  /** Queue a single-clicked folder or a typed path as the next one to bind. */
   const selectPending = (path: string) => {
     setListError(null);
     setPendingPath(path);
@@ -465,21 +465,20 @@ export default function SessionProjectDirectory({
     });
   };
 
-  /** Commit the edited list. Index 0 becomes the server's primary. */
-  const saveSessionList = async () => {
-    if (isNoopSave) {
-      // Just dismiss: no request, no unsaved-changes warning, and no tab
-      // teardown for a directory set that is already bound.
-      setPendingPath("");
-      setListError(null);
-      setOpen(false);
-      return;
-    }
+  /** Commit the given list. Index 0 becomes the server's primary.
+   *
+   *  The typed path and the graphical picker share this commit: both send the
+   *  whole ordered list to `PUT /chats/{id}/project-dirs`, where the server
+   *  normalises every entry and rejects non-directories — the text input is
+   *  only another way to name a directory, never a wider permission. */
+  const commitSessionList = async (entries: ProjectDirEntry[]) => {
     if (beforeChange && !(await beforeChange())) return;
-    const payload: ProjectDirPayloadEntry[] = bindableDirs.map((entry) => ({
-      path: entry.path,
-      label: entry.label,
-    }));
+    const payload: ProjectDirPayloadEntry[] = entries
+      .filter((entry) => entry.path.trim())
+      .map((entry) => ({
+        path: entry.path.trim(),
+        label: entry.label,
+      }));
     if (payload.length === 0) return;
     if (!chatId) {
       setPendingProjectDirectory(
@@ -513,6 +512,57 @@ export default function SessionProjectDirectory({
     } finally {
       setSaving(false);
     }
+  };
+
+  /** Commit the edited list. Index 0 becomes the server's primary. */
+  const saveSessionList = async () => {
+    if (isNoopSave) {
+      // Just dismiss: no request, no unsaved-changes warning, and no tab
+      // teardown for a directory set that is already bound.
+      setPendingPath("");
+      setListError(null);
+      setOpen(false);
+      return;
+    }
+    await commitSessionList(bindableDirs);
+  };
+
+  /** Switch the primary to the queued path, from a paste + Enter.
+   *
+   *  Restores the v2.1 "paste a path, press Enter, the directory switches"
+   *  flow on top of the multi-directory list: the typed directory moves to
+   *  (or is added at) the front and the list is committed at once, so every
+   *  other bound directory is kept — switching the primary never drops one.
+   *  An already-primary path just dismisses the queue; a full list keeps the
+   *  pending row's cap hint instead of sending a request the server refuses. */
+  const submitPendingAsPrimary = () => {
+    const path = pendingPath.trim();
+    if (!path || saving) return;
+    const index = dirs.findIndex((entry) => exactSamePath(entry.path, path));
+    if (index === 0) {
+      setPendingPath("");
+      setListError(null);
+      return;
+    }
+    if (index > 0) {
+      const next = [
+        dirs[index] as ProjectDirEntry,
+        ...dirs.filter((_, i) => i !== index),
+      ];
+      void commitSessionList(next);
+      return;
+    }
+    if (dirs.length >= MAX_PROJECT_DIRS) return;
+    const entry: ProjectDirEntry = {
+      path,
+      label: null,
+      exists: true,
+      nested_with: null,
+      // A typed path is a project directory the same way a browser pick is.
+      // Only the server can say otherwise, and it will on the next load.
+      is_workspace: false,
+    };
+    void commitSessionList([entry, ...dirs]);
   };
 
   const save = async () => {
@@ -633,7 +683,9 @@ export default function SessionProjectDirectory({
       </div>
 
       {/* Agent scope keeps the single-path field; session scope shows the
-          bound list here instead — it *is* the session's directory set. */}
+          bound list here instead — it *is* the session's directory set. The
+          path field above it is shared: typing or picking fills the same
+          queued path, Enter switches the primary, Add appends instead. */}
       {isAgentScope ? (
         selectedRecentProject ? (
           <div className={styles.pathChip}>
@@ -666,6 +718,15 @@ export default function SessionProjectDirectory({
         )
       ) : (
         <div className={styles.boundDirs}>
+          <Input
+            className={styles.pathInput}
+            prefix={<Folder size={15} />}
+            value={pendingPath}
+            onChange={(event) => selectPending(event.target.value)}
+            placeholder={t("projectDirectory.pathPlaceholder")}
+            onPressEnter={() => submitPendingAsPrimary()}
+            allowClear
+          />
           {dirs.length > 0 || pendingPath ? (
             <ul className={styles.boundList} ref={listRef}>
               {dirs.map((entry, index) => (
@@ -729,7 +790,9 @@ export default function SessionProjectDirectory({
                     </em>
                   ) : dirs.length >= MAX_PROJECT_DIRS ? (
                     <em className={styles.boundTag}>
-                      {t("projectDirectory.tooMany", { max: MAX_PROJECT_DIRS })}
+                      {t("projectDirectory.tooMany", {
+                        max: MAX_PROJECT_DIRS,
+                      })}
                     </em>
                   ) : (
                     <Button

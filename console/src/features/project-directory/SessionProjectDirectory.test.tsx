@@ -11,6 +11,10 @@ const {
   mockUseIsMobile,
   mockListProjects,
   mockSetSessionDirectory,
+  mockClearProjectDirs,
+  mockGetChatDirectory,
+  mockGetProjectDirs,
+  mockSetProjectDirs,
 } = vi.hoisted(() => ({
   mockBrowseDirs: vi.fn(),
   mockCreateDirectory: vi.fn(),
@@ -18,6 +22,10 @@ const {
   mockUseIsMobile: vi.fn(() => false),
   mockListProjects: vi.fn(),
   mockSetSessionDirectory: vi.fn(),
+  mockClearProjectDirs: vi.fn(),
+  mockGetChatDirectory: vi.fn(),
+  mockGetProjectDirs: vi.fn(),
+  mockSetProjectDirs: vi.fn(),
 }));
 
 vi.mock("../../api/modules/projectDirectory", () => ({
@@ -32,10 +40,10 @@ vi.mock("../../api/modules/projectDirectory", () => ({
 
 vi.mock("../../api/modules/chatProjectDirectory", () => ({
   chatProjectDirectoryApi: {
-    clearProjectDirs: vi.fn(),
-    get: vi.fn(),
-    getProjectDirs: vi.fn(),
-    setProjectDirs: vi.fn(),
+    clearProjectDirs: mockClearProjectDirs,
+    get: mockGetChatDirectory,
+    getProjectDirs: mockGetProjectDirs,
+    setProjectDirs: mockSetProjectDirs,
   },
 }));
 
@@ -45,7 +53,8 @@ vi.mock("../../hooks/useIsMobile", () => ({
 
 // The single-path picker these tests drive (path field, clear button,
 // recent-project selection, Apply) lives on AGENT scope. Session scope
-// binds an ordered list of directories instead, so it has no path field.
+// binds an ordered list of directories; its own direct path input shares the
+// queued path with the picker (see the session scope suite below).
 const scope = { kind: "agent" as const, agentId: "default" };
 
 const projects = [
@@ -383,5 +392,224 @@ describe("SessionProjectDirectory", () => {
     await waitFor(() => {
       expect(mockSetSessionDirectory).toHaveBeenCalledWith("/projects/runtime");
     });
+  });
+});
+
+describe("SessionProjectDirectory session scope direct path input (#7588)", () => {
+  const sessionScope = {
+    kind: "session" as const,
+    agentId: "default",
+    sessionId: "sess-1",
+    chatId: "chat-1",
+  };
+  const boundDirs = [
+    {
+      path: "/projects/alpha",
+      label: null,
+      exists: true,
+      nested_with: null,
+      is_workspace: false,
+    },
+    {
+      path: "/projects/beta",
+      label: null,
+      exists: true,
+      nested_with: null,
+      is_workspace: false,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseIsMobile.mockReturnValue(false);
+    mockListProjects.mockResolvedValue([]);
+    mockBrowseDirs.mockResolvedValue({
+      current: "/projects",
+      parent: "/",
+      dirs: [{ name: "custom", path: "/projects/custom" }],
+    });
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: boundDirs,
+      source: "session",
+      agent_project_dir: null,
+    });
+    mockSetProjectDirs.mockImplementation(
+      async (_chatId: string, entries: { path: string }[]) => ({
+        project_dirs: entries.map((entry) => ({
+          path: entry.path,
+          label: null,
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        })),
+        source: "session",
+        agent_project_dir: null,
+      }),
+    );
+  });
+
+  const openSessionPanel = async (user: ReturnType<typeof userEvent.setup>) =>
+    user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+
+  const getPathInput = async () =>
+    screen.findByPlaceholderText("projectDirectory.pathPlaceholder");
+
+  it("shows a direct path input on session scope", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+
+    expect(await getPathInput()).toBeInTheDocument();
+  });
+
+  it("pastes a POSIX path + Enter switches the primary, keeping other dirs", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/home/user/deep/project{Enter}");
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/home/user/deep/project", label: null },
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+      ]);
+    });
+    // The always-live trigger already advertises the new primary.
+    expect(
+      screen.getByRole("button", { name: "projectDirectory.sessionTitle" }),
+    ).toHaveTextContent("project");
+    // A successful switch closes the panel (its overlay keeps a frozen copy
+    // while closed), so reopen it to read the live state: the committed
+    // primary is listed first and the input is cleared.
+    await openSessionPanel(user);
+    expect(
+      screen.getAllByText("/home/user/deep/project").length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(await getPathInput()).toHaveValue("");
+  });
+
+  it("trims surrounding whitespace before switching", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "  /projects/typed  {Enter}");
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/typed", label: null },
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+      ]);
+    });
+  });
+
+  it("passes Windows absolute paths through without canonicalization", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(
+      await getPathInput(),
+      "C:\\Users\\test\\deep\\project{Enter}",
+    );
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "C:\\Users\\test\\deep\\project", label: null },
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+      ]);
+    });
+  });
+
+  it("fills the direct input when a browsed directory is picked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /custom/ }));
+
+    expect(await getPathInput()).toHaveValue("/projects/custom");
+    expect(mockSetProjectDirs).not.toHaveBeenCalled();
+  });
+
+  it("makes an already-bound typed path the primary", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/projects/beta{Enter}");
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/beta", label: null },
+        { path: "/projects/alpha", label: null },
+      ]);
+    });
+  });
+
+  it("shows a backend error without polluting the bound list", async () => {
+    const user = userEvent.setup();
+    mockSetProjectDirs.mockRejectedValueOnce(
+      new Error("Not a directory: /nope"),
+    );
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/nope{Enter}");
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      await screen.findByText("Not a directory: /nope"),
+    ).toBeInTheDocument();
+    // Previously bound directories are still rendered.
+    expect(screen.getByText("/projects/alpha")).toBeInTheDocument();
+    expect(screen.getByText("/projects/beta")).toBeInTheDocument();
+  });
+
+  it("does nothing destructive on Enter with the current primary", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/projects/alpha{Enter}");
+
+    // No request: the primary is already bound first.
+    expect(mockSetProjectDirs).not.toHaveBeenCalled();
+    // The queue is dismissed without dropping any binding.
+    expect(await getPathInput()).toHaveValue("");
+  });
+
+  it("does not switch on blur", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/projects/typed");
+    await user.tab();
+
+    expect(mockSetProjectDirs).not.toHaveBeenCalled();
+  });
+
+  it("does not switch on Enter with an empty input", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    const input = await getPathInput();
+    input.focus();
+    await user.keyboard("{Enter}");
+
+    expect(mockSetProjectDirs).not.toHaveBeenCalled();
   });
 });
