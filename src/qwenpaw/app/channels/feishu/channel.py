@@ -52,6 +52,11 @@ from .constants import (
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
+    FEISHU_REASONING_PANEL_DONE_TITLE,
+    FEISHU_REASONING_PANEL_ELEMENT_ID,
+    FEISHU_REASONING_PANEL_TITLE,
+    FEISHU_UNUSED_CARD_ERROR_TEXT,
+    FEISHU_UNUSED_CARD_SUCCESS_TEXT,
     FEISHU_STALE_MSG_THRESHOLD_MS,
     FEISHU_STREAM_ELEMENT_ID,
     FEISHU_STREAM_MIN_INTERVAL_S,
@@ -291,6 +296,11 @@ class FeishuChannel(BaseChannel):
         # session_id -> (receive_id, receive_id_type) for send
         self._receive_id_store: Dict[str, Tuple[str, str]] = {}
         self._receive_id_lock = asyncio.Lock()
+        # session_id -> request holding an unconsumed pre-created streaming
+        # card. Lets the response-cycle finally hook clean up a placeholder
+        # no answer stream consumed (cancel path has no other channel hook).
+        # Popped at cycle end; turns are serialized per session upstream.
+        self._pending_precreated: Dict[str, Any] = {}
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = asyncio.Lock()
@@ -2042,8 +2052,14 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         initial_text: str = "...",
+        collapsible: bool = False,
     ) -> Optional[Dict[str, str]]:
         """Create a CardKit streaming card and send it as a message.
+
+        When ``collapsible`` is True (reasoning streams), the streaming
+        markdown is wrapped in a JSON 2.0 ``collapsible_panel`` that starts
+        expanded. The inner markdown keeps ``FEISHU_STREAM_ELEMENT_ID`` so
+        streaming content updates need no change.
 
         Returns ``{"card_id": ..., "message_id": ...}`` or ``None``.
         """
@@ -2056,17 +2072,31 @@ class FeishuChannel(BaseChannel):
         )
 
         element_id = FEISHU_STREAM_ELEMENT_ID
+        markdown_element = {
+            "tag": "markdown",
+            "content": initial_text,
+            "element_id": element_id,
+        }
+        if collapsible:
+            top_element = {
+                "tag": "collapsible_panel",
+                "element_id": FEISHU_REASONING_PANEL_ELEMENT_ID,
+                "expanded": True,
+                "header": {
+                    "title": {
+                        "tag": "plain_text",
+                        "content": FEISHU_REASONING_PANEL_TITLE,
+                    },
+                },
+                "elements": [markdown_element],
+            }
+        else:
+            top_element = markdown_element
         card_json = {
             "schema": "2.0",
             "config": {"streaming_mode": True},
             "body": {
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": initial_text,
-                        "element_id": element_id,
-                    },
-                ],
+                "elements": [top_element],
             },
         }
 
@@ -2238,6 +2268,68 @@ class FeishuChannel(BaseChannel):
             )
             return False
 
+    async def _collapse_reasoning_panel(
+        self,
+        card_id: str,
+        sequence: int,
+    ) -> bool:
+        """Collapse the reasoning panel via CardKit element PATCH.
+
+        ``sequence`` must exceed the finalize settings sequence. A patch
+        failure only logs (same tolerance as other streaming updates) so a
+        stuck-expanded panel never fails the whole answer.
+        """
+        if not self._client or not card_id:
+            return False
+
+        from lark_oapi.api.cardkit.v1 import (
+            PatchCardElementRequest,
+            PatchCardElementRequestBody,
+        )
+
+        partial_element = json.dumps(
+            {
+                "expanded": False,
+                "header": {
+                    "title": {
+                        "tag": "plain_text",
+                        "content": FEISHU_REASONING_PANEL_DONE_TITLE,
+                    },
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        try:
+            req = (
+                PatchCardElementRequest.builder()
+                .card_id(card_id)
+                .element_id(FEISHU_REASONING_PANEL_ELEMENT_ID)
+                .request_body(
+                    PatchCardElementRequestBody.builder()
+                    .partial_element(partial_element)
+                    .sequence(sequence)
+                    .uuid(str(_uuid.uuid4()))
+                    .build(),
+                )
+                .build()
+            )
+            resp = await self._client.cardkit.v1.card_element.apatch(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu collapse reasoning panel failed: code=%s msg=%s",
+                    resp.code,
+                    resp.msg,
+                )
+                return False
+            return True
+        except Exception:
+            logger.warning(
+                "feishu collapse reasoning panel exception",
+                exc_info=True,
+            )
+            return False
+
     # ------------------------------------------------------------------
     # Streaming hooks (CardKit card mode)
     # ------------------------------------------------------------------
@@ -2280,9 +2372,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type, receive_id = recv
         state = self._get_feishu_stream_state(send_meta)
 
-        # Reuse pre-created card for the first arriving segment.
+        # Reasoning streams need a collapsible panel baked in at creation, so
+        # they never reuse the plain-markdown pre-created placeholder (it stays
+        # reserved for the later answer segment).
+        is_reasoning = stream_type == "reasoning"
         card_info = getattr(request, "_precreated_card", None)
-        if card_info:
+        if card_info and not is_reasoning:
             setattr(request, "_precreated_card", None)
         else:
             initial = self._build_stream_display_text(
@@ -2294,6 +2389,7 @@ class FeishuChannel(BaseChannel):
                 receive_id_type,
                 receive_id,
                 initial_text=initial,
+                collapsible=is_reasoning,
             )
 
         if card_info:
@@ -2301,6 +2397,7 @@ class FeishuChannel(BaseChannel):
                 "card_id": card_info["card_id"],
                 "message_id": card_info["message_id"],
                 "sequence": 0,
+                "collapsible": is_reasoning,
             }
 
     async def on_streaming_delta(
@@ -2383,6 +2480,16 @@ class FeishuChannel(BaseChannel):
             sequence=card_state["sequence"],
         )
 
+        # Reasoning cards collapse their panel after finalize so long thinking
+        # traces don't push the final answer away. The patch reuses the next
+        # sequence; its failure is tolerated inside the helper.
+        if card_state.get("collapsible"):
+            card_state["sequence"] += 1
+            await self._collapse_reasoning_panel(
+                card_id,
+                sequence=card_state["sequence"],
+            )
+
         # Track last sent message_id for DONE reaction
         message_id = card_state.get("message_id")
         if message_id:
@@ -2399,9 +2506,90 @@ class FeishuChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Add DONE reaction to the last sent message."""
+        await self._finalize_unused_precreated_card(
+            request,
+            FEISHU_UNUSED_CARD_SUCCESS_TEXT,
+        )
         last_msg_id = send_meta.get("_last_sent_message_id")
         if last_msg_id:
             await self._add_reaction(last_msg_id, "DONE")
+
+    async def _on_consume_error(
+        self,
+        request: Any,
+        to_handle: str,
+        err_text: str,
+    ) -> None:
+        """Finalize an orphaned placeholder (non-success stamp), then
+        deliver the error text."""
+        await self._finalize_unused_precreated_card(
+            request,
+            FEISHU_UNUSED_CARD_ERROR_TEXT,
+        )
+        await super()._on_consume_error(request, to_handle, err_text)
+
+    async def _finish_response_cycle(self, session_id: str) -> None:
+        """Finalize an unconsumed placeholder, then run base cleanup.
+
+        Base invokes this in a finally block, so it also fires on task
+        cancellation, which has no other channel hook. Only the placeholder
+        this flow may have left behind is touched: consumed cards are
+        skipped via the nulled attribute, the reasoning card's own
+        cancel/stuck behavior is unchanged, and nothing here catches
+        CancelledError, so cancellation still propagates.
+        """
+        request = (
+            self._pending_precreated.pop(session_id, None)
+            if session_id
+            else None
+        )
+        if request is not None:
+            await self._finalize_unused_precreated_card(
+                request,
+                FEISHU_UNUSED_CARD_ERROR_TEXT,
+            )
+        await super()._finish_response_cycle(session_id)
+
+    async def _finalize_unused_precreated_card(
+        self,
+        request: Any,
+        done_text: str,
+    ) -> None:
+        """Best-effort finalize of a placeholder no segment consumed.
+
+        Reasoning streams never consume ``request._precreated_card`` (they
+        need panel structure at creation), so when no answer stream follows
+        — truncated thinking, generation error, cancellation — the bare
+        "..." card would linger. Stamp it and close streaming mode instead.
+        Mirrors DingTalk's unused-card finalize. Never raises; never touches
+        a card the answer consumed (consumption nulls the attribute, and the
+        cycle-end mapping is popped exactly once).
+        """
+        card_info = getattr(request, "_precreated_card", None)
+        if not card_info:
+            return
+        setattr(request, "_precreated_card", None)
+        try:
+            card_id = card_info.get("card_id")
+            if not card_id:
+                return
+            # The placeholder never received streaming updates, so its
+            # sequence base is 0: content update first, then settings.
+            await self._update_streaming_text(
+                card_id,
+                done_text,
+                sequence=1,
+            )
+            await self._finalize_streaming_card(
+                card_id,
+                summary_text=done_text,
+                sequence=2,
+            )
+        except Exception:
+            logger.debug(
+                "feishu finalize unused precreated card failed",
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Interactive cards (tool_guard approval, etc.)
@@ -2502,6 +2690,12 @@ class FeishuChannel(BaseChannel):
                 )
                 if card_info:
                     setattr(request, "_precreated_card", card_info)
+                    # Register for the cycle-end hook: if no answer stream
+                    # consumes this placeholder (cancel path has no other
+                    # channel hook), _finish_response_cycle finalizes it.
+                    session_id = getattr(request, "session_id", "") or ""
+                    if session_id:
+                        self._pending_precreated[session_id] = request
             except Exception:
                 logger.debug(
                     "feishu streaming card pre-creation failed",

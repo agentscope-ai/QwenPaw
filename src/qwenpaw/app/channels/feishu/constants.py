@@ -39,3 +39,21 @@ FEISHU_STREAM_MIN_INTERVAL_S = 0.15
 
 # Element ID for the markdown component inside the streaming card.
 FEISHU_STREAM_ELEMENT_ID = "streaming_content"
+
+# Element ID for the collapsible panel wrapping the reasoning markdown.
+# CardKit requires <= 20 chars, starting with a letter.
+FEISHU_REASONING_PANEL_ELEMENT_ID = "reasoning_panel"
+
+# Panel header while reasoning streams / after it completes.
+FEISHU_REASONING_PANEL_TITLE = "💭 思考过程"
+FEISHU_REASONING_PANEL_DONE_TITLE = "思考过程（已完成·点击展开）"
+
+# Final stamp for a pre-created placeholder no stream segment consumed on
+# the success path. Static one-shot text, not a live status card.
+FEISHU_UNUSED_CARD_SUCCESS_TEXT = "✅ 任务已完成"
+
+# Final stamp for the same placeholder on error/cancel paths. Must never
+# claim success. Wording reuses DingTalk's AI_CARD_RECOVERY_FINAL_TEXT.
+FEISHU_UNUSED_CARD_ERROR_TEXT = (
+    "⚠️ 上一次回复处理中断，已自动结束。请重新发送你的问题。"
+)

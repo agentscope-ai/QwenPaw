@@ -3575,3 +3575,549 @@ class TestProcessQuotedMessage:
         # quoted label should be first, reply should be last
         assert text_parts[0].startswith("[quoted message:")
         assert text_parts[-1] == "Reply"
+
+
+# =============================================================================
+# Tests for reasoning collapsible panel (Issue #7570)
+# =============================================================================
+
+
+def _mock_cardkit_create(mock_client, card_id="card_001"):
+    """Wire a MagicMock client for CreateCard success."""
+    resp = MagicMock()
+    resp.success.return_value = True
+    resp.data.card_id = card_id
+    mock_client.cardkit.v1.card.acreate = AsyncMock(return_value=resp)
+    return resp
+
+
+def _create_request_body(mock_client):
+    """Return the parsed card_json sent to CreateCard."""
+    req = mock_client.cardkit.v1.card.acreate.call_args[0][0]
+    return json.loads(req.request_body.data)
+
+
+class TestReasoningCollapsiblePanel:
+    """Reasoning stream cards collapse after finalize; answer cards don't."""
+
+    @pytest.fixture
+    def real_lark_sdk(self):
+        """Restore the real lark_oapi SDK for CardKit builder assertions.
+
+        tests/conftest.py replaces ``sys.modules["lark_oapi"]`` with a
+        MagicMock (safety net for envs without the SDK), which breaks the
+        lazy ``from lark_oapi.api.cardkit.v1 import ...`` used by the
+        channel helpers. lark-oapi is a required dependency, so tests that
+        assert on real builder output temporarily restore it.
+        """
+        import sys
+
+        popped = {}
+        for key in [
+            k
+            for k in sys.modules
+            if k == "lark_oapi" or k.startswith("lark_oapi.")
+        ]:
+            popped[key] = sys.modules.pop(key)
+        try:
+            import lark_oapi.api.cardkit.v1  # noqa: F401
+        except ImportError:
+            sys.modules.update(popped)
+            pytest.skip("lark_oapi SDK without cardkit v1 API")
+        try:
+            yield
+        finally:
+            for key in [
+                k
+                for k in sys.modules
+                if k == "lark_oapi" or k.startswith("lark_oapi.")
+            ]:
+                sys.modules.pop(key, None)
+            sys.modules.update(popped)
+
+    @pytest.mark.asyncio
+    async def test_create_reasoning_card_uses_collapsible_panel(
+        self,
+        feishu_channel,
+        real_lark_sdk,
+    ):
+        """Reasoning card: expanded panel wrapping markdown on top."""
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_STREAM_ELEMENT_ID,
+        )
+
+        mock_client = MagicMock()
+        _mock_cardkit_create(mock_client, card_id="card_r")
+        feishu_channel._client = mock_client
+        feishu_channel._send_message = AsyncMock(return_value="msg_r")
+
+        info = await feishu_channel._create_streaming_card(
+            "chat_id",
+            "oc_1",
+            initial_text="...",
+            collapsible=True,
+        )
+
+        assert info == {"card_id": "card_r", "message_id": "msg_r"}
+        body = _create_request_body(mock_client)
+        assert body["schema"] == "2.0"
+        assert body["config"] == {"streaming_mode": True}
+        (top,) = body["body"]["elements"]
+        assert top["tag"] == "collapsible_panel"
+        assert top["expanded"] is True
+        # element_id must satisfy CardKit constraints (<=20 chars, letter-led).
+        assert 0 < len(top["element_id"]) <= 20
+        assert top["element_id"][0].isalpha()
+        assert "思考过程" in top["header"]["title"]["content"]
+        # Inner markdown keeps the streaming element id so updates need no
+        # change.
+        (inner,) = top["elements"]
+        assert inner["tag"] == "markdown"
+        assert inner["element_id"] == FEISHU_STREAM_ELEMENT_ID
+        assert inner["content"] == "..."
+
+    @pytest.mark.asyncio
+    async def test_create_answer_card_stays_plain(
+        self,
+        feishu_channel,
+        real_lark_sdk,
+    ):
+        """Default (answer) card keeps the plain markdown structure."""
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_STREAM_ELEMENT_ID,
+        )
+
+        mock_client = MagicMock()
+        _mock_cardkit_create(mock_client)
+        feishu_channel._client = mock_client
+        feishu_channel._send_message = AsyncMock(return_value="msg_1")
+
+        await feishu_channel._create_streaming_card(
+            "chat_id",
+            "oc_1",
+            initial_text="...",
+        )
+
+        body = _create_request_body(mock_client)
+        (top,) = body["body"]["elements"]
+        assert top["tag"] == "markdown"
+        assert top["element_id"] == FEISHU_STREAM_ELEMENT_ID
+        assert "collapsible_panel" not in json.dumps(body)
+
+    @pytest.mark.asyncio
+    async def test_reasoning_start_skips_precreated_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Reasoning needs panel structure at creation, so it must not consume
+        the plain-markdown precreated placeholder (reserved for answer)."""
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_r", "message_id": "msg_r"},
+        )
+
+        request = MagicMock()
+        request._precreated_card = {"card_id": "pre", "message_id": "pm"}
+        send_meta = {}
+        await feishu_channel.on_streaming_start(
+            request=request,
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="reasoning",
+        )
+
+        # Placeholder untouched; fresh collapsible card created instead.
+        assert request._precreated_card == {
+            "card_id": "pre",
+            "message_id": "pm",
+        }
+        _, kwargs = feishu_channel._create_streaming_card.call_args
+        assert kwargs.get("collapsible") is True
+        card_state = send_meta["_fs_stream"]["cards"]["reasoning"]
+        assert card_state["card_id"] == "card_r"
+        assert card_state["collapsible"] is True
+
+    @pytest.mark.asyncio
+    async def test_message_start_reuses_precreated_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Regression guard: answer segments keep consuming the placeholder."""
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        feishu_channel._create_streaming_card = AsyncMock()
+
+        request = MagicMock()
+        request._precreated_card = {"card_id": "pre", "message_id": "pm"}
+        send_meta = {}
+        await feishu_channel.on_streaming_start(
+            request=request,
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="message",
+        )
+
+        feishu_channel._create_streaming_card.assert_not_called()
+        card_state = send_meta["_fs_stream"]["cards"]["message"]
+        assert card_state["card_id"] == "pre"
+        assert card_state["collapsible"] is False
+
+    @pytest.mark.asyncio
+    async def test_reasoning_end_collapses_after_settings(
+        self,
+        feishu_channel,
+    ):
+        """Finalize order: content update -> settings -> panel patch, with
+        strictly increasing sequence."""
+        from unittest.mock import call
+
+        from qwenpaw.app.channels.feishu.utils import normalize_feishu_md
+
+        send_meta = {
+            "_fs_stream": {
+                "cards": {
+                    "reasoning": {
+                        "card_id": "card_r",
+                        "message_id": "msg_r",
+                        "sequence": 5,
+                        "collapsible": True,
+                    },
+                },
+            },
+        }
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._collapse_reasoning_panel = AsyncMock()
+        parent = MagicMock()
+        parent.attach_mock(
+            feishu_channel._update_streaming_text,
+            "update",
+        )
+        parent.attach_mock(
+            feishu_channel._finalize_streaming_card,
+            "finalize",
+        )
+        parent.attach_mock(
+            feishu_channel._collapse_reasoning_panel,
+            "collapse",
+        )
+
+        await feishu_channel.on_streaming_end(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="reasoning",
+            accumulated_text="thought",
+        )
+
+        display = feishu_channel._build_stream_display_text(
+            "reasoning",
+            "thought",
+            send_meta,
+        )
+        expected_final = normalize_feishu_md(display)
+        assert parent.mock_calls == [
+            call.update("card_r", expected_final, sequence=6),
+            call.finalize("card_r", summary_text="thought", sequence=7),
+            call.collapse("card_r", sequence=8),
+        ]
+        assert send_meta["_last_sent_message_id"] == "msg_r"
+
+    @pytest.mark.asyncio
+    async def test_message_end_never_collapses(self, feishu_channel):
+        """Answer cards finalize exactly as before (no panel patch)."""
+        send_meta = {
+            "_fs_stream": {
+                "cards": {
+                    "message": {
+                        "card_id": "card_m",
+                        "message_id": "msg_m",
+                        "sequence": 2,
+                        "collapsible": False,
+                    },
+                },
+            },
+        }
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._collapse_reasoning_panel = AsyncMock()
+
+        await feishu_channel.on_streaming_end(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="message",
+            accumulated_text="answer",
+        )
+
+        feishu_channel._collapse_reasoning_panel.assert_not_called()
+        feishu_channel._finalize_streaming_card.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_collapse_patch_payload_is_json_string(
+        self,
+        feishu_channel,
+        real_lark_sdk,
+    ):
+        """Patch body uses partial_element (JSON string), panel element id,
+        and the caller sequence."""
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_REASONING_PANEL_ELEMENT_ID,
+        )
+
+        resp = MagicMock()
+        resp.success.return_value = True
+        mock_client = MagicMock()
+        mock_client.cardkit.v1.card_element.apatch = AsyncMock(
+            return_value=resp,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._collapse_reasoning_panel(
+            "card_r",
+            sequence=8,
+        )
+
+        assert result is True
+        req = mock_client.cardkit.v1.card_element.apatch.call_args[0][0]
+        assert req.element_id == FEISHU_REASONING_PANEL_ELEMENT_ID
+        assert req.card_id == "card_r"
+        partial = req.request_body.partial_element
+        assert isinstance(partial, str)
+        payload = json.loads(partial)
+        assert payload["expanded"] is False
+        assert "已完成" in payload["header"]["title"]["content"]
+        assert req.request_body.sequence == 8
+        assert req.request_body.uuid
+
+    @pytest.mark.asyncio
+    async def test_collapse_patch_failure_is_tolerated(
+        self,
+        feishu_channel,
+        real_lark_sdk,
+    ):
+        """A failed collapse patch must not raise / fail the whole answer."""
+        mock_client = MagicMock()
+        bad = MagicMock()
+        bad.success.return_value = False
+        bad.code = 12345
+        bad.msg = "boom"
+        mock_client.cardkit.v1.card_element.apatch = AsyncMock(
+            return_value=bad,
+        )
+        feishu_channel._client = mock_client
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=9,
+            )
+            is False
+        )
+
+        mock_client.cardkit.v1.card_element.apatch = AsyncMock(
+            side_effect=RuntimeError("net down"),
+        )
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=9,
+            )
+            is False
+        )
+
+    # ------------------------------------------------------------------
+    # Orphan placeholder: reasoning ran but no answer stream followed.
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_process_completed_finalizes_unconsumed_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """No answer segment consumed the placeholder: process-completed must
+        not leave a bare "..." card behind."""
+        feishu_channel._update_streaming_text = AsyncMock(
+            return_value=True,
+        )
+        feishu_channel._finalize_streaming_card = AsyncMock(
+            return_value=True,
+        )
+        feishu_channel._add_reaction = AsyncMock()
+
+        request = MagicMock()
+        request._precreated_card = {
+            "card_id": "card_pre",
+            "message_id": "msg_pre",
+        }
+        await feishu_channel._on_process_completed(
+            request,
+            "feishu:sw:test",
+            {},
+        )
+
+        assert request._precreated_card is None
+        feishu_channel._update_streaming_text.assert_called_once()
+        args, kwargs = feishu_channel._update_streaming_text.call_args
+        assert args[0] == "card_pre"
+        assert kwargs.get("sequence") == 1
+        assert "✅" in args[1]
+        feishu_channel._finalize_streaming_card.assert_called_once()
+        _, fkwargs = feishu_channel._finalize_streaming_card.call_args
+        assert fkwargs.get("sequence") == 2
+
+    @pytest.mark.asyncio
+    async def test_process_completed_skips_consumed_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Placeholder already consumed by the answer: completed path must
+        not touch streaming APIs for it."""
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._add_reaction = AsyncMock()
+
+        request = MagicMock()
+        request._precreated_card = None
+        await feishu_channel._on_process_completed(
+            request,
+            "feishu:sw:test",
+            {},
+        )
+
+        feishu_channel._update_streaming_text.assert_not_called()
+        feishu_channel._finalize_streaming_card.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_consume_error_finalizes_unconsumed_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Generation error after reasoning: placeholder still finalized,
+        but NEVER with a success stamp, and the error text is delivered."""
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_UNUSED_CARD_ERROR_TEXT,
+        )
+
+        feishu_channel._update_streaming_text = AsyncMock(
+            return_value=True,
+        )
+        feishu_channel._finalize_streaming_card = AsyncMock(
+            return_value=True,
+        )
+        feishu_channel.send_content_parts = AsyncMock(
+            return_value="err_msg_id",
+        )
+
+        request = MagicMock()
+        request._precreated_card = {
+            "card_id": "card_pre",
+            "message_id": "msg_pre",
+        }
+        request.channel_meta = {}
+        await feishu_channel._on_consume_error(
+            request,
+            "feishu:sw:test",
+            "Internal error",
+        )
+
+        assert request._precreated_card is None
+        feishu_channel._update_streaming_text.assert_called_once()
+        args, _ = feishu_channel._update_streaming_text.call_args
+        assert args[1] == FEISHU_UNUSED_CARD_ERROR_TEXT
+        assert "✅" not in args[1]
+        assert "已完成" not in args[1]
+        _, fkwargs = feishu_channel._finalize_streaming_card.call_args
+        assert "✅" not in fkwargs.get("summary_text", "")
+        # Error delivery preserved.
+        feishu_channel.send_content_parts.assert_called_once()
+        parts = feishu_channel.send_content_parts.call_args[0][1]
+        assert parts[0].text == "Internal error"
+
+    @pytest.mark.asyncio
+    async def test_cancel_finalizes_unconsumed_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Task cancelled after reasoning: unconsumed placeholder must
+        not stay a bare card, stamp must not claim success."""
+        from qwenpaw.app.channels.base import BaseChannel
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_UNUSED_CARD_ERROR_TEXT,
+        )
+
+        feishu_channel.streaming_enabled = True
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_pre", "message_id": "msg_pre"},
+        )
+        feishu_channel._update_streaming_text = AsyncMock(
+            return_value=True,
+        )
+        feishu_channel._finalize_streaming_card = AsyncMock(
+            return_value=True,
+        )
+
+        request = MagicMock()
+        request.session_id = "sess_cancel"
+        request.channel_meta = {
+            "feishu_receive_id": "oc_test",
+            "feishu_receive_id_type": "chat_id",
+        }
+        await feishu_channel._before_consume_process(request)
+        # Reasoning started its own collapsible card; placeholder untouched.
+        assert request._precreated_card == {
+            "card_id": "card_pre",
+            "message_id": "msg_pre",
+        }
+
+        with patch.object(
+            BaseChannel,
+            "_finish_response_cycle",
+            new=AsyncMock(),
+        ) as base_finish:
+            await feishu_channel._finish_response_cycle("sess_cancel")
+
+        assert request._precreated_card is None
+        assert "sess_cancel" not in feishu_channel._pending_precreated
+        feishu_channel._update_streaming_text.assert_called_once()
+        args, kwargs = feishu_channel._update_streaming_text.call_args
+        assert args[0] == "card_pre"
+        assert args[1] == FEISHU_UNUSED_CARD_ERROR_TEXT
+        assert "✅" not in args[1]
+        assert kwargs.get("sequence") == 1
+        base_finish.assert_awaited_once_with("sess_cancel")
+
+    @pytest.mark.asyncio
+    async def test_finish_response_cycle_skips_consumed_placeholder(
+        self,
+        feishu_channel,
+    ):
+        """Placeholder already consumed: cycle-end must not touch the
+        streaming APIs, but base cleanup still runs."""
+        from qwenpaw.app.channels.base import BaseChannel
+
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        request = MagicMock()
+        request._precreated_card = None
+        feishu_channel._pending_precreated["sess_done"] = request
+
+        with patch.object(
+            BaseChannel,
+            "_finish_response_cycle",
+            new=AsyncMock(),
+        ) as base_finish:
+            await feishu_channel._finish_response_cycle("sess_done")
+
+        feishu_channel._update_streaming_text.assert_not_called()
+        feishu_channel._finalize_streaming_card.assert_not_called()
+        assert "sess_done" not in feishu_channel._pending_precreated
+        base_finish.assert_awaited_once_with("sess_done")
