@@ -414,6 +414,10 @@ class TelegramConfig(BaseChannelConfig):
     http_proxy_auth: str = ""
     show_typing: Optional[bool] = None
     streaming_enabled: bool = False
+    # Issue #7586: when True, delete this round's intermediate Telegram
+    # messages (reasoning / tool calls / tool results) after the final
+    # answer is sent. Default False to preserve 2.2.x behavior.
+    cleanup_intermediate: bool = False
 
 
 class MQTTConfig(BaseChannelConfig):
