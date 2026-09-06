@@ -749,11 +749,12 @@ Find `channels.telegram` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspa
 
 **Telegram-specific fields:**
 
-| Field             | Type   | Default         | Description                                                                     |
-| ----------------- | ------ | --------------- | ------------------------------------------------------------------------------- |
-| `bot_token`       | string | `""` (required) | Telegram Bot Token                                                              |
-| `http_proxy`      | string | `""`            | Proxy address (e.g., `http://127.0.0.1:7890`)                                   |
-| `http_proxy_auth` | string | `""`            | Proxy authentication (format: `username:password`, leave empty if not required) |
+| Field                  | Type   | Default         | Description                                                                     |
+| ---------------------- | ------ | --------------- | ------------------------------------------------------------------------------- |
+| `bot_token`            | string | `""` (required) | Telegram Bot Token                                                              |
+| `http_proxy`           | string | `""`            | Proxy address (e.g., `http://127.0.0.1:7890`)                                   |
+| `http_proxy_auth`      | string | `""`            | Proxy authentication (format: `username:password`, leave empty if not required) |
+| `cleanup_intermediate` | bool   | `false`         | After successful completion only, delete this round's intermediate messages (reasoning / tool calls / tool results / progress); the final answer is always kept; nothing is deleted on error or cancellation; approval cards are never deleted |
 
 > **Tip:** Accessing the Telegram API from China may require a proxy.
 

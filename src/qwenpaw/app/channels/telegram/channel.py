@@ -83,6 +83,46 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
 _STREAM_EDIT_INTERVAL_S = 1.5
 _STREAM_PLACEHOLDER = "⏳"
 
+# Issue #7586: request-local cleanup tracking keys inside
+# send_meta["_tg_stream"]. All lists hold Telegram message_ids (int).
+# - "intermediate_ids": reasoning / tool call / tool result messages
+# - "final_ids": final answer messages (single edit or chunked sends)
+# Invariant: an id in final_ids is never deleted, even if it also
+# appears in intermediate_ids.
+_TG_COLLECT_KIND_KEY = "_tg_collect"
+_TG_KIND_INTERMEDIATE = "intermediate"
+_TG_KIND_FINAL = "final"
+
+# MessageType values (as plain strings to avoid importing schemas here)
+# for Issue #7586 cleanup classification. Exact-match only — never
+# substring/fuzzy matching.
+#
+# intermediate (deleted on successful completion):
+#   reasoning, plugin_call, plugin_call_output, function_call,
+#   function_call_output, mcp_tool_call, mcp_tool_call_output, progress
+# final / keep (never deleted):
+#   message, result
+# unknown / future enum values: KEEP (fail-safe — a message we cannot
+# classify must never be deleted).
+_TG_INTERMEDIATE_MESSAGE_TYPES = frozenset(
+    {
+        "reasoning",
+        "plugin_call",
+        "plugin_call_output",
+        "function_call",
+        "function_call_output",
+        "mcp_tool_call",
+        "mcp_tool_call_output",
+        "progress",
+    },
+)
+_TG_FINAL_MESSAGE_TYPES = frozenset(
+    {
+        "message",
+        "result",
+    },
+)
+
 
 class _FileTooLargeError(Exception):
     """Raised when a local media file exceeds Telegram's upload size limit."""
@@ -328,6 +368,7 @@ class TelegramChannel(BaseChannel):
         access_control_dm: bool = False,
         access_control_group: bool = False,
         base_url: str = "",
+        cleanup_intermediate: bool = False,
     ):
         super().__init__(
             process,
@@ -360,6 +401,9 @@ class TelegramChannel(BaseChannel):
         else:
             self._media_dir = _DEFAULT_MEDIA_DIR
         self._show_typing = show_typing
+        # Issue #7586: optional cleanup of intermediate messages after the
+        # final answer. Default False to preserve 2.2.x behavior.
+        self._cleanup_intermediate = bool(cleanup_intermediate)
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._is_processing: dict[str, bool] = {}
         self._task: Optional[asyncio.Task] = None
@@ -606,6 +650,11 @@ class TelegramChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=os.getenv("TELEGRAM_DENY_MESSAGE", ""),
             require_mention=os.getenv("TELEGRAM_REQUIRE_MENTION", "0") == "1",
+            cleanup_intermediate=os.getenv(
+                "TELEGRAM_CLEANUP_INTERMEDIATE",
+                "0",
+            )
+            == "1",
         )
 
     @classmethod
@@ -655,6 +704,9 @@ class TelegramChannel(BaseChannel):
             ),
             access_control_group=bool(
                 c.get("access_control_group", False),
+            ),
+            cleanup_intermediate=bool(
+                c.get("cleanup_intermediate", False),
             ),
         )
 
@@ -735,7 +787,16 @@ class TelegramChannel(BaseChannel):
         text: str,
         meta: Optional[dict] = None,
     ) -> None:
-        """Send text to chat_id (to_handle or meta['chat_id'])."""
+        """Send text to chat_id (to_handle or meta['chat_id']).
+
+        When ``cleanup_intermediate`` is enabled and the caller set
+        ``meta["_tg_collect"]`` to ``"intermediate"``/``"final"`` (Issue
+        #7586), every successfully sent chunk message_id is recorded
+        into the request-local ledger. Callers that don't set the marker
+        (proactive sends, error notices, model-fallback notices) stay
+        untracked and are never deleted. Return type stays ``None`` for
+        backward compatibility.
+        """
         if not self.enabled or not self._application:
             return
         if meta is None:
@@ -751,6 +812,13 @@ class TelegramChannel(BaseChannel):
         self._stop_typing(chat_id)
         if self._is_processing.get(to_handle, False):
             self._start_typing(chat_id)
+        collect_kind = (
+            meta.get(_TG_COLLECT_KIND_KEY)
+            if isinstance(meta, dict) and self._cleanup_intermediate
+            else None
+        )
+        if collect_kind not in (_TG_KIND_INTERMEDIATE, _TG_KIND_FINAL):
+            collect_kind = None
         chunks = self._chunk_text(text)
         for chunk in chunks:
             html_chunk = markdown_to_telegram_html(chunk)
@@ -762,7 +830,11 @@ class TelegramChannel(BaseChannel):
                 }
                 if message_thread_id is not None:
                     kwargs["message_thread_id"] = message_thread_id
-                await bot.send_message(**kwargs)
+                sent = await bot.send_message(**kwargs)
+                if collect_kind is not None:
+                    mid = getattr(sent, "message_id", None)
+                    if mid is not None:
+                        self._track_tg_message(meta, mid, collect_kind)
             except BadRequest as exc:
                 logger.warning(
                     "telegram HTML send failed, trying plain text: %s",
@@ -778,7 +850,11 @@ class TelegramChannel(BaseChannel):
                     }
                     if message_thread_id is not None:
                         kwargs["message_thread_id"] = message_thread_id
-                    await bot.send_message(**kwargs)
+                    sent = await bot.send_message(**kwargs)
+                    if collect_kind is not None:
+                        mid = getattr(sent, "message_id", None)
+                        if mid is not None:
+                            self._track_tg_message(meta, mid, collect_kind)
                 except Exception:
                     logger.exception("telegram send_message fallback failed")
                     return
@@ -810,11 +886,27 @@ class TelegramChannel(BaseChannel):
         if self._is_processing.get(to_handle, False):
             self._start_typing(chat_id)
 
+        # Issue #7586: media messages share the same round-kind marker as
+        # text (set by on_event_message_completed / on_event_content /
+        # on_streaming_end). Error fallback texts below must stay untracked.
+        collect_kind = (
+            meta.get(_TG_COLLECT_KIND_KEY)
+            if isinstance(meta, dict) and self._cleanup_intermediate
+            else None
+        )
+        if collect_kind not in (_TG_KIND_INTERMEDIATE, _TG_KIND_FINAL):
+            collect_kind = None
+
+        def _untracked_meta() -> dict:
+            if not isinstance(meta, dict):
+                return {}
+            return {k: v for k, v in meta.items() if k != _TG_COLLECT_KIND_KEY}
+
         part_type = getattr(part, "type", None)
         try:
             if part_type == ContentType.IMAGE:
                 image_url = getattr(part, "image_url", None)
-                await self._send_media_value(
+                sent_mid = await self._send_media_value(
                     bot=bot,
                     chat_id=chat_id,
                     value=image_url,
@@ -822,9 +914,11 @@ class TelegramChannel(BaseChannel):
                     payload_name="photo",
                     message_thread_id=message_thread_id,
                 )
+                if collect_kind is not None and sent_mid is not None:
+                    self._track_tg_message(meta, sent_mid, collect_kind)
             elif part_type == ContentType.VIDEO:
                 video_url = getattr(part, "video_url", None)
-                await self._send_media_value(
+                sent_mid = await self._send_media_value(
                     bot=bot,
                     chat_id=chat_id,
                     value=video_url,
@@ -832,9 +926,11 @@ class TelegramChannel(BaseChannel):
                     payload_name="video",
                     message_thread_id=message_thread_id,
                 )
+                if collect_kind is not None and sent_mid is not None:
+                    self._track_tg_message(meta, sent_mid, collect_kind)
             elif part_type == ContentType.AUDIO:
                 audio_data = getattr(part, "data", None)
-                await self._send_media_value(
+                sent_mid = await self._send_media_value(
                     bot=bot,
                     chat_id=chat_id,
                     value=audio_data,
@@ -842,9 +938,11 @@ class TelegramChannel(BaseChannel):
                     payload_name="audio",
                     message_thread_id=message_thread_id,
                 )
+                if collect_kind is not None and sent_mid is not None:
+                    self._track_tg_message(meta, sent_mid, collect_kind)
             elif part_type == ContentType.FILE:
                 file_url = getattr(part, "file_url", None)
-                await self._send_media_value(
+                sent_mid = await self._send_media_value(
                     bot=bot,
                     chat_id=chat_id,
                     value=file_url,
@@ -852,18 +950,20 @@ class TelegramChannel(BaseChannel):
                     payload_name="document",
                     message_thread_id=message_thread_id,
                 )
+                if collect_kind is not None and sent_mid is not None:
+                    self._track_tg_message(meta, sent_mid, collect_kind)
         except _FileTooLargeError as exc:
             logger.warning("telegram send_media: file too large: %s", exc)
-            await self.send(to_handle, str(exc), meta)
+            await self.send(to_handle, str(exc), _untracked_meta())
         except _MediaFileUnavailableError as exc:
             logger.warning("telegram send_media: file unavailable: %s", exc)
-            await self.send(to_handle, str(exc), meta)
+            await self.send(to_handle, str(exc), _untracked_meta())
         except BadRequest as exc:
             logger.warning("telegram send_media: bad request: %s", exc)
             await self.send(
                 to_handle,
                 f"Telegram rejected the file: {exc}",
-                meta,
+                _untracked_meta(),
             )
         except TimedOut as exc:
             logger.warning("telegram send_media: timed out: %s", exc)
@@ -871,28 +971,28 @@ class TelegramChannel(BaseChannel):
                 to_handle,
                 "File upload timed out. "
                 "The file may be too large (Telegram bot limit: 50 MB).",
-                meta,
+                _untracked_meta(),
             )
         except RetryAfter as exc:
             logger.warning("telegram send_media: rate limited: %s", exc)
             await self.send(
                 to_handle,
                 f"Too many requests. Please try again later. ({exc})",
-                meta,
+                _untracked_meta(),
             )
         except Forbidden as exc:
             logger.warning("telegram send_media: forbidden: %s", exc)
             await self.send(
                 to_handle,
                 "The bot does not have permission to send media in this chat.",
-                meta,
+                _untracked_meta(),
             )
         except NetworkError as exc:
             logger.warning("telegram send_media: network error: %s", exc)
             await self.send(
                 to_handle,
                 "Network error. Failed to send file, please try again later.",
-                meta,
+                _untracked_meta(),
             )
         except OSError as exc:
             logger.warning("telegram send_media: OS error: %s", exc)
@@ -900,7 +1000,7 @@ class TelegramChannel(BaseChannel):
             await self.send(
                 to_handle,
                 f"Failed to read the file, cannot send ({error_detail}).",
-                meta,
+                _untracked_meta(),
             )
         except Exception:
             logger.exception("telegram send_media failed")
@@ -910,14 +1010,179 @@ class TelegramChannel(BaseChannel):
     # ------------------------------------------------------------------
 
     def _get_stream_state(self, send_meta: Dict[str, Any]) -> Dict[str, Any]:
-        """Get or create the per-request streaming state dict in send_meta."""
+        """Get or create the per-request streaming state dict in send_meta.
+
+        Besides the live ``message_ids`` placeholders, the state keeps
+        two request-local ledgers for Issue #7586:
+
+        - ``intermediate_ids``: reasoning / tool messages to delete
+        - ``final_ids``: final answer messages to preserve
+        """
         state = send_meta.get("_tg_stream")
         if state is None:
             state = {
                 "message_ids": {},
+                "intermediate_ids": [],
+                "final_ids": [],
             }
             send_meta["_tg_stream"] = state
+            return state
+        # Backward compat: states created before #7586 only have
+        # message_ids.
+        state.setdefault("message_ids", {})
+        state.setdefault("intermediate_ids", [])
+        state.setdefault("final_ids", [])
         return state
+
+    def _track_tg_message(
+        self,
+        send_meta: Optional[Dict[str, Any]],
+        message_id: Any,
+        kind: str,
+    ) -> None:
+        """Record one Telegram message_id as intermediate or final.
+
+        No-op unless cleanup is enabled. ``send_meta`` is the same
+        request-local dict threaded through the whole round, so concurrent
+        requests never share ledgers.
+        """
+        if not self._cleanup_intermediate:
+            return
+        if not isinstance(send_meta, dict):
+            return
+        if kind not in (_TG_KIND_INTERMEDIATE, _TG_KIND_FINAL):
+            return
+        try:
+            mid = int(message_id)
+        except (TypeError, ValueError):
+            return
+        state = self._get_stream_state(send_meta)
+        key = (
+            "intermediate_ids"
+            if kind == _TG_KIND_INTERMEDIATE
+            else "final_ids"
+        )
+        ledger = state.get(key)
+        if not isinstance(ledger, list):
+            ledger = []
+            state[key] = ledger
+        if mid not in ledger:
+            ledger.append(mid)
+
+    def _track_tg_messages(
+        self,
+        send_meta: Optional[Dict[str, Any]],
+        message_ids: Any,
+        kind: str,
+    ) -> None:
+        if not message_ids:
+            return
+        if isinstance(message_ids, (list, tuple, set)):
+            for mid in message_ids:
+                self._track_tg_message(send_meta, mid, kind)
+        else:
+            self._track_tg_message(send_meta, message_ids, kind)
+
+    @staticmethod
+    def _classify_completed_event_kind(event: Any) -> str:
+        """Classify a completed message event without guessing from text.
+
+        Exact-match against the explicit whitelists above
+        (``event.type`` as MessageType value or plain string):
+
+        - intermediate: reasoning, the six tool call/output types, progress
+        - final/keep: message, result
+        - unknown / future / missing: KEEP (final) — fail-safe, we would
+          rather leak an unclassifiable message than delete user content.
+        """
+        raw = getattr(event, "type", None)
+        type_str = ""
+        if raw is not None:
+            type_str = raw.value if hasattr(raw, "value") else str(raw)
+            type_str = (type_str or "").strip().lower()
+        if type_str in _TG_INTERMEDIATE_MESSAGE_TYPES:
+            return _TG_KIND_INTERMEDIATE
+        # Both the explicit final whitelist and anything unrecognized
+        # (including "") resolve to KEEP.
+        return _TG_KIND_FINAL
+
+    @staticmethod
+    def _is_trackable_content_preview(event: Any) -> bool:
+        """Whether an ``on_event_content`` event may produce a send.
+
+        Mirrors the base-class send gate (``DATA`` + ``InProgress``) so
+        the intermediate marker is only set when a tool-preview message
+        can actually be emitted. ``Completed`` DATA, unknown content
+        types and future statuses stay unmarked → always kept.
+        """
+        raw_type = getattr(event, "type", None)
+        if raw_type is None:
+            return False
+        type_str = (
+            raw_type.value if hasattr(raw_type, "value") else str(raw_type)
+        )
+        if (type_str or "").strip().lower() != "data":
+            return False
+        raw_status = getattr(event, "status", None)
+        if raw_status is None:
+            return False
+        status_str = (
+            raw_status.value
+            if hasattr(raw_status, "value")
+            else str(raw_status)
+        )
+        return (status_str or "").strip().lower() == "in_progress"
+
+    async def _cleanup_intermediate_messages(
+        self,
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Best-effort delete of this round's intermediate messages.
+
+        Only called on successful completion. Never raises: cleanup
+        failures must not fail the final answer.
+        """
+        try:
+            if not self._cleanup_intermediate:
+                return
+            if not isinstance(send_meta, dict):
+                return
+            state = send_meta.get("_tg_stream")
+            if not isinstance(state, dict):
+                return
+            intermediate = state.get("intermediate_ids") or []
+            final = state.get("final_ids") or []
+            if not intermediate:
+                return
+            final_set = set()
+            for mid in final:
+                try:
+                    final_set.add(int(mid))
+                except (TypeError, ValueError):
+                    continue
+            chat_id = send_meta.get("chat_id") or to_handle
+            if not chat_id:
+                return
+            seen: set[int] = set()
+            for raw_mid in intermediate:
+                try:
+                    mid = int(raw_mid)
+                except (TypeError, ValueError):
+                    continue
+                if mid in seen or mid in final_set:
+                    continue
+                seen.add(mid)
+                try:
+                    await self._delete_message(chat_id, mid)
+                except Exception:
+                    # _delete_message is already best-effort; keep going.
+                    continue
+        except Exception:
+            logger.debug(
+                "telegram: intermediate cleanup failed (non-fatal)",
+                exc_info=True,
+            )
 
     async def _send_placeholder(
         self,
@@ -1089,6 +1354,12 @@ class TelegramChannel(BaseChannel):
 
         If the final text exceeds Telegram's 4096-char limit, delete the
         placeholder and fall back to the normal chunked send path.
+
+        Issue #7586: when cleanup is enabled, the finished placeholder id
+        (single-message path) or the chunked send ids (long path) are
+        recorded as intermediate (reasoning) or final (message). Reasoning
+        is never deleted here — cleanup happens once at successful
+        process completion so users can still watch it while answering.
         """
         state = self._get_stream_state(send_meta)
         msg_id = state["message_ids"].pop(stream_type, None)
@@ -1099,12 +1370,25 @@ class TelegramChannel(BaseChannel):
         final_text = (
             f"{prefix}{accumulated_text}" if prefix else accumulated_text
         )
+        stream_kind = (
+            _TG_KIND_INTERMEDIATE
+            if stream_type == "reasoning"
+            else _TG_KIND_FINAL
+        )
 
         # If placeholder was never sent (e.g. API error), fall back to
         # normal send so the reply is not silently lost.
         if not msg_id:
-            await self.send(to_handle, final_text, send_meta)
-        elif len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+            if self._cleanup_intermediate and final_text.strip():
+                send_meta[_TG_COLLECT_KIND_KEY] = stream_kind
+                try:
+                    await self.send(to_handle, final_text, send_meta)
+                finally:
+                    send_meta.pop(_TG_COLLECT_KIND_KEY, None)
+            else:
+                await self.send(to_handle, final_text, send_meta)
+            return
+        if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
             # Text fits in a single message — edit in place.
             html_text = markdown_to_telegram_html(final_text)
             success = await self._edit_stream_message(
@@ -1120,15 +1404,67 @@ class TelegramChannel(BaseChannel):
                     final_text,
                     use_html=False,
                 )
+            # Record after the final edit (even if the edit failed, the
+            # placeholder message itself still exists and belongs to
+            # this round's ledger).
+            if self._cleanup_intermediate:
+                self._track_tg_message(send_meta, msg_id, stream_kind)
         else:
             # Text too long for a single edit — delete placeholder and
             # use the normal chunked send path (same as non-streaming).
             await self._delete_message(chat_id, msg_id)
-            await self.send(to_handle, final_text, send_meta)
+            if self._cleanup_intermediate:
+                send_meta[_TG_COLLECT_KIND_KEY] = stream_kind
+                try:
+                    await self.send(to_handle, final_text, send_meta)
+                finally:
+                    send_meta.pop(_TG_COLLECT_KIND_KEY, None)
+            else:
+                await self.send(to_handle, final_text, send_meta)
 
     # ------------------------------------------------------------------
     # Event hooks
     # ------------------------------------------------------------------
+
+    async def on_event_content(
+        self,
+        request,
+        to_handle: str,
+        event,
+        send_meta: dict,
+    ) -> bool:
+        """Track DATA/InProgress tool previews as intermediate (Issue #7586).
+
+        The marker is only set for events that can actually emit a send
+        (DATA + InProgress). Completed DATA, unknown/future content and
+        anything the base class would not send stay unmarked → kept.
+        Fail-safe: rather leak than delete unclassifiable content.
+        """
+        if not self._cleanup_intermediate:
+            return await super().on_event_content(
+                request,
+                to_handle,
+                event,
+                send_meta,
+            )
+        if not self._is_trackable_content_preview(event):
+            return await super().on_event_content(
+                request,
+                to_handle,
+                event,
+                send_meta,
+            )
+        send_meta[_TG_COLLECT_KIND_KEY] = _TG_KIND_INTERMEDIATE
+        try:
+            return await super().on_event_content(
+                request,
+                to_handle,
+                event,
+                send_meta,
+            )
+        finally:
+            if isinstance(send_meta, dict):
+                send_meta.pop(_TG_COLLECT_KIND_KEY, None)
 
     async def on_event_message_completed(
         self,
@@ -1137,7 +1473,14 @@ class TelegramChannel(BaseChannel):
         event,
         send_meta: dict,
     ) -> None:
-        """Render card-flagged events via the card handler; else default."""
+        """Render card-flagged events via the card handler; else default.
+
+        Issue #7586: card events (e.g. tool-guard approval) return early
+        and stay untracked so approval UX is never deleted. All other
+        completed messages are classified from ``event.type`` (never from
+        emoji/text) and their ``send()``/``send_media()`` outputs are
+        recorded as intermediate (tool/reasoning) or final (message).
+        """
         if await self._card_handler.try_send_card_for_event(
             to_handle,
             event,
@@ -1147,12 +1490,27 @@ class TelegramChannel(BaseChannel):
             if self._is_processing.get(to_handle, False):
                 self._start_typing(to_handle)
             return
-        await super().on_event_message_completed(
-            request,
-            to_handle,
-            event,
-            send_meta,
-        )
+        if not self._cleanup_intermediate:
+            await super().on_event_message_completed(
+                request,
+                to_handle,
+                event,
+                send_meta,
+            )
+        else:
+            kind = self._classify_completed_event_kind(event)
+            if isinstance(send_meta, dict):
+                send_meta[_TG_COLLECT_KIND_KEY] = kind
+            try:
+                await super().on_event_message_completed(
+                    request,
+                    to_handle,
+                    event,
+                    send_meta,
+                )
+            finally:
+                if isinstance(send_meta, dict):
+                    send_meta.pop(_TG_COLLECT_KIND_KEY, None)
         # Re-start typing after sending, in case more tool calls follow.
         if self._is_processing.get(to_handle, False):
             self._start_typing(to_handle)
@@ -1177,9 +1535,23 @@ class TelegramChannel(BaseChannel):
         to_handle: str,
         send_meta: dict,
     ) -> None:
-        """All events done — clear processing flag and stop typing."""
-        self._is_processing.pop(to_handle, None)
-        self._stop_typing(to_handle)
+        """All events done — cleanup intermediates, clear flag, stop typing.
+
+        Issue #7586: on success only, best-effort delete this round's
+        intermediate messages (reasoning / tool calls / results) while
+        preserving every final answer id. Cleanup failures never fail
+        the round; typing/processing state is always cleared. Error and
+        cancellation paths deliberately do no cleanup (field preserved).
+        """
+        try:
+            if self._cleanup_intermediate:
+                await self._cleanup_intermediate_messages(
+                    to_handle,
+                    send_meta,
+                )
+        finally:
+            self._is_processing.pop(to_handle, None)
+            self._stop_typing(to_handle)
 
     async def _on_consume_error(
         self,
@@ -1215,10 +1587,10 @@ class TelegramChannel(BaseChannel):
         method_name: str,
         payload_name: str,
         message_thread_id: Optional[int],
-    ) -> None:
-        """Send media from URL or local file path."""
+    ) -> Optional[int]:
+        """Send media from URL or local file path; return message_id."""
         if not value:
-            return
+            return None
         if isinstance(value, str) and value.startswith("file://"):
             raw_path = file_url_to_local_path(value)
             if not raw_path:
@@ -1247,7 +1619,7 @@ class TelegramChannel(BaseChannel):
                 )
             try:
                 with open(local_path, "rb") as media_file:
-                    await self._send_media_payload(
+                    return await self._send_media_payload(
                         bot=bot,
                         chat_id=chat_id,
                         method_name=method_name,
@@ -1262,8 +1634,8 @@ class TelegramChannel(BaseChannel):
                     exc,
                 )
                 raise
-            return
-        await self._send_media_payload(
+            return None
+        return await self._send_media_payload(
             bot=bot,
             chat_id=chat_id,
             method_name=method_name,
@@ -1281,17 +1653,22 @@ class TelegramChannel(BaseChannel):
         payload_name: str,
         payload: Any,
         message_thread_id: Optional[int],
-    ) -> None:
-        """Send a prepared Telegram media payload."""
+    ) -> Optional[int]:
+        """Send a prepared Telegram media payload; return message_id."""
         if not payload:
-            return
+            return None
         kwargs = {
             "chat_id": chat_id,
             payload_name: payload,
         }
         if message_thread_id is not None:
             kwargs["message_thread_id"] = message_thread_id
-        await getattr(bot, method_name)(**kwargs)
+        sent = await getattr(bot, method_name)(**kwargs)
+        mid = getattr(sent, "message_id", None)
+        try:
+            return int(mid) if mid is not None else None
+        except (TypeError, ValueError):
+            return None
 
     async def _polling_cycle(self, app) -> None:
         """Run one polling lifecycle: init → poll → watchdog."""
