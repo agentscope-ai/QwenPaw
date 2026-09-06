@@ -1640,8 +1640,10 @@ class ScrollContextManager:
         setter = getattr(agent, "_set_formatter_thinking_omit_ids", None)
         if not callable(setter):
             return False
-        setter(set(self._folded_thinking_block_ids))
-        return True
+        applied = setter(set(self._folded_thinking_block_ids))
+        # Preserve compatibility with third-party agents implementing the
+        # original setter before it returned an explicit capability result.
+        return applied is not False
 
     async def _batch_fold_seen_active_thinking(
         self,

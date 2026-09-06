@@ -561,12 +561,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
-    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> None:
-        """Omit selected reasoning text from wire requests without mutation."""
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        """Propagate reasoning omissions through model wrappers."""
+        model_setter = getattr(self.model, "set_thinking_omit_ids", None)
+        if callable(model_setter):
+            return bool(model_setter(set(block_ids)))
+
         formatter = self._get_active_formatter()
         if formatter is None:
-            return
+            return False
+        formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
+        if callable(formatter_setter):
+            return bool(formatter_setter(set(block_ids)))
+        # Compatibility for third-party OpenAI-chat formatters that predate
+        # the explicit interface but consume the QwenPaw extension attribute.
         setattr(formatter, "_qwenpaw_omit_thinking_ids", set(block_ids))
+        return True
 
     def _last_wire_request_had_media(self) -> bool:
         """Return whether the last completed formatting emitted media."""

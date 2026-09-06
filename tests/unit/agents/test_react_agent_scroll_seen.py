@@ -55,6 +55,17 @@ class CompressionTracker:
         self.calls.append((agent, context_config, instructions))
 
 
+class ThinkingOmissionModel:
+    """Record explicit thinking omission calls from the agent."""
+
+    def __init__(self) -> None:
+        self.ids: set[str] | None = None
+
+    def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        self.ids = set(block_ids)
+        return True
+
+
 def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     """Build only the attributes the reasoning wrapper reads."""
     agent = object.__new__(QwenPawAgent)
@@ -83,6 +94,20 @@ def _skip_media_strip(monkeypatch) -> None:
         "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
         lambda: True,
     )
+
+
+def test_thinking_omissions_delegate_to_model_wrapper() -> None:
+    """Fallback-aware model interfaces take precedence over one formatter."""
+    agent = object.__new__(QwenPawAgent)
+    model = ThinkingOmissionModel()
+    agent.model = model
+    agent.formatter = SimpleNamespace()
+
+    applied = agent._set_formatter_thinking_omit_ids({"thinking-1"})
+
+    assert applied is True
+    assert model.ids == {"thinking-1"}
+    assert not hasattr(agent.formatter, "_qwenpaw_omit_thinking_ids")
 
 
 async def test_successful_model_call_acknowledges_input_results(monkeypatch):

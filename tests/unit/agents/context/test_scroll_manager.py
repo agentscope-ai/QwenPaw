@@ -241,8 +241,9 @@ class FakeAgent:
         # Default: compress everything but the last msg.
         return (self.state.context[:-1], self.state.context[-1:])
 
-    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> None:
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         self.omitted_thinking_ids = set(block_ids)
+        return True
 
 
 class AutoMemoryMsgBuilder(BaseMemoryManager):

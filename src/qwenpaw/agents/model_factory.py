@@ -1477,6 +1477,14 @@ def _create_file_block_support_formatter(
         Enhanced formatter class with file block support
     """
 
+    supports_thinking_omission = not (
+        (
+            AnthropicChatFormatter is not None
+            and issubclass(base_formatter_class, AnthropicChatFormatter)
+        )
+        or issubclass(base_formatter_class, OpenAIResponseFormatter)
+    )
+
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
@@ -1499,6 +1507,22 @@ def _create_file_block_support_formatter(
                     "video/*",
                 ]
             super().__init__(**kwargs)
+
+        def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+            """Set request-time reasoning omissions when wire-compatible.
+
+            Anthropic thinking blocks are signed and must remain intact during
+            tool use. Responses formatters own their reasoning representation
+            as well. Both therefore reject this OpenAI-chat extension instead
+            of silently carrying a stale private attribute.
+            """
+            accepted_ids = (
+                {str(item) for item in block_ids}
+                if supports_thinking_omission
+                else set()
+            )
+            setattr(self, "_qwenpaw_omit_thinking_ids", accepted_ids)
+            return supports_thinking_omission
 
         def _format_anthropic_data_block(self, block):
             """Route video ``DataBlock``s to our local helper; defer
@@ -1704,9 +1728,7 @@ def _create_file_block_support_formatter(
                 False,
             )
             should_inject_reasoning = has_reasoning or require_reasoning
-            formatter_supports_reasoning = (
-                not is_anthropic_formatter and not _is_response_formatter
-            )
+            formatter_supports_reasoning = supports_thinking_omission
             should_relay_reasoning = relay_reasoning or require_reasoning
             if (
                 should_inject_reasoning
