@@ -28,6 +28,7 @@ class SeenTracker:
 
     def __init__(self) -> None:
         self.acknowledged: list[set[str]] = []
+        self.thinking_acknowledged: list[set[str]] = []
 
     @staticmethod
     def model_input_tool_result_ids(agent) -> set[str]:
@@ -35,6 +36,13 @@ class SeenTracker:
 
     def acknowledge_model_input_tool_results(self, ids: set[str]) -> None:
         self.acknowledged.append(set(ids))
+
+    @staticmethod
+    def model_input_thinking_block_ids(agent) -> set[str]:
+        return {"thinking-seen"}
+
+    def acknowledge_model_input_thinking_blocks(self, ids: set[str]) -> None:
+        self.thinking_acknowledged.append(set(ids))
 
 
 class CompressionTracker:
@@ -45,6 +53,17 @@ class CompressionTracker:
 
     async def compress(self, agent, context_config=None, instructions=None):
         self.calls.append((agent, context_config, instructions))
+
+
+class ThinkingOmissionModel:
+    """Record explicit thinking omission calls from the agent."""
+
+    def __init__(self) -> None:
+        self.ids: set[str] | None = None
+
+    def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        self.ids = set(block_ids)
+        return True
 
 
 def make_agent(tracker: SeenTracker) -> QwenPawAgent:
@@ -77,6 +96,20 @@ def _skip_media_strip(monkeypatch) -> None:
     )
 
 
+def test_thinking_omissions_delegate_to_model_wrapper() -> None:
+    """Fallback-aware model interfaces take precedence over one formatter."""
+    agent = object.__new__(QwenPawAgent)
+    model = ThinkingOmissionModel()
+    agent.model = model
+    agent.formatter = SimpleNamespace()
+
+    applied = agent._set_formatter_thinking_omit_ids({"thinking-1"})
+
+    assert applied is True
+    assert model.ids == {"thinking-1"}
+    assert not hasattr(agent.formatter, "_qwenpaw_omit_thinking_ids")
+
+
 async def test_successful_model_call_acknowledges_input_results(monkeypatch):
     _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
@@ -99,6 +132,7 @@ async def test_successful_model_call_acknowledges_input_results(monkeypatch):
     events = [event async for event in agent._reasoning()]
 
     assert tracker.acknowledged == [{"call-seen"}]
+    assert tracker.thinking_acknowledged == [{"thinking-seen"}]
     assert isinstance(events[-1], Msg)
 
 
@@ -119,6 +153,7 @@ async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
             pass
 
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_interrupted_model_call_does_not_acknowledge_results(
@@ -141,6 +176,7 @@ async def test_interrupted_model_call_does_not_acknowledge_results(
 
     assert len(events) == 1
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_compress_context_forwards_one_shot_instructions():

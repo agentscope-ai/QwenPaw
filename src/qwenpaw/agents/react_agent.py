@@ -561,6 +561,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        """Propagate reasoning omissions through model wrappers."""
+        model_setter = getattr(self.model, "set_thinking_omit_ids", None)
+        if callable(model_setter):
+            return bool(model_setter(set(block_ids)))
+
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
+        if callable(formatter_setter):
+            return bool(formatter_setter(set(block_ids)))
+        # Compatibility for third-party OpenAI-chat formatters that predate
+        # the explicit interface but consume the QwenPaw extension attribute.
+        setattr(formatter, "_qwenpaw_omit_thinking_ids", set(block_ids))
+        return True
+
     def _last_wire_request_had_media(self) -> bool:
         """Return whether the last completed formatting emitted media."""
         formatter = self._get_active_formatter()
@@ -795,6 +812,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         final_msg: Msg | None = None
         context_manager = self._context_manager
         pending_seen_ids: set[str] = set()
+        pending_seen_thinking_ids: set[str] = set()
         if context_manager is not None and hasattr(
             context_manager,
             "model_input_tool_result_ids",
@@ -802,25 +820,39 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pending_seen_ids = context_manager.model_input_tool_result_ids(
                 self,
             )
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_thinking_block_ids",
+        ):
+            pending_seen_thinking_ids = (
+                context_manager.model_input_thinking_block_ids(self)
+            )
 
-        def acknowledge_seen_results(evt: Any) -> None:
+        def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
                 and context_manager is not None
-                and hasattr(
+            ):
+                if hasattr(
                     context_manager,
                     "acknowledge_model_input_tool_results",
-                )
-            ):
-                context_manager.acknowledge_model_input_tool_results(
-                    pending_seen_ids,
-                )
+                ):
+                    context_manager.acknowledge_model_input_tool_results(
+                        pending_seen_ids,
+                    )
+                if hasattr(
+                    context_manager,
+                    "acknowledge_model_input_thinking_blocks",
+                ):
+                    context_manager.acknowledge_model_input_thinking_blocks(
+                        pending_seen_thinking_ids,
+                    )
 
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
-                acknowledge_seen_results(evt)
+                acknowledge_seen_inputs(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
@@ -871,7 +903,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
-                    acknowledge_seen_results(evt)
+                    acknowledge_seen_inputs(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:

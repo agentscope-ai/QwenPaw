@@ -562,6 +562,72 @@ async def test_openai_formatter_aligns_reasoning_with_split_segments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_formatter_omits_thinking_without_mutation() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    old_thought = ThinkingBlock(thinking="old reasoning")
+    new_thought = ThinkingBlock(thinking="new reasoning")
+    formatter._qwenpaw_omit_thinking_ids = {old_thought.id}
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            old_thought,
+            ToolCallBlock(id="call_1", name="first", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="first",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            new_thought,
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert "reasoning_content" not in assistant_messages[0]
+    assert assistant_messages[1]["reasoning_content"] == "new reasoning"
+    assert old_thought.thinking == "old reasoning"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_formatter_preserves_native_thinking() -> None:
+    """Request-time elision must not alter signed Anthropic thinking."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    thought = ThinkingBlock(
+        thinking="native reasoning",
+        signature="signature-abc",
+    )
+    formatter._qwenpaw_omit_thinking_ids = {thought.id}
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[thought, TextBlock(text="done")],
+    )
+
+    formatted = await formatter.format([msg])
+
+    thinking = formatted[0]["content"][0]
+    assert thinking == {
+        "type": "thinking",
+        "thinking": "native reasoning",
+        "signature": "signature-abc",
+    }
+
+
+@pytest.mark.asyncio
 async def test_openai_formatter_aligns_reasoning_across_hint() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
