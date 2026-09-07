@@ -9,7 +9,14 @@ import asyncio
 from typing import Any, AsyncGenerator, cast
 
 import pytest
-from agentscope.message import Msg, TextBlock, ThinkingBlock
+from agentscope.message import (
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    ToolResultState,
+)
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse, StructuredResponse
 from agentscope.model._model_usage import ChatUsage
@@ -901,6 +908,75 @@ async def test_fallback_propagates_thinking_omissions() -> None:
     assert response.content[0]["text"] == "ok"
     assert "reasoning_content" not in primary.formatted_messages[0]
     assert "reasoning_content" not in fallback.formatted_messages[0]
+
+
+async def test_deepseek_fallback_preserves_exact_reasoning() -> None:
+    """Omission capability follows the actual serving fallback provider."""
+    primary_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="openai-compatible",
+    )
+    deepseek_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="deepseek",
+        model_id="deepseek-reasoner",
+    )
+    primary = FormattingFakeModel(
+        "primary",
+        HttpError(503),
+        primary_class(relay_reasoning_content=True),
+    )
+    fallback = FormattingFakeModel(
+        "deepseek-reasoner",
+        lambda: _response("ok"),
+        deepseek_class(relay_reasoning_content=True),
+    )
+    model = FallbackChatModel(
+        [
+            _wrapped_formatting_model(primary, "primary-provider"),
+            _wrapped_formatting_model(fallback, "deepseek"),
+        ],
+    )
+    thought = ThinkingBlock(thinking="must be replayed to DeepSeek")
+    messages = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                thought,
+                ToolCallBlock(id="call_1", name="tool", input="{}"),
+                ToolResultBlock(
+                    id="call_1",
+                    name="tool",
+                    output=[TextBlock(text="result")],
+                    state=ToolResultState.SUCCESS,
+                ),
+                TextBlock(text="done"),
+            ],
+        ),
+    ]
+
+    assert model.set_thinking_omit_ids({thought.id}) is True
+    await model(
+        messages=messages,
+        tools=[{"type": "function", "function": {"name": "tool"}}],
+    )
+
+    primary_assistants = [
+        item
+        for item in primary.formatted_messages
+        if item.get("role") == "assistant"
+    ]
+    fallback_assistants = [
+        item
+        for item in fallback.formatted_messages
+        if item.get("role") == "assistant"
+    ]
+    assert "reasoning_content" not in primary_assistants[0]
+    assert fallback_assistants[0]["reasoning_content"] == (
+        "must be replayed to DeepSeek"
+    )
+    assert fallback.formatter._qwenpaw_omit_thinking_ids == set()
 
 
 async def test_anthropic_fallback_preserves_native_thinking() -> None:
