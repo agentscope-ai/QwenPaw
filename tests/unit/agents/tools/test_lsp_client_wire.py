@@ -170,7 +170,9 @@ class TestClientPool:
     def test_pool_key_uses_resolved_path(self, tmp_path, monkeypatch):
         monkeypatch.setattr(lsp.LspClient, "start", lambda self: None)
         link = tmp_path / "link"
-        link.symlink_to(tmp_path)
+        # ``target_is_directory`` is required on Windows (it distinguishes
+        # file from directory symlinks) and ignored on POSIX.
+        link.symlink_to(tmp_path, target_is_directory=True)
         direct = lsp.get_client(tmp_path, "python", ["pyright"])
         via_link = lsp.get_client(link, "python", ["pyright"])
         assert direct is via_link
