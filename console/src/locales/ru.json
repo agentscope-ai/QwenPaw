@@ -2594,6 +2594,17 @@
       "restApiKey": "REST API Key",
       "memoryIsolation": "Memory Isolation (per-agent)",
       "searchTimeout": "Search Timeout"
+    },
+    "openvikingMemoryTitle": "OpenViking Long-term Memory",
+    "openvikingConfig": {
+      "title": "OpenViking Memory Configuration",
+      "baseUrl": "Server Endpoint",
+      "apiKey": "Tenant API Key",
+      "requestTimeout": "Request Timeout",
+      "tokenBudget": "Automatic Recall Token Budget",
+      "commitPolicy": "Commit Policy",
+      "commitAuto": "OpenViking auto-commit",
+      "commitEveryTurn": "Commit every completed turn"
     }
   },
   "tools": {

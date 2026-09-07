@@ -489,6 +489,50 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 > 💡 通过 Console「运行配置」页面填写时，框架会自动将这些字段写入 `agent.json`，无需手动编辑文件。
 
+### OpenViking
+
+OpenViking 后端通过异步 REST API 提供跨会话长期记忆，不要求 QwenPaw
+安装 OpenViking Python SDK。两个服务可以独立部署和升级；升级 OpenViking
+前仍应检查其 REST API 兼容性，而不是无条件跟随 `latest` 标签。
+
+每次模型调用前，QwenPaw 可使用 OpenViking 的 context search 召回记忆，
+并在本地再次执行 token/字节上限校验。每个完整的用户/助手回合在回复后写入，
+自动召回生成的合成工具消息会先被移除，避免旧记忆被当成新事实再次保存。
+普通超时和服务端临时错误采用 fail-open；错误的地址、API Key 或权限则会报告为
+配置错误。
+
+| 配置项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `base_url` | OpenViking HTTP 服务地址；容器内通常是 `http://openviking:1933` | `http://127.0.0.1:1933` |
+| `api_key` | OpenViking 租户用户 Key；不要使用 Root Key 访问业务数据 | `""` |
+| `request_timeout` | 单个 HTTP 请求超时（秒） | `10.0` |
+| `retrieval_token_budget` | 每回合允许注入的最大召回 token 数 | `2048` |
+| `auto_memory_search_config` | 自动召回开关和最大结果数 | `{"enabled": true, "max_results": 3}` |
+| `commit_policy` | `auto` 使用服务端阈值策略；`every_turn` 每回合提交 | `auto` |
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "openviking",
+    "openviking_memory_config": {
+      "base_url": "http://openviking:1933",
+      "api_key": "your-openviking-user-key",
+      "request_timeout": 10,
+      "retrieval_token_budget": 2048,
+      "auto_memory_search_config": {
+        "enabled": true,
+        "max_results": 3
+      },
+      "commit_policy": "auto"
+    }
+  }
+}
+```
+
+QwenPaw 将“OpenViking 租户 + 本次安装 + Agent + QwenPaw 聊天会话”哈希为
+OpenViking session ID，既隔离不同 Agent，也避免两套 QwenPaw 安装误用同一会话。
+`memory_search` 工具用于显式检索；自动召回关闭后仍可保留显式搜索。
+
 ---
 
 ## 相关页面

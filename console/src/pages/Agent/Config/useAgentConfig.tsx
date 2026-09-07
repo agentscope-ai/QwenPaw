@@ -90,6 +90,7 @@ export function useAgentConfig(
         reme_light_memory_config: config.reme_light_memory_config,
         adbpg_memory_config: config.adbpg_memory_config,
         powercontext_memory_config: config.powercontext_memory_config,
+        openviking_memory_config: config.openviking_memory_config,
         auto_title_config: config.auto_title_config ?? {
           enabled: true,
           timeout_seconds: 30.0,
@@ -182,6 +183,10 @@ export function useAgentConfig(
           original.powercontext_memory_config,
           formValues.powercontext_memory_config,
         ) as typeof original.powercontext_memory_config,
+        openviking_memory_config: deepMergeConfig(
+          original.openviking_memory_config,
+          formValues.openviking_memory_config,
+        ) as typeof original.openviking_memory_config,
         auto_title_config: deepMergeConfig(
           original.auto_title_config,
           formValues.auto_title_config,

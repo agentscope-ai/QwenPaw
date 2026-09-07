@@ -901,6 +901,43 @@ class PowerContextMemoryConfig(BaseModel):
         return normalized
 
 
+class OpenVikingMemoryConfig(BaseModel):
+    """OpenViking REST long-term-memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = Field(
+        default="http://127.0.0.1:1933",
+        description="OpenViking server endpoint",
+    )
+    api_key: str = Field(default="", description="OpenViking tenant API key")
+    request_timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=300.0,
+        description="Per-request timeout in seconds",
+    )
+    retrieval_token_budget: int = Field(
+        default=2048,
+        ge=64,
+        le=32000,
+        description="Maximum automatic-recall tokens injected per turn",
+    )
+    auto_memory_search_config: AutoMemorySearchConfig = Field(
+        default_factory=lambda: AutoMemorySearchConfig(
+            enabled=True,
+            max_results=3,
+        ),
+    )
+    commit_policy: Literal["auto", "every_turn"] = Field(
+        default="auto",
+        description=(
+            "auto uses OpenViking's fixed server-side policy; every_turn "
+            "commits each completed QwenPaw turn"
+        ),
+    )
+
+
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -1982,6 +2019,12 @@ class AgentsRunningConfig(BaseModel):
             "PowerContext memory configuration (used when "
             "memory_manager_backend='powercontext')"
         ),
+    )
+
+    openviking_memory_config: Optional[OpenVikingMemoryConfig] = Field(
+        default=None,
+        description="OpenViking memory configuration (used when "
+        "memory_manager_backend='openviking')",
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(

@@ -517,6 +517,56 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
 
 > 💡 When you fill these fields in the Console "Running Config" page, the framework writes them into `agent.json` automatically — no need to edit the file by hand.
 
+### OpenViking
+
+The OpenViking backend provides cross-session long-term memory over an
+asynchronous REST API. QwenPaw does not require the OpenViking Python SDK, so
+the services can be deployed and upgraded independently. Check REST API
+compatibility before upgrading OpenViking instead of following an unpinned
+`latest` image automatically.
+
+Before each model call, QwenPaw can recall memory through OpenViking context
+search and locally revalidates the configured token/byte boundary. After a
+reply, it persists only the completed user/assistant turn. Synthetic messages
+created by automatic recall are removed first so recalled evidence cannot be
+stored again as a new user fact. Temporary timeouts and server failures are
+fail-open; invalid endpoints, API keys, and permissions are configuration
+errors.
+
+| Field | Description | Default |
+| --- | --- | --- |
+| `base_url` | OpenViking HTTP endpoint; usually `http://openviking:1933` inside Compose | `http://127.0.0.1:1933` |
+| `api_key` | OpenViking tenant user key; do not use the Root key for business data | `""` |
+| `request_timeout` | Per-request HTTP timeout in seconds | `10.0` |
+| `retrieval_token_budget` | Maximum recalled tokens injected per turn | `2048` |
+| `auto_memory_search_config` | Automatic recall toggle and result limit | `{"enabled": true, "max_results": 3}` |
+| `commit_policy` | `auto` uses server thresholds; `every_turn` explicitly commits every completed turn | `auto` |
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "openviking",
+    "openviking_memory_config": {
+      "base_url": "http://openviking:1933",
+      "api_key": "your-openviking-user-key",
+      "request_timeout": 10,
+      "retrieval_token_budget": 2048,
+      "auto_memory_search_config": {
+        "enabled": true,
+        "max_results": 3
+      },
+      "commit_policy": "auto"
+    }
+  }
+}
+```
+
+QwenPaw hashes the OpenViking tenant, QwenPaw installation, agent, and chat
+session into an OpenViking session ID. This isolates agents and prevents two
+QwenPaw installations from accidentally sharing one live session. The
+explicit `memory_search` tool remains available even when automatic recall is
+disabled.
+
 ---
 
 ## Related Pages
