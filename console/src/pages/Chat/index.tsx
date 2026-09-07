@@ -248,19 +248,11 @@ async function waitForChatIdle(
   if (!chatIdForStatus) return true;
   while (!signal.aborted) {
     try {
-      // Use direct fetch with the correct agent ID header to avoid
-      // cross-agent status misreads when the user has switched agents.
-      const headers = buildAuthHeaders();
-      if (agentId) {
-        headers["X-Agent-Id"] = agentId;
-      }
-      const res = await fetch(
-        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}`),
-        { headers, signal },
-      );
-      if (!res.ok) return true; // 404 / error → treat as idle
-      const chat = await res.json();
-      if (chat?.status !== "running") return true;
+      const chat = await chatApi.getChatStatus(chatIdForStatus, {
+        signal,
+        agentId,
+      });
+      if (chat.status !== "running") return true;
     } catch {
       // If aborted, return false (not idle) so the caller breaks cleanly.
       if (signal.aborted) return false;
@@ -1308,6 +1300,7 @@ export default function ChatPage() {
   const messageQueueRef = useRef(messageQueue);
   messageQueueRef.current = messageQueue;
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const foregroundQueueWaitAbortRef = useRef<AbortController | null>(null);
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
@@ -1469,7 +1462,8 @@ export default function ChatPage() {
 
   const scheduleNextSend = useCallback(() => {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
-    autoSendTimerRef.current = setTimeout(() => {
+    foregroundQueueWaitAbortRef.current?.abort();
+    autoSendTimerRef.current = setTimeout(async () => {
       autoSendTimerRef.current = null;
       if (chatLoadingRef.current) return;
       // Only the owner tab is allowed to actually send.
@@ -1480,15 +1474,49 @@ export default function ChatPage() {
       const q = messageQueueRef.current;
       if (q.length === 0) return;
       const next = q[0];
+
+      // SDK loading becomes false on the Completed SSE, slightly before the
+      // backend releases the TaskTracker run. Wait for the authoritative chat
+      // status before draining the local queue, just like the background
+      // sender does.
+      const ctrl = new AbortController();
+      foregroundQueueWaitAbortRef.current = ctrl;
+      const chatIdForStatus =
+        sessionApi.getRealIdForSession(queueSessionId) || queueSessionId;
+      const idle = await waitForChatIdle(chatIdForStatus, ctrl.signal);
+      if (foregroundQueueWaitAbortRef.current === ctrl) {
+        foregroundQueueWaitAbortRef.current = null;
+      }
+      if (
+        !idle ||
+        ctrl.signal.aborted ||
+        queueSessionIdRef.current !== queueSessionId ||
+        chatLoadingRef.current ||
+        !isOwnerRef.current
+      ) {
+        return;
+      }
+
       // Acquire the per-session send lock so concurrent tabs don't both fire
       // the same item. If another tab holds the lock, drop this attempt; the
       // cross-tab broadcast will refresh our queue and the next loading→idle
       // transition will retry.
       void withSendLock(queueSessionId, () => {
         // Re-check: another tab may have already removed this item via
-        // broadcast, or a session switch may have happened.
+        // broadcast, a session switch may have happened, or the user may
+        // have paused the queue while the backend-idle poll was in flight.
         const fresh = useMessageQueueStore.getState().getQueue(queueSessionId);
-        if (fresh.length === 0 || fresh[0].id !== next.id) return;
+        const freshRunState = useMessageQueueStore
+          .getState()
+          .getRunState(queueSessionId);
+        if (
+          freshRunState === "paused" ||
+          freshRunState === "error" ||
+          fresh.length === 0 ||
+          fresh[0].id !== next.id
+        ) {
+          return;
+        }
         useMessageQueueStore.getState().setCurrentSendingId(next.id);
         useMessageQueueStore.getState().remove(queueSessionId, next.id);
         // Force-set window.currentSessionId from the queue item's snapshot
@@ -1520,6 +1548,8 @@ export default function ChatPage() {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
+    foregroundQueueWaitAbortRef.current?.abort();
+    foregroundQueueWaitAbortRef.current = null;
     prevChatLoadingRef.current = false;
     // Keep prevQueueLenRef at current value to prevent auto-send effect from
     // seeing a false 0→N transition on stale messageQueue in the same render.
@@ -1895,6 +1925,74 @@ export default function ChatPage() {
   useChatInputDraft(isChatActive, selectedAgent);
   // ── Message Queue ───────────────────────────────────────────────────────
 
+  const enqueueSubmittedInput = useCallback(
+    (inputData: IAgentScopeRuntimeWebUIInputData): boolean => {
+      const currentQ = useMessageQueueStore.getState().getQueue(queueSessionId);
+      if (currentQ.length >= MAX_QUEUE_SIZE) {
+        message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
+        return false;
+      }
+
+      const identity = sessionApi.getSessionIdentity();
+      const attachments = inputData.fileList
+        ?.map((file) => {
+          const response = file.response as { url?: string } | undefined;
+          const url = response?.url || file.url || file.thumbUrl;
+          if (!url) return null;
+          return {
+            url,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+          };
+        })
+        .filter((file): file is NonNullable<typeof file> => file !== null);
+
+      const queueText = usesQwenPawBackend
+        ? prepareLoopModeMessage(inputData.query.trim())
+        : inputData.query.trim();
+      useMessageQueueStore.getState().enqueue(queueSessionId, {
+        text: queueText,
+        attachments: attachments?.length ? attachments : undefined,
+        backendSessionId: identity.sessionId || undefined,
+        userId: identity.userId,
+        channel: identity.channel,
+      });
+      pendingFileListRef.current = [];
+      localStorage.removeItem(getDraftStorageKey(selectedAgent));
+      draftSuppressed = true;
+      return true;
+    },
+    [message, queueSessionId, selectedAgent, t, usesQwenPawBackend],
+  );
+
+  const shouldEnqueueSubmission = useCallback(async (): Promise<boolean> => {
+    if (!isOwnerRef.current) return true;
+
+    const queueBusy =
+      chatLoadingRef.current ||
+      messageQueueRef.current.length > 0 ||
+      autoSendTimerRef.current !== null ||
+      useMessageQueueStore.getState().currentSendingId !== null;
+    if (queueBusy) return true;
+    if (!usesQwenPawBackend) return false;
+
+    // The SDK clears its loading flag as soon as it receives a Completed SSE,
+    // before the backend finishes response-cycle cleanup and releases the
+    // TaskTracker run. Use the backend chat status as the admission authority
+    // so submissions in that gap are queued instead of receiving HTTP 409.
+    const backendChatId = resolveBackendChatId(chatIdRef.current);
+    if (!backendChatId) return false;
+    try {
+      const chat = await chatApi.getChatStatus(backendChatId);
+      return chat.status === "running";
+    } catch {
+      // Preserve availability on a transient status-check failure. The
+      // backend's 409 remains the final cross-client concurrency guard.
+      return false;
+    }
+  }, [usesQwenPawBackend]);
+
   // Stop background sender for THIS session when ChatPage mounts (foreground
   // takes over); start background senders for all OTHER sessions with pending
   // items. On unmount (or session switch), start bg sender for THIS session.
@@ -1908,6 +2006,8 @@ export default function ChatPage() {
         clearTimeout(autoSendTimerRef.current);
         autoSendTimerRef.current = null;
       }
+      foregroundQueueWaitAbortRef.current?.abort();
+      foregroundQueueWaitAbortRef.current = null;
       // Only the owner tab may continue sending in the background; non-owner
       // tabs leave the queue alone for the owner (or next owner) to handle.
       if (!isOwnerRef.current) return;
@@ -2012,6 +2112,7 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        backendSessionId: enqueueIdentity.sessionId || undefined,
         userId: enqueueIdentity.userId,
         channel: enqueueIdentity.channel,
       });
@@ -2060,18 +2161,21 @@ export default function ChatPage() {
           chatApi.stopChat(resolvedId).catch(() => {});
         }
       }
-      useMessageQueueStore.getState().remove(queueSessionId, item.id);
-      setTimeout(() => {
-        void withSendLock(queueSessionId, () => {
-          useMessageQueueStore.getState().setCurrentSendingId(item.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(item.text),
-            fileList: buildFileList(item),
-          });
-        });
-      }, 600);
+      const store = useMessageQueueStore.getState();
+      const queue = store.getQueue(queueSessionId);
+      const target = queue.find((candidate) => candidate.id === item.id);
+      if (!target) return;
+      // Keep the item durable while the interrupted backend run winds down,
+      // move it to the head, then reuse the normal idle-gated drain path.
+      store.reorder(queueSessionId, [
+        target,
+        ...queue.filter((candidate) => candidate.id !== item.id),
+      ]);
+      store.setItemStatus(queueSessionId, item.id, "pending");
+      store.setRunState(queueSessionId, "running");
+      scheduleNextSend();
     },
-    [queueSessionId, buildFileList],
+    [queueSessionId, scheduleNextSend],
   );
 
   const handleQueueClear = useCallback(() => {
@@ -2082,24 +2186,11 @@ export default function ChatPage() {
     const current = useMessageQueueStore.getState().getRunState(queueSessionId);
     if (current === "paused") {
       useMessageQueueStore.getState().setRunState(queueSessionId, "running");
-      // Try to resume sending immediately
-      if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
-          const q = useMessageQueueStore.getState().getQueue(queueSessionId);
-          if (q.length === 0) return;
-          const head = q[0];
-          useMessageQueueStore.getState().setCurrentSendingId(head.id);
-          useMessageQueueStore.getState().remove(queueSessionId, head.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(head.text),
-            fileList: buildFileList(head),
-          });
-        });
-      }
+      scheduleNextSend();
     } else {
       useMessageQueueStore.getState().setRunState(queueSessionId, "paused");
     }
-  }, [queueSessionId, buildFileList]);
+  }, [queueSessionId, scheduleNextSend]);
 
   const handleQueueRetry = useCallback(
     (id: string) => {
@@ -2107,43 +2198,17 @@ export default function ChatPage() {
         .getState()
         .setItemStatus(queueSessionId, id, "pending");
       useMessageQueueStore.getState().setRunState(queueSessionId, "running");
-      // Trigger send if idle
-      if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
-          const q = useMessageQueueStore.getState().getQueue(queueSessionId);
-          const target = q.find((it) => it.id === id);
-          if (!target) return;
-          useMessageQueueStore.getState().setCurrentSendingId(id);
-          useMessageQueueStore.getState().remove(queueSessionId, id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(target.text),
-            fileList: buildFileList(target),
-          });
-        });
-      }
+      scheduleNextSend();
     },
-    [queueSessionId, buildFileList],
+    [queueSessionId, scheduleNextSend],
   );
 
   const handleQueueSkip = useCallback(
     (id: string) => {
       useMessageQueueStore.getState().remove(queueSessionId, id);
-      // After skip, try to continue sending
-      if (!chatLoadingRef.current && isOwnerRef.current) {
-        void withSendLock(queueSessionId, () => {
-          const q = useMessageQueueStore.getState().getQueue(queueSessionId);
-          if (q.length === 0) return;
-          const next = q[0];
-          useMessageQueueStore.getState().setCurrentSendingId(next.id);
-          useMessageQueueStore.getState().remove(queueSessionId, next.id);
-          chatRef.current?.input.submit({
-            query: beginLoopModeSubmission(next.text),
-            fileList: buildFileList(next),
-          });
-        });
-      }
+      scheduleNextSend();
     },
-    [queueSessionId, buildFileList],
+    [queueSessionId, scheduleNextSend],
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
@@ -2866,45 +2931,16 @@ export default function ChatPage() {
       inputData: IAgentScopeRuntimeWebUIInputData,
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (isComposingRef.current) return false;
-      // Single-tab ownership: non-owner tabs are queue-only. Re-route every
-      // submit (Enter / send button / programmatic) to the shared queue and
-      // abort the actual SDK send. The owner tab will pick the item up via
-      // cross-tab broadcast and send it.
-      if (!isOwnerRef.current) {
+      // Sender submit paths share the same admission check. This covers Enter,
+      // the send button, and attachment submissions.
+      if (await shouldEnqueueSubmission()) {
         const val = inputData.query.trim();
         if (!val) return false;
-        const currentQ = useMessageQueueStore
-          .getState()
-          .getQueue(queueSessionId);
-        if (currentQ.length >= MAX_QUEUE_SIZE) {
-          message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
-          return false;
-        }
-        const queueText = usesQwenPawBackend
-          ? prepareLoopModeMessage(val)
-          : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity();
-        useMessageQueueStore.getState().enqueue(queueSessionId, {
-          text: queueText,
-          attachments:
-            pendingFileListRef.current.length > 0
-              ? pendingFileListRef.current.map((f) => ({
-                  url: f.url,
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                }))
-              : undefined,
-          userId: enqueueIdentity.userId,
-          channel: enqueueIdentity.channel,
-        });
-        pendingFileListRef.current = [];
+        if (!enqueueSubmittedInput(inputData)) return false;
         const textarea = getActiveSenderTextarea();
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
         clearSenderAttachments();
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
-        draftSuppressed = true;
         return false;
       }
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
@@ -3578,6 +3614,8 @@ export default function ChatPage() {
     filesWorkspaceOpen,
     toggleFilesWorkspace,
     isOwner,
+    enqueueSubmittedInput,
+    shouldEnqueueSubmission,
     bgTaskCount,
     bgBackendSessionId,
     queueSessionId,

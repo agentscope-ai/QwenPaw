@@ -64,6 +64,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  /** Authoritative backend session_id captured by the caller. */
+  backendSessionId?: string;
   userId?: string;
   channel?: string;
 }
@@ -368,6 +370,7 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     // Capture backend session_id so background sender targets the correct
     // session even if the session list is cleared after agent switch.
     const backendSessionId =
+      input.backendSessionId ||
       (window as unknown as { currentSessionId?: string }).currentSessionId ||
       undefined;
     const item: QueueItem = {

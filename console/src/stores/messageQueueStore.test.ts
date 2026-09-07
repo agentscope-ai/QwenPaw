@@ -181,6 +181,22 @@ describe("messageQueueStore", () => {
       .currentSessionId;
   });
 
+  it("enqueue prefers the caller's authoritative backendSessionId", () => {
+    (window as unknown as { currentSessionId?: string }).currentSessionId =
+      "stale-window-session";
+
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      backendSessionId: "authoritative-session",
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.backendSessionId).toBe("authoritative-session");
+
+    delete (window as unknown as { currentSessionId?: string })
+      .currentSessionId;
+  });
+
   it("enqueue leaves agentId/backendSessionId undefined when none are set", () => {
     useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hi" });
 
