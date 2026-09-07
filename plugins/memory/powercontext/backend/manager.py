@@ -195,7 +195,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
     ) -> ToolChunk | None:
         """Search within PowerContext's complete synthetic-message budget."""
         max_results = max(1, int(options.max_results))
-        max_context_bytes = self._config.auto_memory_search_config.max_context_bytes
+        max_context_bytes = (
+            self._config.auto_memory_search_config.max_context_bytes
+        )
         result = await self._search_memories(
             query,
             max_results,

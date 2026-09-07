@@ -322,7 +322,7 @@ class BaseMemoryManager(ABC):
         if result.state != ToolResultState.SUCCESS:
             return None
         text = self._tool_chunk_text(result).strip()
-        if not text:
+        if self._is_empty_memory_search_result(text):
             return None
 
         assistant_msg = self._build_auto_memory_search_msg(
@@ -363,6 +363,14 @@ class BaseMemoryManager(ABC):
             for block in chunk.content or []
             if getattr(block, "text", "")
         )
+
+    @staticmethod
+    def _is_empty_memory_search_result(text: str) -> bool:
+        """Return whether a successful search contains no usable recall."""
+        return not text or text in {
+            NO_RELEVANT_MEMORIES,
+            "(no memory results)",
+        }
 
     @staticmethod
     def _build_query(messages: list[Msg]) -> str:
@@ -785,6 +793,7 @@ class BaseMemoryManager(ABC):
 # ---------------------------------------------------------------------------
 # Registry and factory
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class MemoryBackendRegistration:

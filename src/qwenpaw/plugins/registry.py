@@ -1126,6 +1126,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         except Exception as e:
             logger.error(f"Failed to save tool config: {e}")
             raise
+
     def assert_memory_backends_not_in_use(self, plugin_id: str) -> None:
         """Block unsafe unload of a backend selected by a live workspace."""
         from qwenpaw.memory import memory_registry

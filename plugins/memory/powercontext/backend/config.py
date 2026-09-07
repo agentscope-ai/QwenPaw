@@ -1,6 +1,12 @@
 """Configuration owned by the PowerContext memory plugin."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class PowerContextAutoMemorySearchConfig(BaseModel):

@@ -393,6 +393,7 @@ class Workspace:
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
             MemoryBackendContext,
+            MemoryBackendUnavailableError,
             get_memory_manager_backend,
         )
 
@@ -470,6 +471,9 @@ class Workspace:
                 # longer ships; let the workspace boot without
                 # memory_manager when its import fails.
                 optional=True,
+                # A configured-but-unregistered plugin is a configuration
+                # error, not an optional ReMe dependency failure.
+                fatal_exceptions=(MemoryBackendUnavailableError,),
             ),
         )
 

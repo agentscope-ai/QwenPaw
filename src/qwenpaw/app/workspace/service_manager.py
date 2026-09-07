@@ -56,6 +56,8 @@ class ServiceDescriptor:
         concurrent_init: Whether this can be initialized concurrently
         optional: If True, a failure during start logs but does not abort
             the workspace; the service is simply absent.
+        fatal_exceptions: Exceptions that must still abort startup for an
+            optional service.
         require_clean_stop: If True, a stop failure is propagated after the
             manager has attempted to stop every service.  Use for services
             whose live worker would conflict with a replacement workspace.
@@ -81,6 +83,9 @@ class ServiceDescriptor:
     priority: int = 100
     concurrent_init: bool = True
     optional: bool = False
+    fatal_exceptions: tuple[type[BaseException], ...] = field(
+        default_factory=tuple,
+    )
     require_clean_stop: bool = False
 
 
@@ -293,7 +298,10 @@ class ServiceManager:
                 )
 
         except Exception as e:
-            if descriptor.optional:
+            if descriptor.optional and not isinstance(
+                e,
+                descriptor.fatal_exceptions,
+            ):
                 try:
                     await self._stop_service(
                         descriptor,

@@ -409,6 +409,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build memory plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for frontend_dir in plugins/memory/*/frontend; do
+            echo "Building ${frontend_dir}"
+            npm --prefix "$frontend_dir" ci
+            npm --prefix "$frontend_dir" run build
+          done
+
       - name: Pack plugins and build index
         # qwenpaw-creator and qwenpaw-data are released through their own
         # version-driven pipelines (creator-release.yml,

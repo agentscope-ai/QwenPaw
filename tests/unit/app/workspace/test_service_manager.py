@@ -355,6 +355,33 @@ async def test_optional_service_is_cleaned_before_removal():
 
 
 @pytest.mark.asyncio
+async def test_fatal_exception_from_optional_service_aborts_startup():
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+
+    class FatalConfigurationError(RuntimeError):
+        pass
+
+    class FailingService:
+        def __init__(self):
+            raise FatalConfigurationError("configured backend is unavailable")
+
+    manager.register(
+        ServiceDescriptor(
+            name="optional",
+            service_class=FailingService,
+            optional=True,
+            fatal_exceptions=(FatalConfigurationError,),
+        ),
+    )
+
+    with pytest.raises(
+        FatalConfigurationError,
+        match="configured backend is unavailable",
+    ):
+        await manager.start_all()
+
+
+@pytest.mark.asyncio
 async def test_optional_cleanup_failure_remains_retryable(workspace):
     close_attempts = 0
 
