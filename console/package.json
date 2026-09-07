@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "vite --host",
     "build": "tsc -b && vite build && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
     "build:prod": "tsc -b && vite build --mode production && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
@@ -34,6 +35,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lexical/react": "0.48.0",
     "@monaco-editor/react": "^4.7.0",
+    "@tanstack/react-virtual": "^3.14.10",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",
@@ -89,6 +91,7 @@
     "globals": "^16.0.0",
     "jsdom": "^29.0.2",
     "less": "^4.5.1",
+    "patch-package": "^8.0.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",

@@ -226,6 +226,58 @@ class ChatHistory(BaseModel):
     )
 
 
+class ChatMessagesPage(BaseModel):
+    """One page from ``GET /chats/{id}/messages`` — the scroll-back read path.
+
+    See ``docs/session-scroll-loading-design.md`` §2.1 for the full field
+    semantics. ``history_status`` distinguishes "more to load" (``available``),
+    "reached the true start" (``complete``), "the true start was purged by an
+    old retention policy" (``expired``), "this session has no history store to
+    scroll into" (``unavailable``), and "the history store exists but this
+    request couldn't read it" (``degraded`` — never silently reported as
+    ``complete``).
+    """
+
+    messages: list[Message] = Field(default_factory=list)
+    next_cursor: Optional[int] = Field(
+        default=None,
+        description="Pass as before_seq to fetch the next (older) page.",
+    )
+    has_more: bool = Field(
+        default=False,
+        description="Whether an older page exists past next_cursor.",
+    )
+    history_status: Literal[
+        "available",
+        "complete",
+        "expired",
+        "unavailable",
+        "degraded",
+    ] = Field(default="unavailable")
+    status: Literal["idle", "running"] = Field(
+        default="idle",
+        description=(
+            "Conversation run status, same source as " "ChatHistory.status."
+        ),
+    )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when a single turn exceeded the expansion budget and this "
+            "page had to cut it mid-turn; the next page continues from "
+            "next_cursor with no gap or duplication."
+        ),
+    )
+    fallback_limited: bool = Field(
+        default=False,
+        description=(
+            "True when messages is a capped safety window rather than a "
+            "normal page (non-scroll mode, or a degraded/unreachable "
+            "history store) — the full session may still be larger."
+        ),
+    )
+
+
 class BatchFailure(BaseModel):
     """A single failure entry in a batch operation."""
 

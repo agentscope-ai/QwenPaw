@@ -22,16 +22,40 @@ from .models import (
     ChatGroupCreate,
     ChatGroupOrderUpdate,
     ChatGroupUpdate,
+    ChatMessagesPage,
     ChatSpec,
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .utils import (
+    agentscope_msg_to_message,
+    first_screen_window,
+    history_rows_to_messages,
+    missing_tool_call_ids,
+    parse_legacy_memory_state,
+)
+from ...agents.context.scroll.history import (
+    HistoryUnavailable,
+    fetch_tool_results_by_call_ids,
+    find_seq_by_dedup_key,
+    has_rows_before,
+    min_seq_for_session,
+    open_readonly_connection,
+    read_history_page,
+)
 from ...services.project_directory import (
     resolve_effective_project_dir,
     session_project_dir,
 )
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
+
+# First-screen / fallback safety window — see docs/session-scroll-loading-
+# design.md §2.1 "安全降级 (OOM 约束优先)". Applies whenever the endpoint
+# can't hand the browser a normal db-backed page: non-scroll sessions,
+# and scroll sessions where the db is unreachable or the anchor can't be
+# resolved. Independent of the caller's requested ``limit``.
+_SAFE_WINDOW_MAX_MESSAGES = 300
+_SAFE_WINDOW_MAX_BYTES = 8 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 
@@ -696,33 +720,31 @@ async def clear_chat_project_dirs(
 # ----- Existing CRUD endpoints -----
 
 
-@router.get("/{chat_id}", response_model=ChatHistory)
-async def get_chat(
+async def _resolve_chat_state(
     chat_id: str,
-    include_app_owned: bool = Query(
-        True,
-        description=(
-            "Allow reading PawApp-owned chat history. The main Chat surface "
-            "opts out so app dialogues stay inside their owning app."
-        ),
-    ),
-    mgr: ChatManager = Depends(get_chat_manager),
-    session: SafeJSONSession = Depends(get_session),
-    workspace=Depends(get_workspace),
-):
-    """Get detailed information about a specific chat by UUID.
+    mgr: ChatManager,
+    session: SafeJSONSession,
+    workspace,
+    include_app_owned: bool = True,
+) -> tuple[ChatSpec, dict, list[Msg], str]:
+    """Shared chat_spec/session-state/status resolution for read endpoints.
 
-    Args:
-        request: FastAPI request (for agent context)
-        chat_id: Chat UUID
-        mgr: Chat manager dependency
-        session: SafeJSONSession dependency
+    Returns ``(chat_spec, agent_raw, memories, status)``:
+    - ``agent_raw`` is the raw ``state["agent"]`` dict — carries both
+      ``state`` (the ``AgentState`` dump) and, for scroll sessions,
+      ``scroll`` (``ScrollContextManager.to_dict()``, including the eviction
+      index used for the expired/complete determination — see
+      ``react_agent.py`` ``state_dict()``).
+    - ``memories`` is the parsed live ``AgentState.context`` (empty if
+      unparseable, legacy, or the session has no state yet).
 
-    Returns:
-        ChatHistory with messages and status (idle/running)
+    ``include_app_owned=False`` makes a PawApp-owned chat read as 404, the
+    same way ``GET /{chat_id}`` treats it — the gate belongs here so every
+    read endpoint built on this helper inherits it rather than each one
+    re-implementing the check.
 
-    Raises:
-        HTTPException: If chat not found (404)
+    Raises ``HTTPException(404)`` if the chat doesn't exist — both callers
+    want that exact behavior, so it lives here rather than being duplicated.
     """
     chat_spec = await mgr.get_chat(chat_id)
     if not chat_spec:
@@ -765,7 +787,7 @@ async def get_chat(
             )
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
-        return ChatHistory(messages=[], status=status)
+        return chat_spec, {}, [], status
 
     agent_raw = state.get("agent", {})
     memories: list[Msg] = []
@@ -787,8 +809,396 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
+    return chat_spec, agent_raw, memories, status
+
+
+@router.get("/{chat_id}", response_model=ChatHistory)
+async def get_chat(
+    chat_id: str,
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned chat history. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
+    mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
+):
+    """Get detailed information about a specific chat by UUID.
+
+    Args:
+        request: FastAPI request (for agent context)
+        chat_id: Chat UUID
+        mgr: Chat manager dependency
+        session: SafeJSONSession dependency
+
+    Returns:
+        ChatHistory with messages and status (idle/running)
+
+    Raises:
+        HTTPException: If chat not found (404)
+    """
+    _chat_spec, _agent_raw, memories, status = await _resolve_chat_state(
+        chat_id,
+        mgr,
+        session,
+        workspace,
+        include_app_owned=include_app_owned,
+    )
     messages = agentscope_msg_to_message(memories)
     return ChatHistory(messages=messages, status=status)
+
+
+def _light_context_config(workspace):
+    """Resolve ``LightContextConfig`` off the agent's profile config.
+
+    Lives under ``config.running.light_context_config`` on the real
+    ``AgentProfileConfig`` (matches ``agents/context/scroll/sync.py``'s
+    ``agent_config.running.light_context_config``) — NOT directly on
+    ``config``, unlike ``backend``/``backend_settings``. ``getattr``-chained
+    so a test double or an unexpected config shape degrades to "native"
+    (non-scroll) rather than raising.
+    """
+    running = getattr(workspace.config, "running", None)
+    return getattr(running, "light_context_config", None)
+
+
+def _is_scroll_strategy(workspace) -> bool:
+    lcc = _light_context_config(workspace)
+    return getattr(lcc, "strategy", "native") == "scroll"
+
+
+def _history_db_path(workspace) -> Path:
+    lcc = _light_context_config(workspace)
+    return Path(workspace.workspace_dir) / lcc.scroll_config.db_filename
+
+
+def _retention_days(workspace) -> int:
+    lcc = _light_context_config(workspace)
+    scroll_config = getattr(lcc, "scroll_config", None)
+    return getattr(scroll_config, "history_retention_days", 30)
+
+
+def _safety_window(memories: list[Msg]) -> list:
+    """Bounded fallback used whenever there's no db page to serve instead:
+    non-scroll sessions, or a scroll session whose db/anchor can't be
+    reached. Turn-aligned via :func:`first_screen_window`, then hard-capped
+    at ``_SAFE_WINDOW_MAX_MESSAGES`` / ``_SAFE_WINDOW_MAX_BYTES`` so a huge
+    session JSON can never be handed whole to the browser even on this path
+    (design doc §2.1 "安全降级 (OOM 约束优先)").
+
+    Every caller marks its response ``fallback_limited=True`` regardless of
+    whether these caps actually trimmed anything — the flag means "this is a
+    capped safety window, not a normal page with a real cursor", which is
+    true the moment this path is taken at all.
+    """
+    window, _anchor = first_screen_window(memories, _SAFE_WINDOW_MAX_MESSAGES)
+    messages = agentscope_msg_to_message(window)
+    if len(messages) > _SAFE_WINDOW_MAX_MESSAGES:
+        messages = messages[-_SAFE_WINDOW_MAX_MESSAGES:]
+
+    total_bytes = 0
+    kept: list = []
+    for message in reversed(messages):
+        size = len(message.model_dump_json())
+        if kept and total_bytes + size > _SAFE_WINDOW_MAX_BYTES:
+            break
+        kept.append(message)
+        total_bytes += size
+    kept.reverse()
+    return kept
+
+
+def _expired_or_complete(
+    agent_raw: dict,
+    min_remaining_seq: Optional[int],
+) -> str:
+    """'complete' vs 'expired' once no more history can be loaded.
+
+    Reads the eviction index straight out of the already-fetched session
+    state (``agent_raw["scroll"]["index"]`` — see
+    ``ScrollContextManager.to_dict()`` / ``EvictionIndex.to_dict()``); no
+    live manager or extra db round-trip needed. No reliable evidence of loss
+    defaults to ``complete`` — never guess ``expired`` (design doc §2.1).
+    """
+    scroll_state = (
+        agent_raw.get("scroll") if isinstance(agent_raw, dict) else None
+    )
+    index_data = (
+        scroll_state.get("index") if isinstance(scroll_state, dict) else None
+    )
+    tiers = (
+        index_data.get("tiers", index_data.get("levels"))
+        if isinstance(
+            index_data,
+            dict,
+        )
+        else None
+    )
+    if not tiers:
+        return "complete"
+    try:
+        seq_los = [
+            block["seq_lo"]
+            for tier in tiers
+            for block in tier
+            if isinstance(block, dict) and "seq_lo" in block
+        ]
+    except (TypeError, KeyError):
+        return "complete"
+    if not seq_los:
+        return "complete"
+    index_min_seq_lo = min(seq_los)
+    if min_remaining_seq is None or min_remaining_seq <= index_min_seq_lo:
+        return "complete"
+    return "expired"
+
+
+@router.get("/{chat_id}/messages", response_model=ChatMessagesPage)
+async def get_chat_messages(
+    chat_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    before_seq: Optional[int] = Query(None),
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned chat history. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
+    mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
+):
+    """Paginated scroll-back read path — see
+    ``docs/session-scroll-loading-design.md``.
+
+    No ``before_seq``: turn-aligned first-screen window off the live session
+    JSON, anchored into ``history.db`` for "load older". With ``before_seq``:
+    a turn-aligned page straight from ``history.db``, strictly older than
+    the cursor. The existing ``GET /{chat_id}`` is untouched for older
+    clients/integrations.
+
+    ``include_app_owned`` mirrors ``GET /{chat_id}`` exactly: without it this
+    endpoint would be a way to read a PawApp-owned transcript that the
+    non-paginated read path refuses to serve.
+    """
+    chat_spec, agent_raw, memories, status = await _resolve_chat_state(
+        chat_id,
+        mgr,
+        session,
+        workspace,
+        include_app_owned=include_app_owned,
+    )
+    is_scroll = _is_scroll_strategy(workspace)
+    retention_days = _retention_days(workspace)
+    session_id = chat_spec.session_id
+    db_path = _history_db_path(workspace)
+
+    if before_seq is None:
+        window, anchor = first_screen_window(memories, limit)
+        messages = agentscope_msg_to_message(window)
+
+        if not is_scroll:
+            return ChatMessagesPage(
+                messages=_safety_window(memories),
+                next_cursor=None,
+                has_more=False,
+                history_status="unavailable",
+                status=status,
+                fallback_limited=True,
+            )
+
+        if anchor is None:
+            # Nothing to anchor to — e.g. a brand new chat with no real
+            # user turn yet. There's nothing older to page into.
+            return ChatMessagesPage(
+                messages=messages,
+                next_cursor=None,
+                has_more=False,
+                history_status="complete",
+                status=status,
+            )
+
+        def _anchor_lookup():
+            conn = open_readonly_connection(db_path)
+            try:
+                seq = find_seq_by_dedup_key(conn, session_id, anchor.id)
+                if seq is None:
+                    return None
+                has_more = has_rows_before(conn, session_id, seq)
+                min_seq = (
+                    None if has_more else min_seq_for_session(conn, session_id)
+                )
+                return seq, has_more, min_seq
+            finally:
+                conn.close()
+
+        try:
+            anchor_result = await asyncio.to_thread(_anchor_lookup)
+        except HistoryUnavailable:
+            anchor_result = None
+        except Exception:
+            logger.warning(
+                "get_chat_messages: first-screen anchor lookup failed for "
+                "chat %s",
+                chat_id,
+                exc_info=True,
+            )
+            anchor_result = None
+
+        if anchor_result is None:
+            # db missing/corrupt, query failed, or the anchor Msg hasn't
+            # been write-through persisted yet — never silently report this
+            # as "reached the end".
+            return ChatMessagesPage(
+                messages=_safety_window(memories),
+                next_cursor=None,
+                has_more=False,
+                history_status="degraded",
+                status=status,
+                fallback_limited=True,
+            )
+
+        seq, has_more, min_seq = anchor_result
+        history_status = (
+            "available"
+            if has_more
+            else _expired_or_complete(agent_raw, min_seq)
+        )
+        return ChatMessagesPage(
+            messages=messages,
+            next_cursor=seq if has_more else None,
+            has_more=has_more,
+            history_status=history_status,
+            status=status,
+        )
+
+    # --- pagination branch (before_seq given) ---
+
+    if not is_scroll:
+        return ChatMessagesPage(
+            messages=[],
+            next_cursor=None,
+            has_more=False,
+            history_status="unavailable",
+            status=status,
+        )
+
+    try:
+        page = await asyncio.to_thread(
+            read_history_page,
+            db_path,
+            session_id,
+            before_seq=before_seq,
+            limit=limit,
+        )
+    except HistoryUnavailable:
+        return ChatMessagesPage(
+            messages=[],
+            next_cursor=None,
+            has_more=False,
+            history_status="degraded",
+            status=status,
+            fallback_limited=True,
+        )
+    except Exception:
+        logger.warning(
+            "get_chat_messages: page query failed for chat %s",
+            chat_id,
+            exc_info=True,
+        )
+        return ChatMessagesPage(
+            messages=[],
+            next_cursor=None,
+            has_more=False,
+            history_status="degraded",
+            status=status,
+            fallback_limited=True,
+        )
+
+    if not page.rows:
+        min_seq = None
+        try:
+            min_seq = await asyncio.to_thread(
+                lambda: _with_readonly_conn(
+                    db_path,
+                    lambda conn: min_seq_for_session(conn, session_id),
+                ),
+            )
+        except HistoryUnavailable:
+            pass
+        return ChatMessagesPage(
+            messages=[],
+            next_cursor=None,
+            has_more=False,
+            history_status=_expired_or_complete(agent_raw, min_seq),
+            status=status,
+            truncated=page.truncated,
+        )
+
+    call_ids = missing_tool_call_ids(page.rows)
+    external_tool_results: dict = {}
+    if call_ids:
+        try:
+            external_tool_results = await asyncio.to_thread(
+                lambda: _with_readonly_conn(
+                    db_path,
+                    lambda conn: fetch_tool_results_by_call_ids(
+                        conn,
+                        session_id,
+                        call_ids,
+                    ),
+                ),
+            )
+        except HistoryUnavailable:
+            external_tool_results = {}
+
+    messages = history_rows_to_messages(
+        page.rows,
+        retention_days=retention_days,
+        external_tool_results=external_tool_results,
+    )
+
+    if page.has_more:
+        history_status = "available"
+    else:
+        min_seq = None
+        try:
+            min_seq = await asyncio.to_thread(
+                lambda: _with_readonly_conn(
+                    db_path,
+                    lambda conn: min_seq_for_session(conn, session_id),
+                ),
+            )
+        except HistoryUnavailable:
+            pass
+        history_status = _expired_or_complete(agent_raw, min_seq)
+
+    return ChatMessagesPage(
+        messages=messages,
+        next_cursor=page.next_cursor if page.has_more else None,
+        has_more=page.has_more,
+        history_status=history_status,
+        status=status,
+        truncated=page.truncated,
+    )
+
+
+def _with_readonly_conn(db_path: Path, fn):
+    """Run ``fn(conn)`` against a short-lived read-only connection.
+
+    Small helper for the supplemental (non-page) read-only queries below —
+    keeps "open, run, close inside one thread call" in one place rather than
+    repeating the try/finally at each call site.
+    """
+    conn = open_readonly_connection(db_path)
+    try:
+        return fn(conn)
+    finally:
+        conn.close()
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

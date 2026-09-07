@@ -3,8 +3,8 @@ import json
 import logging
 import platform
 import re
-from datetime import datetime, timezone
-from typing import List, Optional, Union
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Mapping, Optional, Sequence, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -109,6 +109,46 @@ def _is_synthetic_user_message(msg: Msg) -> bool:
         and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
         in SYNTHETIC_USER_MESSAGE_TAGS
     )
+
+
+def _is_real_user_turn_start(msg: Msg) -> bool:
+    """Whether *msg* is a genuine user turn boundary — not a scroll
+    placeholder, not a runtime-injected stub. The same test the db read path
+    applies via ``MemorySpace._real_user_conditions`` (role='user' minus the
+    same synthetic tags), kept in sync manually since one side is live
+    ``Msg`` objects and the other is SQL."""
+    return (
+        msg.role == "user"
+        and not _is_scroll_memory_placeholder(msg)
+        and not _is_synthetic_user_message(msg)
+    )
+
+
+def first_screen_window(
+    messages: List[Msg],
+    limit: int,
+) -> tuple[List[Msg], Optional[Msg]]:
+    """Turn-aligned first-screen window: the tail of ``messages``, extended
+    backward to the nearest real user turn boundary (design doc §2.1 "回合对
+    齐取窗"). ``limit`` is a target size, not an exact count — keeping a turn
+    whole takes priority over hitting the count exactly.
+
+    Returns ``(window, anchor)``. ``anchor`` is the earliest real user Msg in
+    the window — the endpoint resolves its id to a db ``seq`` to know where
+    "load older" should resume. ``anchor`` is ``None`` when the window has no
+    real user message at all (e.g. a brand new chat with nothing to page
+    into yet), in which case there is nothing to anchor and pagination stops
+    here.
+    """
+    n = len(messages)
+    if n == 0:
+        return [], None
+    idx = max(0, n - max(1, limit))
+    while idx > 0 and not _is_real_user_turn_start(messages[idx]):
+        idx -= 1
+    window = messages[idx:]
+    anchor = next((m for m in window if _is_real_user_turn_start(m)), None)
+    return window, anchor
 
 
 def parse_legacy_memory_state(
@@ -512,6 +552,310 @@ def clean_display_text(text: str, role: str) -> str:
 
 
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
+def _blocks_to_messages(
+    blocks: List[Any],
+    *,
+    role: str,
+    metadata: dict,
+    id_prefix: Optional[str] = None,
+) -> List[Message]:
+    """Dispatch one Msg's content blocks into one or more display Messages.
+
+    Shared by :func:`agentscope_msg_to_message` (live ``Msg.content``) and
+    :func:`history_rows_to_messages` (a db row's deserialized ``blocks``
+    column) — both need identical text/thinking/tool_call/tool_result/media
+    rendering, so this is the single place that owns it.
+
+    When ``id_prefix`` is given, each Message this call starts gets a
+    deterministic id ``f"{id_prefix}:{part_index}"`` (part_index counts every
+    new Message started, in order) instead of the default random uuid4 — see
+    the design doc's "还原消息 id 唯一性" rule. Passing ``None`` (the live-Msg
+    path) preserves the exact previous behavior: default random ids.
+    """
+    results: List[Message] = []
+    current_message: Optional[Message] = None
+    current_type: Optional[MessageType] = None
+    part_index = 0
+
+    def start_message(msg_type: MessageType) -> Message:
+        nonlocal current_message, current_type, part_index
+        if current_message:
+            results.append(current_message.completed())
+        kwargs: dict = {"type": msg_type, "role": role}
+        if id_prefix is not None:
+            kwargs["id"] = f"{id_prefix}:{part_index}"
+        part_index += 1
+        current_message = Message(**kwargs)
+        current_message.metadata = metadata
+        current_type = msg_type
+        return current_message
+
+    for block in blocks:
+        # Normalize pydantic block models to dict so the rest of
+        # this conversion (which uses .get) handles both shapes.
+        if hasattr(block, "model_dump"):
+            block = block.model_dump()
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "text")
+
+        # DataBlock (2.0): map type="data" to concrete media type
+        if btype == "data":
+            source = block.get("source") or {}
+            mt = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            if mt.startswith("image/"):
+                btype = "image"
+            elif mt.startswith("audio/"):
+                btype = "audio"
+            elif mt.startswith("video/"):
+                btype = "video"
+            else:
+                btype = "file"
+
+        if btype == "text":
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            text_content = TextContent(
+                delta=False,
+                index=None,
+                text=clean_display_text(
+                    block.get("text", ""),
+                    role,
+                ),
+            )
+            current_message.add_content(new_content=text_content)
+
+        elif btype == "hint":
+            # Hint blocks are runtime/model-facing state (for example,
+            # current-time reminders). They belong in the agent context,
+            # but never in a user-visible transcript restored by either
+            # the console chat UI or a PawApp. Skipping it here covers the
+            # live path and the db replay path at once, so scroll-back can
+            # never surface a hint that live rendering hides.
+            continue
+
+        elif btype == "thinking":
+            if current_type != MessageType.REASONING:
+                start_message(MessageType.REASONING)
+
+            text_content = TextContent(
+                delta=False,
+                index=None,
+                text=block.get("thinking", ""),
+            )
+            current_message.add_content(new_content=text_content)
+
+        elif btype in ("tool_use", "tool_call"):
+            start_message(MessageType.PLUGIN_CALL)
+
+            if isinstance(block.get("input"), (dict, list)):
+                arguments = json.dumps(
+                    block.get("input"),
+                    ensure_ascii=False,
+                )
+            else:
+                arguments = block.get("input")
+
+            call_data = FunctionCall(
+                call_id=block.get("id"),
+                name=block.get("name"),
+                arguments=arguments,
+            ).model_dump()
+
+            data_content = DataContent(
+                delta=False,
+                index=None,
+                data=call_data,
+            )
+            current_message.add_content(new_content=data_content)
+
+        elif btype == "tool_result":
+            start_message(MessageType.PLUGIN_CALL_OUTPUT)
+
+            if isinstance(block.get("output"), (dict, list)):
+                output = json.dumps(
+                    block.get("output"),
+                    ensure_ascii=False,
+                )
+            else:
+                output = block.get("output")
+
+            output_data = FunctionCallOutput(
+                call_id=block.get("id"),
+                name=block.get("name"),
+                output=output,
+            ).model_dump(exclude_none=True)
+
+            tool_state = block.get("state")
+            if hasattr(tool_state, "value"):
+                tool_state = tool_state.value
+            if tool_state is not None:
+                output_data["state"] = tool_state
+
+            data_content = DataContent(
+                delta=False,
+                index=None,
+                data=output_data,
+            )
+            current_message.add_content(new_content=data_content)
+
+        elif btype == "image":
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            kwargs = {}
+            if (
+                isinstance(block.get("source"), dict)
+                and block.get("source", {}).get("type") == "url"
+            ):
+                url = block.get("source", {}).get("url")
+                url = _resolve_content_url(url)
+                kwargs["image_url"] = url
+
+            elif (
+                isinstance(block.get("source"), dict)
+                and block.get("source").get("type") == "base64"
+            ):
+                media_type = block.get("source", {}).get(
+                    "media_type",
+                    "image/jpeg",
+                )
+                base64_data = block.get("source", {}).get("data", "")
+                url = f"data:{media_type};base64,{base64_data}"
+                kwargs["image_url"] = url
+
+            image_content = ImageContent(
+                delta=False,
+                index=None,
+                **kwargs,
+            )
+            current_message.add_content(new_content=image_content)
+
+        elif btype == "audio":
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            kwargs = {}
+            if (
+                isinstance(block.get("source"), dict)
+                and block.get("source", {}).get("type") == "url"
+            ):
+                url = block.get("source", {}).get("url")
+                url = _resolve_content_url(url)
+                kwargs["data"] = url
+                try:
+                    kwargs["format"] = urlparse(url).path.split(".")[-1]
+                except (AttributeError, IndexError, ValueError):
+                    kwargs["format"] = None
+
+            elif (
+                isinstance(block.get("source"), dict)
+                and block.get("source").get("type") == "base64"
+            ):
+                media_type = block.get("source", {}).get("media_type")
+                base64_data = block.get("source", {}).get("data", "")
+                url = f"data:{media_type};base64,{base64_data}"
+                kwargs["data"] = url
+                kwargs["format"] = media_type
+
+            audio_content = AudioContent(
+                delta=False,
+                index=None,
+                **kwargs,
+            )
+            current_message.add_content(new_content=audio_content)
+
+        elif btype == "video":
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            kwargs = {}
+            if (
+                isinstance(block.get("source"), dict)
+                and block.get("source", {}).get("type") == "url"
+            ):
+                url = block.get("source", {}).get("url")
+                url = _resolve_content_url(url)
+                kwargs["video_url"] = url
+
+            elif (
+                isinstance(block.get("source"), dict)
+                and block.get("source").get("type") == "base64"
+            ):
+                media_type = block.get("source", {}).get(
+                    "media_type",
+                    "video/mp4",
+                )
+                base64_data = block.get("source", {}).get("data", "")
+                url = f"data:{media_type};base64,{base64_data}"
+                kwargs["video_url"] = url
+
+            video_content = VideoContent(
+                delta=False,
+                index=None,
+                **kwargs,
+            )
+            current_message.add_content(new_content=video_content)
+
+        elif btype == "file":
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            kwargs = {
+                "filename": block.get("filename") or block.get("name"),
+            }
+            if (
+                isinstance(block.get("source"), dict)
+                and block.get("source", {}).get("type") == "url"
+            ):
+                url = block.get("source", {}).get("url")
+                url = _resolve_content_url(url)
+                kwargs["file_url"] = url
+
+            elif (
+                isinstance(block.get("source"), dict)
+                and block.get("source").get("type") == "base64"
+            ):
+                media_type = block.get("source", {}).get(
+                    "media_type",
+                    "application/octet-stream",
+                )
+                base64_data = block.get("source", {}).get("data", "")
+                url = f"data:{media_type};base64,{base64_data}"
+                kwargs["file_url"] = url
+            elif isinstance(block.get("source"), str):
+                url = _resolve_content_url(block.get("source", ""))
+                kwargs["file_url"] = url
+
+            file_content = FileContent(
+                delta=False,
+                index=None,
+                **kwargs,
+            )
+            current_message.add_content(new_content=file_content)
+
+        else:
+            if current_type != MessageType.MESSAGE:
+                start_message(MessageType.MESSAGE)
+
+            text_content = TextContent(
+                delta=False,
+                index=None,
+                text=str(block),
+            )
+            current_message.add_content(new_content=text_content)
+
+    if current_message:
+        results.append(current_message.completed())
+
+    return results
+
+
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
 ) -> List[Message]:
@@ -586,333 +930,326 @@ def agentscope_msg_to_message(
             results.append(message)
             continue
 
-        current_message = None
-        current_type = None
+        results.extend(
+            _blocks_to_messages(
+                msg.content,
+                role=role,
+                metadata=metadata,
+                id_prefix=None,
+            ),
+        )
 
-        for block in msg.content:
-            # Normalize pydantic block models to dict so the rest of
-            # this conversion (which uses .get) handles both shapes.
-            if hasattr(block, "model_dump"):
-                block = block.model_dump()
-            if not isinstance(block, dict):
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Reconstruction from ``conversation_history`` db rows (the pagination read
+# path — see ``docs/session-scroll-loading-design.md`` §2.2). This mirrors
+# ``agentscope_msg_to_message`` above but starts from persisted rows instead
+# of live ``Msg`` objects.
+# ---------------------------------------------------------------------------
+
+
+def _row_is_synthetic_user_message(row: Any) -> bool:
+    """Row-level analog of :func:`_is_synthetic_user_message`.
+
+    Scroll's model-only placeholders never reach ``conversation_history``
+    (``ScrollContextManager._persist_new`` skips them before persisting), so
+    only the synthetic-user-stub check applies to db rows.
+    """
+    if row["role"] != "user":
+        return False
+    if row["name"] in _VISUAL_PLACEHOLDER_NAMES:
+        return True
+    raw_metadata = row["metadata"]
+    if not raw_metadata:
+        return False
+    try:
+        metadata = json.loads(raw_metadata)
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        in SYNTHETIC_USER_MESSAGE_TAGS
+    )
+
+
+def _parsed_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt_obj = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if dt_obj.tzinfo is None:
+        dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+    return dt_obj
+
+
+def _row_display_metadata(row: Any, user_tz: ZoneInfo) -> dict:
+    ts_value = row["created_at"]
+    if ts_value:
+        ts_value = _normalize_msg_timestamp(ts_value, user_tz)
+    raw_metadata = row["metadata"]
+    parsed_metadata = None
+    if raw_metadata:
+        try:
+            parsed_metadata = json.loads(raw_metadata)
+        except (TypeError, ValueError):
+            parsed_metadata = None
+    return {
+        "original_id": row["dedup_key"],
+        "original_name": row["name"],
+        "metadata": parsed_metadata,
+        "timestamp": ts_value,
+        # ``conversation_history`` has no ``finished_at`` column, so a
+        # scrolled-back message can never carry a real completion stamp.
+        # Emit the key anyway (as None) to keep the metadata shape identical
+        # to the live path — consumers already fall back to ``timestamp``
+        # when it's None, which is exactly the desired behavior here.
+        "finished_at": None,
+    }
+
+
+def _row_blocks(row: Any) -> List[Any]:
+    raw_blocks = row["blocks"]
+    if not raw_blocks:
+        return []
+    try:
+        parsed = json.loads(raw_blocks)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _tool_placeholder_message(
+    *,
+    call_id: Optional[str],
+    call_name: Optional[str],
+    role: str,
+    metadata: dict,
+    id_prefix: Optional[str],
+    part_index: int,
+    expired: bool,
+) -> Message:
+    """A stand-in card for a tool call whose result row can't be found.
+
+    ``expired`` distinguishes a result the retention policy purged
+    (``metadata.tool_result_expired``) from one that simply hasn't landed
+    yet within its retention window (``metadata.tool_result_pending`` — the
+    caller logs a warning for this case since it should be transient).
+    """
+    output_data = FunctionCallOutput(
+        call_id=call_id,
+        name=call_name,
+        output="工具详情已过期" if expired else "工具结果暂不可用",
+    ).model_dump(exclude_none=True)
+    message_metadata = dict(metadata)
+    flag = "tool_result_expired" if expired else "tool_result_pending"
+    message_metadata[flag] = True
+    kwargs: dict = {"type": MessageType.PLUGIN_CALL_OUTPUT, "role": role}
+    if id_prefix is not None:
+        kwargs["id"] = f"{id_prefix}:{part_index}"
+    message = Message(**kwargs)
+    message.metadata = message_metadata
+    message.add_content(
+        new_content=DataContent(delta=False, index=None, data=output_data),
+    )
+    return message.completed()
+
+
+def missing_tool_call_ids(rows: Sequence[Any]) -> List[str]:
+    """Tool_call ids referenced within ``rows`` with no matching tool_result
+    row also in ``rows`` — candidates for a supplemental cross-page db lookup
+    (``history.fetch_tool_results_by_call_ids``) before calling
+    :func:`history_rows_to_messages`, so a call split across a page boundary
+    isn't confused with one whose result was genuinely never persisted.
+    """
+    in_page_results: set = set()
+    for row in rows:
+        if row["kind"] == "tool_result":
+            call_id = row["tool_call_id"] or row["dedup_key"]
+            if call_id:
+                in_page_results.add(call_id)
+
+    call_ids: List[str] = []
+    for row in rows:
+        if row["kind"] not in ("context_msg", "model_turn"):
+            continue
+        for block in _row_blocks(row):
+            if (
+                isinstance(block, dict)
+                and block.get("type") in ("tool_use", "tool_call")
+                and block.get("id")
+            ):
+                call_ids.append(block.get("id"))
+    return [c for c in dict.fromkeys(call_ids) if c not in in_page_results]
+
+
+def history_rows_to_messages(
+    rows: Sequence[Any],
+    *,
+    retention_days: int = 30,
+    external_tool_results: Optional[Mapping[str, Any]] = None,
+) -> List[Message]:
+    """Reconstruct display Messages from ``conversation_history`` db rows.
+
+    Mirrors :func:`agentscope_msg_to_message` but reads persisted rows
+    instead of live ``Msg`` objects: ``context_msg``/``model_turn`` rows are
+    rendered via the same :func:`_blocks_to_messages` dispatcher used by the
+    live path (so text, thinking and tool-call parts round-trip identically),
+    and a matching ``tool_result`` row is spliced in right after its
+    ``tool_call`` block by ``tool_call_id`` (= db ``dedup_key``).
+
+    ``rows`` must already be seq-ascending (oldest first) and is treated as
+    one page: a ``tool_result`` row whose call isn't anywhere in ``rows``
+    renders as a standalone orphan card instead of being silently dropped.
+    ``external_tool_results`` (keyed by ``tool_call_id``) lets the caller
+    supply results that live outside this page's seq range, so "no result
+    row in this page" and "no result row anywhere in history" aren't
+    confused — the latter is what actually drives the expired/pending
+    placeholder.
+
+    Each reconstructed Message gets a deterministic id
+    ``f"{original_id}:{part_index}"`` (the design doc's "还原消息 id 唯一性"
+    rule), so the same db row always reconstructs to the same ids across
+    pages and reloads.
+    """
+    external_tool_results = external_tool_results or {}
+    user_tz_name = load_config().user_timezone or "UTC"
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        user_tz = timezone.utc
+
+    cutoff: Optional[datetime] = None
+    if retention_days and retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+    in_page_results: dict = {}
+    in_page_calls: set = set()
+    for row in rows:
+        kind = row["kind"]
+        if kind == "tool_result":
+            call_id = row["tool_call_id"] or row["dedup_key"]
+            if call_id:
+                in_page_results[call_id] = row
+        elif kind in ("context_msg", "model_turn"):
+            for block in _row_blocks(row):
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") in ("tool_use", "tool_call")
+                    and block.get("id")
+                ):
+                    in_page_calls.add(block.get("id"))
+
+    def render_tool_result_row(row: Any) -> List[Message]:
+        blocks = _row_blocks(row) or [
+            {
+                "type": "tool_result",
+                "id": row["tool_call_id"],
+                "name": row["name"],
+                "output": row["content"],
+                "state": row["tool_state"],
+            },
+        ]
+        return _blocks_to_messages(
+            blocks,
+            role=row["role"] or "assistant",
+            metadata=_row_display_metadata(row, user_tz),
+            id_prefix=row["dedup_key"] or row["tool_call_id"],
+        )
+
+    results: List[Message] = []
+    for row in rows:
+        kind = row["kind"]
+
+        if kind == "tool_result":
+            call_id = row["tool_call_id"] or row["dedup_key"]
+            if call_id and call_id in in_page_calls:
+                # Rendered inline by its tool_call's turn row below (or
+                # above it — the pre-scan already accounted for it) — don't
+                # double-render the same result.
                 continue
-            btype = block.get("type", "text")
+            results.extend(render_tool_result_row(row))
+            continue
 
-            # DataBlock (2.0): map type="data" to concrete media type
-            if btype == "data":
-                source = block.get("source") or {}
-                mt = (
-                    source.get("media_type", "")
-                    if isinstance(source, dict)
-                    else ""
+        if kind not in ("context_msg", "model_turn"):
+            # Recall-tool turns and any other non-transcript kind are not
+            # displayed, mirroring the live path (they never reach the
+            # SSE/history transcript either).
+            continue
+        if _row_is_synthetic_user_message(row):
+            continue
+
+        original_id = row["dedup_key"]
+        role = row["role"] or ("assistant" if kind == "model_turn" else "user")
+        metadata = _row_display_metadata(row, user_tz)
+        blocks = _row_blocks(row)
+
+        if blocks:
+            turn_messages = _blocks_to_messages(
+                blocks,
+                role=role,
+                metadata=metadata,
+                id_prefix=original_id,
+            )
+            results.extend(turn_messages)
+            part_index = len(turn_messages)
+            for block in blocks:
+                if not (
+                    isinstance(block, dict)
+                    and block.get("type") in ("tool_use", "tool_call")
+                ):
+                    continue
+                call_id = block.get("id")
+                result_row = in_page_results.get(call_id) or (
+                    external_tool_results.get(call_id) if call_id else None
                 )
-                if mt.startswith("image/"):
-                    btype = "image"
-                elif mt.startswith("audio/"):
-                    btype = "audio"
-                elif mt.startswith("video/"):
-                    btype = "video"
-                else:
-                    btype = "file"
-
-            if btype == "text":
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
+                if result_row is not None:
+                    results.extend(render_tool_result_row(result_row))
+                    continue
+                created_dt = _parsed_datetime(row["created_at"])
+                expired = bool(
+                    cutoff is not None
+                    and created_dt is not None
+                    and created_dt < cutoff,
+                )
+                if not expired:
+                    logger.warning(
+                        "history_rows_to_messages: tool_result missing for "
+                        "call_id=%s (turn %s) and not past the retention "
+                        "window; rendering as unavailable",
+                        call_id,
+                        original_id,
                     )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                text_content = TextContent(
-                    delta=False,
-                    index=None,
-                    text=clean_display_text(
-                        block.get("text", ""),
-                        role,
+                results.append(
+                    _tool_placeholder_message(
+                        call_id=call_id,
+                        call_name=block.get("name"),
+                        role=role,
+                        metadata=metadata,
+                        id_prefix=original_id,
+                        part_index=part_index,
+                        expired=expired,
                     ),
                 )
-                current_message.add_content(new_content=text_content)
-
-            elif btype == "hint":
-                # Hint blocks are runtime/model-facing state (for example,
-                # current-time reminders). They belong in the agent context,
-                # but never in a user-visible transcript restored by either
-                # the console chat UI or a PawApp.
-                continue
-
-            elif btype == "thinking":
-                if current_type != MessageType.REASONING:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.REASONING,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.REASONING
-
-                text_content = TextContent(
+                part_index += 1
+        elif row["content"]:
+            message = Message(
+                type=MessageType.MESSAGE,
+                role=role,
+                **({"id": f"{original_id}:0"} if original_id else {}),
+            )
+            message.metadata = metadata
+            message.add_content(
+                new_content=TextContent(
                     delta=False,
                     index=None,
-                    text=block.get("thinking", ""),
-                )
-                current_message.add_content(new_content=text_content)
-
-            elif btype in ("tool_use", "tool_call"):
-                if current_message:
-                    results.append(current_message.completed())
-
-                current_message = Message(
-                    type=MessageType.PLUGIN_CALL,
-                    role=role,
-                )
-                current_message.metadata = metadata
-                current_type = MessageType.PLUGIN_CALL
-
-                if isinstance(block.get("input"), (dict, list)):
-                    arguments = json.dumps(
-                        block.get("input"),
-                        ensure_ascii=False,
-                    )
-                else:
-                    arguments = block.get("input")
-
-                call_data = FunctionCall(
-                    call_id=block.get("id"),
-                    name=block.get("name"),
-                    arguments=arguments,
-                ).model_dump()
-
-                data_content = DataContent(
-                    delta=False,
-                    index=None,
-                    data=call_data,
-                )
-                current_message.add_content(new_content=data_content)
-
-            elif btype == "tool_result":
-                if current_message:
-                    results.append(current_message.completed())
-
-                current_message = Message(
-                    type=MessageType.PLUGIN_CALL_OUTPUT,
-                    role=role,
-                )
-                current_message.metadata = metadata
-                current_type = MessageType.PLUGIN_CALL_OUTPUT
-
-                if isinstance(block.get("output"), (dict, list)):
-                    output = json.dumps(
-                        block.get("output"),
-                        ensure_ascii=False,
-                    )
-                else:
-                    output = block.get("output")
-
-                output_data = FunctionCallOutput(
-                    call_id=block.get("id"),
-                    name=block.get("name"),
-                    output=output,
-                ).model_dump(exclude_none=True)
-
-                tool_state = block.get("state")
-                if hasattr(tool_state, "value"):
-                    tool_state = tool_state.value
-                if tool_state is not None:
-                    output_data["state"] = tool_state
-
-                data_content = DataContent(
-                    delta=False,
-                    index=None,
-                    data=output_data,
-                )
-                current_message.add_content(new_content=data_content)
-
-            elif btype == "image":
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                kwargs = {}
-                if (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source", {}).get("type") == "url"
-                ):
-                    url = block.get("source", {}).get("url")
-                    url = _resolve_content_url(url)
-                    kwargs["image_url"] = url
-
-                elif (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source").get("type") == "base64"
-                ):
-                    media_type = block.get("source", {}).get(
-                        "media_type",
-                        "image/jpeg",
-                    )
-                    base64_data = block.get("source", {}).get("data", "")
-                    url = f"data:{media_type};base64,{base64_data}"
-                    kwargs["image_url"] = url
-
-                image_content = ImageContent(
-                    delta=False,
-                    index=None,
-                    **kwargs,
-                )
-                current_message.add_content(new_content=image_content)
-
-            elif btype == "audio":
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                kwargs = {}
-                if (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source", {}).get("type") == "url"
-                ):
-                    url = block.get("source", {}).get("url")
-                    url = _resolve_content_url(url)
-                    kwargs["data"] = url
-                    try:
-                        kwargs["format"] = urlparse(url).path.split(".")[-1]
-                    except (AttributeError, IndexError, ValueError):
-                        kwargs["format"] = None
-
-                elif (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source").get("type") == "base64"
-                ):
-                    media_type = block.get("source", {}).get("media_type")
-                    base64_data = block.get("source", {}).get("data", "")
-                    url = f"data:{media_type};base64,{base64_data}"
-                    kwargs["data"] = url
-                    kwargs["format"] = media_type
-
-                audio_content = AudioContent(
-                    delta=False,
-                    index=None,
-                    **kwargs,
-                )
-                current_message.add_content(new_content=audio_content)
-
-            elif btype == "video":
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                kwargs = {}
-                if (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source", {}).get("type") == "url"
-                ):
-                    url = block.get("source", {}).get("url")
-                    url = _resolve_content_url(url)
-                    kwargs["video_url"] = url
-
-                elif (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source").get("type") == "base64"
-                ):
-                    media_type = block.get("source", {}).get(
-                        "media_type",
-                        "video/mp4",
-                    )
-                    base64_data = block.get("source", {}).get("data", "")
-                    url = f"data:{media_type};base64,{base64_data}"
-                    kwargs["video_url"] = url
-
-                video_content = VideoContent(
-                    delta=False,
-                    index=None,
-                    **kwargs,
-                )
-                current_message.add_content(new_content=video_content)
-
-            elif btype == "file":
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                kwargs = {
-                    "filename": block.get("filename") or block.get("name"),
-                }
-                if (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source", {}).get("type") == "url"
-                ):
-                    url = block.get("source", {}).get("url")
-                    url = _resolve_content_url(url)
-                    kwargs["file_url"] = url
-
-                elif (
-                    isinstance(block.get("source"), dict)
-                    and block.get("source").get("type") == "base64"
-                ):
-                    media_type = block.get("source", {}).get(
-                        "media_type",
-                        "application/octet-stream",
-                    )
-                    base64_data = block.get("source", {}).get("data", "")
-                    url = f"data:{media_type};base64,{base64_data}"
-                    kwargs["file_url"] = url
-                elif isinstance(block.get("source"), str):
-                    url = _resolve_content_url(block.get("source", ""))
-                    kwargs["file_url"] = url
-
-                file_content = FileContent(
-                    delta=False,
-                    index=None,
-                    **kwargs,
-                )
-                current_message.add_content(new_content=file_content)
-
-            else:
-                if current_type != MessageType.MESSAGE:
-                    if current_message:
-                        results.append(current_message.completed())
-                    current_message = Message(
-                        type=MessageType.MESSAGE,
-                        role=role,
-                    )
-                    current_message.metadata = metadata
-                    current_type = MessageType.MESSAGE
-
-                text_content = TextContent(
-                    delta=False,
-                    index=None,
-                    text=str(block),
-                )
-                current_message.add_content(new_content=text_content)
-
-        if current_message:
-            results.append(current_message.completed())
+                    text=clean_display_text(row["content"], role),
+                ),
+            )
+            results.append(message.completed())
 
     return results

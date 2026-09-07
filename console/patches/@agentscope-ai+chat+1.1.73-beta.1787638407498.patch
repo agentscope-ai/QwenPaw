@@ -1,0 +1,447 @@
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/WindowedBubbleList.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/WindowedBubbleList.js
+new file mode 100644
+index 0000000..952ef91
+--- /dev/null
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/WindowedBubbleList.js
+@@ -0,0 +1,190 @@
++function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
++function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
++function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
++function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
++function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
++function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
++function _objectWithoutProperties(source, excluded) { if (source == null) return {}; var target = _objectWithoutPropertiesLoose(source, excluded); var key, i; if (Object.getOwnPropertySymbols) { var sourceSymbolKeys = Object.getOwnPropertySymbols(source); for (i = 0; i < sourceSymbolKeys.length; i++) { key = sourceSymbolKeys[i]; if (excluded.indexOf(key) >= 0) continue; if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue; target[key] = source[key]; } } return target; }
++function _objectWithoutPropertiesLoose(source, excluded) { if (source == null) return {}; var target = {}; var sourceKeys = Object.keys(source); var key, i; for (i = 0; i < sourceKeys.length; i++) { key = sourceKeys[i]; if (excluded.indexOf(key) >= 0) continue; target[key] = source[key]; } return target; }
++import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { useVirtualizer } from '@tanstack/react-virtual';
++import Bubble from "../../../../Bubble/Bubble";
++import { jsx as _jsx } from "react/jsx-runtime";
++import { jsxs as _jsxs } from "react/jsx-runtime";
++import { Fragment as _Fragment } from "react/jsx-runtime";
++import { createElement as _createElement } from "react";
++
++var _excluded = ["key"];
++
++// Must match `gap: 24px` on `.{prefixCls}-bubble-list` in Bubble/style/list.js.
++// The virtualizer needs it because measured row heights come from
++// getBoundingClientRect(), which excludes the flex gap.
++var LIST_GAP_PX = 24;
++
++// Rough height of an unmeasured row. Only affects the scrollbar's feel for
++// not-yet-rendered regions; every row that scrolls into view is measured for
++// real and the estimate stops mattering for it.
++var ESTIMATED_ROW_HEIGHT = 140;
++
++/**
++ * 消息列表的虚拟化渲染（补丁新增）。
++ *
++ * 作为 `Bubble.List` 的 children 传入，走它内部
++ * `children ? children : paginationItems.map(...)` 这个既有分支，从而在不改
++ * 动 Bubble.List 自身滚动逻辑的前提下，把"每次渲染全部消息"换成"只渲染视口
++ * 附近的消息"。
++ *
++ * Virtualized rendering for the message list (patch addition). Passed as
++ * `Bubble.List`'s children so it takes over the existing
++ * `children ? children : paginationItems.map(...)` branch — the whole list
++ * no longer mounts at once, which is what made each "load older" prepend
++ * block the main thread for seconds.
++ *
++ * Design notes, because the container this renders into is unusual:
++ *
++ * - The scroll container is `Bubble.List`'s own `.{prefixCls}-bubble-list`
++ *   div (native `overflow: auto`), NOT one this component owns. We hand it
++ *   to the virtualizer via `getScrollElement` so `scrollToBottom`,
++ *   `checkIsAtBottom` and the load-more sentinel — all of which read that
++ *   element's raw `scrollTop` — keep working untouched.
++ * - That container is `flex-direction: column-reverse` for `order="desc"`:
++ *   items[0] (newest) paints at the BOTTOM, and Chrome reports a NEGATIVE
++ *   `scrollTop` that runs 0 → -(scrollHeight - clientHeight) as you scroll
++ *   back toward older messages. (BubbleList's own `checkShowScrollToBottom`
++ *   relies on the same thing: `scrollTop <= -10`.) The virtualizer assumes a
++ *   0→positive axis, so `observeElementOffset`/`scrollToFn` below translate
++ *   between the two — without that translation it clamps every negative
++ *   offset to 0, believes it is permanently parked at items[0], and leaves
++ *   the viewport blank once you scroll away from the newest message.
++ * - Rows are therefore rendered as ordinary flex children (NOT absolutely
++ *   positioned the way the virtualizer's docs show), with one spacer div on
++ *   each side standing in for the un-rendered ranges. Absolute positioning
++ *   would take the rows out of the column-reverse flow and break the layout.
++ */
++function WindowedBubbleList(props) {
++  var items = props.items || [];
++  var count = items.length;
++
++  // The probe is the first real DOM node this component renders, and
++  // BubbleListContent renders us straight into the scroll container with no
++  // wrapper in between — so its parentElement IS that container. Cheaper and
++  // less brittle than a global querySelector for the prefixed class name.
++  var probeRef = useRef(null);
++  var _useState = useState(null),
++    scrollEl = _useState[0],
++    setScrollEl = _useState[1];
++
++  useEffect(function () {
++    var parent = probeRef.current ? probeRef.current.parentElement : null;
++    if (parent && parent !== scrollEl) setScrollEl(parent);
++  }, [scrollEl]);
++
++  var getItemKey = useCallback(function (index) {
++    var item = items[index];
++    return (item && (item.id || item.key)) || index;
++  }, [items]);
++
++  // column-reverse ⇒ Chrome's scrollTop is 0 at the newest message and goes
++  // negative toward older ones. Feed the virtualizer the absolute value so
++  // its 0→positive offset math lines up with array order, and invert again
++  // on the way out when it repositions the scroll (it does that itself when
++  // a row above the viewport is measured at a different height than
++  // estimated, to keep the visible content from jumping).
++  var observeElementOffset = useCallback(function (instance, cb) {
++    var el = instance.scrollElement;
++    if (!el) return undefined;
++    var report = function report(isScrolling) {
++      return function () {
++        cb(Math.abs(el.scrollTop), isScrolling);
++      };
++    };
++    var onScroll = report(true);
++    var onScrollEnd = report(false);
++    el.addEventListener('scroll', onScroll, {
++      passive: true
++    });
++    el.addEventListener('scrollend', onScrollEnd, {
++      passive: true
++    });
++    // Seed the initial offset; without it the first frame renders against a
++    // stale 0 before any scroll event fires.
++    cb(Math.abs(el.scrollTop), false);
++    return function () {
++      el.removeEventListener('scroll', onScroll);
++      el.removeEventListener('scrollend', onScrollEnd);
++    };
++  }, []);
++
++  var scrollToFn = useCallback(function (offset, options, instance) {
++    var el = instance.scrollElement;
++    if (!el || !el.scrollTo) return;
++    var adjustments = options && options.adjustments || 0;
++    el.scrollTo({
++      top: -(offset + adjustments),
++      behavior: options && options.behavior
++    });
++  }, []);
++
++  var virtualizer = useVirtualizer({
++    count: count,
++    getScrollElement: function getScrollElement() {
++      return scrollEl;
++    },
++    estimateSize: function estimateSize() {
++      return ESTIMATED_ROW_HEIGHT;
++    },
++    getItemKey: getItemKey,
++    gap: LIST_GAP_PX,
++    overscan: 6,
++    observeElementOffset: observeElementOffset,
++    scrollToFn: scrollToFn
++  });
++
++  var virtualItems = virtualizer.getVirtualItems();
++  var totalSize = virtualizer.getTotalSize();
++
++  // Space held open for the rows we did not render. `before` covers the
++  // newer side (array indices below the window, painted below the viewport
++  // under column-reverse); `after` covers the older side above it.
++  var padBefore = virtualItems.length > 0 ? virtualItems[0].start : 0;
++  var padAfter = virtualItems.length > 0
++    ? Math.max(0, totalSize - virtualItems[virtualItems.length - 1].end)
++    : Math.max(0, totalSize);
++
++  var rows = useMemo(function () {
++    return virtualItems.map(function (virtualRow) {
++      var item = items[virtualRow.index];
++      if (!item) return null;
++      var key = item.key,
++        bubble = _objectWithoutProperties(item, _excluded);
++      // Preserved verbatim from the original inline map in BubbleList.js so
++      // Bubble keeps receiving exactly what it did before.
++      var isLast = virtualRow.index === count - 1;
++      return /*#__PURE__*/_jsx("div", {
++        ref: virtualizer.measureElement,
++        "data-index": virtualRow.index,
++        children: /*#__PURE__*/_createElement(Bubble, _objectSpread(_objectSpread({}, bubble), {}, {
++          isLast: isLast
++        }))
++      }, virtualRow.key);
++    });
++  }, [virtualItems, items, count, virtualizer]);
++
++  return /*#__PURE__*/_jsxs(_Fragment, {
++    children: [/*#__PURE__*/_jsx("div", {
++      ref: probeRef,
++      style: {
++        height: padBefore,
++        flex: '0 0 auto'
++      },
++      "aria-hidden": true
++    }), rows, /*#__PURE__*/_jsx("div", {
++      style: {
++        height: padAfter,
++        flex: '0 0 auto'
++      },
++      "aria-hidden": true
++    })]
++  });
++}
++export default WindowedBubbleList;
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/index.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/index.js
+index 5f36fe1..801acb3 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/index.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/index.js
+@@ -15,7 +15,8 @@ function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+ import { Bubble, useProviderContext } from "../../../..";
+ import { ChatAnywhereMessagesContext } from "../../Context/ChatAnywhereMessagesContext";
+ import { useContextSelector } from "use-context-selector";
+-import { ChatAnywhereSessionsContext } from "../../Context/ChatAnywhereSessionsContext";
++import { ChatAnywhereSessionsContext, useChatAnywhereLoadMoreHistory } from "../../Context/ChatAnywhereSessionsContext";
++import WindowedBubbleList from "./WindowedBubbleList";
+ import { useChatAnywhereOptions } from "../../Context/ChatAnywhereOptionsContext";
+ import cls from 'classnames';
+ import Welcome from "../Welcome";
+@@ -186,21 +187,44 @@ export default function MessageList(props) {
+   var prevMessagesLengthRef = React.useRef(safeMessages.length);
+   var _useSimulatedMessageP = useSimulatedMessagePagination(safeMessages, currentSessionId),
+     visibleMessages = _useSimulatedMessageP.visibleMessages,
+-    noMore = _useSimulatedMessageP.noMore,
+-    loadMore = _useSimulatedMessageP.loadMore,
++    simulatedNoMore = _useSimulatedMessageP.noMore,
++    simulatedLoadMore = _useSimulatedMessageP.loadMore,
+     ensureMessageVisible = _useSimulatedMessageP.ensureMessageVisible;
++  // Real backend-driven pagination (patch addition) takes priority when the
++  // host app supplies options.session.onLoadMore: the full already-loaded
++  // array is shown as-is (no client-side reveal windowing — the network
++  // page size already bounds what's in memory), and "load more" fetches an
++  // actual older page instead of just revealing more of what's in memory.
++  var _useChatAnywhereLoadM = useChatAnywhereLoadMoreHistory(),
++    realLoadMore = _useChatAnywhereLoadM.loadMore,
++    realNoMore = _useChatAnywhereLoadM.noMore,
++    hasRealLoadMore = _useChatAnywhereLoadM.hasRealLoadMore;
++  var displayMessages = hasRealLoadMore ? safeMessages : visibleMessages;
++  var noMore = hasRealLoadMore ? realNoMore : simulatedNoMore;
++  var loadMore = hasRealLoadMore ? realLoadMore : simulatedLoadMore;
+   var renderedItemsKey = useMemo(function () {
+-    return visibleMessages.map(function (message) {
++    return displayMessages.map(function (message) {
+       return message.id;
+     }).join('|');
+-  }, [visibleMessages]);
++  }, [displayMessages]);
++  // Auto-scroll to bottom only when a genuinely new message arrives at the
++  // end — not merely when the array grows for any reason. A loadMore
++  // prepend also grows safeMessages.length, but the newest message (index
++  // 0 of the reversed/desc array) is unchanged; without this distinction
++  // the length-only check below used to yank the view back to the bottom
++  // right after the user scrolled up to load older history (patch fix).
++  var prevNewestIdRef = React.useRef(safeMessages[0] && safeMessages[0].id);
+   React.useEffect(function () {
+-    if (safeMessages.length > prevMessagesLengthRef.current) {
++    var newestId = safeMessages[0] && safeMessages[0].id;
++    var grew = safeMessages.length > prevMessagesLengthRef.current;
++    var newestChanged = newestId !== prevNewestIdRef.current;
++    if (grew && newestChanged) {
+       var _listRef$current;
+       (_listRef$current = listRef.current) === null || _listRef$current === void 0 || _listRef$current.scrollToBottom();
+     }
+     prevMessagesLengthRef.current = safeMessages.length;
+-  }, [safeMessages.length]);
++    prevNewestIdRef.current = newestId;
++  }, [safeMessages]);
+   if (safeMessages.length === 0) return /*#__PURE__*/_jsx("div", {
+     className: cls(prefixCls, "".concat(prefixCls, "-welcome")),
+     children: /*#__PURE__*/_jsx(Welcome, {
+@@ -218,7 +242,15 @@ export default function MessageList(props) {
+         wrapper: "".concat(prefixCls, "-bubble-wrapper"),
+         list: scrollContainerClassName
+       },
+-      items: visibleMessages
++      items: displayMessages,
++      // Virtualize only the real-backend-pagination path: there the list
++      // grows without bound as older pages load, and mounting every bubble
++      // on each prepend is what stalls the main thread. The simulated path
++      // already hands us a small pre-windowed slice, so it renders inline
++      // exactly as before (children undefined ⇒ Bubble.List's own map).
++      children: hasRealLoadMore ? /*#__PURE__*/_jsx(WindowedBubbleList, {
++        items: displayMessages
++      }) : undefined
+     }, currentSessionId), /*#__PURE__*/_jsx(UserMessageAnchors, {
+       badgeMaxCount: userMessageAnchorsOptions === null || userMessageAnchorsOptions === void 0 ? void 0 : userMessageAnchorsOptions.badgeMaxCount,
+       enabled: (userMessageAnchorsOptions === null || userMessageAnchorsOptions === void 0 ? void 0 : userMessageAnchorsOptions.enabled) !== false,
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.d.ts b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.d.ts
+index 0d083ab..5d0e2a3 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.d.ts
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.d.ts
+@@ -9,6 +9,15 @@ export declare function ChatAnywhereSessionsContextProvider(props: {
+  * 会话切换时加载消息和判断重连的 hook，必须保证只挂载一次
+  */
+ export declare const useChatAnywhereSessionLoader: () => void;
++/**
++ * 真实后端分页加载更早历史消息的 hook（补丁新增）。options.session.onLoadMore
++ * 由宿主应用提供；未提供时 hasRealLoadMore 为 false。
++ */
++export declare const useChatAnywhereLoadMoreHistory: () => {
++    loadMore: () => Promise<void>;
++    noMore: boolean;
++    hasRealLoadMore: boolean;
++};
+ /**
+  * 获取会话列表的 reactive 状态，供外部自定义会话面板使用
+  */
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.js
+index 4544e8d..cf63cf1 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext.js
+@@ -126,6 +126,91 @@ export var useChatAnywhereSessionLoader = function useChatAnywhereSessionLoader(
+   })), [currentSessionId]);
+ };
+ 
++// Bounded history window: once the loaded message count exceeds this after
++// a loadMore prepend, the newest (tail) end is trimmed so repeated backward
++// scrolling can't grow memory/DOM without bound. The user has scrolled away
++// from those messages into older history; only the cursor (tracked by the
++// app's own onLoadMore closure, not here) is kept.
++var LOAD_MORE_MAX_MESSAGES = 300;
++
++/**
++ * 真实后端分页加载更早历史消息的 hook（补丁新增）。
++ * options.session.onLoadMore 由宿主应用提供；未提供时 hasRealLoadMore 为
++ * false，MessageList 回退到原有的模拟分页（揭示已加载数组）。
++ *
++ * Real backend-driven "load older history" (patch addition). The host app
++ * supplies options.session.onLoadMore; when absent, hasRealLoadMore is
++ * false and MessageList falls back to the original simulated pagination
++ * (revealing more of an already-loaded array).
++ */
++export var useChatAnywhereLoadMoreHistory = function useChatAnywhereLoadMoreHistory() {
++  var currentSessionId = useContextSelector(ChatAnywhereSessionsContext, function (v) {
++    return v.currentSessionId;
++  });
++  var onLoadMore = useChatAnywhereOptions(function (v) {
++    var _v$session;
++    return (_v$session = v.session) === null || _v$session === void 0 ? void 0 : _v$session.onLoadMore;
++  });
++  var setMessages = useContextSelector(ChatAnywhereMessagesContext, function (v) {
++    return v.setMessages;
++  });
++  var _useGetState6 = useGetState(false),
++    _useGetState7 = _slicedToArray(_useGetState6, 2),
++    noMore = _useGetState7[0],
++    setNoMore = _useGetState7[1];
++  var loadingRef = React.useRef(false);
++  // A ref, not the closed-over `currentSessionId` value: the race guard
++  // below must observe a session switch that happens *while* the request
++  // is in flight, and a value captured in the async closure at call time
++  // would just equal `sessionIdAtCall` forever (both frozen at the same
++  // render), making the guard a no-op.
++  var currentSessionIdRef = React.useRef(currentSessionId);
++  React.useEffect(function () {
++    currentSessionIdRef.current = currentSessionId;
++    // A new session starts with its own "reached the end" state and no
++    // in-flight request carried over from the previous one.
++    setNoMore(false);
++    loadingRef.current = false;
++  }, [currentSessionId, setNoMore]);
++  var loadMore = React.useCallback(async function () {
++    if (!onLoadMore || loadingRef.current) return;
++    var sessionIdAtCall = currentSessionIdRef.current;
++    loadingRef.current = true;
++    try {
++      var result = await onLoadMore(sessionIdAtCall);
++      // Race guard: the active session changed while this request was in
++      // flight — discard the response rather than prepending stale history
++      // (or a stale noMore) onto whatever session is now showing.
++      if (currentSessionIdRef.current !== sessionIdAtCall) return;
++      if (result && result.messages && result.messages.length) {
++        setMessages(function (prev) {
++          var older = result.messages.map(function (item) {
++            return _objectSpread(_objectSpread({}, item), {}, {
++              history: true
++            });
++          });
++          // Both operands are already real arrays (older from .map(),
++          // prev from React state) — plain .concat() needs no spread
++          // helper, unlike [...older, ...prev].
++          var merged = older.concat(prev);
++          if (merged.length > LOAD_MORE_MAX_MESSAGES) {
++            merged = merged.slice(0, LOAD_MORE_MAX_MESSAGES);
++          }
++          return merged;
++        });
++      }
++      setNoMore(!result || result.noMore !== false);
++    } finally {
++      loadingRef.current = false;
++    }
++  }, [onLoadMore, setMessages, setNoMore]);
++  return {
++    loadMore: loadMore,
++    noMore: noMore,
++    hasRealLoadMore: typeof onLoadMore === 'function'
++  };
++};
++
+ /**
+  * 获取会话列表的 reactive 状态，供外部自定义会话面板使用
+  */
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts
+index 3068df5..dc3ac5f 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts
+@@ -3,6 +3,7 @@ import { UploadProps } from 'antd';
+ import type { SenderComponents } from '../../../Sender';
+ import { IAgentScopeRuntimeMessage, IAgentScopeRuntimeRequest, IAgentScopeRuntimeResponse, IContent } from '../AgentScopeRuntime/types';
+ import { IAgentScopeRuntimeWebUISession } from './ISessions';
++import { IAgentScopeRuntimeWebUIMessage } from './IMessages';
+ /**
+  * @description API 配置选项
+  * @descriptionEn API configuration options
+@@ -567,6 +568,20 @@ export interface IAgentScopeRuntimeWebUISessionOptions {
+      * @descriptionEn Session API interface
+      */
+     api?: IAgentScopeRuntimeWebUISessionAPI;
++    /**
++     * @description 加载更早历史消息的回调（补丁新增）。提供时，MessageList 使用
++     * 真实网络分页并在触底/点击时前插返回的消息；不提供时退回原有的模拟分页
++     * （揭示已加载数组）。
++     * @descriptionEn Callback to load older history messages (patch addition).
++     * When provided, MessageList uses real network-backed pagination and
++     * prepends the returned messages; when omitted, falls back to the
++     * original simulated pagination (revealing more of an already-loaded
++     * array).
++     */
++    onLoadMore?: (sessionId: string) => Promise<{
++        messages: IAgentScopeRuntimeWebUIMessage[];
++        noMore: boolean;
++    }>;
+ }
+ /**
+  * @description 自定义卡片组件配置
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IMessages.d.ts b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IMessages.d.ts
+index e787b8d..4b911a3 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IMessages.d.ts
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IMessages.d.ts
+@@ -42,6 +42,15 @@ export interface IAgentScopeRuntimeWebUIMessage<T = string | any> {
+      * @descriptionEn Processing status of the message, affects display effects
+      */
+     msgStatus?: 'finished' | 'interrupted' | 'generating' | 'error';
++    /**
++     * @description 是否为已加载的历史消息（会话首屏加载或 onLoadMore 追加），
++     * 用于模拟分页/真实分页两种模式区分"当前新消息"与"历史消息"
++     * @descriptionEn Whether this is an already-loaded history message (from
++     * the initial session load or an onLoadMore page), used to distinguish
++     * "current new messages" from "history" in both the simulated and real
++     * pagination modes
++     */
++    history?: boolean;
+ }
+ export interface IAgentScopeRuntimeWebUIMessagesContext {
+     messages: IAgentScopeRuntimeWebUIMessage[];

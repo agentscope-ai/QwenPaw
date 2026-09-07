@@ -20,9 +20,10 @@
  * when `updated_at` advances (and NOT when it stays the same).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import type { ChatSpec, ChatHistory, Message } from "../../../api";
+import type { ChatSpec, ChatMessagesPage, Message } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
+import { toMessagesPage } from "./convertMessagesHelper";
 
 const T0 = "2026-07-16T15:30:00.000000+00:00";
 const T1 = "2026-07-16T15:36:00.000000+00:00";
@@ -46,7 +47,7 @@ function makeChatSpec(id: string, updatedAt: string): ChatSpec {
 
 function makeHistory(
   turns: Array<{ role: string; text: string }>,
-): ChatHistory {
+): ChatMessagesPage {
   const messages: Message[] = turns.map(
     ({ role, text }) =>
       ({
@@ -54,7 +55,7 @@ function makeHistory(
         content: [{ type: "text", text }],
       }) as unknown as Message,
   );
-  return { messages, status: "idle" } as unknown as ChatHistory;
+  return toMessagesPage({ messages, status: "idle" });
 }
 
 afterEach(() => {
@@ -68,7 +69,7 @@ describe("SessionApi converted-cache staleness on updated_at change (#6131)", ()
       .spyOn(api, "listChats")
       .mockResolvedValue([makeChatSpec(id, T0)]);
     const getChatSpy = vi
-      .spyOn(api, "getChat")
+      .spyOn(api, "getMessages")
       .mockResolvedValue(makeHistory([{ role: "assistant", text: "first" }]));
 
     // Initial poll + open: fetches history v1 and caches it.
@@ -101,7 +102,7 @@ describe("SessionApi converted-cache staleness on updated_at change (#6131)", ()
     const id = "22222222-2222-4222-8222-222222222222";
     vi.spyOn(api, "listChats").mockResolvedValue([makeChatSpec(id, T0)]);
     const getChatSpy = vi
-      .spyOn(api, "getChat")
+      .spyOn(api, "getMessages")
       .mockResolvedValue(makeHistory([{ role: "assistant", text: "only" }]));
 
     await sessionApi.getSessionList();

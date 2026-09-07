@@ -42,6 +42,32 @@ export interface ChatHistory {
   status?: ChatStatus; // Conversation status: idle or running
 }
 
+// Value semantics for GET /chats/{id}/messages — see
+// docs/session-scroll-loading-design.md §2.1.
+// - "available": more history exists before next_cursor; keep paging.
+// - "complete": reached the true start of the conversation.
+// - "expired": the true start was purged by an old retention policy.
+// - "unavailable": this session has no history store to scroll into
+//   (non-scroll mode) — messages is a capped safety window, not a page.
+// - "degraded": history.db exists but couldn't be read for this request —
+//   never treat this the same as "complete".
+export type ChatHistoryStatus =
+  | "available"
+  | "complete"
+  | "expired"
+  | "unavailable"
+  | "degraded";
+
+export interface ChatMessagesPage {
+  messages: Message[];
+  next_cursor: number | null; // pass as before_seq to fetch the next (older) page
+  has_more: boolean;
+  history_status: ChatHistoryStatus;
+  status: ChatStatus;
+  truncated: boolean; // a single turn exceeded the expansion budget; next_cursor continues it
+  fallback_limited: boolean; // messages is a capped safety window, not a normal page
+}
+
 export interface ChatUpdateRequest {
   name?: string;
   pinned?: boolean;

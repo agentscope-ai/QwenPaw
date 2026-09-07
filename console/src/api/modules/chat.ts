@@ -4,6 +4,7 @@ import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
+  ChatMessagesPage,
   ChatDeleteResponse,
   ChatUpdateRequest,
   ChatGroup,
@@ -98,6 +99,36 @@ export const chatApi = {
       {
         signal: options?.signal,
       },
+    );
+  },
+
+  /** Paginated scroll-back read path: GET /chats/{id}/messages. No
+   * `beforeSeq` = turn-aligned first-screen window (anchored for later
+   * paging); with `beforeSeq` = the next older page straight from
+   * history.db. See docs/session-scroll-loading-design.md. */
+  getMessages: (
+    chatId: string,
+    params?: {
+      limit?: number;
+      beforeSeq?: number;
+      include_app_owned?: boolean;
+    },
+    options?: { signal?: AbortSignal },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit !== undefined)
+      searchParams.append("limit", String(params.limit));
+    if (params?.beforeSeq !== undefined)
+      searchParams.append("before_seq", String(params.beforeSeq));
+    if (params?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(params.include_app_owned),
+      );
+    const query = searchParams.toString();
+    return request<ChatMessagesPage>(
+      `/chats/${encodeURIComponent(chatId)}/messages${query ? `?${query}` : ""}`,
+      { signal: options?.signal },
     );
   },
 

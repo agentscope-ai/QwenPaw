@@ -6,6 +6,8 @@ import type {
 import api, {
   type ChatSpec,
   type ChatHistory,
+  type ChatMessagesPage,
+  type ChatHistoryStatus,
   type ChatStatus,
   type Message,
 } from "../../../api";
@@ -134,6 +136,14 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   groupId?: string | null;
   parentSessionId?: string | null;
   rootSessionId?: string | null;
+  /** Cursor for the next (older) page from GET /chats/{id}/messages; null
+   * once the true start of history has been reached, undefined before the
+   * first screen has loaded at all. See loadOlderMessages. */
+  nextCursor?: number | null;
+  /** Tail-of-scroll state from the most recent messages page (first screen
+   * or loadOlderMessages) — drives the "load more" affordance and its
+   * end-of-history / degraded / expired messaging. */
+  historyStatus?: ChatHistoryStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +419,7 @@ const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
  *  When status is missing (undefined) treat the chat as idle to avoid
  *  false-positive reconnects that cause infinite loading (issue #4903).
  */
-const isGenerating = (chatHistory: ChatHistory): boolean => {
+const isGenerating = (chatHistory: ChatHistory | ChatMessagesPage): boolean => {
   return chatHistory.status === "running";
 };
 
@@ -665,6 +675,65 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.convertedSessionCache.delete(backendId);
   }
 
+  // ---------------------------------------------------------------------------
+  // Scroll-back pagination (GET /chats/{id}/messages) — see
+  // docs/session-scroll-loading-design.md §3.
+  // ---------------------------------------------------------------------------
+
+  /** backendId -> next_cursor from the most recent messages page. Tracked
+   * independently of convertedSessionCache (which can evict, or never gets
+   * populated at all while a session is generating) so loadOlderMessages
+   * always knows where to resume regardless of cache state. */
+  private nextCursorBySession = new Map<string, number | null>();
+
+  /**
+   * Fetch the next older page of history for `sessionId` (as passed by the
+   * SDK's onLoadMore — a display id or a real backend UUID; resolved here)
+   * and prepend it. Returns `{messages: [], noMore: true}` when no first
+   * screen has loaded yet or the cursor is already null (reached the true
+   * start) — `noMore: false` on any fetch error so the load-more affordance
+   * stays visible and a rescroll retries, instead of silently dead-ending.
+   */
+  async loadOlderMessages(
+    sessionId: string,
+  ): Promise<{ messages: IAgentScopeRuntimeWebUIMessage[]; noMore: boolean }> {
+    const backendId = this.getRealIdForSession(sessionId) ?? sessionId;
+    const cursor = this.nextCursorBySession.get(backendId);
+    if (cursor === undefined || cursor === null) {
+      return { messages: [], noMore: true };
+    }
+
+    let page: ChatMessagesPage;
+    try {
+      page = await api.getMessages(backendId, {
+        beforeSeq: cursor,
+        limit: 50,
+        include_app_owned: false,
+      });
+    } catch {
+      // Transient failure: don't advance the cursor and don't claim
+      // noMore, so the next scroll/click just retries from the same spot.
+      return { messages: [], noMore: false };
+    }
+
+    this.nextCursorBySession.set(backendId, page.next_cursor);
+    const converted = convertMessages(page.messages || []);
+
+    const cacheEntry = this.convertedSessionCache.get(backendId);
+    if (cacheEntry) {
+      cacheEntry.session.messages = [...converted, ...cacheEntry.session.messages];
+      cacheEntry.session.nextCursor = page.next_cursor;
+      cacheEntry.session.historyStatus = page.history_status;
+    }
+    const listEntry = this.findSession(sessionId) ?? this.findSession(backendId);
+    if (listEntry) {
+      listEntry.nextCursor = page.next_cursor;
+      listEntry.historyStatus = page.history_status;
+    }
+
+    return { messages: converted, noMore: !page.has_more };
+  }
+
   /**
    * Pre-load a session's data. Returns the session with its realId resolved.
    * Used by handleSessionClick to load data BEFORE setting currentSessionId,
@@ -762,6 +831,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.nextCursorBySession.clear();
     // Reset the session list and its comparison state as well: the next
     // agent's chats can share a session_id (channel:user_id) with the old
     // list, and merging against leftover entries would transfer the previous
@@ -817,6 +887,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.nextCursorBySession.clear();
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
@@ -1421,10 +1492,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, {
-      signal,
-      include_app_owned: false,
-    });
+    const chatHistory = await api.getMessages(
+      backendId,
+      { limit: 50, include_app_owned: false },
+      { signal },
+    );
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
@@ -1433,6 +1505,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       generating,
       backendId,
     );
+    this.nextCursorBySession.set(backendId, chatHistory.next_cursor);
 
     const session: ExtendedSession = {
       id: displayId,
@@ -1444,6 +1517,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       meta: listEntry?.meta || {},
       realId: listEntry?.realId,
       generating,
+      nextCursor: chatHistory.next_cursor,
+      historyStatus: chatHistory.history_status,
     };
 
     // Cache non-generating sessions — only within the epoch that fetched
@@ -1689,9 +1764,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     if (deleteId) await api.deleteChat(deleteId);
 
-    // Invalidate LRU cache for the deleted session
-    if (deleteId) this.invalidateConvertedCache(deleteId);
-    if (existing?.realId) this.invalidateConvertedCache(existing.realId);
+    // Invalidate LRU cache and pagination cursor for the deleted session
+    if (deleteId) {
+      this.invalidateConvertedCache(deleteId);
+      this.nextCursorBySession.delete(deleteId);
+    }
+    if (existing?.realId) {
+      this.invalidateConvertedCache(existing.realId);
+      this.nextCursorBySession.delete(existing.realId);
+    }
 
     // Use the canonical id from the list entry (existing?.id = localId even when
     // the caller passed a UUID), so the filter always removes the right entry.
