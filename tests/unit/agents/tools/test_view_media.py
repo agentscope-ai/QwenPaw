@@ -770,11 +770,6 @@ class TestRemoteImageDownloadLimit:
             "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
             raising=False,
         )
-        monkeypatch.delenv(
-            "COPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
-            raising=False,
-        )
-
         result = view_media._remote_image_download_max_bytes()
 
         assert result == 50 * 1024 * 1024
@@ -803,20 +798,6 @@ class TestRemoteImageDownloadLimit:
         result = view_media._remote_image_download_max_bytes()
 
         assert result == 50 * 1024 * 1024
-
-    def test_legacy_limit_is_supported(self, monkeypatch):
-        monkeypatch.delenv(
-            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
-            raising=False,
-        )
-        monkeypatch.setenv(
-            "COPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
-            "75",
-        )
-
-        result = view_media._remote_image_download_max_bytes()
-
-        assert result == 75 * 1024 * 1024
 
 
 class TestDownloadRemoteImage:

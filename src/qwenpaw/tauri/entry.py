@@ -48,6 +48,28 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
 
 
+def _abort_unhandled_multiprocessing_child(args: Sequence[str]) -> None:
+    """Stop a frozen multiprocessing child that escaped its runtime hook.
+
+    PyInstaller's multiprocessing runtime hook consumes this private flag and
+    dispatches ``spawn_main()`` before the application entry point runs.  If
+    the flag reaches this function, the packaged executable is missing or did
+    not execute that hook.  Never let such a child continue into backend
+    singleton reconciliation, where it could terminate its parent backend.
+    """
+    if not bool(getattr(sys, "frozen", False)):
+        return
+    if "--multiprocessing-fork" not in args:
+        return
+    if sys.stderr is not None:
+        print(
+            "qwenpaw-backend multiprocessing runtime hook did not handle "
+            "the child process",
+            file=sys.stderr,
+        )
+    raise SystemExit(2)
+
+
 def _bundled_python() -> str:
     """Path to the bundled standalone CPython, or ``""`` if missing."""
     python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
@@ -358,6 +380,11 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
+    # PyInstaller replaces this function on every platform. It must run before
+    # application initialization so multiprocessing workers and resource
+    # trackers do not re-enter the backend entry point.
+    mp.freeze_support()
+    _abort_unhandled_multiprocessing_child(sys.argv[1:])
     if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
         _reexec_as_bundled_python(sys.argv[1:])
         return
@@ -391,5 +418,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    mp.freeze_support()
     main()

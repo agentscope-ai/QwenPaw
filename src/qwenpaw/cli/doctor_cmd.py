@@ -277,7 +277,7 @@ def _check_web_auth(base: str) -> tuple[bool, str]:
             "        2) Complete registration (single user) on the login "
             "page.\n"
             "        For automation, set QWENPAW_AUTH_USERNAME and "
-            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
+            "QWENPAW_AUTH_PASSWORD — the "
             "server creates the user on startup.",
         )
     return (
@@ -712,8 +712,7 @@ def run_doctor_checks(
         failed = True
         click.echo(click.style("FAIL", fg="red") + f" — {detail}", err=True)
         _doctor_fix_hint(
-            "Fix: set `QWENPAW_WORKING_DIR` (or legacy `COPAW_WORKING_DIR`) "
-            "or run `qwenpaw init`. "
+            "Fix: set `QWENPAW_WORKING_DIR` or run `qwenpaw init`. "
             "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
             "--only ensure-working-dir` if the parent path exists and is "
             "writable. Apply: run the plan `without --dry-run` (add `-y` to "

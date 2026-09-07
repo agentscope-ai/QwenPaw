@@ -459,7 +459,8 @@ async def update_tool_config(
         Success response
 
     Raises:
-        HTTPException: If update fails
+        HTTPException: 404 if the tool is not found, 500 if the
+            update fails for an unexpected reason
     """
     from ...plugins.registry import PluginRegistry
     from ..agent_context import get_agent_for_request
@@ -541,7 +542,10 @@ async def update_tool_config(
             not agent_config.tools
             or tool_name not in agent_config.tools.builtin_tools
         ):
-            raise ValueError(f"Tool '{tool_name}' not found in agent")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{tool_name}' not found",
+            )
 
         tool_config = agent_config.tools.builtin_tools[tool_name]
         existing_config = tool_config.config or {}
@@ -565,6 +569,8 @@ async def update_tool_config(
         persisted_config = dict(
             agent_config.tools.builtin_tools[tool_name].config,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -607,6 +613,7 @@ async def update_tool_config(
             _persist_browser_experimental,
             persisted_config,
         )
+        # Prefetch after an explicit settings save, not during app startup.
         if persisted_config.get("experimental") is True:
             from ...browser.runtime.managed_playwright import (
                 start_managed_chromium_download,

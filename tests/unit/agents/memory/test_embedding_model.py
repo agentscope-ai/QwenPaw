@@ -126,3 +126,33 @@ def test_tested_config_fingerprint_ignores_reme_store_settings() -> None:
     assert module.embedding_config_fingerprint(
         first,
     ) == module.embedding_config_fingerprint(second)
+
+
+@pytest.mark.parametrize(
+    "fingerprint",
+    [
+        module.embedding_config_fingerprint,
+        module.embedding_vector_space_fingerprint,
+    ],
+)
+def test_fingerprints_ignore_inapplicable_dashscope_use_dimensions(
+    fingerprint,
+) -> None:
+    first = _config(backend="dashscope", use_dimensions=False)
+    second = _config(backend="dashscope", use_dimensions=True)
+
+    assert fingerprint(first) == fingerprint(second)
+
+
+@pytest.mark.parametrize(
+    "fingerprint",
+    [
+        module.embedding_config_fingerprint,
+        module.embedding_vector_space_fingerprint,
+    ],
+)
+def test_fingerprints_keep_openai_use_dimensions(fingerprint) -> None:
+    first = _config(backend="openai", use_dimensions=False)
+    second = _config(backend="openai", use_dimensions=True)
+
+    assert fingerprint(first) != fingerprint(second)

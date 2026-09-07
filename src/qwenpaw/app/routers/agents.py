@@ -250,6 +250,11 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] = Field(default_factory=list)
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+    )
+    subagent_model: ModelSlotConfig | None = None
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
@@ -840,6 +845,9 @@ async def create_agent(
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
         active_model=active_model,
+        fallback_models=request.fallback_models,
+        fallback_policy=request.fallback_policy,
+        subagent_model=request.subagent_model,
         mail=request.mail,
     )
 
@@ -1367,6 +1375,13 @@ async def undo_agent_memory_reindex(
     request: Request = None,
 ) -> EmbeddingModelConfig:
     """Restore the provider configuration matching the still-valid vectors."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
@@ -1477,7 +1492,19 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.reme_status()
+    try:
+        response = await memory_manager.reme_status()
+    except RuntimeError as exc:
+        message = str(exc)
+        if not (
+            message.startswith("Dependency ")
+            and " accessed before start()" in message
+        ):
+            raise
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or status reporting is unavailable",
+        ) from exc
     if response is None:
         raise HTTPException(
             status_code=503,

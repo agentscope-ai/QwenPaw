@@ -245,7 +245,7 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 
 ### 与本页相关的配置项
 
-以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、索引维护、其他 Backend）见[长期记忆](./memory)。
+以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、Auto Fin、索引维护、其他 Backend）见[长期记忆](./memory)。
 
 | 配置项                              | 默认值         | 说明                                          |
 | ----------------------------------- | -------------- | --------------------------------------------- |

@@ -7,6 +7,10 @@ const OPENAI_COMPAT_EMBEDDING_BACKENDS = new Set([
   "dashscope_multimodal",
 ]);
 
+function effectiveUseDimensions(config: Partial<EmbeddingModelConfig>) {
+  return config.backend === "openai" && !!config.use_dimensions;
+}
+
 export function isEmbeddingEnabled(config?: Partial<EmbeddingModelConfig>) {
   if (!config?.model_name?.trim()) {
     return false;
@@ -32,7 +36,7 @@ export function getEmbeddingServiceFingerprint(
     config.base_url?.trim().replace(/\/+$/, "") || "",
     config.model_name?.trim() || "",
     config.dimensions || 0,
-    !!config.use_dimensions,
+    effectiveUseDimensions(config),
   ]);
 }
 
@@ -47,7 +51,7 @@ export function getEmbeddingConfigFingerprint(
     config.model_name?.trim() || "",
     config.dimensions || 0,
     !!config.enable_cache,
-    !!config.use_dimensions,
+    effectiveUseDimensions(config),
     config.max_cache_size || 0,
     config.max_input_length || 0,
     config.max_batch_size || 0,

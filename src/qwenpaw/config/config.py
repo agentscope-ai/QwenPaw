@@ -42,20 +42,15 @@ from ..constant import (
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
     HEARTBEAT_MAX_TIMEOUT_SECONDS,
-    LLM_ACQUIRE_TIMEOUT,
-    LLM_BACKOFF_BASE,
-    LLM_BACKOFF_CAP,
-    LLM_MAX_CONCURRENT,
-    LLM_MAX_RETRIES,
-    LLM_MAX_QPM,
-    LLM_RATE_LIMIT_JITTER,
-    LLM_RATE_LIMIT_PAUSE,
+    EnvVarLoader,
     WORKING_DIR,
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+AUTO_FIN_MAX_WINDOW_HOURS = 168
 
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
@@ -851,6 +846,61 @@ class ADBPGMemoryConfig(BaseModel):
     )
 
 
+class PowerContextAutoMemorySearchConfig(AutoMemorySearchConfig):
+    """PowerContext-specific bounds for automatic memory recall."""
+
+    max_context_bytes: int = Field(
+        default=12000,
+        ge=1024,
+        le=32768,
+        description=(
+            "Maximum total UTF-8 byte size of PowerContext search results "
+            "injected into one model turn"
+        ),
+    )
+
+
+class PowerContextMemoryConfig(BaseModel):
+    """PowerContext HTTP memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = ""
+    token: str = ""
+    scope_id: str = Field(default="", max_length=256)
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        allow_inf_nan=False,
+    )
+    auto_memory_search_config: PowerContextAutoMemorySearchConfig = Field(
+        default_factory=lambda: PowerContextAutoMemorySearchConfig(
+            enabled=True,
+            max_results=3,
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_powercontext_search_limit(self):
+        """Keep the configured result count within PowerContext's limit."""
+        if self.auto_memory_search_config.max_results > 50:
+            raise ValueError(
+                "PowerContext auto memory search max_results must be "
+                "less than or equal to 50",
+            )
+        return self
+
+    @field_validator("scope_id")
+    @classmethod
+    def validate_powercontext_scope_id(cls, scope_id: str) -> str:
+        """Allow an empty auto scope, but reject invalid explicit scopes."""
+        normalized = scope_id.strip()
+        if scope_id and not normalized:
+            raise ValueError("PowerContext scope_id must not be blank")
+        return normalized
+
+
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -904,6 +954,10 @@ class ReMeLightMemoryConfig(BaseModel):
         default=True,
         description="Whether to push Daily Paper results to the inbox",
     )
+    auto_fin_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Auto Fin results to the inbox",
+    )
 
     auto_memory_interval: int | None = Field(
         default=5,
@@ -953,6 +1007,35 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Topics to prioritize when selecting Daily Paper papers",
     )
 
+    auto_fin_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Auto Fin job",
+    )
+
+    auto_fin_cron: str = Field(
+        default="0 18 * * *",
+        description=(
+            "Cron expression for Auto Fin generation "
+            "(use auto_fin_cron_enabled to enable/disable)"
+        ),
+    )
+
+    auto_fin_topics: str = Field(
+        default="gold,robotics,semiconductors",
+        description="Comma-separated topics used to filter CLS news",
+    )
+
+    auto_fin_window_hours: float = Field(
+        default=24,
+        ge=1,
+        le=AUTO_FIN_MAX_WINDOW_HOURS,
+        allow_inf_nan=False,
+        description=(
+            "Rolling number of hours of CLS news to analyze; "
+            f"must be between 1 and {AUTO_FIN_MAX_WINDOW_HOURS}"
+        ),
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -986,7 +1069,7 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to expose the memory_search tool to the agent",
     )
 
-    @field_validator("dream_cron", "daily_paper_cron")
+    @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod
     def validate_service_cron(cls, value: str) -> str:
         """Reject expressions that the runtime scheduler cannot install."""
@@ -1000,6 +1083,16 @@ class ReMeLightMemoryConfig(BaseModel):
             raise ValueError(f"Invalid cron expression: {value!r}") from exc
         return value
 
+    @model_validator(mode="after")
+    def validate_enabled_auto_fin_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a schedule whenever the Auto Fin job is enabled."""
+        if self.auto_fin_cron_enabled and not self.auto_fin_cron.strip():
+            raise ValueError(
+                "auto_fin_cron must not be empty when "
+                "auto_fin_cron_enabled is true",
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def migrate_shared_inbox_switch(cls, values: Any) -> Any:
@@ -1012,6 +1105,7 @@ class ReMeLightMemoryConfig(BaseModel):
             "auto_memory_inbox_push_enabled",
             "auto_dream_inbox_push_enabled",
             "daily_paper_inbox_push_enabled",
+            "auto_fin_inbox_push_enabled",
         ):
             migrated.setdefault(field_name, legacy_value)
         return migrated
@@ -1702,24 +1796,41 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_retry_enabled: bool = Field(
-        default=LLM_MAX_RETRIES > 0,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=0,
+        )
+        > 0,
         description="Whether to auto-retry transient LLM API errors",
     )
 
     llm_max_retries: int = Field(
-        default=max(LLM_MAX_RETRIES, 1),
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=1,
+        ),
         ge=1,
         description="Maximum retry attempts for transient LLM API errors",
     )
 
     llm_backoff_base: float = Field(
-        default=LLM_BACKOFF_BASE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_BASE",
+            1.0,
+            min_value=0.1,
+        ),
         ge=0.1,
         description="Base delay in seconds for exponential LLM retry backoff",
     )
 
     llm_backoff_cap: float = Field(
-        default=LLM_BACKOFF_CAP,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_CAP",
+            10.0,
+            min_value=0.5,
+        ),
         ge=0.5,
         description=(
             "Maximum delay cap in seconds for LLM retry backoff; "
@@ -1728,7 +1839,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_concurrent: int = Field(
-        default=LLM_MAX_CONCURRENT,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_CONCURRENT",
+            10,
+            min_value=1,
+        ),
         ge=1,
         description=(
             "Maximum number of concurrent in-flight LLM calls. "
@@ -1737,7 +1852,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_qpm: int = Field(
-        default=LLM_MAX_QPM,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_QPM",
+            600,
+            min_value=0,
+        ),
         ge=0,
         description=(
             "Maximum queries per minute (60-second sliding window). "
@@ -1747,7 +1866,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_pause: float = Field(
-        default=LLM_RATE_LIMIT_PAUSE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_PAUSE",
+            5.0,
+            min_value=1.0,
+        ),
         ge=1.0,
         description=(
             "Default pause duration (seconds) applied globally when a 429 "
@@ -1756,7 +1879,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_jitter: float = Field(
-        default=LLM_RATE_LIMIT_JITTER,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_JITTER",
+            1.0,
+            min_value=0.0,
+        ),
         ge=0.0,
         description=(
             "Random jitter range (seconds) added on top of the pause so "
@@ -1765,7 +1892,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_acquire_timeout: float = Field(
-        default=LLM_ACQUIRE_TIMEOUT,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_ACQUIRE_TIMEOUT",
+            300.0,
+            min_value=10.0,
+        ),
         ge=10.0,
         description=(
             "Maximum time (seconds) a caller waits to acquire a rate-limiter "
@@ -1843,6 +1974,14 @@ class AgentsRunningConfig(BaseModel):
         default=None,
         description="ADBPG memory configuration (used when "
         "memory_manager_backend='adbpg')",
+    )
+
+    powercontext_memory_config: Optional[PowerContextMemoryConfig] = Field(
+        default=None,
+        description=(
+            "PowerContext memory configuration (used when "
+            "memory_manager_backend='powercontext')"
+        ),
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
@@ -3031,6 +3170,14 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    powercontext_installation_id: str = Field(
+        default="",
+        max_length=32,
+        description=(
+            "Stable UUID generated on first PowerContext use to isolate "
+            "default scopes across QwenPaw installations"
+        ),
+    )
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
@@ -3049,6 +3196,18 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("powercontext_installation_id")
+    @classmethod
+    def validate_powercontext_installation_id(cls, value: str) -> str:
+        """Keep the persisted PowerContext installation identity stable."""
+        normalized = value.strip()
+        if normalized and not re.fullmatch(r"[0-9a-f]{32}", normalized):
+            raise ValueError(
+                "powercontext_installation_id must be a 32-character "
+                "lowercase hexadecimal UUID",
+            )
+        return normalized
 
 
 ChannelConfigUnion = Union[

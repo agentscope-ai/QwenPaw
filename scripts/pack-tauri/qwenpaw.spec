@@ -169,11 +169,12 @@ for _pkg in _metadata_pkgs:
     except Exception:
         pass
 
+BACKEND_ENTRY = SRC / "tauri" / "entry.py"
+CLI_ENTRY = SRC / "tauri" / "cli_entry.py"
+ENTRY_SCRIPTS = (BACKEND_ENTRY, CLI_ENTRY)
+
 a = Analysis(
-    [
-        str(SRC / "tauri" / "entry.py"),
-        str(SRC / "tauri" / "cli_entry.py"),
-    ],
+    [str(path) for path in ENTRY_SCRIPTS],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(MAIL_MCP_SRC)],
     binaries=[*qoder_binaries, *codex_binaries],
     datas=datas,
@@ -241,16 +242,40 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-def script_entry(file_name):
-    for item in a.scripts:
-        if Path(item[1]).name == file_name:
-            return [item]
-    raise SystemExit(f"script entry not found: {file_name}")
+
+def executable_scripts(scripts, selected_entry, entry_scripts):
+    """Keep every non-entry Analysis script plus one application entry."""
+    selected_path = Path(selected_entry).resolve()
+    entry_paths = {Path(path).resolve() for path in entry_scripts}
+    if selected_path not in entry_paths:
+        raise SystemExit(f"unknown script entry: {selected_entry}")
+
+    selected_scripts = []
+    selected_entry_count = 0
+    for item in scripts:
+        source_path = Path(item[1]).resolve()
+        if source_path in entry_paths:
+            if source_path == selected_path:
+                selected_scripts.append(item)
+                selected_entry_count += 1
+            continue
+        selected_scripts.append(item)
+
+    if selected_entry_count != 1:
+        raise SystemExit(
+            "script entry must appear exactly once: "
+            f"{selected_entry} (found {selected_entry_count})"
+        )
+    return selected_scripts
+
+
+backend_scripts = executable_scripts(a.scripts, BACKEND_ENTRY, ENTRY_SCRIPTS)
+cli_scripts = executable_scripts(a.scripts, CLI_ENTRY, ENTRY_SCRIPTS)
 
 
 backend_exe = EXE(
     pyz,
-    script_entry("entry.py"),
+    backend_scripts,
     [],
     name="qwenpaw-backend",
     debug=False,
@@ -268,7 +293,7 @@ backend_exe = EXE(
 
 cli_exe = EXE(
     pyz,
-    script_entry("cli_entry.py"),
+    cli_scripts,
     [],
     name="qwenpaw",
     debug=False,

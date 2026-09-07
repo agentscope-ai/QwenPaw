@@ -80,6 +80,46 @@ def test_create_agent_with_full_options(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_create_agent_persists_model_routing(app_server) -> None:
+    """Verify model routing fields are persisted during agent creation."""
+    agent_id = "integ_ma_routing_01"
+    fallback_models = [
+        {"provider_id": "openai", "model": "fallback-model"},
+    ]
+    fallback_policy = {"enabled": True, "target_scope": "free_only"}
+    subagent_model = {"provider_id": "openai", "model": "subagent-model"}
+
+    try:
+        resp = app_server.api_request(
+            "POST",
+            "/api/agents",
+            json={
+                "id": agent_id,
+                "name": "Routing Agent",
+                "fallback_models": fallback_models,
+                "fallback_policy": fallback_policy,
+                "subagent_model": subagent_model,
+            },
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert resp.status_code == 201, app_server.logs_tail()
+
+        get_resp = app_server.api_request(
+            "GET",
+            f"/api/agents/{agent_id}",
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_resp.status_code == 200, app_server.logs_tail()
+        profile = get_resp.json()
+        assert profile.get("fallback_models") == fallback_models
+        assert profile.get("fallback_policy") == fallback_policy
+        assert profile.get("subagent_model") == subagent_model
+    finally:
+        delete_agent_quietly(app_server, agent_id)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_create_agent_auto_id_when_omitted(app_server) -> None:
     """Test purpose:
     - Verify POST /api/agents without an id returns 201 with an

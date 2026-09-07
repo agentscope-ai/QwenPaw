@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
@@ -64,6 +64,19 @@ const memoryStatus = {
 const unknownRuntime = { type: "unknown" as const };
 const unknownDiagnostics = { type: "unknown" as const };
 const noopStatusCheck = async () => {};
+const persistedDashScopeEmbeddingConfig = {
+  backend: "dashscope" as const,
+  model_name: "text-embedding-v4",
+  api_key: "secret",
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  dimensions: 1024,
+  enable_cache: true,
+  use_dimensions: true,
+  max_cache_size: 1000,
+  max_input_length: 8192,
+  max_batch_size: 10,
+  health_check_timeout: 15,
+};
 
 function RuntimeProvider({ children }: { children: ReactNode }) {
   const [localReindexing, setLocalReindexing] = useState(false);
@@ -110,8 +123,10 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
 
 function MemoryForm({
   withRuntimeStatus = false,
+  autoFinEnabled = false,
 }: {
   withRuntimeStatus?: boolean;
+  autoFinEnabled?: boolean;
 }) {
   const [form] = Form.useForm();
   const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
@@ -123,6 +138,10 @@ function MemoryForm({
           reme_light_memory_config: {
             auto_memory_interval: 0,
             dream_cron_enabled: false,
+            auto_fin_cron_enabled: autoFinEnabled,
+            auto_fin_cron: "0 18 * * *",
+            auto_fin_topics: "黄金,机器人,半导体",
+            auto_fin_window_hours: 24,
             auto_memory_search_config: { enabled: false, max_results: 5 },
             embedding_model_config: {},
           },
@@ -216,6 +235,40 @@ function PersistedEmbeddingForm() {
       }}
     >
       <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function PersistedDashScopeEmbeddingForm() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({
+      reme_light_memory_config: {
+        embedding_model_config: persistedDashScopeEmbeddingConfig,
+      },
+    });
+  }, [form]);
+
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(
+          persistedDashScopeEmbeddingConfig,
+        ),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+      }}
+    >
+      <Form form={form}>
+        <EmbeddingModelCard />
+      </Form>
     </MemoryMaintenanceContext.Provider>
   );
 }
@@ -616,6 +669,56 @@ describe("long-term memory defaults", () => {
       switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
     ).toHaveAttribute("aria-checked", "false");
   });
+
+  it("renders collapsed Auto Fin settings beside Daily Paper", () => {
+    renderWithProviders(<MemoryForm />);
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryAutoFinTitle/,
+    });
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText("agentConfig.autoFinWindowHours"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.autoFinDocumentation",
+      }),
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
+
+    fireEvent.click(sourceToggle);
+
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("agentConfig.autoFinCron")).toBeInTheDocument();
+    expect(screen.getByText("agentConfig.autoFinTopics")).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.autoFinWindowHours"),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("0 18 * * *")).toBeDisabled();
+    expect(screen.getByDisplayValue("黄金,机器人,半导体")).toBeDisabled();
+    expect(screen.getByDisplayValue("24")).toBeDisabled();
+    expect(
+      screen.getByText("agentConfig.autoFinDisclaimer"),
+    ).toBeInTheDocument();
+  });
+
+  it("expands Auto Fin settings when the initial config is enabled", async () => {
+    await act(async () => {
+      renderWithProviders(<MemoryForm autoFinEnabled />);
+    });
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryAutoFinTitle/,
+    });
+    await waitFor(() => {
+      expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    const windowInput = screen.getByDisplayValue("24");
+    expect(windowInput).toBeEnabled();
+    expect(windowInput).toHaveAttribute("aria-valuemin", "1");
+    expect(windowInput).toHaveAttribute("aria-valuemax", "168");
+  });
 });
 
 describe("embedding card separation", () => {
@@ -875,6 +978,22 @@ describe("embedding card separation", () => {
       }),
     ).toBeDisabled();
   });
+
+  it("enables reindex for a freshly loaded DashScope config", async () => {
+    renderWithProviders(<PersistedDashScopeEmbeddingForm />);
+
+    expect(
+      await screen.findByDisplayValue("text-embedding-v4"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+  });
 });
 
 describe("isValidDreamCronShape", () => {
@@ -989,6 +1108,36 @@ describe("getEmbeddingServiceFingerprint", () => {
         max_cache_size: 20,
         max_input_length: 200,
         max_batch_size: 4,
+      }),
+    );
+  });
+
+  it("ignores use_dimensions outside the OpenAI backend", () => {
+    const dashscope = {
+      ...base,
+      backend: "dashscope" as const,
+    };
+
+    expect(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: false,
+      }),
+    );
+    expect(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: false,
       }),
     );
   });

@@ -58,12 +58,12 @@ The setup moves through several distinct stages:
 
 - **Enabled** means the current form contains the fields required to enable the backend. It does not prove that the service is reachable.
 - **Verified** means the current form completed one real request and the returned dimensions matched the configuration.
-- **Saved** means the settings were written to the running configuration and applied through a hot update or agent reload.
+- **Saved** means the settings were written to the running configuration. Changes within the same vector space can be applied live; a vector-space change pauses vector search until a rebuild completes.
 - **Rebuild required** means the semantic coordinate system changed and existing vectors must be regenerated.
 
 ![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
 
-The test sends one real text request. The result must arrive within 15 seconds, contain a non-empty vector of finite numbers, and match `dimensions`. This proves only that one call works with the current settings. Initial indexing or a rebuild still has to process existing memories and can encounter quotas, rate limits, or oversized inputs.
+The test sends one real text request. The result must arrive within `health_check_timeout` (15 seconds by default), contain a non-empty vector of finite numbers, and match `dimensions`. This proves only that one call works with the current settings. Initial indexing or a rebuild still has to process existing memories and can encounter quotas, rate limits, or oversized inputs.
 
 ## Verify Semantic Retrieval
 
@@ -94,7 +94,19 @@ including the score, vector, and keyword fields, without summarizing or rewritin
 
 ### Search Behaves Strangely After a Model Change
 
-After saving a new backend, endpoint, model, dimensions, or `use_dimensions` value, follow the Console prompt and rebuild the index. Changing only the API key does not change the vector space and does not require a rebuild.
+After saving a new backend, endpoint, model, dimensions, or `use_dimensions` value, follow the Console prompt and rebuild the index. Vector search remains unavailable until the rebuild succeeds, while BM25 keyword search remains available. Changing only the API key does not change the vector space and does not require a rebuild.
+
+Use `scope=embedding` to rebuild only vectors, or the default `scope=all` to rebuild BM25 first and vectors second:
+
+```http
+POST /api/agents/{agentId}/memory/reindex?scope=embedding
+```
+
+To abandon a vector-space change that has not yet been rebuilt, use the Console undo action or call the following endpoint to restore the previous configuration that matches the existing vectors:
+
+```http
+POST /api/agents/{agentId}/memory/reindex/undo
+```
 
 <img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Confirmation shown before rebuilding the memory index" />
 
@@ -125,18 +137,19 @@ The configuration lives at `running.reme_light_memory_config.embedding_model_con
 
 ### Fields
 
-| Field              | Default    | Purpose                                                                      |
-| ------------------ | ---------- | ---------------------------------------------------------------------------- |
-| `backend`          | `"openai"` | SDK type used to call the service                                            |
-| `api_key`          | `""`       | Service credential; unused by Ollama                                         |
-| `base_url`         | `""`       | OpenAI API endpoint or Ollama host                                           |
-| `model_name`       | `""`       | Model name; required for every backend                                       |
-| `dimensions`       | `1024`     | Actual model output size, used for strict validation and index compatibility |
-| `use_dimensions`   | `false`    | `openai` only; whether to send the dimension parameter                       |
-| `enable_cache`     | `true`     | Whether to cache vectors for identical text                                  |
-| `max_cache_size`   | `10000`    | Maximum number of local cache entries                                        |
-| `max_input_length` | `8192`     | Approximate character budget per input                                       |
-| `max_batch_size`   | `10`       | Maximum items ReMeLight submits per batch                                    |
+| Field                  | Default    | Purpose                                                                                              |
+| ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `backend`              | `"openai"` | SDK type used to call the service                                                                    |
+| `api_key`              | `""`       | Service credential; unused by Ollama                                                                 |
+| `base_url`             | `""`       | OpenAI API endpoint or Ollama host                                                                   |
+| `model_name`           | `""`       | Model name; required for every backend                                                               |
+| `dimensions`           | `1024`     | Actual model output size, used for strict validation and index compatibility                         |
+| `use_dimensions`       | `false`    | `openai` only; whether to send the dimension parameter                                               |
+| `enable_cache`         | `true`     | Whether to cache vectors for identical text                                                          |
+| `max_cache_size`       | `10000`    | Maximum number of local cache entries                                                                |
+| `max_input_length`     | `8192`     | Approximate character budget per input                                                               |
+| `max_batch_size`       | `10`       | Maximum items ReMeLight submits per batch                                                            |
+| `health_check_timeout` | `15.0`     | Per-attempt timeout in seconds for connection tests and startup health checks; must be in `(0, 300]` |
 
 Example for an OpenAI-compatible service:
 
@@ -154,14 +167,15 @@ Example for an OpenAI-compatible service:
         "enable_cache": true,
         "max_cache_size": 10000,
         "max_input_length": 8192,
-        "max_batch_size": 10
+        "max_batch_size": 10,
+        "health_check_timeout": 15.0
       }
     }
   }
 }
 ```
 
-QwenPaw uses up to three retries during normal operation. The test uses one retry and a 15-second timeout. AgentScope may split requests again to meet provider limits, so `max_batch_size` is an upstream limit; the usable value still depends on the model and service.
+QwenPaw uses up to three retries during normal operation. The test uses one retry and `health_check_timeout` as its timeout. AgentScope may split requests again to meet provider limits, so `max_batch_size` is an upstream limit; the usable value still depends on the model and service.
 
 ## Related Pages
 

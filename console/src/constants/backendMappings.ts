@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { LightContextCard } from "../pages/Agent/Config/components/LightContextCard";
 import { ReMeLightMemoryCard } from "../pages/Agent/Config/components/ReMeLightMemoryCard";
 import { ADBPGConfigCard } from "../pages/Agent/Config/components/ADBPGConfigCard";
+import { PowerContextConfigCard } from "../pages/Agent/Config/components/PowerContextConfigCard";
 
 interface BackendMapping<T> {
   configField: string;
@@ -37,6 +38,12 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
     component: ADBPGConfigCard,
     label: "adbpg",
     tabKey: "adbpgMemory",
+  },
+  powercontext: {
+    configField: "powercontext_memory_config",
+    component: PowerContextConfigCard,
+    label: "PowerContext",
+    tabKey: "powercontextMemory",
   },
 };
 
