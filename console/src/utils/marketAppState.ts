@@ -7,18 +7,18 @@ export type MarketAppState = "available" | "installed" | "update";
  * Return the installed version for a market entry when its IDs match.
  *
  * Community entries are namespaced by owner. Their short name is therefore
- * intentionally not used as a fallback, because two owners may publish apps
- * with the same repository name. Official entries retain the short-name
- * fallback for compatibility with the bundled app IDs.
+ * intentionally not used as a fallback for generic plugins, because two
+ * owners may publish apps with the same repository name. App-market entries
+ * use the short name because installed PawApp IDs are currently unscoped.
  */
 export function getInstalledMarketAppVersion(
   entry: MarketPluginEntry,
   installedAppVersions: ReadonlyMap<string, string>,
-  channel: "official" | "community" = "community",
+  channel: "official" | "community" | "app" = "community",
 ): string | null {
   const normalizedId = entry.id.startsWith("@") ? entry.id.slice(1) : entry.id;
   const exactIds = [entry.id, normalizedId];
-  if (channel === "official") {
+  if (channel === "official" || channel === "app") {
     exactIds.push(normalizedId.split("/").pop() ?? normalizedId);
   }
 
@@ -32,7 +32,7 @@ export function getInstalledMarketAppVersion(
 export function getMarketAppState(
   entry: MarketPluginEntry,
   installedAppVersions: ReadonlyMap<string, string>,
-  channel: "official" | "community" = "community",
+  channel: "official" | "community" | "app" = "community",
 ): MarketAppState {
   const installedVersion = getInstalledMarketAppVersion(
     entry,

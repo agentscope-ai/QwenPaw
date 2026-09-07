@@ -129,10 +129,6 @@ export default function AppCenterPage() {
   };
 
   const handleMarketInstalled = async (result: InstallPluginResult) => {
-    if (apps.some((app) => app.id === result.id)) {
-      window.location.reload();
-      return;
-    }
     await loadPawApp(result.id);
     await fetchApps();
   };

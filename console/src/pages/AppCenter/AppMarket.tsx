@@ -451,7 +451,7 @@ export function AppMarket({
                 const marketState: MarketAppState = getMarketAppState(
                   entry,
                   installedAppVersions,
-                  channel,
+                  isOfficial ? "official" : "app",
                 );
                 const isInstalled = marketState === "installed";
                 const canUpdate = marketState === "update";

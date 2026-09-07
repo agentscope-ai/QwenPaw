@@ -274,7 +274,10 @@ describe("AppCenterPage", () => {
     expect(updateButton).toBeEnabled();
     fireEvent.click(updateButton);
     await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
-    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith("alpha-app"),
+    );
+    expect(hoisted.listApps).toHaveBeenCalledTimes(2);
   });
 
   it("returns to installed apps and preserves unrelated query params", async () => {
