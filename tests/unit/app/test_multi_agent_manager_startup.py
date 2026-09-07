@@ -18,13 +18,21 @@ from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.app.workspace import Workspace
-from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
-from qwenpaw.agents.memory.powercontext_memory_manager import (
-    PowerContextMemoryManager,
-)
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
-from qwenpaw.config.config import PowerContextMemoryConfig
+from qwenpaw.memory import MemoryBackendContext, memory_registry
+
+
+class _RemoteMemoryManager:
+    def __init__(self, context: MemoryBackendContext) -> None:
+        self.context = context
+        self.config = dict(context.backend_config)
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
 
 def _config(*agent_ids: str):
@@ -121,7 +129,14 @@ async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),
     )
-    old_manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    old_manager = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            backend_config={"kind": "old"},
+        ),
+        close=AsyncMock(),
+    )
 
     await workspace.set_reusable_components(
         {"memory_manager": old_manager},
@@ -145,7 +160,13 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),
     )
-    old_manager = NoopMemoryManager(str(tmp_path), "agent-1")
+    old_manager = NoopMemoryManager(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            backend_config={},
+        ),
+    )
 
     await workspace.set_reusable_components(
         {"memory_manager": old_manager},
@@ -158,36 +179,46 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
 
 
 @pytest.mark.asyncio
-async def test_workspace_recreates_powercontext_manager_when_config_changes(
-    monkeypatch,
+async def test_workspace_recreates_plugin_manager_when_config_changes(
     tmp_path,
 ) -> None:
     """A reload must not keep a client with the old remote scope or URL."""
-    old_config = PowerContextMemoryConfig(
-        base_url="http://old.example",
-        scope_id="agent:old",
-    )
-    new_config = PowerContextMemoryConfig(
-        base_url="http://new.example",
-        scope_id="agent:new",
-    )
+    old_config = {
+        "base_url": "http://old.example",
+        "scope_id": "agent:old",
+    }
+    new_config = {
+        "base_url": "http://new.example",
+        "scope_id": "agent:new",
+    }
     workspace = Workspace(
         agent_id="agent-1",
         workspace_dir=str(tmp_path),
     )
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(
-            memory_manager_backend="powercontext",
-            powercontext_memory_config=new_config,
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": new_config,
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+        language="zh",
+    )
+    old_manager = _RemoteMemoryManager(
+        MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            backend_config=old_config,
         ),
     )
-    old_manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
-    old_manager._config = old_config
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        lambda _agent_id: SimpleNamespace(
-            running=SimpleNamespace(powercontext_memory_config=new_config),
-        ),
+    memory_registry.register_backend(
+        plugin_id="test-remote-memory",
+        backend_id="remote-memory",
+        factory=_RemoteMemoryManager,
+        label="Remote Memory",
     )
 
     await workspace.set_reusable_components(
@@ -198,11 +229,11 @@ async def test_workspace_recreates_powercontext_manager_when_config_changes(
 
     manager = workspace.memory_manager
     assert manager is not old_manager
-    assert isinstance(manager, PowerContextMemoryManager)
-    assert manager._client is not None
-    assert manager._client.config.base_url == "http://new.example"
-    assert manager._client.config.scope_id == "agent:new"
+    assert isinstance(manager, _RemoteMemoryManager)
+    assert manager.config["base_url"] == "http://new.example"
+    assert manager.config["scope_id"] == "agent:new"
     await manager.close()
+    memory_registry.unregister_owner("test-remote-memory")
 
 
 @pytest.mark.asyncio

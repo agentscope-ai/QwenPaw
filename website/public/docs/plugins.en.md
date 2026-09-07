@@ -13,6 +13,7 @@ The plugin system supports the following extension capabilities:
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
 - **Channel Plugins**: Register custom messaging channels (e.g. Slack, LINE)
+- **Memory Plugins**: Register long-term-memory backends, their per-Agent configuration schema, governed tools, and optional Console configuration UI
 
 ## Plugin Management
 
@@ -36,7 +37,8 @@ Force reinstall:
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**Note**: Plugin operations can only be performed when QwenPaw is offline.
+When QwenPaw is running, the CLI delegates installation to the hot-install API.
+When it is stopped, files are installed for loading on the next startup.
 
 ### List Installed Plugins
 
@@ -112,7 +114,7 @@ my-plugin/
 | `id`              | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                                                      |
 | `version`         | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                                                       |
 | `name`            | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                                                     |
-| `type`            | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly.                           |
+| `type`            | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `channel`, `memory`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly.      |
 | `description`     | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                                                 |
 | `author`          | `string`           | no       | Author or organisation name.                                                                                                                                                                         |
 | `entry.backend`   | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                                                        |
@@ -135,6 +137,7 @@ my-plugin/
 | `hook`     | Runs code during application startup or shutdown (app lifespan level). |
 | `command`  | Registers one or more `/slash` control commands.                       |
 | `channel`  | Registers a custom messaging channel.                                  |
+| `memory`   | Registers a memory backend before configured Agents start.             |
 | `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
 | `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
 
@@ -173,19 +176,172 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+### Memory Backend Plugins
+
+A memory plugin owns its remote client, configuration model, prompts, tools,
+and backend-specific retrieval behavior. QwenPaw core owns the shared lifecycle,
+automatic-memory queue, backend registry, and per-Agent opaque configuration
+container.
+
+Memory plugins are startup-critical: plugins with `type: "memory"` load before
+Agents and workspaces are created. This ensures a backend selected in
+`agent.json` is registered before QwenPaw constructs its manager. An unknown or
+unavailable backend fails explicitly; QwenPaw never redirects memory to another
+backend as an implicit fallback.
+
+#### Manifest
+
+```json
+{
+  "id": "memory-example",
+  "name": "Example Memory",
+  "version": "1.0.0",
+  "type": "memory",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "meta": {
+    "memory_backends": [{ "id": "example", "label": "Example Memory" }]
+  }
+}
+```
+
+#### Python Backend Registration
+
+Import the stable contracts from `qwenpaw.memory`, not from the internal
+`qwenpaw.agents.memory` package. A backend factory receives one
+`MemoryBackendContext` containing the Agent ID, workspace path, plugin-owned
+configuration, language, and token-estimation divisor.
+
+```python
+from pydantic import BaseModel
+
+from qwenpaw.memory import BaseMemoryManager, MemoryBackendContext
+from qwenpaw.plugins.api import PluginApi
+
+
+class ExampleMemoryConfig(BaseModel):
+    endpoint: str
+    api_key: str = ""
+
+
+class ExampleMemoryManager(BaseMemoryManager):
+    def __init__(self, context: MemoryBackendContext) -> None:
+        super().__init__(context=context)
+        self.config = ExampleMemoryConfig.model_validate(
+            context.backend_config,
+        )
+
+    async def start(self) -> None:
+        ...
+
+    async def memory_search(self, query: str, max_results: int = 5, **kwargs):
+        ...
+
+    async def auto_memory(self, messages, **kwargs) -> str:
+        ...
+
+
+class ExampleMemoryPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_memory_backend(
+            backend_id="example",
+            factory=ExampleMemoryManager,
+            label="Example Memory",
+            config_schema=ExampleMemoryConfig,
+            metadata={
+                "description": "Example remote memory service",
+                "network_access": True,
+                "secret_fields": ["api_key"],
+            },
+        )
+
+
+plugin = ExampleMemoryPlugin()
+```
+
+`BaseMemoryManager` supplies the common `close()` implementation and automatic
+recall orchestration. Backends implement `start()`, `memory_search()`, and
+`auto_memory()` and may override optional hooks such as `get_memory_prompt()`,
+`list_memory_tools()`, `get_auto_memory_search_options()`,
+`_search_for_auto_memory()`, `list_cron_jobs()`, and `build_middlewares()`.
+
+Backend IDs are trimmed and lowercased. Re-registering the same factory by the
+same plugin is idempotent; another owner attempting to use the same ID receives
+an error. `config_schema`, when supplied, validates and normalizes the backend's
+entry under `running.memory_backend_configs.<backend_id>` on save.
+`metadata.secret_fields` controls masking in the running-config API: stored
+secrets are returned as `"***"`, and submitting that mask preserves the current
+value. A plugin can also declare per-tool governance metadata under
+`metadata.tools`.
+
+#### Console Configuration Registration
+
+If the plugin has a custom configuration UI, register it with the frontend
+memory namespace. Form paths should point into the generic per-Agent config
+container:
+
+```tsx
+const React = window.QwenPaw.host.React;
+const { Form, Input } = window.QwenPaw.host.antd;
+
+function ExampleMemoryConfig() {
+  return (
+    <>
+      <Form.Item
+        name={["memory_backend_configs", "example", "endpoint"]}
+        label="Endpoint"
+      >
+        <Input />
+      </Form.Item>
+    </>
+  );
+}
+
+window.QwenPaw.memoryBackends.register("memory-example", {
+  id: "example",
+  label: "Example Memory",
+  configPath: ["memory_backend_configs", "example"],
+  tabKey: "exampleMemory",
+  ConfigComponent: ExampleMemoryConfig,
+});
+```
+
+The Console merges frontend registrations with the backend descriptors returned
+by `GET /api/agents/memory/backends`. The dropdown shows registered backends,
+marks unavailable selections, and renders the selected plugin's configuration
+component. Frontend registrations are removed automatically during plugin
+cleanup.
+
+#### Runtime and Uninstall Rules
+
+- Backend selection or backend configuration changes rebuild the workspace
+  manager; they are not applied to an existing remote client in place.
+- `GET /api/agents/memory/backends` returns each registered backend's `id`,
+  `label`, `source`, `available`, and public `metadata`.
+- A memory plugin cannot be unloaded while one of its backends is selected by a
+  live Agent workspace. Switch those Agents to another backend and rebuild or
+  stop their workspaces first.
+- Plugin cleanup unregisters backend ownership and plugin-owned governance
+  entries.
+
 ### Frontend Plugins
 
 Frontend plugins are JavaScript extensions that run in the browser. Unlike backend plugins that register capabilities via the Python `PluginApi`, frontend plugins declaratively extend the Console UI through the global `window.QwenPaw.*` API.
 
 **Loading lifecycle:**
 
-1. Console starts up and mounts the Host SDK (React, antd, and other shared dependencies) and registration APIs (menu, route, slot, chat, and other namespaces) on `window.QwenPaw`
+1. Console starts up and mounts the Host SDK (React, antd, and other shared dependencies) and registration APIs (menu, route, slot, chat, memory backends, and other namespaces) on `window.QwenPaw`
 2. Console fetches the enabled frontend plugin list from `/frontend_plugin`
 3. Downloads each plugin's JS bundle and executes it via Blob URL dynamic import
-4. Plugin code runs and calls `window.QwenPaw.*` to register menus, routes, chat customizations, and other UI extensions
+4. Plugin code runs and calls `window.QwenPaw.*` to register menus, routes, chat customizations, memory configuration forms, and other UI extensions
 5. Registrations take effect immediately — menus appear in the sidebar, routes become navigable, chat areas show customized content
 
-Plugins don't need to declare which extension points they use; the system automatically tracks all registrations via `pluginId`. When a plugin is uninstalled or disabled, all registrations are cleaned up via `dispose()` or `chat.disposeAll(pluginId)`.
+Plugins don't need to declare which frontend extension points they use; the
+system tracks registrations via `pluginId`. When a plugin is uninstalled or
+disabled, its frontend registrations, including memory backend forms, are
+removed during plugin cleanup.
 
 **Design characteristics:**
 
@@ -214,6 +370,7 @@ Plugins don't need to declare which extension points they use; the system automa
 | `chat.request` / `response`       | Message bubbles                                       | Prepend/append content or fully replace rendering               |
 | `chat.toolRender`                 | Tool-call rendering                                   | Custom tool result display (e.g. weather card)                  |
 | `chat.card`                       | Custom cards                                          | Register new card types                                         |
+| `memoryBackends`                  | Memory backend configuration UI                       | Register backend labels, tabs, and React configuration forms    |
 | `audit`                           | Audit & debugging                                     | View all extension registration records                         |
 
 #### Basic Structure
@@ -621,6 +778,24 @@ window.QwenPaw.chat.toolRender("my-plugin", "get_weather", ({ result }) => {
 ```ts
 window.QwenPaw.chat.card("my-plugin", "my-card", MyCardComponent);
 ```
+
+### Memory Backend UI — `window.QwenPaw.memoryBackends`
+
+```ts
+const registration = window.QwenPaw.memoryBackends.register("my-plugin", {
+  id: "example",
+  label: "Example Memory",
+  configPath: ["memory_backend_configs", "example"],
+  tabKey: "exampleMemory",
+  ConfigComponent: ExampleMemoryConfig,
+});
+
+registration.dispose();
+```
+
+`id` must match the Python backend registration. `ConfigComponent` is optional;
+without it, the backend can still appear in the selector but has no custom
+configuration tab.
 
 ### Audit & Debugging
 
@@ -1824,6 +1999,28 @@ api.register_startup_hook("late", callback, priority=200)
 4. **Hot-loading awareness**: The current version supports hot-installing/uninstalling plugins via API while the app is running. Be mindful of state consistency during hot-loading
 
 ## PluginApi Reference
+
+### register_memory_backend
+
+Register a plugin-owned memory backend. Memory plugins should call this during
+their normal `register()` method and declare `type: "memory"` in the manifest so
+registration occurs before Agents start.
+
+```python
+api.register_memory_backend(
+    *,
+    backend_id: str,
+    factory: Type,
+    label: str = "",
+    config_schema: Type | None = None,
+    metadata: dict | None = None,
+)
+```
+
+Supported metadata used by core includes `description`, `network_access`,
+`secret_fields`, and `tools`. Each `tools` entry may set `python_name`,
+`policy_name`, `tool_type`, `target_param`, and `sandbox_required` for governance
+registration.
 
 ### register_provider
 

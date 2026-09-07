@@ -16,10 +16,6 @@ from qwenpaw.app.workspace.service_manager import (
 )
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
-from qwenpaw.config.config import PowerContextMemoryConfig
-from qwenpaw.agents.memory.powercontext_memory_manager import (
-    PowerContextMemoryManager,
-)
 
 
 async def _wait_for(event: threading.Event) -> None:
@@ -100,19 +96,25 @@ async def test_reused_service_can_be_rejected_by_configuration():
     assert manager.services["memory_manager"] is not service
 
 
-def test_powercontext_reuse_requires_identical_configuration():
-    config = PowerContextMemoryConfig(
-        base_url="http://old.example",
-        scope_id="agent:one",
+def test_memory_reuse_requires_identical_backend_configuration():
+    instance = SimpleNamespace(
+        context=SimpleNamespace(
+            backend_config={
+                "base_url": "http://old.example",
+                "scope_id": "agent:one",
+            },
+        ),
     )
-    instance = object.__new__(PowerContextMemoryManager)
-    instance._config = config
     workspace = SimpleNamespace(
         _config=SimpleNamespace(
             running=SimpleNamespace(
-                powercontext_memory_config=config.model_copy(
-                    update={"base_url": "http://new.example"},
-                ),
+                memory_manager_backend="remote-memory",
+                memory_backend_configs={
+                    "remote-memory": {
+                        "base_url": "http://new.example",
+                        "scope_id": "agent:one",
+                    },
+                },
             ),
         ),
     )

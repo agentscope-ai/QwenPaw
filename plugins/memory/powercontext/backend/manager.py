@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
-"""PowerContext-backed QwenPaw memory manager."""
+"""PowerContext memory backend plugin implementation."""
 
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 from collections.abc import Callable
 from functools import wraps
+from pathlib import Path
 from typing import Any
 
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
-from ...config.config import PowerContextMemoryConfig, load_agent_config
-from ...config.utils import get_or_create_powercontext_installation_id
-from ...utils.io_utils import run_sync_io
-from .base_memory_manager import (
+from qwenpaw.memory import (
     AutoMemorySearchOptions,
     BaseMemoryManager,
+    MemoryBackendContext,
     NO_RELEVANT_MEMORIES,
-    memory_registry,
 )
-from .powercontext_client import (
+from .client import (
     MAX_MEMORY_TEXT_BYTES,
     TRUNCATION_MARKER,
     PowerContextConfig,
@@ -28,7 +28,8 @@ from .powercontext_client import (
     safe_powercontext_exception_summary,
     truncate_utf8_text,
 )
-from .powercontext_prompts import (
+from .config import PowerContextMemoryConfig
+from .prompts import (
     POWERCONTEXT_MEMORY_GUIDANCE_EN,
     POWERCONTEXT_MEMORY_GUIDANCE_ZH,
     POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE,
@@ -39,18 +40,37 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CONTEXT_BYTES = 12000
 
 
-@memory_registry.register("powercontext")
+def get_or_create_installation_id(working_dir: str) -> str:
+    """Persist a plugin-owned installation scope beside agent workspaces."""
+    path = Path(working_dir).resolve().parent / ".powercontext-installation-id"
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+        if len(existing) == 32:
+            return existing
+    except FileNotFoundError:
+        pass
+    generated = uuid.uuid4().hex
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return path.read_text(encoding="utf-8").strip()
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(generated)
+    return generated
+
+
 class PowerContextMemoryManager(BaseMemoryManager):
-    def __init__(self, working_dir: str, agent_id: str) -> None:
-        super().__init__(working_dir, agent_id)
+    def __init__(self, context: MemoryBackendContext) -> None:
+        super().__init__(context=context)
         self._client: PowerContextMemoryClient | None = None
         self._config: PowerContextMemoryConfig | None = None
         self._resolved_scope_id = ""
 
     async def start(self) -> None:
-        cfg = load_agent_config(
-            self.agent_id,
-        ).running.powercontext_memory_config
+        cfg = PowerContextMemoryConfig.model_validate(
+            self.context.backend_config,
+        )
         self._config = cfg
         if cfg is None or not cfg.base_url.strip():
             logger.warning("PowerContext is not configured; backend disabled")
@@ -58,7 +78,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         try:
             scope_id = cfg.scope_id.strip()
             if not scope_id:
-                installation_id = get_or_create_powercontext_installation_id()
+                installation_id = self._get_installation_id()
                 scope_id = f"qwenpaw:{installation_id}:agent:{self.agent_id}"
             self._client = PowerContextMemoryClient(
                 PowerContextConfig(
@@ -77,6 +97,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
             logger.warning("PowerContext initialization failed: %s", summary)
             self._client = None
             self._resolved_scope_id = ""
+
+    def _get_installation_id(self) -> str:
+        return get_or_create_installation_id(self.working_dir)
 
     async def _close_backend(self) -> bool:
         """Close the remote client after shared auto-memory work stops."""
@@ -102,9 +125,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
     def get_memory_prompt(self) -> str:
         if self._client is None:
             return ""
-        language = (
-            getattr(load_agent_config(self.agent_id), "language", "zh") or "zh"
-        )
+        language = self.context.language
         return (
             POWERCONTEXT_MEMORY_GUIDANCE_ZH
             if language == "zh"
@@ -130,6 +151,12 @@ class PowerContextMemoryManager(BaseMemoryManager):
             powercontext_memory_search,
             "_qwenpaw_policy_name",
             "PowerContextMemorySearch",
+        )
+
+        setattr(
+            self.memory_remember.__func__,
+            "_qwenpaw_policy_name",
+            "PowerContextMemoryRemember",
         )
         return [powercontext_memory_search, self.memory_remember]
 
@@ -157,19 +184,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 1,
                 int(getattr(search_config, "max_results", 3)),
             ),
-            estimate_divisor=await run_sync_io(
-                self._get_token_estimate_divisor,
-            ),
-            max_context_bytes=max(
-                0,
-                int(
-                    getattr(
-                        search_config,
-                        "max_context_bytes",
-                        DEFAULT_MAX_CONTEXT_BYTES,
-                    ),
-                ),
-            ),
+            estimate_divisor=self.context.token_estimate_divisor,
         )
 
     async def _search_for_auto_memory(
@@ -177,15 +192,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
         *,
         query: str,
         options: AutoMemorySearchOptions,
-    ) -> ToolChunk:
+    ) -> ToolChunk | None:
         """Search within PowerContext's complete synthetic-message budget."""
         max_results = max(1, int(options.max_results))
-        max_context_bytes = (
-            DEFAULT_MAX_CONTEXT_BYTES
-            if options.max_context_bytes is None
-            else options.max_context_bytes
-        )
-        return await self._search_memories(
+        max_context_bytes = self._config.auto_memory_search_config.max_context_bytes
+        result = await self._search_memories(
             query,
             max_results,
             max_context_bytes=self._auto_search_result_budget(
@@ -195,6 +206,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 estimate_divisor=options.estimate_divisor,
             ),
         )
+        if self._tool_chunk_text(result).strip() == NO_RELEVANT_MEMORIES:
+            return None
+        return result
 
     async def auto_memory(
         self,

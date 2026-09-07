@@ -7,14 +7,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from qwenpaw.app.routers.workspace import (
     _ConfigRollbackConflict,
     _conditionally_restore_config_changes,
+    _mask_memory_backend_secrets,
+    _safe_memory_validation_error,
     put_agents_running_config,
 )
 from qwenpaw.config import AgentsRunningConfig
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.memory import memory_registry
+
+
+class _RemoteMemoryConfig(BaseModel):
+    endpoint: str = ""
+    token: str = ""
 
 
 def _embedding_update_configs():
@@ -44,6 +53,158 @@ def _config_transaction(
         return agent_config
 
     return AsyncMock(side_effect=update)
+
+
+def test_memory_backend_secrets_are_masked_without_mutating_source():
+    memory_registry.register_backend(
+        plugin_id="test-secret-mask",
+        backend_id="remote-memory",
+        factory=MagicMock,
+        label="Remote Memory",
+        metadata={"secret_fields": ["token"]},
+    )
+    try:
+        running = AgentsRunningConfig(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": {
+                    "endpoint": "https://memory.example",
+                    "token": "top-secret",
+                },
+            },
+        )
+
+        masked = _mask_memory_backend_secrets(running)
+
+        assert masked.memory_backend_configs["remote-memory"]["token"] == "***"
+        assert (
+            running.memory_backend_configs["remote-memory"]["token"]
+            == "top-secret"
+        )
+    finally:
+        memory_registry.unregister_owner("test-secret-mask")
+
+
+def test_memory_validation_errors_do_not_echo_secrets():
+    detail = _safe_memory_validation_error(
+        ValueError("invalid credential top-secret"),
+        {"token": "top-secret"},
+        ["token"],
+    )
+
+    assert detail == "invalid credential ***"
+
+
+def test_unavailable_memory_backend_config_is_not_exposed():
+    running = AgentsRunningConfig(
+        memory_backend_configs={
+            "missing-plugin": {
+                "endpoint": "https://memory.example",
+                "unknown_secret": "top-secret",
+            },
+        },
+    )
+
+    masked = _mask_memory_backend_secrets(running)
+
+    assert "missing-plugin" not in masked.memory_backend_configs
+    assert running.memory_backend_configs["missing-plugin"]["unknown_secret"] == (
+        "top-secret"
+    )
+
+
+@pytest.mark.asyncio
+async def test_save_preserves_unavailable_backend_config_server_side(tmp_path):
+    old_running = AgentsRunningConfig(
+        memory_backend_configs={
+            "missing-plugin": {"unknown_secret": "top-secret"},
+        },
+    )
+    submitted = old_running.model_copy(deep=True)
+    submitted.memory_backend_configs["missing-plugin"] = {}
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(submitted, MagicMock())
+
+    persisted = agent_config.running.memory_backend_configs["missing-plugin"]
+    assert persisted == {"unknown_secret": "top-secret"}
+    assert "missing-plugin" not in response.memory_backend_configs
+
+
+@pytest.mark.asyncio
+async def test_save_preserves_masked_secret_and_returns_only_mask(tmp_path):
+    memory_registry.register_backend(
+        plugin_id="test-secret-save",
+        backend_id="remote-memory",
+        factory=MagicMock,
+        label="Remote Memory",
+        config_schema=_RemoteMemoryConfig,
+        metadata={"secret_fields": ["token"]},
+    )
+    old_running = AgentsRunningConfig(
+        memory_manager_backend="remote-memory",
+        memory_backend_configs={
+            "remote-memory": {
+                "endpoint": "https://old.example",
+                "token": "top-secret",
+            },
+        },
+    )
+    submitted = old_running.model_copy(deep=True)
+    submitted.memory_backend_configs["remote-memory"] = {
+        "endpoint": "https://new.example",
+        "token": "***",
+    }
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                _config_transaction(agent_config),
+            ),
+            patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+        ):
+            response = await put_agents_running_config(submitted, MagicMock())
+
+        persisted = agent_config.running.memory_backend_configs["remote-memory"]
+        assert persisted["endpoint"] == "https://new.example"
+        assert persisted["token"] == "top-secret"
+        assert response.memory_backend_configs["remote-memory"]["token"] == "***"
+    finally:
+        memory_registry.unregister_owner("test-secret-save")
 
 
 @pytest.mark.asyncio
@@ -244,7 +405,7 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
         )
 
     assert events == ["save", "apply"]
-    assert response is new_running
+    assert response == new_running
     assert response.reme_light_memory_config.needs_reindex is True
     previous = (
         response.reme_light_memory_config.pending_reindex_embedding_config

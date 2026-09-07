@@ -1615,9 +1615,45 @@ async def get_agents_running_config(
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
     agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
-    running = agent_config.running or AgentsRunningConfig()
+    running = _mask_memory_backend_secrets(
+        agent_config.running or AgentsRunningConfig(),
+    )
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
+
+
+def _mask_memory_backend_secrets(
+    running: AgentsRunningConfig,
+) -> AgentsRunningConfig:
+    """Return a detached API-safe config with plugin secrets masked."""
+    from qwenpaw.memory import memory_registry
+
+    masked = running.model_copy(deep=True)
+    for backend_id, values in list(masked.memory_backend_configs.items()):
+        registration = memory_registry.get_registration(backend_id)
+        if registration is None:
+            # Core cannot distinguish secrets inside an unavailable plugin's
+            # opaque payload. Preserve it server-side, but expose no values.
+            del masked.memory_backend_configs[backend_id]
+            continue
+        for field_name in registration.metadata.get("secret_fields", []):
+            if values.get(field_name):
+                values[field_name] = "***"
+    return masked
+
+
+def _safe_memory_validation_error(
+    exc: Exception,
+    submitted: dict[str, Any],
+    secret_fields: list[str],
+) -> str:
+    """Render plugin validation failures without echoing submitted secrets."""
+    detail = str(exc)
+    for field_name in secret_fields:
+        secret = submitted.get(field_name)
+        if isinstance(secret, str) and secret:
+            detail = detail.replace(secret, "***")
+    return detail
 
 
 class _ConfigRollbackConflict(RuntimeError):
@@ -1778,6 +1814,20 @@ async def put_agents_running_config(
     workspace_dir = getattr(workspace, "workspace_dir", ".")
     config_path = Path(workspace_dir) / "agent.json"
     async with get_path_lock(config_path):
+        from qwenpaw.memory import memory_registry
+
+        backend_id = running_config.memory_manager_backend.strip().lower()
+        running_config.memory_manager_backend = backend_id
+        selected_registration = memory_registry.get_registration(backend_id)
+        if selected_registration is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "backend": running_config.memory_manager_backend,
+                    "reason": "plugin_not_installed",
+                },
+            )
+        running_config.memory_backend_configs.setdefault(backend_id, {})
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False
@@ -1793,6 +1843,57 @@ async def put_agents_running_config(
             nonlocal restores_indexed_space
             old_agent_config = agent_config.model_copy(deep=True)
             old_running_config = agent_config.running or AgentsRunningConfig()
+            old_backend_configs = old_running_config.memory_backend_configs
+
+            # Partial/redacted round trips must retain server-owned data.
+            # Unavailable plugins cannot validate or identify their secrets,
+            # so client-provided replacements for them are ignored as well.
+            for backend_id, current_config in old_backend_configs.items():
+                if (
+                    backend_id not in running_config.memory_backend_configs
+                    or memory_registry.get_registration(backend_id) is None
+                ):
+                    running_config.memory_backend_configs[backend_id] = (
+                        copy.deepcopy(current_config)
+                    )
+            for backend_id, submitted_config in list(
+                running_config.memory_backend_configs.items(),
+            ):
+                registration = memory_registry.get_registration(backend_id)
+                if registration is None:
+                    if backend_id not in old_backend_configs:
+                        del running_config.memory_backend_configs[backend_id]
+                    continue
+                secret_fields = list(
+                    registration.metadata.get("secret_fields", []),
+                )
+                current_config = old_backend_configs.get(
+                    backend_id,
+                    {},
+                )
+                for field_name in secret_fields:
+                    if submitted_config.get(field_name) == "***":
+                        submitted_config[field_name] = current_config.get(
+                            field_name,
+                            "",
+                        )
+                if registration.config_schema is not None:
+                    try:
+                        validated = registration.config_schema.model_validate(
+                            submitted_config,
+                        )
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=_safe_memory_validation_error(
+                                exc,
+                                submitted_config,
+                                secret_fields,
+                            ),
+                        ) from exc
+                    running_config.memory_backend_configs[backend_id] = (
+                        validated.model_dump()
+                    )
             memory_manager_backend_changed = (
                 old_running_config.memory_manager_backend
                 != new_memory_manager_backend
@@ -1880,7 +1981,7 @@ async def put_agents_running_config(
         )
 
     running_config.approval_level = agent_config.approval_level
-    return running_config
+    return _mask_memory_backend_secrets(running_config)
 
 
 @router.get(

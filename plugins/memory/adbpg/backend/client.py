@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""REST client for ADBPG memory storage."""
+"""REST client owned by the memory-adbpg plugin."""
 
 import json
 import logging

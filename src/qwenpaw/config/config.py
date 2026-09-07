@@ -824,83 +824,6 @@ class RerankerConfig(BaseModel):
     )
 
 
-class ADBPGMemoryConfig(BaseModel):
-    """ADBPG (AnalyticDB for PostgreSQL) REST memory configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    rest_base_url: str = ""
-    rest_api_key: str = ""
-
-    # Behavior
-    memory_isolation: bool = Field(
-        default=True,
-        description="Per-agent memory isolation (True) or shared (False)",
-    )
-    search_timeout: float = 10.0
-    auto_memory_search_config: AutoMemorySearchConfig = Field(
-        default_factory=lambda: AutoMemorySearchConfig(
-            enabled=True,
-            max_results=3,
-        ),
-    )
-
-
-class PowerContextAutoMemorySearchConfig(AutoMemorySearchConfig):
-    """PowerContext-specific bounds for automatic memory recall."""
-
-    max_context_bytes: int = Field(
-        default=12000,
-        ge=1024,
-        le=32768,
-        description=(
-            "Maximum total UTF-8 byte size of PowerContext search results "
-            "injected into one model turn"
-        ),
-    )
-
-
-class PowerContextMemoryConfig(BaseModel):
-    """PowerContext HTTP memory configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    base_url: str = ""
-    token: str = ""
-    scope_id: str = Field(default="", max_length=256)
-    timeout: float = Field(
-        default=10.0,
-        ge=1.0,
-        le=60.0,
-        allow_inf_nan=False,
-    )
-    auto_memory_search_config: PowerContextAutoMemorySearchConfig = Field(
-        default_factory=lambda: PowerContextAutoMemorySearchConfig(
-            enabled=True,
-            max_results=3,
-        ),
-    )
-
-    @model_validator(mode="after")
-    def validate_powercontext_search_limit(self):
-        """Keep the configured result count within PowerContext's limit."""
-        if self.auto_memory_search_config.max_results > 50:
-            raise ValueError(
-                "PowerContext auto memory search max_results must be "
-                "less than or equal to 50",
-            )
-        return self
-
-    @field_validator("scope_id")
-    @classmethod
-    def validate_powercontext_scope_id(cls, scope_id: str) -> str:
-        """Allow an empty auto scope, but reject invalid explicit scopes."""
-        normalized = scope_id.strip()
-        if scope_id and not normalized:
-            raise ValueError("PowerContext scope_id must not be blank")
-        return normalized
-
-
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -1970,17 +1893,11 @@ class AgentsRunningConfig(BaseModel):
 
     memory_manager_backend: str = Field(default="remelight")
 
-    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
-        default=None,
-        description="ADBPG memory configuration (used when "
-        "memory_manager_backend='adbpg')",
-    )
-
-    powercontext_memory_config: Optional[PowerContextMemoryConfig] = Field(
-        default=None,
+    memory_backend_configs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
         description=(
-            "PowerContext memory configuration (used when "
-            "memory_manager_backend='powercontext')"
+            "Opaque per-agent configuration owned and validated by memory "
+            "backend plugins"
         ),
     )
 
@@ -2001,6 +1918,34 @@ class AgentsRunningConfig(BaseModel):
             "the value is written back to the agent profile."
         ),
     )
+
+    @field_validator("memory_manager_backend")
+    @classmethod
+    def normalize_memory_backend_id(cls, value: str) -> str:
+        """Persist backend identifiers in the registry's canonical form."""
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("memory_manager_backend must not be empty")
+        return normalized
+
+    @field_validator("memory_backend_configs")
+    @classmethod
+    def normalize_memory_backend_config_ids(
+        cls,
+        value: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Canonicalize opaque config keys and reject ambiguous duplicates."""
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for backend_id, config in value.items():
+            key = backend_id.strip().lower()
+            if not key:
+                raise ValueError("memory backend config id must not be empty")
+            if key in normalized:
+                raise ValueError(
+                    f"duplicate memory backend config id: {backend_id}",
+                )
+            normalized[key] = config
+        return normalized
 
 
 class AgentsLLMRoutingConfig(BaseModel):
@@ -3170,14 +3115,6 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
-    powercontext_installation_id: str = Field(
-        default="",
-        max_length=32,
-        description=(
-            "Stable UUID generated on first PowerContext use to isolate "
-            "default scopes across QwenPaw installations"
-        ),
-    )
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
@@ -3196,19 +3133,6 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
-
-    @field_validator("powercontext_installation_id")
-    @classmethod
-    def validate_powercontext_installation_id(cls, value: str) -> str:
-        """Keep the persisted PowerContext installation identity stable."""
-        normalized = value.strip()
-        if normalized and not re.fullmatch(r"[0-9a-f]{32}", normalized):
-            raise ValueError(
-                "powercontext_installation_id must be a 32-character "
-                "lowercase hexadecimal UUID",
-            )
-        return normalized
-
 
 ChannelConfigUnion = Union[
     IMessageChannelConfig,

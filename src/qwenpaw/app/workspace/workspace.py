@@ -51,21 +51,15 @@ def _memory_manager_reuse_compatible(
     scope, timeout, or search settings change; otherwise the old HTTP client
     would continue serving the new workspace configuration.
     """
-    from ...agents.memory.powercontext_memory_manager import (
-        PowerContextMemoryManager,
-    )
-
-    if not isinstance(instance, PowerContextMemoryManager):
-        return True
-    old_config = getattr(instance, "_config", None)
+    old_context = getattr(instance, "context", None)
+    if old_context is None:
+        return False
+    old_config = dict(getattr(old_context, "backend_config", {}) or {})
     new_running = getattr(getattr(workspace, "_config", None), "running", None)
-    new_config = getattr(new_running, "powercontext_memory_config", None)
-    if old_config is None or new_config is None:
-        return old_config is new_config
-    try:
-        return old_config.model_dump() == new_config.model_dump()
-    except AttributeError:
-        return old_config == new_config
+    backend_id = getattr(new_running, "memory_manager_backend", "")
+    configs = getattr(new_running, "memory_backend_configs", {}) or {}
+    new_config = dict(configs.get(backend_id, {}) or {})
+    return old_config == new_config
 
 
 class Workspace:
@@ -398,10 +392,32 @@ class Workspace:
         """
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
+            MemoryBackendContext,
             get_memory_manager_backend,
         )
 
         sm = self._service_manager
+
+        def _memory_backend_context(ws: "Workspace") -> MemoryBackendContext:
+            running = ws._config.running
+            backend_id = running.memory_manager_backend.strip().lower()
+            backend_configs = getattr(running, "memory_backend_configs", {})
+            raw_config = dict(backend_configs.get(backend_id, {}) or {})
+            try:
+                estimate_divisor = float(
+                    running.light_context_config.token_count_estimate_divisor,
+                )
+            except (AttributeError, TypeError, ValueError):
+                estimate_divisor = 4.0
+            return MemoryBackendContext(
+                agent_id=ws.agent_id,
+                working_dir=ws.workspace_dir,
+                backend_config=raw_config,
+                language=getattr(ws._config, "language", "zh") or "zh",
+                token_estimate_divisor=(
+                    estimate_divisor if estimate_divisor > 0 else 4.0
+                ),
+            )
 
         # Priority 5: LocalWorkspace (tool routing)
         def _init_local_workspace(
@@ -443,10 +459,7 @@ class Workspace:
                 service_class=lambda ws: get_memory_manager_backend(
                     ws._config.running.memory_manager_backend,
                 ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
+                init_args=lambda ws: {"context": _memory_backend_context(ws)},
                 start_method="start",
                 stop_method="close",
                 reusable=True,

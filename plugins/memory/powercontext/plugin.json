@@ -1,0 +1,23 @@
+{
+  "id": "memory-powercontext",
+  "name": "PowerContext Memory",
+  "version": "1.0.0",
+  "description": "PowerContext memory backend",
+  "author": "QwenPaw Team",
+  "type": "memory",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "qwenpaw_version": { "min": "2.2.1b1" },
+  "pack_exclude": [
+    "tests",
+    "frontend/src",
+    "frontend/package.json",
+    "frontend/tsconfig.json",
+    "frontend/vite.config.ts"
+  ],
+  "meta": {
+    "memory_backends": [{ "id": "powercontext", "label": "PowerContext" }]
+  }
+}

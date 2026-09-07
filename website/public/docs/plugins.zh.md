@@ -13,6 +13,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
 - **Channel 插件**：注册自定义消息频道（如 Slack、LINE）
+- **Memory 插件**：注册长期记忆后端、每 Agent 配置 schema、受治理工具和可选的 Console 配置界面
 
 ## 插件管理
 
@@ -36,7 +37,8 @@ qwenpaw plugin install https://example.com/plugin.zip
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**注意**：插件操作只能在 QwenPaw 离线时执行。
+QwenPaw 运行时，CLI 会将安装请求交给热安装 API；QwenPaw 停止时，文件会被安装并在下次
+启动时加载。
 
 ### 列出已安装插件
 
@@ -107,22 +109,22 @@ my-plugin/
 
 #### 清单字段说明
 
-| 字段              | 类型            | 必填 | 说明                                                                                                                                              |
-| ----------------- | --------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                            |
-| `version`         | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                                |
-| `name`            | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                      |
-| `type`            | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。  |
-| `description`     | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                           |
-| `author`          | `string`        | 否   | 作者或组织名称。                                                                                                                                  |
-| `entry.backend`   | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                       |
-| `entry.frontend`  | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                  |
-| `dependencies`    | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                   |
-| `qwenpaw_version` | `object`        | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。 |
-| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                             |
-| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                      |
-| `meta`            | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                           |
-| `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                         |
+| 字段              | 类型            | 必填 | 说明                                                                                                                                                                  |
+| ----------------- | --------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                                                |
+| `version`         | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                                                    |
+| `name`            | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                                          |
+| `type`            | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`channel`、`memory`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。 |
+| `description`     | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                                               |
+| `author`          | `string`        | 否   | 作者或组织名称。                                                                                                                                                      |
+| `entry.backend`   | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                                           |
+| `entry.frontend`  | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                                      |
+| `dependencies`    | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                                       |
+| `qwenpaw_version` | `object`        | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。                     |
+| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                                                 |
+| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                                          |
+| `meta`            | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                                               |
+| `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                                             |
 
 \* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
 
@@ -135,6 +137,7 @@ my-plugin/
 | `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
 | `command`  | 注册 `/slash` 控制命令。                             |
 | `channel`  | 注册自定义消息频道。                                 |
+| `memory`   | 在配置的 Agent 启动前注册记忆后端。                  |
 | `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
 | `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
 
@@ -173,19 +176,155 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+### Memory Backend 插件
+
+Memory 插件拥有远程 client、配置模型、prompt、工具和后端特有的检索行为。QwenPaw 核心负责
+公共生命周期、auto-memory 队列、backend registry 和每 Agent 的不透明配置容器。
+
+Memory 插件属于启动关键插件：`type: "memory"` 的插件会在 Agent 和 workspace 创建前加载，
+确保 `agent.json` 选中的 backend 在 manager 构造前已经注册。未知或不可用的 backend 会明确
+失败；QwenPaw 不会将记忆隐式重定向到其他后端。
+
+#### Manifest
+
+```json
+{
+  "id": "memory-example",
+  "name": "Example Memory",
+  "version": "1.0.0",
+  "type": "memory",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "meta": {
+    "memory_backends": [{ "id": "example", "label": "Example Memory" }]
+  }
+}
+```
+
+#### Python Backend 注册
+
+应从稳定的 `qwenpaw.memory` 导入协议，而不是依赖内部的 `qwenpaw.agents.memory` 包。Backend
+factory 接收一个 `MemoryBackendContext`，其中包含 Agent ID、workspace 路径、插件配置、
+语言和 token 估算除数。
+
+```python
+from pydantic import BaseModel
+
+from qwenpaw.memory import BaseMemoryManager, MemoryBackendContext
+from qwenpaw.plugins.api import PluginApi
+
+
+class ExampleMemoryConfig(BaseModel):
+    endpoint: str
+    api_key: str = ""
+
+
+class ExampleMemoryManager(BaseMemoryManager):
+    def __init__(self, context: MemoryBackendContext) -> None:
+        super().__init__(context=context)
+        self.config = ExampleMemoryConfig.model_validate(
+            context.backend_config,
+        )
+
+    async def start(self) -> None:
+        ...
+
+    async def memory_search(self, query: str, max_results: int = 5, **kwargs):
+        ...
+
+    async def auto_memory(self, messages, **kwargs) -> str:
+        ...
+
+
+class ExampleMemoryPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_memory_backend(
+            backend_id="example",
+            factory=ExampleMemoryManager,
+            label="Example Memory",
+            config_schema=ExampleMemoryConfig,
+            metadata={
+                "description": "Example remote memory service",
+                "network_access": True,
+                "secret_fields": ["api_key"],
+            },
+        )
+
+
+plugin = ExampleMemoryPlugin()
+```
+
+`BaseMemoryManager` 提供公共 `close()` 实现和自动召回编排。Backend 必须实现 `start()`、
+`memory_search()` 和 `auto_memory()`，也可以覆盖 `get_memory_prompt()`、
+`list_memory_tools()`、`get_auto_memory_search_options()`、`_search_for_auto_memory()`、
+`list_cron_jobs()`、`build_middlewares()` 等可选 hook。
+
+Backend ID 会去除首尾空白并转换为小写。同一插件用同一 factory 重复注册是幂等操作；其他
+owner 注册相同 ID 会报错。提供 `config_schema` 时，保存配置会校验并规范化
+`running.memory_backend_configs.<backend_id>` 下的内容。`metadata.secret_fields` 控制运行
+配置 API 的遮罩行为：保存的 secret 返回为 `"***"`，提交相同遮罩会保留已有值。插件还可
+在 `metadata.tools` 中声明各工具的治理元数据。
+
+#### Console 配置注册
+
+如果插件提供自定义配置界面，应通过前端 memory namespace 注册。Form path 应指向通用的
+每 Agent 配置容器：
+
+```tsx
+const React = window.QwenPaw.host.React;
+const { Form, Input } = window.QwenPaw.host.antd;
+
+function ExampleMemoryConfig() {
+  return (
+    <>
+      <Form.Item
+        name={["memory_backend_configs", "example", "endpoint"]}
+        label="Endpoint"
+      >
+        <Input />
+      </Form.Item>
+    </>
+  );
+}
+
+window.QwenPaw.memoryBackends.register("memory-example", {
+  id: "example",
+  label: "Example Memory",
+  configPath: ["memory_backend_configs", "example"],
+  tabKey: "exampleMemory",
+  ConfigComponent: ExampleMemoryConfig,
+});
+```
+
+Console 会将前端注册信息与 `GET /api/agents/memory/backends` 返回的 backend 描述合并。
+下拉框展示已注册后端、标记不可用的选项，并渲染当前插件的配置组件。插件清理时会自动移除
+对应的前端注册。
+
+#### 运行与卸载规则
+
+- 切换 backend 或修改 backend 配置时会重建 workspace manager，不会原地修改已有远程 client。
+- `GET /api/agents/memory/backends` 返回各 backend 的 `id`、`label`、`source`、
+  `available` 和公开 `metadata`。
+- 如果某个 memory 插件的 backend 正被 live Agent workspace 使用，该插件不能卸载。请先将
+  这些 Agent 切换到其他 backend 并重建或停止 workspace。
+- 插件清理会注销 backend ownership 和插件拥有的治理条目。
+
 ### 前端插件
 
 前端插件是运行在浏览器端的 JavaScript 扩展。与后端插件通过 Python `PluginApi` 注册能力不同，前端插件通过全局 `window.QwenPaw.*` API 声明式地扩展 Console 界面。
 
 **加载生命周期：**
 
-1. Console 启动，在 `window.QwenPaw` 上挂载 Host SDK（React、antd 等共享依赖）和注册 API（menu、route、slot、chat 等命名空间）
+1. Console 启动，在 `window.QwenPaw` 上挂载 Host SDK（React、antd 等共享依赖）和注册 API（menu、route、slot、chat、memory backends 等命名空间）
 2. Console 请求 `/frontend_plugin` 获取已启用的前端插件列表
 3. 逐一下载各插件的 JS bundle，通过 Blob URL 动态导入执行
-4. 插件代码执行，调用 `window.QwenPaw.*` 注册菜单、路由、聊天定制等 UI 扩展
+4. 插件代码执行，调用 `window.QwenPaw.*` 注册菜单、路由、聊天定制、memory 配置表单等 UI 扩展
 5. 注册立即生效——菜单出现在侧边栏、路由可导航、聊天区域呈现定制内容
 
-插件无需声明使用了哪些扩展点；系统通过 `pluginId` 自动追踪所有注册。卸载或禁用插件时，通过 `dispose()` 或 `chat.disposeAll(pluginId)` 清理全部注册。
+插件无需声明使用了哪些前端扩展点；系统通过 `pluginId` 追踪注册。卸载或禁用插件时，包括
+memory backend 表单在内的前端注册会在插件清理阶段移除。
 
 **设计特点：**
 
@@ -214,6 +353,7 @@ plugin = MyPlugin()
 | `chat.request` / `response`       | 消息气泡                        | 在消息前后追加内容或完全替换渲染                |
 | `chat.toolRender`                 | 工具调用渲染                    | 自定义工具结果展示（如天气卡片）                |
 | `chat.card`                       | 自定义卡片                      | 注册新的卡片类型                                |
+| `memoryBackends`                  | 记忆后端配置界面                | 注册 backend 标签、Tab 和 React 配置表单        |
 | `audit`                           | 审计与调试                      | 查看所有扩展注册记录                            |
 
 #### 基本结构
@@ -621,6 +761,23 @@ window.QwenPaw.chat.toolRender("my-plugin", "get_weather", ({ result }) => {
 ```ts
 window.QwenPaw.chat.card("my-plugin", "my-card", MyCardComponent);
 ```
+
+### 记忆后端界面 — `window.QwenPaw.memoryBackends`
+
+```ts
+const registration = window.QwenPaw.memoryBackends.register("my-plugin", {
+  id: "example",
+  label: "Example Memory",
+  configPath: ["memory_backend_configs", "example"],
+  tabKey: "exampleMemory",
+  ConfigComponent: ExampleMemoryConfig,
+});
+
+registration.dispose();
+```
+
+`id` 必须与 Python backend 注册一致。`ConfigComponent` 是可选的；不提供时 backend 仍可
+出现在选择器中，但不会显示自定义配置 Tab。
 
 ### 审计与调试
 
@@ -1799,6 +1956,26 @@ api.register_startup_hook("late", callback, priority=200)
 4. **热加载注意**：当前版本支持运行中通过 API 热安装/热卸载插件，无需重启。请注意热加载时的状态一致性
 
 ## PluginApi 参考
+
+### register_memory_backend
+
+注册插件拥有的记忆后端。Memory 插件应在常规 `register()` 方法中调用，并在 manifest 中
+声明 `type: "memory"`，以便在 Agent 启动前完成注册。
+
+```python
+api.register_memory_backend(
+    *,
+    backend_id: str,
+    factory: Type,
+    label: str = "",
+    config_schema: Type | None = None,
+    metadata: dict | None = None,
+)
+```
+
+核心使用的 metadata 包括 `description`、`network_access`、`secret_fields` 和 `tools`。
+每个 `tools` 条目可以设置 `python_name`、`policy_name`、`tool_type`、`target_param` 和
+`sandbox_required`，用于治理注册。
 
 ### register_provider
 

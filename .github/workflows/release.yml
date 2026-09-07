@@ -653,7 +653,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           shopt -s nullglob
-          for kind in bundle tool apps; do
+          for kind in bundle tool memory apps; do
             while IFS= read -r -d '' f; do
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"

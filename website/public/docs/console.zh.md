@@ -324,8 +324,13 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 - **上下文管理**：最大输入长度等。
 - **上下文压缩配置**：上下文压缩阈值比例等。
 - **工具结果压缩配置**：最新工具结果范围等。
-- **长期记忆**：Auto-Memory 间隔、Auto-Dream、Daily Paper 与 Auto Fin 的定时和 Inbox 通知、自动记忆搜索，以及索引维护。
+- **长期记忆**：选择 ReMeLight、停用记忆或已安装的 memory backend 插件。选择器根据运行时
+  registry 动态生成，当前插件可以添加自己的配置 Tab。ReMeLight 会提供 Auto-Memory 间隔、
+  Auto-Dream、Daily Paper 与 Auto Fin 的定时和 Inbox 通知、自动记忆搜索，以及索引维护。
 - **向量模型配置**：Embedding 服务、维度、缓存、健康检查与待重建状态。
+
+保存 backend 选择或插件拥有的记忆配置后会安排 Agent 重载。如果之前选中的插件不可用，
+Console 会保留并标记该选项不可用，而不是静默改成其他记忆存储。
 
 更细的机制说明见 [上下文](./context)、[长期记忆](./memory)、[向量模型](./embedding)和[配置与工作目录](./config)。
 

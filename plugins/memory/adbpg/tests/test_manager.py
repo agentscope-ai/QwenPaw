@@ -2,7 +2,6 @@
 """Tests for ADBPG memory manager behavior."""
 # pylint: disable=protected-access
 
-import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,9 +9,24 @@ import pytest
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
-from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
-from qwenpaw.config.config import AutoMemorySearchConfig
+from plugins.memory.adbpg.backend.config import ADBPGMemoryConfig
+from plugins.memory.adbpg.backend.manager import ADBPGMemoryManager
+from qwenpaw.memory import MemoryBackendContext
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
+
+
+def _manager(
+    tmp_path,
+    agent_id: str = "agent-1",
+    config: ADBPGMemoryConfig | None = None,
+) -> ADBPGMemoryManager:
+    return ADBPGMemoryManager(
+        MemoryBackendContext(
+            agent_id=agent_id,
+            working_dir=tmp_path,
+            backend_config=(config or ADBPGMemoryConfig()).model_dump(),
+        ),
+    )
 
 
 def _user_msg(text: str) -> Msg:
@@ -23,30 +37,15 @@ def _user_msg(text: str) -> Msg:
     )
 
 
-def _memory_config(
-    *,
-    enabled: bool = True,
-    max_results: int = 3,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        auto_memory_search_config=AutoMemorySearchConfig(
-            enabled=enabled,
-            max_results=max_results,
-        ),
-    )
-
-
 @pytest.mark.asyncio
 async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
-    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(
+        tmp_path,
+        config=ADBPGMemoryConfig(
+            auto_memory_search_config={"enabled": True, "max_results": 2},
+        ),
+    )
     manager._client = object()
-    worker_threads = []
-
-    def load_auto_search_config():
-        worker_threads.append(threading.get_ident())
-        return _memory_config(max_results=2), 4
-
-    manager._load_auto_search_config = load_auto_search_config
     manager.memory_search = AsyncMock(
         return_value=ToolChunk(
             is_last=True,
@@ -86,17 +85,17 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
         query="我喜欢什么动物",
         max_results=2,
     )
-    assert worker_threads[0] != threading.get_ident()
 
 
 @pytest.mark.asyncio
 async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
-    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
-    manager._client = object()
-    manager._load_auto_search_config = lambda: (
-        _memory_config(enabled=False),
-        4,
+    manager = _manager(
+        tmp_path,
+        config=ADBPGMemoryConfig(
+            auto_memory_search_config={"enabled": False},
+        ),
     )
+    manager._client = object()
     manager.memory_search = AsyncMock()
 
     result = await manager.auto_memory_search([_user_msg("hello")])
@@ -107,7 +106,7 @@ async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
 
 @pytest.mark.asyncio
 async def test_adbpg_auto_memory_waits_for_backend_processing(tmp_path):
-    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path)
     client = SimpleNamespace(add_memory=AsyncMock())
     manager._client = client
     message = _user_msg("remember this")
@@ -125,7 +124,7 @@ async def test_adbpg_auto_memory_waits_for_backend_processing(tmp_path):
 async def test_adbpg_auto_memory_tracks_each_success_before_later_failure(
     tmp_path,
 ):
-    manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path)
     client = SimpleNamespace(
         add_memory=AsyncMock(
             side_effect=[None, RuntimeError("second write failed")],

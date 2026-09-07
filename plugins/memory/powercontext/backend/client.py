@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Small async client for PowerContext's public memory HTTP contract."""
+"""PowerContext HTTP client owned by the memory-powercontext plugin."""
 
 from __future__ import annotations
 

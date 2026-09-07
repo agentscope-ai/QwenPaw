@@ -1258,6 +1258,8 @@ class PluginLoader:
                 f"Plugin '{plugin_id}' is not loaded",
             )
 
+        self.registry.assert_memory_backends_not_in_use(plugin_id)
+
         # Execute shutdown hooks registered by this plugin
         shutdown_hooks = [
             h
