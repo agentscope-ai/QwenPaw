@@ -263,6 +263,22 @@ function renderSidebar(
   );
 }
 
+function mockMobileViewport(matches: boolean) {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query) =>
+      ({
+        matches: matches && query === "(max-width: 768px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as MediaQueryList,
+  );
+}
+
 async function openAccountModal() {
   const settingsButtons = await screen.findAllByRole("button", {
     name: "Settings",
@@ -292,6 +308,7 @@ const modelsItem = {
 
 describe("Sidebar", () => {
   beforeEach(() => {
+    mockMobileViewport(false);
     mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
     mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
@@ -387,6 +404,17 @@ describe("Sidebar", () => {
       expect(screen.getByText("Workspace")).toBeTruthy();
     });
     expect(screen.getByTestId("app-brand")).toBeVisible();
+  });
+
+  it("restores the main branch sidebar widths on mobile", async () => {
+    mockMobileViewport(true);
+
+    renderSidebar();
+    const sider = document.querySelector<HTMLElement>(".ant-layout-sider");
+
+    expect(sider).toHaveStyle({ width: "56px", minWidth: "56px" });
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(sider).toHaveStyle({ width: "240px", minWidth: "240px" });
   });
 
   it("opens session history in a popover while collapsed", async () => {

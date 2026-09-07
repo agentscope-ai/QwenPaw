@@ -589,8 +589,7 @@ export default function Sidebar({
     );
   };
 
-  // The expanded sidebar uses the same content on desktop and mobile.
-  const siderWidth = collapsed ? (isMobile ? 56 : 72) : 280;
+  const siderWidth = collapsed ? (isMobile ? 56 : 72) : isMobile ? 240 : 280;
 
   return (
     <Sider
