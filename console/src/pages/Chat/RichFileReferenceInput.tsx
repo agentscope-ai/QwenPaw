@@ -660,6 +660,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
       <div
         className={`${styles.richInputRoot} ${className ?? ""}`}
         style={style}
+        dir="auto"
         data-disabled={disabled || undefined}
       >
         <LexicalComposer

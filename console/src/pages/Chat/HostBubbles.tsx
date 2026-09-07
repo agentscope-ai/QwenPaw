@@ -86,11 +86,13 @@ function DeferredMarkdown({
   const deferredContent = useDeferredValue(content);
 
   return (
-    <Markdown
-      components={renderableCodeComponents}
-      content={deferredContent}
-      cursor={cursor}
-    />
+    <div dir="auto" className={styles.bidiContent}>
+      <Markdown
+        components={renderableCodeComponents}
+        content={deferredContent}
+        cursor={cursor}
+      />
+    </div>
   );
 }
 
@@ -123,7 +125,11 @@ const HostMessage = React.memo(function HostMessage({
               />
             );
           case AgentScopeRuntimeContentType.REFUSAL:
-            return <Markdown key={index} content={item.refusal} raw />;
+            return (
+              <div key={index} dir="auto" className={styles.bidiContent}>
+                <Markdown content={item.refusal} raw />
+              </div>
+            );
           case AgentScopeRuntimeContentType.IMAGE:
             return (
               <Images

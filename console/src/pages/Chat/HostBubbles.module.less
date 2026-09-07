@@ -1,3 +1,8 @@
+/* Fix #2120: let mixed RTL/LTR runs follow the Unicode plaintext algorithm. */
+.bidiContent {
+  unicode-bidi: plaintext;
+}
+
 .collapsedSteps {
   width: calc(100% + 8px);
   margin-left: -8px;

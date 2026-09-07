@@ -82,6 +82,26 @@ describe("Chat attachment preview styles", () => {
   });
 });
 
+describe("Chat BiDi text styles (#2120)", () => {
+  it("applies plaintext BiDi to chat input and message markdown", () => {
+    const marker = "Fix #2120";
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("/* End #2120 */", markerIndex),
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain(".qwenpaw-sender textarea");
+    expect(rule).toContain('[class*="bubble"] [class*="markdown"]');
+    expect(rule).toMatch(/unicode-bidi:\s*plaintext/);
+    expect(rule).toContain('[class*="bubble"] [class*="markdown"] pre');
+    expect(rule).toContain('[class*="bubble"] [class*="markdown"] code');
+    expect(rule).toMatch(/direction:\s*ltr/);
+    expect(rule).toMatch(/unicode-bidi:\s*isolate/);
+  });
+});
+
 describe("Chat mobile layout styles", () => {
   it("releases the vendor chat minimum width on narrow viewports", () => {
     const mobileStart = stylesSource.indexOf(
