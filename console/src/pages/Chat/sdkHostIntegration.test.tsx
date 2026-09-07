@@ -321,6 +321,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
     vi.fn((selector?: any) => {
       const state = {
         queues: {},
+        runStates: {},
         getQueue: vi.fn(() => []),
         getRunState: vi.fn(() => "idle"),
         setItemStatus: vi.fn(),
@@ -341,6 +342,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
     {
       getState: vi.fn(() => ({
         queues: {},
+        runStates: {},
         getQueue: vi.fn(() => []),
         getRunState: vi.fn(() => "idle"),
         setItemStatus: vi.fn(),
@@ -2243,6 +2245,7 @@ describe("ChatPage coverage", () => {
   });
 
   it("blocks input and queue submission while SDK history is pending", async () => {
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
     let resolve!: (session: any) => void;
     mockSdkHistoryLoad.mockImplementationOnce(
       () =>
@@ -2260,16 +2263,35 @@ describe("ChatPage coverage", () => {
     const input = { query: "keep this draft", fileList: [] };
     expect(await capturedOptions.sender.beforeSubmit(input)).toBe(false);
     expect(store.getState().enqueue).toHaveBeenCalledTimes(count);
+    expect(holdOwnershipLock).not.toHaveBeenCalled();
     const optionsWhileLoading = capturedOptions;
     await act(async () =>
       resolve({ id: "history-loading", name: "Loaded", messages: [] }),
     );
-    expect(capturedOptions).toBe(optionsWhileLoading);
+    // Ownership now resolves after history, so the host can rerender while
+    // preserving the SDK session adapter and its completed history load.
+    expect(capturedOptions.session.api).toBe(optionsWhileLoading.session.api);
     await waitFor(async () => {
       expect(await capturedOptions.sender.beforeSubmit(input)).toMatchObject({
         proceed: true,
       });
     });
+    expect(holdOwnershipLock).toHaveBeenCalledWith(
+      "history-loading",
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("does not occupy another Agent's queue when its route cannot load", async () => {
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    mockSdkHistoryLoad.mockResolvedValueOnce(undefined as any);
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/other-agent-chat"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    expect(holdOwnershipLock).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(

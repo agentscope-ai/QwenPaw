@@ -106,7 +106,12 @@ import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostResponseCard } from "./HostBubbles";
 import { ChatRegenerateContext } from "./ChatRegenerateContext";
 import { cancelSdkChatRequest } from "./sdkCancellation";
-import { awaitInChatScope, waitForChatIdle } from "./chatRunLifecycle";
+import {
+  awaitInChatScope,
+  awaitQueueAcceptance,
+  recoverSendingQueueHead,
+  waitForChatIdle,
+} from "./chatRunLifecycle";
 import { applyChatPayloadTransforms } from "./chatPayload";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";
 import { migrateChatSessionPreferences } from "./chatSessionPreferences";
@@ -367,12 +372,22 @@ async function startBackgroundQueue(
       if (rs === "paused" || rs === "error") break;
 
       const waitingItem = current[0];
-      if (waitingItem.status !== "pending") break;
+      if (!["pending", "sending"].includes(waitingItem.status)) break;
 
       // Wait until the backend finishes the currently running task before
       // sending the next one. This preserves order task1 → task2 → task3
       // and prevents firing while task1 is still generating.
       try {
+        if (waitingItem.status === "sending") {
+          await recoverSendingQueueHead(
+            chatIdForStatus,
+            ctrl.signal,
+            waitingItem.agentId || "default",
+            queueKey,
+            i18n.t("chat.queue.sendFailed"),
+          );
+          continue;
+        }
         const idle = await waitForChatIdle(
           chatIdForStatus,
           ctrl.signal,
@@ -587,7 +602,7 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
       if (!items || items.length === 0) continue;
       // Only start if there are actionable items
       const hasPending = items.some(
-        (it) => it.status === "pending" || it.status === "failed",
+        (it) => it.status === "pending" || it.status === "sending",
       );
       if (!hasPending) continue;
       // Check runState: respect paused queues
@@ -1400,7 +1415,7 @@ export default function ChatPage() {
   const messageQueueRef = useRef(messageQueue);
   messageQueueRef.current = messageQueue;
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevQueueLenRef = useRef(messageQueue.length);
+  const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
   const backendControlsRef = useRef<Record<string, unknown>>({});
@@ -1551,33 +1566,31 @@ export default function ChatPage() {
         item = freshItem;
         store.setCurrentSendingId(item.id);
         store.setItemStatus(freshQueueId, item.id, "sending");
-        const run = await execution.execute(
-          {
-            query: beginLoopModeSubmission(item.text),
-            fileList: buildFileList(item),
-            session_id: runtimeSessionId,
-            user_id: userId,
-            channel,
-            agent_id: agentId,
-            biz_params: item.bizParams,
-            context: buildChatSubmissionContext(
-              item.requestContext,
-              { sessionId: runtimeSessionId, userId, channel },
-              agentId,
-            ),
-          },
-          {
-            source: "host-queue",
-            clientRequestId: item.clientMessageId ?? item.id,
-            sessionId: queueSessionId === "new" ? undefined : queueSessionId,
-          },
+        const accepted = await awaitQueueAcceptance(
+          execution.execute(
+            {
+              query: beginLoopModeSubmission(item.text),
+              fileList: buildFileList(item),
+              session_id: runtimeSessionId,
+              user_id: userId,
+              channel,
+              agent_id: agentId,
+              biz_params: item.bizParams,
+              context: buildChatSubmissionContext(
+                item.requestContext,
+                { sessionId: runtimeSessionId, userId, channel },
+                agentId,
+              ),
+            },
+            {
+              source: "host-queue",
+              clientRequestId: item.clientMessageId ?? item.id,
+              sessionId: queueSessionId === "new" ? undefined : queueSessionId,
+            },
+          ),
+          signal,
         );
 
-        const session = await run.session;
-        if (!session.resolved) {
-          throw session.error || new Error("SDK chat session is not ready");
-        }
-        const accepted = await run.accepted;
         const currentQueueId = locateQueue();
         if (accepted.accepted) {
           if (currentQueueId) {
@@ -1599,6 +1612,10 @@ export default function ChatPage() {
             );
         }
       } catch (error) {
+        // The old SDK Run may stay disconnected indefinitely after switching
+        // Agents. Release its Web Lock now; the next owner reconciles the
+        // persisted sending marker against backend receipts before retrying.
+        if (signal.aborted) return false;
         const currentQueueId = locateQueue();
         if (currentQueueId) {
           useMessageQueueStore
@@ -1639,32 +1656,45 @@ export default function ChatPage() {
     setIsOwner(false);
     setOwnershipResolved(false);
     const ctrl = new AbortController();
-    void recoverLegacyDraftQueue(queueKey, ctrl.signal)
-      .then(() => {
-        if (ctrl.signal.aborted) return;
-        return holdOwnershipLock(
-          queueKey,
-          () => {
-            setIsOwner(true);
-            setOwnershipResolved(true);
-          },
-          ctrl.signal,
-        );
-      })
-      .catch((error) => {
-        if (!ctrl.signal.aborted)
-          console.error("Unable to recover chat queue", error);
-      });
-    // If the lock callback never fires (e.g. another tab holds it), resolve
-    // after a short delay so the non-owner Alert appears without flashing.
-    const fallbackTimer = setTimeout(() => {
-      setOwnershipResolved(true);
-    }, 300);
+    let requested = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    const acquireWhenReady = () => {
+      // A URL may still refer to a different Agent's Chat, especially after
+      // a switch/reload. An unloaded or rejected session cannot own its queue.
+      if (
+        requested ||
+        ctrl.signal.aborted ||
+        !sdkSessionAdapter.isReady(chatId)
+      )
+        return;
+      requested = true;
+      void recoverLegacyDraftQueue(queueKey, ctrl.signal)
+        .then(() => {
+          if (ctrl.signal.aborted) return;
+          return holdOwnershipLock(
+            queueKey,
+            () => {
+              setIsOwner(true);
+              setOwnershipResolved(true);
+            },
+            ctrl.signal,
+          );
+        })
+        .catch((error) => {
+          if (!ctrl.signal.aborted)
+            console.error("Unable to recover chat queue", error);
+        });
+      // Only a valid loaded session can be classified as a queue-only tab.
+      fallbackTimer = setTimeout(() => setOwnershipResolved(true), 300);
+    };
+    const unsubscribe = sdkSessionAdapter.subscribe(acquireWhenReady);
+    acquireWhenReady();
     return () => {
       ctrl.abort();
+      unsubscribe();
       clearTimeout(fallbackTimer);
     };
-  }, [queueSessionId, queueKey]);
+  }, [chatId, queueKey, sdkSessionAdapter]);
 
   const syncLoopModeStatus = useCallback(() => {
     const backendSessionId =
@@ -1764,25 +1794,36 @@ export default function ChatPage() {
       const q = messageQueueRef.current;
       if (q.length === 0) return;
       const next = q[0];
-      if (next.status !== "pending") return;
+      if (!["pending", "sending"].includes(next.status)) return;
       // Acquire the per-session send lock so concurrent tabs don't both fire
       // the same item. If another tab holds the lock, drop this attempt; the
       // cross-tab broadcast will refresh our queue and the next loading→idle
       // transition will retry.
       void withSendLock(queueKey, async () => {
+        const signal = queueExecutionScopeRef.current.signal;
+        if (queueKeyRef.current !== queueKey || signal.aborted) return;
+        await recoverSendingQueueHead(
+          sessionApi.getRealIdForSession(queueSessionId) || queueSessionId,
+          signal,
+          next.agentId || selectedAgent,
+          queueKey,
+          i18n.t("chat.queue.sendFailed"),
+        );
         // Re-check: another tab may have already removed this item via
         // broadcast, or a session switch may have happened.
         const fresh = useMessageQueueStore.getState().getQueue(queueKey);
         if (
+          signal.aborted ||
+          queueKeyRef.current !== queueKey ||
+          !isOwnerRef.current ||
           fresh.length === 0 ||
-          fresh[0].id !== next.id ||
           fresh[0].status !== "pending" ||
           ["paused", "error"].includes(
             useMessageQueueStore.getState().getRunState(queueKey),
           )
         )
           return;
-        await executeQueuedItem(next);
+        await executeQueuedItem(fresh[0]);
       });
     }, 500);
   }, [executeQueuedItem, queueSessionId, queueKey]);
@@ -1801,9 +1842,6 @@ export default function ChatPage() {
       autoSendTimerRef.current = null;
     }
     prevChatLoadingRef.current = false;
-    // Keep prevQueueLenRef at current value to prevent auto-send effect from
-    // seeing a false 0→N transition on stale messageQueue in the same render.
-    prevQueueLenRef.current = messageQueue.length;
 
     // If we just migrated "new" → queueSessionId, the in-memory store already
     // holds the authoritative items. Skip loadFromStorage which would no-op
@@ -2283,17 +2321,15 @@ export default function ChatPage() {
 
   // Auto-send next queue item when:
   // 1. Response just completed (loading→idle), OR
-  // 2. Queue goes from empty→non-empty while idle (Ctrl+Enter while not chatting)
+  // 2. The queue changes while idle (including cross-tab receipt removal or
+  //    resume). A head change need not pass through an empty queue.
   // Uses a delayed timer so session switches can cancel it before it fires.
   useEffect(() => {
     const wasLoading = prevChatLoadingRef.current;
-    const prevLen = prevQueueLenRef.current;
     prevChatLoadingRef.current = chatLoading;
-    prevQueueLenRef.current = messageQueue.length;
 
     const responseJustCompleted = wasLoading && !chatLoading;
-    const itemsJustQueued =
-      prevLen === 0 && messageQueue.length > 0 && !chatLoading;
+    const itemsJustQueued = messageQueue.length > 0 && !chatLoading;
 
     if (responseJustCompleted) {
       // The currently-sending item finished. Clear the marker so the next
@@ -2303,7 +2339,13 @@ export default function ChatPage() {
     } else if (itemsJustQueued) {
       scheduleNextSend();
     }
-  }, [chatLoading, messageQueue, scheduleNextSend, syncLoopModeStatus]);
+  }, [
+    chatLoading,
+    messageQueue,
+    queueRunState,
+    scheduleNextSend,
+    syncLoopModeStatus,
+  ]);
 
   // When this tab acquires ownership (e.g., previous owner closed), kick the
   // queue: any pending items left behind should now be sent by us.
