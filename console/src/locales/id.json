@@ -2398,8 +2398,6 @@
     "checkAgentTaskDefault": "Periksa tugas",
     "delegateExternalAgent": "Delegasikan {{runner}}",
     "delegateExternalAgentDefault": "Delegasikan ke agen eksternal",
-    "materializeSkill": "Buat {{skill}}",
-    "materializeSkillDefault": "Buat skill",
     "shell": "Jalankan {{command}}",
     "shellDefault": "Jalankan perintah",
     "formatTable": {

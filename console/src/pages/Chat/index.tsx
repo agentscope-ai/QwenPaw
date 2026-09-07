@@ -1137,7 +1137,7 @@ function RuntimeLoadingBridge({
 
 const timestampStyle: React.CSSProperties = {
   fontSize: 12,
-  color: "var(--ant-color-text-quaternary)",
+  color: "var(--app-text-quaternary)",
   whiteSpace: "nowrap",
 };
 

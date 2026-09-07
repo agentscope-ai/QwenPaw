@@ -1,11 +1,11 @@
 .drawer {
-  --files-bg: #fffdfb;
-  --files-panel: #faf7f3;
-  --files-line: #e8e0d8;
-  --files-muted: #7b746d;
-  --files-ink: #292522;
-  --files-accent: #f36b21;
-  --files-accent-soft: #fff0e7;
+  --files-bg: var(--app-surface);
+  --files-panel: var(--app-surface-subtle);
+  --files-line: var(--app-border);
+  --files-muted: var(--app-text-secondary);
+  --files-ink: var(--app-text);
+  --files-accent: var(--app-accent);
+  --files-accent-soft: var(--app-accent-soft);
   position: relative;
   flex: 0 0 auto;
   min-width: 420px;
@@ -16,7 +16,7 @@
   color: var(--files-ink);
   background: var(--files-bg);
   border-right: 1px solid var(--files-line);
-  box-shadow: 18px 0 52px rgba(75, 49, 30, 0.11);
+  box-shadow: var(--app-shadow-md);
   transform-origin: left center;
   will-change: transform, opacity;
   z-index: 20;
@@ -135,13 +135,13 @@
 }
 
 .primaryButton {
-  color: #fff;
+  color: var(--app-text-inverse);
   border-color: var(--files-accent);
   background: var(--files-accent);
 
   &:hover {
-    color: #fff;
-    background: color-mix(in srgb, var(--files-accent) 88%, #000);
+    color: var(--app-text-inverse);
+    background: var(--app-accent-active);
   }
 }
 
@@ -297,17 +297,11 @@
     color-mix(in srgb, var(--files-accent) 7%, var(--files-bg)),
     var(--files-bg)
   );
-  box-shadow:
-    0 1px 2px rgba(56, 38, 25, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  box-shadow: var(--app-shadow-sm);
 
   &[data-root="workspace"] {
-    border-color: color-mix(in srgb, #7867b8 18%, var(--files-line));
-    background: linear-gradient(
-      135deg,
-      color-mix(in srgb, #7867b8 8%, var(--files-bg)),
-      var(--files-bg)
-    );
+    border-color: var(--app-info-border);
+    background: linear-gradient(135deg, var(--app-info-bg), var(--files-bg));
   }
 }
 
@@ -322,8 +316,8 @@
   background: color-mix(in srgb, var(--files-accent) 11%, transparent);
 
   .directoryContext[data-root="workspace"] & {
-    color: #7867b8;
-    background: color-mix(in srgb, #7867b8 12%, transparent);
+    color: var(--app-info-text);
+    background: var(--app-info-bg);
   }
 }
 
@@ -360,7 +354,7 @@
 
   strong {
     overflow: hidden;
-    color: color-mix(in srgb, var(--files-accent) 78%, #3b2f26);
+    color: color-mix(in srgb, var(--files-accent) 78%, var(--files-ink));
     font-size: 11px;
     line-height: 1.25;
     text-overflow: ellipsis;
@@ -382,11 +376,11 @@
 
 .directoryContext[data-root="workspace"] .directoryIdentityText {
   strong {
-    color: #5f4e98;
+    color: var(--app-info-text);
   }
 
   span {
-    color: color-mix(in srgb, #7867b8 72%, var(--files-muted));
+    color: var(--app-text-secondary);
   }
 }
 
@@ -469,8 +463,8 @@
 }
 
 .rootOptionTagMissing {
-  color: var(--ant-color-error);
-  background: var(--ant-color-error-bg);
+  color: var(--app-error);
+  background: var(--app-error-bg);
 }
 
 .rootOptionCheck {
@@ -496,18 +490,18 @@
   }
 
   &[data-source="profile"] {
-    --source-color: #7867b8;
-    --source-soft: #efebfb;
+    --source-color: var(--app-info-text);
+    --source-soft: var(--app-info-bg);
   }
 
   &[data-source="daily"] {
-    --source-color: #65758b;
-    --source-soft: #edf1f5;
+    --source-color: var(--app-text-secondary);
+    --source-soft: var(--app-fill-subtle);
   }
 
   &[data-source="digest"] {
-    --source-color: #557766;
-    --source-soft: #eaf2ed;
+    --source-color: var(--app-success-text);
+    --source-soft: var(--app-success-bg);
   }
 }
 
@@ -524,19 +518,19 @@
     box-shadow 150ms ease;
 
   &:hover {
-    background: color-mix(in srgb, #7867b8 7%, transparent);
+    background: var(--app-info-bg);
   }
 
   &.treeRowSelected {
-    color: #7867b8;
-    background: #efebfb;
+    color: var(--app-info-text);
+    background: var(--app-info-bg);
   }
 }
 
 .profileRowDragging {
   position: relative;
   background: var(--files-bg);
-  box-shadow: 0 8px 24px rgba(47, 37, 80, 0.15);
+  box-shadow: var(--app-shadow-md);
   z-index: 4;
 }
 
@@ -571,23 +565,23 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  border: 1px dashed color-mix(in srgb, #7867b8 45%, transparent);
+  border: 1px dashed var(--app-info-border);
   border-radius: 7px;
-  color: #7867b8;
-  background: color-mix(in srgb, #7867b8 4%, transparent);
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
   font-size: 12px;
   cursor: pointer;
 
   &:hover {
-    border-color: #7867b8;
-    background: color-mix(in srgb, #7867b8 9%, transparent);
+    border-color: var(--app-info-text);
+    background: var(--app-info-bg-hover);
   }
 }
 
 .profilePickerModal {
-  --profile-accent: #7867b8;
-  --profile-line: #e5e0f2;
-  --profile-muted: #777181;
+  --profile-accent: var(--app-info-text);
+  --profile-line: var(--app-info-border);
+  --profile-muted: var(--app-text-secondary);
 }
 
 .profilePickerDescription {
@@ -607,7 +601,7 @@
 
   &:focus {
     border-color: var(--profile-accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, #7867b8 14%, transparent);
+    box-shadow: 0 0 0 2px var(--app-info-border);
   }
 }
 
@@ -642,7 +636,7 @@
 
   &:hover {
     color: var(--profile-accent);
-    background: color-mix(in srgb, #7867b8 8%, transparent);
+    background: var(--app-info-bg);
   }
 }
 
@@ -674,12 +668,12 @@
 }
 
 .conflictModal {
-  --files-bg: #fffdfb;
-  --files-panel: #faf7f3;
-  --files-line: #e8e0d8;
-  --files-muted: #7b746d;
-  --files-ink: #292522;
-  --files-accent: #f36b21;
+  --files-bg: var(--app-surface);
+  --files-panel: var(--app-surface-subtle);
+  --files-line: var(--app-border);
+  --files-muted: var(--app-text-secondary);
+  --files-ink: var(--app-text);
+  --files-accent: var(--app-accent);
 }
 
 .conflictChoices {
@@ -726,8 +720,8 @@
   }
 
   &[data-danger="true"]:hover {
-    border-color: #c96a5c;
-    background: #fff5f3;
+    border-color: var(--app-error-border);
+    background: var(--app-error-bg);
   }
 }
 
@@ -757,8 +751,8 @@
 
 .navigator[data-root="workspace"] {
   .sourceTab[data-source="workspace"].sourceTabActive {
-    color: #7867b8;
-    background: #efebfb;
+    color: var(--app-info-text);
+    background: var(--app-info-bg);
   }
 }
 
@@ -815,7 +809,7 @@
 
 .memoryDirectoryGraphActive {
   .memoryDirectoryGraphButton {
-    color: #557766;
+    color: var(--app-success-text);
     opacity: 1;
     background: transparent;
     transform: translateY(-50%) scale(1);
@@ -833,7 +827,7 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: #557766;
+  color: var(--app-success-text);
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -849,13 +843,13 @@
     transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 
   &:hover {
-    color: #557766;
-    background: color-mix(in srgb, #557766 8%, transparent);
+    color: var(--app-success-text);
+    background: var(--app-success-bg);
     transform: translateY(-50%) translateY(-1px);
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #557766 38%, transparent);
+    outline: 2px solid var(--app-success-border);
     outline-offset: 2px;
   }
 }
@@ -917,121 +911,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #9f3a2f;
-  background: #fff2ef;
-  border-bottom: 1px solid #f2c7bf;
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
+  border-bottom: 1px solid var(--app-error-border);
   font-size: 13px;
 }
 
 .spin {
   animation: spin 900ms linear infinite;
-}
-
-:global(.dark-mode) {
-  .drawer {
-    --files-bg: #181614;
-    --files-panel: #211d1a;
-    --files-line: #3b332d;
-    --files-muted: #aaa099;
-    --files-ink: #f4efeb;
-    --files-accent: #ff914d;
-    --files-accent-soft: #40271a;
-    box-shadow: 18px 0 52px rgba(0, 0, 0, 0.35);
-  }
-
-  .loadError {
-    color: #f2aaa0;
-    background: #35201e;
-    border-bottom-color: #60342f;
-  }
-
-  .sourceTab {
-    &[data-source="profile"] {
-      --source-color: #b8a8ee;
-      --source-soft: #302946;
-    }
-
-    &[data-source="daily"] {
-      --source-color: #b7c3d1;
-      --source-soft: #293039;
-    }
-
-    &[data-source="digest"] {
-      --source-color: #a9cbb9;
-      --source-soft: #26352e;
-    }
-  }
-
-  .directoryContext {
-    box-shadow: none;
-
-    &[data-root="workspace"] {
-      border-color: color-mix(in srgb, #b8a8ee 20%, var(--files-line));
-    }
-  }
-
-  .directoryIdentityText {
-    strong {
-      color: #d3c8f5;
-    }
-
-    span {
-      color: #a99dc9;
-    }
-  }
-
-  .navigator[data-root="workspace"] {
-    .sourceTab[data-source="workspace"].sourceTabActive {
-      color: #b8a8ee;
-      background: #302946;
-    }
-  }
-
-  .profileRow.treeRowSelected {
-    color: #b8a8ee;
-    background: #302946;
-  }
-
-  .profileAddButton {
-    color: #b8a8ee;
-    border-color: color-mix(in srgb, #b8a8ee 45%, transparent);
-    background: color-mix(in srgb, #b8a8ee 7%, transparent);
-
-    &:hover {
-      border-color: #b8a8ee;
-      background: color-mix(in srgb, #b8a8ee 13%, transparent);
-    }
-  }
-
-  .profilePickerModal {
-    --profile-accent: #b8a8ee;
-    --profile-line: #4a435c;
-    --profile-muted: #aaa1bd;
-  }
-
-  .profilePickerSearch {
-    color: #f4efff;
-    background: #211d2a;
-    color-scheme: dark;
-
-    &::placeholder {
-      color: #81788f;
-    }
-  }
-
-  .conflictModal {
-    --files-bg: #181614;
-    --files-panel: #211d1a;
-    --files-line: #3b332d;
-    --files-muted: #aaa099;
-    --files-ink: #f4efeb;
-    --files-accent: #ff914d;
-  }
-
-  .conflictChoice[data-danger="true"]:hover {
-    border-color: #d28578;
-    background: #35201e;
-  }
 }
 
 @media (max-width: 1024px) {
