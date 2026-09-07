@@ -80,7 +80,10 @@ class TestMacOSSandboxExecution:
             result = asyncio.run(sandbox.execute("echo ok"))
 
         assert result.exit_code == 0
-        assert create_process.call_args.kwargs["stdin"] is asyncio.subprocess.DEVNULL
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
 
 # ============================================================================
@@ -179,7 +182,10 @@ class TestSeatbeltProfile:
         assert "/tmp/untrusted" in after_deny
 
     def test_platform_hints_seatbelt_extra_rules(self):
-        extra = "(allow iokit-open " '(iokit-user-client-class "AGXDeviceUserClient"))'
+        extra = (
+            "(allow iokit-open "
+            '(iokit-user-client-class "AGXDeviceUserClient"))'
+        )
         sandbox = self._make_sandbox(
             platform_hints={"seatbelt_extra_rules": extra},
         )
