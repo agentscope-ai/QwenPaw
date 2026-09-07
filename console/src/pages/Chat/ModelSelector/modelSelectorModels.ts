@@ -26,9 +26,7 @@ export function splitProvidersByTier(providers: EligibleProvider[]): {
   const proProviders: EligibleProvider[] = [];
   for (const provider of providers) {
     const freeModels = provider.models.filter((model) => model.is_free);
-    const proModels = provider.is_free_tier
-      ? provider.models
-      : provider.models.filter((model) => !model.is_free);
+    const proModels = provider.models.filter((model) => !model.is_free);
     if (freeModels.length > 0 || provider.is_free_tier) {
       freeProviders.push({ ...provider, models: freeModels });
     }

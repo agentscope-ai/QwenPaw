@@ -558,15 +558,7 @@ export default function Sidebar({
     const isActive =
       item.key === "core.chat" ? isChatActive : selectedKey === item.key;
     return (
-      <Tooltip
-        key={item.key}
-        title={item.label}
-        placement="right"
-        overlayInnerStyle={{
-          background: "var(--app-text)",
-          color: "var(--app-text-inverse)",
-        }}
-      >
+      <Tooltip key={item.key} title={item.label} placement="right">
         <button
           type="button"
           aria-label={typeof item.label === "string" ? item.label : undefined}

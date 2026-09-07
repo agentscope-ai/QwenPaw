@@ -71,6 +71,7 @@ def _register_workspace_skill_entry(
     payload["skills"][skill_name] = {
         "enabled": bool(entry.get("enabled", enable)),
         "channels": entry.get("channels") or ["all"],
+        "preload": entry.get("preload") is True,
         "source": metadata["source"],
         "installed_from": (
             installed_from or str(entry.get("installed_from", "") or "")
@@ -349,6 +350,7 @@ class SkillService:
             next_entry = {
                 "enabled": bool(current_entry.get("enabled", False)),
                 "channels": current_entry.get("channels") or ["all"],
+                "preload": current_entry.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
@@ -415,6 +417,7 @@ class SkillService:
             next_entry = {
                 "enabled": bool(current_entry.get("enabled", False)),
                 "channels": current_entry.get("channels") or old_channels,
+                "preload": current_entry.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
@@ -680,6 +683,27 @@ class SkillService:
             _update,
         )
         return updated
+
+    def set_skill_preload(self, name: str, preload: bool) -> bool:
+        """Update one workspace skill's preload policy."""
+        try:
+            skill_name = normalize_skill_dir_name(name)
+        except SkillsError:
+            return False
+        manifest_path = get_workspace_skill_manifest_path(self.workspace_dir)
+
+        def _update(payload: dict[str, Any]) -> bool:
+            entry = payload.get("skills", {}).get(skill_name)
+            if entry is None:
+                return False
+            entry["preload"] = preload
+            return True
+
+        return mutate_json(
+            manifest_path,
+            default_workspace_manifest(),
+            _update,
+        )
 
     def set_skill_tags(
         self,

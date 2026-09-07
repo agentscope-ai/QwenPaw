@@ -596,6 +596,8 @@
   "skills": {
     "title": "スキル",
     "description": "エージェントのスキルと機能を管理します。",
+    "preload": "プリロード",
+    "preloadHint": "有効にすると、エージェントがこのスキルをプリロードし、会話中に探して読み込む必要がなくなります。",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "編集可能で、実行時に対応する外部エージェントへ反映されます。",
     "providerManaged": "サードパーティエージェントのスキル",
@@ -1525,7 +1527,48 @@
     "variable": "変数",
     "variables": "変数",
     "showValue": "値を表示",
-    "hideValue": "値を非表示"
+    "hideValue": "値を非表示",
+    "searchPlaceholder": "変数を検索",
+    "liveSettings": "リアルタイム設定",
+    "noLiveVariables": "現在の条件に一致するリアルタイム設定はありません。",
+    "customSettings": "カスタム変数",
+    "noCustomVariables": "カスタム変数はまだありません。",
+    "editVariable": "変数を編集",
+    "applyNow": "今すぐ適用",
+    "applyHint": "現在の QwenPaw プロセスは即時更新されます。実行中の MCP には再読み込みが必要です。",
+    "applied": "環境変数を適用しました",
+    "appliedWithFailures": "保存しましたが、{{count}} 件の MCP を再読み込みできませんでした",
+    "resetVariable": "変数をリセット",
+    "resetSuccess": "システム値または既定値に戻しました",
+    "readonlySettings": "読み取り専用設定",
+    "noReadonlyVariables": "現在の条件に一致する読み取り専用設定はありません。",
+    "impactTitle": "プロセスへの影響",
+    "explicitConsumers": "{{count}} 件の MCP がこの変数を明示的に使用しています",
+    "implicitConsumers": "{{count}} 件の stdio MCP が暗黙的に継承する可能性があります",
+    "restartMode": "実行中の MCP",
+    "restartAffected": "影響を受ける MCP を再読み込み",
+    "restartNone": "再読み込みしない",
+    "restartAllStdio": "すべての stdio MCP を再読み込み",
+    "readonlyReason": {
+      "startup": "QwenPaw 起動時に確定",
+      "agent_owned": "各エージェント設定で管理",
+      "initial_default": "Agent 設定の初期値としてのみ使用"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "各操作の開始時に現在の QwenPaw プロセスから読み取ります。",
+      "hot_process": "os.getenv() で利用でき、今後の子プロセスに継承されます。",
+      "startup_only": "参照専用で、QwenPaw の実行中は変更できません。",
+      "internal": "QwenPaw が内部で管理します。"
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "最初の有効なストリーム内容を待つ最大時間です。0 で監視を無効化します。",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "有効なストリームチャンク間の最大待機時間です。0 で監視を無効化します。"
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "システム",
+      "default": "既定値"
+    }
   },
   "tokenUsage": {
     "title": "Token 使用量",
@@ -2096,7 +2139,7 @@
     "llmAcquireTimeoutGtPauseJitter": "スロット取得タイムアウトはレート制限一時停止とジッターの合計より大きい必要があります",
     "contextManagementTitle": "コンテキスト管理",
     "memoryManagerBackend": "長期記憶管理バックエンド",
-    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）または adbpg（クラウドデータベース）から選択できます。",
+    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）、adbpg（クラウドデータベース）、PowerContext（リモートメモリサービス）、または none（メモリを無効化）から選択できます。",
     "memoryManagerBackendRestartWarning": "長期記憶管理バックエンドの切り替えはホットリロードに対応していません。変更を反映するには保存後に QwenPaw を再起動してください。",
     "maxIters": "最大反復回数",
     "maxItersTooltip": "ReActエージェントの推論・行動サイクルの最大反復回数",
@@ -2518,6 +2561,18 @@
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext メモリ",
+    "powercontextConfig": {
+      "title": "PowerContext メモリ設定",
+      "baseUrl": "サーバー URL",
+      "token": "Bearer トークン",
+      "scopeId": "メモリスコープ",
+      "scopeIdPlaceholder": "空欄の場合、このインストール固有のエージェントスコープを使用します",
+      "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
+      "timeout": "リクエストタイムアウト",
+      "maxContextBytes": "注入するコンテキストの最大量（バイト）",
+      "maxContextBytesTooltip": "1回のモデル呼び出しに追加される PowerContext 検索結果の合計量を制限します。"
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

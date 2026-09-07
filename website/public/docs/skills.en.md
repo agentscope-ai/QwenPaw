@@ -435,6 +435,9 @@ packaged built-in -- Auto Update --> Skill Pool -- Auto Sync --> workspaces
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
+- **Preload / on demand:** Skills load on demand by default. In **Workspace →
+  Skills → Edit**, preload trusted core or frequently used Skills; their full
+  content is added to the system prompt as a structured, delimited Skill block.
 - **Delete:** Delete a workspace skill. If the skill is currently enabled, it
   is automatically disabled first.
 - **Sync to Skill Pool:** Publish a workspace skill to the shared pool for

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import styles from "../index.module.less";
+import styles from "./ProviderIconComponent.module.less";
 import { providerIcon } from "./providerIcon";
 import {
   getProviderLetterColor,
@@ -38,7 +38,13 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
         data-provider-id={providerId}
         width={size}
         height={size}
-        style={{ borderRadius, objectFit: "cover", flexShrink: 0 }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius,
+          objectFit: "cover",
+          flexShrink: 0,
+        }}
         onError={() => setImageFailed(true)}
       />
     );

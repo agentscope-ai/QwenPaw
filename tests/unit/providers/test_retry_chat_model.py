@@ -664,6 +664,37 @@ async def test_stream_idle_timeout_retries_before_visible_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_timeout_reads_environment_after_model_creation(
+    monkeypatch,
+) -> None:
+    """A new stream reads its timeout through the existing EnvVarLoader."""
+    _limiters.clear()
+    state = {"started": asyncio.Event(), "closed": False}
+    inner = _IdleStreamModel([_hanging_stream(state)])
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+    monkeypatch.setenv("QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT", "0.01")
+
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError) as exc_info:
+            _ = [chunk async for chunk in stream]
+        assert exc_info.value.timeout_seconds == 0.01
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
 async def test_stream_idle_timeout_does_not_retry_after_output() -> None:
     _limiters.clear()
     state = {

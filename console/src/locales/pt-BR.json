@@ -816,6 +816,8 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "preload": "Pré-carregar",
+    "preloadHint": "Quando ativado, o agente pré-carrega esta Skill e não precisa procurá-la e carregá-la durante a conversa.",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "Editável e projetado em agentes de terceiros compatíveis durante a execução.",
     "providerManaged": "Skills do agente de terceiros",
@@ -1752,7 +1754,48 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Mostrar value",
-    "hideValue": "Ocultar value"
+    "hideValue": "Ocultar valor",
+    "searchPlaceholder": "Buscar variáveis",
+    "liveSettings": "Configurações em tempo real",
+    "noLiveVariables": "Nenhuma configuração em tempo real corresponde ao filtro.",
+    "customSettings": "Variáveis personalizadas",
+    "noCustomVariables": "Nenhuma variável personalizada adicionada.",
+    "editVariable": "Editar variável",
+    "applyNow": "Aplicar agora",
+    "applyHint": "O processo atual do QwenPaw é atualizado imediatamente. Processos MCP em execução precisam ser recarregados.",
+    "applied": "Variável de ambiente aplicada",
+    "appliedWithFailures": "Salvo, mas {{count}} processo(s) MCP não puderam ser recarregados",
+    "resetVariable": "Redefinir variável",
+    "resetSuccess": "Valor do sistema ou padrão restaurado",
+    "readonlySettings": "Configurações somente leitura",
+    "noReadonlyVariables": "Nenhuma configuração somente leitura corresponde ao filtro.",
+    "impactTitle": "Impacto nos processos",
+    "explicitConsumers": "{{count}} processo(s) MCP usam esta variável explicitamente",
+    "implicitConsumers": "{{count}} processo(s) stdio MCP podem herdá-la implicitamente",
+    "restartMode": "Processos MCP em execução",
+    "restartAffected": "Recarregar MCPs afetados",
+    "restartNone": "Não recarregar",
+    "restartAllStdio": "Recarregar todos os MCPs stdio",
+    "readonlyReason": {
+      "startup": "Definido quando o QwenPaw inicia",
+      "agent_owned": "Gerenciado pela configuração de cada Agent",
+      "initial_default": "Usado apenas como padrão inicial do Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Lido do processo QwenPaw atual no início de cada operação.",
+      "hot_process": "Disponível por os.getenv() e herdado por futuros subprocessos.",
+      "startup_only": "Somente para referência; não pode ser alterado durante a execução.",
+      "internal": "Gerenciado internamente pelo QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Espera máxima pelo primeiro conteúdo relevante do stream; zero desativa o monitoramento.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Espera máxima entre partes relevantes do stream; zero desativa o monitoramento."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistema",
+      "default": "Padrão"
+    }
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
@@ -2334,7 +2377,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Backend de gerenciamento de memória de longo prazo",
-    "memoryManagerBackendTooltip": "Backend para o gerenciador de memória. Escolha remelight (arquivos locais) ou adbpg (banco de dados na nuvem).",
+    "memoryManagerBackendTooltip": "Backend para o gerenciador de memória. Escolha remelight (arquivos locais), adbpg (banco de dados na nuvem), PowerContext (serviço remoto de memória) ou none (desativar memória).",
     "memoryManagerBackendRestartWarning": "A troca do backend de gerenciamento de memória de longo prazo não permite recarregamento a quente. Salve e reinicie o QwenPaw para aplicar as alterações.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
@@ -2746,6 +2789,18 @@
     "visualCompactQualityNote": "Uma compactação maior não melhora necessariamente a qualidade da resposta.",
     "visualCompactCapabilityNote": "Só funciona com modelos que aceitam entrada de imagem.",
     "remeLightMemoryTitle": "Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext Memory",
+    "powercontextConfig": {
+      "title": "PowerContext Memory Configuration",
+      "baseUrl": "Server URL",
+      "token": "Bearer Token",
+      "scopeId": "Memory Scope",
+      "scopeIdPlaceholder": "Deixe em branco para usar o escopo de agente exclusivo desta instalação",
+      "scopeIdInvalid": "O escopo de memória não pode conter apenas espaços.",
+      "timeout": "Request Timeout",
+      "maxContextBytes": "Contexto injetado máximo (bytes)",
+      "maxContextBytesTooltip": "Limita o total de resultados de pesquisa do PowerContext adicionados a um turno do modelo."
+    },
     "dialogPath": "Dialog Storage Caminho",
     "dialogPathTooltip": "Relative path for dialog persistence storage (relative to working_dir)",
     "dialogPathPlaceholder": "dialog",

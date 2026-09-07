@@ -1,6 +1,8 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2860,15 +2862,16 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async () => {
+    const handleBeforeSubmit = async (
+      inputData: IAgentScopeRuntimeWebUIInputData,
+    ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
-        const textarea = getActiveSenderTextarea();
-        const val = textarea?.value.trim() ?? "";
+        const val = inputData.query.trim();
         if (!val) return false;
         const currentQ = useMessageQueueStore
           .getState()
@@ -2896,6 +2899,7 @@ export default function ChatPage() {
           channel: enqueueIdentity.channel,
         });
         pendingFileListRef.current = [];
+        const textarea = getActiveSenderTextarea();
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
         clearSenderAttachments();
@@ -2908,18 +2912,19 @@ export default function ChatPage() {
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
+      const prepared = usesQwenPawBackend
+        ? beginLoopModeSubmission(inputData.query)
+        : inputData.query;
+      pendingSenderClearRef.current = prepared;
+
       const textarea = getActiveSenderTextarea();
       if (textarea) {
-        const prepared = usesQwenPawBackend
-          ? beginLoopModeSubmission(textarea.value)
-          : textarea.value;
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
         }
-        pendingSenderClearRef.current = prepared;
       }
 
-      return true;
+      return { proceed: true, query: prepared };
     };
 
     // ── Resolve plugin extension snapshots ────────────────────────────────

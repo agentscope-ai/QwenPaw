@@ -10,33 +10,14 @@ if _env_path.exists():
     load_dotenv(_env_path)
 
 
-def _get_env(key: str, default: str = "") -> str:
-    """Look up an env var with automatic COPAW_ legacy fallback.
-
-    Primary key is always used as-is.  When the primary key starts with
-    ``QWENPAW_``, the corresponding ``COPAW_`` variant is transparently
-    checked as a fallback so that existing deployments keep working.
-    """
-    if key in os.environ:
-        return os.environ[key]
-    if key.startswith("QWENPAW_"):
-        legacy_key = "COPAW_" + key[len("QWENPAW_") :]
-        if legacy_key in os.environ:
-            return os.environ[legacy_key]
-    return default
-
-
 class EnvVarLoader:
-    """Utility to load and parse environment variables with type safety
-    and defaults.  Pass QWENPAW_* keys; COPAW_* legacy variants are
-    checked automatically as a fallback inside _get_env.
-    """
+    """Load and parse environment variables with type-safe defaults."""
 
     @staticmethod
     def get_bool(env_var: str, default: bool = False) -> bool:
         """Get a boolean environment variable,
         interpreting common truthy values."""
-        val = _get_env(env_var, str(default)).lower()
+        val = os.getenv(env_var, str(default)).lower()
         return val in ("true", "1", "yes")
 
     @staticmethod
@@ -50,7 +31,7 @@ class EnvVarLoader:
         """Get a float environment variable with optional bounds
         and infinity handling."""
         try:
-            value = float(_get_env(env_var, str(default)))
+            value = float(os.getenv(env_var, str(default)))
             if min_value is not None and value < min_value:
                 return min_value
             if max_value is not None and value > max_value:
@@ -72,7 +53,7 @@ class EnvVarLoader:
     ) -> int:
         """Get an integer environment variable with optional bounds."""
         try:
-            value = int(_get_env(env_var, str(default)))
+            value = int(os.getenv(env_var, str(default)))
             if min_value is not None and value < min_value:
                 return min_value
             if max_value is not None and value > max_value:
@@ -84,7 +65,7 @@ class EnvVarLoader:
     @staticmethod
     def get_str(env_var: str, default: str = "") -> str:
         """Get a string environment variable with a default fallback."""
-        return _get_env(env_var, default)
+        return os.getenv(env_var, default)
 
 
 CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV = (
@@ -99,10 +80,10 @@ CUSTOM_AGENT_STARTUP_CONCURRENCY = EnvVarLoader.get_int(
 
 
 # WORKING_DIR priority:
-# 1. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
+# 1. QWENPAW_WORKING_DIR env var is set → use it
 # 2. ~/.copaw exists (legacy installation) → use it as-is
 # 3. Default → ~/.qwenpaw
-_explicit_working_dir = _get_env("QWENPAW_WORKING_DIR")
+_explicit_working_dir = EnvVarLoader.get_str("QWENPAW_WORKING_DIR")
 if _explicit_working_dir:
     WORKING_DIR = Path(_explicit_working_dir).expanduser().resolve()
 else:
@@ -259,7 +240,7 @@ LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"
 
 # Fixed desktop backend port. When set, get_stable_port() uses this port
 # instead of auto-assigning.
-QWENPAW_DESKTOP_PORT = _get_env("QWENPAW_DESKTOP_PORT")
+QWENPAW_DESKTOP_PORT = EnvVarLoader.get_str("QWENPAW_DESKTOP_PORT")
 
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = EnvVarLoader.get_bool(
@@ -416,7 +397,10 @@ LLM_STREAM_IDLE_TIMEOUT = EnvVarLoader.get_float(
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(
         float(
-            _get_env("QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS", "300"),
+            EnvVarLoader.get_str(
+                "QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS",
+                "300",
+            ),
         ),
         1.0,
     )
@@ -430,7 +414,10 @@ except (TypeError, ValueError):
 try:
     TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = max(
         float(
-            _get_env("QWENPAW_TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL", "15"),
+            EnvVarLoader.get_str(
+                "QWENPAW_TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL",
+                "15",
+            ),
         ),
         5.0,
     )
@@ -444,7 +431,10 @@ except (TypeError, ValueError):
 try:
     CAPABILITY_CACHE_TTL_SECONDS = max(
         float(
-            _get_env("QWENPAW_CAPABILITY_CACHE_TTL_SECONDS", "1800"),
+            EnvVarLoader.get_str(
+                "QWENPAW_CAPABILITY_CACHE_TTL_SECONDS",
+                "1800",
+            ),
         ),
         0.0,
     )

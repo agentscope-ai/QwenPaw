@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ModelSelector from "./index";
@@ -1100,13 +1100,16 @@ describe("ModelSelector", () => {
     expect(screen.queryByText("OpenCode Paid Model")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "PRO" }));
+    const proPanel = screen.getByRole("tabpanel");
     expect(
-      (await screen.findAllByText("OpenCode Free One")).length,
-    ).toBeGreaterThan(0);
+      within(proPanel).queryByText("OpenCode Free One"),
+    ).not.toBeInTheDocument();
     expect(
-      (await screen.findAllByText("OpenCode Free Two")).length,
-    ).toBeGreaterThan(0);
-    expect(await screen.findByText("OpenCode Paid Model")).toBeInTheDocument();
+      within(proPanel).queryByText("OpenCode Free Two"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(proPanel).getByText("OpenCode Paid Model"),
+    ).toBeInTheDocument();
   });
 
   it("does not show paid discovery candidates in the free tab search", async () => {

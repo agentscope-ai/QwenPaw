@@ -1044,6 +1044,8 @@
   "skills": {
     "title": "Skill",
     "description": "Kelola skill dan kemampuan agen.",
+    "preload": "Pramuat",
+    "preloadHint": "Saat diaktifkan, agen memuat skill ini lebih awal sehingga tidak perlu mencari dan memuatnya lagi selama percakapan.",
     "qwenpawManaged": "Dikelola QwenPaw",
     "qwenpawManagedHint": "Dapat diedit dan diproyeksikan ke agen pihak ketiga yang didukung saat runtime.",
     "providerManaged": "Skill agen pihak ketiga",
@@ -2158,7 +2160,48 @@
     "variable": "variabel",
     "variables": "variabel",
     "showValue": "Tampilkan nilai",
-    "hideValue": "Sembunyikan nilai"
+    "hideValue": "Sembunyikan nilai",
+    "searchPlaceholder": "Cari variabel",
+    "liveSettings": "Pengaturan waktu nyata",
+    "noLiveVariables": "Tidak ada pengaturan waktu nyata yang cocok dengan filter.",
+    "customSettings": "Variabel kustom",
+    "noCustomVariables": "Belum ada variabel khusus.",
+    "editVariable": "Edit variabel",
+    "applyNow": "Terapkan sekarang",
+    "applyHint": "Proses QwenPaw saat ini langsung diperbarui. Proses MCP yang berjalan perlu dimuat ulang.",
+    "applied": "Variabel lingkungan diterapkan",
+    "appliedWithFailures": "Tersimpan, tetapi {{count}} proses MCP gagal dimuat ulang",
+    "resetVariable": "Atur ulang variabel",
+    "resetSuccess": "Nilai sistem atau nilai bawaan dipulihkan",
+    "readonlySettings": "Pengaturan hanya-baca",
+    "noReadonlyVariables": "Tidak ada pengaturan hanya-baca yang cocok dengan filter.",
+    "impactTitle": "Dampak proses",
+    "explicitConsumers": "{{count}} proses MCP menggunakan variabel ini secara eksplisit",
+    "implicitConsumers": "{{count}} proses stdio MCP mungkin mewarisinya secara implisit",
+    "restartMode": "Proses MCP yang berjalan",
+    "restartAffected": "Muat ulang MCP terdampak",
+    "restartNone": "Jangan muat ulang",
+    "restartAllStdio": "Muat ulang semua MCP stdio",
+    "readonlyReason": {
+      "startup": "Ditentukan saat QwenPaw dimulai",
+      "agent_owned": "Dikelola oleh konfigurasi setiap Agent",
+      "initial_default": "Hanya nilai awal konfigurasi Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Dibaca dari proses QwenPaw saat ini pada awal setiap operasi.",
+      "hot_process": "Tersedia melalui os.getenv() dan diwarisi oleh subproses berikutnya.",
+      "startup_only": "Hanya untuk referensi; tidak dapat diubah saat QwenPaw berjalan.",
+      "internal": "Dikelola secara internal oleh QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Waktu tunggu maksimum untuk konten stream pertama; nol menonaktifkan pemantauan.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Waktu tunggu maksimum antarbagian stream; nol menonaktifkan pemantauan."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistem",
+      "default": "Bawaan"
+    }
   },
   "tokenUsage": {
     "title": "Penggunaan Token",
@@ -2935,7 +2978,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout perolehan slot harus lebih besar dari jeda batas kecepatan + jitter",
     "contextManagementTitle": "Manajemen Konteks",
     "memoryManagerBackend": "Backend Manajemen Memori Jangka Panjang",
-    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal) atau adbpg (database cloud).",
+    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal), adbpg (database cloud), PowerContext (layanan memori jarak jauh), atau none (nonaktifkan memori).",
     "memoryManagerBackendRestartWarning": "Mengalihkan backend manajemen memori jangka panjang tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "maxIters": "Iterasi Maksimum",
     "maxItersTooltip": "Jumlah maksimum iterasi penalaran-tindakan untuk agen ReAct",
@@ -3377,6 +3420,18 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
+    "powercontextMemoryTitle": "Memori PowerContext",
+    "powercontextConfig": {
+      "title": "Konfigurasi Memori PowerContext",
+      "baseUrl": "URL Server",
+      "token": "Token Bearer",
+      "scopeId": "Ruang Lingkup Memori",
+      "scopeIdPlaceholder": "Kosongkan untuk menggunakan ruang lingkup agen unik untuk instalasi ini",
+      "scopeIdInvalid": "Ruang lingkup memori tidak boleh hanya berisi spasi.",
+      "timeout": "Batas Waktu Permintaan",
+      "maxContextBytes": "Konteks maksimum yang disisipkan (byte)",
+      "maxContextBytesTooltip": "Membatasi total hasil pencarian PowerContext yang ditambahkan ke satu giliran model."
+    },
     "adbpgConfig": {
       "title": "Konfigurasi Memori ADBPG",
       "apiMode": "Mode API",
