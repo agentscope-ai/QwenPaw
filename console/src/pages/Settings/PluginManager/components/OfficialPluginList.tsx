@@ -3,7 +3,10 @@ import { useTranslation } from "react-i18next";
 import { Alert, Button, Input, Spin, Tag, Typography } from "antd";
 import { Download, Package, RefreshCw } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
+import type {
+  InstallPluginResult,
+  OfficialPluginCatalogEntry,
+} from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import styles from "./OfficialPluginList.module.less";
@@ -38,7 +41,7 @@ function kindLabelKey(kind: string): string {
 }
 
 interface OfficialPluginListProps {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {

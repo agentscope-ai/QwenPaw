@@ -2,10 +2,16 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Form } from "antd";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { installPlugin, uploadPlugin } from "@/api/modules/plugin";
+import {
+  installPlugin,
+  uploadPlugin,
+  type InstallPluginResult,
+} from "@/api/modules/plugin";
 import { readDirEntry, type LocalSelection } from "../utils";
 
-export function useInstallModal(onSuccess: () => void | Promise<void>) {
+export function useInstallModal(
+  onSuccess: (result: InstallPluginResult) => void | Promise<void>,
+) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
 
@@ -114,7 +120,7 @@ export function useInstallModal(onSuccess: () => void | Promise<void>) {
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       setLocalSel(null);
-      await onSuccess();
+      await onSuccess(result);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("pluginManager.installFailed");
@@ -138,7 +144,7 @@ export function useInstallModal(onSuccess: () => void | Promise<void>) {
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       form.resetFields();
-      await onSuccess();
+      await onSuccess(result);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("pluginManager.installFailed");

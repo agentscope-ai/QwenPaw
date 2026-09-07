@@ -83,6 +83,7 @@ describe("usePluginManager", () => {
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
     refreshMock.mockReset();
+    hoisted.installPluginMock.mockReset();
     uninstallPluginMock.mockReset();
     hoisted.fetchPluginCatalogMock
       .mockReset()
@@ -169,5 +170,73 @@ describe("usePluginManager", () => {
       { force: true },
     );
     expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("detects community updates by package ID and author", async () => {
+    const plugin = {
+      ...makePlugin(),
+      id: "qwenpaw-thinking-collapse",
+      author: "erickcharles",
+      version: "2.8.0",
+    };
+    pluginsData.splice(0, pluginsData.length, plugin);
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [
+        {
+          id: "@erickcharles/qwenpaw-thinking-collapse",
+          display_name: "Thinking Collapse",
+          developer: "erickcharles",
+          owner: "erickcharles",
+          version: "2.9.0",
+          logo_url: null,
+          downloads: 0,
+          view_count: 0,
+          details_url: null,
+          locales: {},
+        },
+      ],
+      total: 1,
+    });
+
+    const { result } = renderHook(() => usePluginManager());
+    await waitFor(() => expect(result.current.updates.size).toBe(1));
+    expect(result.current.updates.get(plugin.id)?.version).toBe("2.9.0");
+  });
+
+  it("refreshes after a partial update failure", async () => {
+    const first = { ...makePlugin(), id: "first", version: "1.0.0" };
+    const second = { ...makePlugin(), id: "second", version: "1.0.0" };
+    pluginsData.splice(0, pluginsData.length, first, second);
+    hoisted.fetchPluginCatalogMock.mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: "first",
+          name: "first",
+          version: "2.0.0",
+          install_url: "https://example.com/first.zip",
+          upgrade_available: true,
+        },
+        {
+          plugin_id: "second",
+          name: "second",
+          version: "2.0.0",
+          install_url: "https://example.com/second.zip",
+          upgrade_available: true,
+        },
+      ],
+    });
+    hoisted.installPluginMock
+      .mockResolvedValueOnce({ name: "first" })
+      .mockRejectedValueOnce(new Error("second failed"));
+
+    const { result } = renderHook(() => usePluginManager());
+    await waitFor(() => expect(result.current.updates.size).toBe(2));
+    await act(async () => {
+      await result.current.updateAll();
+    });
+
+    expect(hoisted.installPluginMock).toHaveBeenCalledTimes(2);
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(result.current.updates.has("first")).toBe(false);
   });
 });

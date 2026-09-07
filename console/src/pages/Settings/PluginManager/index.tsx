@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import type { InstallPluginResult } from "@/api/modules/plugin";
 import { Badge, Button, Tabs } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { ExternalLink, Plus } from "lucide-react";
@@ -10,6 +11,7 @@ import { InstalledPluginList } from "./components/InstalledPluginList";
 import { OfficialPluginList } from "./components/OfficialPluginList";
 import { MarketPluginList } from "./components/MarketPluginList";
 import styles from "./index.module.less";
+import { reloadFrontendPlugin } from "@/plugins/usePluginLoader";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
@@ -34,7 +36,15 @@ export default function PluginManagerPage() {
     updateAll,
   } = usePluginManager();
 
-  const installModal = useInstallModal(refresh);
+  const handleInstalled = async (result: InstallPluginResult) => {
+    try {
+      await reloadFrontendPlugin(result.id);
+    } finally {
+      await refresh();
+    }
+  };
+
+  const installModal = useInstallModal(handleInstalled);
 
   const tabItems = [
     {
@@ -66,14 +76,14 @@ export default function PluginManagerPage() {
     {
       key: "official",
       label: t("pluginManager.officialTitle"),
-      children: <OfficialPluginList onInstalled={refresh} />,
+      children: <OfficialPluginList onInstalled={handleInstalled} />,
     },
     {
       key: "market",
       label: t("pluginManager.marketTitle"),
       children: (
         <MarketPluginList
-          onInstalled={refresh}
+          onInstalled={handleInstalled}
           installedPlugins={plugins ?? []}
         />
       ),

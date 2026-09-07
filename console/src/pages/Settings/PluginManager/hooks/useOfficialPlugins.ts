@@ -4,11 +4,12 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import {
   fetchPluginCatalog,
   installPlugin,
+  type InstallPluginResult,
   type OfficialPluginCatalogEntry,
 } from "@/api/modules/plugin";
 
 interface UseOfficialPluginsOptions {
-  onInstalled: () => void | Promise<void>;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
@@ -54,7 +55,7 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
           force: entry.installed || entry.upgrade_available,
         });
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
-        await onInstalled();
+        await onInstalled(result);
         await loadCatalog();
       } catch (err) {
         const msg =

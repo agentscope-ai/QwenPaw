@@ -16,7 +16,8 @@ import type {
   MarketPluginEntry,
   MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
-import type { PluginInfo } from "@/api/modules/plugin";
+import type { InstallPluginResult, PluginInfo } from "@/api/modules/plugin";
+import { marketPluginMatches } from "@/utils/marketPluginIdentity";
 import { compareVersions } from "@/layouts/constants";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { openExternalLink } from "@/utils/openExternalLink";
@@ -99,7 +100,7 @@ function pickLocalizedDescription(
 }
 
 interface MarketPluginListProps {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
   installedPlugins?: PluginInfo[];
 }
 
@@ -138,17 +139,9 @@ export function MarketPluginList({
   } = useMarketPlugins({ onInstalled });
 
   const lang = i18n.language.split("-")[0].toLowerCase();
-  const installedVersions = new Map(
-    installedPlugins.map((plugin) => [plugin.id, plugin.version]),
-  );
-
   const getInstalledVersion = (entry: MarketPluginEntry) => {
-    const normalizedId = entry.id.startsWith("@")
-      ? entry.id.slice(1)
-      : entry.id;
-    return (
-      installedVersions.get(entry.id) ?? installedVersions.get(normalizedId)
-    );
+    return installedPlugins.find((plugin) => marketPluginMatches(plugin, entry))
+      ?.version;
   };
 
   const onSearch = (val: string) => {

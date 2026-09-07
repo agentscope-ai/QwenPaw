@@ -17,27 +17,34 @@ import {
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
 import { compareVersions } from "@/layouts/constants";
+import { marketPluginMatches } from "@/utils/marketPluginIdentity";
+import { reloadFrontendPlugin, reloadPawApp } from "@/plugins/usePluginLoader";
+import { removePluginRuntime } from "@/plugins/pluginRuntimeCleanup";
+import { removePluginAppState } from "@/os/osCleanup";
 
 const MARKET_PAGE_SIZE = 50;
-
-function normalizePluginId(id: string): string {
-  return id.startsWith("@") ? id.slice(1) : id;
-}
 
 function addMarketUpdate(
   updates: Map<string, PluginUpdateInfo>,
   plugin: PluginInfo,
   entry: MarketPluginEntry,
 ) {
-  const installedId = normalizePluginId(plugin.id);
-  const marketId = normalizePluginId(entry.id);
-  if (installedId !== marketId) return;
+  if (!marketPluginMatches(plugin, entry)) return;
   if (compareVersions(entry.version, plugin.version) <= 0) return;
   updates.set(plugin.id, {
     version: entry.version,
     source: buildMarketDownloadUrl(entry),
     name: entry.display_name,
   });
+}
+
+async function reloadInstalledPluginRuntime(plugin: PluginInfo): Promise<void> {
+  if (!plugin.frontend_entry) return;
+  if (plugin.plugin_type === "app") {
+    await reloadPawApp(plugin.id);
+    return;
+  }
+  await reloadFrontendPlugin(plugin.id);
 }
 
 export function usePluginManager() {
@@ -134,13 +141,14 @@ export function usePluginManager() {
       setUpdatingId(plugin.id);
       try {
         await installPlugin(update.source, { force: true });
+        await reloadInstalledPluginRuntime(plugin);
         message.success(t("pluginManager.updateSuccess"));
-        await refresh();
       } catch (err) {
         message.error(
           err instanceof Error ? err.message : t("pluginManager.updateFailed"),
         );
       } finally {
+        await refresh();
         setUpdatingId(null);
       }
     },
@@ -150,20 +158,35 @@ export function usePluginManager() {
   const updateAll = useCallback(async () => {
     if (updatingAll || updatingId !== null || updates.size === 0) return;
     setUpdatingAll(true);
+    const completedIds = new Set<string>();
     try {
       for (const plugin of plugins ?? []) {
         const update = updates.get(plugin.id);
         if (!update) continue;
         setUpdatingId(plugin.id);
         await installPlugin(update.source, { force: true });
+        await reloadInstalledPluginRuntime(plugin);
+        completedIds.add(plugin.id);
+        setUpdates((current) => {
+          const next = new Map(current);
+          next.delete(plugin.id);
+          return next;
+        });
       }
       message.success(t("pluginManager.updateAllSuccess"));
-      await refresh();
     } catch (err) {
       message.error(
         err instanceof Error ? err.message : t("pluginManager.updateFailed"),
       );
     } finally {
+      if (completedIds.size > 0) {
+        setUpdates((current) => {
+          const next = new Map(current);
+          for (const id of completedIds) next.delete(id);
+          return next;
+        });
+      }
+      await refresh();
       setUpdatingId(null);
       setUpdatingAll(false);
     }
@@ -181,6 +204,11 @@ export function usePluginManager() {
           setUninstallingId(plugin.id);
           try {
             await uninstallPlugin(plugin.id);
+            if (plugin.plugin_type === "app") {
+              removePluginAppState(plugin.id);
+            } else {
+              removePluginRuntime(plugin.id);
+            }
             message.success(t("pluginManager.uninstallSuccess"));
             await refresh();
           } catch (err) {
