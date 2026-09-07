@@ -533,14 +533,14 @@ stored again as a new user fact. Temporary timeouts and server failures are
 fail-open; invalid endpoints, API keys, and permissions are configuration
 errors.
 
-| Field | Description | Default |
-| --- | --- | --- |
-| `base_url` | OpenViking HTTP endpoint; usually `http://openviking:1933` inside Compose | `http://127.0.0.1:1933` |
-| `api_key` | OpenViking tenant user key; do not use the Root key for business data | `""` |
-| `request_timeout` | Per-request HTTP timeout in seconds | `10.0` |
-| `retrieval_token_budget` | Maximum recalled tokens injected per turn | `2048` |
-| `auto_memory_search_config` | Automatic recall toggle and result limit | `{"enabled": true, "max_results": 3}` |
-| `commit_policy` | `auto` uses server thresholds; `every_turn` explicitly commits every completed turn | `auto` |
+| Field                       | Description                                                                         | Default                               |
+| --------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------- |
+| `base_url`                  | OpenViking HTTP endpoint; usually `http://openviking:1933` inside Compose           | `http://127.0.0.1:1933`               |
+| `api_key`                   | OpenViking tenant user key; do not use the Root key for business data               | `""`                                  |
+| `request_timeout`           | Per-request HTTP timeout in seconds                                                 | `10.0`                                |
+| `retrieval_token_budget`    | Maximum recalled tokens injected per turn                                           | `2048`                                |
+| `auto_memory_search_config` | Automatic recall toggle and result limit                                            | `{"enabled": true, "max_results": 3}` |
+| `commit_policy`             | `auto` uses server thresholds; `every_turn` explicitly commits every completed turn | `auto`                                |
 
 ```json
 {

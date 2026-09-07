@@ -90,7 +90,6 @@ class OpenVikingClient:
         *,
         auto_commit_policy: dict[str, int] | None,
     ) -> None:
-
         body: dict[str, Any] = {
             "session_id": session_id,
             "auto_commit_policy": auto_commit_policy,

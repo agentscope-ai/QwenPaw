@@ -84,7 +84,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         )
         if self._config is None:
             raise ConfigurationError(
-                "OpenViking memory configuration is missing."
+                "OpenViking memory configuration is missing.",
             )
 
         base_url = str(self._config.base_url or "").strip()
@@ -181,7 +181,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         qwenpaw_session_id = str(kwargs.get("session_id") or "")
         if not qwenpaw_session_id:
             logger.warning(
-                "OpenViking auto recall skipped: missing QwenPaw session ID"
+                "OpenViking auto recall skipped: missing QwenPaw session ID",
             )
             return None
 
@@ -201,47 +201,49 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 "OpenViking automatic recall configuration is invalid: %s",
                 exc,
             )
-            return None
         except OpenVikingServiceError:
             logger.warning(
                 "OpenViking automatic recall failed open",
                 exc_info=True,
             )
-            return None
+        else:
+            text = str(
+                result.get("digest") or result.get("rendered") or "",
+            ).strip()
+            if text:
+                max_bytes = max(1, int(token_budget * estimate_divisor))
+                text = self._clip_utf8(text, max_bytes)
+                assistant_msg = self._build_auto_memory_search_msg(
+                    query=query,
+                    max_results=max_results,
+                    text=text,
+                    estimate_divisor=estimate_divisor,
+                )
+                return {
+                    "query": query,
+                    "text": text,
+                    "msg": msgs + [assistant_msg],
+                }
 
-        text = str(
-            result.get("digest") or result.get("rendered") or ""
-        ).strip()
-        if not text:
-            return None
-
-        max_bytes = max(1, int(token_budget * estimate_divisor))
-        text = self._clip_utf8(text, max_bytes)
-        assistant_msg = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=max_results,
-            text=text,
-            estimate_divisor=estimate_divisor,
-        )
-        return {"query": query, "text": text, "msg": msgs + [assistant_msg]}
+        return None
 
     async def auto_memory(
         self,
-        all_messages: list[Msg],
+        messages: list[Msg],
         **kwargs: Any,
-    ) -> None:
+    ) -> str:
         """Append one sanitized completed turn and apply the commit policy."""
         client = self._client
         if client is None:
-            return
+            return ""
         qwenpaw_session_id = str(kwargs.get("session_id") or "")
         if not qwenpaw_session_id:
             logger.warning(
-                "OpenViking persistence skipped: missing session ID"
+                "OpenViking persistence skipped: missing session ID",
             )
-            return
+            return ""
 
-        sanitized = self._messages_without_auto_memory_search(all_messages)
+        sanitized = self._messages_without_auto_memory_search(messages)
         new_messages = [
             msg
             for msg in sanitized
@@ -250,7 +252,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         ]
         payload = self._serialize_completed_turn(new_messages)
         if not payload:
-            return
+            return ""
 
         try:
             await self._ensure_identity()
@@ -264,19 +266,25 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 "OpenViking persistence configuration is invalid: %s",
                 exc,
             )
-            return
+            return ""
         except OpenVikingServiceError:
             logger.warning("OpenViking persistence failed open", exc_info=True)
-            return
+            return ""
 
         self._persisted_msg_ids.update(msg.id for msg in new_messages)
+        return (
+            f"Processed {len(new_messages)} message(s) to OpenViking for "
+            f"agent '{self.agent_id}'."
+        )
 
     async def memory_search(
         self,
         query: str,
         max_results: int = 5,
+        **kwargs: Any,
     ) -> ToolChunk:
         """Search long-term memories in the authenticated OpenViking tenant."""
+        del kwargs
         query = query.strip()
         if not query:
             return self._tool_chunk("Error: query cannot be empty", ok=False)
@@ -294,7 +302,8 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             return self._tool_chunk(str(exc), ok=False)
         except OpenVikingServiceError:
             logger.warning(
-                "OpenViking explicit search failed open", exc_info=True
+                "OpenViking explicit search failed open",
+                exc_info=True,
             )
             return self._tool_chunk(
                 "OpenViking is temporarily unavailable.",
@@ -308,7 +317,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 item.get("abstract")
                 or item.get("content")
                 or item.get("text")
-                or ""
+                or "",
             ).strip()
             score = item.get("score")
             score_text = (

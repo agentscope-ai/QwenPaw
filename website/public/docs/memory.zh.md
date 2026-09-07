@@ -501,14 +501,14 @@ OpenViking 后端通过异步 REST API 提供跨会话长期记忆，不要求 Q
 普通超时和服务端临时错误采用 fail-open；错误的地址、API Key 或权限则会报告为
 配置错误。
 
-| 配置项 | 说明 | 默认值 |
-| --- | --- | --- |
-| `base_url` | OpenViking HTTP 服务地址；容器内通常是 `http://openviking:1933` | `http://127.0.0.1:1933` |
-| `api_key` | OpenViking 租户用户 Key；不要使用 Root Key 访问业务数据 | `""` |
-| `request_timeout` | 单个 HTTP 请求超时（秒） | `10.0` |
-| `retrieval_token_budget` | 每回合允许注入的最大召回 token 数 | `2048` |
-| `auto_memory_search_config` | 自动召回开关和最大结果数 | `{"enabled": true, "max_results": 3}` |
-| `commit_policy` | `auto` 使用服务端阈值策略；`every_turn` 每回合提交 | `auto` |
+| 配置项                      | 说明                                                            | 默认值                                |
+| --------------------------- | --------------------------------------------------------------- | ------------------------------------- |
+| `base_url`                  | OpenViking HTTP 服务地址；容器内通常是 `http://openviking:1933` | `http://127.0.0.1:1933`               |
+| `api_key`                   | OpenViking 租户用户 Key；不要使用 Root Key 访问业务数据         | `""`                                  |
+| `request_timeout`           | 单个 HTTP 请求超时（秒）                                        | `10.0`                                |
+| `retrieval_token_budget`    | 每回合允许注入的最大召回 token 数                               | `2048`                                |
+| `auto_memory_search_config` | 自动召回开关和最大结果数                                        | `{"enabled": true, "max_results": 3}` |
+| `commit_policy`             | `auto` 使用服务端阈值策略；`every_turn` 每回合提交              | `auto`                                |
 
 ```json
 {

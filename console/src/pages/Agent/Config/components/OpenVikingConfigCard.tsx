@@ -17,7 +17,7 @@ export function OpenVikingConfigCard() {
       <Form.Item
         name={["openviking_memory_config", "base_url"]}
         label={t("agentConfig.openvikingConfig.baseUrl")}
-        rules={[{ required: true }]}
+        rules={[{ required: true }, { type: "url" }]}
       >
         <Input placeholder="http://openviking:1933" />
       </Form.Item>
@@ -32,13 +32,20 @@ export function OpenVikingConfigCard() {
         name={["openviking_memory_config", "request_timeout"]}
         label={t("agentConfig.openvikingConfig.requestTimeout")}
         initialValue={10}
+        rules={[{ required: true }, { type: "number", min: 1, max: 300 }]}
       >
-        <InputNumber min={1} max={300} addonAfter="s" style={{ width: "100%" }} />
+        <InputNumber
+          min={1}
+          max={300}
+          addonAfter="s"
+          style={{ width: "100%" }}
+        />
       </Form.Item>
       <Form.Item
         name={["openviking_memory_config", "retrieval_token_budget"]}
         label={t("agentConfig.openvikingConfig.tokenBudget")}
         initialValue={2048}
+        rules={[{ required: true }, { type: "number", min: 64, max: 32000 }]}
       >
         <InputNumber min={64} max={32000} style={{ width: "100%" }} />
       </Form.Item>
@@ -88,6 +95,7 @@ export function OpenVikingConfigCard() {
                     "max_results",
                   ]}
                   initialValue={3}
+                  rules={[{ required: true }, { type: "number", min: 1 }]}
                 >
                   <InputNumber style={{ width: "100%" }} min={1} step={1} />
                 </Form.Item>
