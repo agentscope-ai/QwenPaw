@@ -148,3 +148,69 @@ def test_no_host_and_no_environment_means_no_capability(
 ) -> None:
     monkeypatch.setattr(runtime_module, "_control_endpoint", lambda: None)
     assert HostRuntimeProvider.acquire_capability() is None
+
+
+def test_restart_helper_replaces_the_cached_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A helper replaced after a TCC grant hands out a new endpoint.
+
+    The old helper is dead, so the restarted one must answer with a fresh
+    capability and the cached one must never be returned again.
+    """
+    monkeypatch.setattr(runtime_module, "_control_endpoint", object)
+    responses = iter(
+        [
+            {"ok": True, "pipe_name": "pipe-old", "capability": "secret"},
+            {"ok": True, "pipe_name": "pipe-new", "capability": "secret"},
+        ],
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_request_control",
+        lambda _control, _fields: next(responses),
+    )
+
+    first = HostRuntimeProvider.acquire_capability()
+    assert first is not None
+    assert first.names_same_endpoint(_capability("pipe-old"))
+
+    assert HostRuntimeProvider.restart_helper() is True
+
+    second = HostRuntimeProvider.get_capability()
+    assert second is not None
+    assert second.names_same_endpoint(_capability("pipe-new"))
+
+
+def test_restart_helper_failure_stops_answering_with_the_old_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed restart still retires the dead helper's capability.
+
+    The host may fail to bring a replacement up, but the old helper is gone
+    either way, so its endpoint must not be handed out again.
+    """
+    monkeypatch.setattr(runtime_module, "_control_endpoint", object)
+    responses = iter(
+        [
+            {"ok": True, "pipe_name": "pipe-old", "capability": "secret"},
+        ],
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_request_control",
+        lambda _control, _fields: next(responses, None),
+    )
+
+    first = HostRuntimeProvider.acquire_capability()
+    assert first is not None
+
+    assert HostRuntimeProvider.restart_helper() is False
+    assert HostRuntimeProvider.get_capability() is None
+
+
+def test_restart_helper_without_a_control_endpoint_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "_control_endpoint", lambda: None)
+    assert HostRuntimeProvider.restart_helper() is False
