@@ -218,7 +218,12 @@ export function useSkillsPage() {
     setEditingSkillName("");
     setDrawerLoading(false);
     form.resetFields();
-    form.setFieldsValue({ enabled: false, channels: ["all"], tags: [] });
+    form.setFieldsValue({
+      enabled: false,
+      channels: ["all"],
+      preload: false,
+      tags: [],
+    });
     setDrawerOpen(true);
   };
 
@@ -320,6 +325,10 @@ export function useSkillsPage() {
         ) {
           sideUpdates.push(api.updateSkillChannels(result.name, newChannels));
         }
+        const newPreload = values.preload ?? false;
+        if (newPreload !== (editingSkill.preload ?? false)) {
+          sideUpdates.push(api.updateSkillPreload(result.name, newPreload));
+        }
         const newTags = values.tags || [];
         if (
           JSON.stringify(newTags) !== JSON.stringify(editingSkill.tags || [])
@@ -384,6 +393,7 @@ export function useSkillsPage() {
         const actualName = result.name || submitName;
         await Promise.all([
           api.updateSkillChannels(actualName, values.channels || ["all"]),
+          ...(values.preload ? [api.updateSkillPreload(actualName, true)] : []),
           ...(values.tags?.length
             ? [api.updateSkillTags(actualName, values.tags)]
             : []),

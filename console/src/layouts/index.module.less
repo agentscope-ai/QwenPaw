@@ -29,7 +29,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #f9f8f4;
+  background: var(--app-shell-bg);
+  border-bottom-color: var(--app-border-subtle);
+  color: var(--app-text);
 
   :global {
     .qwenpaw-space-item {
@@ -77,7 +79,8 @@
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
-  background: #f9f8f4 !important;
+  background: var(--app-shell-bg) !important;
+  border-right-color: var(--app-border-subtle) !important;
   overflow: auto;
   height: 100vh !important;
   padding: 0 16px;
@@ -106,9 +109,9 @@
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
     flex-shrink: 0;
-    background: rgba(43, 18, 0, 0.02);
+    background: var(--app-shell-bg);
     border-radius: 12px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--app-border-subtle);
     padding: 4px;
 
     :global {
@@ -124,7 +127,7 @@
     z-index: 10;
     margin-bottom: 4px;
     // Opaque background so scrolled content is hidden behind
-    background: #f9f7f3;
+    background: var(--app-shell-bg);
     border-radius: 12px 12px 0 0;
   }
 
@@ -219,13 +222,13 @@
       font-weight: 500 !important;
       line-height: 32px !important;
       letter-spacing: normal !important;
-      color: rgba(26, 23, 22, 0.25) !important;
+      color: var(--app-text-quaternary) !important;
       padding-left: 8px !important;
 
       /* No hover effect for group titles */
       &:hover {
         background: transparent !important;
-        color: rgba(26, 23, 22, 0.25) !important;
+        color: var(--app-text-quaternary) !important;
       }
     }
 
@@ -253,8 +256,8 @@
 
     /* Selected item */
     .qwenpaw-menu-item-selected {
-      background: rgba(43, 18, 0, 0.08) !important;
-      color: inherit !important;
+      background: var(--app-nav-selected-bg) !important;
+      color: var(--app-nav-selected-text) !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
@@ -263,11 +266,16 @@
         display: flex !important;
         align-items: center !important;
       }
+
+      &:hover {
+        background: var(--app-nav-selected-bg-hover) !important;
+        color: var(--app-nav-selected-text) !important;
+      }
     }
 
     /* Selected submenu item - keep text color unchanged */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
-      color: inherit !important;
+      color: var(--app-nav-selected-text) !important;
     }
   }
 }
@@ -404,7 +412,7 @@
   width: 16px;
   height: 0px;
   transform: rotate(90deg);
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
   margin: 0 8px;
 }
 
@@ -413,7 +421,7 @@
   height: 0px;
   transform: rotate(90deg);
   z-index: 4;
-  border-top: 1px solid rgba(234, 232, 231, 1);
+  border-top: 1px solid var(--app-border);
 }
 
 .versionBadge {

@@ -37,6 +37,7 @@ from qwenpaw.exceptions import (
 )
 
 from ..constant import (
+    EnvVarLoader,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
@@ -45,8 +46,6 @@ from ..constant import (
     LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
-    LLM_STREAM_FIRST_CONTENT_TIMEOUT,
-    LLM_STREAM_IDLE_TIMEOUT,
 )
 from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
@@ -378,10 +377,8 @@ class RetryChatModel(ChatModelBase):
         inner: ChatModelBase,
         retry_config: RetryConfig | None = None,
         rate_limit_config: RateLimitConfig | None = None,
-        stream_first_content_timeout: float = (
-            LLM_STREAM_FIRST_CONTENT_TIMEOUT
-        ),
-        stream_idle_timeout: float = LLM_STREAM_IDLE_TIMEOUT,
+        stream_first_content_timeout: float | None = None,
+        stream_idle_timeout: float | None = None,
     ) -> None:
         # agentscope 2.0 ChatModelBase requires credential/model/parameters;
         # forward the inner wrapper's own values so attribute access stays
@@ -405,13 +402,9 @@ class RetryChatModel(ChatModelBase):
         self._rate_limit_config = _normalize_rate_limit_config(
             rate_limit_config,
         )
-        self._stream_idle_timeout = max(
-            0.0,
-            float(stream_idle_timeout),
-        )
-        self._stream_first_content_timeout = max(
-            0.0,
-            float(stream_first_content_timeout),
+        self._stream_idle_timeout_override = stream_idle_timeout
+        self._stream_first_content_timeout_override = (
+            stream_first_content_timeout
         )
         self._pending_provider_cleanup_tasks: set[asyncio.Future[Any]] = set()
 
@@ -524,7 +517,25 @@ class RetryChatModel(ChatModelBase):
         """
         first_chunk = True
         loop = asyncio.get_running_loop()
-        active_timeout = self._stream_first_content_timeout
+        first_content_timeout = (
+            max(0.0, float(self._stream_first_content_timeout_override))
+            if self._stream_first_content_timeout_override is not None
+            else EnvVarLoader.get_float(
+                _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
+                30.0,
+                min_value=0.0,
+            )
+        )
+        idle_timeout = (
+            max(0.0, float(self._stream_idle_timeout_override))
+            if self._stream_idle_timeout_override is not None
+            else EnvVarLoader.get_float(
+                _STREAM_IDLE_TIMEOUT_ENV,
+                30.0,
+                min_value=0.0,
+            )
+        )
+        active_timeout = first_content_timeout
         timeout_setting = _STREAM_FIRST_CONTENT_TIMEOUT_ENV
         idle_budget = active_timeout
         iterator = stream.__aiter__()
@@ -559,7 +570,7 @@ class RetryChatModel(ChatModelBase):
                     # held back by a pause set by a background task.
                     await limiter.on_success(acquired_at)
                 if has_meaningful_stream_content(chunk.content):
-                    active_timeout = self._stream_idle_timeout
+                    active_timeout = idle_timeout
                     timeout_setting = _STREAM_IDLE_TIMEOUT_ENV
                     idle_budget = active_timeout
                 is_last = bool(getattr(chunk, "is_last", False))

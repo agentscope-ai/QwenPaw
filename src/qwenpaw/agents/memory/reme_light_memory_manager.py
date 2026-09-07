@@ -72,7 +72,7 @@ os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
-_REQUIRED_REME_VERSION = "0.4.1.10"
+_REQUIRED_REME_VERSION = "0.4.1.11"
 
 
 class _ReMeContractError(RuntimeError):
@@ -323,6 +323,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     key="daily-paper",
                     cron=cfg.daily_paper_cron,
                     callback=self.daily_paper,
+                    misfire_grace_seconds=600,
+                ),
+            )
+        if cfg.auto_fin_cron_enabled and cfg.auto_fin_cron:
+            jobs.append(
+                ServiceCronJob(
+                    key="auto-fin",
+                    cron=cfg.auto_fin_cron,
+                    callback=self.auto_fin,
                     misfire_grace_seconds=600,
                 ),
             )
@@ -814,6 +823,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")
+        if not response.success:
+            raise RuntimeError(str(response.answer))
+
+    async def auto_fin(self, **kwargs: Any) -> None:
+        """Build one Auto Fin report and publish its result to inbox."""
+        cfg = await run_sync_io(self.get_memory_config)
+        response = await self._run_reme_job(
+            "auto_fin",
+            needs_llm=True,
+            raise_on_error=True,
+            date=str(kwargs.get("date") or ""),
+            topics=str(kwargs.get("topics", cfg.auto_fin_topics) or ""),
+            window_hours=float(
+                kwargs.get("window_hours", cfg.auto_fin_window_hours),
+            ),
+        )
+        if response is None:
+            raise RuntimeError("ReMe is not started; Auto Fin did not run")
         if not response.success:
             raise RuntimeError(str(response.answer))
 

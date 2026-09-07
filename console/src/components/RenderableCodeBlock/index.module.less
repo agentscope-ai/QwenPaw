@@ -1,10 +1,10 @@
 .block {
   margin: 14px 0;
   overflow: hidden;
-  border: 1px solid rgba(30, 41, 59, 0.12);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-md);
 }
 
 .header {
@@ -13,8 +13,8 @@
   align-items: center;
   min-height: 48px;
   padding: 6px 10px 6px 14px;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.1);
-  background: rgba(248, 250, 252, 0.88);
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-subtle);
   backdrop-filter: blur(12px);
 }
 
@@ -24,13 +24,13 @@
   justify-content: space-between;
   min-height: 44px;
   padding: 5px 10px 5px 14px;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.1);
-  background: rgba(248, 250, 252, 0.88);
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-subtle);
 }
 
 .language {
   overflow: hidden;
-  color: rgba(15, 23, 42, 0.62);
+  color: var(--app-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   font-weight: 600;
@@ -44,9 +44,9 @@
   display: inline-flex;
   gap: 2px;
   padding: 3px;
-  border: 1px solid rgba(30, 41, 59, 0.09);
+  border: 1px solid var(--app-border);
   border-radius: 9px;
-  background: rgba(15, 23, 42, 0.045);
+  background: var(--app-fill-faint);
 }
 
 .tab,
@@ -59,7 +59,7 @@
   padding: 4px 11px;
   border: 0;
   border-radius: 6px;
-  color: rgba(15, 23, 42, 0.58);
+  color: var(--app-text-secondary);
   background: transparent;
   cursor: pointer;
   font: inherit;
@@ -72,19 +72,19 @@
 }
 
 .activeTab {
-  color: #9a3f0b;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+  color: var(--app-accent-text);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .tab:hover {
-  color: rgba(15, 23, 42, 0.82);
+  color: var(--app-text);
 }
 
 .tab:focus-visible,
 .activeTab:focus-visible,
 .actions button:focus-visible {
-  outline: 2px solid rgba(243, 107, 33, 0.55);
+  outline: 2px solid var(--app-accent-border);
   outline-offset: 2px;
 }
 
@@ -103,7 +103,7 @@
   padding: 0;
   border: 0;
   border-radius: 8px;
-  color: rgba(15, 23, 42, 0.58);
+  color: var(--app-text-secondary);
   background: transparent;
   cursor: pointer;
   transition:
@@ -112,14 +112,14 @@
 }
 
 .actions button:hover {
-  color: #b94b10;
-  background: rgba(243, 107, 33, 0.1);
+  color: var(--app-accent-text);
+  background: var(--app-accent-faint);
 }
 
 .panel {
   min-width: 0;
   overflow: auto;
-  background: #f7f8fa;
+  background: var(--app-surface-sunken);
 }
 
 .panel :global(pre),
@@ -154,8 +154,8 @@
   min-height: 110px;
   gap: 12px;
   padding: 24px;
-  color: #8a342f;
-  background: #fff8f6;
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
 }
 
 .error div {
@@ -170,38 +170,9 @@
 
 .error span {
   overflow-wrap: anywhere;
-  color: rgba(138, 52, 47, 0.74);
+  color: var(--app-error-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
-}
-
-:global(.dark-mode) .block {
-  border-color: rgba(226, 232, 240, 0.14);
-  background: rgba(15, 23, 42, 0.78);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
-}
-
-:global(.dark-mode) .header,
-:global(.dark-mode) .sourceHeader {
-  border-bottom-color: rgba(226, 232, 240, 0.12);
-  background: rgba(30, 24, 20, 0.94);
-}
-
-:global(.dark-mode) .language,
-:global(.dark-mode) .tab,
-:global(.dark-mode) .actions button {
-  color: rgba(226, 232, 240, 0.62);
-}
-
-:global(.dark-mode) .tabs {
-  border-color: rgba(226, 232, 240, 0.1);
-  background: rgba(255, 255, 255, 0.055);
-}
-
-:global(.dark-mode) .activeTab {
-  color: #fff0e6;
-  background: rgba(243, 107, 33, 0.2);
-  box-shadow: none;
 }
 
 :global(.dark-mode) .latexPreview {
@@ -212,15 +183,6 @@
       transparent 52%
     ),
     #17120f;
-}
-
-:global(.dark-mode) .panel {
-  background: #111827;
-}
-
-:global(.dark-mode) .error {
-  color: #f6aaa2;
-  background: #261918;
 }
 
 @media (max-width: 600px) {

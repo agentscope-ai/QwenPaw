@@ -717,6 +717,7 @@ def test_rebuild_all_rejects_disabled_embedding(
 
 def test_undo_pending_embedding_reindex_restores_indexed_config(
     client,
+    fake_config,
     manager_mock,
 ):
     profile = AgentProfileConfig(id="bot", name="Bot")
@@ -734,6 +735,10 @@ def test_undo_pending_embedding_reindex_restores_indexed_config(
 
     with (
         patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
             "qwenpaw.app.routers.agents.load_agent_config",
             return_value=profile,
         ),
@@ -744,6 +749,30 @@ def test_undo_pending_embedding_reindex_restores_indexed_config(
     assert response.status_code == 200
     assert response.json()["model_name"] == "indexed-model"
     memory_manager.undo_embedding_reindex.assert_awaited_once_with()
+
+
+def test_undo_pending_embedding_reindex_rejects_unknown_agent(
+    client,
+    fake_config,
+    manager_mock,
+):
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+        ) as load_agent_config_mock,
+    ):
+        response = client.post(
+            "/api/agents/integ-unknown-xyz/memory/reindex/undo",
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == ("Agent 'integ-unknown-xyz' not found")
+    load_agent_config_mock.assert_not_called()
+    manager_mock.get_agent.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -931,6 +960,68 @@ def test_get_memory_status_does_not_start_an_unloaded_agent(
     assert response.json()["detail"] == "Agent is not running"
     manager_mock.get_loaded_agent.assert_called_once_with("bot")
     manager_mock.get_agent.assert_not_awaited()
+
+
+def test_get_memory_status_returns_503_while_reme_dependency_is_starting(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        side_effect=RuntimeError(
+            "Dependency keyword_index:default accessed before start()",
+        ),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "ReMe is not started or status reporting is unavailable"
+    )
+
+
+def test_get_memory_status_does_not_mask_unexpected_runtime_error(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        side_effect=RuntimeError("unexpected failure"),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+        pytest.raises(RuntimeError, match="unexpected failure"),
+    ):
+        client.get("/api/agents/bot/memory/status")
 
 
 # ---------------------------------------------------------------------------

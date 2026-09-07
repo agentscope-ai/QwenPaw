@@ -15,7 +15,7 @@ vi.mock("../utils/openExternalLink", () => ({
 }));
 
 vi.mock("../api/modules/language", () => ({
-  languageApi: { updateLanguage: mocks.updateLanguage },
+  settingsApi: { updateLanguage: mocks.updateLanguage },
 }));
 
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
@@ -93,7 +93,7 @@ describe("SidebarSettingsPanel", () => {
     const english = last(await screen.findAllByText("English"));
     const languages = within(english.closest(".ant-popover")!);
     expect(languages.getByText("简体中文")).toBeInTheDocument();
-    expect(languages.getByText("Português")).toBeInTheDocument();
+    expect(languages.getByText("Português (Brasil)")).toBeInTheDocument();
   });
 
   it("opens cascading controls on hover", async () => {

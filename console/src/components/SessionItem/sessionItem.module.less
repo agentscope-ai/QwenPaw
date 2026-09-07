@@ -32,7 +32,7 @@
   margin-bottom: 2px;
 
   &:hover {
-    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+    background: var(--app-fill-subtle);
 
     .moreBtn {
       opacity: 1;
@@ -45,15 +45,15 @@
   }
 
   &.active {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+    background: var(--app-fill);
 
     .name {
       font-weight: 500;
-      color: var(--colorText, rgba(26, 23, 22, 0.88));
+      color: var(--app-text);
     }
 
     &:hover {
-      background: var(--color-fill-secondary, rgba(43, 18, 0, 0.1));
+      background: var(--app-fill-strong);
     }
   }
 
@@ -87,7 +87,7 @@
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  color: var(--app-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -131,7 +131,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--colorTextQuaternary, rgba(26, 23, 22, 0.25));
+  background: var(--app-text-quaternary);
   pointer-events: none;
 }
 
@@ -148,7 +148,7 @@
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  color: var(--colorPrimary, #ff7f16);
+  color: var(--app-accent);
 }
 
 .dragHint {
@@ -156,7 +156,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.24));
+  color: var(--app-text-quaternary);
   cursor: grab;
   opacity: 0;
 }
@@ -166,7 +166,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: var(--colorPrimary, #ff7f16);
+  color: var(--app-accent);
 }
 
 .item:hover .dragHint,
@@ -190,7 +190,7 @@
   height: 22px;
   border-radius: 4px;
   font-size: 14px;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  color: var(--app-text-tertiary);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -198,8 +198,8 @@
   flex-shrink: 0;
 
   &:hover {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
-    color: var(--colorText, rgba(26, 23, 22, 0.88));
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 
   position: absolute;
@@ -214,39 +214,4 @@
   flex: 1;
   min-width: 0;
   font-size: 13px;
-}
-
-/* ── Dark mode ────────────────────────────────────────────────────────── */
-
-:global(.dark-mode) {
-  .sidebar {
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    &.active {
-      background: rgba(255, 255, 255, 0.1);
-
-      .name {
-        color: rgba(255, 255, 255, 0.95);
-      }
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.12);
-      }
-    }
-  }
-
-  .name {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .moreBtn {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
 }

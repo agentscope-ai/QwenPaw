@@ -32,7 +32,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { languageApi } from "../api/modules/language";
+import { settingsApi } from "../api/modules/language";
+import { LANGUAGE_LIST } from "../constants/languageList";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import {
   getChatWideModePreference,
@@ -56,15 +57,10 @@ type ContentWidth = "standard" | "wide";
 
 const QWENPAW_WEBSITE_URL = "https://qwenpaw.agentscope.io/";
 
-const LANGUAGES = [
-  { value: "zh", label: "简体中文" },
-  { value: "en", label: "English" },
-  { value: "ja", label: "日本語" },
-  { value: "ru", label: "Русский" },
-  { value: "id", label: "Bahasa Indonesia" },
-  { value: "vi", label: "Tiếng Việt" },
-  { value: "pt-BR", label: "Português" },
-];
+const LANGUAGES = LANGUAGE_LIST.map(({ key, label }) => ({
+  value: key,
+  label,
+}));
 
 interface SidebarSettingsPanelProps {
   version?: string;
@@ -222,7 +218,7 @@ export default function SidebarSettingsPanel({
     finishAction(() => {
       void i18n.changeLanguage(language);
       localStorage.setItem("language", language);
-      void languageApi.updateLanguage(language).catch(() => {});
+      void settingsApi.updateLanguage(language).catch(() => {});
     });
   };
 

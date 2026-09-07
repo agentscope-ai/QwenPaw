@@ -176,9 +176,44 @@ class TestBuiltinDescriptorGovernance:
             "RecallHistory": "internal",
             "RecallHistoryPython": "shell",
             "MemorySearch": "internal",
+            "MemoryRemember": "network",
+            "PowerContextMemorySearch": "network",
         }
         for name, tool_type in expected.items():
             assert DEFAULT_REGISTRY.get_type(name) == tool_type, name
+
+    def test_dynamic_memory_tools_are_governed_with_stable_mappings(self):
+        """Memory manager tools must pass governance Phase 0.
+
+        They are dynamically supplied by a selected ``BaseMemoryManager``
+        rather than collected from ``qwenpaw.agents.tools``.  Keep their
+        governance identities in the central dynamic-tool registration list.
+        """
+        expected_mappings = {
+            "memory_search": "MemorySearch",
+            "memory_remember": "MemoryRemember",
+        }
+        for python_name, policy_name in expected_mappings.items():
+            assert (
+                DEFAULT_REGISTRY.get_mapped_policy_name(python_name)
+                == policy_name
+            )
+
+        smart_policy = GovernancePolicy(execution_level="smart")
+        for policy_name in expected_mappings.values():
+            decision = smart_policy.evaluate(_tc(policy_name))
+            assert decision.action is GovernanceAction.ALLOW
+            assert "Unregistered tool" not in (decision.reason or "")
+
+        strict_policy = GovernancePolicy(execution_level="strict")
+        for policy_name in (
+            "MemoryRemember",
+            "PowerContextMemorySearch",
+        ):
+            assert (
+                strict_policy.evaluate(_tc(policy_name)).action
+                is GovernanceAction.ASK
+            )
 
     def test_python_name_mappings(self):
         assert (

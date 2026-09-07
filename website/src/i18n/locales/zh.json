@@ -28,9 +28,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v2.1.0 智能体能力全面扩展：",
-    "sub1": "带来 QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 接入、Browser/Computer Use，以及检查点恢复与长任务续接能力",
-    "releaseNote": "QwenPaw v2.1.0版本全新发布",
+    "sub": "v2.2.0 智能体应用与平台能力全面升级：",
+    "sub1": "新增 QwenPaw Hub、Mail、Data 与 Creator 1.1，升级模型路由、扩展市场和运行体验",
+    "releaseNote": "QwenPaw v2.2.0 版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
@@ -65,37 +65,37 @@
     "sub": "记忆与个性化由你掌控。",
     "learnMore": "了解更多",
     "cards": {
-      "osShell": {
-        "title": "QwenPaw OS Shell",
-        "desc": "将对话、智能体空间、应用与系统配置装进一张可自由排列的 AI 桌面。通过多窗口、启动器与 Dock，在同一个工作现场并行处理对话、文件和专业应用。"
+      "hub": {
+        "title": "QwenPaw Hub",
+        "desc": "在自己的服务器上为团队部署 QwenPaw。成员通过统一入口登录，同时拥有相互隔离的工作区、配置、凭据和会话，并支持本地进程与 Docker 运行时。"
       },
-      "workspace": {
-        "title": "工作区管理",
-        "desc": "统一文件工作区将项目文件、档案、日记与知识库集中在 Files 中。可为当前会话自由选择工作目录，并在同一界面完成文件预览、编辑、对比、上传与下载。"
+      "mail": {
+        "title": "QwenPaw Mail",
+        "desc": "让智能体实时监控、搜索、总结、回复、转发和整理邮件，并根据你的习惯持续完善自动分诊规则。陌生收件人与关键操作仍由你确认。"
+      },
+      "data": {
+        "title": "QwenPaw Data",
+        "desc": "用自然语言提出业务问题，获得由真实企业数据支撑、过程可追溯的分析结果。通过语义模型、图谱关系和受控 SQL 串联完整分析流程。"
       },
       "creator": {
-        "title": "内容创作",
-        "desc": "QwenPaw Creator 让多个专业智能体协同完成从创意、素材到成片的制作流程，并支持对片段、字幕、动效与资产进行精准修改和手动编辑。"
+        "title": "QwenPaw Creator 1.1",
+        "desc": "覆盖更多主流图片与视频生成模型，并强化叙事视频中的对白生成。新增网页和桌面操作录制、百炼 Wan3 视频生成及自动质量检查。"
       },
-      "thirdPartyAgents": {
-        "title": "第三方智能体接入",
-        "desc": "在 QwenPaw 中直接创建和使用 Codex、Qoder 智能体，共享统一的工作区、聊天入口与能力控制面，同时保留各自的模型、执行循环和权限体系。"
+      "modelRouting": {
+        "title": "统一模型路由",
+        "desc": "通过统一的提供商发现、能力感知路由、回退策略和思考控制，让模型配置与选择更加一致，并提供更完整的 Prompt Cache 用量洞察。"
       },
-      "browserUse": {
-        "title": "Browser-use",
-        "desc": "驱动真实浏览器完成网页访问、信息读取、点击与表单填写。既可启动独立浏览器，也可连接你已经登录的 Chrome，并在登录或验证环节将操作交还给你。"
+      "backgroundWork": {
+        "title": "控制台与后台任务",
+        "desc": "更清晰地跟踪智能体协作和长时间运行的工作。子智能体会话支持分组和状态提醒，统一任务列表集中展示进度与生成产物。"
       },
-      "computerUse": {
-        "title": "Computer-use",
-        "desc": "让智能体操作 Windows 与 macOS 上经过授权的桌面应用，完成窗口识别、点击、输入、滚动与拖拽，并通过按应用授权和人工接管机制保留控制权。"
+      "extensions": {
+        "title": "统一扩展市场",
+        "desc": "在同一个入口搜索和管理应用、插件与 Skills。支持 Skill 搜索、批量启用或禁用、内置 Skills 自动更新，以及新安装 PawApp 的即时启动。"
       },
-      "checkpoint": {
-        "title": "工作区恢复",
-        "desc": "Checkpoint 可保存对话状态，并按需纳入长期记忆和指定工作区文件。恢复前可预览变化，在不改写项目 Git 历史的情况下回到正确时间线。"
-      },
-      "scroll": {
-        "title": "长任务续接",
-        "desc": "QwenPaw Scroll 将完整交互轨迹保存为可搜索、可回溯的持久记录，让智能体在超长对话中找回关键证据、保持任务状态并持续推进。"
+      "reliability": {
+        "title": "更快、更稳、更安全",
+        "desc": "加快工作区启动与长对话响应，降低流式处理开销，并全面加强模型流恢复、配置持久化、File Guard、沙箱及桌面端稳定性。"
       }
     }
   },

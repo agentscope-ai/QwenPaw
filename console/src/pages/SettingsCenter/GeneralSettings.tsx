@@ -11,7 +11,8 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { languageApi } from "@/api/modules/language";
+import { settingsApi } from "@/api/modules/language";
+import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
 import { isTauriRuntime } from "@/tauri/backendRuntime";
 import {
@@ -40,15 +41,10 @@ import styles from "./index.module.less";
 type CloseBehavior = "ask" | CloseAction;
 type ContentWidth = "standard" | "wide";
 
-const LANGUAGES = [
-  { value: "zh", label: "简体中文" },
-  { value: "en", label: "English" },
-  { value: "ja", label: "日本語" },
-  { value: "ru", label: "Русский" },
-  { value: "id", label: "Bahasa Indonesia" },
-  { value: "vi", label: "Tiếng Việt" },
-  { value: "pt-BR", label: "Português" },
-];
+const LANGUAGES = LANGUAGE_LIST.map(({ key, label }) => ({
+  value: key,
+  label,
+}));
 
 export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
@@ -74,7 +70,7 @@ export default function GeneralSettings() {
   const changeLanguage = (language: string) => {
     void i18n.changeLanguage(language);
     localStorage.setItem("language", language);
-    void languageApi.updateLanguage(language).catch(() => {});
+    void settingsApi.updateLanguage(language).catch(() => {});
   };
 
   const changeCloseBehavior = (value: CloseBehavior) => {

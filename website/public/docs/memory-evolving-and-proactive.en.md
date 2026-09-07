@@ -245,7 +245,7 @@ You normally do not need this: Auto-Dream runs on a daily schedule by default.
 
 ### Settings relevant to this page
 
-These live under `running.reme_light_memory_config` in `agent.json`. For the complete configuration (directories, Embedding, Daily Paper, index maintenance, other backends) see [Long-Term Memory](./memory).
+These live under `running.reme_light_memory_config` in `agent.json`. For the complete configuration (directories, Embedding, Daily Paper, Auto Fin, index maintenance, and other backends) see [Long-Term Memory](./memory).
 
 | Field                               | Default        | Description                                                      |
 | ----------------------------------- | -------------- | ---------------------------------------------------------------- |
