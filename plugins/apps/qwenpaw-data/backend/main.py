@@ -669,9 +669,9 @@ async def context_auth_status() -> dict[str, Any]:
     """Report that the embedded console needs no client-side login.
 
     The gateway injects the Context service token server-side, so from the
-    embedded UI's point of view authentication is never required.  Serve
-    both contract shapes: ``required`` (public qwenpaw-data-context 0.1.x
-    AuthGate) and ``enabled`` (internal Data-Cloud auth store).
+    embedded UI's point of view authentication is never required. Serve both
+    contract shapes: ``required`` (public Context AuthGate) and ``enabled``
+    (internal Data-Cloud auth store).
     """
     return {"required": False, "enabled": False}
 

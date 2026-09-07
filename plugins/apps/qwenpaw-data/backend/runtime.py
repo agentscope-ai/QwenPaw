@@ -16,8 +16,11 @@ DEV_DIR = PLUGIN_DIR / ".qwenpaw-data-dev"
 
 
 def runtime_packages_available() -> bool:
-    """Return True when the current interpreter can run the context sidecar."""
-    for module in ("context_manager", "qwenpaw_data.host.core"):
+    """Return True when the current interpreter can run both sidecars."""
+    for module in (
+        "context_manager.api.server",
+        "qwenpaw_data.host.core.api.app",
+    ):
         try:
             importlib.import_module(module)
         except ImportError:
