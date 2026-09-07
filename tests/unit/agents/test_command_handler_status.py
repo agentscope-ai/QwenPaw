@@ -2,7 +2,7 @@
 """Tests for CommandHandler status/history/dump commands.
 
 Covers the previously untested command processors
-(_process_summarize_status, _process_history, _process_dump_history,
+(_process_auto_memory_status, _process_history, _process_dump_history,
 _get_current_system_prompt) plus the small helpers they rely on
 (_get_summary, _has_memory_manager, _make_system_msg).
 """
@@ -10,6 +10,7 @@ _get_current_system_prompt) plus the small helpers they rely on
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -100,89 +101,173 @@ class TestSmallHelpers:
 
 
 # ---------------------------------------------------------------------------
-# _process_summarize_status
+# _process_auto_memory_status
 # ---------------------------------------------------------------------------
 
 
-class TestProcessSummarizeStatus:
+def _task(
+    task_id: str,
+    status: str,
+    *,
+    result: Optional[str] = None,
+    error: Optional[str] = None,
+    trigger: str = "idle",
+) -> Dict[str, Any]:
+    """Build one ``list_auto_memory_tasks`` entry.
+
+    ``trigger`` is part of the contract documented on
+    ``BaseMemoryManager.list_auto_memory_tasks`` and is rendered for
+    every task regardless of status, so every stub carries it.
+    """
+    return {
+        "task_id": task_id,
+        "start_time": "10:00",
+        "trigger": trigger,
+        "status": status,
+        "result": result,
+        "error": error,
+    }
+
+
+class TestProcessAutoMemoryStatus:
     @pytest.mark.asyncio
     async def test_no_memory_manager_reports_disabled(self):
         handler = _handler(memory_manager=None)
-        result = await handler._process_summarize_status([])
+        result = await handler._process_auto_memory_status([])
         assert "Memory Manager Disabled" in _text_of(result)
 
     @pytest.mark.asyncio
     async def test_disabled_manager_reports_disabled(self):
         manager = SimpleNamespace(enabled=False)
         handler = _handler(memory_manager=manager)
-        result = await handler._process_summarize_status([])
+        result = await handler._process_auto_memory_status([])
         assert "Memory Manager Disabled" in _text_of(result)
 
     @pytest.mark.asyncio
     async def test_no_tasks_reports_empty(self):
         manager = SimpleNamespace(
             enabled=True,
-            list_summarize_status=lambda: [],
+            list_auto_memory_tasks=lambda: [],
         )
         handler = _handler(memory_manager=manager)
-        result = await handler._process_summarize_status([])
-        assert "No Summary Tasks" in _text_of(result)
+        result = await handler._process_auto_memory_status([])
+        assert "No Auto-memory Tasks" in _text_of(result)
 
     @pytest.mark.asyncio
     async def test_running_task_rendered(self):
         manager = SimpleNamespace(
             enabled=True,
-            list_summarize_status=lambda: [
-                {
-                    "task_id": "t1",
-                    "start_time": "10:00",
-                    "status": "running",
-                    "result": None,
-                    "error": None,
-                },
-            ],
+            list_auto_memory_tasks=lambda: [_task("t1", "running")],
         )
         handler = _handler(memory_manager=manager)
-        result = await handler._process_summarize_status([])
+        result = await handler._process_auto_memory_status([])
         text = _text_of(result)
         assert "t1" in text
         assert "running" in text
+        assert "Auto-memory Task Status" in text
+
+    @pytest.mark.asyncio
+    async def test_trigger_is_rendered(self):
+        manager = SimpleNamespace(
+            enabled=True,
+            list_auto_memory_tasks=lambda: [
+                _task("t9", "pending", trigger="manual_request"),
+            ],
+        )
+        handler = _handler(memory_manager=manager)
+
+        assert "manual_request" in _text_of(
+            await handler._process_auto_memory_status([]),
+        )
 
     @pytest.mark.asyncio
     async def test_completed_task_shows_result(self):
         manager = SimpleNamespace(
             enabled=True,
-            list_summarize_status=lambda: [
-                {
-                    "task_id": "t2",
-                    "start_time": "10:00",
-                    "status": "completed",
-                    "result": "the summary output",
-                    "error": None,
-                },
+            list_auto_memory_tasks=lambda: [
+                _task("t2", "completed", result="the summary output"),
             ],
         )
         handler = _handler(memory_manager=manager)
-        result = await handler._process_summarize_status([])
+        result = await handler._process_auto_memory_status([])
         assert "the summary output" in _text_of(result)
+
+    @pytest.mark.asyncio
+    async def test_completed_result_is_truncated_to_200_chars(self):
+        # The renderer slices ``result[:200]`` and appends an ellipsis, so
+        # a long result must be cut and the tail must not leak.
+        long_result = "x" * 200 + "TAIL_MUST_NOT_APPEAR"
+        manager = SimpleNamespace(
+            enabled=True,
+            list_auto_memory_tasks=lambda: [
+                _task("t4", "completed", result=long_result),
+            ],
+        )
+        handler = _handler(memory_manager=manager)
+
+        text = _text_of(await handler._process_auto_memory_status([]))
+
+        assert "TAIL_MUST_NOT_APPEAR" not in text
+        assert "..." in text
 
     @pytest.mark.asyncio
     async def test_failed_task_shows_error(self):
         manager = SimpleNamespace(
             enabled=True,
-            list_summarize_status=lambda: [
-                {
-                    "task_id": "t3",
-                    "start_time": "10:00",
-                    "status": "failed",
-                    "result": None,
-                    "error": "boom",
-                },
+            list_auto_memory_tasks=lambda: [
+                _task("t3", "failed", error="boom"),
             ],
         )
         handler = _handler(memory_manager=manager)
-        result = await handler._process_summarize_status([])
+        result = await handler._process_auto_memory_status([])
         assert "boom" in _text_of(result)
+
+    @pytest.mark.asyncio
+    async def test_completed_without_result_omits_result_line(self):
+        # ``status == "completed" and info["result"]`` guards the Result
+        # line, so a completed task carrying no result must not render it.
+        manager = SimpleNamespace(
+            enabled=True,
+            list_auto_memory_tasks=lambda: [_task("t5", "completed")],
+        )
+        handler = _handler(memory_manager=manager)
+
+        text = _text_of(await handler._process_auto_memory_status([]))
+
+        assert "t5" in text
+        assert "- Result:" not in text
+        assert "- Error:" not in text
+
+    @pytest.mark.asyncio
+    async def test_failed_without_error_omits_error_line(self):
+        manager = SimpleNamespace(
+            enabled=True,
+            list_auto_memory_tasks=lambda: [_task("t6", "failed")],
+        )
+        handler = _handler(memory_manager=manager)
+
+        text = _text_of(await handler._process_auto_memory_status([]))
+
+        assert "t6" in text
+        assert "- Error:" not in text
+
+    @pytest.mark.asyncio
+    async def test_multiple_tasks_all_rendered(self):
+        manager = SimpleNamespace(
+            enabled=True,
+            list_auto_memory_tasks=lambda: [
+                _task("ta", "pending"),
+                _task("tb", "completed", result="done"),
+                _task("tc", "cancelled"),
+            ],
+        )
+        handler = _handler(memory_manager=manager)
+
+        text = _text_of(await handler._process_auto_memory_status([]))
+
+        for task_id in ("ta", "tb", "tc"):
+            assert task_id in text
+        assert "cancelled" in text
 
 
 # ---------------------------------------------------------------------------
