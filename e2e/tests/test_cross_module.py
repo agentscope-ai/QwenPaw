@@ -26,6 +26,37 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = config.base_url
 
+# -- Environments page anchors (rebuilt for #7538) -------------------------
+# The Environments page was rewritten by #7538 ("unify runtime environment
+# management"): rows are no longer table rows / inline inputs but
+# `styles.row` divs grouped into three sections.  The old selector list
+# (`tr.qwenpaw-table-row`, `[class*=envRow]`, `.qwenpaw-form-item`) matches
+# nothing on the new page, which would have made the before/after count
+# comparison below a vacuous `0 == 0`.
+#
+# Class names are CSS-module scoped as `[name]__[local]__[hash:base64:5]`, and
+# this stylesheet shares the `index.module.less` filename with PageHeader, so
+# every generated class starts with `index-module__`.  Matching `__row__`
+# (double-underscore bounded) hits `index-module__row__<hash>` without
+# matching neighbours such as `index-module__envRow__<hash>`.
+ENV_ROW_SELECTOR = 'div[class*="__row__"]'
+# `styles.sectionHeading` is rendered only in the loaded branch; the loading
+# and error branches render `styles.state` instead, so it doubles as a
+# "catalogue data has arrived" signal.
+ENV_SECTION_HEADING = 'div[class*="__sectionHeading__"]'
+
+
+def wait_for_environments_loaded(page: Page, timeout: int = 15000):
+    """Open the Environments page and wait for the catalogue to render."""
+    page.goto(f"{BASE_URL}/environments")
+    page.wait_for_load_state("domcontentloaded")
+    expect(page.locator(ENV_SECTION_HEADING).first).to_be_visible(timeout=timeout)
+
+
+def count_environment_rows(page: Page) -> int:
+    """Count variable rows across all three sections of the Environments page."""
+    return page.locator(ENV_ROW_SELECTOR).count()
+
 
 def navigate_to_skills(page: Page):
     """Navigate to the skills management page."""
@@ -643,17 +674,17 @@ class TestEnvAndRuntimeConfigFlow:
         test_name = request.node.name
 
         log_test_step("1. Navigate to the environments page")
-        page.goto(f"{BASE_URL}/environments")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        wait_for_environments_loaded(page)
 
         log_test_step("2. Record the environment variable count")
-        env_rows = page.locator(
-            '.qwenpaw-table-tbody tr.qwenpaw-table-row, '
-            '[class*=envRow], '
-            '.qwenpaw-form-item'
-        ).all()
-        env_count = len(env_rows)
+        env_count = count_environment_rows(page)
+        # Lower-bound guard: without it a selector that stopped matching would
+        # compare 0 == 0 and this case would stay green while testing nothing
+        # (the same silent-pass family as the shard-selection blind spots).
+        assert env_count > 0, (
+            "Environments page reported zero variable rows — the row selector "
+            "no longer matches the page, so this comparison would be vacuous"
+        )
         logger.info(f"Environment variable count: {env_count}")
 
         log_test_step("3. Navigate to the runtime config page")
@@ -674,16 +705,9 @@ class TestEnvAndRuntimeConfigFlow:
             logger.info("Runtime config page may have a different layout")
 
         log_test_step("5. Return to the environments page and verify data unchanged")
-        page.goto(f"{BASE_URL}/environments")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        wait_for_environments_loaded(page)
 
-        env_rows_after = page.locator(
-            '.qwenpaw-table-tbody tr.qwenpaw-table-row, '
-            '[class*=envRow], '
-            '.qwenpaw-form-item'
-        ).all()
-        env_count_after = len(env_rows_after)
+        env_count_after = count_environment_rows(page)
         assert env_count_after == env_count, \
             f"Environment variable count inconsistent: before={env_count}, after={env_count_after}"
         logger.info(f"Environment variable count consistent: {env_count_after}")
