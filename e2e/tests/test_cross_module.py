@@ -58,6 +58,37 @@ def count_environment_rows(page: Page) -> int:
     return page.locator(ENV_ROW_SELECTOR).count()
 
 
+def sum_environment_section_counts(page: Page) -> int:
+    """Sum the three section-heading counts (Custom + Live + Read-only).
+
+    index.tsx renders `<span>{customVariables.length}</span>`,
+    `<span>{editableCatalog.length}</span>` and
+    `<span>{readonlyCatalog.length}</span>` inside each `styles.sectionHeading`,
+    and those three lists are exactly what produces the `styles.row` elements.
+    Their sum is therefore an independent measurement of the same quantity as
+    `count_environment_rows()`, derived from text rather than from the row
+    class name.
+
+    Comparing the two is a self-consistent invariant: it catches row-selector
+    drift (rows would count 0 while the headings still sum to the catalogue
+    size) without hard-coding the catalogue size, which upstream is free to
+    change — `src/qwenpaw/envs/registry.py` currently ships 17 `EnvVarSpec`
+    entries (2 hot_runtime + 15 startup_only), but a future entry would make a
+    literal `>= 17` assertion wrong in either direction.
+    """
+    total = 0
+    for heading_text in ("Custom variables", "Live settings", "Read-only settings"):
+        heading = page.locator(ENV_SECTION_HEADING).filter(has_text=heading_text).first
+        expect(heading).to_be_visible(timeout=10000)
+        raw = heading.locator("span").first.inner_text().strip()
+        if not raw.isdigit():
+            raise AssertionError(
+                f"'{heading_text}' section count is not an integer: {raw!r}"
+            )
+        total += int(raw)
+    return total
+
+
 def navigate_to_skills(page: Page):
     """Navigate to the skills management page."""
     page.goto(f"{BASE_URL}/skills")
@@ -660,12 +691,32 @@ class TestWorkspaceFileChatFlow:
 @pytest.mark.cross_module
 class TestEnvAndRuntimeConfigFlow:
     """
-    CROSS-005: Environment variables and runtime config linkage verification.
+    CROSS-005: Environment variables and agent (runtime) config boundary.
 
-    Verify data consistency between the environments page and the runtime config page:
-    1. View configured environment variables on the Environments page
-    2. Verify config items on the RuntimeConfig page
-    3. Confirm the two pages do not interfere with each other
+    Verify the two pages that expose the same LLM settings at different layers:
+    1. Environments page renders the whole variable catalogue, and its row
+       anchor agrees with the sum of the three section-heading counts
+    2. Agent config page (/agent-config) renders the LLM Retry and LLM Rate
+       Limiter tabs — the persisted running-config counterparts of the
+       QWENPAW_LLM_* environment variables
+    3. Confirm the two pages do not interfere with each other: navigating
+       away and back leaves the Environments catalogue unchanged
+
+    SCOPE CHANGE (#7538): the Environments row anchor had to be rebuilt for the
+    unified page (rows are `styles.row` divs in three sections, not table rows),
+    and the old navigation target `/settings/runtime-config` has never existed
+    in console/src at any revision, so step 3 used to land on a blank page
+    while step 4 logged a message instead of asserting.  Both are fixed here.
+
+    What this case deliberately does NOT assert: that changing an environment
+    variable makes the agent config page show a new number.  #7538 does connect
+    the two layers — `AgentsRunningConfig` defaults now come from
+    `EnvVarLoader.get_int("QWENPAW_LLM_MAX_RETRIES", ...)` — but that default
+    is only consulted when an agent has no persisted running config
+    (`running = agent_config.running or AgentsRunningConfig()`), so for any
+    already-configured agent the page shows stored values and never follows
+    the environment.  Asserting a live env -> UI linkage would be flaky by
+    construction.
     """
 
     @pytest.mark.test_id("CROSS-005")
@@ -685,24 +736,50 @@ class TestEnvAndRuntimeConfigFlow:
             "Environments page reported zero variable rows — the row selector "
             "no longer matches the page, so this comparison would be vacuous"
         )
-        logger.info(f"Environment variable count: {env_count}")
+        # Self-consistency guard: the row count and the sum of the three
+        # section-heading counts measure the same thing two independent ways
+        # (class name vs. rendered text).  Agreeing means the row anchor is
+        # really pointing at variable rows, not at some unrelated element that
+        # happens to match, and it stays correct when upstream adds or removes
+        # catalogue entries.
+        section_sum = sum_environment_section_counts(page)
+        assert env_count == section_sum, (
+            f"Row count ({env_count}) disagrees with the sum of the section "
+            f"heading counts ({section_sum}) — one of the two anchors is wrong"
+        )
+        logger.info(
+            f"Environment variable count: {env_count} "
+            f"(section headings sum to the same {section_sum})"
+        )
 
-        log_test_step("3. Navigate to the runtime config page")
-        page.goto(f"{BASE_URL}/settings/runtime-config")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        log_test_step("3. Navigate to the agent config (runtime config) page")
+        # The authoritative route is /agent-config: console/src/layouts/registry/
+        # builtinRoutes.tsx maps core.agent-config -> /agent-config, and
+        # e2e/pages/runtime_config_page.py:31 plus e2e/tests/
+        # test_runtime_config.py:23 already use it.  "/settings/runtime-config"
+        # has never existed in console/src at any revision (zero hits across the
+        # whole history), so the previous navigation landed on a blank page and
+        # step 4 could not fail no matter what it found.
+        page.goto(f"{BASE_URL}/agent-config")
+        page.wait_for_load_state("domcontentloaded")
 
-        log_test_step("4. Verify the runtime config page loads")
-        config_area = page.locator(
-            '.qwenpaw-tabs, '
-            '.qwenpaw-form, '
-            '[class*=config], '
-            '[class*=setting]'
-        ).first
-        if config_area.is_visible(timeout=5000):
-            logger.info("Runtime config page loaded")
-        else:
-            logger.info("Runtime config page may have a different layout")
+        log_test_step("4. Verify the agent config page renders its LLM tabs")
+        # Hard assertions on the tab keys declared in
+        # console/src/pages/Agent/Config/index.tsx (key: "llmRetry" at line 165,
+        # key: "llmRateLimiter" at line 178).  These are the runtime-config
+        # counterparts of the QWENPAW_LLM_* environment variables, which is the
+        # actual boundary this cross-module case is about.  The same
+        # data-node-key anchors are already proven green in
+        # e2e/tests/test_runtime_config.py, so no new selector idiom is
+        # introduced here.
+        for tab_key in ("llmRetry", "llmRateLimiter"):
+            tab = page.locator(f'[data-node-key="{tab_key}"] .qwenpaw-tabs-tab-btn').first
+            expect(tab).to_be_visible(timeout=10000)
+            logger.info(f"Agent config tab present: {tab_key}")
+        # The two pages coexist as separate routes: #7538 unified how
+        # environment variables are read (EnvVarLoader + envs/registry.py as the
+        # single source of truth), it did not merge this page into Environments.
+        expect(page.locator('.qwenpaw-tabs').first).to_be_visible(timeout=5000)
 
         log_test_step("5. Return to the environments page and verify data unchanged")
         wait_for_environments_loaded(page)
@@ -710,7 +787,17 @@ class TestEnvAndRuntimeConfigFlow:
         env_count_after = count_environment_rows(page)
         assert env_count_after == env_count, \
             f"Environment variable count inconsistent: before={env_count}, after={env_count_after}"
-        logger.info(f"Environment variable count consistent: {env_count_after}")
+        # Re-check the invariant after the round trip: navigating away and back
+        # must not leave the two anchors disagreeing either.
+        section_sum_after = sum_environment_section_counts(page)
+        assert env_count_after == section_sum_after, (
+            f"After the round trip the row count ({env_count_after}) disagrees "
+            f"with the section heading sum ({section_sum_after})"
+        )
+        logger.info(
+            f"Environment variable count consistent: {env_count_after} "
+            f"(section headings sum to the same {section_sum_after})"
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - environment variable and runtime config linkage verified")
