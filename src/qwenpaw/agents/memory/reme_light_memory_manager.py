@@ -511,9 +511,8 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
     async def _reload_embedding_config_unlocked(self) -> bool:
         """Recreate embedded ReMe while the caller owns the lifecycle lock."""
-        if not await self._close_reme_unlocked():
+        if not await self._close_reme_unlocked(shutdown_worker=False):
             return False
-        self._auto_memory_worker_stopping = False
         await run_sync_io(self._initialize_reme)
         await self.start()
         self._tested_embedding = None
