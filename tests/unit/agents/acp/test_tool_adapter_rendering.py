@@ -66,12 +66,15 @@ class TestResponseBuilders:
         assert ta.response_text("x", is_last=False).is_last is False
 
     def test_header_text_layout(self):
+        cwd = Path("/tmp/work")
         header = ta._header_text(
             runner_name="codex",
-            execution_cwd=Path("/tmp/work"),
+            execution_cwd=cwd,
         )
 
-        assert header == "runner: codex working directory: /tmp/work"
+        # Build the expectation from the same Path so the separator
+        # follows the platform (Windows renders "\tmp\work").
+        assert header == f"runner: codex working directory: {cwd}"
 
 
 class TestStringHelper:
@@ -485,15 +488,16 @@ class TestFormatStreamSnapshotResponse:
 
 class TestFormatFinalAssistantResponse:
     def test_final_event_text_is_used_as_body(self):
+        cwd = Path("/work")
         chunk = ta.format_final_assistant_response(
             runner_name="codex",
-            execution_cwd=Path("/work"),
+            execution_cwd=cwd,
             final_event={"type": "text", "text": "final answer"},
         )
 
         # The body is the full rendered event text, marker included.
         assert _blocks_text(chunk) == [
-            "runner: codex working directory: /work",
+            f"runner: codex working directory: {cwd}",
             "[assistant]\nfinal answer",
         ]
         assert chunk.is_last is True
@@ -545,14 +549,15 @@ class TestFormatFinalAssistantResponse:
         assert _blocks_text(chunk)[1] == "[error] failed"
 
     def test_header_reflects_arguments(self):
+        cwd = Path("/home/user/project")
         chunk = ta.format_final_assistant_response(
             runner_name="claude-code",
-            execution_cwd=Path("/home/user/project"),
+            execution_cwd=cwd,
             final_event=None,
         )
 
         assert _blocks_text(chunk)[0] == (
-            "runner: claude-code working directory: /home/user/project"
+            f"runner: claude-code working directory: {cwd}"
         )
 
 
