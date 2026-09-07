@@ -1501,8 +1501,9 @@ async def test_drain_logs_handler_exception(_coordinator_caplog, caplog):
     async def next_handler(
         tool_call: _ToolCall,
     ) -> AsyncGenerator[Any, None]:
+        if False:  # pragma: no cover
+            yield _text_response(tool_call.id, "unreachable")
         raise RuntimeError("handler exploded")
-        yield _text_response(tool_call.id, "unreachable")  # pragma: no cover
 
     events = await _collect(
         coordinator.execute(
