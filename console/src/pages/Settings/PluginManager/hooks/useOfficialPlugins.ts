@@ -8,7 +8,7 @@ import {
 } from "@/api/modules/plugin";
 
 interface UseOfficialPluginsOptions {
-  onInstalled: () => void;
+  onInstalled: () => void | Promise<void>;
 }
 
 export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
@@ -54,8 +54,8 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
           force: entry.installed || entry.upgrade_available,
         });
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled();
+        await loadCatalog();
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("pluginManager.installFailed");

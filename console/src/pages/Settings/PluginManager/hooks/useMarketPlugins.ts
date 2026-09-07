@@ -13,7 +13,7 @@ import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
-  onInstalled: () => void;
+  onInstalled: () => void | Promise<void>;
 }
 
 const MARKET_PAGE_SIZE = 20;
@@ -257,8 +257,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         message.success(
           `${tRef.current("pluginManager.installSuccess")}: ${result.name}`,
         );
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled();
       } catch (err) {
         const msg =
           err instanceof Error
