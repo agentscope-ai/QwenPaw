@@ -269,7 +269,7 @@ Each durable node also uses contextual Wikilinks in `## Sources` to point back t
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream run summary delivered to Inbox" />
 </p>
 
-Auto-Dream also writes `interests.yaml`. This is separate from QwenPaw's current `/proactive` mode; `/proactive` does not currently read that file.
+Auto-Dream only consolidates daily memory into durable `digest/` nodes. QwenPaw's current `/proactive` mode is a separate workflow driven by recent sessions and optional screen context.
 
 ### 5. Memory Search Recalls the Right Evidence
 

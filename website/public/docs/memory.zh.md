@@ -244,7 +244,7 @@ Auto-Link 是 Auto-Dream 构建文档图谱的关键。它不是等整理结束�
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 完成后推送到 Inbox 的任务摘要" />
 </p>
 
-Auto-Dream 还会生成 `interests.yaml`。它与 QwenPaw 当前的 `/proactive` mode 是独立能力；当前 `/proactive` 不读取该文件。
+Auto-Dream 只负责将每日记忆整合为 `digest/` 中的长期节点。QwenPaw 当前的 `/proactive` mode 是一条独立链路，依据近期会话和可选的屏幕上下文工作。
 
 ### 5. Memory Search 在需要时找回正确的记忆
 
