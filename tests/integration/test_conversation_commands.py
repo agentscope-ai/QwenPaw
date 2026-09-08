@@ -10,6 +10,7 @@ API endpoints:
   - POST /api/console/chat/task
   - GET  /api/console/chat/task/{task_id}
 """
+
 from __future__ import annotations
 
 import json
@@ -534,24 +535,36 @@ def test_skills_command_lists_chat_skills(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_unknown_skill_command_falls_through(
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("/mew", "Unknown or unavailable command"),
+        ("/help", "Available commands"),
+    ],
+)
+def test_command_feedback_skips_model(
     app_server,
     provider,  # pylint: disable=redefined-outer-name,unused-argument
+    mock_llm,  # pylint: disable=redefined-outer-name
+    text,
+    expected,
 ):
     """An unmatched /<name> command does not break the turn.
 
     Test purpose:
-      - Cover _skill_fallback_handler's miss path: when no skill
-        matches, the handler returns None and the text continues through
-        the normal runner, so the turn must still complete.
+      - Cover unknown commands and default help through the real runner.
     """
+    srv, _ = mock_llm
+    before = getattr(srv, "request_count", 0)
     user = "integ-cmd-unknown-skill"
     final = _send(
         app_server,
         user_id=user,
-        text="/integ-no-such-skill-8813 do something",
+        text=text,
     )
     assert final.get("status") == "finished", final
+    assert expected in _reply_text(final)
+    assert getattr(srv, "request_count", 0) == before
 
 
 @pytest.mark.integration
@@ -559,14 +572,17 @@ def test_unknown_skill_command_falls_through(
 def test_bracketed_skill_syntax_is_accepted(
     app_server,
     provider,  # pylint: disable=redefined-outer-name,unused-argument
+    mock_llm,  # pylint: disable=redefined-outer-name
 ):
     """The bracketed /[name with spaces] form is parsed, not crashed.
 
     Test purpose:
       - Cover _parse_skill_query's bracket branch, which exists so skill
         names containing spaces remain addressable. No such skill is
-        installed here, so the turn must fall through cleanly.
+        installed here, so the turn must return feedback without the model.
     """
+    srv, _ = mock_llm
+    before = getattr(srv, "request_count", 0)
     user = "integ-cmd-bracket-skill"
     final = _send(
         app_server,
@@ -574,3 +590,5 @@ def test_bracketed_skill_syntax_is_accepted(
         text="/[integ no such skill] hello",
     )
     assert final.get("status") == "finished", final
+    assert "Unknown or unavailable command" in _reply_text(final)
+    assert getattr(srv, "request_count", 0) == before
