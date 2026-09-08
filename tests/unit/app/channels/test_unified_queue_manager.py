@@ -193,6 +193,62 @@ class TestStartStop:
 
 class TestCleanupLoop:
     @pytest.mark.asyncio
+    async def test_old_consumer_exit_keeps_recreated_queue(self):
+        first_started = asyncio.Event()
+        first_cancelled = asyncio.Event()
+        allow_first_exit = asyncio.Event()
+        second_started = asyncio.Event()
+        stop_second = asyncio.Event()
+        consumer_count = 0
+
+        async def consumer(queue, *_args):
+            nonlocal consumer_count
+            consumer_count += 1
+            invocation = consumer_count
+            await queue.get()
+
+            if invocation == 1:
+                first_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    first_cancelled.set()
+                    await allow_first_exit.wait()
+            else:
+                second_started.set()
+                await stop_second.wait()
+
+        mgr = UnifiedQueueManager(
+            consumer_fn=consumer,
+            queue_maxsize=10,
+            idle_timeout=0.05,
+            cleanup_interval=0.005,
+        )
+        key = ("console", "console:race", 0)
+        mgr.start_cleanup_loop()
+
+        try:
+            await mgr.enqueue(*key, "old")
+            await asyncio.wait_for(first_started.wait(), timeout=1)
+            old_task = mgr._queues[key].consumer_task
+
+            await asyncio.wait_for(first_cancelled.wait(), timeout=1)
+            await mgr.enqueue(*key, "new")
+            new_state = mgr._queues[key]
+            await asyncio.wait_for(second_started.wait(), timeout=1)
+
+            allow_first_exit.set()
+            with pytest.raises(asyncio.CancelledError):
+                await old_task
+
+            assert mgr._queues.get(key) is new_state
+        finally:
+            allow_first_exit.set()
+            stop_second.set()
+            await asyncio.sleep(0)
+            await mgr.stop_all()
+
+    @pytest.mark.asyncio
     async def test_cleanup_loop_does_not_leak_active_queue(self):
         # Stuck consumer keeps the queue non-empty (item not drained),
         # so cleanup must skip it even after idle_timeout elapses.
