@@ -10,6 +10,8 @@ durability flag, and corruption quarantine.
 import asyncio
 import logging
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -82,6 +84,122 @@ def test_created_at_index_migrates_existing_populated_store(
         assert migrated.count("legacy") == 5000
     finally:
         migrated.close()
+
+
+def test_integrity_check_runs_once_per_process_for_same_file(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        calls += 1
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+
+    first = HistoryStore(db_path)
+    first.close()
+    second = HistoryStore(db_path)
+    second.close()
+
+    assert calls == 1
+
+
+def test_integrity_check_is_single_flight_for_concurrent_openers(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    calls_lock = threading.Lock()
+    barrier = threading.Barrier(8)
+    probe_started = threading.Event()
+    release_probe = threading.Event()
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        probe_started.set()
+        assert release_probe.wait(timeout=5)
+        return original(store)
+
+    def open_store():
+        barrier.wait(timeout=5)
+        history = HistoryStore(db_path)
+        history.close()
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(open_store) for _ in range(8)]
+        assert probe_started.wait(timeout=5)
+        release_probe.set()
+        for future in futures:
+            future.result(timeout=10)
+
+    assert calls == 1
+
+
+def test_integrity_check_repeats_when_database_file_is_replaced(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    replacement_path = tmp_path / "replacement.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def tracked(store):
+        nonlocal calls
+        calls += 1
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", tracked)
+    first = HistoryStore(db_path)
+    first.close()
+
+    replacement = sqlite3.connect(replacement_path)
+    replacement.execute("CREATE TABLE replacement_marker (value INTEGER)")
+    replacement.close()
+    replacement_path.replace(db_path)
+
+    second = HistoryStore(db_path)
+    second.close()
+
+    assert calls == 2
+
+
+def test_failed_integrity_check_is_retried_and_not_cached(
+    tmp_path: Path,
+    monkeypatch,
+):
+    db_path = tmp_path / "history.db"
+    calls = 0
+    original = HistoryStore._run_integrity_check
+
+    def fail_once(store):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.DatabaseError("synthetic corruption")
+        return original(store)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", fail_once)
+    recovered = HistoryStore(db_path)
+    try:
+        assert recovered.quarantined_to is not None
+        assert calls == 2
+    finally:
+        recovered.close()
+
+    reopened = HistoryStore(db_path)
+    reopened.close()
+    assert calls == 2
 
 
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
