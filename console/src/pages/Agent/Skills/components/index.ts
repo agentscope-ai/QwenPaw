@@ -119,6 +119,18 @@ export const skillMarkets: SkillMarket[] = [
     ],
   },
   {
+    key: "gitlab",
+    name: "GitLab",
+    homepage: "https://gitlab.com",
+    urlPrefix: "https://gitlab.com/",
+    examples: [
+      {
+        label: "skill-creator",
+        url: "https://gitlab.com/example/skills/-/tree/main/skill-creator",
+      },
+    ],
+  },
+  {
     key: "modelscope",
     name: "ModelScope",
     homepage: "https://modelscope.cn/skills",

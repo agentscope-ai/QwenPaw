@@ -43,6 +43,7 @@ InstallOrigin = Literal[
     "",
     "skills-sh",
     "github",
+    "gitlab",
     "lobehub",
     "qwenpaw",
     "modelscope",
@@ -142,6 +143,14 @@ _cancel_checker_ctx: contextvars.ContextVar[
     Any | None
 ] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
 
+# GitLab instance URL propagated by contextvar so nested helpers use the
+# same self-hosted instance as the original install URL without threading
+# a base_url parameter through every function signature.
+_GITLAB_CTX_KEY = "skills_hub_gitlab_instance"
+_gitlab_instance_ctx: contextvars.ContextVar[str] = (
+    contextvars.ContextVar(_GITLAB_CTX_KEY, default="")
+)
+
 
 # ---------- Env-driven config ----------------------------------------------
 
@@ -193,6 +202,18 @@ def _compute_backoff_seconds(attempt: int) -> float:
     cap = _hub_http_backoff_cap()
     return min(cap, base * (2 ** max(0, attempt - 1)))
 
+
+
+def _gitlab_api_base() -> str:
+    """GitLab API base URL, configurable for self-hosted instances."""
+    return EnvVarLoader.get_str(
+        "QWENPAW_GITLAB_URL",
+        "https://gitlab.com",
+    ).rstrip("/")
+
+
+def _gitlab_token() -> str | None:
+    return EnvVarLoader.get_str("QWENPAW_GITLAB_TOKEN", "") or os.environ.get("GITLAB_TOKEN") or None
 
 # ---------- Hub URL builders -----------------------------------------------
 
@@ -441,6 +462,9 @@ def _request_headers(full_url: str, accept: str) -> dict[str, str]:
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if github_token and "api.github.com" in host:
         headers["Authorization"] = f"Bearer {github_token}"
+    gitlab_token = _gitlab_token()
+    if gitlab_token and host == urlparse(_gitlab_api_base()).netloc.lower():
+        headers["PRIVATE-TOKEN"] = gitlab_token
     return headers
 
 
@@ -1347,6 +1371,480 @@ async def _github_collect_tree_files(
     return files
 
 
+# ---------- Provider: GitLab -------------------------------------------------
+
+
+def _extract_gitlab_spec(
+    url: str,
+) -> tuple[str, str, str, str] | None:
+    """Parse GitLab repo URL into (owner, repo, branch, path_hint).
+
+    Accepts any URL from gitlab.com, QWENPAW_GITLAB_URL, or any host whose
+    path contains /-/tree/ or /-/blob/ (self-hosted GitLab instances).
+    Supports nested group paths (e.g. group/subgroup/repo).
+    """
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    base_host = urlparse(_gitlab_api_base()).netloc.lower()
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if not parts or len(parts) < 2:
+        return None
+
+    # Locate /-/tree/<branch>/<path...> or /-/blob/<branch>/<path...>
+    # Also support old-style GitLab URLs with bare /tree/ or /blob/
+    # after the project path (min 2 segments for owner/repo).
+    tree_idx: int | None = None
+    for idx, part in enumerate(parts):
+        # New GitLab format: /-/tree/ or /-/blob/
+        if part == "-" and idx + 1 < len(parts) and parts[idx + 1] in ("tree", "blob"):
+            tree_idx = idx
+            break
+        # Old GitLab format: /tree/ or /blob/ directly (after owner/repo)
+        if idx >= 2 and part in ("tree", "blob"):
+            tree_idx = idx - 1  # treat the segment before tree/blob as the '-' separator
+            break
+
+    # Accept if host matches configured GitLab base, or is gitlab.com, or has
+    # the characteristic /tree|blob/ pattern of any GitLab instance.
+    is_gitlab_host = host == base_host or host in ("gitlab.com", "www.gitlab.com")
+    if not is_gitlab_host and tree_idx is None:
+        return None
+
+    if tree_idx is not None:
+        # For new format (/-/tree/): parts[tree_idx] == "-"
+        # For old format (/tree/):    parts[tree_idx] is last project segment
+        if parts[tree_idx] == "-":
+            project_parts = parts[:tree_idx]
+            branch_idx = tree_idx + 2
+        else:
+            project_parts = parts[:tree_idx + 1]
+            branch_idx = tree_idx + 2
+        branch = parts[branch_idx] if len(parts) > branch_idx else ""
+        path_hint = "/".join(parts[branch_idx + 1:]) if len(parts) > branch_idx + 1 else ""
+    else:
+        project_parts = parts
+        branch = ""
+        path_hint = ""
+
+    if len(project_parts) < 2:
+        return None
+    repo = project_parts[-1]
+    owner = "/".join(project_parts[:-1]) if len(project_parts) > 1 else project_parts[0]
+    return owner, repo, branch, path_hint
+
+
+@contextmanager
+def _with_gitlab_instance(instance_base: str):
+    """Context manager that sets the GitLab instance URL for nested helpers."""
+    token = _gitlab_instance_ctx.set(instance_base)
+    try:
+        yield
+    finally:
+        _gitlab_instance_ctx.reset(token)
+
+
+def _gitlab_api_url(suffix: str) -> str:
+    """Build a GitLab API v4 URL from a suffix like '/projects/...'.
+
+    Uses the instance URL set by the active fetcher via contextvar (for
+    self-hosted GitLab), falling back to QWENPAW_GITLAB_URL or gitlab.com.
+    """
+    dynamic = _gitlab_instance_ctx.get("")
+    base = dynamic.rstrip("/") if dynamic else _gitlab_api_base()
+    return f"{base}/api/v4{suffix}"
+
+
+def _gitlab_project_path(owner: str, repo: str) -> str:
+    """URL-encode a project path for the GitLab API v4.
+
+    e.g. 'mygroup/subgroup/my-repo' -> 'mygroup%2Fsubgroup%2Fmy-repo'
+    """
+    full = f"{owner}/{repo}" if owner else repo
+    return quote(full, safe="")
+
+_GL_CACHE_TTL = 300.0
+_gl_cache: dict[str, tuple[float, Any]] = {}
+_gl_cache_locks: dict[str, asyncio.Lock] = {}
+_gl_cache_locks_lock = asyncio.Lock()
+
+
+def _gl_cache_get(key: str) -> Any:
+    entry = _gl_cache.get(key)
+    if entry is None:
+        return _GITHUB_CACHE_MISS
+    ts, val = entry
+    if time.monotonic() - ts > _GL_CACHE_TTL:
+        del _gl_cache[key]
+        return _GITHUB_CACHE_MISS
+    return val
+
+
+def _gl_cache_set(key: str, value: Any) -> None:
+    _gl_cache[key] = (time.monotonic(), value)
+
+
+async def _gl_cache_lock_for(key: str) -> asyncio.Lock:
+    async with _gl_cache_locks_lock:
+        lock = _gl_cache_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _gl_cache_locks[key] = lock
+        return lock
+
+
+async def _gl_cached_call(
+    key: str,
+    fn: Callable[[], Awaitable[Any]],
+) -> Any:
+    cached = _gl_cache_get(key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
+    lock = await _gl_cache_lock_for(key)
+    async with lock:
+        cached = _gl_cache_get(key)
+        if cached is not _GITHUB_CACHE_MISS:
+            return cached
+        result = await fn()
+        _gl_cache_set(key, result)
+        return result
+
+
+async def _gitlab_project_id(owner: str, repo: str) -> int:
+    """Resolve an owner/repo path to a GitLab numeric project ID."""
+
+    async def fetch() -> int:
+        path = _gitlab_project_path(owner, repo)
+        api_url = _gitlab_api_url(f"/projects/{path}")
+        try:
+            data = await _http_json_get(api_url)
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status == 404:
+                token = _gitlab_token()
+                hint = (
+                    " Set QWENPAW_GITLAB_TOKEN if this is a private "
+                    "project."
+                ) if not token else ""
+                raise SkillsError(
+                    message=(
+                        f"GitLab project not found: {owner}/{repo}. "
+                        f"Verify the URL is correct and the project "
+                        f"exists.{hint}"
+                    ),
+                ) from e
+            if status in (401, 403):
+                raise SkillsError(
+                    message=(
+                        f"GitLab authentication failed for {owner}/{repo}. "
+                        "Check that QWENPAW_GITLAB_TOKEN is valid."
+                    ),
+                ) from e
+            raise SkillsError(
+                message=(
+                    f"GitLab API error ({status}) for {owner}/{repo}"
+                ),
+            ) from e
+        pid = data.get("id")
+        if pid is None:
+            raise SkillsError(
+                message=f"GitLab project not found: {owner}/{repo}",
+            )
+        return int(pid)
+
+    return await _gl_cached_call(f"project_id:{owner}/{repo}", fetch)
+
+
+async def _gitlab_default_branch(owner: str, repo: str) -> str:
+    """Get the default branch for a GitLab project."""
+
+    async def fetch() -> str:
+        project_id = await _gitlab_project_id(owner, repo)
+        data = await _http_json_get(
+            _gitlab_api_url(f"/projects/{project_id}"),
+        )
+        branch = data.get("default_branch")
+        if isinstance(branch, str) and branch.strip():
+            return branch.strip()
+        return "main"
+
+    return await _gl_cached_call(f"default_branch:{owner}/{repo}", fetch)
+
+
+async def _gitlab_list_skill_md_roots(
+    project_id: int,
+    ref: str,
+) -> list[str]:
+    """Find all directories that contain a SKILL.md in a GitLab repo."""
+
+    async def fetch() -> list[str]:
+        url = _gitlab_api_url(
+            f"/projects/{project_id}/repository/tree"
+            f"?ref={quote(ref, safe='')}&recursive=true&per_page=100",
+        )
+        try:
+            entries = await _http_json_get(url)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (404, 403):
+                return []
+            raise
+        if not isinstance(entries, list):
+            return []
+
+        roots: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            path = entry.get("path")
+            if not isinstance(path, str):
+                continue
+            if path == "SKILL.md":
+                roots.append("")
+            elif path.endswith("/SKILL.md"):
+                roots.append(path[:-len("/SKILL.md")])
+
+        seen: set[str] = set()
+        unique: list[str] = []
+        for r in roots:
+            if r not in seen:
+                seen.add(r)
+                unique.append(r)
+        return unique
+
+    return await _gl_cached_call(f"skill_md_roots:{project_id}/{ref}", fetch)
+
+
+async def _gitlab_get_raw_file(
+    project_id: int,
+    file_path: str,
+    ref: str,
+) -> str:
+    """Read a file from a GitLab repo via the raw endpoint."""
+    encoded = quote(file_path, safe="")
+    raw_url = _gitlab_api_url(
+        f"/projects/{project_id}/repository/files/{encoded}/raw"
+        f"?ref={quote(ref, safe='')}",
+    )
+    try:
+        return await _http_text_get(raw_url)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise SkillsError(
+                message=f"File not found in GitLab repo: {file_path} "
+                f"(ref: {ref})",
+            ) from e
+        raise
+
+
+async def _gitlab_collect_tree_files(
+    project_id: int,
+    ref: str,
+    root: str,
+    max_files: int = 200,
+) -> dict[str, str]:
+    """Recursively collect all files under *root* in a GitLab repo.
+
+    Uses the recursive tree endpoint for efficiency (single API call)."""
+    url = _gitlab_api_url(
+        f"/projects/{project_id}/repository/tree"
+        f"?ref={quote(ref, safe='')}&recursive=true&per_page=100",
+    )
+    entries = await _http_json_get(url)
+    if not isinstance(entries, list):
+        return {}
+
+    # Build path prefix for filtering
+    prefix = f"{root.rstrip('/')}/" if root else ""
+
+    files: dict[str, str] = {}
+    for entry in entries:
+        _ensure_not_cancelled()
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") != "blob":
+            continue
+        entry_path = str(entry.get("path", ""))
+        if not entry_path:
+            continue
+        # Only collect files under the target root
+        if root and not entry_path.startswith(prefix):
+            continue
+        rel = entry_path[len(prefix):] if root else entry_path
+        # Skip SKILL.md — already handled by caller
+        if rel == "SKILL.md":
+            continue
+        try:
+            files[rel] = await _gitlab_get_raw_file(
+                project_id,
+                entry_path,
+                ref,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to read file from GitLab: %s", entry_path,
+            )
+            continue
+        if len(files) >= max_files:
+            logger.warning(
+                "GitLab file collection capped at %d files", max_files,
+            )
+            break
+
+    return files
+
+
+async def _fetch_bundle_from_gitlab_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    """Fetch a skill bundle from a GitLab repository URL."""
+    spec = _extract_gitlab_spec(bundle_url)
+    if spec is None:
+        raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
+            message=(
+                "Invalid GitLab URL format. Use e.g. "
+                "https://gitlab.com/owner/repo or "
+                "https://gitlab.com/owner/repo/-/tree/branch/path/to/skill"
+            ),
+        )
+    # Thread the instance URL via contextvar so all nested helpers use the
+    # same self-hosted GitLab instance as this install URL.
+    parsed_src = urlparse(bundle_url)
+    instance_base = f"{parsed_src.scheme}://{parsed_src.netloc}"
+    with _with_gitlab_instance(instance_base):
+        return await _do_fetch_gitlab_bundle(
+            bundle_url, requested_version, spec,
+        )
+
+
+async def _do_fetch_gitlab_bundle(
+    bundle_url: str,
+    requested_version: str,
+    spec: tuple[str, str, str, str],
+) -> tuple[Any, str]:
+    """Core GitLab fetch logic (runs inside _with_gitlab_instance context)."""
+    owner, repo, branch_in_url, path_hint = spec
+
+    # Resolve branch
+    branch = requested_version.strip() or branch_in_url.strip()
+    if not branch:
+        try:
+            branch = await _gitlab_default_branch(owner, repo)
+        except Exception:
+            branch = "main"
+
+    project_id = await _gitlab_project_id(owner, repo)
+
+    # Normalise path_hint
+    path_hint = path_hint.strip("/")
+    if path_hint.endswith("/SKILL.md"):
+        path_hint = path_hint[:-len("/SKILL.md")]
+    elif path_hint == "SKILL.md":
+        path_hint = ""
+
+    # Find SKILL.md
+    skill_md_found = False
+    skill_md_content = ""
+    path_hint_actual = path_hint
+    branch_candidates = [branch]
+    if branch not in ("main", "master"):
+        branch_candidates.extend(["main", "master"])
+
+    for candidate_branch in branch_candidates:
+        candidate_paths = [
+            f"{path_hint}/SKILL.md" if path_hint else "SKILL.md",
+        ]
+        seen_paths: set[str] = set()
+        unique_paths = []
+        for p in candidate_paths:
+            if p not in seen_paths:
+                seen_paths.add(p)
+                unique_paths.append(p)
+
+        for try_path in unique_paths:
+            try:
+                skill_md_content = await _gitlab_get_raw_file(
+                    project_id, try_path, candidate_branch,
+                )
+                skill_md_found = True
+                path_hint_actual = (
+                    try_path[:-len("/SKILL.md")]
+                    if "/" in try_path
+                    else ""
+                )
+                branch = candidate_branch
+                break
+            except httpx.HTTPStatusError:
+                continue
+
+        if skill_md_found:
+            break
+
+    if not skill_md_found:
+        for candidate_branch in branch_candidates:
+            roots = await _gitlab_list_skill_md_roots(
+                project_id, candidate_branch,
+            )
+            skill_norm = _normalize_skill_key(
+                path_hint.split("/")[-1] if path_hint else repo,
+            )
+            for root in roots:
+                leaf = root.split("/")[-1] if root else root
+                leaf_norm = _normalize_skill_key(leaf)
+                if not leaf_norm:
+                    continue
+                if not skill_norm or (
+                    leaf_norm == skill_norm
+                    or leaf_norm in skill_norm
+                    or skill_norm in leaf_norm
+                    or skill_norm.endswith(f"-{leaf_norm}")
+                ):
+                    try:
+                        skill_md_path = (
+                            f"{root}/SKILL.md" if root else "SKILL.md"
+                        )
+                        skill_md_content = await _gitlab_get_raw_file(
+                            project_id, skill_md_path, candidate_branch,
+                        )
+                        skill_md_found = True
+                        path_hint_actual = root
+                        branch = candidate_branch
+                        break
+                    except httpx.HTTPStatusError:
+                        continue
+            if skill_md_found:
+                break
+
+    if not skill_md_found:
+        raise SkillsError(
+            message=(
+                f"Could not find SKILL.md in GitLab repository "
+                f"{owner}/{repo} (branch: {branch}). "
+                "Ensure the URL points to a folder containing SKILL.md."
+            ),
+        )
+
+    files: dict[str, str] = {"SKILL.md": skill_md_content}
+    files.update(
+        await _gitlab_collect_tree_files(
+            project_id, branch, path_hint_actual,
+        ),
+    )
+
+    instance = _gitlab_instance_ctx.get("") or _gitlab_api_base()
+    source_url = f"{instance}/{owner}/{repo}"
+    try:
+        post = frontmatter.loads(skill_md_content)
+        name = post.get("name", repo)
+    except Exception:
+        name = repo
+    if not isinstance(name, str) or not name.strip():
+        name = repo
+
+    return {"name": name.strip(), "files": files}, source_url
+
+
+
 # pylint: disable-next=too-many-return-statements,too-many-branches
 async def _resolve_skillsmp_spec(
     url: str,
@@ -2157,6 +2655,7 @@ _ProviderFetcher = Callable[..., Awaitable[tuple[Any, str]]]
 PROVIDERS: list[tuple[InstallOrigin, _ProviderMatcher, _ProviderFetcher]] = [
     ("skills-sh", _extract_skills_sh_spec, _fetch_bundle_from_skills_sh_url),
     ("github", _extract_github_spec, _fetch_bundle_from_github_url),
+    ("gitlab", _extract_gitlab_spec, _fetch_bundle_from_gitlab_url),
     ("lobehub", _extract_lobehub_identifier, _fetch_bundle_from_lobehub_url),
     (
         "qwenpaw",

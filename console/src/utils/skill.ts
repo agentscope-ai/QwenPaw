@@ -67,6 +67,7 @@ export const INSTALLED_FROM_LABELS: Record<string, string> = {
   aliyun: "Aliyun",
   skillsmp: "SkillsMP",
   clawhub: "ClawHub",
+  gitlab: "GitLab",
   url: "URL",
   zip: "ZIP",
 };
