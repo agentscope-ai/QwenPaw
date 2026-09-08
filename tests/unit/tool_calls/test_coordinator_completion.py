@@ -367,7 +367,7 @@ async def test_background_completion_emits_hint():
     )
 
     assert events[-1].metadata["offloaded"] is True
-    assert hint.role == "assistant"
+    assert hint.role == "user"
     text_block = next(
         block
         for block in hint.content
@@ -913,6 +913,11 @@ async def test_background_cancel_force_cancels_non_cooperative_tool():
     await asyncio.wait_for(entry.background_task, timeout=2)
     assert entry.force_cancelled is True
     assert entry.ctx.cancel_reason == CancelReason.USER
+    hint = await asyncio.wait_for(
+        _wait_for_hint(coordinator, "session-bg-cancel"),
+        timeout=2,
+    )
+    assert hint.role == "user"
 
 
 @pytest.mark.asyncio

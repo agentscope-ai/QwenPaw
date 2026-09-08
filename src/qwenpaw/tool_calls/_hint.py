@@ -13,8 +13,8 @@ def make_offload_hint_msg(entry: Any) -> Any:
 
     The hint flattens the finalized response content blocks (TextBlock,
     ImageBlock, etc.) directly into the message so that provider formatters
-    treat it as an ordinary assistant message — no ToolResultBlock means no
-    orphan ``role=tool`` wire message and no tool-call pairing issues.
+    treat it as ordinary runtime input — no ToolResultBlock means no orphan
+    ``role=tool`` wire message and no tool-call pairing issues.
     """
     end = entry.end_state or "unknown"
     notification = TextBlock(
@@ -31,6 +31,6 @@ def make_offload_hint_msg(entry: Any) -> Any:
     result_blocks = list(entry.final_response.content or [])
     return Msg(
         name="system",
-        role="assistant",
+        role="user",
         content=[notification] + result_blocks,
     )
