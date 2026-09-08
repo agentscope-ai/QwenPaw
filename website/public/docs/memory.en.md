@@ -103,6 +103,9 @@ The equivalent `agent.json` fragment is:
 
 Plugin configuration belongs under `memory_backend_configs.powercontext`; the
 former core-owned `powercontext_memory_config` field is no longer supported.
+On first start after an upgrade, the plugin adopts the former root
+`powercontext_installation_id` into its plugin-owned identity file, preserving
+the default scope and access to existing remote memories.
 
 ## Understand the Memory Loop First
 

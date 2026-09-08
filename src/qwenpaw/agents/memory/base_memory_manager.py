@@ -801,7 +801,7 @@ class MemoryBackendRegistration:
 
     plugin_id: str
     backend_id: str
-    factory: Callable[..., BaseMemoryManager]
+    factory: type[BaseMemoryManager]
     label: str
     config_schema: type[Any] | None
     metadata: Mapping[str, Any]
@@ -851,7 +851,7 @@ class MemoryBackendRegistry:
         *,
         plugin_id: str,
         backend_id: str,
-        factory: Callable[..., BaseMemoryManager],
+        factory: type[BaseMemoryManager],
         label: str,
         config_schema: type[Any] | None = None,
         metadata: Mapping[str, Any] | None = None,
@@ -876,7 +876,7 @@ class MemoryBackendRegistry:
         self._registrations[normalized] = registration
         return registration
 
-    def get(self, backend_id: str) -> Callable[..., BaseMemoryManager] | None:
+    def get(self, backend_id: str) -> type[BaseMemoryManager] | None:
         try:
             normalized = self._normalize(backend_id)
         except (AttributeError, ValueError):
@@ -948,7 +948,7 @@ memory_registry = MemoryBackendRegistry()
 
 def get_memory_manager_backend(
     backend: str,
-) -> Callable[..., BaseMemoryManager]:
+) -> type[BaseMemoryManager]:
     """Return the memory manager class for the given backend name.
 
     Unknown backends fail explicitly; memory data must never be redirected

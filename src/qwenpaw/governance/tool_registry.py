@@ -448,9 +448,8 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         owner="builtin",
     )
     # Memory manager tools are registered dynamically outside agents.tools.
-    # Local searches remain internal. The PowerContext wrapper keeps the
-    # public ``memory_search`` name but opts into its separate network policy
-    # identity because its query leaves the process.
+    # Local searches remain internal; plugin backends may override the policy
+    # identity when a query leaves the process.
     for python_name, policy_name, tool_type in (
         ("memory_search", "MemorySearch", "internal"),
         ("memory_remember", "MemoryRemember", "network"),
@@ -459,9 +458,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
             registry,
             python_name=python_name,
             tool_type=tool_type,
-            target_param=(
-                ""
-            ),
+            target_param="",
             policy_name=policy_name,
             owner="builtin",
         )

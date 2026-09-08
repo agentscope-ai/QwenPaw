@@ -97,6 +97,9 @@ required. The equivalent `agent.json` fragment is:
 
 `memory_backend_configs.powercontext` is the configuration location. The
 former core-owned `powercontext_memory_config` field is no longer supported.
+On first start after upgrading, the plugin adopts the former root
+`powercontext_installation_id` when creating its plugin-owned identity file,
+so an empty `scope_id` continues to address the same remote memories.
 
 ### 5. Verify
 

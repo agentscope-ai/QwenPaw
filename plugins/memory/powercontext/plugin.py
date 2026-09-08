@@ -1,8 +1,8 @@
+# -*- coding: utf-8 -*-
 """PowerContext memory plugin entry point."""
 
-from qwenpaw.plugins.api import PluginApi
-
 from backend import PowerContextMemoryConfig, PowerContextMemoryManager
+from qwenpaw.plugins.api import PluginApi
 
 
 class PowerContextMemoryPlugin:
@@ -20,13 +20,13 @@ class PowerContextMemoryPlugin:
                     "memory_search": {
                         "policy_name": "PowerContextMemorySearch",
                         "tool_type": "network",
-                        "target_param": "query"
+                        "target_param": "query",
                     },
                     "memory_remember": {
                         "policy_name": "PowerContextMemoryRemember",
-                        "tool_type": "network"
-                    }
-                }
+                        "tool_type": "network",
+                    },
+                },
             },
         )
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Configuration owned by the PowerContext memory plugin."""
 
 from pydantic import (

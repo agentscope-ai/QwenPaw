@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ADBPG memory backend implementation."""
 
 from .config import ADBPGMemoryConfig

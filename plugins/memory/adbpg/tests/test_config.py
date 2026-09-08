@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for ADBPG-owned configuration."""
 
 from plugins.memory.adbpg.backend.config import ADBPGMemoryConfig

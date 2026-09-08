@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Focused unit tests for workspace running-config update ordering."""
 
+# pylint: disable=protected-access
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -108,8 +110,9 @@ def test_unavailable_memory_backend_config_is_not_exposed():
     masked = _mask_memory_backend_secrets(running)
 
     assert "missing-plugin" not in masked.memory_backend_configs
-    assert running.memory_backend_configs["missing-plugin"]["unknown_secret"] == (
-        "top-secret"
+    assert (
+        running.memory_backend_configs["missing-plugin"]["unknown_secret"]
+        == "top-secret"
     )
 
 
@@ -199,10 +202,14 @@ async def test_save_preserves_masked_secret_and_returns_only_mask(tmp_path):
         ):
             response = await put_agents_running_config(submitted, MagicMock())
 
-        persisted = agent_config.running.memory_backend_configs["remote-memory"]
+        persisted = agent_config.running.memory_backend_configs[
+            "remote-memory"
+        ]
         assert persisted["endpoint"] == "https://new.example"
         assert persisted["token"] == "top-secret"
-        assert response.memory_backend_configs["remote-memory"]["token"] == "***"
+        assert (
+            response.memory_backend_configs["remote-memory"]["token"] == "***"
+        )
     finally:
         memory_registry.unregister_owner("test-secret-save")
 

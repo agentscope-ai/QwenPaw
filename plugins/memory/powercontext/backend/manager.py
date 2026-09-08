@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import Callable
 from functools import wraps
@@ -20,6 +22,7 @@ from qwenpaw.memory import (
     MemoryBackendContext,
     NO_RELEVANT_MEMORIES,
 )
+
 from .client import (
     MAX_MEMORY_TEXT_BYTES,
     TRUNCATION_MARKER,
@@ -41,23 +44,59 @@ DEFAULT_MAX_CONTEXT_BYTES = 12000
 
 
 def get_or_create_installation_id(working_dir: str) -> str:
-    """Persist a plugin-owned installation scope beside agent workspaces."""
+    """Persist a plugin-owned installation scope beside agent workspaces.
+
+    Before PowerContext became a plugin, the identifier lived in the root
+    ``config.json``.  Adopt that value on first use so upgrading does not move
+    an Agent with an implicit scope into a fresh, apparently empty scope.
+    """
     path = Path(working_dir).resolve().parent / ".powercontext-installation-id"
     try:
         existing = path.read_text(encoding="utf-8").strip()
-        if len(existing) == 32:
+        if re.fullmatch(r"[0-9a-f]{32}", existing):
             return existing
     except FileNotFoundError:
         pass
-    generated = uuid.uuid4().hex
+    else:
+        raise ValueError(f"Invalid PowerContext installation id in {path}")
+
+    generated = _legacy_installation_id(working_dir) or uuid.uuid4().hex
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        return path.read_text(encoding="utf-8").strip()
+    except FileExistsError as exc:
+        existing = path.read_text(encoding="utf-8").strip()
+        if not re.fullmatch(r"[0-9a-f]{32}", existing):
+            raise ValueError(
+                f"Invalid PowerContext installation id in {path}",
+            ) from exc
+        return existing
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         stream.write(generated)
     return generated
+
+
+def _legacy_installation_id(working_dir: str) -> str:
+    """Read the pre-plugin installation id without importing core internals."""
+    workspace = Path(working_dir).resolve()
+    candidates: list[Path] = []
+    configured_root = os.environ.get("QWENPAW_WORKING_DIR", "").strip()
+    if configured_root:
+        candidates.append(Path(configured_root).expanduser() / "config.json")
+    if workspace.parent.name == "workspaces":
+        candidates.append(workspace.parent.parent / "config.json")
+
+    for config_path in dict.fromkeys(candidates):
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            continue
+        legacy_id = payload.get("powercontext_installation_id", "")
+        if isinstance(legacy_id, str):
+            legacy_id = legacy_id.strip()
+            if re.fullmatch(r"[0-9a-f]{32}", legacy_id):
+                return legacy_id
+    return ""
 
 
 class PowerContextMemoryManager(BaseMemoryManager):

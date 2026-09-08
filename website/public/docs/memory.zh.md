@@ -77,6 +77,8 @@ powercontext server run
 
 插件配置必须放在 `memory_backend_configs.powercontext`；原先由核心定义的
 `powercontext_memory_config` 字段已不再支持。
+升级后的首次启动中，插件会将根配置中原有的 `powercontext_installation_id` 继承到
+插件自己的身份文件中，从而保持默认作用域以及对既有远程记忆的访问。
 
 ## 先理解它怎样工作
 

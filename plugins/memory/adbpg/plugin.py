@@ -1,8 +1,8 @@
+# -*- coding: utf-8 -*-
 """ADBPG memory plugin entry point."""
 
-from qwenpaw.plugins.api import PluginApi
-
 from backend import ADBPGMemoryConfig, ADBPGMemoryManager
+from qwenpaw.plugins.api import PluginApi
 
 
 class ADBPGMemoryPlugin:

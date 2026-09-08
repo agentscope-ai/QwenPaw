@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Public, versioned memory backend plugin API.
 
 Plugins should import memory contracts from this module rather than from the

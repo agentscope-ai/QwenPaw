@@ -17,18 +17,19 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
-from .client import (
-    ADBPGConfig,
-    ADBPGMemoryClient,
-)
-from .config import ADBPGMemoryConfig
-from .prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from qwenpaw.memory import (
     AutoMemorySearchOptions,
     BaseMemoryManager,
     MemoryBackendContext,
     NO_RELEVANT_MEMORIES,
 )
+
+from .client import (
+    ADBPGConfig,
+    ADBPGMemoryClient,
+)
+from .config import ADBPGMemoryConfig
+from .prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 
 logger = logging.getLogger(__name__)
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Install the governance declarations normally owned by plugin startup."""
 
 import pytest

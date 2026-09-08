@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """PowerContext memory backend implementation."""
 
 from .config import PowerContextMemoryConfig

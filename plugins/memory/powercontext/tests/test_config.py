@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for PowerContext-owned configuration."""
 
 import pytest
@@ -53,7 +54,9 @@ def test_accepts_timeout_and_budget_boundaries(timeout, max_context_bytes):
     )
 
     assert config.timeout == timeout
-    assert config.auto_memory_search_config.max_context_bytes == max_context_bytes
+    assert (
+        config.auto_memory_search_config.max_context_bytes == max_context_bytes
+    )
 
 
 @pytest.mark.parametrize("scope_id", ["   ", "scope-" + "x" * 256])

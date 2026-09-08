@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Contract tests for third-party memory backend registration."""
 
 from pathlib import Path

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Configuration owned by the ADBPG memory plugin."""
 
 from pydantic import BaseModel, ConfigDict, Field

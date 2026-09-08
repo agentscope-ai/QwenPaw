@@ -1801,6 +1801,7 @@ async def _rollback_embedding_update(
     summary="Update agent running config",
     description="Update running configuration for active agent",
 )
+# pylint: disable-next=R0915,R0912
 async def put_agents_running_config(
     running_config: AgentsRunningConfig = Body(
         ...,
@@ -1837,6 +1838,7 @@ async def put_agents_running_config(
         )
         new_memory_manager_backend = running_config.memory_manager_backend
 
+        # pylint: disable-next=R0912
         def persist_running_config(agent_config):
             nonlocal old_agent_config, embedding_changed
             nonlocal memory_manager_backend_changed
@@ -1853,9 +1855,9 @@ async def put_agents_running_config(
                     backend_id not in running_config.memory_backend_configs
                     or memory_registry.get_registration(backend_id) is None
                 ):
-                    running_config.memory_backend_configs[backend_id] = (
-                        copy.deepcopy(current_config)
-                    )
+                    running_config.memory_backend_configs[
+                        backend_id
+                    ] = copy.deepcopy(current_config)
             for backend_id, submitted_config in list(
                 running_config.memory_backend_configs.items(),
             ):
@@ -1891,9 +1893,9 @@ async def put_agents_running_config(
                                 secret_fields,
                             ),
                         ) from exc
-                    running_config.memory_backend_configs[backend_id] = (
-                        validated.model_dump()
-                    )
+                    running_config.memory_backend_configs[
+                        backend_id
+                    ] = validated.model_dump()
             memory_manager_backend_changed = (
                 old_running_config.memory_manager_backend
                 != new_memory_manager_backend

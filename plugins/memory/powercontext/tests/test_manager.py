@@ -10,7 +10,10 @@ from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from plugins.memory.powercontext.backend.config import PowerContextMemoryConfig
-from plugins.memory.powercontext.backend.manager import PowerContextMemoryManager
+from plugins.memory.powercontext.backend.manager import (
+    PowerContextMemoryManager,
+    get_or_create_installation_id,
+)
 from plugins.memory.powercontext.backend.prompts import (
     POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE,
 )
@@ -41,6 +44,31 @@ def user(text: str) -> Msg:
         role="user",
         content=[TextBlock(type="text", text=text)],
     )
+
+
+def test_installation_id_adopts_legacy_root_config(tmp_path):
+    legacy_id = "0123456789abcdef0123456789abcdef"
+    workspace = tmp_path / "workspaces" / "default"
+    workspace.mkdir(parents=True)
+    (tmp_path / "config.json").write_text(
+        '{"powercontext_installation_id": "' + legacy_id + '"}',
+        encoding="utf-8",
+    )
+
+    assert get_or_create_installation_id(str(workspace)) == legacy_id
+    assert (
+        tmp_path / "workspaces" / ".powercontext-installation-id"
+    ).read_text(encoding="utf-8") == legacy_id
+
+
+def test_installation_id_rejects_corrupt_plugin_state(tmp_path):
+    workspace = tmp_path / "workspaces" / "default"
+    workspace.mkdir(parents=True)
+    identity_path = tmp_path / "workspaces" / ".powercontext-installation-id"
+    identity_path.write_text("x" * 32, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid PowerContext installation"):
+        get_or_create_installation_id(str(workspace))
 
 
 @pytest.mark.asyncio
@@ -112,8 +140,16 @@ async def test_default_scope_is_resolved_per_agent(tmp_path, monkeypatch):
     config = PowerContextMemoryConfig(base_url="http://pc")
     first = _manager(tmp_path, "agent-a", config)
     second = _manager(tmp_path, "agent-b", config)
-    monkeypatch.setattr(first, "_get_installation_id", lambda: "installation-a")
-    monkeypatch.setattr(second, "_get_installation_id", lambda: "installation-a")
+    monkeypatch.setattr(
+        first,
+        "_get_installation_id",
+        lambda: "installation-a",
+    )
+    monkeypatch.setattr(
+        second,
+        "_get_installation_id",
+        lambda: "installation-a",
+    )
 
     await first.start()
     await second.start()
@@ -141,7 +177,11 @@ async def test_default_scope_is_rendered_in_memory_citation(
         "default",
         PowerContextMemoryConfig(base_url="http://pc"),
     )
-    monkeypatch.setattr(manager, "_get_installation_id", lambda: "installation-a")
+    monkeypatch.setattr(
+        manager,
+        "_get_installation_id",
+        lambda: "installation-a",
+    )
     await manager.start()
     await manager._client.close()
     manager._client = SimpleNamespace(
@@ -226,8 +266,16 @@ async def test_default_scope_isolates_same_agent_across_installations(
     config = PowerContextMemoryConfig(base_url="http://pc")
     first = _manager(tmp_path, "default", config)
     second = _manager(tmp_path, "default", config)
-    monkeypatch.setattr(first, "_get_installation_id", lambda: "installation-a")
-    monkeypatch.setattr(second, "_get_installation_id", lambda: "installation-b")
+    monkeypatch.setattr(
+        first,
+        "_get_installation_id",
+        lambda: "installation-a",
+    )
+    monkeypatch.setattr(
+        second,
+        "_get_installation_id",
+        lambda: "installation-b",
+    )
 
     await first.start()
     await second.start()

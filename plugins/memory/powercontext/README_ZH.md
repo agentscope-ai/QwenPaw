@@ -88,6 +88,8 @@ QwenPaw 进程。等价的 `agent.json` 配置为：
 
 配置必须放在 `memory_backend_configs.powercontext`；原先由核心定义的
 `powercontext_memory_config` 字段已不再支持。
+升级后的首次启动中，插件会在创建自己的身份文件时继承根配置中原有的
+`powercontext_installation_id`，因此 `scope_id` 留空时仍会访问原来的远程记忆。
 
 ### 5. 验证
 
