@@ -69,7 +69,18 @@ class MemoryBackendRegistry {
   }
 
   syncAvailable(items: MemoryBackendExtension[]): void {
+    const availableIds = new Set(
+      items.map((item) => item.id.trim().toLowerCase()),
+    );
     let changed = false;
+    for (const [id, entry] of this.entries) {
+      if (!entry.source?.startsWith("plugin:")) continue;
+      const available = availableIds.has(id);
+      if (entry.available !== available) {
+        this.entries.set(id, { ...entry, available });
+        changed = true;
+      }
+    }
     for (const item of items) {
       const id = item.id.trim().toLowerCase();
       const existing = this.entries.get(id);
@@ -79,7 +90,11 @@ class MemoryBackendRegistry {
           changed = true;
         }
       } else {
-        this.entries.set(id, { ...item, id });
+        this.entries.set(id, {
+          ...item,
+          id,
+          available: item.available ?? true,
+        });
         changed = true;
       }
     }

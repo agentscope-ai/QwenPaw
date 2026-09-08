@@ -19,6 +19,7 @@ import stat
 import tempfile
 import os
 import zipfile
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
@@ -1649,10 +1650,31 @@ def _safe_memory_validation_error(
 ) -> str:
     """Render plugin validation failures without echoing submitted secrets."""
     detail = str(exc)
+
+    def secret_fragments(value: Any) -> list[str]:
+        if isinstance(value, Mapping):
+            fragments = [str(value), repr(value)]
+            for nested in value.values():
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if isinstance(value, (list, tuple, set, frozenset)):
+            fragments = [str(value), repr(value)]
+            for nested in value:
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if value is None:
+            return []
+        return [str(value), repr(value)]
+
     for field_name in secret_fields:
         secret = submitted.get(field_name)
-        if isinstance(secret, str) and secret:
-            detail = detail.replace(secret, "***")
+        fragments = sorted(
+            {fragment for fragment in secret_fragments(secret) if fragment},
+            key=len,
+            reverse=True,
+        )
+        for fragment in fragments:
+            detail = detail.replace(fragment, "***")
     return detail
 
 
@@ -1828,7 +1850,8 @@ async def put_agents_running_config(
                     "reason": "plugin_not_installed",
                 },
             )
-        running_config.memory_backend_configs.setdefault(backend_id, {})
+        if selected_registration.plugin_id != "core":
+            running_config.memory_backend_configs.setdefault(backend_id, {})
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False

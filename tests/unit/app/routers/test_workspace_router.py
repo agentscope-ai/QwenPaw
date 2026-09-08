@@ -97,6 +97,19 @@ def test_memory_validation_errors_do_not_echo_secrets():
     assert detail == "invalid credential ***"
 
 
+def test_memory_validation_errors_redact_structured_secret_values():
+    detail = _safe_memory_validation_error(
+        ValueError(
+            "invalid token input_value={'credential': 'top-secret'}",
+        ),
+        {"token": {"credential": "top-secret"}},
+        ["token"],
+    )
+
+    assert "top-secret" not in detail
+    assert "credential" not in detail
+
+
 def test_unavailable_memory_backend_config_is_not_exposed():
     running = AgentsRunningConfig(
         memory_backend_configs={
@@ -152,6 +165,37 @@ async def test_save_preserves_unavailable_backend_config_server_side(tmp_path):
     persisted = agent_config.running.memory_backend_configs["missing-plugin"]
     assert persisted == {"unknown_secret": "top-secret"}
     assert "missing-plugin" not in response.memory_backend_configs
+
+
+@pytest.mark.asyncio
+async def test_save_does_not_create_config_for_core_memory_backend(tmp_path):
+    submitted = AgentsRunningConfig(memory_manager_backend="remelight")
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=AgentsRunningConfig(memory_manager_backend="remelight"),
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(submitted, MagicMock())
+
+    assert "remelight" not in agent_config.running.memory_backend_configs
+    assert "remelight" not in response.memory_backend_configs
 
 
 @pytest.mark.asyncio
