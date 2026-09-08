@@ -3,6 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISubmissionContext,
   type IAgentScopeRuntimeWebUITransportContext,
@@ -1216,7 +1217,7 @@ function RuntimeLoadingBridge({
 
 const timestampStyle: React.CSSProperties = {
   fontSize: 12,
-  color: "var(--ant-color-text-quaternary)",
+  color: "var(--app-text-quaternary)",
   whiteSpace: "nowrap",
 };
 
@@ -3622,7 +3623,7 @@ export default function ChatPage() {
       }));
     const handleBeforeSubmit = async (
       data: IAgentScopeRuntimeWebUIInputData,
-    ) => {
+    ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (
         isComposingRef.current ||
         isAgentTransition ||

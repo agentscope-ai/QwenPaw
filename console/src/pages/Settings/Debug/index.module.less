@@ -69,9 +69,9 @@
 
 .logPathValue {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.65);
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: var(--app-text-secondary);
+  background: var(--app-fill-subtle);
+  border: 1px solid var(--app-border);
   border-radius: 4px;
   padding: 2px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -80,11 +80,11 @@
 
 /* ─── Log Viewer ─────────────────────────────────────────────────────────── */
 .logViewer {
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 12px;
   min-height: 120px;
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--app-fill-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
@@ -97,26 +97,8 @@
 
 /* ─── Search Highlight ───────────────────────────────────────────────────── */
 .highlight {
-  background: rgba(255, 214, 102, 0.65);
+  background: var(--app-highlight-bg);
   padding: 0;
-}
-
-/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .logPathValue {
-    color: rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .logViewer {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .highlight {
-    background: rgba(255, 214, 102, 0.35);
-  }
 }
 
 /* ─── Mobile Adaptation ──────────────────────────────────────────────────── */

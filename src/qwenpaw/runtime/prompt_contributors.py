@@ -14,6 +14,7 @@ Contributors read configuration from ``ctx.extras``:
 * ``env_context``       — ``ctx.extras.get("env_context")``
 * ``agent_config``      — ``ctx.extras.get("agent_config")``
 * ``driver_prompt_hints`` — ``ctx.extras.get("driver_prompt_hints", [])``
+* ``preloaded_skills`` — successfully preloaded AgentScope Skills
 """
 
 from __future__ import annotations
@@ -453,6 +454,43 @@ class DriverPolicyHintContributor(SyncPromptContributor):
         return rendered or None
 
 
+class PreloadedSkillsContributor(SyncPromptContributor):
+    """Add successfully preloaded Skill instructions to the system prompt."""
+
+    name = "preloaded_skills"
+    priority = 95
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        skills = extras.get("preloaded_skills") or []
+        if not skills:
+            return None
+
+        parts = [
+            "<preloaded-skills>",
+            (
+                "The following Skills are already loaded. Follow their "
+                "instructions directly when relevant, and do not load them "
+                "again with the Skill Viewer."
+            ),
+        ]
+        for skill in skills:
+            parts.extend(
+                [
+                    "",
+                    "<skill>",
+                    f"<name>{skill.name}</name>",
+                    f"<description>{skill.description}</description>",
+                    f"<dir>{skill.dir}</dir>",
+                    "",
+                    skill.markdown,
+                    "</skill>",
+                ],
+            )
+        parts.append("</preloaded-skills>")
+        return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -466,6 +504,7 @@ _ALL_CONTRIBUTORS = (
     ScrollContextContributor,
     DriverPolicyHintContributor,
     EnvContextContributor,
+    PreloadedSkillsContributor,
 )
 
 
@@ -489,5 +528,6 @@ __all__ = [
     "ScrollContextContributor",
     "DriverPolicyHintContributor",
     "EnvContextContributor",
+    "PreloadedSkillsContributor",
     "build_default_prompt_manager",
 ]

@@ -34,28 +34,28 @@ export function ToolExecutionLevelCard({
       label: t("agentConfig.toolExecutionLevel.strict"),
       icon: <Ban size={18} />,
       description: t("agentConfig.toolExecutionLevel.strictDesc"),
-      color: "#ff4d4f",
+      color: "var(--app-error-text)",
     },
     {
       value: "SMART",
       label: t("agentConfig.toolExecutionLevel.smart"),
       icon: <AlertTriangle size={18} />,
       description: t("agentConfig.toolExecutionLevel.smartDesc"),
-      color: "#faad14",
+      color: "var(--app-warning-text)",
     },
     {
       value: "AUTO",
       label: t("agentConfig.toolExecutionLevel.auto"),
       icon: <Shield size={18} />,
       description: t("agentConfig.toolExecutionLevel.autoDesc"),
-      color: "#1890ff",
+      color: "var(--app-info-text)",
     },
     {
       value: "OFF",
       label: t("agentConfig.toolExecutionLevel.off"),
       icon: <CheckCircle size={18} />,
       description: t("agentConfig.toolExecutionLevel.offDesc"),
-      color: "#52c41a",
+      color: "var(--app-success-text)",
     },
   ];
 

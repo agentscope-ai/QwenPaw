@@ -613,6 +613,7 @@ async def update_tool_config(
             _persist_browser_experimental,
             persisted_config,
         )
+        # Prefetch after an explicit settings save, not during app startup.
         if persisted_config.get("experimental") is True:
             from ...browser.runtime.managed_playwright import (
                 start_managed_chromium_download,

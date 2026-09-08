@@ -233,3 +233,74 @@ describe("normalizeOutputMessageContent", () => {
     expect(T.normalizeOutputMessageContent(42)).toBe(42);
   });
 });
+
+describe("contentToRequestParts", () => {
+  it("wraps string content into a created text part", () => {
+    expect(T.contentToRequestParts("hi")).toEqual([
+      { type: "text", text: "hi", status: "created" },
+    ]);
+  });
+
+  it("stringifies non-string, non-array content", () => {
+    expect(T.contentToRequestParts(null)).toEqual([
+      { type: "text", text: "", status: "created" },
+    ]);
+    expect(T.contentToRequestParts(7)).toEqual([
+      { type: "text", text: "7", status: "created" },
+    ]);
+  });
+
+  it("returns a single empty text part for an empty array", () => {
+    expect(T.contentToRequestParts([])).toEqual([
+      { type: "text", text: "", status: "created" },
+    ]);
+  });
+
+  it("resolves image content urls and marks parts created", () => {
+    const parts = T.contentToRequestParts([
+      { type: "image", image_url: "/files/a.png" },
+    ]);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].status).toBe("created");
+    expect(String(parts[0].image_url)).toContain("/files/a.png");
+  });
+
+  it("resolves audio data urls", () => {
+    const parts = T.contentToRequestParts([
+      { type: "audio", data: "/files/b.mp3" },
+    ]);
+    expect(String(parts[0].data)).toContain("/files/b.mp3");
+  });
+
+  it("resolves video urls", () => {
+    const parts = T.contentToRequestParts([
+      { type: "video", video_url: "/files/c.mp4" },
+    ]);
+    expect(String(parts[0].video_url)).toContain("/files/c.mp4");
+  });
+
+  it("resolves file urls from file_url or file_id with a fallback name", () => {
+    const byUrl = T.contentToRequestParts([
+      { type: "file", file_url: "/files/d.pdf", filename: "d.pdf" },
+    ]);
+    expect(String(byUrl[0].file_url)).toContain("/files/d.pdf");
+    expect(byUrl[0].file_name).toBe("d.pdf");
+
+    const byId = T.contentToRequestParts([
+      { type: "file", file_id: "fid-1", file_name: "named.bin" },
+    ]);
+    expect(String(byId[0].file_url)).toContain("fid-1");
+    expect(byId[0].file_name).toBe("named.bin");
+
+    const unnamed = T.contentToRequestParts([
+      { type: "file", file_id: "fid-2" },
+    ]);
+    expect(unnamed[0].file_name).toBe("file");
+  });
+
+  it("passes through content items with no url fields", () => {
+    const parts = T.contentToRequestParts([{ type: "text", text: "plain" }]);
+    expect(parts[0].text).toBe("plain");
+    expect(parts[0].status).toBe("created");
+  });
+});

@@ -29,6 +29,8 @@ const {
   mockOwnershipState,
   mockCopyText,
   mockClearSubmittedSenderInput,
+  mockBeginLoopModeSubmission,
+  mockRequiresQwenPawModel,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -42,6 +44,8 @@ const {
   mockOwnershipState: { acquire: true },
   mockCopyText: vi.fn().mockResolvedValue(undefined),
   mockClearSubmittedSenderInput: vi.fn(),
+  mockBeginLoopModeSubmission: vi.fn((text: string) => text),
+  mockRequiresQwenPawModel: vi.fn(() => true),
 }));
 
 let capturedOptions: any = null;
@@ -276,7 +280,7 @@ vi.mock("@/stores/loopStore", () => ({
       })),
     },
   ),
-  beginLoopModeSubmission: vi.fn((text: string) => text),
+  beginLoopModeSubmission: mockBeginLoopModeSubmission,
   fetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   fetchAvailableLoopModes: vi.fn(() => Promise.resolve([])),
   markLoopModeRunning: vi.fn(),
@@ -371,7 +375,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
 }));
 
 vi.mock("@/utils/agentBackend", () => ({
-  requiresQwenPawModel: vi.fn(() => true),
+  requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
 }));
 
@@ -556,6 +560,10 @@ describe("ChatPage coverage", () => {
     mockSelectedAgent.mockReturnValue("default");
     mockOwnershipState.acquire = true;
     mockCopyText.mockClear();
+    mockBeginLoopModeSubmission.mockReset();
+    mockBeginLoopModeSubmission.mockImplementation((text: string) => text);
+    mockRequiresQwenPawModel.mockReset();
+    mockRequiresQwenPawModel.mockReturnValue(true);
     mockListProviders.mockResolvedValue([
       {
         id: "openai",
@@ -1354,6 +1362,66 @@ describe("ChatPage coverage", () => {
     } finally {
       session.lastActiveChatId = previous;
     }
+  });
+
+  // ── handleBeforeSubmit: SDK query override ─────────────────────────────
+  it("returns the prepared query after the SDK captures input data", async () => {
+    mockBeginLoopModeSubmission.mockImplementation(
+      (text: string) => `/goal ${text}`,
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    expect(typeof beforeSubmit).toBe("function");
+
+    const inputData = {
+      query: "do the task",
+      fileList: [
+        {
+          uid: "file-1",
+          name: "notes.txt",
+          response: { url: "/files/notes.txt" },
+        },
+      ],
+      mentions: [{ value: "@reviewer", type: "user" }],
+    };
+    const capturedQuery = inputData.query;
+    const result = await beforeSubmit(inputData);
+    const submitted = {
+      ...inputData,
+      query:
+        typeof result === "object" && result.query !== undefined
+          ? result.query
+          : capturedQuery,
+    };
+
+    expect(result).toMatchObject({
+      proceed: true,
+      query: "/goal do the task",
+    });
+    expect(submitted.query).toBe("/goal do the task");
+    expect(submitted.fileList).toEqual(inputData.fileList);
+    expect(submitted.mentions).toEqual(inputData.mentions);
+  });
+
+  it("leaves the query unchanged for a non-QwenPaw backend", async () => {
+    mockRequiresQwenPawModel.mockReturnValue(false);
+    mockBeginLoopModeSubmission.mockImplementation(
+      (text: string) => `/goal ${text}`,
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const result = await beforeSubmit({ query: "do the task" });
+
+    expect(result).toMatchObject({ proceed: true, query: "do the task" });
+    expect(mockBeginLoopModeSubmission).not.toHaveBeenCalled();
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────

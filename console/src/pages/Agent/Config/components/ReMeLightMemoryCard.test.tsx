@@ -597,7 +597,7 @@ describe("ReMe runtime status", () => {
       screen.getByText("agentConfig.memoryAutoMemoryEnabledSummary"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("agentConfig.memoryRecentTasksEmpty"),
+      screen.getByText("agentConfig.autoMemoryRecentTasksEmpty"),
     ).toBeInTheDocument();
 
     fireEvent.click(diagnosticsButton);

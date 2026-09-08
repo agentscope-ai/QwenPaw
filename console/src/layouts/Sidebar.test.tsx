@@ -26,6 +26,8 @@ vi.mock("@agentscope-ai/icons", () => {
     SparkDateLine: stub,
     SparkDebugLine: stub,
     SparkEmailLine: stub,
+    SparkFile2Line: stub,
+    SparkHistoryLine: stub,
     SparkInternetLine: stub,
     SparkMagicWandLine: stub,
     SparkMcpMcpLine: stub,

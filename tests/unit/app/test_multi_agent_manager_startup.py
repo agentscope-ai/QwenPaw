@@ -352,17 +352,12 @@ async def test_cleanup_forces_stop_after_maximum_wait_rounds(
 
 def _read_custom_startup_concurrency(
     value: str | None = None,
-    legacy_value: str | None = None,
 ) -> int:
     """Read the import-time setting in an isolated interpreter."""
     env = os.environ.copy()
     env.pop(constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV, None)
-    legacy_env = "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
-    env.pop(legacy_env, None)
     if value is not None:
         env[constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV] = value
-    if legacy_value is not None:
-        env[legacy_env] = legacy_value
 
     code = (
         "from qwenpaw.constant import "
@@ -415,11 +410,6 @@ def test_custom_startup_concurrency_parsing(
     expected: int,
 ) -> None:
     assert _read_custom_startup_concurrency(value=value) == expected
-
-
-def test_custom_startup_concurrency_supports_legacy_env() -> None:
-    """The legacy COPAW-prefixed environment variable remains supported."""
-    assert _read_custom_startup_concurrency(legacy_value="3") == 3
 
 
 @pytest.mark.asyncio
