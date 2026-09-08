@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-import os
-
 import httpx
 
+from ..constant import EnvVarLoader
 from .http import is_loopback_host
 
 _TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
@@ -15,11 +14,10 @@ _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
 
 def _runtime_url() -> httpx.URL | None:
     """Read the endpoint supplied by Hub, never a user API override."""
-    if not os.environ.get("QWENPAW_RUNTIME_ID") or not os.environ.get(
-        _TOKEN_ENV,
-    ):
+    runtime_id = EnvVarLoader.get_str("QWENPAW_RUNTIME_ID")
+    if not runtime_id or not EnvVarLoader.get_str(_TOKEN_ENV):
         return None
-    value = os.environ.get("QWENPAW_RUNTIME_API_URL")
+    value = EnvVarLoader.get_str("QWENPAW_RUNTIME_API_URL")
     if not value:
         return None
     try:
@@ -55,7 +53,7 @@ def add_runtime_token(request: httpx.Request) -> None:
         and target.port == runtime.port
         and not target.userinfo
     ):
-        request.headers[_TOKEN_HEADER] = os.environ[_TOKEN_ENV]
+        request.headers[_TOKEN_HEADER] = EnvVarLoader.get_str(_TOKEN_ENV)
 
 
 async def add_runtime_token_async(request: httpx.Request) -> None:
