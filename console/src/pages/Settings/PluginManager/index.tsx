@@ -26,6 +26,7 @@ export default function PluginManagerPage() {
     plugins,
     loading,
     refresh,
+    refreshUpdates,
     uninstallingId,
     handleUninstall,
     updates,
@@ -62,7 +63,7 @@ export default function PluginManagerPage() {
           plugins={plugins}
           loading={loading}
           uninstallingId={uninstallingId}
-          onRefresh={refresh}
+          onRefresh={refreshUpdates}
           onUninstall={handleUninstall}
           updates={updates}
           updatesLoading={updatesLoading}

@@ -4205,6 +4205,7 @@
     "updateAll": "全部更新",
     "updateSuccess": "插件更新成功",
     "updateAllSuccess": "全部插件更新成功",
+    "updateAllResult": "已更新 {{succeeded}} 个插件，{{failed}} 个失败：{{names}}",
     "updateFailed": "插件更新失败",
     "checkingUpdates": "正在检查插件更新...",
     "uninstall": "卸载",

@@ -23,6 +23,7 @@ import { removePluginRuntime } from "@/plugins/pluginRuntimeCleanup";
 import { removePluginAppState } from "@/os/osCleanup";
 
 const MARKET_PAGE_SIZE = 50;
+const MARKET_MAX_PAGES = 20;
 
 function addMarketUpdate(
   updates: Map<string, PluginUpdateInfo>,
@@ -31,6 +32,13 @@ function addMarketUpdate(
 ) {
   if (!marketPluginMatches(plugin, entry)) return;
   if (compareVersions(entry.version, plugin.version) <= 0) return;
+  const currentUpdate = updates.get(plugin.id);
+  if (
+    currentUpdate &&
+    compareVersions(currentUpdate.version, entry.version) >= 0
+  ) {
+    return;
+  }
   updates.set(plugin.id, {
     version: entry.version,
     source: buildMarketDownloadUrl(entry),
@@ -58,6 +66,7 @@ export function usePluginManager() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatingAll, setUpdatingAll] = useState(false);
   const updateRequestRef = useRef<AbortController | null>(null);
+  const marketEntriesRef = useRef<MarketPluginEntry[] | null>(null);
 
   const {
     data: plugins,
@@ -85,6 +94,13 @@ export function usePluginManager() {
       for (const entry of catalog?.plugins ?? []) {
         const plugin = installed.find((item) => item.id === entry.plugin_id);
         if (!plugin || !entry.upgrade_available) continue;
+        const currentUpdate = nextUpdates.get(plugin.id);
+        if (
+          currentUpdate &&
+          compareVersions(currentUpdate.version, entry.version) >= 0
+        ) {
+          continue;
+        }
         nextUpdates.set(plugin.id, {
           version: entry.version,
           source: entry.install_url,
@@ -92,26 +108,43 @@ export function usePluginManager() {
         });
       }
 
-      const marketEntries: MarketPluginEntry[] = [];
-      let page = 1;
-      let total = 0;
-      try {
-        do {
-          const result = await fetchMarketPlugins(
-            {
-              page_number: page,
-              page_size: MARKET_PAGE_SIZE,
-              sort_by: "updated_time",
-            },
-            { signal: controller.signal },
-          );
-          marketEntries.push(...result.plugins);
-          total = result.total;
-          page += 1;
-        } while (!controller.signal.aborted && marketEntries.length < total);
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        console.warn("Failed to check community plugin updates", err);
+      let marketEntries = marketEntriesRef.current;
+      if (marketEntries === null) {
+        marketEntries = [];
+        const seenEntryIds = new Set<string>();
+        let page = 1;
+        let total = Number.POSITIVE_INFINITY;
+        try {
+          while (
+            !controller.signal.aborted &&
+            page <= MARKET_MAX_PAGES &&
+            marketEntries.length < total
+          ) {
+            const result = await fetchMarketPlugins(
+              {
+                page_number: page,
+                page_size: MARKET_PAGE_SIZE,
+                sort_by: "updated_time",
+              },
+              { signal: controller.signal },
+            );
+            total = result.total;
+            if (result.plugins.length === 0) break;
+
+            const previousSize = seenEntryIds.size;
+            for (const entry of result.plugins) {
+              if (seenEntryIds.has(entry.id)) continue;
+              seenEntryIds.add(entry.id);
+              marketEntries.push(entry);
+            }
+            if (seenEntryIds.size === previousSize) break;
+            page += 1;
+          }
+          marketEntriesRef.current = marketEntries;
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          console.warn("Failed to check community plugin updates", err);
+        }
       }
 
       if (controller.signal.aborted) return;
@@ -133,6 +166,11 @@ export function usePluginManager() {
     void loadUpdates(plugins ?? []);
     return () => updateRequestRef.current?.abort();
   }, [loadUpdates, plugins]);
+
+  const refreshUpdates = useCallback(() => {
+    marketEntriesRef.current = null;
+    return refresh();
+  }, [refresh]);
 
   const updateOne = useCallback(
     async (plugin: PluginInfo) => {
@@ -159,25 +197,36 @@ export function usePluginManager() {
     if (updatingAll || updatingId !== null || updates.size === 0) return;
     setUpdatingAll(true);
     const completedIds = new Set<string>();
+    const failedPluginNames: string[] = [];
     try {
       for (const plugin of plugins ?? []) {
         const update = updates.get(plugin.id);
         if (!update) continue;
         setUpdatingId(plugin.id);
-        await installPlugin(update.source, { force: true });
-        await reloadInstalledPluginRuntime(plugin);
-        completedIds.add(plugin.id);
-        setUpdates((current) => {
-          const next = new Map(current);
-          next.delete(plugin.id);
-          return next;
-        });
+        try {
+          await installPlugin(update.source, { force: true });
+          await reloadInstalledPluginRuntime(plugin);
+          completedIds.add(plugin.id);
+          setUpdates((current) => {
+            const next = new Map(current);
+            next.delete(plugin.id);
+            return next;
+          });
+        } catch {
+          failedPluginNames.push(plugin.name);
+        }
       }
-      message.success(t("pluginManager.updateAllSuccess"));
-    } catch (err) {
-      message.error(
-        err instanceof Error ? err.message : t("pluginManager.updateFailed"),
-      );
+      if (failedPluginNames.length === 0) {
+        message.success(t("pluginManager.updateAllSuccess"));
+      } else {
+        message.error(
+          t("pluginManager.updateAllResult", {
+            succeeded: completedIds.size,
+            failed: failedPluginNames.length,
+            names: failedPluginNames.join(", "),
+          }),
+        );
+      }
     } finally {
       if (completedIds.size > 0) {
         setUpdates((current) => {
@@ -186,9 +235,12 @@ export function usePluginManager() {
           return next;
         });
       }
-      await refresh();
-      setUpdatingId(null);
-      setUpdatingAll(false);
+      try {
+        await refresh();
+      } finally {
+        setUpdatingId(null);
+        setUpdatingAll(false);
+      }
     }
   }, [message, plugins, refresh, t, updatingAll, updatingId, updates]);
 
@@ -230,6 +282,7 @@ export function usePluginManager() {
     plugins,
     loading,
     refresh,
+    refreshUpdates,
     uninstallingId,
     handleUninstall,
     updates,

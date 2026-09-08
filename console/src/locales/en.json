@@ -4187,6 +4187,7 @@
     "updateAll": "Update all",
     "updateSuccess": "Plugin updated successfully",
     "updateAllSuccess": "All plugins updated successfully",
+    "updateAllResult": "{{succeeded}} plugins updated; {{failed}} failed: {{names}}",
     "updateFailed": "Plugin update failed",
     "checkingUpdates": "Checking for plugin updates...",
     "uninstall": "Uninstall",
