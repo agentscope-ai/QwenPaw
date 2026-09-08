@@ -392,6 +392,15 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 
 长期记忆页面可以查看后台任务、等待队列、资源占用和索引组件状态。
 
+每个 Agent 的对话记忆沉淀由一个 FIFO Auto-Memory worker 统一处理。周期触发、
+`/memorize`、上下文压缩和 `/new` 都会向同一队列提交任务；每条状态记录会标明
+`periodic`、`manual`、`compact` 或 `new` 触发来源。可在对话中使用
+`/auto_memory_status` 查看这些任务。关闭时会用同一个五秒 deadline 停止 worker、
+等待正在执行的 ReMe job 退出并关闭 ReMe；如果无法按时完成，则返回失败，而不会
+无限等待或替换仍在使用的 backend。ReMe 的状态查询、图谱快照、索引重建和
+Embedding 配置撤销统一通过 memory action 接口执行，参数会按照每个 action 的完整
+JSON Schema 校验，且不会进入 Auto-Memory 队列。
+
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>

@@ -46,14 +46,14 @@
   flex-shrink: 0;
   border-radius: 6px;
   gap: 8px;
-  background-color: var(--colorBgBase, #fff);
+  background-color: var(--app-surface);
   overflow: hidden;
 
   &:hover {
-    background-color: var(--colorBgBase, #fff);
+    background-color: var(--app-surface);
     background-image: linear-gradient(
-      var(--color-fill-tertiary, rgba(43, 18, 0, 0.03)),
-      var(--color-fill-tertiary, rgba(43, 18, 0, 0.03))
+      var(--app-fill-subtle),
+      var(--app-fill-subtle)
     );
 
     .moreBtn {
@@ -63,17 +63,17 @@
 
     .iconPlaceholder {
       &::before {
-        background-color: var(--colorBorder, #c1bebb);
+        background-color: var(--app-border-strong);
       }
 
       &::after {
-        border: 1px solid var(--colorBorder, #c1bebb);
+        border: 1px solid var(--app-border-strong);
       }
     }
   }
 
   &.active {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+    background: var(--app-fill-strong);
   }
 
   &.editing .content {
@@ -98,7 +98,7 @@
   margin-bottom: 2px;
 
   &:hover {
-    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+    background: var(--app-fill-subtle);
 
     .moreBtn {
       opacity: 1;
@@ -111,15 +111,15 @@
   }
 
   &.active {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+    background: var(--app-fill);
 
     .name {
       font-weight: 500;
-      color: var(--colorText, rgba(26, 23, 22, 0.88));
+      color: var(--app-text);
     }
 
     &:hover {
-      background: var(--color-fill-secondary, rgba(43, 18, 0, 0.1));
+      background: var(--app-fill-strong);
     }
   }
 
@@ -149,7 +149,7 @@
     top: 0;
     bottom: 0;
     width: 1px;
-    background-color: var(--colorBorder, #d9d9d9);
+    background-color: var(--app-border-strong);
   }
 
   &::after {
@@ -160,8 +160,8 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background-color: var(--colorBgBase, #fff);
-    border: 1px solid var(--colorBorder, #d9d9d9);
+    background-color: var(--app-surface);
+    border: 1px solid var(--app-border-strong);
     z-index: 1;
   }
 }
@@ -205,7 +205,7 @@
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  color: var(--app-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -238,7 +238,7 @@
 }
 
 .statusDotIdle {
-  background: #94a3b8;
+  background: var(--app-status-idle);
   box-shadow: none;
 }
 
@@ -277,7 +277,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--colorTextQuaternary, rgba(26, 23, 22, 0.25));
+  background: var(--app-text-quaternary);
   pointer-events: none;
 }
 
@@ -297,7 +297,7 @@
   min-width: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.45));
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -319,8 +319,8 @@
     font-size: 11px;
     font-weight: 500;
     line-height: 18px;
-    color: var(--colorTextSecondary, rgba(26, 23, 22, 0.55));
-    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.06));
+    color: var(--app-text-secondary);
+    background: var(--app-fill-subtle);
     min-width: 0;
     opacity: 1;
   }
@@ -340,8 +340,8 @@
   gap: 4px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--colorPrimaryBg, #fff2e8);
-  color: var(--colorPrimary, #ff7f16);
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
   font-size: 10px;
   font-weight: 600;
   line-height: 17px;
@@ -351,7 +351,7 @@
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  color: var(--colorPrimary, #ff7f16);
+  color: var(--app-accent);
 }
 
 .dragHint {
@@ -359,7 +359,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.24));
+  color: var(--app-text-quaternary);
   cursor: grab;
   opacity: 0;
 }
@@ -369,7 +369,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: var(--colorPrimary, #ff7f16);
+  color: var(--app-accent);
 }
 
 .item:hover .dragHint,
@@ -396,7 +396,7 @@
   align-items: center;
   padding: 4px;
   border-radius: 4px;
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  color: var(--app-text);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
@@ -410,7 +410,7 @@
   }
 
   &[data-pinned="true"] {
-    color: var(--colorPrimary, #ff9d4d);
+    color: var(--app-accent);
   }
 }
 
@@ -437,12 +437,12 @@
   border: none;
   background: transparent;
   border-radius: 4px;
-  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  color: var(--app-text);
   cursor: pointer;
   transition: background 0.15s;
 
   &:hover {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+    background: var(--app-fill);
   }
 }
 
@@ -456,7 +456,7 @@
   height: 22px;
   border-radius: 4px;
   font-size: 14px;
-  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  color: var(--app-text-tertiary);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -464,8 +464,8 @@
   flex-shrink: 0;
 
   &:hover {
-    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
-    color: var(--colorText, rgba(26, 23, 22, 0.88));
+    background: var(--app-fill);
+    color: var(--app-text);
   }
 
   .sidebar & {
@@ -488,96 +488,4 @@
   flex: 1;
   min-width: 0;
   font-size: 13px;
-}
-
-/* ── Dark mode ────────────────────────────────────────────────────────── */
-
-:global(.dark-mode) {
-  .drawer {
-    background-color: #1f1f1f;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &.active {
-      background: rgba(255, 255, 255, 0.15);
-    }
-  }
-
-  .sidebar {
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    &.active {
-      background: rgba(255, 255, 255, 0.1);
-
-      .name {
-        color: rgba(255, 255, 255, 0.95);
-      }
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.12);
-      }
-    }
-  }
-
-  .iconPlaceholder {
-    &::before {
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-
-    &::after {
-      background-color: #1f1f1f;
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-  }
-
-  .name {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .statusDotIdle {
-    background: rgba(255, 255, 255, 0.35);
-  }
-
-  .time {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .drawer .channelTag {
-    color: rgba(255, 255, 255, 0.65);
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  .sourceTag {
-    color: #f5a05a;
-    background: rgba(240, 126, 38, 0.16);
-  }
-
-  .pinButton {
-    color: rgba(255, 255, 255, 0.72);
-
-    &[data-pinned="true"] {
-      color: var(--colorPrimary, #ff9d4d);
-    }
-  }
-
-  .actionButton {
-    color: rgba(255, 255, 255, 0.72);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .moreBtn {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
 }

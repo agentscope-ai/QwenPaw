@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from functools import wraps
@@ -14,7 +13,13 @@ from agentscope.tool import ToolChunk
 
 from ...config.config import PowerContextMemoryConfig, load_agent_config
 from ...config.utils import get_or_create_powercontext_installation_id
-from .base_memory_manager import BaseMemoryManager, memory_registry
+from ...utils.io_utils import run_sync_io
+from .base_memory_manager import (
+    AutoMemorySearchOptions,
+    BaseMemoryManager,
+    NO_RELEVANT_MEMORIES,
+    memory_registry,
+)
 from .powercontext_client import (
     MAX_MEMORY_TEXT_BYTES,
     TRUNCATION_MARKER,
@@ -41,7 +46,6 @@ class PowerContextMemoryManager(BaseMemoryManager):
         self._client: PowerContextMemoryClient | None = None
         self._config: PowerContextMemoryConfig | None = None
         self._resolved_scope_id = ""
-        self._pending: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         cfg = load_agent_config(
@@ -74,15 +78,8 @@ class PowerContextMemoryManager(BaseMemoryManager):
             self._client = None
             self._resolved_scope_id = ""
 
-    async def close(self) -> bool:
-        # ``/new`` and ``/compact`` can start the inherited summarize worker.
-        # Stop it before draining writes: otherwise it could schedule a new
-        # remote write while this method is closing the HTTP client.
-        if not await self._shutdown_summarize_worker():
-            return False
-        if self._pending:
-            await asyncio.gather(*self._pending, return_exceptions=True)
-            self._pending.clear()
+    async def _close_backend(self) -> bool:
+        """Close the remote client after shared auto-memory work stops."""
         client, self._client = self._client, None
         self._resolved_scope_id = ""
         if client is None:
@@ -101,11 +98,6 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 ),
             )
             return False
-
-    def get_memory_config(self) -> Any:
-        return load_agent_config(
-            self.agent_id,
-        ).running.powercontext_memory_config
 
     def get_memory_prompt(self) -> str:
         if self._client is None:
@@ -144,101 +136,110 @@ class PowerContextMemoryManager(BaseMemoryManager):
     def get_auto_memory_interval(self) -> int:
         return 1 if self._client is not None else 0
 
-    async def auto_memory_search(
+    async def get_auto_memory_search_options(
         self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        del agent_name
-        del kwargs
-        if self._client is None or not getattr(
-            self._config.auto_memory_search_config,
-            "enabled",
-            True,
+    ) -> AutoMemorySearchOptions | None:
+        """Return configured PowerContext automatic recall settings."""
+        config = self._config
+        if (
+            self._client is None
+            or config is None
+            or not getattr(
+                config.auto_memory_search_config,
+                "enabled",
+                True,
+            )
         ):
             return None
-        msgs = [messages] if isinstance(messages, Msg) else list(messages)
-        query = self._build_query(msgs)
-        if not query:
-            return None
-        max_results = getattr(
-            self._config.auto_memory_search_config,
-            "max_results",
-            3,
+        search_config = config.auto_memory_search_config
+        return AutoMemorySearchOptions(
+            max_results=max(
+                1,
+                int(getattr(search_config, "max_results", 3)),
+            ),
+            estimate_divisor=await run_sync_io(
+                self._get_token_estimate_divisor,
+            ),
+            max_context_bytes=max(
+                0,
+                int(
+                    getattr(
+                        search_config,
+                        "max_context_bytes",
+                        DEFAULT_MAX_CONTEXT_BYTES,
+                    ),
+                ),
+            ),
         )
-        max_context_bytes = getattr(
-            self._config.auto_memory_search_config,
-            "max_context_bytes",
-            DEFAULT_MAX_CONTEXT_BYTES,
+
+    async def _search_for_auto_memory(
+        self,
+        *,
+        query: str,
+        options: AutoMemorySearchOptions,
+    ) -> ToolChunk:
+        """Search within PowerContext's complete synthetic-message budget."""
+        max_results = max(1, int(options.max_results))
+        max_context_bytes = (
+            DEFAULT_MAX_CONTEXT_BYTES
+            if options.max_context_bytes is None
+            else options.max_context_bytes
         )
-        result = await self._search_memories(
+        return await self._search_memories(
             query,
             max_results,
             max_context_bytes=self._auto_search_result_budget(
                 query=query,
                 max_results=max_results,
                 max_context_bytes=max_context_bytes,
+                estimate_divisor=options.estimate_divisor,
             ),
         )
-        if result.state != ToolResultState.SUCCESS:
-            return None
-        text = self._chunk_text(result)
-        if not text or text == "No relevant memories found.":
-            return None
-        return {
-            "query": query,
-            "text": text,
-            "msg": msgs
-            + [
-                self._build_auto_memory_search_msg(
-                    query=query,
-                    max_results=max_results,
-                    text=text,
-                ),
-            ],
-        }
 
     async def auto_memory(
         self,
-        all_messages: list[Msg],
+        messages: list[Msg],
         **kwargs: Any,
-    ) -> None:
+    ) -> str:
         del kwargs
         if self._client is None:
-            return
-        all_messages = self._messages_without_auto_memory_search(all_messages)
+            return ""
+        messages = self._messages_without_auto_memory_search(messages)
         user = [
             m.get_text_content().strip()
-            for m in all_messages
+            for m in messages
             if m.role == "user" and m.get_text_content().strip()
         ]
         assistant = [
             m.get_text_content().strip()
-            for m in all_messages
+            for m in messages
             if m.role == "assistant" and m.get_text_content().strip()
         ]
         if not user:
-            return
+            return ""
         text = "用户目标/输入:\n" + "\n".join(user[-3:])
         if assistant:
             text += "\n\nAgent结果:\n" + "\n".join(assistant[-2:])
-        self._schedule_remember(
-            "task_state",
-            truncate_utf8_text(text, marker=TRUNCATION_MARKER),
-        )
-
-    async def summarize(self, messages: list[Msg], **kwargs: Any) -> str:
-        await self.auto_memory(messages, **kwargs)
-        return ""
+        try:
+            await self._client.remember(
+                kind="task_state",
+                text=truncate_utf8_text(text, marker=TRUNCATION_MARKER),
+            )
+        except Exception as exc:
+            # The shared worker records and logs the raised exception. Ensure
+            # backend credentials cannot be copied into either surface.
+            raise RuntimeError(self._safe_exception_summary(exc)) from exc
+        return "Saved auto-memory to PowerContext."
 
     async def memory_search(
         self,
         query: str,
         max_results: int = 5,
         min_score: float = 0.0,
+        **kwargs: Any,
     ) -> ToolChunk:
         """Search PowerContext memories and include their exact Citation."""
+        del kwargs
         return await self._search_memories(
             query,
             max_results,
@@ -317,7 +318,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         rendered_result = (
             POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE + "\n\n" + "\n\n".join(parts)
             if parts
-            else "No relevant memories found."
+            else NO_RELEVANT_MEMORIES
         )
         if (
             was_truncated
@@ -437,40 +438,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
             content=[TextBlock(type="text", text=text)],
         )
 
-    def _schedule_remember(self, kind: str, text: str) -> None:
-        client = self._client
-        if client is None:
-            return
-
-        async def write() -> None:
-            try:
-                await client.remember(kind=kind, text=text)
-            except Exception as exc:
-                token = str(
-                    getattr(getattr(client, "config", None), "token", ""),
-                )
-                logger.warning(
-                    "PowerContext memory write failed: %s",
-                    safe_powercontext_exception_summary(exc, token=token),
-                )
-
-        task = asyncio.create_task(write())
-        self._pending.add(task)
-        task.add_done_callback(self._pending.discard)
-
     def _safe_exception_summary(self, exc: BaseException) -> str:
         token = str(
             getattr(getattr(self._client, "config", None), "token", ""),
         )
         return safe_powercontext_exception_summary(exc, token=token)
-
-    @staticmethod
-    def _chunk_text(chunk: ToolChunk) -> str:
-        return "\n".join(
-            str(getattr(block, "text", ""))
-            for block in chunk.content or []
-            if getattr(block, "text", "")
-        )
 
     def _auto_search_result_budget(
         self,
@@ -478,12 +450,14 @@ class PowerContextMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int,
         max_context_bytes: int,
+        estimate_divisor: float = 4.0,
     ) -> int:
         """Reserve bytes for synthetic tool metadata before retrieval text."""
         message = self._build_auto_memory_search_msg(
             query=query,
             max_results=max_results,
             text="",
+            estimate_divisor=estimate_divisor,
         )
         overhead = 0
         for block in message.content:

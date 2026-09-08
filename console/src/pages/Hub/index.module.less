@@ -1,30 +1,19 @@
 .shell {
-  --hub-bg: #f6f4f0;
-  --hub-surface: #fffdfb;
-  --hub-surface-subtle: #faf7f3;
-  --hub-border: #e9e2dc;
-  --hub-text: #29180d;
-  --hub-muted: #776c64;
-  --hub-faint: #a59c95;
-  --hub-accent: #ff7a1a;
-  --hub-accent-deep: #d95300;
-  --hub-accent-soft: #fff0e4;
+  --hub-bg: var(--app-bg);
+  --hub-surface: var(--app-surface);
+  --hub-surface-subtle: var(--app-surface-subtle);
+  --hub-border: var(--app-border);
+  --hub-text: var(--app-text);
+  --hub-muted: var(--app-text-secondary);
+  --hub-faint: var(--app-text-tertiary);
+  --hub-accent: var(--app-accent);
+  --hub-accent-deep: var(--app-accent-text);
+  --hub-accent-soft: var(--app-accent-soft);
   height: 100vh;
   overflow-y: auto;
   overscroll-behavior: contain;
   color: var(--hub-text);
   background: var(--hub-bg);
-}
-
-:global(html.dark-mode) .shell {
-  --hub-bg: #12110f;
-  --hub-surface: #1b1917;
-  --hub-surface-subtle: #24211e;
-  --hub-border: rgba(255, 255, 255, 0.09);
-  --hub-text: rgba(255, 255, 255, 0.9);
-  --hub-muted: rgba(255, 255, 255, 0.58);
-  --hub-faint: rgba(255, 255, 255, 0.36);
-  --hub-accent-soft: rgba(255, 122, 26, 0.14);
 }
 
 .sidebar {
@@ -72,9 +61,9 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 11px;
-  color: white;
+  color: var(--app-text-inverse);
   background: var(--hub-accent);
-  box-shadow: 0 8px 20px rgba(255, 122, 26, 0.25);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--hub-accent) 25%, transparent);
 }
 
 .navLabel {
@@ -165,13 +154,13 @@
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: #16866c;
-  box-shadow: 0 0 0 4px rgba(22, 134, 108, 0.12);
+  background: var(--app-success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-success) 12%, transparent);
 }
 
 .dotError {
-  background: #c4463a;
-  box-shadow: 0 0 0 4px rgba(196, 70, 58, 0.12);
+  background: var(--app-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-error) 12%, transparent);
 }
 
 .account {
@@ -282,10 +271,10 @@
   gap: 12px;
   margin-bottom: 20px;
   padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, #c4463a 28%, var(--hub-border));
+  border: 1px solid var(--app-error-border);
   border-radius: 12px;
-  color: #9f3028;
-  background: color-mix(in srgb, #c4463a 7%, var(--hub-surface));
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
 
   > svg {
     flex: 0 0 auto;
@@ -356,12 +345,13 @@
   min-height: 188px;
   padding: 23px;
   border-radius: 15px;
-  color: #fff7f0;
-  background: #29180d;
-  box-shadow: 0 18px 50px rgba(60, 35, 16, 0.12);
+  border: 1px solid var(--hub-border);
+  color: var(--hub-text);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
 
   > span {
-    color: #ffb77f;
+    color: var(--hub-accent-deep);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.11em;
@@ -378,7 +368,7 @@
   p {
     max-width: 280px;
     margin: 6px 0 0;
-    color: rgba(255, 247, 240, 0.58);
+    color: var(--hub-muted);
     font-size: 10px;
   }
 
@@ -386,7 +376,7 @@
     position: absolute;
     right: -15px;
     bottom: -28px;
-    color: rgba(255, 122, 26, 0.2);
+    color: var(--hub-accent-soft);
     stroke-width: 1;
   }
 }
@@ -427,7 +417,7 @@
 }
 
 .warningText {
-  color: #c4463a !important;
+  color: var(--app-error-text) !important;
 }
 
 .overviewGrid {
@@ -442,7 +432,7 @@
   border: 1px solid var(--hub-border);
   border-radius: 13px;
   background: var(--hub-surface);
-  box-shadow: 0 10px 30px rgba(60, 35, 16, 0.035);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .surfacePanel {
@@ -890,10 +880,10 @@
 .dockerWarning {
   margin-bottom: 16px;
   padding: 11px 13px;
-  border: 1px solid color-mix(in srgb, var(--hub-danger) 30%, transparent);
+  border: 1px solid var(--app-error-border);
   border-radius: 9px;
-  color: var(--hub-danger);
-  background: color-mix(in srgb, var(--hub-danger) 6%, transparent);
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
   font-size: 10px;
   line-height: 1.5;
 }

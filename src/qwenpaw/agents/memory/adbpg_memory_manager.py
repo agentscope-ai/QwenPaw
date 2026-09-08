@@ -7,9 +7,8 @@ Context compaction is handled natively by AgentScope's
 ``ToolResultPruningMiddleware``. This class only manages long-term
 memory storage and retrieval.
 """
-import asyncio
+
 import logging
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +21,12 @@ from .adbpg_client import (
     ADBPGMemoryClient,
 )
 from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
-from .base_memory_manager import BaseMemoryManager, memory_registry
+from .base_memory_manager import (
+    AutoMemorySearchOptions,
+    BaseMemoryManager,
+    NO_RELEVANT_MEMORIES,
+    memory_registry,
+)
 from ...config.config import load_agent_config
 from ...exceptions import ConfigurationException as ConfigurationError
 from ...utils.io_utils import run_sync_io
@@ -47,7 +51,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self._effective_user_id: str = "shared"
         self._effective_run_id: str = "shared"
         self._persisted_msg_ids: set[str] = set()
-        self._pending_add_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Abstract methods (required)
@@ -114,15 +117,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
             )
             self._client = None
 
-    async def close(self) -> bool:
+    async def _close_backend(self) -> bool:
         """Clean up resources."""
-        if self._pending_add_tasks:
-            await asyncio.gather(
-                *list(self._pending_add_tasks),
-                return_exceptions=True,
-            )
-            self._pending_add_tasks.clear()
-
         client = self._client
         self._client = None
         if client is None:
@@ -134,11 +130,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
             logger.exception("ADBPG close failed")
             return False
 
-    def get_memory_config(self) -> Any:
-        """Return ADBPG memory configuration."""
-        agent_config = load_agent_config(self.agent_id)
-        return agent_config.running.adbpg_memory_config
-
     def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
         agent_config = load_agent_config(self.agent_id)
@@ -149,10 +140,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
 
-    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
-        """Return memory tools exposed to the agent."""
-        return [self.memory_search]
-
     def get_auto_memory_interval(self) -> int:
         """Persist ADBPG user messages every turn."""
         return 1
@@ -161,29 +148,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # Optional methods (override)
     # ------------------------------------------------------------------
 
-    async def summarize(self, messages: list[Msg], **_kwargs) -> str:
-        """Persist user messages to ADBPG via fire-and-forget."""
-        if self._client is None:
-            return ""
-        user_messages = self._filter_user_messages(messages)
-        if not user_messages:
-            return ""
-        for single in user_messages:
-            self._schedule_add([single])
-        return (
-            f"Persisted {len(user_messages)} user message(s) "
-            f"to ADBPG for agent '{self.agent_id}'."
-        )
-
-    async def auto_memory_search(
+    async def get_auto_memory_search_options(
         self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        """Auto-search ADBPG memory before the model call."""
-        del agent_name
-        del kwargs
+    ) -> AutoMemorySearchOptions | None:
+        """Return configured ADBPG automatic recall settings."""
         if self._client is None:
             return None
 
@@ -193,32 +161,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
         search_cfg = getattr(memory_cfg, "auto_memory_search_config", None)
         if not getattr(search_cfg, "enabled", False):
             return None
-
-        msgs = [messages] if isinstance(messages, Msg) else list(messages)
-        query = self._build_query(msgs)
-        if not query:
-            return None
-
-        max_results = max(1, int(getattr(search_cfg, "max_results", 3)))
-        result = await self.memory_search(
-            query=query,
-            max_results=max_results,
-        )
-        text = self._tool_chunk_text(result).strip()
-        if not text or text == "No relevant memories found.":
-            return None
-
-        assistant_msg = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=max_results,
-            text=text,
+        return AutoMemorySearchOptions(
+            max_results=max(1, int(getattr(search_cfg, "max_results", 3))),
             estimate_divisor=estimate_divisor,
         )
-        return {
-            "query": query,
-            "text": text,
-            "msg": msgs + [assistant_msg],
-        }
 
     def _load_auto_search_config(self) -> tuple[Any, float]:
         """Load ADBPG search settings and token estimate configuration."""
@@ -230,35 +176,42 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def auto_memory(
         self,
-        all_messages: list[Msg],
-        **kwargs,
-    ) -> None:
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
         """Persist new user messages to ADBPG every turn.
 
         ADBPG server-side handles fact extraction, so we persist on every
         turn (interval=1) without filtering by interval config.
         """
+        del kwargs
         if self._client is None:
-            return
+            return ""
 
-        all_messages = self._messages_without_auto_memory_search(all_messages)
+        messages = self._messages_without_auto_memory_search(messages)
 
         # Only persist messages not already sent
         new_messages = [
             msg
-            for msg in all_messages
+            for msg in messages
             if msg.role == "user" and msg.id not in self._persisted_msg_ids
         ]
         if not new_messages:
-            return
+            return ""
 
         user_messages = self._filter_user_messages(new_messages)
-        for single in user_messages:
-            self._schedule_add([single])
-
-        # Track persisted message IDs
-        for msg in new_messages:
+        for msg, single in zip(new_messages, user_messages, strict=True):
+            await self._client.add_memory(
+                messages=[single],
+                user_id=self._effective_user_id,
+                run_id=self._effective_run_id,
+                agent_id=self._effective_agent_id,
+            )
             self._persisted_msg_ids.add(msg.id)
+        return (
+            f"Processed {len(user_messages)} user message(s) "
+            f"to ADBPG for agent '{self.agent_id}'."
+        )
 
     # ------------------------------------------------------------------
     # Tool function
@@ -269,6 +222,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
+        **kwargs: Any,
     ) -> ToolChunk:
         """Search memories from both ADBPG and local memory files.
 
@@ -288,6 +242,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
             `ToolChunk`:
                 Search results with source and content.
         """
+        del kwargs
         parts: list[str] = []
 
         # Source 1: ADBPG semantic search
@@ -313,13 +268,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         # Source 2: Local memory files (keyword match)
         try:
-            loop = asyncio.get_running_loop()
-            local_hits = await loop.run_in_executor(
-                None,
-                lambda: self._search_local_memory_files(
-                    query,
-                    max_results=max(max_results - len(parts), 3),
-                ),
+            local_hits = await run_sync_io(
+                self._search_local_memory_files,
+                query,
+                max_results=max(max_results - len(parts), 3),
             )
             for filepath, snippet in local_hits:
                 idx = len(parts) + 1
@@ -332,7 +284,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
                 is_last=True,
                 state=ToolResultState.SUCCESS,
                 content=[
-                    TextBlock(type="text", text="No relevant memories found."),
+                    TextBlock(type="text", text=NO_RELEVANT_MEMORIES),
                 ],
             )
 
@@ -349,15 +301,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _tool_chunk_text(chunk: ToolChunk) -> str:
-        parts = []
-        for block in chunk.content or []:
-            text = getattr(block, "text", "")
-            if text:
-                parts.append(str(text))
-        return "\n".join(parts)
-
-    @staticmethod
     def _filter_user_messages(messages: list[Msg]) -> list[dict]:
         """Extract role=user messages for ADBPG storage."""
         return [
@@ -372,30 +315,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
             for msg in messages
             if msg.role == "user"
         ]
-
-    def _schedule_add(self, user_messages: list[dict]) -> None:
-        """Schedule async memory persistence without blocking the reply."""
-        if self._client is None:
-            return
-        agent_id = self._effective_agent_id
-        user_id = self._effective_user_id
-        run_id = self._effective_run_id
-        client = self._client
-
-        async def _do_add() -> None:
-            try:
-                await client.add_memory(
-                    messages=user_messages,
-                    user_id=user_id,
-                    run_id=run_id,
-                    agent_id=agent_id,
-                )
-            except Exception as e:
-                logger.error(f"Background memory add failed: {e}")
-
-        task = asyncio.create_task(_do_add())
-        self._pending_add_tasks.add(task)
-        task.add_done_callback(self._pending_add_tasks.discard)
 
     def _search_local_memory_files(
         self,

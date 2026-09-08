@@ -68,10 +68,10 @@
   min-height: 30px;
   flex-shrink: 0;
   padding: 4px 12px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
-  background: var(--color-bg-container, #ffffff);
-  color: var(--color-text-secondary, rgba(20, 20, 19, 0.58));
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
   font: inherit;
   font-size: 13px;
   line-height: 20px;
@@ -82,20 +82,20 @@
     background-color 0.16s ease;
 
   &:hover {
-    border-color: var(--color-border, #d8d4cf);
-    color: var(--color-text, rgba(20, 20, 19, 0.88));
+    border-color: var(--app-border-hover);
+    color: var(--app-text);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-primary, #ff7a00);
+    outline: 2px solid var(--app-accent);
     outline-offset: 1px;
   }
 }
 
 .categoryChipActive {
-  border-color: var(--color-fill-secondary, #e8e6e3);
-  background: var(--color-fill-secondary, #e8e6e3);
-  color: var(--color-text, rgba(20, 20, 19, 0.88));
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-weight: 500;
 }
 
@@ -133,7 +133,7 @@
 .providerDropdown {
   :global(.ant-select-item-option-selected),
   :global(.qwenpaw-select-item-option-selected) {
-    background: var(--color-fill-secondary, #e8e6e3) !important;
+    background: var(--app-fill) !important;
   }
 }
 
@@ -152,7 +152,7 @@
 
 .searchHint {
   font-size: 13px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -162,17 +162,17 @@
 .browseHint {
   padding: 8px 12px;
   border-radius: 6px;
-  background: rgba(22, 119, 255, 0.06);
-  border: 1px solid rgba(22, 119, 255, 0.16);
-  color: #1668dc;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
+  color: var(--app-info-text);
   font-size: 13px;
 }
 
 /* ─── Error row ──────────────────────────────────────────────────────────── */
 .errorRow {
-  background: rgba(245, 34, 45, 0.06);
-  border: 1px solid rgba(245, 34, 45, 0.18);
-  color: #cf1322;
+  background: var(--app-error-bg);
+  border: 1px solid var(--app-error-border);
+  color: var(--app-error-text);
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 13px;
@@ -195,7 +195,7 @@
 }
 
 .noMoreText {
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
 
@@ -205,7 +205,7 @@
   justify-content: center;
   width: 100%;
   min-height: 32px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
 
@@ -216,10 +216,10 @@
   bottom: 16px;
   width: 320px;
   max-height: 400px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -227,13 +227,13 @@
 
 .queueHeader {
   padding: 12px;
-  border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 }
 
 .queueList {
@@ -241,67 +241,6 @@
   overflow-y: auto;
   padding: 8px;
 }
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .providerDropdown {
-    :global(.ant-select-item-option-selected),
-    :global(.qwenpaw-select-item-option-selected) {
-      background: rgba(255, 255, 255, 0.1) !important;
-    }
-  }
-
-  .categoryChip {
-    border-color: rgba(255, 255, 255, 0.16);
-    background: #1f1f1f;
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover:not(.categoryChipActive) {
-      border-color: rgba(255, 255, 255, 0.3);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .categoryChipActive {
-    border-color: rgba(255, 127, 22, 0.5);
-    background: rgba(255, 127, 22, 0.18);
-    color: #ffad66;
-  }
-
-  .searchHint {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .browseHint {
-    background: rgba(22, 119, 255, 0.12);
-    border-color: rgba(22, 119, 255, 0.28);
-    color: #6cb2ff;
-  }
-
-  .errorRow {
-    background: rgba(245, 34, 45, 0.12);
-    border-color: rgba(245, 34, 45, 0.25);
-    color: #ff7875;
-  }
-
-  .noMoreText {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .sentinel {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .queueDrawer {
-    background: #2a2a2a;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  }
-
-  .queueHeader {
-    color: rgba(255, 255, 255, 0.88);
-  }
-}
-
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .filters {

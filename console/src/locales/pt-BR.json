@@ -4039,8 +4039,6 @@
     "checkAgentTaskDefault": "Verificar tarefa",
     "delegateExternalAgent": "Delegar {{runner}}",
     "delegateExternalAgentDefault": "Delegar agente externo",
-    "materializeSkill": "Criar {{skill}}",
-    "materializeSkillDefault": "Criar habilidade",
     "shell": "Executar {{command}}",
     "shellDefault": "Executar comando",
     "formatTable": {

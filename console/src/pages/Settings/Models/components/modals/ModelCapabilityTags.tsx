@@ -3,58 +3,52 @@ import { Boxes, CircleHelp, Eye, FileText, Video } from "lucide-react";
 import type { ModelInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 
-export const tagColors = (isDark: boolean) => ({
+export const tagColors = () => ({
   multimodal: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
   vision: {
-    backgroundColor: isDark ? "rgba(19,194,194,0.15)" : "#e6fffb",
-    color: "#13c2c2",
-    borderColor: isDark ? "rgba(19,194,194,0.3)" : "#87e8de",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
   video: {
-    backgroundColor: isDark ? "rgba(114,46,211,0.15)" : "#f9f0ff",
-    color: "#722ed1",
-    borderColor: isDark ? "rgba(114,46,211,0.3)" : "#d3adf7",
+    backgroundColor: "var(--app-accent-soft)",
+    color: "var(--app-accent-text)",
+    borderColor: "var(--app-accent-border)",
   },
   text: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#595959",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+    backgroundColor: "var(--app-fill-subtle)",
+    color: "var(--app-text-secondary)",
+    borderColor: "var(--app-border-strong)",
   },
   notProbed: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#8c8c8c",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+    backgroundColor: "var(--app-fill-subtle)",
+    color: "var(--app-text-tertiary)",
+    borderColor: "var(--app-border-strong)",
   },
   builtin: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+    backgroundColor: "var(--app-success-bg)",
+    color: "var(--app-success-text)",
+    borderColor: "var(--app-success-border)",
   },
   free: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+    backgroundColor: "var(--app-success-bg)",
+    color: "var(--app-success-text)",
+    borderColor: "var(--app-success-border)",
   },
   userAdded: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+    backgroundColor: "var(--app-info-bg)",
+    color: "var(--app-info-text)",
+    borderColor: "var(--app-info-border)",
   },
 });
 
-export function CapabilityTags({
-  model,
-  isDark,
-}: {
-  model: ModelInfo;
-  isDark: boolean;
-}) {
+export function CapabilityTags({ model }: { model: ModelInfo }) {
   const { t } = useTranslation();
-  const c = tagColors(isDark);
+  const c = tagColors();
   if (model.supports_image && model.supports_video) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>

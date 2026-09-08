@@ -1,18 +1,18 @@
 .page {
-  --env-accent: var(--qwenpaw-color-primary, #ff7f16);
-  --env-accent-soft: var(--qwenpaw-color-primary-bg, #fff2e8);
-  --env-warning: var(--qwenpaw-color-warning-text, #765a25);
-  --env-warning-soft: var(--qwenpaw-color-warning-bg, #f7efd9);
-  --env-danger: var(--qwenpaw-color-error-text, #9d3939);
-  --env-danger-soft: var(--qwenpaw-color-error-bg, #f8eaea);
-  --env-page: var(--qwenpaw-color-bg-layout, #f9f8f4);
-  --env-surface: var(--qwenpaw-color-bg-container, #ffffff);
-  --env-surface-muted: var(--qwenpaw-color-fill-quaternary, #f5f5f5);
-  --env-border: var(--qwenpaw-color-border-secondary, #e8e8e8);
-  --env-border-strong: var(--qwenpaw-color-border, #d9d9d9);
-  --env-text: var(--qwenpaw-color-text, #1f1f1f);
-  --env-text-muted: var(--qwenpaw-color-text-secondary, rgba(0, 0, 0, 0.65));
-  --env-text-faint: var(--qwenpaw-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --env-accent: var(--app-accent);
+  --env-accent-soft: var(--app-accent-soft);
+  --env-warning: var(--app-warning-text);
+  --env-warning-soft: var(--app-warning-bg);
+  --env-danger: var(--app-error-text);
+  --env-danger-soft: var(--app-error-bg);
+  --env-page: var(--app-bg);
+  --env-surface: var(--app-surface);
+  --env-surface-muted: var(--app-fill-subtle);
+  --env-border: var(--app-border-subtle);
+  --env-border-strong: var(--app-border-strong);
+  --env-text: var(--app-text);
+  --env-text-muted: var(--app-text-secondary);
+  --env-text-faint: var(--app-text-tertiary);
   height: 100%;
   overflow: auto;
   background: var(--env-page);
@@ -244,56 +244,9 @@
   background: var(--env-accent-soft);
   font-size: 12px;
 }
-:global(.dark-mode) .page {
-  --env-accent: var(--qwenpaw-color-primary, #ff9d4d);
-  --env-accent-soft: var(--qwenpaw-color-primary-bg, rgba(255, 127, 22, 0.14));
-  --env-warning: var(--qwenpaw-color-warning-text, #ffd666);
-  --env-warning-soft: var(--qwenpaw-color-warning-bg, rgba(250, 173, 20, 0.16));
-  --env-danger: var(--qwenpaw-color-error-text, #ff7875);
-  --env-danger-soft: var(--qwenpaw-color-error-bg, rgba(255, 77, 79, 0.16));
-  --env-page: var(--qwenpaw-color-bg-layout, #141414);
-  --env-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
-  --env-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
-  --env-border: var(
-    --qwenpaw-color-border-secondary,
-    rgba(255, 255, 255, 0.12)
-  );
-  --env-border-strong: var(--qwenpaw-color-border, rgba(255, 255, 255, 0.2));
-  --env-text: var(--qwenpaw-color-text, rgba(255, 255, 255, 0.88));
-  --env-text-muted: var(
-    --qwenpaw-color-text-secondary,
-    rgba(255, 255, 255, 0.65)
-  );
-  --env-text-faint: var(
-    --qwenpaw-color-text-tertiary,
-    rgba(255, 255, 255, 0.45)
-  );
-}
-:global(.dark-mode) .pageHeader,
-:global(.dark-mode) .panel {
-  background: var(--env-surface);
-  border-color: var(--env-border);
-}
+/* Surface tokens already switch values with the active theme. */
 :global(.dark-mode) .panel {
   box-shadow: none;
-}
-:global(.dark-mode) .filters,
-:global(.dark-mode) .row,
-:global(.dark-mode) .table {
-  border-color: var(--env-border);
-}
-:global(.dark-mode) .searchBox {
-  background: var(--env-surface-muted);
-  border-color: var(--env-border);
-}
-:global(.dark-mode) .row:hover {
-  background: var(--env-surface-muted);
-}
-:global(.dark-mode) .identity code {
-  color: var(--env-text);
-}
-:global(.dark-mode) .valueText {
-  color: var(--env-text-muted);
 }
 @media (max-width: 780px) {
   .content {

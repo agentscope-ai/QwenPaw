@@ -333,11 +333,11 @@ def test_recall_history_invalid_op(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_summarize_status_and_proactive_commands(
+def test_auto_memory_status_and_proactive_commands(
     app_server,
     provider,  # pylint: disable=redefined-outer-name,unused-argument
 ):
-    """/summarize_status and /proactive report subsystem state.
+    """/auto_memory_status and /proactive report subsystem state.
 
     Test purpose:
       - Cover two more command_handler branches (compaction status and
@@ -345,7 +345,7 @@ def test_summarize_status_and_proactive_commands(
     """
     user = "integ-cmd-status"
     assert (
-        _send(app_server, user_id=user, text="/summarize_status").get(
+        _send(app_server, user_id=user, text="/auto_memory_status").get(
             "status",
         )
         == "finished"

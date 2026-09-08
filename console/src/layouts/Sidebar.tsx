@@ -309,8 +309,8 @@ export default function Sidebar({
   // ── Inbox badge dot & wobble ─────────────────────────────────────────────
   const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
   const inboxDotColor = hasPendingApprovals
-    ? "#e04848"
-    : "rgba(255, 157, 77, 1)";
+    ? "var(--app-error)"
+    : "var(--app-accent-hover)";
   const effectiveShake = shakeInbox && wobbleEnabled;
 
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
@@ -558,15 +558,7 @@ export default function Sidebar({
     const isActive =
       item.key === "core.chat" ? isChatActive : selectedKey === item.key;
     return (
-      <Tooltip
-        key={item.key}
-        title={item.label}
-        placement="right"
-        overlayInnerStyle={{
-          background: "rgba(0,0,0,0.75)",
-          color: "#fff",
-        }}
-      >
+      <Tooltip key={item.key} title={item.label} placement="right">
         <button
           type="button"
           aria-label={typeof item.label === "string" ? item.label : undefined}
@@ -613,9 +605,7 @@ export default function Sidebar({
       width={siderWidth}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
-      }${isDark ? ` ${styles.siderDark}` : ""}${
-        isSimpleExpanded ? ` ${styles.siderSimple}` : ""
-      }`}
+      }${isSimpleExpanded ? ` ${styles.siderSimple}` : ""}`}
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>

@@ -12,7 +12,7 @@ related:
       description: "The official desktop pet plugin that forwards QwenPaw backend lifecycle events to QwenPaw Pet Desktop."
     - label: "Built-in Skill"
       name: "make-skill"
-      href: "https://qwenpaw.agentscope.io/docs/skills#Create-from-current-session-via-make-skill-Beta"
+      href: "https://qwenpaw.agentscope.io/docs/skills#Create-from-current-session-via-make-skill"
       description: "Turns the workflow and experience from the current session into a reusable Skill. In this post, it is used to package the desktop-pet creation workflow as a reusable Skill."
 ---
 
