@@ -14,6 +14,7 @@ from domain.errors import ValidationError
 from schemas.observability import ObservabilityConfigData
 from services.storage_root import require_creator_data_root
 from services.runtime_files.locking import CrossProcessFileLock
+from services.runtime_files.atomic_store import atomic_replace_path
 
 _LEGACY_ENV = {
     "enabled": "CREATOR_TRACING_ENABLED",
@@ -139,7 +140,7 @@ def save_observability_config(data: ObservabilityConfigData) -> None:
                 )
             finally:
                 os.close(descriptor)
-            os.replace(temporary, path)
+            atomic_replace_path(temporary, path)
             os.chmod(path, 0o600)
         finally:
             temporary.unlink(missing_ok=True)

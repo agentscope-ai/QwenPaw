@@ -5,8 +5,9 @@ Runs inline inside the ``jq_project`` tool worker (a ``to_thread`` context):
 when the sync switch is on and the commit touched reviewable creative text,
 the changed values are scored against the vendored Appeal rubric and the
 advisory is attached to the tool result, so the model sees it on its very
-next turn of the same run. Strictly advisory and fail-open: any review
-problem only logs — the commit result is never disturbed.
+next turn of the same run. LLM taste review remains advisory and fail-open.
+Machine-verifiable R2V prompt-contract findings persist a scheduling blocker
+until repaired, while the Project commit itself is never disturbed.
 """
 
 from __future__ import annotations
@@ -26,6 +27,9 @@ from services.run_review.rubric_prompts import (
     STAGE_RUBRIC_ROWS,
     build_appeal_system_prompt,
 )
+from services.run_review.prompt_contract import (
+    check_changed_r2v_prompt_contracts,
+)
 from utils.logger import setup_logger
 
 logger = setup_logger("creator.run_review.text")
@@ -38,20 +42,19 @@ _TEXT_MODEL_TIMEOUT_SECONDS = 120.0
 _VALUE_CHAR_LIMIT = 2000
 _PAYLOAD_CHAR_LIMIT = 12000
 _PERSISTENT_MEDIA_GATE_GROUPS = frozenset(
-    {"shots", "overlay_text", "motion"},
+    {"generation_content", "overlay_text", "motion"},
 )
 
 # Pointer classification: (group, stage, substring patterns). The first
 # matching group in this order wins when one commit spans several groups.
-# Generation-driving shot/prompt text must win over the broader strategy
+# Generation-driving narrative/prompt text must win over the broader strategy
 # fields: it is the content the pre-generation fence is specifically meant
 # to validate before storyboard/R2V spend begins.
 _POINTER_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
-        "shots",
+        "generation_content",
         "text",
         (
-            "/creation/shots",
             "/creation/intent",
             "/creation/narrative",
             "/creation/continuity",
@@ -287,14 +290,14 @@ async def _review_and_script(
     stage: str,
     payload_text: str,
     strategy_payload: str,
-    shots_payload: str,
+    content_payload: str,
 ) -> tuple[str, dict[str, Any] | None]:
-    """Appeal review plus (for shots commits) the script-to-shots check.
+    """Appeal review plus script alignment for changed generation content.
 
     The two calls run concurrently on the worker's private loop; the
     script check is fail-open internally and never raises.
     """
-    if not strategy_payload or not shots_payload:
+    if not strategy_payload or not content_payload:
         return await _review_async(stage, payload_text), None
     from services.run_review.script_review import run_script_check
 
@@ -302,7 +305,7 @@ async def _review_and_script(
         _review_async(stage, payload_text),
         run_script_check(
             strategy_payload=strategy_payload,
-            shots_payload=shots_payload,
+            content_payload=content_payload,
         ),
     )
     return response, script_check
@@ -509,6 +512,77 @@ def _merge_sync_advisories(
     }
 
 
+def _prompt_contract_advisory(
+    prompt_check: Mapping[str, Any],
+    *,
+    project_id: str,
+    reports_root: Path,
+    transaction_id: str,
+    content_job_admitted: bool,
+) -> dict[str, Any] | None:
+    """Persist and gate deterministic R2V prompt findings.
+
+    Missing/invalid prompt fields are not subjective Appeal scores and do not
+    consume the two-round taste-review budget. They remain gated until a
+    later changed R2V commit passes this checker.
+    """
+
+    if not prompt_check.get("applicable"):
+        return None
+    findings = prompt_check.get("findings") or []
+    reviewed_pointers = list(prompt_check.get("reviewed_pointers") or [])
+    if not findings:
+        # When an LLM content job exists, its settlement owns the blocker. If
+        # admission skipped/capped that job, a clean deterministic repair
+        # must still release a blocker created by an earlier empty prompt.
+        if not content_job_admitted:
+            admission.clear_sync_blocker(
+                reports_root,
+                pointer_group="generation_content",
+            )
+        return None
+
+    admission.hold_sync_blocker(
+        reports_root,
+        project_id=project_id,
+        pointer_group="generation_content",
+        reviewed_pointers=reviewed_pointers,
+        round_number=1,
+    )
+    advisory = SyncReviewAdvisory(
+        transaction_id=transaction_id,
+        pointer_group="generation_content",
+        reviewed_pointers=reviewed_pointers,
+        round=1,
+        scores=[],
+        summary=(
+            f"R2V Prompt 合同发现 {len(findings)} 个可确定修复项；"
+            "付费分镜/视频调度保持阻塞，主 Agent 必须直接修复。"
+        ),
+        prompt_check=dict(prompt_check),
+        created_at=datetime.now(UTC),
+    )
+    payload = advisory.model_dump(mode="json")
+    report_name = admission.safe_ref(transaction_id) + "-prompt-contract"
+    admission.write_json(
+        reports_root / "sync" / f"{report_name}.json",
+        payload,
+    )
+    trace_event(
+        "run_review.prompt_contract_advisory",
+        component=_TRACE_COMPONENT,
+        attributes={
+            "findingCount": len(findings),
+            "checkedElementCount": len(
+                prompt_check.get("checked_elements") or [],
+            ),
+            "transactionId": transaction_id,
+        },
+        projectId=project_id,
+    )
+    return payload
+
+
 def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
     *,
     project_id: str,
@@ -531,12 +605,16 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
 
         if not is_sync_review_enabled():
             return None
+        prompt_check = check_changed_r2v_prompt_contracts(
+            project_json,
+            changed_pointers,
+        )
         expanded_pointers = reviewable_changed_pointers(
             project_json,
             changed_pointers,
         )
         classified = classify_pointer_groups(expanded_pointers)
-        if not classified:
+        if not classified and not prompt_check.get("applicable"):
             return None
         try:
             asyncio.get_running_loop()
@@ -546,7 +624,13 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             # Inline review needs its own loop; inside a running loop this
             # worker cannot block on one, so the advisory is skipped.
             logger.warning("sync review skipped: called on a running loop")
-            return None
+            return _prompt_contract_advisory(
+                prompt_check,
+                project_id=project_id,
+                reports_root=reports_root,
+                transaction_id=transaction_id,
+                content_job_admitted=False,
+            )
 
         jobs = _admit_sync_review_jobs(
             project_json,
@@ -554,18 +638,41 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             reports_root=reports_root,
             failed_groups=failed_groups,
         )
+        content_job_admitted = any(
+            job["group"] == "generation_content" for job in jobs
+        )
         if not jobs:
-            return None
+            return _prompt_contract_advisory(
+                prompt_check,
+                project_id=project_id,
+                reports_root=reports_root,
+                transaction_id=transaction_id,
+                content_job_admitted=False,
+            )
 
-        shots_pointers = [
+        content_pointers = [
             pointer
             for pointer in changed_pointers
-            if "/creation/shots" in pointer
+            if any(
+                field in pointer
+                for field in (
+                    "/creation/narrative",
+                    "/creation/storyboard_prompt",
+                    "/creation/video_prompt",
+                )
+            )
         ]
-        shots_payload = _payload_text(project_json, shots_pointers)
+        content_pointers = list(
+            dict.fromkeys(
+                pointer.split("/creation/")[0] + "/creation/" + field
+                for pointer in content_pointers
+                for field in ("narrative", "storyboard_prompt", "video_prompt")
+            ),
+        )
+        content_payload = _payload_text(project_json, content_pointers)
         script_strategy = (
             _strategy_payload(project_json)
-            if shots_payload and _script_check_enabled()
+            if content_payload and _script_check_enabled()
             else ""
         )
 
@@ -580,8 +687,12 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
                         _review_and_script(
                             str(job["stage"]),
                             str(job["payload_text"]),
-                            script_strategy if job["group"] == "shots" else "",
-                            shots_payload if job["group"] == "shots" else "",
+                            script_strategy
+                            if job["group"] == "generation_content"
+                            else "",
+                            content_payload
+                            if job["group"] == "generation_content"
+                            else "",
                         )
                         for job in jobs
                     ),
@@ -606,6 +717,16 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             )
             if advisory_payload is not None:
                 delivered.append(advisory_payload)
+
+        prompt_payload = _prompt_contract_advisory(
+            prompt_check,
+            project_id=project_id,
+            reports_root=reports_root,
+            transaction_id=transaction_id,
+            content_job_admitted=content_job_admitted,
+        )
+        if prompt_payload is not None:
+            delivered.append(prompt_payload)
 
         return _merge_sync_advisories(delivered, transaction_id)
     except Exception:

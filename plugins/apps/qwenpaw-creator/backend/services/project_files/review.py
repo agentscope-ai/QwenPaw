@@ -46,6 +46,7 @@ from .json_pointer import (
 from .store import ProjectSnapshot, ProjectStore
 from .models import Project
 from .serialization import project_etag
+from .review_bookkeeping import is_human_review_change
 
 
 ReviewDecisionValue = Literal["ACCEPT", "REJECT"]
@@ -379,11 +380,37 @@ class ProjectReviewService:
         self.store = store
         self.commits = ProjectCommitBoundary(store)
 
-    def active(self, project_id: str) -> ReviewRecord | None:
-        all_pending = self.all_pending(project_id)
+    def active(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> ReviewRecord | None:
+        all_pending = self.all_pending(
+            project_id,
+            _lifecycle_lock_held=_lifecycle_lock_held,
+        )
         return all_pending[0] if all_pending else None
 
-    def all_pending(self, project_id: str) -> list[ReviewRecord]:
+    def all_pending(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> list[ReviewRecord]:
+        """Read pending creative decisions without acquiring write locks."""
+        del _lifecycle_lock_held  # Retained for existing read callers.
+        return [
+            review
+            for review in self._pending_records(project_id)
+            if any(
+                operation.decision is ReviewOperationDecision.PENDING
+                and is_human_review_change(operation)
+                for operation in review.operations
+            )
+        ]
+
+    def _pending_records(self, project_id: str) -> list[ReviewRecord]:
         runtime_root = self.store.project_root(project_id) / "runtime"
         reviews_root = runtime_root / "reviews"
         if not reviews_root.is_dir():
@@ -399,6 +426,105 @@ class ProjectReviewService:
             if review is not None and review.status is ReviewStatus.PENDING:
                 candidates.append(review)
         return sorted(candidates, key=lambda item: item.created_at)
+
+    def retire_internal_operations(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> None:
+        """Explicit recovery mutation; ordinary review reads stay lock-free."""
+        for review in self._pending_records(project_id):
+            self._settle_internal_operations(
+                project_id,
+                review,
+                _lifecycle_lock_held=_lifecycle_lock_held,
+            )
+
+    def _settle_internal_operations(
+        self,
+        project_id: str,
+        review: ReviewRecord,
+        *,
+        _lifecycle_lock_held: bool,
+    ) -> ReviewRecord:
+        """Retire internal and obsolete decisions without changing Project.
+
+        Reuse the durable decision journal, token rotation and recovery path.
+        The system decision identity makes this distinct from a user's Keep;
+        no facade follow-up or media continuation is invoked. Mixed Reviews
+        retain every real content/artifact decision and their accepted baseline.
+        """
+        if not any(
+            operation.decision is ReviewOperationDecision.PENDING
+            and not is_human_review_change(operation)
+            for operation in review.operations
+        ):
+            return review
+        runtime_root = self.store.project_root(project_id) / "runtime"
+        lifecycle = (
+            nullcontext()
+            if _lifecycle_lock_held
+            else self.store.lifecycle_lock(project_id)
+        )
+        with lifecycle:
+            self.store.read(project_id)
+            with (
+                CrossProcessFileLock(
+                    runtime_root / "locks" / "project-commit-order.lock",
+                    timeout_seconds=10.0,
+                ),
+                CrossProcessFileLock(
+                    runtime_root
+                    / "locks"
+                    / f"{review.review_id}.decision.lock",
+                    timeout_seconds=10.0,
+                ),
+            ):
+                current = self.get(project_id, review.review_id)
+                if current.status is not ReviewStatus.PENDING:
+                    return current
+                # Later history entries may have changed the list again.
+                # ACCEPT only retires this recorded operation; it never
+                # restores its old value or approves a later content edit.
+                decisions = [
+                    ReviewDecisionItem(
+                        operation_id=operation.operation_id,
+                        decision="ACCEPT",
+                    )
+                    for operation in current.operations
+                    if operation.decision is ReviewOperationDecision.PENDING
+                    and not is_human_review_change(operation)
+                ]
+                if not decisions:
+                    return current
+                decisions.sort(key=lambda item: item.operation_id)
+                decision_id = hashed_runtime_segment(
+                    "system-version-bookkeeping",
+                    current.review_id,
+                    current.decision_token,
+                    *(item.operation_id for item in decisions),
+                )
+                # An unfinished user decision owns this Review until normal
+                # recovery completes it. Never overtake that durable intent.
+                try:
+                    self._assert_no_other_active_decision(
+                        project_id=project_id,
+                        runtime_root=runtime_root,
+                        review_id=current.review_id,
+                        decision_id=decision_id,
+                    )
+                except ReviewDecisionConflict:
+                    return current
+                return self._decide_locked(
+                    project_id=project_id,
+                    runtime_root=runtime_root,
+                    review_id=current.review_id,
+                    decision_token=current.decision_token,
+                    decisions=decisions,
+                    rejection_feedback=None,
+                    decision_id=decision_id,
+                )
 
     def get(self, project_id: str, review_id: str) -> ReviewRecord:
         review = self._review_store(project_id, review_id).read_or_none()
@@ -561,13 +687,19 @@ class ProjectReviewService:
                             detail=f"{type(exc).__name__}: {exc}",
                         ),
                     )
+            self.retire_internal_operations(
+                project_id,
+                _lifecycle_lock_held=True,
+            )
         return ProjectReviewRecoveryReport(
             project_id=project_id,
             outcomes=tuple(outcomes),
         )
 
     def recover_all(self) -> CreatorReviewRecoveryReport:
-        """Recover all discoverable Projects without one failure halting boot."""
+        """
+        Recover all discoverable Projects without one failure halting boot.
+        """
 
         reports: list[ProjectReviewRecoveryReport] = []
         for project_id in self.store.discover_project_ids():
@@ -1714,8 +1846,10 @@ class ProjectReviewService:
         )
         state = state_store.read()
         # Multiple reviews may be pending at once (media/runtime tasks plus
-        # AgentDock interventions).  Resolving one must neither drop the pointer
-        # to another still-pending review nor advance the accepted baseline past
+        # AgentDock interventions).  Resolving one must neither drop the
+        # pointer
+        # to another still-pending review nor advance the accepted baseline
+        # past
         # changes the user has not yet reviewed.
         other_pending = self._other_pending_round_id(
             project_id,

@@ -358,7 +358,7 @@ describe("AppMarket", () => {
     expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
   });
 
-  it("does not match a community app by an unrelated owner-qualified id", async () => {
+  it("matches an installed app by its unscoped PawApp ID", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeEntry("@owner/installed-app")],
       total: 1,
@@ -371,7 +371,11 @@ describe("AppMarket", () => {
       />,
     );
 
-    expect(await screen.findByText("appCenter.install")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
   });
 
   it("matches official entries by their bundled app id", async () => {

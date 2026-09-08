@@ -45,6 +45,31 @@ describe("market app state", () => {
     ).toBe("1.0.0");
   });
 
+  it("matches app-market entries by their unscoped PawApp ID", () => {
+    const entry = makeEntry();
+    expect(getMarketAppState(entry, new Map([["app", "1.0.0"]]), "app")).toBe(
+      "installed",
+    );
+  });
+
+  it("matches unscoped app IDs only when the installed author agrees", () => {
+    const entry = makeEntry({
+      id: "@owner/app",
+      owner: "owner",
+      developer: "owner",
+    });
+    expect(
+      getMarketAppState(entry, new Map([["app", "1.0.0"]]), "app", [
+        { id: "app", author: "owner", version: "1.0.0" },
+      ]),
+    ).toBe("installed");
+    expect(
+      getMarketAppState(entry, new Map([["app", "1.0.0"]]), "app", [
+        { id: "app", author: "other", version: "1.0.0" },
+      ]),
+    ).toBe("available");
+  });
+
   it("marks a newer market version as an update", () => {
     const entry = makeEntry({ version: "1.1.0" });
     expect(getMarketAppState(entry, new Map([["@owner/app", "1.0.0"]]))).toBe(

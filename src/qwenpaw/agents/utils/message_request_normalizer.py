@@ -26,6 +26,7 @@ from .tool_message_utils import _sanitize_tool_messages
 # user-facing history; this one prepares retryable requests.
 _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
+_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
 
 # Fields that are provider-specific and should not leak across families.
 # Gemini: extra_content carries thought_signature.
@@ -122,17 +123,29 @@ def _clone_messages(msgs: list[Msg]) -> list[Msg]:
 
 
 def _is_media_block(block: Any) -> bool:
-    """Check if a block is a media block (dict or Pydantic DataBlock)."""
-    if isinstance(block, dict):
-        return block.get("type") in _MEDIA_BLOCK_TYPES
-    btype = getattr(block, "type", None)
+    """Check if a block carries media or a supported document payload."""
+    btype = (
+        block.get("type")
+        if isinstance(block, dict)
+        else getattr(block, "type", None)
+    )
     if btype in _MEDIA_BLOCK_TYPES:
         return True
     # 2.0 DataBlock: type="data", media type in source.media_type
     if btype == "data":
-        source = getattr(block, "source", None)
-        mt = getattr(source, "media_type", "") or ""
-        return mt.startswith(_MEDIA_MIME_PREFIXES)
+        source = (
+            block.get("source")
+            if isinstance(block, dict)
+            else getattr(block, "source", None)
+        )
+        mt = (
+            source.get("media_type", "")
+            if isinstance(source, dict)
+            else getattr(source, "media_type", "")
+        ) or ""
+        return (
+            mt.startswith(_MEDIA_MIME_PREFIXES) or mt in _DOCUMENT_MIME_TYPES
+        )
     return False
 
 

@@ -213,10 +213,19 @@ class DurableJsonlStore(Generic[T]):
                 cursor = start
             return b"".join(reversed(chunks)), True
 
-    def _tail_envelope_unlocked(self) -> JsonlEnvelope | None:
+    def _tail_envelope_unlocked(
+        self,
+        *,
+        repair: bool = True,
+    ) -> JsonlEnvelope | None:
         line, terminated = self._read_tail_line_unlocked()
         if not terminated:
-            envelopes, _removed = self._recover_unlocked()
+            if repair:
+                envelopes, _removed = self._recover_unlocked()
+            else:
+                envelopes, _durable, _torn = self._scan_bytes(
+                    self._read_bytes_unlocked(),
+                )
             return envelopes[-1] if envelopes else None
         if line is None:
             return None
@@ -232,7 +241,12 @@ class DurableJsonlStore(Generic[T]):
         ):
             # Preserve the precise full-stream corruption diagnostics for a
             # malformed complete tail. The normal valid-tail path stays O(1).
-            envelopes, _removed = self._recover_unlocked()
+            if repair:
+                envelopes, _removed = self._recover_unlocked()
+            else:
+                envelopes, _durable, _torn = self._scan_bytes(
+                    self._read_bytes_unlocked(),
+                )
             return envelopes[-1] if envelopes else None
 
     def _recover_unlocked(self) -> tuple[list[JsonlEnvelope], int]:
@@ -309,8 +323,11 @@ class DurableJsonlStore(Generic[T]):
             return envelope
 
     def read_all(self) -> list[JsonlEnvelope]:
-        with self._lock():
-            envelopes, _removed = self._recover_unlocked()
+        # Lock-free: complete lines are never rewritten and a torn crash tail
+        # is simply ignored here; the next locked append repairs it.
+        envelopes, _durable, _torn = self._scan_bytes(
+            self._read_bytes_unlocked(),
+        )
         return envelopes
 
     def read_records(self) -> list[T]:
@@ -330,38 +347,29 @@ class DurableJsonlStore(Generic[T]):
         The stream is append-only with monotonic contiguous seqs, so a reader
         that only wants a tail window can read backwards from EOF instead of
         ``read_bytes``-ing and ``json.loads``-ing the whole file (which on long
-        sessions dominates CPU and holds the lock for hundreds of ms).  Cost is
-        proportional to the window size, not the stream length.
+        sessions dominates CPU).  Cost is proportional to the window size, not
+        the stream length.  Reads are lock-free: complete lines are immutable
+        and a torn (unterminated) crash tail is skipped, never returned; it is
+        repaired by the next locked append.
 
-        Seq contiguity is validated over the returned range.  A torn
-        (unterminated) crash tail is skipped, never returned; it is repaired by
-        the next locked append.  ``limit`` caps the count from the tail.
+        Seq contiguity is validated over the returned range.  ``limit`` caps
+        the count from the tail.
         """
         if after_seq < 0:
             after_seq = 0
-        with self._read_lock():
-            if after_seq == 0 and limit is None:
-                # Full read under the shared lock.  Scan only (no torn-tail
-                # repair: that is a write and belongs to the next append).
-                envelopes, _durable, _torn_tail = self._scan_bytes(
-                    self._read_bytes_unlocked(),
-                )
-                return [
-                    self._validate_record(e.record, line_number=e.seq)
-                    for e in envelopes
-                ]
-            envelopes = self._read_envelopes_after_unlocked(after_seq, limit)
+        if after_seq == 0 and limit is None:
+            envelopes, _durable, _torn_tail = self._scan_bytes(
+                self._read_bytes_unlocked(),
+            )
+            return [
+                self._validate_record(e.record, line_number=e.seq)
+                for e in envelopes
+            ]
+        envelopes = self._read_envelopes_after_unlocked(after_seq, limit)
         return [
             self._validate_record(e.record, line_number=e.seq)
             for e in envelopes
         ]
-
-    def _read_lock(self) -> CrossProcessFileLock:
-        return CrossProcessFileLock(
-            self.lock_path,
-            timeout_seconds=self.lock_timeout_seconds,
-            shared=True,
-        )
 
     def _iter_complete_lines_reverse(self) -> Iterator[bytes]:
         """Yield complete lines newest-first, dropping any trailing torn fragment.
@@ -437,8 +445,11 @@ class DurableJsonlStore(Generic[T]):
                 JsonlCorruptionError,
             ):
                 # Malformed line in the durable range: fall back to the
-                # authoritative full scan for exact diagnostics + torn repair.
-                envelopes_all, _removed = self._recover_unlocked()
+                # authoritative full scan for exact diagnostics.  Torn-tail
+                # repair is a write and belongs to the next locked append.
+                envelopes_all, _durable, _torn = self._scan_bytes(
+                    self._read_bytes_unlocked(),
+                )
                 tail = [e for e in envelopes_all if e.seq > after_seq]
                 if limit is not None:
                     tail = tail[:limit]
@@ -454,7 +465,9 @@ class DurableJsonlStore(Generic[T]):
         expected = after_seq + 1
         for env in collected:
             if env.seq != expected:
-                envelopes_all, _removed = self._recover_unlocked()
+                envelopes_all, _durable, _torn = self._scan_bytes(
+                    self._read_bytes_unlocked(),
+                )
                 tail = [e for e in envelopes_all if e.seq > after_seq]
                 if limit is not None:
                     tail = tail[:limit]
@@ -465,10 +478,10 @@ class DurableJsonlStore(Generic[T]):
         return collected
 
     def last_seq(self) -> int:
-        # The durable tail envelope carries the last contiguous seq; reading it
-        # backwards is O(1) instead of scanning the whole stream.  A torn crash
-        # tail is repaired by ``_tail_envelope_unlocked`` exactly as a full
-        # ``read_all`` would, so the returned seq stays authoritative.
-        with self._lock():
-            tail = self._tail_envelope_unlocked()
+        # Lock-free: the durable tail envelope carries the last contiguous
+        # seq; reading it backwards is O(1) instead of scanning the whole
+        # stream.  A torn crash tail is ignored (never repaired here); the
+        # next locked append repairs it, so the returned seq stays
+        # authoritative.
+        tail = self._tail_envelope_unlocked(repair=False)
         return tail.seq if tail is not None else 0
