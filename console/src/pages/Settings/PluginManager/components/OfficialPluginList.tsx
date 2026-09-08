@@ -157,7 +157,12 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     selection: OfficialPluginSelection,
   ) => {
     const versions = getOfficialPluginVersions(group);
-    if (selection.action === "update" || versions.length <= 1) return null;
+    if (
+      selection.action === "update" ||
+      (selection.action !== "current" && versions.length <= 1)
+    ) {
+      return null;
+    }
 
     return (
       <Select
@@ -178,14 +183,6 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
       />
     );
   };
-
-  const hasActions = (
-    group: OfficialPluginGroup,
-    selection: OfficialPluginSelection,
-  ) =>
-    (selection.action !== "update" &&
-      getOfficialPluginVersions(group).length > 1) ||
-    selection.action !== "current";
 
   const renderMetadata = (selection: OfficialPluginSelection) => (
     <>
@@ -269,11 +266,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
           <div className={cardStyles.cardGrid}>
             {filteredPlugins.map(({ group, selection, entry }) => (
               <article
-                className={`${cardStyles.pluginCard} ${
-                  hasActions(group, selection)
-                    ? ""
-                    : cardStyles.pluginCardStatic
-                }`}
+                className={cardStyles.pluginCard}
                 key={group.key}
                 aria-label={entry.name}
               >
@@ -302,12 +295,10 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                     {renderMetadata(selection)}
                   </span>
                 </div>
-                {hasActions(group, selection) && (
-                  <div className={cardStyles.cardActions}>
-                    {renderVersionSelect(group, selection)}
-                    {renderInstallButton(selection)}
-                  </div>
-                )}
+                <div className={cardStyles.cardActions}>
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
+                </div>
               </article>
             ))}
           </div>
@@ -333,12 +324,10 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                     {renderMetadata(selection)}
                   </div>
                 </div>
-                {hasActions(group, selection) && (
-                  <div className={styles.catalogActions}>
-                    {renderVersionSelect(group, selection)}
-                    {renderInstallButton(selection)}
-                  </div>
-                )}
+                <div className={styles.catalogActions}>
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
+                </div>
               </div>
             ))}
           </div>

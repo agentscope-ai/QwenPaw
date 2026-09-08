@@ -187,7 +187,7 @@ describe("OfficialPluginList", () => {
     expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
   });
 
-  it("shows no action when the only catalog version is installed", () => {
+  it("shows the selector when the only catalog version is installed", () => {
     hoisted.plugins.push(
       makeEntry("1.0.0", {
         installed: true,
@@ -198,7 +198,7 @@ describe("OfficialPluginList", () => {
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
 
-    expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(article).getByRole("combobox")).toBeInTheDocument();
     expect(within(article).queryByRole("button")).not.toBeInTheDocument();
   });
 
