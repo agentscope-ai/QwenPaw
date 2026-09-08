@@ -29,6 +29,10 @@
     color: rgba(255, 255, 255, 0.5);
   }
 
+  .navItem {
+    color: rgba(255, 255, 255, 0.75);
+  }
+
   .navItem:hover {
     color: rgba(255, 255, 255, 0.95);
     background: rgba(255, 255, 255, 0.08);
@@ -70,8 +74,59 @@
     background: rgba(255, 127, 22, 0.14);
   }
 
+  .segmentedControl,
+  .messageDisplayControl {
+    border: 1px solid var(--app-border-subtle);
+    background: var(--app-fill-faint);
+
+    :global(.ant-segmented-item),
+    :global(.qwenpaw-segmented-item) {
+      color: var(--app-text-secondary);
+    }
+
+    :global(.ant-segmented-item-selected),
+    :global(.qwenpaw-segmented-item-selected),
+    :global(.ant-segmented-thumb),
+    :global(.qwenpaw-segmented-thumb) {
+      color: var(--app-text);
+      background: var(--app-fill) !important;
+      box-shadow: none !important;
+    }
+  }
+
+  .settingRow {
+    :global(.ant-btn-default),
+    :global(.qwenpaw-btn-default) {
+      background: var(--app-surface-raised) !important;
+    }
+  }
+
+  .sectionActions {
+    :global(.ant-btn-text),
+    :global(.qwenpaw-btn-text) {
+      color: var(--app-text-secondary);
+
+      &:not(:disabled):hover {
+        color: var(--app-accent-text);
+        background: var(--app-accent-faint);
+      }
+
+      &:disabled {
+        color: var(--app-text-quaternary);
+      }
+    }
+  }
+
+  .fixedEntryList {
+    :global(.ant-checkbox-wrapper-disabled),
+    :global(.qwenpaw-checkbox-wrapper-disabled) {
+      color: var(--app-text-tertiary);
+    }
+  }
+
   .itemOption {
     border-color: rgba(255, 255, 255, 0.12);
+    color: var(--app-text);
 
     &:hover {
       border-color: rgba(255, 157, 77, 0.55);

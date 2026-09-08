@@ -9,13 +9,13 @@ const stylesSource = readFileSync(
 
 describe("SettingsCenter responsive layout", () => {
   it("lets segmented controls fit their options without trailing space", () => {
-    const segmentedStart = stylesSource.indexOf(".segmentedControl,");
+    const segmentedStart = stylesSource.indexOf("\n.segmentedControl,") + 1;
     const segmentedRule = stylesSource.slice(
       segmentedStart,
       stylesSource.indexOf("}", segmentedStart) + 1,
     );
 
-    expect(segmentedStart).toBeGreaterThanOrEqual(0);
+    expect(segmentedStart).toBeGreaterThan(0);
     expect(segmentedRule).toContain("width: max-content;");
     expect(segmentedRule).toContain("max-width: 100%;");
     expect(segmentedRule).not.toContain("min-width:");
@@ -55,6 +55,27 @@ describe("SettingsCenter responsive layout", () => {
     expect(darkStart).toBeGreaterThanOrEqual(0);
     expect(darkRule).toContain(".backButton");
     expect(darkRule).toContain(".settingsAgentSelect");
+    expect(darkRule).toContain(".navItem {");
+    expect(darkRule).toContain("color: rgba(255, 255, 255, 0.75);");
     expect(darkRule).toContain("rgba(255, 255, 255, 0.12)");
+  });
+
+  it("keeps general and sidebar controls legible in dark mode", () => {
+    const darkStart = stylesSource.indexOf(".rootDark {");
+    const darkRule = stylesSource.slice(
+      darkStart,
+      stylesSource.indexOf("\n}", darkStart) + 2,
+    );
+
+    expect(darkRule).toContain(":global(.qwenpaw-segmented-item)");
+    expect(darkRule).toContain(":global(.qwenpaw-segmented-item-selected)");
+    expect(darkRule).toContain("background: var(--app-fill) !important;");
+    expect(darkRule).toContain(":global(.qwenpaw-btn-default)");
+    expect(darkRule).toContain(":global(.qwenpaw-btn-text)");
+    expect(darkRule).toContain("&:not(:disabled):hover");
+    expect(darkRule).toContain("color: var(--app-accent-text);");
+    expect(darkRule).toContain("color: var(--app-text-quaternary);");
+    expect(darkRule).toContain(":global(.qwenpaw-checkbox-wrapper-disabled)");
+    expect(darkRule).toContain("color: var(--app-text);");
   });
 });
