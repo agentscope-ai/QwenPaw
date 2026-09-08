@@ -32,6 +32,7 @@ from agentscope.tool import Toolkit
 from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
+from .utils.message_request_normalizer import _is_media_block
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
 from ..constant import (
@@ -498,9 +499,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # is to make a previously-rejected request retryable, so leaving
     # residue would defeat the point.
     # ------------------------------------------------------------------
-
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
-    _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
@@ -1144,17 +1142,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
 
     def _is_media_block(self, block: Any) -> bool:
-        """Return True if *block* carries image/audio/video data."""
-        if isinstance(block, dict):
-            return block.get("type") in self._MEDIA_BLOCK_TYPES
-        btype = getattr(block, "type", None)
-        if btype in self._MEDIA_BLOCK_TYPES:
-            return True
-        if btype == "data":
-            source = getattr(block, "source", None)
-            mt = getattr(source, "media_type", "") or ""
-            return mt.startswith(self._MEDIA_MIME_PREFIXES)
-        return False
+        """Return True if *block* carries model media/document data."""
+        return _is_media_block(block)
 
     # ------------------------------------------------------------------
     # Tool call enhancement: hint injection + hook registration
