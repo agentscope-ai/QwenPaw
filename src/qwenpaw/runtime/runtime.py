@@ -26,6 +26,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from .request_context import is_ephemeral_request
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +44,11 @@ class Runtime:
         *,
         workspace: Any,
         app_services: Any,
+        agent_config_override: Any = None,
     ) -> None:
         self.workspace = workspace
         self.app_services = app_services
+        self.agent_config_override = agent_config_override
 
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -267,6 +270,9 @@ class Runtime:
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
+        if is_ephemeral_request(ctx):
+            return
+
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return
@@ -500,6 +506,7 @@ class Runtime:
             workspace=self.workspace,
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
+            agent_config=self.agent_config_override,
         )
 
     @staticmethod

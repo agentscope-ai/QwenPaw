@@ -493,6 +493,7 @@ class Workspace:
                 stop_method="stop_all",
                 priority=30,
                 concurrent_init=False,
+                enabled_in_headless=False,
             ),
         )
 
@@ -519,6 +520,7 @@ class Workspace:
                 stop_method="stop",
                 priority=40,
                 concurrent_init=False,
+                enabled_in_headless=False,
             ),
         )
 
@@ -532,6 +534,7 @@ class Workspace:
                 stop_method="stop",
                 priority=45,
                 concurrent_init=False,
+                enabled_in_headless=False,
                 require_clean_stop=True,
             ),
         )
@@ -546,6 +549,7 @@ class Workspace:
                 stop_method="stop",
                 priority=50,
                 concurrent_init=False,
+                enabled_in_headless=False,
             ),
         )
 
@@ -559,6 +563,7 @@ class Workspace:
                 stop_method="stop",
                 priority=51,
                 concurrent_init=False,
+                enabled_in_headless=False,
             ),
         )
 
@@ -594,8 +599,8 @@ class Workspace:
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
 
-    async def start(self):
-        """Start workspace and initialize all components."""
+    async def start(self, *, headless: bool = False):
+        """Start workspace components needed for the selected runtime mode."""
         if self._started:
             logger.debug(
                 "Workspace already started: "
@@ -633,7 +638,7 @@ class Workspace:
             self._migrate_legacy_weixin_data()
 
             # 3. Start all services via ServiceManager
-            await self._service_manager.start_all()
+            await self._service_manager.start_all(headless=headless)
 
             self._started = True
             logger.info(

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import qwenpaw.agents.context as context_mod
+from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.runtime.builder import AgentBuilder
 
 
@@ -34,6 +35,7 @@ async def test_scroll_component_build_runs_in_worker_thread(
         blocking_build,
     )
     ctx = SimpleNamespace(
+        request=SimpleNamespace(request_context={}),
         workspace=SimpleNamespace(workspace_dir=tmp_path),
         session_id="session",
         agent_id="agent",
@@ -57,3 +59,36 @@ async def test_scroll_component_build_runs_in_worker_thread(
         release.set()
 
     assert await asyncio.wait_for(task, timeout=1) is result
+
+
+@pytest.mark.asyncio
+async def test_ephemeral_request_skips_scroll_component_build(
+    tmp_path,
+    monkeypatch,
+):
+    def unexpected_build(**_kwargs):
+        pytest.fail("ephemeral requests must not create scroll persistence")
+
+    monkeypatch.setattr(
+        context_mod,
+        "build_scroll_components",
+        unexpected_build,
+    )
+    ctx = SimpleNamespace(
+        request=SimpleNamespace(
+            request_context={ACP_EPHEMERAL_META_KEY: True},
+        ),
+        workspace=SimpleNamespace(workspace_dir=tmp_path),
+        session_id="headless-task",
+        agent_id="agent",
+    )
+    config = SimpleNamespace(id="agent")
+
+    result = await AgentBuilder._build_scroll_components(
+        ctx,
+        config,
+        model=object(),
+    )
+
+    assert result is None
+    assert not (tmp_path / "history.db").exists()
