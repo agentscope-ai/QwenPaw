@@ -112,6 +112,13 @@ class DefaultMode(AgentMode):
                         loop_config.doom_loop.similarity_threshold
                     ),
                     stages=loop_config.doom_loop.stages,
+                    exempt_tools=set(
+                        getattr(
+                            loop_config.doom_loop,
+                            "exempt_tools",
+                            [],
+                        ),
+                    ),
                 ),
             )
         if loop_config.rubric.enabled:
