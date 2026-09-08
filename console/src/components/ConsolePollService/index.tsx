@@ -59,8 +59,23 @@ export default function ConsolePollService() {
             seen.add(m.id);
             newItems.push({ ...m, dismissAt: now + AUTO_DISMISS_MS });
           }
-          if (newItems.length === 0) return;
-          const toAdd = newItems.slice(-MAX_NEW_PER_POLL);
+          // Dispatch session-update events for channel messages
+          for (const m of newItems) {
+            if (m.text?.startsWith("session_updated:")) {
+              const sid = m.text.slice("session_updated:".length);
+              window.dispatchEvent(
+                new CustomEvent("channel-session-updated", {
+                  detail: { sessionId: sid },
+                }),
+              );
+            }
+          }
+          // Filter out internal notifications from bubble display
+          const bubbleItems = newItems.filter(
+            (m) => !m.text?.startsWith("session_updated:"),
+          );
+          if (bubbleItems.length === 0) return;
+          const toAdd = bubbleItems.slice(-MAX_NEW_PER_POLL);
           setItems((prev) => {
             const merged = [...prev, ...toAdd];
             return merged.slice(-MAX_VISIBLE_BUBBLES);
