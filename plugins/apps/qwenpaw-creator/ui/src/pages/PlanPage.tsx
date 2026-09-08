@@ -1,48 +1,73 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Dropdown, message, Modal, Tooltip } from "antd";
-import {
-  ChevronDown,
-  Download,
-  FileOutput,
-  Info,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+import { message, Modal, Tooltip } from "antd";
+import { Bookmark, FileText, Info, Loader2, RefreshCw, X } from "lucide-react";
+import { MenuUnfoldOutlined } from "@ant-design/icons";
 import { navigate, useParams, useSearchParams } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { getArtifactVersionMediaUrl, renderTimeline } from "@/api/creator";
 import {
-  elementsAtTick,
   overlayContentKind,
   resolveTimelineRender,
   selectPrimaryTimeline,
+  selectTimelineById,
   timelineEndTick,
 } from "@/selectors/timelineElementSelectors";
 import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
-import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
 import { startVisiblePolling } from "@/lib/visiblePolling";
-import { useNarrowWorkspace, useDetailRail } from "@/lib/useNarrowWorkspace";
+import { useNarrowWorkspace } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
-import ElementList from "@/components/timeline/ElementList";
+import TimelineSnapshotPanel from "@/components/timeline/TimelineSnapshotPanel";
 import ElementDetail from "@/components/timeline/ElementDetail";
+import { storyboardOfOwner } from "@/components/workbench/referenceThumbs";
+import WorkbenchModal from "@/components/workbench/WorkbenchModal";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
-import VisualCoverageCheckpoint from "@/components/creator/VisualCoverageCheckpoint";
-import {
-  ExportProgressCard,
-  saveExportFile,
-  type ExportProgressState,
-} from "@/components/creator/ProjectImportExport";
-import type { TimelineElementDocument } from "@/contracts/creator";
-import { selectVisualVariantCoverage } from "@/selectors/visualVariantCoverage";
+import SaveAsTemplateDialog from "@/components/creator/SaveAsTemplateDialog";
+import type {
+  ProjectDocument,
+  TimelineElementDocument,
+} from "@/contracts/creator";
 import { useTranslation } from "react-i18next";
+
+/** 分镜图预览 rail tab (design 83:13383): the element's storyboard image. */
+function StoryboardPreviewPanel({
+  project,
+  element,
+}: {
+  project: ProjectDocument;
+  element: TimelineElementDocument | null;
+}) {
+  const { t } = useTranslation();
+  const versionId = element
+    ? storyboardOfOwner(project, `element:${element.element_id}`)
+    : null;
+  return (
+    <div
+      data-storyboard-preview-panel
+      className="min-h-0 flex-1 overflow-y-auto p-3"
+    >
+      {versionId ? (
+        <img
+          src={getArtifactVersionMediaUrl(versionId)}
+          alt=""
+          className="w-full rounded-lg border border-[var(--color-border)]"
+        />
+      ) : (
+        <p className="py-10 text-center text-xs text-[var(--color-text-tertiary)]">
+          {t("plan.noStoryboard")}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function sec(tick: number, ticksPerSecond: number): string {
   return (tick / ticksPerSecond).toFixed(1).replace(/\.0$/, "");
@@ -50,7 +75,7 @@ function sec(tick: number, ticksPerSecond: number): string {
 
 export default function PlanPage() {
   const { t } = useTranslation();
-  const { id = "" } = useParams();
+  const { id = "", timelineId: timelineIdParam } = useParams();
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
     state.projectId === id ? state.project : null,
@@ -62,11 +87,34 @@ export default function PlanPage() {
   const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
-  const timeline = useMemo(() => selectPrimaryTimeline(project), [project]);
-  const visualCoverage = useMemo(
-    () => (project ? selectVisualVariantCoverage(project) : null),
-    [project],
+  const activeTimelineId = useTimelineStore((s) => s.activeTimelineId);
+  const compareTimelineId = useTimelineStore((s) => s.compareTimelineId);
+  // Route param wins (parameterized /t/:timelineId/plan); the legacy
+  // unparameterized route follows the store's active timeline and degrades
+  // to the primary one.
+  const timeline = useMemo(
+    () =>
+      timelineIdParam
+        ? selectTimelineById(project, timelineIdParam)
+        : selectPrimaryTimeline(project, activeTimelineId),
+    [project, timelineIdParam, activeTimelineId],
   );
+  const compareTimeline = useMemo(
+    () =>
+      compareTimelineId && compareTimelineId !== activeTimelineId
+        ? selectTimelineById(project, compareTimelineId)
+        : null,
+    [project, compareTimelineId, activeTimelineId],
+  );
+  const snapshotPanel = timeline ? (
+    <TimelineSnapshotPanel
+      project={project!}
+      timeline={timeline}
+      onPatch={async (operations) => {
+        await patchProject(id, operations);
+      }}
+    />
+  ) : undefined;
   const selectedElementId = query.get("element");
   const selectedElement =
     selectedElementId && timeline
@@ -86,14 +134,21 @@ export default function PlanPage() {
     ],
   );
   const [playheadTick, setPlayheadTick] = useState(0);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // Right rail tabs (design 83:13383): 视频概览 hosts the element overview,
+  // 分镜图预览 shows the element's storyboard image (r2v elements only).
+  const [railTab, setRailTab] = useState<"overview" | "storyboard">("overview");
+  const storyboardTabAvailable = elementDraft.value?.creation.type === "r2v";
+  useEffect(() => {
+    if (!storyboardTabAvailable && railTab === "storyboard")
+      setRailTab("overview");
+  }, [railTab, storyboardTabAvailable]);
   const [composing, setComposing] = useState(false);
-  const [exportProgress, setExportProgress] =
-    useState<ExportProgressState | null>(null);
   const [requestedComposeTaskId, setRequestedComposeTaskId] = useState<
     string | null
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
+  const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [comparePreviewOpen, setComparePreviewOpen] = useState(true);
   const composeAttemptedGeneration = useRef<number | null>(null);
   const hadPendingReviews = useRef(false);
   const handledComposeTask = useRef<string | null>(null);
@@ -128,21 +183,14 @@ export default function PlanPage() {
     // Never carry one project's selection into another.
     setExplicitActiveIds(null);
   }, [id]);
-  const activeElementIds = useMemo(
-    () =>
-      explicitActiveIds ??
-      (timeline
-        ? elementsAtTick(timeline, clampedPlayheadTick).map(
-            (element) => element.element_id,
-          )
-        : []),
-    [explicitActiveIds, timeline, clampedPlayheadTick],
-  );
   const reviewMode = query.get("review") === "1";
   const reviewField = query.get("field");
   const reviewPulse = query.get("reviewPulse");
+  const base = timelineIdParam
+    ? `/project/${id}/t/${encodeURIComponent(timelineIdParam)}/plan`
+    : `/project/${id}/plan`;
   useReviewFieldFocus({
-    path: `/project/${id}/plan`,
+    path: base,
     field: reviewField,
     enabled: reviewMode,
     pulse: reviewPulse,
@@ -186,7 +234,6 @@ export default function PlanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedElement]);
 
-  const base = `/project/${id}/plan`;
   const leaveDraft = useCallback(
     (next: () => void) => {
       if (!elementDraft.dirty) {
@@ -269,9 +316,16 @@ export default function PlanPage() {
     renderOutput?.selected && !renderOutput.selected.stale
       ? renderOutput.selected
       : null;
-  const renderIsCurrent =
-    freshRender !== null &&
-    (generation === null || freshRender.based_on_generation >= generation);
+  // Publishing a render advances Project.generation; based_on_generation
+  // records its input revision. The backend invalidates the artifact when
+  // render inputs change, so comparing these counters re-composes fresh cuts.
+  const renderIsCurrent = freshRender !== null;
+  const freshRenderVersionId = freshRender?.version_id ?? null;
+  useEffect(() => {
+    // A timed-out dispatch can finish later without its Task ever appearing
+    // in the active-task poll. Reconcile the local error with that final cut.
+    if (freshRenderVersionId !== null) setComposeFailed(false);
+  }, [freshRenderVersionId]);
   const allReady = readiness.total > 0 && readiness.notReady === 0;
   const timelineTargetRef = timeline
     ? `timeline:${timeline.timeline_id}`
@@ -350,7 +404,7 @@ export default function PlanPage() {
       setRequestedComposeTaskId(dispatch.taskId);
       await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
     } catch (error) {
-      await refreshTasks(id).catch(() => undefined);
+      await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
       const adopted = useCreatorTaskViewStore
         .getState()
         .tasks.find(
@@ -362,10 +416,20 @@ export default function PlanPage() {
       if (adopted) {
         setRequestedComposeTaskId(adopted.id);
       } else {
-        setComposeFailed(true);
-        message.error(
-          t("plan.composeFailed", { detail: (error as Error).message }),
-        );
+        const latest = useProjectSnapshotStore.getState().project;
+        const latestTimeline = latest?.timelines.items[timeline.timeline_id];
+        const completed =
+          latest && latestTimeline
+            ? resolveTimelineRender(latest, latestTimeline)?.selected
+            : null;
+        if (completed && !completed.stale) {
+          setComposeFailed(false);
+        } else {
+          setComposeFailed(true);
+          message.error(
+            t("plan.composeFailed", { detail: (error as Error).message }),
+          );
+        }
       }
     } finally {
       setComposing(false);
@@ -493,67 +557,12 @@ export default function PlanPage() {
     pendingReviewCount,
   ]);
 
-  const downloadRender = useCallback(async () => {
-    if (!freshRender) return;
-    const url = getArtifactVersionMediaUrl(freshRender.version_id);
-    const filename = `${
-      freshRender.name || project?.name || t("plan.finalCut")
-    }.mp4`;
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }
-  }, [freshRender, project?.name]);
-
-  const exporting = exportProgress?.status === "running";
-  const exportProject = useCallback(async () => {
-    if (exporting) return;
-    setExportProgress({
-      receivedBytes: 0,
-      totalBytes: null,
-      status: "running",
-    });
-    try {
-      await saveExportFile(id, (receivedBytes, totalBytes) =>
-        setExportProgress({ receivedBytes, totalBytes, status: "running" }),
-      );
-      setExportProgress((state) =>
-        state ? { ...state, status: "done" } : state,
-      );
-    } catch (error) {
-      setExportProgress(null);
-      message.error(
-        t("plan.exportFailed", { detail: (error as Error).message }),
-      );
-    }
-  }, [exporting, id]);
-
-  // The finished card lingers briefly, then clears itself.
-  useEffect(() => {
-    if (exportProgress?.status !== "done") return;
-    const timer = window.setTimeout(() => setExportProgress(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [exportProgress]);
-
   // Hooks must run unconditionally, before the loading early-returns.
   const narrowWorkspace = useNarrowWorkspace();
-  const detailRail = useDetailRail(narrowWorkspace);
+  // 折叠帧 (84:87110): when the left sidebar is collapsed the rail widens to
+  // 509px and the stage header gains an inline expand button.
+  const sidebarOpen = useAgentDockUiStore((state) => state.open);
+  const setSidebarOpen = useAgentDockUiStore((state) => state.setOpen);
 
   if (!project) {
     if (syncStatus === "invalid" || syncStatus === "not_found") {
@@ -631,12 +640,15 @@ export default function PlanPage() {
     }
   };
   const closeElementDetail = () => leaveDraft(() => navigate(base));
+  // 制作台改为方案页原地悬浮窗打开（毛玻璃 Modal），不再跳转独立页面；
+  // 旧路由 /plan/element/:id 仍然保留用于深链。
+  const [workbenchElementId, setWorkbenchElementId] = useState<string | null>(
+    null,
+  );
   const openElementWorkbench = (element: TimelineElementDocument) =>
-    leaveDraft(() =>
-      navigate(`${base}/element/${encodeURIComponent(element.element_id)}`),
-    );
+    setWorkbenchElementId(element.element_id);
 
-  const elementDetailNode = (
+  const renderElementDetail = (frameless: boolean) => (
     <ElementDetail
       project={project}
       timeline={timeline}
@@ -645,6 +657,7 @@ export default function PlanPage() {
       applying={patching}
       dirtyCount={elementDraft.dirtyCount}
       conflictPaths={elementDraft.conflictPaths}
+      frameless={frameless}
       onClose={closeElementDetail}
       onChange={(mutator) =>
         elementDraft.update((draft) => {
@@ -661,138 +674,114 @@ export default function PlanPage() {
   return (
     <div
       data-plan-page
-      className={`flex h-full min-h-0 flex-col bg-[var(--color-bg-layout)] ${
-        previewOpen ? "overflow-y-auto overscroll-contain" : "overflow-hidden"
-      }`}
+      className="relative flex h-full min-h-0 flex-col bg-[var(--color-bg-layout)]"
     >
-      {/* Container queries are scoped to the header and the editor grid so
-          the TimelineCanvas subtree never gains size containment. */}
-      <header className="@container flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg-primary)]/60 px-5 py-3 backdrop-blur">
-        <div data-onboarding-id="creative-brief" className="min-w-0">
-          {project.strategy.creative_brief ||
-          project.strategy.creative_direction ? (
-            <details className="max-w-3xl">
-              <summary className="w-fit cursor-pointer select-none text-base font-semibold text-[var(--color-text-primary)]">
-                {t("plan.creativeBrief")}
-              </summary>
-              <div
-                data-creator-field="project:strategy/creative_brief"
-                data-creator-path={projectJsonPointer(
-                  "strategy",
-                  "creative_brief",
-                )}
-                data-creator-field-label={t("plan.creativeBrief")}
-                className="mt-2 max-h-[92px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs leading-5 text-[var(--color-text-secondary)]"
-              >
-                {project.strategy.creative_brief}
-                {project.strategy.creative_direction &&
-                  `\n\n${t("plan.creativeDirectionLabel", {
-                    direction: project.strategy.creative_direction,
-                  })}`}
-              </div>
-            </details>
-          ) : (
-            <h2 className="text-base font-semibold text-[var(--color-text-primary)]">
-              {t("plan.creativeBrief")}
-            </h2>
-          )}
+      {syncStatus === "degraded" && (
+        <div className="shrink-0 border-b border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-5 py-1.5 text-[11px] text-[var(--color-warning)]">
+          {t("plan.syncDegraded")}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 pr-5">
-          {/* When the workspace runs out of width the three info chips fold
-              into one tooltip so the action buttons keep their room. */}
-          <div className="flex flex-wrap items-center gap-2 @max-[719px]:hidden">
-            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-              {sec(durationTick, timeline.ticks_per_second)}s
-            </span>
-            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-              {project.settings.aspect_ratio}
-            </span>
-            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-              {t("plan.items", {
-                count: Object.keys(timeline.elements_by_id).length,
-              })}
-            </span>
-          </div>
-          <Tooltip
-            title={`${sec(durationTick, timeline.ticks_per_second)}s · ${
-              project.settings.aspect_ratio
-            } · ${t("plan.items", {
-              count: Object.keys(timeline.elements_by_id).length,
-            })}`}
-          >
-            <span className="hidden rounded-full border border-[var(--color-border)] bg-white px-2 py-1 text-[var(--color-text-secondary)] @max-[719px]:inline-flex">
-              <Info className="h-3.5 w-3.5" />
-            </span>
-          </Tooltip>
-          {composeFailed && !isComposing && (
+      )}
+
+      {/* Design 83:13383 grid: main column (header + stage) on the left, the
+          389px overview rail beside it, transport + tracks spanning the full
+          width at the bottom. TimelineCanvas(split) supplies rows 2–4. */}
+      <div
+        className={`relative grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-[var(--color-bg-primary)] ${
+          narrowWorkspace
+            ? "grid-cols-[minmax(0,1fr)]"
+            : sidebarOpen
+            ? "grid-cols-[minmax(0,1fr)_389px]"
+            : "grid-cols-[minmax(0,1fr)_509px]"
+        }`}
+      >
+        {/* Container queries are scoped to the header so the TimelineCanvas
+            subtree never gains size containment. */}
+        <header className="@container col-start-1 row-start-1 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            {!sidebarOpen && (
+              <button
+                type="button"
+                data-sidebar-expand
+                title={t("plan.expandSidebar")}
+                aria-label={t("plan.expandSidebar")}
+                onClick={() => setSidebarOpen(true)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-white text-[var(--color-text-secondary)] transition hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] dark:bg-[var(--color-bg-elevated)]"
+              >
+                <MenuUnfoldOutlined className="text-base" />
+              </button>
+            )}
             <button
               type="button"
-              title={t("plan.retryComposeTitle")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/50 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
-              onClick={() => void composeNow()}
+              onClick={() => leaveDraft(() => navigate(`/project/${id}`))}
+              className="btn-secondary shrink-0"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {t("plan.retryCompose")}
+              {t("common.back")}
             </button>
-          )}
-          <button
-            type="button"
-            title={t("plan.composeTooltip")}
-            disabled={isComposing}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent)] transition hover:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => void composeNow()}
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${isComposing ? "animate-spin" : ""}`}
-            />
-            {isComposing ? t("lib.composing") : t("lib.composeFinalCut")}
-          </button>
-          {/* Download-final-cut and export-project share one split entry. */}
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                {
-                  key: "download",
-                  label: t("plan.downloadFinal"),
-                  icon: <Download className="h-3.5 w-3.5" />,
-                  disabled: !freshRender,
-                  onClick: () => void downloadRender(),
-                },
-                {
-                  key: "export",
-                  label: exporting
-                    ? t("plan.exporting")
-                    : t("plan.exportProject"),
-                  icon: <FileOutput className="h-3.5 w-3.5" />,
-                  disabled: exporting,
-                  onClick: () => void exportProject(),
-                },
-              ],
-            }}
-          >
+            <h2 className="truncate text-sm font-medium text-[var(--color-text-primary)]">
+              {timeline.title || t("blueprint.timelineEdit")}
+            </h2>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 pr-5">
+            {/* When the workspace runs out of width the info chips fold
+              into one tooltip so the action buttons keep their room. */}
+            <div className="flex flex-wrap items-center gap-2 @max-[559px]:hidden">
+              <span className="rounded-lg border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] dark:bg-[var(--color-bg-elevated)]">
+                {project.settings.aspect_ratio}
+              </span>
+              <span className="rounded-lg border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] dark:bg-[var(--color-bg-elevated)]">
+                {t("plan.items", {
+                  count: Object.keys(timeline.elements_by_id).length,
+                })}
+              </span>
+            </div>
+            <Tooltip
+              title={`${sec(durationTick, timeline.ticks_per_second)}s · ${
+                project.settings.aspect_ratio
+              } · ${t("plan.items", {
+                count: Object.keys(timeline.elements_by_id).length,
+              })}`}
+            >
+              <span className="hidden rounded-full border border-[var(--color-border)] bg-white px-2 py-1 text-[var(--color-text-secondary)] @max-[559px]:inline-flex dark:bg-[var(--color-bg-elevated)]">
+                <Info className="h-3.5 w-3.5" />
+              </span>
+            </Tooltip>
+            {/* 脚本方案 (84:46780): drill back up to the blueprint page. */}
             <button
               type="button"
-              data-download-render
+              data-open-blueprint
+              onClick={() => leaveDraft(() => navigate(`/project/${id}`))}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] dark:bg-[var(--color-bg-elevated)]"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {t("plan.scriptPlan")}
+            </button>
+            {composeFailed && !isComposing && (
+              <button
+                type="button"
+                title={t("plan.retryComposeTitle")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/50 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
+                onClick={() => void composeNow()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t("plan.retryCompose")}
+              </button>
+            )}
+            <button
+              type="button"
+              data-compose-render
               title={
-                freshRender
-                  ? t("plan.downloadFinalTitle")
-                  : isComposing
+                isComposing
                   ? composeElementProgress
                     ? t("plan.composing", {
                         completed: composeElementProgress.completed,
                         total: composeElementProgress.total,
                       })
                     : t("plan.preparingCompose")
-                  : readiness.total === 0
-                  ? t("plan.noComposableContent")
-                  : readiness.notReady > 0
-                  ? t("plan.waitingForContent", {
-                      count: readiness.notReady,
-                    })
-                  : t("plan.waitingForCompose")
+                  : t("plan.composeTooltip")
               }
-              className="relative inline-flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-secondary)]"
+              disabled={isComposing}
+              className="relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg border border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent)] transition hover:border-[var(--color-accent)] disabled:opacity-70 disabled:cursor-not-allowed"
+              onClick={() => void composeNow()}
             >
               {isComposing && (
                 <span
@@ -819,88 +808,211 @@ export default function PlanPage() {
                 {isComposing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Download className="h-3.5 w-3.5" />
+                  <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                {isComposing ? composeLabel : t("plan.downloadOrExport")}
-                <ChevronDown className="h-3.5 w-3.5" />
+                {isComposing ? composeLabel : t("lib.composeFinalCut")}
               </span>
             </button>
-          </Dropdown>
-        </div>
-      </header>
-
-      {syncStatus === "degraded" && (
-        <div className="shrink-0 border-b border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-5 py-1.5 text-[11px] text-[var(--color-warning)]">
-          {t("plan.syncDegraded")}
-          {syncError ? ` ${syncError}` : ""}
-        </div>
-      )}
-
-      {visualCoverage && <VisualCoverageCheckpoint report={visualCoverage} />}
-
-      <TimelineCanvas
-        project={project}
-        timeline={timeline}
-        durationTick={displayDurationTick}
-        playheadTick={clampedPlayheadTick}
-        selectedElementId={selectedElementId}
-        previewOpen={previewOpen}
-        tasks={tasks}
-        onPreviewOpenChange={setPreviewOpen}
-        onPlayheadChange={(tick) =>
-          movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
-        }
-        onSelectElement={selectElement}
-        onActiveElementIdsChange={setExplicitActiveIds}
-      />
-
-      {/* The wrapper is the size container for the editor grid: container
-          queries cannot match the querying element itself, and scoping it
-          here keeps the TimelineCanvas subtree free of size containment. */}
-      <div
-        className={`@container min-h-0 ${
-          previewOpen ? "h-[340px] shrink-0" : "flex-1"
-        }`}
-      >
-        <main className="relative grid h-full min-h-0 grid-cols-[minmax(280px,36fr)_minmax(0,64fr)] gap-4 p-4 @max-[719px]:grid-cols-1">
-          <ElementList
-            timeline={timeline}
-            playheadTick={playheadTick}
-            activeElementIds={activeElementIds}
-            selectionPinned={explicitActiveIds !== null}
-            selectedElementId={selectedElementId}
-            tasks={tasks}
-            onSelect={selectElement}
-          />
-          {/* Narrow workspace with the dock open: the detail moves into the
-              right rail below the dock (portal). Otherwise it stays in the
-              grid, degrading to an in-workspace drawer per container query. */}
-          {detailRail && elementDraft.value ? (
-            createPortal(
-              <div className="grid h-full min-h-0 p-3">
-                {elementDetailNode}
-              </div>,
-              detailRail,
-            )
-          ) : (
-            <div
-              className={`grid min-h-0 ${
-                elementDraft.value
-                  ? "@max-[719px]:absolute @max-[719px]:inset-y-4 @max-[719px]:right-4 @max-[719px]:z-40 @max-[719px]:w-[min(calc(100%-32px),420px)] @max-[719px]:shadow-2xl"
-                  : "@max-[719px]:hidden"
-              }`}
+            <button
+              type="button"
+              data-save-template
+              title={t("home.saveAsTemplate")}
+              onClick={() => setSaveAsTemplateOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)]"
             >
-              {elementDetailNode}
+              <Bookmark className="h-3.5 w-3.5" />
+              {t("home.saveAsTemplate")}
+            </button>
+            <SaveAsTemplateDialog
+              open={saveAsTemplateOpen}
+              onClose={() => setSaveAsTemplateOpen(false)}
+              projectId={id}
+            />
+          </div>
+        </header>
+
+        {compareTimeline ? (
+          <div className="flex min-h-0 shrink-0 divide-x divide-[var(--color-border)]">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-accent-soft)] px-4 py-1">
+                <span className="rounded bg-[var(--color-accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  A
+                </span>
+                <span className="truncate text-xs font-medium text-[var(--color-text-primary)]">
+                  {timeline?.name ||
+                    timeline?.title ||
+                    t("timeline.snapshotCurrent")}
+                </span>
+              </div>
+              <TimelineCanvas
+                project={project}
+                transportExtra={snapshotPanel}
+                timeline={timeline}
+                durationTick={displayDurationTick}
+                playheadTick={clampedPlayheadTick}
+                selectedElementId={selectedElementId}
+                previewOpen={comparePreviewOpen}
+                tasks={tasks}
+                onPreviewOpenChange={setComparePreviewOpen}
+                onPlayheadChange={(tick) =>
+                  movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
+                }
+                onSelectElement={selectElement}
+                onActiveElementIdsChange={setExplicitActiveIds}
+              />
             </div>
-          )}
-        </main>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-1">
+                <span className="rounded bg-[var(--color-text-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-[var(--color-text-primary)]">
+                  B
+                </span>
+                <span className="truncate text-xs font-medium text-[var(--color-text-secondary)]">
+                  {(() => {
+                    const raw = compareTimeline.name || "";
+                    const match =
+                      /^(?:快照\s*·\s*)?(.*?)(?:\s*·\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2})?$/.exec(
+                        raw,
+                      );
+                    const label = (match?.[1] ?? raw).trim();
+                    return !label || /^(snapshot:)?timeline:/.test(label)
+                      ? t("timeline.snapshotAutoName")
+                      : label;
+                  })()}
+                </span>
+                <button
+                  type="button"
+                  data-compare-close
+                  title={t("timeline.snapshotExitCompare")}
+                  onClick={() =>
+                    useTimelineStore.getState().setCompareTimelineId(null)
+                  }
+                  className="ml-auto flex h-5 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  {t("timeline.snapshotExitCompare")}
+                </button>
+              </div>
+              <TimelineCanvas
+                project={project}
+                timeline={compareTimeline}
+                durationTick={Math.max(
+                  displayDurationTick,
+                  timelineEndTick(compareTimeline),
+                )}
+                playheadTick={clampedPlayheadTick}
+                selectedElementId={null}
+                previewOpen={comparePreviewOpen}
+                tasks={tasks}
+                onPreviewOpenChange={setComparePreviewOpen}
+                onPlayheadChange={(tick) =>
+                  movePlayhead(
+                    Math.max(
+                      0,
+                      Math.min(
+                        Math.max(
+                          displayDurationTick,
+                          timelineEndTick(compareTimeline),
+                        ),
+                        tick,
+                      ),
+                    ),
+                  )
+                }
+                onSelectElement={() => {}}
+                onActiveElementIdsChange={() => {}}
+              />
+            </div>
+          </div>
+        ) : (
+          <TimelineCanvas
+            variant="split"
+            project={project}
+            transportExtra={snapshotPanel}
+            timeline={timeline}
+            durationTick={displayDurationTick}
+            playheadTick={clampedPlayheadTick}
+            selectedElementId={selectedElementId}
+            previewOpen
+            tasks={tasks}
+            onPreviewOpenChange={() => {}}
+            onPlayheadChange={(tick) =>
+              movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
+            }
+            onSelectElement={selectElement}
+            onActiveElementIdsChange={setExplicitActiveIds}
+          />
+        )}
+
+        {/* Right rail (design 83:13383, 389px): 视频概览 hosts the element
+          overview, 分镜图预览 the storyboard image; the rail spans the header
+          and stage rows. On narrow workspaces it degrades to a drawer. */}
+        {!narrowWorkspace ? (
+          <aside
+            data-element-rail
+            className="col-start-2 row-span-2 row-start-1 flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-primary)]"
+          >
+            <div
+              data-element-rail-tabs
+              className="flex h-12 shrink-0 items-center gap-6 border-b border-[var(--color-border)] px-4"
+            >
+              {(
+                [
+                  { key: "overview", label: t("plan.railOverviewTab") },
+                  ...(storyboardTabAvailable
+                    ? [
+                        {
+                          key: "storyboard",
+                          label: t("plan.railStoryboardTab"),
+                        } as const,
+                      ]
+                    : []),
+                ] as { key: "overview" | "storyboard"; label: string }[]
+              ).map((item) => {
+                const active = railTab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setRailTab(item.key)}
+                    data-active={active}
+                    className={`relative pb-1 text-sm transition-colors ${
+                      active
+                        ? "font-semibold text-[var(--color-text-primary)]"
+                        : "font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                    }`}
+                  >
+                    {item.label}
+                    {active && (
+                      <span className="absolute inset-x-0 -bottom-0.5 mx-auto h-0.5 w-6 rounded-full bg-[var(--color-text-primary)]" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {railTab === "overview" ? (
+              <div className="grid min-h-0 flex-1">
+                {renderElementDetail(true)}
+              </div>
+            ) : (
+              <StoryboardPreviewPanel
+                project={project}
+                element={elementDraft.value}
+              />
+            )}
+          </aside>
+        ) : elementDraft.value ? (
+          <div className="absolute inset-y-4 right-4 z-40 grid w-[min(calc(100%-32px),420px)] min-h-0 shadow-2xl">
+            {renderElementDetail(false)}
+          </div>
+        ) : null}
       </div>
 
-      {exportProgress && (
-        <ExportProgressCard
-          projectName={project.name}
-          progress={exportProgress}
-          onDismiss={() => setExportProgress(null)}
+      {workbenchElementId && timeline.elements_by_id[workbenchElementId] && (
+        <WorkbenchModal
+          projectId={id}
+          element={timeline.elements_by_id[workbenchElementId]}
+          timelineId={timeline.timeline_id}
+          onClose={() => setWorkbenchElementId(null)}
         />
       )}
     </div>

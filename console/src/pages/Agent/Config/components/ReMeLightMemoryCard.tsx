@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
 import {
   AlertTriangle,
@@ -16,6 +16,8 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+
+const AUTO_FIN_MAX_WINDOW_HOURS = 168;
 
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
@@ -49,12 +51,11 @@ export function isValidDreamCronShape(value?: string) {
 }
 
 export function ReMeLightMemoryCard() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
   const {
-    setNeedsReindex,
     reindexing,
     setReindexing,
     runtimeStatus,
@@ -65,19 +66,26 @@ export function ReMeLightMemoryCard() {
     null,
   );
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
+  const [autoFinExpanded, setAutoFinExpanded] = useState(() =>
+    Boolean(
+      form.getFieldValue(["reme_light_memory_config", "auto_fin_cron_enabled"]),
+    ),
+  );
 
   const rebuildMemoryIndex = () => {
     modal.confirm({
-      title: t("agentConfig.rebuildMemoryIndexConfirmTitle"),
-      content: t("agentConfig.rebuildMemoryIndexConfirm"),
-      okText: t("agentConfig.rebuildMemoryIndex"),
+      title: t("agentConfig.rebuildBm25IndexConfirmTitle"),
+      content: t("agentConfig.rebuildBm25IndexConfirm"),
+      okText: t("agentConfig.rebuildBm25Index"),
       cancelText: t("common.cancel"),
       onOk: async () => {
         setReindexing(true);
         try {
-          await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
-          setNeedsReindex(false);
-          message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
+          await agentsApi.rebuildMemoryIndex(
+            selectedAgent || "default",
+            "bm25",
+          );
+          message.success(t("agentConfig.rebuildBm25IndexSuccess"));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           message.error(
@@ -156,13 +164,15 @@ export function ReMeLightMemoryCard() {
   const autoMemoryEnabled = autoMemoryInterval > 0;
   const dreamCronEnabled = remeConfig?.dream_cron_enabled ?? true;
   const dailyPaperCronEnabled = remeConfig?.daily_paper_cron_enabled ?? false;
+  const autoFinCronEnabled = remeConfig?.auto_fin_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
-  const dailyPaperDocsUrl = (i18n?.resolvedLanguage || i18n?.language || "en")
-    .toLowerCase()
-    .startsWith("zh")
-    ? "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md"
-    : "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README.md";
+
+  useEffect(() => {
+    if (autoFinCronEnabled) {
+      setAutoFinExpanded(true);
+    }
+  }, [autoFinCronEnabled]);
 
   const toggleAutoMemory = (enabled: boolean) => {
     form.setFieldValue(
@@ -265,8 +275,8 @@ export function ReMeLightMemoryCard() {
                 <AlertTriangle size={14} aria-hidden="true" />
                 {t("agentConfig.memoryMaintenanceEyebrow")}
               </span>
-              <strong>{t("agentConfig.memoryMaintenanceTitle")}</strong>
-              <small>{t("agentConfig.memoryMaintenanceDescription")}</small>
+              <strong>{t("agentConfig.rebuildBm25Index")}</strong>
+              <small>{t("agentConfig.rebuildBm25IndexDescription")}</small>
             </div>
             <ChevronRight size={16} aria-hidden="true" />
           </button>
@@ -374,7 +384,11 @@ export function ReMeLightMemoryCard() {
                 </span>
               </button>
               <div className={styles.memorySourceActions}>
-                <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
+                <a
+                  href="https://qwenpaw.agentscope.io/docs/memory"
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {t("agentConfig.dailyPaperDocumentation")}
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
@@ -482,6 +496,163 @@ export function ReMeLightMemoryCard() {
                     <Switch />
                   </Form.Item>
                 </div>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.memorySourceCard}>
+            <div className={styles.memorySourceHeader}>
+              <button
+                type="button"
+                className={styles.memorySourceToggle}
+                aria-expanded={autoFinExpanded}
+                onClick={() => setAutoFinExpanded((expanded) => !expanded)}
+              >
+                <span
+                  className={`${styles.memorySourceChevron} ${
+                    autoFinExpanded ? styles.memorySourceChevronExpanded : ""
+                  }`}
+                  aria-hidden="true"
+                >
+                  <ChevronRight size={18} />
+                </span>
+                <span>
+                  <strong>{t("agentConfig.memoryAutoFinTitle")}</strong>
+                  <small>{t("agentConfig.memoryAutoFinDescription")}</small>
+                </span>
+              </button>
+              <div className={styles.memorySourceActions}>
+                <a
+                  href="https://qwenpaw.agentscope.io/docs/memory"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("agentConfig.autoFinDocumentation")}
+                  <ExternalLink size={14} aria-hidden="true" />
+                </a>
+                <code>auto-fin</code>
+                <Form.Item
+                  name={["reme_light_memory_config", "auto_fin_cron_enabled"]}
+                  valuePropName="checked"
+                  noStyle
+                >
+                  <Switch
+                    onChange={(enabled) => {
+                      if (enabled) setAutoFinExpanded(true);
+                    }}
+                  />
+                </Form.Item>
+              </div>
+            </div>
+
+            {autoFinExpanded && (
+              <div className={styles.memorySourceContent}>
+                <Form.Item
+                  label={t("agentConfig.autoFinCron")}
+                  name={["reme_light_memory_config", "auto_fin_cron"]}
+                  tooltip={t("agentConfig.autoFinCronTooltip")}
+                  rules={
+                    autoFinCronEnabled
+                      ? [
+                          {
+                            required: true,
+                            whitespace: true,
+                            message: t("agentConfig.autoFinCronRequired"),
+                          },
+                          {
+                            validator: (_, value?: string) => {
+                              if (
+                                !value?.trim() ||
+                                isValidDreamCronShape(value)
+                              ) {
+                                return Promise.resolve();
+                              }
+                              return Promise.reject(
+                                new Error(t("agentConfig.autoFinCronInvalid")),
+                              );
+                            },
+                          },
+                        ]
+                      : []
+                  }
+                >
+                  <Input
+                    disabled={!autoFinCronEnabled}
+                    placeholder={t("agentConfig.autoFinCronPlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.autoFinTopics")}
+                  name={["reme_light_memory_config", "auto_fin_topics"]}
+                  tooltip={t("agentConfig.autoFinTopicsTooltip")}
+                >
+                  <Input
+                    disabled={!autoFinCronEnabled}
+                    placeholder={t("agentConfig.autoFinTopicsPlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.autoFinWindowHours")}
+                  name={["reme_light_memory_config", "auto_fin_window_hours"]}
+                  tooltip={t("agentConfig.autoFinWindowHoursTooltip")}
+                  rules={
+                    autoFinCronEnabled
+                      ? [
+                          {
+                            required: true,
+                            message: t(
+                              "agentConfig.autoFinWindowHoursRequired",
+                            ),
+                          },
+                          {
+                            type: "number",
+                            min: 1,
+                            message: t("agentConfig.autoFinWindowHoursMin"),
+                          },
+                          {
+                            type: "number",
+                            max: AUTO_FIN_MAX_WINDOW_HOURS,
+                            message: t("agentConfig.autoFinWindowHoursMax", {
+                              max: AUTO_FIN_MAX_WINDOW_HOURS,
+                            }),
+                          },
+                        ]
+                      : []
+                  }
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={1}
+                    max={AUTO_FIN_MAX_WINDOW_HOURS}
+                    step={1}
+                    disabled={!autoFinCronEnabled}
+                    placeholder={t("agentConfig.autoFinWindowHoursPlaceholder")}
+                  />
+                </Form.Item>
+
+                <div className={styles.memoryToggleRow}>
+                  <div>
+                    <strong>{t("agentConfig.memoryNotifyTitle")}</strong>
+                    <span>{t("agentConfig.autoFinNotifyDescription")}</span>
+                  </div>
+                  <Form.Item
+                    name={[
+                      "reme_light_memory_config",
+                      "auto_fin_inbox_push_enabled",
+                    ]}
+                    initialValue
+                    valuePropName="checked"
+                    noStyle
+                  >
+                    <Switch />
+                  </Form.Item>
+                </div>
+
+                <p className={styles.memorySourceDisclaimer}>
+                  {t("agentConfig.autoFinDisclaimer")}
+                </p>
               </div>
             )}
           </div>

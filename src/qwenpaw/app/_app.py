@@ -346,12 +346,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
-    if browser_config.experimental:
-        from ..browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
-
-        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 

@@ -368,3 +368,16 @@ def test_v6_and_v7_migrations_add_edit_plan_and_clear_color_grade() -> None:
     for timeline in migrated["timelines"]["items"].values():
         assert timeline["edit_plan"] is None
         assert timeline["color_grade"] == ""
+
+
+def test_v8_to_v9_adds_narrative_fields() -> None:
+    raw = _raw_project()
+    raw["schema_version"] = 8
+
+    project = load_project_json(json.dumps(raw))
+
+    assert project.schema_version == 9
+    timeline = next(iter(project.timelines.items.values()))
+    assert timeline.title == ""
+    assert timeline.synopsis == ""
+    assert timeline.planned_duration_seconds is None

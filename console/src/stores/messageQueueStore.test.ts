@@ -168,6 +168,21 @@ describe("messageQueueStore", () => {
     expect(item.agentId).toBe("agent-x");
   });
 
+  it("enqueue prefers the caller's admission-time agentId", () => {
+    sessionStorage.setItem(
+      "qwenpaw-agent-storage",
+      JSON.stringify({ state: { selectedAgent: "new-agent" } }),
+    );
+
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      agentId: "source-agent",
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.agentId).toBe("source-agent");
+  });
+
   it("enqueue captures backendSessionId from window.currentSessionId when set", () => {
     (window as unknown as { currentSessionId?: string }).currentSessionId =
       "backend-42";
@@ -176,6 +191,22 @@ describe("messageQueueStore", () => {
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.backendSessionId).toBe("backend-42");
+
+    delete (window as unknown as { currentSessionId?: string })
+      .currentSessionId;
+  });
+
+  it("enqueue prefers the caller's authoritative backendSessionId", () => {
+    (window as unknown as { currentSessionId?: string }).currentSessionId =
+      "stale-window-session";
+
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      backendSessionId: "authoritative-session",
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.backendSessionId).toBe("authoritative-session");
 
     delete (window as unknown as { currentSessionId?: string })
       .currentSessionId;

@@ -664,6 +664,37 @@ async def test_stream_idle_timeout_retries_before_visible_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_timeout_reads_environment_after_model_creation(
+    monkeypatch,
+) -> None:
+    """A new stream reads its timeout through the existing EnvVarLoader."""
+    _limiters.clear()
+    state = {"started": asyncio.Event(), "closed": False}
+    inner = _IdleStreamModel([_hanging_stream(state)])
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+    monkeypatch.setenv("QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT", "0.01")
+
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError) as exc_info:
+            _ = [chunk async for chunk in stream]
+        assert exc_info.value.timeout_seconds == 0.01
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
 async def test_stream_idle_timeout_does_not_retry_after_output() -> None:
     _limiters.clear()
     state = {
@@ -1546,6 +1577,8 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
 
     try:
         inner = _ReasoningRetryMsgStreamModel()
+        thought = ThinkingBlock(thinking="real tool reasoning")
+        assert inner.formatter.set_thinking_omit_ids({thought.id}) is True
         model = RetryChatModel(
             inner,  # type: ignore[arg-type]
             retry_config=RetryConfig(enabled=False),
@@ -1562,7 +1595,7 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
                 name="assistant",
                 role="assistant",
                 content=[
-                    ThinkingBlock(thinking="real tool reasoning"),
+                    thought,
                     ToolCallBlock(id="call_1", name="tool", input="{}"),
                     ToolResultBlock(
                         id="call_1",
@@ -1593,11 +1626,18 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
         ]
         assert [
             message.get("reasoning_content") for message in first_assistants
-        ] == ["real tool reasoning", None]
+        ] == [
+            None,
+            None,
+        ]
         assert [
             message.get("reasoning_content") for message in second_assistants
-        ] == ["real tool reasoning", " "]
+        ] == [
+            "real tool reasoning",
+            " ",
+        ]
         assert inner.formatter._qwenpaw_require_reasoning_content is True
+        assert inner.formatter._qwenpaw_omit_thinking_ids == set()
         assert cache.get(model_key, "needs_reasoning_content") is True
         assert [block.type for block in messages[0].content] == [
             "thinking",

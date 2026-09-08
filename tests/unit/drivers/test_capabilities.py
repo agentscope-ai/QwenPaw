@@ -103,6 +103,7 @@ class TestCapabilityDataclasses:
         assert not cap.output_schema
         assert cap.exposure == CapabilityExposure()
         assert not cap.metadata
+        assert cap.enabled is True
         with pytest.raises(AttributeError):  # frozen dataclass
             cap.name = "x"
 

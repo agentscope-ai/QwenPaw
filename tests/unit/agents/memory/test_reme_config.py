@@ -29,22 +29,60 @@ def _config_for_embedding(embedding: EmbeddingModelConfig) -> dict:
 def test_memory_search_indexes_only_memory_markdown() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "reindex"):
-        job = cfg["jobs"][job_name]
-        assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
-        assert job["watch_suffixes"] == ["md"]
+    job = cfg["jobs"]["index_update_loop"]
+    assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
+    assert job["watch_suffixes"] == ["md"]
 
 
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "reindex"):
-        assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
+    assert (
+        cfg["jobs"]["index_update_loop"]["max_file_bytes"] == 10 * 1024 * 1024
+    )
+
+
+def test_reindex_job_exposes_explicit_scopes() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    reindex = cfg["jobs"]["reindex"]
+    assert reindex["parameters"]["properties"]["scope"] == {
+        "type": "string",
+        "enum": ["all", "bm25", "embedding"],
+        "default": "all",
+    }
+    assert reindex["steps"] == [{"backend": "reindex_step"}]
+
+
+def test_pending_embedding_reindex_is_forwarded_to_file_store() -> None:
+    embedding = EmbeddingModelConfig(
+        backend="ollama",
+        model_name="nomic-embed-text",
+    )
+    agent_config = AgentProfileConfig(
+        id="agent-1",
+        name="Agent One",
+        running=AgentsRunningConfig(
+            reme_light_memory_config=ReMeLightMemoryConfig(
+                embedding_model_config=embedding,
+                needs_reindex=True,
+            ),
+        ),
+    )
+
+    cfg = get_reme_app_config(
+        working_dir="/tmp/qwenpaw-agent",
+        agent_config=agent_config,
+    )
+
+    file_store = cfg["components"]["file_store"]["default"]
+    assert file_store["embedding_rebuild_required"] is True
 
 
 def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
+    assert cfg["plugins"] == ["auto-fin", "daily-paper"]
     assert cfg["resource_dir"] == "resource"
     assert "resource_watch_loop" not in cfg["jobs"]
     assert "auto_resource" not in cfg["jobs"]
@@ -54,8 +92,28 @@ def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
         {"backend": "daily_paper_rank_step"},
         {"backend": "daily_paper_select_step"},
         {"backend": "daily_paper_analyze_step"},
-        {"backend": "daily_paper_digest_step"},
+        {
+            "backend": "daily_paper_digest_step",
+            "job_tools": ["search", "read"],
+        },
     ]
+    assert cfg["jobs"]["daily_paper_cron"] == {
+        "backend": "base",
+        "enable_serve": False,
+        "steps": [],
+    }
+    assert cfg["jobs"]["auto_fin_cron"] == {
+        "backend": "base",
+        "enable_serve": False,
+        "steps": [],
+    }
+
+
+def test_reme_plugins_reuse_search_job() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert "memory_search" not in cfg["jobs"]
+    assert cfg["jobs"]["search"]["steps"][0]["backend"] == "search_step"
 
 
 def test_status_job_reports_reme_memory_usage() -> None:
@@ -211,6 +269,21 @@ def test_ollama_embedding_maps_base_url_to_host() -> None:
     assert cfg["components"]["as_embedding"]["default"]["credential"] == {
         "host": "http://localhost:11434",
     }
+
+
+def test_embedding_health_check_timeout_is_forwarded_to_reme() -> None:
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="ollama",
+            model_name="nomic-embed-text",
+            health_check_timeout=45,
+        ),
+    )
+
+    assert (
+        cfg["components"]["embedding_store"]["default"]["health_check_timeout"]
+        == 45
+    )
 
 
 def test_ollama_embedding_without_host_still_enables_with_model() -> None:

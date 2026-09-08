@@ -44,6 +44,7 @@ from ...config import (
 )
 from ...config.utils import mutate_config
 from ...config.config import (
+    AgentProfileConfig,
     EmbeddingModelConfig,
     load_agent_config,
     save_agent_config,
@@ -72,7 +73,11 @@ from ...services.workspace_files import (
     resolve_workspace_path,
     save_text_file,
 )
-from ...utils.io_utils import get_path_lock, run_sync_io
+from ...utils.io_utils import (
+    get_path_lock,
+    run_async_to_completion,
+    run_sync_io,
+)
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
@@ -1668,9 +1673,11 @@ async def _apply_embedding_runtime(
     memory_manager: Any,
     embedding_config: EmbeddingModelConfig,
     agent_id: str,
+    *,
+    force_reload: bool = False,
 ) -> bool:
     """Apply an embedding config to a running memory manager."""
-    if hasattr(memory_manager, "apply_tested_embedding"):
+    if not force_reload and hasattr(memory_manager, "apply_tested_embedding"):
         try:
             if await memory_manager.apply_tested_embedding(embedding_config):
                 return True
@@ -1681,6 +1688,10 @@ async def _apply_embedding_runtime(
                 exc,
                 exc_info=True,
             )
+            # An exception is an integration/runtime failure, not the normal
+            # "reload required" result.  Return failure so the caller rolls
+            # back the persisted config before restoring the old runtime.
+            return False
     if hasattr(memory_manager, "reload_embedding_config"):
         try:
             return bool(await memory_manager.reload_embedding_config())
@@ -1770,6 +1781,7 @@ async def put_agents_running_config(
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False
+        restores_indexed_space = False
         new_embedding_config = (
             running_config.reme_light_memory_config.embedding_model_config
         )
@@ -1778,6 +1790,7 @@ async def put_agents_running_config(
         def persist_running_config(agent_config):
             nonlocal old_agent_config, embedding_changed
             nonlocal memory_manager_backend_changed
+            nonlocal restores_indexed_space
             old_agent_config = agent_config.model_copy(deep=True)
             old_running_config = agent_config.running or AgentsRunningConfig()
             memory_manager_backend_changed = (
@@ -1789,9 +1802,29 @@ async def put_agents_running_config(
             vector_space_changed = embedding_vector_space_fingerprint(
                 old_embedding_config,
             ) != embedding_vector_space_fingerprint(new_embedding_config)
-            running_config.reme_light_memory_config.needs_reindex = (
-                old_memory_config.needs_reindex or vector_space_changed
+            new_memory_config = running_config.reme_light_memory_config
+            indexed_config = old_memory_config.pending_reindex_embedding_config
+            matches_existing_index = bool(
+                old_memory_config.needs_reindex
+                and indexed_config is not None
+                and embedding_vector_space_fingerprint(new_embedding_config)
+                == embedding_vector_space_fingerprint(indexed_config),
             )
+            restores_indexed_space = matches_existing_index
+            if matches_existing_index:
+                new_memory_config.needs_reindex = False
+                new_memory_config.pending_reindex_embedding_config = None
+            else:
+                new_memory_config.needs_reindex = (
+                    old_memory_config.needs_reindex or vector_space_changed
+                )
+                new_memory_config.pending_reindex_embedding_config = (
+                    indexed_config
+                )
+            if vector_space_changed and not old_memory_config.needs_reindex:
+                new_memory_config.pending_reindex_embedding_config = (
+                    old_embedding_config.model_copy(deep=True)
+                )
             embedding_changed = old_embedding_config != new_embedding_config
             if (
                 embedding_changed
@@ -1812,32 +1845,39 @@ async def put_agents_running_config(
             running_config.approval_level = None
             agent_config.running = running_config
 
-        agent_config = await update_agent_config_async(
-            workspace.agent_id,
-            persist_running_config,
-        )
-
-        if (
-            embedding_changed
-            and not memory_manager_backend_changed
-            and new_memory_manager_backend == "remelight"
-            and memory_manager is not None
-        ):
-            embedding_updated = await _apply_embedding_runtime(
-                memory_manager,
-                new_embedding_config,
+        async def persist_apply_and_schedule() -> AgentProfileConfig:
+            agent_config = await update_agent_config_async(
                 workspace.agent_id,
+                persist_running_config,
             )
-            if not embedding_updated:
-                assert old_agent_config is not None
-                await _rollback_embedding_update(
-                    workspace.agent_id,
-                    memory_manager,
-                    old_agent_config,
-                    agent_config,
-                )
 
-    schedule_agent_reload(request, workspace.agent_id)
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+            ):
+                embedding_updated = await _apply_embedding_runtime(
+                    memory_manager,
+                    new_embedding_config,
+                    workspace.agent_id,
+                    force_reload=restores_indexed_space,
+                )
+                if not embedding_updated:
+                    assert old_agent_config is not None
+                    await _rollback_embedding_update(
+                        workspace.agent_id,
+                        memory_manager,
+                        old_agent_config,
+                        agent_config,
+                    )
+
+            schedule_agent_reload(request, workspace.agent_id)
+            return agent_config
+
+        agent_config = await run_async_to_completion(
+            persist_apply_and_schedule(),
+        )
 
     running_config.approval_level = agent_config.approval_level
     return running_config

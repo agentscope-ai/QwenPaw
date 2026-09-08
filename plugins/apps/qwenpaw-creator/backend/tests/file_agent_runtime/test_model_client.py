@@ -89,44 +89,30 @@ def test_default_client_constructs_real_agentscope_dashscope_model(
     assert isinstance(configured, DashScopeChatModel)
 
 
-def test_anthropic_protocol_constructs_anthropic_chat_model(
+@pytest.mark.parametrize(
+    ("protocol", "base_url"),
+    [
+        ("Anthropic Claude", "https://api.anthropic.com"),
+        ("MiniMax", "https://api.minimaxi.com/anthropic"),
+    ],
+)
+def test_anthropic_compatible_protocol_constructs_anthropic_chat_model(
     monkeypatch: pytest.MonkeyPatch,
+    protocol: str,
+    base_url: str,
 ) -> None:
     from agentscope.model import AnthropicChatModel
 
-    _configure_text_model(
-        monkeypatch,
-        protocol="Anthropic Claude",
-    )
+    _configure_text_model(monkeypatch, protocol=protocol)
     monkeypatch.setattr(
         model_client.model_config,
         "get_text_base_url",
-        lambda: "https://api.anthropic.com",
+        lambda: base_url,
     )
-
-    configured = AgentScopeAgentChatClient()._configured_model()
-
-    assert isinstance(configured, AnthropicChatModel)
-
-
-def test_minimax_protocol_constructs_anthropic_chat_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agentscope.model import AnthropicChatModel
-
-    _configure_text_model(
-        monkeypatch,
-        protocol="MiniMax",
+    assert isinstance(
+        AgentScopeAgentChatClient()._configured_model(),
+        AnthropicChatModel,
     )
-    monkeypatch.setattr(
-        model_client.model_config,
-        "get_text_base_url",
-        lambda: "https://api.minimaxi.com/anthropic",
-    )
-
-    configured = AgentScopeAgentChatClient()._configured_model()
-
-    assert isinstance(configured, AnthropicChatModel)
 
 
 def test_gemini_protocol_constructs_gemini_chat_model(
@@ -636,49 +622,59 @@ def test_agentscope_client_retries_rate_limited_turns_until_exhausted(
     ]
 
 
-def test_agentscope_client_recovers_after_rate_limited_turns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        model_client,
-        "_rate_limit_retry_delay",
-        lambda _attempt: 0.0,
-    )
+@pytest.mark.parametrize(
+    "failure, delays, reason",
+    [
+        ("429 Too Many Requests", [2, 4], "rate_limit"),
+        ("Connection reset by peer", [1], "transient"),
+        ("empty", [0], "empty_response"),
+    ],
+    ids=["rate-limit", "connection-reset", "empty-response"],
+)
+def test_model_retry_recovery_reports_real_cause_and_backoff(
+    monkeypatch,
+    failure,
+    delays,
+    reason,
+):
+    notices = []
+    sleeps = []
 
-    class ThrottledThenHealthyModel:
-        model = "qwen3.7-plus"
+    async def sleep(seconds):
+        sleeps.append(seconds)
 
-        def __init__(self) -> None:
-            self.calls = 0
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
+
+    class RecoveringModel:
+        model = "test-model"
+        calls = 0
 
         async def __call__(self, messages, *, tools=None):
-            del messages, tools
             self.calls += 1
-            if self.calls <= 2:
-                raise RuntimeError("429 Too Many Requests")
+            if self.calls <= len(delays):
+                if failure == "empty":
+                    return ChatResponse(id="empty", content=[], is_last=True)
+                raise RuntimeError(failure)
             return ChatResponse(
-                id="response-rate-limit-recover",
-                content=[TextBlock(text="恢复完成")],
+                id="recovered",
+                content=[TextBlock(text="继续生成")],
                 is_last=True,
             )
 
-    notices: list[RateLimitRetryNotice] = []
-
-    async def on_retry(notice: RateLimitRetryNotice) -> None:
+    async def on_retry(notice):
         notices.append(notice)
 
-    async def scenario():
-        provider = ThrottledThenHealthyModel()
-        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
-        turn = await client.complete(
-            messages=[{"role": "user", "content": "开始"}],
+    provider = RecoveringModel()
+    result = asyncio.run(
+        AgentScopeAgentChatClient(provider).complete(
+            messages=[{"role": "user", "content": "继续"}],
             tools=_tools(),
             on_rate_limit_retry=on_retry,
-        )
-        return provider, turn
-
-    provider, turn = asyncio.run(scenario())
-
-    assert provider.calls == 3
-    assert turn.content == "恢复完成"
-    assert [notice.attempt for notice in notices] == [1, 2]
+        ),
+    )
+    assert result.content == "继续生成"
+    assert provider.calls == len(delays) + 1
+    assert [(n.reason, n.attempt, n.delay_seconds) for n in notices] == [
+        (reason, attempt, delay) for attempt, delay in enumerate(delays, 1)
+    ]
+    assert sleeps == [delay for delay in delays if delay]

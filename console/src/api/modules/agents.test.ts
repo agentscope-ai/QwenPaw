@@ -89,11 +89,30 @@ describe("agentsApi", () => {
     const resp = { status: "completed" } as const;
     vi.mocked(request).mockResolvedValue(resp);
     const result = await agentsApi.rebuildMemoryIndex("a1");
-    expect(request).toHaveBeenCalledWith("/agents/a1/memory/reindex", {
-      method: "POST",
-      timeout: 10 * 60 * 1000,
-    });
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=all",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
     expect(result).toEqual(resp);
+  });
+
+  it("passes scoped reindex and supports undo", async () => {
+    await agentsApi.rebuildMemoryIndex("a1", "embedding");
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=embedding",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
+
+    await agentsApi.undoEmbeddingReindex("a1");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/memory/reindex/undo", {
+      method: "POST",
+    });
   });
 
   it("getMemoryStatus fetches structured ReMe status", async () => {

@@ -76,6 +76,7 @@ class ServiceDescriptor:
             Callable[[Workspace, Any], Awaitable[Any]],
         ]
     ] = None
+    reuse_compatibility: Optional[Callable[["Workspace", Any], bool]] = None
     dependencies: List[str] = field(default_factory=list)
     priority: int = 100
     concurrent_init: bool = True
@@ -336,7 +337,14 @@ class ServiceManager:
         keep their existing reuse semantics.
         """
         instance = self.services.get(descriptor.name)
-        if instance is None or descriptor.service_class is None:
+        if instance is None:
+            return True
+        if (
+            descriptor.reuse_compatibility is not None
+            and not descriptor.reuse_compatibility(self.workspace, instance)
+        ):
+            return False
+        if descriptor.service_class is None:
             return True
         if isinstance(descriptor.service_class, type):
             expected_class = descriptor.service_class

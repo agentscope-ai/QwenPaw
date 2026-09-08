@@ -6,7 +6,10 @@ import { configuredModelConfig } from "@/test/agentFixtures";
 import { installMockFetch } from "@/test/mockFetch";
 
 /** Serves the shared configured fixture with optional tts overrides. */
-function renderBadges(tts: Partial<ModelConfigData["tts"]> = {}) {
+function renderBadges(
+  tts: Partial<ModelConfigData["tts"]> = {},
+  overrides: Partial<ModelConfigData> = {},
+) {
   installMockFetch([
     {
       match: "/models/config",
@@ -20,6 +23,7 @@ function renderBadges(tts: Partial<ModelConfigData["tts"]> = {}) {
             base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
           },
           tts: { ...configuredModelConfig.tts, ...tts },
+          ...overrides,
         },
       },
     },

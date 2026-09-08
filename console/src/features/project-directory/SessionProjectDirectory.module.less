@@ -6,15 +6,15 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  color: var(--ant-color-text-secondary);
-  background: rgba(243, 107, 33, 0.07);
-  border: 1px solid rgba(243, 107, 33, 0.2);
+  color: var(--app-text-secondary);
+  background: var(--app-accent-faint);
+  border: 1px solid var(--app-accent-border);
   border-radius: 8px;
   cursor: pointer;
 
   > span {
     overflow: hidden;
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 12px;
     font-weight: 550;
     text-overflow: ellipsis;
@@ -22,21 +22,21 @@
   }
 
   em {
-    color: #d95b17;
+    color: var(--app-accent-text);
     font-size: 9px;
     font-style: normal;
     white-space: nowrap;
   }
 
   &:hover {
-    border-color: #f36b21;
-    background: rgba(243, 107, 33, 0.11);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 }
 
 .triggerError {
-  color: var(--ant-color-error);
-  border-color: color-mix(in srgb, var(--ant-color-error) 35%, transparent);
+  color: var(--app-error-text);
+  border-color: color-mix(in srgb, var(--app-error) 35%, transparent);
 }
 
 .triggerCompact {
@@ -64,7 +64,7 @@
 
   > svg:last-child {
     flex: 0 0 auto;
-    color: var(--ant-color-text-tertiary);
+    color: var(--app-text-tertiary);
   }
 
   &:hover {
@@ -89,14 +89,14 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 11px;
     font-weight: 650;
     line-height: 1.25;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     flex: 1;
     font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 9px;
@@ -139,7 +139,7 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 14px;
     font-weight: 650;
   }
@@ -156,12 +156,12 @@
   flex: 0 0 auto;
   min-width: 20px;
   padding: 1px 7px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   font-size: 11px;
   font-weight: 650;
   text-align: center;
   border-radius: 7px;
-  background: var(--ant-color-fill-tertiary);
+  background: var(--app-fill-subtle);
 }
 
 .headingIcon {
@@ -171,9 +171,9 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  color: #f36b21;
+  color: var(--app-accent);
   border-radius: 11px;
-  background: rgba(243, 107, 33, 0.1);
+  background: var(--app-accent-soft);
 }
 
 .pathInput {
@@ -183,8 +183,8 @@
   border-radius: 10px;
 
   &:focus-within {
-    border-color: rgba(243, 107, 33, 0.5);
-    box-shadow: 0 0 0 3px rgba(243, 107, 33, 0.08);
+    border-color: var(--app-accent-border);
+    box-shadow: 0 0 0 3px var(--app-accent-ring);
   }
 }
 
@@ -197,10 +197,10 @@
   grid-template-columns: 32px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 9px;
-  border: 1px solid rgba(243, 107, 33, 0.34);
+  border: 1px solid var(--app-accent-border);
   border-radius: 11px;
-  background: rgba(243, 107, 33, 0.08);
-  box-shadow: inset 3px 0 0 #f36b21;
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .pathChipIcon {
@@ -209,9 +209,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #f36b21;
+  color: var(--app-accent);
   border-radius: 9px;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
 }
 
 .pathChipCopy {
@@ -227,13 +227,13 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 12px;
     font-weight: 650;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 9px;
   }
@@ -246,15 +246,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   border: 0;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
 
   &:hover {
-    color: var(--ant-color-text);
-    background: var(--ant-color-bg-container);
+    color: var(--app-text);
+    background: var(--app-surface);
   }
 }
 
@@ -265,7 +265,7 @@
   flex: 1 1 236px;
   grid-template-columns: minmax(170px, 0.82fr) minmax(230px, 1.18fr);
   overflow: hidden;
-  border: 1px solid var(--ant-color-border-secondary);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
@@ -280,12 +280,8 @@
 .recentPane {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--ant-color-border-secondary);
-  background: color-mix(
-    in srgb,
-    var(--ant-color-fill-quaternary) 58%,
-    transparent
-  );
+  border-right: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-fill-faint) 58%, transparent);
 }
 
 .sectionHeading {
@@ -293,11 +289,11 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 10px;
 
   strong {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-size: 11px;
     font-weight: 650;
   }
@@ -319,7 +315,7 @@
     grid-template-columns: 30px minmax(0, 1fr) 18px;
     align-items: center;
     gap: 9px;
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     text-align: left;
     border: 1px solid transparent;
     border-radius: 10px;
@@ -331,18 +327,18 @@
       background 150ms ease;
 
     &:hover {
-      color: var(--ant-color-text);
-      border-color: var(--ant-color-border-secondary);
-      background: var(--ant-color-bg-container);
+      color: var(--app-text);
+      border-color: var(--app-border);
+      background: var(--app-surface);
     }
   }
 }
 
 .recent button.recentSelected {
-  color: #f36b21;
-  border-color: rgba(243, 107, 33, 0.34);
-  background: rgba(243, 107, 33, 0.09);
-  box-shadow: inset 3px 0 0 #f36b21;
+  color: var(--app-accent-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .recentIcon {
@@ -352,10 +348,10 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: var(--ant-color-fill-tertiary);
+  background: var(--app-fill-subtle);
 
   .recentSelected & {
-    background: var(--ant-color-bg-container);
+    background: var(--app-surface);
   }
 }
 
@@ -372,13 +368,13 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 11px;
     font-weight: 650;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 9px;
   }
@@ -391,14 +387,14 @@
   align-items: center;
   justify-content: center;
   color: transparent;
-  border: 1px solid var(--ant-color-border);
+  border: 1px solid var(--app-border-strong);
   border-radius: 50%;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
 
   .recentSelected & {
-    color: #fff;
-    border-color: #f36b21;
-    background: #f36b21;
+    color: var(--app-text-inverse);
+    border-color: var(--app-accent);
+    background: var(--app-accent);
   }
 }
 
@@ -406,7 +402,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
 }
 
 .browserHeading {
@@ -423,14 +419,14 @@
   }
 
   strong {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-size: 11px;
     font-weight: 650;
   }
 
   code {
     overflow: hidden;
-    color: var(--ant-color-text-tertiary);
+    color: var(--app-text-tertiary);
     font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -463,7 +459,7 @@
 
   > small {
     grid-column: 1 / -1;
-    color: var(--ant-color-error);
+    color: var(--app-error-text);
     font-size: 9px;
     line-height: 1.3;
   }
@@ -487,7 +483,7 @@
     grid-template-columns: 17px minmax(0, 1fr) 14px;
     align-items: center;
     gap: 8px;
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     text-align: left;
     border: 1px solid transparent;
     border-radius: 8px;
@@ -500,7 +496,7 @@
 
     span {
       overflow: hidden;
-      color: var(--ant-color-text);
+      color: var(--app-text);
       font-size: 11px;
       font-weight: 550;
       text-overflow: ellipsis;
@@ -508,23 +504,23 @@
     }
 
     > svg:last-child {
-      color: var(--ant-color-text-tertiary);
+      color: var(--app-text-tertiary);
     }
 
     &:hover {
-      border-color: var(--ant-color-border-secondary);
-      background: var(--ant-color-fill-quaternary);
+      border-color: var(--app-border);
+      background: var(--app-fill-faint);
     }
   }
 }
 
 .directories > button.directorySelected:not(:global(.ant-btn)) {
-  color: #f36b21;
-  border-color: rgba(243, 107, 33, 0.3);
-  background: rgba(243, 107, 33, 0.08);
+  color: var(--app-accent-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
 
   > svg:last-child {
-    color: #f36b21;
+    color: var(--app-accent);
   }
 }
 
@@ -533,13 +529,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
 }
 
 .emptyState {
   padding: 24px 8px;
   display: block;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 10px;
   text-align: center;
 }
@@ -556,33 +552,33 @@
 
   :global(.ant-btn-primary) {
     min-width: 74px;
-    background: #f36b21;
-    box-shadow: 0 5px 14px rgba(243, 107, 33, 0.18);
+    background: var(--app-accent);
+    box-shadow: 0 5px 14px var(--app-accent-ring);
 
     &:hover {
-      background: #d95613 !important;
+      background: var(--app-accent-active) !important;
     }
   }
 }
 
 .recent strong {
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .recent button:hover {
   .recentIcon {
-    color: #f36b21;
+    color: var(--app-accent);
   }
 }
 
 .recentSelected {
   .recentIcon {
-    color: #f36b21;
+    color: var(--app-accent);
   }
 }
 
 .hint {
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 10px;
 }
 
@@ -593,21 +589,6 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-:global(.dark-mode) {
-  .trigger {
-    background: rgba(255, 145, 77, 0.1);
-    border-color: rgba(255, 145, 77, 0.24);
-
-    em {
-      color: #ff914d;
-    }
-  }
-
-  .panelHeading {
-    color: #ff914d;
   }
 }
 
@@ -662,7 +643,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   border: 1px solid transparent;
   border-radius: 9px;
 }
@@ -675,7 +656,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: var(--ant-color-fill-tertiary);
+  background: var(--app-fill-subtle);
 }
 
 .boundCopy {
@@ -692,13 +673,13 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 12px;
     font-weight: 650;
   }
 
   small {
-    color: var(--ant-color-text-tertiary);
+    color: var(--app-text-tertiary);
     font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 9px;
   }
@@ -715,21 +696,21 @@
 }
 
 .boundTag {
-  color: #d95b17;
+  color: var(--app-accent-text);
 }
 
 .boundAction {
   padding: 3px 7px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
 
   &:hover:not(:disabled) {
-    color: #d95b17;
-    border-color: rgba(243, 107, 33, 0.34);
-    background: rgba(243, 107, 33, 0.08);
+    color: var(--app-accent-text);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
   }
 
   &:disabled {
@@ -740,22 +721,22 @@
 
 /* The primary is the resolution base, so it reads as the anchor row. */
 .boundList li[data-primary="true"] {
-  border-color: rgba(243, 107, 33, 0.28);
-  background: rgba(243, 107, 33, 0.07);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
 
   .boundIcon {
-    color: #f36b21;
-    background: var(--ant-color-bg-container);
+    color: var(--app-accent);
+    background: var(--app-surface);
   }
 }
 
 .boundList li[data-missing="true"] {
   .boundCopy strong {
-    color: var(--ant-color-error);
+    color: var(--app-error-text);
   }
 
   .boundTag {
-    color: var(--ant-color-error);
+    color: var(--app-error-text);
   }
 }
 
@@ -763,21 +744,21 @@
    "not bound yet". */
 .pendingRow {
   border-style: dashed !important;
-  border-color: var(--ant-color-border) !important;
-  background: var(--ant-color-fill-quaternary);
+  border-color: var(--app-border-strong) !important;
+  background: var(--app-fill-faint);
 }
 
 /* Sits under the panel title: which directory the tools default to. */
 .boundHint {
   margin-top: 1px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 10px;
   font-weight: 400;
   line-height: 1.4;
 }
 
 .listError {
-  color: var(--ant-color-error);
+  color: var(--app-error-text);
   font-size: 10px;
   word-break: break-all;
 }
@@ -828,7 +809,7 @@
     max-height: 104px;
     padding: 8px;
     border-right: 0;
-    border-bottom: 1px solid var(--ant-color-border-secondary);
+    border-bottom: 1px solid var(--app-border);
   }
 
   .browserPane {

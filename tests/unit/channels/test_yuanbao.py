@@ -648,6 +648,40 @@ class TestSendMedia:
 class TestCodecHelpers:
     """P1: Codec encode/decode helpers."""
 
+    @pytest.mark.parametrize(
+        ("type_name", "payload", "expected"),
+        [
+            (
+                "AUTH_BIND_RSP",
+                {"code": 41101, "message": "already", "connectId": "cid"},
+                {"code": 41101, "message": "already", "connectId": "cid"},
+            ),
+            (
+                "PING_RSP",
+                {"heartInterval": 42},
+                {"heartInterval": 42},
+            ),
+            (
+                "KICKOUT_MSG",
+                {"status": 1, "reason": "another device"},
+                {"status": 1, "reason": "another device"},
+            ),
+            (
+                "AUTH_BIND_RSP",
+                {"code": 0},
+                {},
+            ),
+        ],
+    )
+    def test_pb_roundtrip(self, type_name, payload, expected):
+        from qwenpaw.app.channels.yuanbao import codec
+
+        message_type = getattr(codec, type_name)
+        encoded = codec.encode_pb(message_type, payload)
+
+        assert encoded is not None
+        assert codec.decode_pb(message_type, encoded) == expected
+
     def test_to_proto_msg_body_text(self):
         from qwenpaw.app.channels.yuanbao.codec import _to_proto_msg_body
 

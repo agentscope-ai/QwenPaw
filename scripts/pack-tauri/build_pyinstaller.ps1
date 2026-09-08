@@ -5,7 +5,7 @@
 #   powershell ./scripts/pack-tauri/build_pyinstaller.ps1
 #
 # Prerequisites:
-#   - Python 3.10+ with virtual environment
+#   - Python 3.10+ on PATH (used only to bootstrap the bundled runtime)
 #   - PyInstaller 6.0+ (will be installed if not present)
 
 param()
@@ -18,6 +18,12 @@ $DIST = if ($env:DIST) { $env:DIST } else { "dist" }
 if (-not [System.IO.Path]::IsPathRooted($DIST)) {
     $DIST = Join-Path $REPO_ROOT $DIST
 }
+$BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
+$PYTHON_RUNTIME_DIR = Join-Path $BINARIES_DIR "python-runtime"
+$RUNTIME_PYTHON_DIR = Join-Path $PYTHON_RUNTIME_DIR "python"
+$NATIVE_HOST_PYTHON = Join-Path $RUNTIME_PYTHON_DIR "python.exe"
+$BUILD_VENV = Join-Path $DIST "pyinstaller-venv"
+$PYTHON_BIN = Join-Path $BUILD_VENV "Scripts\python.exe"
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
 # Extract version
@@ -42,28 +48,38 @@ Write-Host ""
 # Check prerequisites
 Write-Host "== Checking prerequisites ==" -ForegroundColor Yellow
 
-$UV_BIN = (Get-Command uv -ErrorAction SilentlyContinue).Source
-$PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
-if (-not (Test-Path $PYTHON_BIN)) {
-    if ($UV_BIN) {
-        Write-Host ".venv not found, creating virtual environment with uv" -ForegroundColor Yellow
-        & $UV_BIN venv "$REPO_ROOT\.venv"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create virtual environment with uv"
-        }
-    } else {
-        Write-Host ".venv not found, using system Python" -ForegroundColor Yellow
-        $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
-    }
-    if (-not $PYTHON_BIN -or -not (Test-Path $PYTHON_BIN)) {
-        Write-Host "ERROR: Python not found in .venv or PATH" -ForegroundColor Red
-        Write-Host "Please create virtual environment first: python -m venv .venv"
-        exit 1
-    }
+function Assert-LastExit {
+    param([string]$Message)
+    if ($LASTEXITCODE -ne 0) { throw $Message }
 }
+
+$UV_BIN = (Get-Command uv -ErrorAction SilentlyContinue).Source
+$BOOTSTRAP_PYTHON = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $BOOTSTRAP_PYTHON -or -not (Test-Path $BOOTSTRAP_PYTHON)) {
+    throw "Python not found on PATH; it is required to stage the bundled runtime"
+}
+
+New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
+
+# The staged python-build-standalone runtime is the canonical source for both
+# the helper interpreter and the PyInstaller build environment. The PATH
+# Python only selects the X.Y version to download and runs the staging script.
+Write-Host "== Staging canonical Python runtime ==" -ForegroundColor Yellow
+& $BOOTSTRAP_PYTHON `
+    (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
+    --dest $PYTHON_RUNTIME_DIR
+Assert-LastExit "Failed to stage bundled Python runtime"
+if (-not (Test-Path $NATIVE_HOST_PYTHON -PathType Leaf)) {
+    throw "Bundled Python interpreter not found at $NATIVE_HOST_PYTHON"
+}
+
+Write-Host "== Creating PyInstaller build environment ==" -ForegroundColor Yellow
+& $NATIVE_HOST_PYTHON -m venv --clear $BUILD_VENV
+Assert-LastExit "Failed to create PyInstaller environment from bundled Python"
 
 $pythonVersion = & $PYTHON_BIN --version
 Write-Host "Python: $pythonVersion" -ForegroundColor Green
+Write-Host ""
 
 function Test-PythonImport {
     param([string]$Statement)
@@ -75,11 +91,6 @@ function Test-PythonImport {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-}
-
-function Assert-LastExit {
-    param([string]$Message)
-    if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
 function Install-PythonPackages {
@@ -207,9 +218,6 @@ Write-Host ""
 
 # Copy to Tauri resources directory
 Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
-$BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
-New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
-
 $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
 New-Item -ItemType Directory -Force -Path $DEST | Out-Null
 Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
@@ -217,16 +225,9 @@ Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""
 
-# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
-# frozen backend can install third-party plugin dependencies at runtime.
-Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
-& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
-    --dest (Join-Path $BINARIES_DIR "python-runtime")
-Assert-LastExit "Failed to stage bundled Python runtime"
-
 # The Chrome Native Messaging host runs under this standalone interpreter,
 # outside the PyInstaller backend, so its dependencies must be installed here.
-$NATIVE_HOST_PYTHON = Join-Path $BINARIES_DIR "python-runtime\python\python.exe"
+Write-Host "== Installing bundled Python helper dependencies ==" -ForegroundColor Yellow
 $NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
 & $NATIVE_HOST_PYTHON -m pip install `
     --disable-pip-version-check `

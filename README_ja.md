@@ -60,6 +60,8 @@
 
 ## ニュース
 
+- [2026-09-03] **v2.2.0** | セルフホスト型マルチユーザー QwenPaw Hub、QwenPaw Mail、ネイティブ QwenPaw Data、統合モデルルーティング、Creator 1.1 に加え、マーケット、Console、Skills、チャネル、信頼性を大幅に改善。[v2.2.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、Codex/Qoder エージェント連携、Browser-use、Computer-use、ワークスペースチェックポイント、長時間の対話タスク継続など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
@@ -76,12 +78,6 @@
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
   Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — 無料モデル OAuth、プラグインマーケット、MCP ツールホワイトリスト。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [すべてのリリースノート →](https://qwenpaw.agentscope.io/release-notes)
 

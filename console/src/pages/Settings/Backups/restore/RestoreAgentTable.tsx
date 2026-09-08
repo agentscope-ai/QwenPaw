@@ -187,7 +187,7 @@ export default function RestoreAgentTable({
                   size="small"
                   prefix={
                     <SearchOutlined
-                      style={{ color: "var(--ant-color-text-quaternary)" }}
+                      style={{ color: "var(--app-text-quaternary)" }}
                     />
                   }
                   placeholder={t("backup.agentSearchPlaceholder")}

@@ -15,7 +15,7 @@ import tempfile
 import threading
 import weakref
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -1134,6 +1134,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 next_entry = {
                     "enabled": enabled,
                     "channels": channels,
+                    "preload": existing.get("preload") is True,
                     "source": source,
                     "metadata": metadata,
                     "requirements": metadata["requirements"],
@@ -1232,6 +1233,20 @@ def resolve_effective_skills(
             if skill_dir.exists():
                 resolved.append(skill_name)
     return resolved
+
+
+def select_preload_skills(
+    workspace_dir: Path,
+    effective_skills: Iterable[str],
+) -> list[str]:
+    """Return effective skills explicitly configured with preload enabled."""
+    entries = read_skill_manifest(workspace_dir).get("skills", {})
+    selected: list[str] = []
+    for name in effective_skills:
+        entry = normalize_skill_manifest_entry(entries.get(name))
+        if entry.get("preload") is True:
+            selected.append(name)
+    return selected
 
 
 def _path_signature(path: Path) -> FileSignature | None:

@@ -490,15 +490,23 @@ export function ChannelDrawer({
                       <Input placeholder="content" />
                     </Form.Item>
                     <Form.Item
-                      name="robot_code"
-                      label="Robot Code"
-                      tooltip="Recommended to configure explicitly for group chats"
+                      name="card_auto_layout"
+                      label={t("channels.cardAutoLayout")}
+                      tooltip={t("channels.cardAutoLayoutTooltip")}
+                      valuePropName="checked"
                     >
-                      <Input placeholder="robot code (default client_id)" />
+                      <Switch />
                     </Form.Item>
                   </>
                 );
               }}
+            </Form.Item>
+            <Form.Item
+              name="robot_code"
+              label="Robot Code"
+              tooltip="Recommended to configure explicitly for group chats"
+            >
+              <Input placeholder="robot code (default client_id)" />
             </Form.Item>
             <Form.Item
               name="endpoint"

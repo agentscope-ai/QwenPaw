@@ -14,13 +14,15 @@ import {
 } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import type { AgentSummary } from "@/api/types/agents";
+import type { AgentProfileConfig, AgentSummary } from "@/api/types/agents";
+import type { ModelInfo } from "@/api/types/provider";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
+import { AgentModelSettings } from "../../../Chat/ModelSelector/AgentModelSettings";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
 import {
@@ -74,8 +76,13 @@ const LEGACY_MAIL_PUSH_MODE_LABEL_KEYS: Record<string, string> = {
 interface EligibleProvider {
   id: string;
   name: string;
-  models: Array<{ id: string; name: string }>;
+  models: ModelInfo[];
 }
+
+type ModelSettingsDraft = Pick<
+  AgentProfileConfig,
+  "fallback_models" | "fallback_policy" | "subagent_model"
+>;
 
 interface AgentModalProps {
   open: boolean;
@@ -84,6 +91,9 @@ interface AgentModalProps {
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
+  modelSettings?: ModelSettingsDraft;
+  modelSettingsResetToken?: number;
+  onModelSettingsChange?: (settings: ModelSettingsDraft) => void;
   onSave: () => Promise<void>;
   onCancel: () => void;
 }
@@ -95,6 +105,9 @@ export function AgentModal({
   selectedSkills,
   onSelectedSkillsChange,
   onInstalledSkillsLoaded,
+  modelSettings,
+  modelSettingsResetToken,
+  onModelSettingsChange,
   onSave,
   onCancel,
 }: AgentModalProps) {
@@ -373,6 +386,20 @@ export function AgentModal({
             />
           </Space.Compact>
         </Form.Item>
+        {selectedBackend === "qwenpaw" && (
+          <Form.Item className={styles.agentRoutingFormItem}>
+            <AgentModelSettings
+              agentId={editingAgent?.id}
+              providers={eligibleProviders}
+              activeProviderId={selectedProviderId}
+              activeModelId={selectedModelId}
+              showThinking={false}
+              initialConfig={modelSettings}
+              draftResetToken={modelSettingsResetToken}
+              onDraftChange={onModelSettingsChange}
+            />
+          </Form.Item>
+        )}
         <Form.Item
           name="workspace_dir"
           label={t("agent.workspace")}

@@ -18,6 +18,7 @@ const enabledConfig: EmbeddingModelConfig = {
   max_cache_size: 1000,
   max_input_length: 8192,
   max_batch_size: 10,
+  health_check_timeout: 15,
 };
 
 const disabledConfig: EmbeddingModelConfig = {

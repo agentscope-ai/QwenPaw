@@ -11,8 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from ...config.context import get_current_workspace_dir
-from ...constant import WORKING_DIR
+from ...config.context import get_tool_base_dir
 from ...utils.io_utils import make_dirs_async, write_bytes_async
 from ..errors import BrowserError, ErrorCause, ErrorCategory
 from .identity import require_owner
@@ -164,10 +163,8 @@ def _key_event_frames(key: str) -> list[dict[str, Any]]:
 
 
 async def persist_screenshot_async(image: bytes) -> dict[str, str]:
-    """Write browser PNG bytes to the active workspace and return its path."""
-    directory = get_current_workspace_dir() or (
-        WORKING_DIR / "workspaces" / "default"
-    )
+    """Write browser PNG bytes to the active project and return its path."""
+    directory = get_tool_base_dir()
     directory = Path(directory).expanduser()
     await make_dirs_async(directory)
     digest = hashlib.sha256(image).hexdigest()

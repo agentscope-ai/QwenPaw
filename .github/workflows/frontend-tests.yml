@@ -7,6 +7,10 @@ on:
       - 'console/**'
       - '.github/workflows/frontend-tests.yml'
   pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so vitest really runs right
+    # after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop]
 
 jobs:
@@ -45,11 +49,15 @@ jobs:
     # cancelled its `code` output is empty and this job would silently skip,
     # which a ruleset cannot distinguish from a bypass. The frontend-summary
     # job below turns that detection failure into a hard red.
+    # Draft PRs defer the real run: the summary reports an explicit green
+    # placeholder (GitHub forbids merging drafts), and the ready_for_review
+    # trigger re-runs everything when the PR is marked ready.
     if: |
       always() &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.code == 'true' &&
-      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -86,10 +94,13 @@ jobs:
     needs: [changes, spam-gate, vitest]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
-    # Three-state decision, mirroring `Test Summary` in tests.yml:
+    # Four-state decision, mirroring `Test Summary` in tests.yml:
     #   1. change detection did not succeed -> red;
     #   2. detection succeeded, no console changes -> explicit green;
-    #   3. console change -> vitest must be strictly `success`.
+    #   3. draft PR with console changes -> explicit green placeholder
+    #      (the real run resumes automatically once the PR is marked
+    #      ready via the ready_for_review trigger);
+    #   4. console change -> vitest must be strictly `success`.
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -107,6 +118,12 @@ jobs:
 
           if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
             echo "✅ No console changes — vitest not required"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "✅ Draft PR — vitest deferred until the PR is marked ready for review"
             exit 0
           fi
 

@@ -21,8 +21,14 @@ import { navigateToLocator } from "@/routing/locators";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
-import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import DiffView from "./DiffView";
+import { creatorTargetLabel } from "@/lib/creatorPresentation";
+import { fileReviewPresentation } from "@/lib/fileProjectReviewPresentation";
+import {
+  isSystemVersionReviewOperation,
+  pendingUserReviewOperations,
+  userReviewOperations,
+} from "@/lib/fileProjectReviewDecisions";
 import RejectionFeedbackModal from "./RejectionFeedbackModal";
 import i18n from "@/i18n";
 
@@ -37,35 +43,6 @@ function decisionLabel(decision: FileProjectReviewOperationDecision): string {
   return map[decision];
 }
 
-function kindLabel(kind: string): string {
-  const map: Record<string, string> = {
-    create: i18n.t("fileReview.added"),
-    update: i18n.t("fileReview.modified"),
-    delete: i18n.t("fileReview.deleted"),
-    move: i18n.t("fileReview.moved"),
-    reorder: i18n.t("fileReview.reordered"),
-    select_asset: i18n.t("fileReview.selectAsset"),
-  };
-  return map[kind] ?? kind;
-}
-
-function fieldLabel(token: string): string {
-  const map: Record<string, string> = {
-    name: i18n.t("fileReview.name"),
-    title: i18n.t("fileReview.titleField"),
-    description: i18n.t("fileReview.description"),
-    creative_brief: i18n.t("fileReview.creativeBrief"),
-    creative_direction: i18n.t("fileReview.creativeDirection"),
-    prompt: i18n.t("fileReview.prompt"),
-    camera: i18n.t("fileReview.camera"),
-    framing: i18n.t("fileReview.framing"),
-    duration_seconds: i18n.t("fileReview.duration"),
-    narration: i18n.t("fileReview.narration"),
-    dialogue: i18n.t("fileReview.dialogue"),
-  };
-  return map[token] ?? token;
-}
-
 function artifactKindLabel(kind: string): string {
   const map: Record<string, string> = {
     r2v_storyboard_image: i18n.t("fileReview.storyboard"),
@@ -75,119 +52,10 @@ function artifactKindLabel(kind: string): string {
   return map[kind] ?? "";
 }
 
-function operationLocation(operation: FileProjectReviewOperation): string {
-  return (
-    operation.json_pointer ??
-    (operation.file_id ? `file:${operation.file_id}` : null) ??
-    operation.target_ref ??
-    "unknown"
-  );
-}
-
-/** Readable change-location summary: real element/asset names and field labels
- * instead of a bare JSON pointer. */
-function operationSummary(
-  operation: FileProjectReviewOperation,
-  elementNames: Record<string, string>,
-): string {
-  const locator = operation.ui_locator ?? {};
-  const pointer = operation.json_pointer ?? "";
-  const lastToken = pointer.split("/").filter(Boolean).pop() ?? "";
-  const resolvedFieldLabel = fieldLabel(lastToken);
-  const parts: string[] = [];
-  if (locator.elementId)
-    parts.push(
-      elementNames[locator.elementId] ??
-        `${i18n.t("fileReview.content")} ${locator.elementId}`,
-    );
-  else if (locator.assetId)
-    parts.push(`${i18n.t("fileReview.asset")} ${locator.assetId}`);
-  if (resolvedFieldLabel) parts.push(resolvedFieldLabel);
-  return parts.length > 0 ? parts.join(" · ") : operationLocation(operation);
-}
-
-function previewText(value: unknown, limit = 26): string {
-  if (value === null || value === undefined) return "—";
-  const text = typeof value === "string" ? value : JSON.stringify(value) ?? "—";
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > limit
-    ? `${normalized.slice(0, limit)}…`
-    : normalized || "—";
-}
-
-/** One-line change preview so users know what changed without navigating;
- * the full diff is shown in place at the original content. */
-const CREATION_TYPE_LABEL_KEYS: Record<string, string> = {
-  r2v: "fileReview.creationTypeR2v",
-  t2v: "fileReview.creationTypeT2v",
-  i2v: "fileReview.creationTypeI2v",
-  s2v: "fileReview.creationTypeS2v",
-  edit: "fileReview.creationTypeEdit",
-  overlay: "fileReview.creationTypeOverlay",
-  transition: "fileReview.creationTypeTransition",
-  audio: "fileReview.creationTypeAudio",
-};
-
-function creationTypeLabel(type: string): string {
-  const key = CREATION_TYPE_LABEL_KEYS[type];
-  return key ? i18n.t(key) : type;
-}
-
-/** Structured summary for a whole Timeline Element value; null when the value
- * is not an element (falls back to the raw-text preview). */
-function describeElementValue(
-  value: unknown,
-  ticksPerSecond: number,
-): string | null {
-  if (!value || typeof value !== "object") return null;
-  const el = value as Record<string, any>;
-  const creation = el.creation;
-  if (!creation || typeof creation !== "object" || !creation.type) return null;
-  const parts: string[] = [creationTypeLabel(String(creation.type))];
-  if (el.label) parts.push(`「${el.label}」`);
-  const span = el.span;
-  if (
-    span &&
-    typeof span.start_tick === "number" &&
-    typeof span.duration_tick === "number" &&
-    ticksPerSecond > 0
-  ) {
-    const start = span.start_tick / ticksPerSecond;
-    const end = (span.start_tick + span.duration_tick) / ticksPerSecond;
-    parts.push(`${start.toFixed(0)}s–${end.toFixed(0)}s`);
-  }
-  if (creation.type === "audio") {
-    parts.push(i18n.t(`fileReview.audioRole.${creation.role ?? "narration"}`));
-    parts.push(i18n.t("fileReview.audioGain", { gain: creation.gain_db ?? 0 }));
-    if (creation.pan)
-      parts.push(i18n.t("fileReview.audioPan", { pan: creation.pan }));
-  }
-  return parts.join(" · ");
-}
-
-function operationPreview(
-  operation: FileProjectReviewOperation,
-  ticksPerSecond = 1000,
-): string {
-  if (operation.kind === "create") {
-    const described = describeElementValue(operation.after, ticksPerSecond);
-    return `${i18n.t("fileReview.addedLabel")}${
-      described ?? previewText(operation.after)
-    }`;
-  }
-  if (operation.kind === "delete") {
-    const described = describeElementValue(operation.before, ticksPerSecond);
-    return `${i18n.t("fileReview.deletedLabel")}${
-      described ?? previewText(operation.before)
-    }`;
-  }
-  return `${previewText(operation.before)} → ${previewText(operation.after)}`;
-}
-
 export function reviewMediaLocator(
   review: FileProjectReviewRecord,
 ): Record<string, string> | null {
-  for (const operation of review.operations) {
+  for (const operation of userReviewOperations(review)) {
     const locator = operation.ui_locator;
     if (
       locator &&
@@ -205,9 +73,7 @@ export function reviewMediaLocator(
  * so they count as 1; text reviews count pending operations individually.
  */
 export function reviewPendingUnits(review: FileProjectReviewRecord): number {
-  const pending = review.operations.filter(
-    (operation) => operation.decision === "PENDING",
-  ).length;
+  const pending = pendingUserReviewOperations(review).length;
   if (pending === 0) return 0;
   return reviewMediaLocator(review) ? 1 : pending;
 }
@@ -226,9 +92,7 @@ export function reviewTrayLabel(review: FileProjectReviewRecord): string {
   const locator = reviewMediaLocator(review);
   if (locator)
     return `${mediaLabel(locator)}${i18n.t("fileReview.reviewLabel")}`;
-  const pending = review.operations.filter(
-    (operation) => operation.decision === "PENDING",
-  ).length;
+  const pending = pendingUserReviewOperations(review).length;
   return `${i18n.t("fileReview.textReview")}${pending} ${i18n.t(
     "fileReview.places",
   )}`;
@@ -253,35 +117,24 @@ export default function FileProjectReviewPanel({
     FileProjectReviewOperation[]
   >([]);
 
-  const elementNames = (() => {
-    const timeline = selectPrimaryTimeline(project);
-    const names: Record<string, string> = {};
-    if (timeline) {
-      Object.values(timeline.elements_by_id).forEach((element) => {
-        names[element.element_id] = element.label || element.element_id;
-      });
-    }
-    return names;
-  })();
-  const ticksPerSecond =
-    selectPrimaryTimeline(project)?.ticks_per_second ?? 1000;
-  const assetName = (assetId: string): string =>
-    project?.visual.entities.items[assetId]?.name || assetId;
   const mediaOwnerLine = (locator: Record<string, string>): string => {
     if (locator.elementId) {
-      const name = elementNames[locator.elementId] ?? locator.elementId;
+      const name = creatorTargetLabel(`element:${locator.elementId}`, project);
       return `「${name}」${i18n.t("fileReview.of")}${mediaLabel(locator)}`;
     }
     if (locator.assetId) {
-      return `「${assetName(locator.assetId)}」${i18n.t("fileReview.imageOf")}`;
+      return `「${creatorTargetLabel(
+        `visual-entity:${locator.assetId}`,
+        project,
+      )}」${i18n.t("fileReview.imageOf")}`;
     }
     return mediaLabel(locator);
   };
 
   if (review.status !== "PENDING") return null;
-  const pending = review.operations.filter(
-    (operation) => operation.decision === "PENDING",
-  );
+  const operations = userReviewOperations(review);
+  const pending = pendingUserReviewOperations(review);
+  if (pending.length === 0) return null;
   const busy = decisionInFlight || localBusy;
   const mediaLocator = reviewMediaLocator(review);
   const pendingUnits = mediaLocator
@@ -293,6 +146,9 @@ export default function FileProjectReviewPanel({
     decision: FileProjectReviewDecision,
     rejectionFeedback?: FileProjectReviewRejectionFeedback,
   ): Promise<boolean> => {
+    operations = operations.filter(
+      (operation) => !isSystemVersionReviewOperation(operation),
+    );
     if (operations.length === 0) return false;
     const affectedUnits = mediaLocator ? 1 : operations.length;
     setLocalBusy(true);
@@ -319,8 +175,8 @@ export default function FileProjectReviewPanel({
           : t("fileReview.undoneCountSimple", { count: affectedUnits }),
       );
       return true;
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+    } catch {
+      message.error(t("fileReview.public.decisionFailed"));
       return false;
     } finally {
       setLocalBusy(false);
@@ -362,14 +218,11 @@ export default function FileProjectReviewPanel({
             {mediaLocator
               ? `${mediaLabel(mediaLocator)}${t("fileReview.reviewLabel")}`
               : t("fileReview.fileProjectReview")}
-            <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--color-accent)]">
+            <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[11px] text-[var(--color-accent)]">
               {pendingUnits} {t("fileReview.pendingReview")}
             </span>
           </h3>
-          <p
-            className="mt-0.5 truncate text-[9px] text-[var(--color-text-tertiary)]"
-            title={`${review.round_id} · generation ${review.baseline_generation} → ${review.candidate_generation}`}
-          >
+          <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-tertiary)]">
             {mediaLocator
               ? mediaOwnerLine(mediaLocator)
               : `${pending.length} ${t("fileReview.textChangesPending")}`}
@@ -380,7 +233,7 @@ export default function FileProjectReviewPanel({
             type="button"
             disabled={busy || pending.length === 0}
             onClick={() => void submit(pending, "ACCEPT")}
-            className="rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50"
+            className="rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--color-bg-primary)] disabled:opacity-50"
           >
             {mediaLocator ? t("fileReview.keep") : t("fileReview.keepAll")}
           </button>
@@ -388,7 +241,7 @@ export default function FileProjectReviewPanel({
             type="button"
             disabled={busy || pending.length === 0}
             onClick={() => setRejectionOperations(pending)}
-            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] font-medium text-[var(--color-text-secondary)] disabled:opacity-50"
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] disabled:opacity-50"
           >
             {mediaLocator ? t("fileReview.undo") : t("fileReview.undoAll")}
           </button>
@@ -398,10 +251,9 @@ export default function FileProjectReviewPanel({
       {syncError && (
         <p
           role="alert"
-          className="mt-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] text-[var(--color-warning)]"
+          className="mt-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[11px] text-[var(--color-warning)]"
         >
-          {t("fileReview.syncError")}
-          {syncError}
+          {t("fileReview.public.syncUnavailable")}
         </p>
       )}
 
@@ -413,11 +265,12 @@ export default function FileProjectReviewPanel({
         />
       ) : (
         <ul className="mt-2 space-y-2">
-          {review.operations.map((operation) => {
+          {operations.map((operation) => {
             const operationPending = operation.decision === "PENDING";
-            const location = operationLocation(operation);
+            const presentation = fileReviewPresentation(operation, project);
             const locator = operation.ui_locator ?? {};
             const canJump =
+              presentation.canInspect &&
               operation.kind !== "delete" &&
               (Boolean(locator.field) || Boolean(operation.json_pointer));
             return (
@@ -432,32 +285,34 @@ export default function FileProjectReviewPanel({
                 <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                   <div className="min-w-0 flex-[1_1_150px]">
                     <p
-                      className="break-all text-[11px] font-semibold text-[var(--color-text-primary)]"
-                      title={location}
+                      className="break-words text-[12px] leading-5 font-semibold text-[var(--color-text-primary)]"
+                      title={presentation.title}
                     >
-                      {operationSummary(operation, elementNames)}
+                      {presentation.title}
                     </p>
-                    <p className="mt-0.5 text-[9px] text-[var(--color-text-tertiary)]">
-                      {kindLabel(operation.kind)} ·{" "}
+                    <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">
+                      {presentation.kindLabel} ·{" "}
                       {decisionLabel(operation.decision)}
                       {canJump && ` · ${t("fileReview.clickViewToCompare")}`}
                     </p>
                     <p
-                      className="mt-0.5 truncate text-[9px] text-[var(--color-text-secondary)]"
-                      title={operationPreview(operation, ticksPerSecond)}
+                      className="mt-1 line-clamp-2 break-words text-[12px] leading-5 text-[var(--color-text-secondary)]"
+                      title={presentation.preview}
                     >
-                      {operationPreview(operation, ticksPerSecond)}
+                      {presentation.preview}
                     </p>
                   </div>
                   <div className="ml-auto flex shrink-0 gap-1">
                     {canJump && (
                       <button
                         type="button"
-                        aria-label={`${t("fileReview.view")} ${location}`}
+                        aria-label={`${t("fileReview.view")} ${
+                          presentation.title
+                        }`}
                         onClick={() =>
                           openLocator(locator, operation.json_pointer)
                         }
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
                       >
                         <Eye className="h-3 w-3" />
                         {t("fileReview.view")}
@@ -467,20 +322,24 @@ export default function FileProjectReviewPanel({
                       <>
                         <button
                           type="button"
-                          aria-label={`${t("fileReview.keepItem")} ${location}`}
+                          aria-label={`${t("fileReview.keepItem")} ${
+                            presentation.title
+                          }`}
                           disabled={busy}
                           onClick={() => void submit([operation], "ACCEPT")}
-                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
+                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
                         >
                           <Check className="h-3 w-3" />
                           {t("fileReview.keepItem")}
                         </button>
                         <button
                           type="button"
-                          aria-label={`${t("fileReview.undoItem")} ${location}`}
+                          aria-label={`${t("fileReview.undoItem")} ${
+                            presentation.title
+                          }`}
                           disabled={busy}
                           onClick={() => setRejectionOperations([operation])}
-                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
+                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
                         >
                           <Undo2 className="h-3 w-3" />
                           {t("fileReview.undoItem")}
@@ -489,13 +348,13 @@ export default function FileProjectReviewPanel({
                     )}
                   </div>
                 </div>
-                {operation.kind === "delete" && (
-                  <div className="mt-2">
+                {operation.kind === "delete" && presentation.hasTextDiff && (
+                  <div className="mt-2 [&_[data-review-diff]]:font-sans [&_[data-review-diff]]:text-[12px] [&_[data-review-diff]]:leading-5">
                     {/* Deleted content has no original location left in the workspace
                         to jump to, so show what was removed right here. */}
                     <DiffView
-                      before={operation.before}
-                      after={operation.after}
+                      before={presentation.beforeText}
+                      after={presentation.afterText}
                     />
                   </div>
                 )}
@@ -558,22 +417,22 @@ function MediaReviewBody({
             />
           )
         ) : (
-          <p className="p-4 text-center text-[10px] text-[var(--color-text-tertiary)]">
+          <p className="p-4 text-center text-[11px] text-[var(--color-text-tertiary)]">
             {t("fileReview.previewUnavailable")}
           </p>
         )}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <p
-          className="min-w-0 truncate text-[10px] text-[var(--color-text-secondary)]"
-          title={`${locator.elementId ?? locator.assetId ?? ""}`}
+          className="min-w-0 truncate text-[11px] text-[var(--color-text-secondary)]"
+          title={ownerLine}
         >
           {ownerLine}
         </p>
         <button
           type="button"
           onClick={onOpen}
-          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
         >
           <Eye className="h-3 w-3" />
           {t("fileReview.viewGenDetail")}
