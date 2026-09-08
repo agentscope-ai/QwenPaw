@@ -3730,6 +3730,7 @@
     "statusLoaded": "Em execução",
     "statusUnloaded": "Não carregado",
     "type": "Tipo",
+    "typeMemory": "Memória",
     "version": "Versão",
     "author": "Autor",
     "unknown": "Desconhecido",

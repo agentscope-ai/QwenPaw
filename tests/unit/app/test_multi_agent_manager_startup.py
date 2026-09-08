@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for bounded multi-agent startup scheduling."""
+
 # pylint: disable=protected-access
 from __future__ import annotations
 
@@ -165,7 +166,7 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
         context=MemoryBackendContext(
             agent_id="agent-1",
             working_dir=tmp_path,
-            host_working_dir=tmp_path,
+            host_working_dir=constants.WORKING_DIR,
             backend_config={},
         ),
     )

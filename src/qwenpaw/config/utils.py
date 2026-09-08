@@ -688,9 +688,18 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         config_path = get_config_path()
     candidate = config.model_copy(deep=True)
     with _config_lock:
+        payload = candidate.model_dump(mode="json", by_alias=True)
+        # The plugin adopts this pre-plugin identity on first activation.
+        # Keep it on disk across unrelated saves until that can happen;
+        # it intentionally remains outside the core configuration schema.
+        if config_path.is_file():
+            existing = _read_config_data(config_path) or {}
+            legacy_key = "powercontext_installation_id"
+            if legacy_key in existing:
+                payload[legacy_key] = existing[legacy_key]
         write_json_atomic(
             config_path,
-            candidate.model_dump(mode="json", by_alias=True),
+            payload,
         )
         _config_cache = candidate.model_copy(deep=True)
         try:

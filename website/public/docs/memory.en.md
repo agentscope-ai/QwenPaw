@@ -525,8 +525,8 @@ A long-term memory backend backed by a cloud vector database. It is suitable for
 
 **Key features:**
 
-- **Cross-session persistence** — Memories are stored in a cloud database, retained across restarts, and shareable across devices.
-- **Server-side fact extraction** — Fact extraction is handled by the ADBPG memory service, with no extra client-side overhead.
+- **Cross-session persistence** — Extracted memories are stored remotely and can be retrieved across sessions and devices.
+- **Server-side fact extraction** — New user messages are submitted each normal conversation turn; the service extracts facts asynchronously.
 - **REST API access** — Calls the ADBPG memory service over HTTP.
 - **Graceful degradation** — When ADBPG is unreachable, the agent keeps running normally; only the long-term memory feature is temporarily disabled.
 
@@ -536,21 +536,31 @@ From a source checkout, build and install the plugin first:
 
 ```bash
 cd plugins/memory/adbpg/frontend
-npm install
+npm ci
 npm run build
 cd ../../../../
 qwenpaw plugin install plugins/memory/adbpg
 ```
 
+A published plugin ZIP includes the configuration UI, so no source build is
+needed. With QwenPaw running, upload it from the Console's plugin page or run
+`qwenpaw plugin install /path/to/memory-adbpg-1.0.0.zip`. For source-directory
+installation, start QwenPaw afterward if it was stopped; a running QwenPaw uses
+the hot-install API.
+
 Then open the agent's "Running Config" tab in the Console, locate the
 "Long-term Memory Management Backend" dropdown, choose `adbpg`, and fill in
 `REST Base URL` and `REST API Key` under the ADBPG configuration tab.
 
-![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
-
 > Saving a backend selection or plugin configuration schedules an Agent reload.
-> QwenPaw creates a new backend instance rather than mutating the existing
-> remote client in place; a full process restart is not required.
+> A changed backend or effective configuration creates a new backend instance;
+> unchanged backend context can reuse the existing instance. A full process
+> restart is not required.
+
+Before uninstalling or force-reinstalling the
+plugin, switch all Agents using it to another backend, such as `none`, and wait
+for their reloads and outstanding memory work to finish. An in-use memory
+backend cannot be uninstalled.
 
 > Migration note: ADBPG direct SQL mode has been removed. Old fields such as
 > `api_mode: "sql"`, `host`, `port`, `user`, `password`, `dbname`, and LLM /
@@ -564,6 +574,27 @@ Then open the agent's "Running Config" tab in the Console, locate the
 | `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                |
 | `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                |
 | `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
+
+**Submission, extraction, and failures:**
+
+The service extracts facts asynchronously by default. A `completed` auto-memory
+task describes client-side processing: for messages actually sent, it confirms
+only that the HTTP submission was accepted. Extraction may still be running,
+so a fact may not be immediately searchable. Ask the Agent to remember a fact,
+allow time for server-side processing, and retrieve it in a later turn. Check
+`/auto_memory_status` and logs for submission results. Backend shutdown attempts to drain
+queued submissions within its timeout; it does not wait for server-side
+extraction to finish.
+
+**Isolation scope:**
+
+With `memory_isolation: true`, remote `agent_id` is the current Agent ID; with
+`false`, it is `shared`. Both modes use `shared` for `user_id` and for `run_id`
+on writes. Search filters include only `agent_id` and `user_id`, so isolation
+is per Agent, not per chat user or session. Shared-mode Agents in the same
+service dataset share remote memories. Changing the setting switches the
+read/write namespace without migrating existing memories. Local Markdown
+files still belong to each Agent's workspace.
 
 **Configuration example:**
 

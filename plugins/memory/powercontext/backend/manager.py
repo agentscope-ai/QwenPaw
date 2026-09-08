@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import uuid
 from collections.abc import Callable
 from functools import wraps
@@ -66,18 +67,29 @@ def get_or_create_installation_id(host_working_dir: str | Path) -> str:
 
     generated = _legacy_installation_id(host_root) or uuid.uuid4().hex
     path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".installation-id-",
+        dir=path.parent,
+    )
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError as exc:
-        existing = path.read_text(encoding="utf-8").strip()
-        if not re.fullmatch(r"[0-9a-f]{32}", existing):
-            raise ValueError(
-                f"Invalid PowerContext installation id in {path}",
-            ) from exc
-        return existing
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        stream.write(generated)
-    return generated
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(generated)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Publish a complete file without replacing another agent's ID.
+        # O_EXCL on the final path would expose an empty file before write.
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as exc:
+            existing = path.read_text(encoding="utf-8").strip()
+            if not re.fullmatch(r"[0-9a-f]{32}", existing):
+                raise ValueError(
+                    f"Invalid PowerContext installation id in {path}",
+                ) from exc
+            return existing
+        return generated
+    finally:
+        os.unlink(temporary_path)
 
 
 def _legacy_installation_id(host_working_dir: str | Path) -> str:

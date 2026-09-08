@@ -1128,33 +1128,35 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             raise
 
     def assert_memory_backends_not_in_use(self, plugin_id: str) -> None:
-        """Block unsafe unload of a backend selected by a live workspace."""
+        """Protect selected, starting, and draining memory backends."""
         from qwenpaw.memory import memory_registry
 
         owned_memory = set(memory_registry.owned_by(plugin_id))
-        if not owned_memory or self._workspace_manager is None:
+        if not owned_memory:
             return
-        workspaces = getattr(
-            self._workspace_manager,
-            "agents",
-            getattr(self._workspace_manager, "workspaces", {}),
-        )
-        in_use = sorted(
-            workspace.agent_id
-            for workspace in workspaces.values()
-            if getattr(
-                getattr(
-                    getattr(workspace, "_config", None),
-                    "running",
-                    None,
-                ),
-                "memory_manager_backend",
-                None,
+        in_use = set(memory_registry.active_agent_ids(plugin_id))
+        if self._workspace_manager is not None:
+            workspaces = getattr(
+                self._workspace_manager,
+                "agents",
+                getattr(self._workspace_manager, "workspaces", {}),
             )
-            in owned_memory
-        )
+            in_use.update(
+                workspace.agent_id
+                for workspace in workspaces.values()
+                if getattr(
+                    getattr(
+                        getattr(workspace, "_config", None),
+                        "running",
+                        None,
+                    ),
+                    "memory_manager_backend",
+                    None,
+                )
+                in owned_memory
+            )
         if in_use:
             raise RuntimeError(
                 f"Cannot unload plugin '{plugin_id}'; memory backend is "
-                f"in use by agents: {', '.join(in_use)}",
+                f"in use by agents: {', '.join(sorted(in_use))}",
             )

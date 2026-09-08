@@ -1577,6 +1577,7 @@
     }
   },
   "pluginManager": {
+    "typeMemory": "Bộ nhớ",
     "title": "Quản lý Plugin",
     "description": "Cài đặt, quản lý và gỡ cài plugin mà không cần khởi động lại dịch vụ.",
     "installed": "Plugin đã cài đặt",

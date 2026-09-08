@@ -1758,6 +1758,7 @@
     "statusLoaded": "Berjalan",
     "statusUnloaded": "Tidak dimuat",
     "type": "Tipe",
+    "typeMemory": "Memori",
     "version": "Versi",
     "author": "Penulis",
     "unknown": "Tidak diketahui",

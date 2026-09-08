@@ -3683,6 +3683,7 @@
     "statusLoaded": "Работает",
     "statusUnloaded": "Не загружен",
     "type": "Тип",
+    "typeMemory": "Память",
     "version": "Версия",
     "author": "Автор",
     "unknown": "Неизвестно",

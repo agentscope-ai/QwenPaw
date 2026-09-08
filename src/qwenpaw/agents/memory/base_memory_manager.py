@@ -11,7 +11,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Any
+from weakref import WeakValueDictionary
 
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
 from agentscope.message import ToolCallBlock, ToolCallState
@@ -97,6 +99,7 @@ class BaseMemoryManager(ABC):
         ] = asyncio.Queue()
         self._auto_memory_worker_task: asyncio.Task | None = None
         self._auto_memory_worker_stopping = False
+        memory_registry.track_instance(self)
 
     @abstractmethod
     async def start(self) -> None:
@@ -110,7 +113,10 @@ class BaseMemoryManager(ABC):
         """
         if not await self._shutdown_auto_memory_worker():
             return False
-        return await self._close_backend()
+        closed = await self._close_backend()
+        if closed:
+            memory_registry.release_instance(self)
+        return closed
 
     async def _close_backend(self) -> bool:
         """Release backend-specific resources after shared workers stop."""
@@ -813,6 +819,41 @@ class MemoryBackendRegistry:
 
     def __init__(self) -> None:
         self._registrations: dict[str, MemoryBackendRegistration] = {}
+        self._instances: WeakValueDictionary[int, BaseMemoryManager] = (
+            WeakValueDictionary()
+        )
+        # Service constructors run in worker threads, while unload and close
+        # run on the event loop. Instance snapshots must serialize with adds.
+        self._instances_lock = RLock()
+
+    def track_instance(self, instance: BaseMemoryManager) -> None:
+        """Keep plugin ownership while a manager starts, runs, or drains."""
+        with self._instances_lock:
+            self._instances[id(instance)] = instance
+
+    def release_instance(self, instance: BaseMemoryManager) -> None:
+        """Release ownership only after the manager has closed cleanly."""
+        with self._instances_lock:
+            self._instances.pop(id(instance), None)
+
+    def active_agent_ids(self, plugin_id: str) -> list[str]:
+        """Return agents with live instances from this plugin's factories."""
+        factories = tuple(
+            registration.factory
+            for registration in self._registrations.values()
+            if registration.plugin_id == plugin_id
+        )
+        if not factories:
+            return []
+        with self._instances_lock:
+            instances = list(self._instances.values())
+        return sorted(
+            {
+                instance.agent_id
+                for instance in instances
+                if isinstance(instance, factories)
+            },
+        )
 
     @staticmethod
     def _normalize(backend_id: str) -> str:

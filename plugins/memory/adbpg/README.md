@@ -15,8 +15,8 @@ beyond a single local workspace.
   from the Agent's local `MEMORY.md` and `memory/*.md` files.
 - Supports automatic recall before a normal user turn.
 - Isolates remote memories by Agent by default, with an explicit shared mode.
-- Keeps the Agent running if the remote service is unavailable, while remote
-  long-term memory is disabled.
+- Keeps the Agent running if a remote request fails. Local Markdown keyword
+  search remains available when remote search fails.
 
 This backend performs configuration-driven network reads and writes. Use only
 an ADBPG endpoint appropriate for the conversation data you intend to store.
@@ -29,7 +29,7 @@ From the QwenPaw source checkout:
 
 ```bash
 cd plugins/memory/adbpg/frontend
-npm install
+npm ci
 npm run build
 cd ../../../../
 ```
@@ -56,9 +56,10 @@ long-term-memory backend, and set:
 - **Automatic memory recall**: enable it and choose the maximum result count if
   memories should be injected before each normal user turn.
 
-Save the configuration. The Console schedules an Agent reload so the new
-backend instance uses the saved settings; a full QwenPaw process restart is not
-required. The equivalent `agent.json` fragment is:
+Save the configuration. The Console schedules an Agent reload. Changing the
+backend or its effective configuration creates a new backend instance;
+unchanged backend context can reuse the existing instance. A full QwenPaw
+process restart is not required. The equivalent `agent.json` fragment is:
 
 ```json
 {
@@ -89,10 +90,22 @@ core-owned `adbpg_memory_config` field is no longer supported.
 qwenpaw plugin list
 ```
 
-Confirm that `memory-adbpg` is installed, then ask the Agent to remember a fact
-and retrieve it in a later turn. If the backend is disabled, check the QwenPaw
-logs for a missing URL or API key, an unreachable service, or an authentication
-failure.
+Confirm that `memory-adbpg` is installed, then ask the Agent to remember a fact.
+Allow time for server-side extraction before trying to retrieve it in a later
+turn. Check `/auto_memory_status` and the QwenPaw logs for submission failures.
+
+## Remote identity
+
+| Setting                   | `agent_id`       | `user_id` | `run_id` on writes |
+| ------------------------- | ---------------- | --------- | ------------------ |
+| `memory_isolation: true`  | Current Agent ID | `shared`  | `shared`           |
+| `memory_isolation: false` | `shared`         | `shared`  | `shared`           |
+
+Search filters contain `agent_id` and `user_id`; they do not restrict `run_id`,
+so recall works across sessions. Isolation is per Agent, not per chat user or
+session. Agents using shared mode in the same service dataset access the same
+remote namespace. Changing isolation switches namespaces without migrating
+existing memories. Local Markdown files always belong to the Agent workspace.
 
 ## Requirements
 

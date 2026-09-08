@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Cancellation-safe workspace service lifecycle tests."""
+
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ from qwenpaw.app.workspace.service_manager import (
 )
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
+from qwenpaw.constant import WORKING_DIR
+from qwenpaw.memory import MemoryBackendContext
 
 
 async def _wait_for(event: threading.Event) -> None:
@@ -96,9 +99,12 @@ async def test_reused_service_can_be_rejected_by_configuration():
     assert manager.services["memory_manager"] is not service
 
 
-def test_memory_reuse_requires_identical_backend_configuration():
+def test_memory_reuse_requires_identical_backend_configuration(tmp_path):
     instance = SimpleNamespace(
-        context=SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=WORKING_DIR,
             backend_config={
                 "base_url": "http://old.example",
                 "scope_id": "agent:one",
@@ -106,6 +112,8 @@ def test_memory_reuse_requires_identical_backend_configuration():
         ),
     )
     workspace = SimpleNamespace(
+        agent_id="agent-1",
+        workspace_dir=tmp_path,
         _config=SimpleNamespace(
             running=SimpleNamespace(
                 memory_manager_backend="remote-memory",

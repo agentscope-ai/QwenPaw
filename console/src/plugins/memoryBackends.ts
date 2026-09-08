@@ -21,6 +21,8 @@ export interface MemoryBackendNamespace {
 
 class MemoryBackendRegistry {
   private entries = new Map<string, MemoryBackendExtension>();
+  private registrations = new Map<string, symbol>();
+  private availability?: Map<string, boolean>;
   private listeners = new Set<() => void>();
   private snapshot: MemoryBackendExtension[] = [];
 
@@ -54,13 +56,19 @@ class MemoryBackendRegistry {
       ...extension,
       id,
       source: `plugin:${pluginId}`,
-      available: extension.available ?? true,
+      available: this.availability
+        ? this.availability.get(id) ?? false
+        : extension.available ?? true,
     };
+    // Availability updates replace entry objects; ownership must survive them.
+    const registration = Symbol(id);
+    this.registrations.set(id, registration);
     this.entries.set(id, entry);
     this.rebuild();
     return {
       dispose: () => {
-        if (this.entries.get(id) === entry) {
+        if (this.registrations.get(id) === registration) {
+          this.registrations.delete(id);
           this.entries.delete(id);
           this.rebuild();
         }
@@ -69,13 +77,16 @@ class MemoryBackendRegistry {
   }
 
   syncAvailable(items: MemoryBackendExtension[]): void {
-    const availableIds = new Set(
-      items.map((item) => item.id.trim().toLowerCase()),
+    this.availability = new Map(
+      items.map((item) => [
+        item.id.trim().toLowerCase(),
+        item.available ?? true,
+      ]),
     );
     let changed = false;
     for (const [id, entry] of this.entries) {
       if (!entry.source?.startsWith("plugin:")) continue;
-      const available = availableIds.has(id);
+      const available = this.availability.get(id) ?? false;
       if (entry.available !== available) {
         this.entries.set(id, { ...entry, available });
         changed = true;
@@ -84,16 +95,17 @@ class MemoryBackendRegistry {
     for (const item of items) {
       const id = item.id.trim().toLowerCase();
       const existing = this.entries.get(id);
+      const available = item.available ?? true;
       if (existing) {
-        if (existing.available !== item.available) {
-          this.entries.set(id, { ...existing, available: item.available });
+        if (existing.available !== available) {
+          this.entries.set(id, { ...existing, available });
           changed = true;
         }
       } else {
         this.entries.set(id, {
           ...item,
           id,
-          available: item.available ?? true,
+          available,
         });
         changed = true;
       }
@@ -105,6 +117,7 @@ class MemoryBackendRegistry {
     let changed = false;
     for (const [id, entry] of this.entries) {
       if (entry.source === `plugin:${pluginId}`) {
+        this.registrations.delete(id);
         this.entries.delete(id);
         changed = true;
       }

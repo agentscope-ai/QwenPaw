@@ -10,10 +10,18 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Iterable, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    Optional,
+)
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
@@ -38,29 +46,54 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...utils.logging import sanitize_log_value
 
+if TYPE_CHECKING:
+    from ...memory import MemoryBackendContext
+
 logger = logging.getLogger(__name__)
+
+
+def _memory_backend_context(ws: "Workspace") -> "MemoryBackendContext":
+    """Snapshot all construction settings used by core and plugin backends."""
+    from ...memory import MemoryBackendContext
+
+    running = ws._config.running
+    backend_id = running.memory_manager_backend.strip().lower()
+    backend_configs = getattr(running, "memory_backend_configs", {})
+    raw_config = dict(backend_configs.get(backend_id, {}) or {})
+    try:
+        estimate_divisor = float(
+            running.light_context_config.token_count_estimate_divisor,
+        )
+    except (AttributeError, TypeError, ValueError):
+        estimate_divisor = 4.0
+    return MemoryBackendContext(
+        agent_id=ws.agent_id,
+        working_dir=ws.workspace_dir,
+        host_working_dir=WORKING_DIR,
+        backend_config=raw_config,
+        language=getattr(ws._config, "language", "zh") or "zh",
+        token_estimate_divisor=(
+            estimate_divisor if estimate_divisor > 0 else 4.0
+        ),
+    )
 
 
 def _memory_manager_reuse_compatible(
     workspace: "Workspace",
     instance: Any,
 ) -> bool:
-    """Keep a memory service only when its backend configuration is unchanged.
+    """Keep a memory service only when its construction context is unchanged.
 
     Reused services do not receive ``start()`` on workspace reload.  Remote
     backends therefore must be recreated when their endpoint, credentials,
     scope, timeout, or search settings change; otherwise the old HTTP client
-    would continue serving the new workspace configuration.
+    would continue serving the new workspace configuration. Language and
+    token estimates are also frozen in the plugin's construction context.
     """
     old_context = getattr(instance, "context", None)
     if old_context is None:
         return False
-    old_config = dict(getattr(old_context, "backend_config", {}) or {})
-    new_running = getattr(getattr(workspace, "_config", None), "running", None)
-    backend_id = getattr(new_running, "memory_manager_backend", "")
-    configs = getattr(new_running, "memory_backend_configs", {}) or {}
-    new_config = dict(configs.get(backend_id, {}) or {})
-    return old_config == new_config
+    return old_context == _memory_backend_context(workspace)
 
 
 class Workspace:
@@ -393,34 +426,11 @@ class Workspace:
         """
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
-            MemoryBackendContext,
             MemoryBackendUnavailableError,
             get_memory_manager_backend,
         )
 
         sm = self._service_manager
-
-        def _memory_backend_context(ws: "Workspace") -> MemoryBackendContext:
-            running = ws._config.running
-            backend_id = running.memory_manager_backend.strip().lower()
-            backend_configs = getattr(running, "memory_backend_configs", {})
-            raw_config = dict(backend_configs.get(backend_id, {}) or {})
-            try:
-                estimate_divisor = float(
-                    running.light_context_config.token_count_estimate_divisor,
-                )
-            except (AttributeError, TypeError, ValueError):
-                estimate_divisor = 4.0
-            return MemoryBackendContext(
-                agent_id=ws.agent_id,
-                working_dir=ws.workspace_dir,
-                host_working_dir=WORKING_DIR,
-                backend_config=raw_config,
-                language=getattr(ws._config, "language", "zh") or "zh",
-                token_estimate_divisor=(
-                    estimate_divisor if estimate_divisor > 0 else 4.0
-                ),
-            )
 
         # Priority 5: LocalWorkspace (tool routing)
         def _init_local_workspace(

@@ -44,7 +44,11 @@ class ADBPGMemoryClient:
         agent_id: str | None = None,
         metadata: dict | None = None,
     ) -> None:
-        """Store memories via REST API."""
+        """Submit memories and propagate failures to the task worker.
+
+        A successful response acknowledges the submission; server-side
+        extraction may continue asynchronously after this method returns.
+        """
         body: dict = {
             "messages": messages,
             **self._identity(agent_id or "", user_id),
@@ -67,6 +71,10 @@ class ADBPGMemoryClient:
             logger.debug("REST add_memory result: %s", resp.text[:500])
         except Exception as e:
             logger.error("REST add_memory failed: %s", e)
+            # The manager records message IDs only after this call succeeds.
+            # Swallowing a rejection would mark unsaved messages as persisted
+            # and prevent a later submission from retrying them.
+            raise
 
     async def search_memory(
         self,

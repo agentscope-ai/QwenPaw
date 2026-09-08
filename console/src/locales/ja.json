@@ -3668,6 +3668,7 @@
     "statusLoaded": "実行中",
     "statusUnloaded": "未ロード",
     "type": "タイプ",
+    "typeMemory": "メモリ",
     "version": "バージョン",
     "author": "作成者",
     "unknown": "不明",

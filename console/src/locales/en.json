@@ -4183,6 +4183,7 @@
     "statusLoaded": "Running",
     "statusUnloaded": "Not loaded",
     "type": "Type",
+    "typeMemory": "Memory",
     "version": "Version",
     "author": "Author",
     "unknown": "Unknown",

@@ -12,7 +12,7 @@ ADBPG Memory 插件通过 REST API 将 QwenPaw 连接到 AnalyticDB for PostgreS
 - 对远程记忆执行语义检索，并与 Agent 本地 `MEMORY.md`、`memory/*.md` 文件的关键词匹配结果合并。
 - 在普通用户回合开始前自动召回相关记忆。
 - 默认按 Agent 隔离远程记忆，也可以显式启用共享模式。
-- 远程服务不可用时保持 Agent 继续运行，但会停用远程长期记忆。
+- 远程请求失败时 Agent 继续运行；远程搜索失败后仍可检索本地 Markdown 文件。
 
 该后端会执行由配置驱动的网络读写。请仅使用适合存储目标对话数据的 ADBPG 服务地址。
 
@@ -24,7 +24,7 @@ ADBPG Memory 插件通过 REST API 将 QwenPaw 连接到 AnalyticDB for PostgreS
 
 ```bash
 cd plugins/memory/adbpg/frontend
-npm install
+npm ci
 npm run build
 cd ../../../../
 ```
@@ -48,8 +48,9 @@ qwenpaw plugin install plugins/memory/adbpg
 - **搜索超时**：远程搜索的超时秒数。
 - **自动记忆召回**：如需在普通用户回合前注入记忆，启用并设置最大结果数。
 
-保存配置后，Console 会安排 Agent 重载，使新的 backend 实例使用已保存设置；无需重启整个
-QwenPaw 进程。等价的 `agent.json` 配置为：
+保存配置后，Console 会安排 Agent 重载。backend 或有效配置发生变化时会创建新实例；
+backend 上下文未变化时可以复用原实例。无需重启整个 QwenPaw 进程。等价的 `agent.json`
+配置为：
 
 ```json
 {
@@ -80,8 +81,20 @@ QwenPaw 进程。等价的 `agent.json` 配置为：
 qwenpaw plugin list
 ```
 
-确认 `memory-adbpg` 已安装，然后让 Agent 记住一条事实，并在后续回合检索它。如果后端被
-停用，请检查 QwenPaw 日志；常见原因包括 URL 或 API Key 缺失、服务不可达或鉴权失败。
+确认 `memory-adbpg` 已安装，然后让 Agent 记住一条事实。等待服务端抽取完成后，再在后续
+回合检索。可通过 `/auto_memory_status` 和 QwenPaw 日志检查提交失败。
+
+## 远程身份
+
+| 配置                      | `agent_id`    | `user_id` | 写入时的 `run_id` |
+| ------------------------- | ------------- | --------- | ----------------- |
+| `memory_isolation: true`  | 当前 Agent ID | `shared`  | `shared`          |
+| `memory_isolation: false` | `shared`      | `shared`  | `shared`          |
+
+搜索只按 `agent_id` 和 `user_id` 过滤，不限制 `run_id`，因此可以跨会话召回。这里的隔离
+粒度是 Agent，不是聊天用户或会话；同一服务数据集内启用共享模式的 Agent 会使用同一远程
+命名空间。切换隔离开关会改变读写命名空间，不会迁移已有记忆。本地 Markdown 文件始终
+属于各 Agent 自己的工作区。
 
 ## 运行要求
 

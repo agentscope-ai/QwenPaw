@@ -492,8 +492,8 @@ PowerContext 已拆分为可独立安装的插件。Agent 启动前，对应插�
 
 **核心特点：**
 
-- **跨会话持久化** — 记忆存储在云端数据库，重启后不丢失，支持多设备共享
-- **服务端事实抽取** — 由 ADBPG 记忆服务完成事实提取，客户端无额外开销
+- **跨会话持久化** — 抽取完成的记忆存储在云端，支持跨会话和多设备检索
+- **服务端事实抽取** — 每个普通对话回合提交新的用户消息，由服务端异步提取事实
 - **REST API 接入** — 通过 HTTP API 调用 ADBPG 记忆服务
 - **优雅降级** — ADBPG 不可达时 Agent 正常运行，仅长期记忆功能暂时禁用
 
@@ -503,19 +503,24 @@ PowerContext 已拆分为可独立安装的插件。Agent 启动前，对应插�
 
 ```bash
 cd plugins/memory/adbpg/frontend
-npm install
+npm ci
 npm run build
 cd ../../../../
 qwenpaw plugin install plugins/memory/adbpg
 ```
 
+发布的插件 ZIP 已包含配置界面，无需从源码构建。QwenPaw 运行时，可在 Console 插件页面
+上传 ZIP，或执行 `qwenpaw plugin install /path/to/memory-adbpg-1.0.0.zip`。从源码目录安装
+时，停止的 QwenPaw 需在安装后启动；运行中的 QwenPaw 会通过 API 热安装。
+
 然后进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择
 `adbpg`，并在 ADBPG 配置 Tab 中填写 `REST Base URL` 与 `REST API Key`。
 
-![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+> 保存 backend 选择或插件配置后会安排 Agent 重载。backend 或有效配置发生变化时会创建
+> 新实例；backend 上下文未变化时可以复用原实例。无需重启整个进程。
 
-> 保存 backend 选择或插件配置后会安排 Agent 重载。QwenPaw 会创建新的 backend 实例，而
-> 不是原地修改已有远程 client；无需重启整个进程。
+卸载或强制重装插件前，先将使用它的所有 Agent 切换到其他后端（如 `none`），并等待重载及待处理
+记忆任务结束。正在使用的记忆后端会拒绝卸载。
 
 > 迁移提示：ADBPG SQL 直连模式已移除。旧配置中的 `api_mode: "sql"`、
 > `host`、`port`、`user`、`password`、`dbname`、LLM 和 Embedding 相关字段
@@ -528,6 +533,21 @@ qwenpaw plugin install plugins/memory/adbpg
 | `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                |
 | `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                |
 | `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
+
+**提交、抽取与失败处理：**
+
+服务端默认异步抽取。自动记忆任务的 `completed` 只表示客户端处理结束：对实际发送的消息，
+它最多确认 HTTP 提交已被接受，不代表抽取完成或立即可检索。可先让 Agent 记住一条事实，
+等待服务端处理后再检索；通过 `/auto_memory_status` 和日志检查提交结果。关闭记忆后端会尝试在
+关闭超时内排空待提交任务，不会等待服务端抽取完成。
+
+**隔离粒度：**
+
+`memory_isolation: true` 时，远程 `agent_id` 为当前 Agent ID；为 `false` 时，远程
+`agent_id` 为 `shared`。两种模式的 `user_id` 和写入时的 `run_id` 均固定为 `shared`，
+搜索只按 `agent_id` 和 `user_id` 过滤。因此隔离粒度是 Agent，不是聊天用户或会话；同一
+服务数据集内的共享模式 Agent 会共享远程记忆。切换开关会切换读写命名空间，不会迁移已有
+记忆。本地 Markdown 文件仍属于各 Agent 自己的工作区。
 
 **配置示例：**
 
