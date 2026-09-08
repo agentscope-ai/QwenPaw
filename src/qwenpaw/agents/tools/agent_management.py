@@ -21,10 +21,9 @@ from ...constant import (
     DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
 )
 from ...runtime.tool_registry import tool_descriptor
-from ...utils.http import trust_env_for_url
 from ...utils.runtime_api import (
-    add_runtime_token,
-    add_runtime_token_async,
+    api_client,
+    async_api_client,
     read_runtime_api,
 )
 from ...utils.timeout import (
@@ -92,11 +91,9 @@ def create_agent_api_client(
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
     normalized = _normalize_api_base_url(base_url)
-    return httpx.Client(
+    return api_client(
         base_url=normalized,
         timeout=default_timeout,
-        trust_env=trust_env_for_url(normalized),
-        event_hooks={"request": [add_runtime_token]},
     )
 
 
@@ -347,11 +344,9 @@ async def collect_final_agent_chat_response_async(
     """
     normalized = _normalize_api_base_url(base_url)
     response_data: Optional[Dict[str, Any]] = None
-    async with httpx.AsyncClient(
+    async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
-        trust_env=trust_env_for_url(normalized),
-        event_hooks={"request": [add_runtime_token_async]},
     ) as client:
         async with client.stream(
             "POST",
@@ -381,11 +376,9 @@ async def stop_agent_chat_async(
     explicit Stop endpoint instead of only closing the collection stream.
     """
     normalized = _normalize_api_base_url(base_url)
-    async with httpx.AsyncClient(
+    async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
-        trust_env=trust_env_for_url(normalized),
-        event_hooks={"request": [add_runtime_token_async]},
     ) as client:
         response = await client.post(
             "/console/chat/stop",
@@ -1510,10 +1503,9 @@ async def _call_fork_api(
         "channel": channel,
     }
     try:
-        async with httpx.AsyncClient(
+        async with async_api_client(
+            base_url=url,
             timeout=30.0,
-            trust_env=trust_env_for_url(url),
-            event_hooks={"request": [add_runtime_token_async]},
         ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()

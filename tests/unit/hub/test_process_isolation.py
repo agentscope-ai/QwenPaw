@@ -2,6 +2,8 @@
 """Tests for fail-closed Hub runtime process isolation."""
 
 import mimetypes
+import socket
+import textwrap
 import subprocess
 import sys
 import threading
@@ -11,7 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
+from qwenpaw.hub.local_provisioner import (
+    LocalProcessRuntimeProvisioner,
+    allocate_loopback_port,
+)
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
@@ -540,3 +545,72 @@ def test_runtime_parent_thread_survives_request_worker(
     provisioner.close()
 
     assert not launcher_threads[0].is_alive()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Requires Seatbelt")
+def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
+    """Run the actual CLI inside its server's native sandbox."""
+    record = _record(tmp_path, port=allocate_loopback_port())
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "sandbox-test-token"},
+    )
+    environment["PYTHONPATH"] = str(
+        Path(__file__).resolve().parents[3] / "src",
+    )
+    # Keep the other port listening so failure cannot be ECONNREFUSED.
+    with socket.socket() as other:
+        other.bind(("127.0.0.1", 0))
+        other.listen(1)
+        script = textwrap.dedent(
+            f"""
+            import errno
+            import socket
+            import subprocess
+            import sys
+            from http.server import BaseHTTPRequestHandler, HTTPServer
+            from threading import Thread
+
+            class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    token = self.headers.get("X-QwenPaw-Runtime-Token")
+                    assert token == "sandbox-test-token"
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'{{"agents":[{{"id":"sandbox-agent"}}]}}')
+
+                def log_message(self, *args):
+                    pass
+
+            with HTTPServer(("127.0.0.1", {record.port}), Handler) as server:
+                Thread(target=server.serve_forever, daemon=True).start()
+                with socket.socket() as client:
+                    client.settimeout(2)
+                    assert client.connect_ex(
+                        ("127.0.0.1", {other.getsockname()[1]})
+                    ) == errno.EPERM
+                result = subprocess.run(
+                    [sys.executable, "-m", "qwenpaw", "agents", "list"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                assert result.returncode == 0, result.stderr
+                assert '"id": "sandbox-agent"' in result.stdout
+                print("sandbox CLI OK; other port denied")
+            """,
+        )
+        launch = MacOSSeatbeltIsolator().prepare(
+            record,
+            [sys.executable, "-c", script],
+            environment,
+        )
+        result = subprocess.run(
+            launch.command,
+            env=launch.environment,
+            cwd=record.working_dir,
+            capture_output=True,
+            text=True,
+            timeout=40,
+            check=False,
+        )
+    assert result.returncode == 0, result.stderr
+    assert "sandbox CLI OK; other port denied" in result.stdout

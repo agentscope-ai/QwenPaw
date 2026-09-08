@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import httpx
 
 from ..constant import EnvVarLoader
-from .http import is_loopback_host
+from .http import is_loopback_host, trust_env_for_url
 
 _TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
 _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
@@ -40,22 +42,74 @@ def read_runtime_api() -> tuple[str, int] | None:
     return host, url.port or 80
 
 
-def add_runtime_token(request: httpx.Request) -> None:
-    """Scope the boundary token to each request, including redirects."""
+def _same_origin(target: httpx.URL, runtime: httpx.URL) -> bool:
+    """Compare the transport endpoint without accepting URL credentials."""
+    return (
+        target.scheme == runtime.scheme
+        and target.host == runtime.host
+        and target.port == runtime.port
+        and not target.userinfo
+    )
+
+
+def _add_runtime_token(
+    request: httpx.Request,
+    *,
+    base_url: httpx.URL,
+) -> None:
+    """Authenticate only requests from a trusted, direct runtime client."""
     runtime = _runtime_url()
     if runtime is None:
         return
     target = request.url
     request.headers.pop(_TOKEN_HEADER, None)
-    if (
-        target.scheme == runtime.scheme
-        and target.host == runtime.host
-        and target.port == runtime.port
-        and not target.userinfo
-    ):
+    if _same_origin(base_url, runtime) and _same_origin(target, runtime):
         request.headers[_TOKEN_HEADER] = EnvVarLoader.get_str(_TOKEN_ENV)
 
 
-async def add_runtime_token_async(request: httpx.Request) -> None:
+async def _add_runtime_token_async(
+    request: httpx.Request,
+    *,
+    base_url: httpx.URL,
+) -> None:
     """Apply the same boundary policy to asynchronous HTTP clients."""
-    add_runtime_token(request)
+    _add_runtime_token(request, base_url=base_url)
+
+
+def api_client(
+    base_url: str,
+    *,
+    timeout: float = 30.0,
+) -> httpx.Client:
+    """Bind authentication to the client's endpoint and proxy policy."""
+    return httpx.Client(
+        base_url=base_url,
+        timeout=timeout,
+        trust_env=trust_env_for_url(base_url),
+        event_hooks={
+            "request": [
+                partial(_add_runtime_token, base_url=httpx.URL(base_url)),
+            ],
+        },
+    )
+
+
+def async_api_client(
+    base_url: str,
+    *,
+    timeout: float | httpx.Timeout = 30.0,
+) -> httpx.AsyncClient:
+    """Create an async client with the same direct-runtime policy."""
+    return httpx.AsyncClient(
+        base_url=base_url,
+        timeout=timeout,
+        trust_env=trust_env_for_url(base_url),
+        event_hooks={
+            "request": [
+                partial(
+                    _add_runtime_token_async,
+                    base_url=httpx.URL(base_url),
+                ),
+            ],
+        },
+    )

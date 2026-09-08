@@ -3,6 +3,8 @@
 """Regression coverage for CLI access to managed runtime APIs."""
 
 from functools import partial
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 import httpx
 import pytest
@@ -13,6 +15,8 @@ from fastapi.testclient import TestClient
 from qwenpaw.agents.tools import agent_management
 from qwenpaw.app.auth import RuntimeBoundaryMiddleware
 from qwenpaw.cli import http as cli_http
+from qwenpaw.cli import doctor_cmd, plugin_commands
+from qwenpaw.utils.runtime_api import async_api_client
 from qwenpaw.cli.main import cli
 
 _RUNTIME_URL = "http://127.0.0.1:9001"
@@ -252,3 +256,99 @@ def test_ipv6_runtime_endpoint(monkeypatch):
     result = CliRunner().invoke(cli, ["agents", "list"])
     assert result.exit_code == 0, result.exception
     assert seen == ["secret-a"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_external_client_cannot_send_token_through_proxy(
+    monkeypatch,
+    asynchronous,
+):
+    """Exercise actual proxy routing rather than a mock transport."""
+    seen = []
+
+    class Proxy(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, self.headers.get(_TOKEN_HEADER)))
+            if self.path.startswith("http://external.example"):
+                self.send_response(302)
+                self.send_header("Location", f"{_RUNTIME_URL}/api/agents")
+            else:
+                self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    with HTTPServer(("127.0.0.1", 0), Proxy) as proxy:
+        thread = Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        proxy_url = f"http://127.0.0.1:{proxy.server_port}"
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+            monkeypatch.setenv(name, proxy_url)
+        monkeypatch.setenv("NO_PROXY", "")
+        try:
+            if asynchronous:
+                async with async_api_client("http://external.example") as api:
+                    await api.get("/agents", follow_redirects=True)
+                    await api.get(f"{_RUNTIME_URL}/api/agents")
+            else:
+                with cli_http.client("http://external.example") as api:
+                    api.get("/agents", follow_redirects=True)
+                    api.get(f"{_RUNTIME_URL}/api/agents")
+        finally:
+            proxy.shutdown()
+            thread.join(timeout=5)
+    assert len(seen) == 3
+    assert seen[1][0] == f"{_RUNTIME_URL}/api/agents"
+    assert all(token is None for _, token in seen)
+
+
+@pytest.mark.parametrize("managed", [True, False])
+def test_doctor_and_plugin_operations_pass_boundary(
+    monkeypatch,
+    tmp_path,
+    managed,
+):
+    """Cover missing API entry points without performing plugin installs."""
+    app = FastAPI()
+    app.add_middleware(RuntimeBoundaryMiddleware)
+    seen = []
+
+    @app.api_route("/api/{path:path}", methods=["GET", "POST", "DELETE"])
+    async def endpoint(request: Request, path: str):
+        seen.append((request.method, path, request.url.port))
+        return {"status": "ok", "name": "demo"}
+
+    if not managed:
+        for name in (
+            "QWENPAW_RUNTIME_ID",
+            "QWENPAW_RUNTIME_API_URL",
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        ):
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(
+        plugin_commands.config_utils,
+        "read_last_api",
+        lambda: ("127.0.0.1", 9002),
+    )
+    archive = tmp_path / "plugin.zip"
+    archive.write_bytes(b"fixture zip")
+    port = 9001 if managed else 9002
+    with TestClient(app) as boundary:
+        monkeypatch.setattr(
+            httpx,
+            "Client",
+            partial(httpx.Client, transport=boundary._transport),
+        )
+        ok, _ = doctor_cmd._check_api_health(f"http://127.0.0.1:{port}", 2)
+        assert ok
+        assert plugin_commands._api_install_plugin("fixture")
+        assert plugin_commands._api_upload_plugin(archive)
+        assert plugin_commands._api_uninstall_plugin("demo")
+    assert seen == [
+        ("GET", "healthz", port),
+        ("POST", "plugins/install", port),
+        ("POST", "plugins/upload", port),
+        ("DELETE", "plugins/demo", port),
+    ]
