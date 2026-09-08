@@ -367,7 +367,7 @@ async def test_background_completion_emits_hint():
     )
 
     assert events[-1].metadata["offloaded"] is True
-    assert hint.role == "assistant"
+    assert hint.role == "user"
     text_block = next(
         block
         for block in hint.content
