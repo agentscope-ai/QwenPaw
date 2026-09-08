@@ -10,6 +10,7 @@ and delegates to the original handler.
 
 from __future__ import annotations
 
+import difflib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -577,6 +578,79 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
     return (name, user_input) if name else None
 
 
+def _command_catalog(
+    ctx: Any,
+    effective_skills: list[str],
+) -> dict[str, tuple[str, str]]:
+    """Map registered names and usable skills to spelling/help pairs."""
+    from ..agents.skill_system.registry import get_workspace_skills_dir
+
+    registry = ctx.workspace.plugins.slash_command_registry
+    catalog = {}
+    for name in registry.names():
+        match = registry.resolve(f"/{name}")
+        if match is not None:
+            spec, _ = match
+            catalog[name] = (f"/{spec.name}", spec.help_text)
+    skills_dir = get_workspace_skills_dir(Path(ctx.workspace.workspace_dir))
+    for name in sorted(effective_skills):
+        if (skills_dir / name / "SKILL.md").is_file():
+            spelling = (
+                f"/[{name}]" if any(map(str.isspace, name)) else f"/{name}"
+            )
+            catalog.setdefault(name.lower(), (spelling, ""))
+    return catalog
+
+
+def _is_command_candidate(raw_text: str, parsed_name: str) -> bool:
+    """Classify unmatched slash text, excluding explicit path forms."""
+    text = raw_text.lstrip()
+    if not text.startswith("/") or not parsed_name:
+        return False
+    suffix = text.partition("]")[2] if text.startswith("/[") else ""
+    if any(s in parsed_name for s in "/\\") or suffix.startswith(("/", "\\")):
+        return False
+    return (text.startswith("/[") and "]" in text) or all(
+        char.isalnum() or char in "_-" for char in parsed_name
+    )
+
+
+def _command_feedback(
+    name: str,
+    catalog: dict[str, tuple[str, str]],
+    *,
+    show_help: bool = False,
+) -> "Msg":
+    """Render default help or at most three advisory command suggestions."""
+    from agentscope.message import Msg, TextBlock
+
+    if show_help:
+        lines = ["Available commands:"] + [
+            f"- `{spelling}` {help_text}".rstrip()
+            for spelling, help_text in sorted(set(catalog.values()))
+        ]
+    else:
+        label = " ".join(name[:128].split()).replace("`", "")
+        lines = [f"Unknown or unavailable command: `/{label}`."]
+        candidates = sorted(catalog) if len(name) <= 128 else []
+        query = name[:128]
+        matches = difflib.get_close_matches(query, candidates, n=3, cutoff=0.6)
+        suggestions = dict.fromkeys(catalog[key][0] for key in matches)
+        if suggestions:
+            lines.append(
+                "Did you mean "
+                + ", ".join(f"`{s}`" for s in suggestions)
+                + "?",
+            )
+        lines.append("Use `/help` for command help.")
+    lines.append("Use `/skills` for skills available in this channel.")
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[TextBlock(type="text", text="\n".join(lines))],
+    )
+
+
 # pylint: disable-next=too-many-return-statements
 async def _skill_fallback_handler(
     raw_text: str,
@@ -590,9 +664,6 @@ async def _skill_fallback_handler(
     from agentscope.message import Msg, TextBlock
 
     workspace = getattr(ctx, "workspace", None)
-    if workspace is None:
-        return None
-
     workspace_dir = getattr(workspace, "workspace_dir", None)
     if not workspace_dir:
         return None
@@ -601,6 +672,17 @@ async def _skill_fallback_handler(
     if not parsed:
         return None
     skill_name, user_input = parsed
+    msgs = getattr(ctx, "input_msgs", None) or []
+    content = getattr(msgs[-1], "content", []) if msgs else []
+    is_command = _is_command_candidate(raw_text, skill_name) and (
+        isinstance(content, str)
+        or bool(content)
+        and all(
+            (b.get("type") if isinstance(b, dict) else b.type) == "text"
+            for b in content
+        )
+    )
+    lookup_error_text = "Command lookup unavailable. Please retry."
 
     from ..agents.skill_system.registry import (
         get_workspace_skills_dir,
@@ -616,7 +698,15 @@ async def _skill_fallback_handler(
             channel,
         )
     except Exception:
-        return None
+        return (
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(type="text", text=lookup_error_text)],
+            )
+            if is_command
+            else None
+        )
 
     skills_dir = get_workspace_skills_dir(Path(workspace_dir))
     skill_dir = next(
@@ -627,12 +717,30 @@ async def _skill_fallback_handler(
         ),
         None,
     )
-    if skill_dir is None or not skill_dir.exists():
-        return None
+    if skill_dir is None or not (skill_dir / "SKILL.md").is_file():
+        try:
+            if (
+                not is_command
+                or skill_name
+                in ctx.workspace.plugins.slash_command_registry.names()
+            ):
+                return None
+            return _command_feedback(
+                skill_name,
+                _command_catalog(
+                    ctx,
+                    [] if skill_name == "help" else effective_skills,
+                ),
+                show_help=skill_name == "help",
+            )
+        except Exception:
+            return Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(type="text", text=lookup_error_text)],
+            )
 
     skill_md = skill_dir / "SKILL.md"
-    if not skill_md.exists():
-        return None
 
     from ..agents.utils.file_handling import (
         read_text_file_with_encoding_fallback,
