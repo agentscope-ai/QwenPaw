@@ -4,6 +4,21 @@ function base64Placeholder(length: number): string {
   return `[base64 data omitted: ${length} characters]`;
 }
 
+function isLargeBase64DataUrl(value: string): boolean {
+  if (
+    value.length <= LARGE_BASE64_CHARS ||
+    value.slice(0, 5).toLowerCase() !== "data:"
+  ) {
+    return false;
+  }
+
+  const commaIndex = value.indexOf(",", 5);
+  if (commaIndex < 5 || commaIndex > 256) return false;
+
+  const header = value.slice(0, commaIndex).toLowerCase();
+  return header.startsWith("data:") && header.endsWith(";base64");
+}
+
 function isBase64Field(
   key: string,
   container: Record<string, unknown>,
@@ -11,6 +26,7 @@ function isBase64Field(
   const normalizedKey = key.toLowerCase();
   return (
     normalizedKey.includes("base64") ||
+    normalizedKey === "b64_json" ||
     (normalizedKey === "data" &&
       (container.type === "base64" || container.encoding === "base64"))
   );
@@ -36,8 +52,8 @@ function sanitizeForDisplay(
       Object.entries(container).map(([key, item]) => {
         if (
           typeof item === "string" &&
-          item.length > LARGE_BASE64_CHARS &&
-          isBase64Field(key, container)
+          (isLargeBase64DataUrl(item) ||
+            (item.length > LARGE_BASE64_CHARS && isBase64Field(key, container)))
         ) {
           return [key, base64Placeholder(item.length)];
         }
@@ -74,7 +90,11 @@ export function formatRawToolValue(value: unknown): string {
   if (value === undefined) return "";
 
   const parsed = typeof value === "string" ? parseJsonString(value) : value;
-  if (typeof parsed === "string") return parsed;
+  if (typeof parsed === "string") {
+    return isLargeBase64DataUrl(parsed)
+      ? base64Placeholder(parsed.length)
+      : parsed;
+  }
 
   try {
     const sanitized = sanitizeForDisplay(parsed, new WeakSet<object>());
