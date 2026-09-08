@@ -611,6 +611,7 @@ export default function Sidebar({
         <nav className={styles.collapsedNav}>
           {collapsedChatItem && (
             <div className={styles.collapsedNavPinned}>
+              <AgentSelector collapsed />
               {renderCollapsedNavItem(collapsedChatItem)}
             </div>
           )}
