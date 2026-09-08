@@ -37,6 +37,13 @@ describe("toolsApi", () => {
     vi.mocked(request).mockResolvedValue(tools);
     const result = await toolsApi.listTools();
     expect(result).toEqual(tools);
+    expect(request).toHaveBeenCalledWith("/tools");
+  });
+
+  it("listTools passes lang query param", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await toolsApi.listTools("zh");
+    expect(request).toHaveBeenCalledWith("/tools?lang=zh");
   });
 
   it("toggleTool returns the updated ToolInfo with the new enabled state", async () => {
