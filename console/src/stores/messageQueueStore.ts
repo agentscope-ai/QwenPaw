@@ -64,6 +64,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  /** Agent identity captured by the caller before any async admission check. */
+  agentId?: string;
   /** Authoritative backend session_id captured by the caller. */
   backendSessionId?: string;
   userId?: string;
@@ -355,14 +357,16 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     }
     // Capture the current selected agent at enqueue time so that
     // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
+    let agentId = input.agentId;
     try {
-      const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
-      if (agentStorage) {
-        const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
+      if (!agentId) {
+        const agentStorage =
+          sessionStorage.getItem("qwenpaw-agent-storage") ||
+          localStorage.getItem("qwenpaw-agent-storage");
+        if (agentStorage) {
+          const parsed = JSON.parse(agentStorage);
+          agentId = parsed?.state?.selectedAgent || undefined;
+        }
       }
     } catch {
       // ignore

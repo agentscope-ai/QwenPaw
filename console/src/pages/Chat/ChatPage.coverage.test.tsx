@@ -10,6 +10,7 @@ import { screen, waitFor, act } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
+import sessionApi from "./sessionApi";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 
@@ -491,6 +492,11 @@ describe("ChatPage coverage", () => {
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      userId: "test-user",
+      channel: "console",
+    });
     localStorage.clear();
     useMessageQueueStore.setState({
       queues: {},
@@ -1118,7 +1124,9 @@ describe("ChatPage coverage", () => {
     });
 
     expect(result).toBe(false);
-    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId);
+    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+      agentId: "default",
+    });
     expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([
       expect.objectContaining({
         text: "inspect this file",
@@ -1150,8 +1158,90 @@ describe("ChatPage coverage", () => {
     const result = await beforeSubmit({ query: "next turn" });
 
     expect(result).toEqual({ proceed: true, query: "next turn" });
-    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId);
+    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+      agentId: "default",
+    });
     expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+  });
+
+  it("serializes rapid admissions so a stale idle result cannot start two direct sends", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222222";
+    let resolveStatus: (value: { status: "idle" }) => void = () => {};
+    mockGetChatStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const first = beforeSubmit({ query: "first" });
+    await waitFor(() => expect(mockGetChatStatus).toHaveBeenCalledTimes(1));
+    const second = beforeSubmit({ query: "second" });
+
+    resolveStatus({ status: "idle" });
+    let results: unknown[] = [];
+    await act(async () => {
+      results = await Promise.all([first, second]);
+    });
+
+    expect(results[0]).toEqual({ proceed: true, query: "first" });
+    expect(results[1]).toBe(false);
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(1);
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([
+      expect.objectContaining({ text: "second" }),
+    ]);
+    act(() => useMessageQueueStore.getState().clear(chatId));
+  });
+
+  it("uses the admission-time session identity when direct send starts later", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222223";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "source-session",
+      userId: "source-user",
+      channel: "console",
+    });
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "stay in source",
+    });
+    expect(result).toEqual({ proceed: true, query: "stay in source" });
+
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "target-session",
+      userId: "target-user",
+      channel: "console",
+    });
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "stay in source" }],
+        },
+      ],
+    });
+
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      session_id: "source-session",
+      user_id: "source-user",
+      channel: "console",
+    });
+    expect(post?.[1]?.headers).toMatchObject({ "X-Agent-Id": "default" });
   });
 
   it("issue 7559: persists the follow-up while backend cleanup is running and sends it once idle", async () => {

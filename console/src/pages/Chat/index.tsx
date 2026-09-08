@@ -158,6 +158,18 @@ interface ApprovalMessageData {
   sourceType: string;
 }
 
+interface SubmissionSnapshot {
+  queueSessionId: string;
+  backendChatId?: string;
+  agentId: string;
+  identity: {
+    sessionId: string;
+    userId: string;
+    channel: string;
+  };
+  usesQwenPawBackend: boolean;
+}
+
 function resolveBackendChatId(chatId?: string | null): string | undefined {
   if (!chatId) return undefined;
   const resolved = sessionApi.getRealIdForSession(chatId);
@@ -1301,6 +1313,8 @@ export default function ChatPage() {
   messageQueueRef.current = messageQueue;
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const foregroundQueueWaitAbortRef = useRef<AbortController | null>(null);
+  const submissionAdmissionTailRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingDirectSubmissionRef = useRef<SubmissionSnapshot | null>(null);
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
@@ -1466,6 +1480,9 @@ export default function ChatPage() {
     autoSendTimerRef.current = setTimeout(async () => {
       autoSendTimerRef.current = null;
       if (chatLoadingRef.current) return;
+      // A direct submission has passed admission but has not reached
+      // customFetch yet. Let it start before draining later queued messages.
+      if (pendingDirectSubmissionRef.current) return;
       // Only the owner tab is allowed to actually send.
       if (!isOwnerRef.current) return;
       // Respect pause/error state — read fresh from store
@@ -1510,6 +1527,7 @@ export default function ChatPage() {
           .getState()
           .getRunState(queueSessionId);
         if (
+          pendingDirectSubmissionRef.current ||
           freshRunState === "paused" ||
           freshRunState === "error" ||
           fresh.length === 0 ||
@@ -1925,15 +1943,30 @@ export default function ChatPage() {
   useChatInputDraft(isChatActive, selectedAgent);
   // ── Message Queue ───────────────────────────────────────────────────────
 
+  const captureSubmissionSnapshot = useCallback(
+    (): SubmissionSnapshot => ({
+      queueSessionId,
+      backendChatId: resolveBackendChatId(chatIdRef.current),
+      agentId: selectedAgent,
+      identity: sessionApi.getSessionIdentity(),
+      usesQwenPawBackend,
+    }),
+    [queueSessionId, selectedAgent, usesQwenPawBackend],
+  );
+
   const enqueueSubmittedInput = useCallback(
-    (inputData: IAgentScopeRuntimeWebUIInputData): boolean => {
-      const currentQ = useMessageQueueStore.getState().getQueue(queueSessionId);
+    (
+      inputData: IAgentScopeRuntimeWebUIInputData,
+      snapshot: SubmissionSnapshot,
+    ): boolean => {
+      const currentQ = useMessageQueueStore
+        .getState()
+        .getQueue(snapshot.queueSessionId);
       if (currentQ.length >= MAX_QUEUE_SIZE) {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
         return false;
       }
 
-      const identity = sessionApi.getSessionIdentity();
       const attachments = inputData.fileList
         ?.map((file) => {
           const response = file.response as { url?: string } | undefined;
@@ -1948,50 +1981,90 @@ export default function ChatPage() {
         })
         .filter((file): file is NonNullable<typeof file> => file !== null);
 
-      const queueText = usesQwenPawBackend
+      const queueText = snapshot.usesQwenPawBackend
         ? prepareLoopModeMessage(inputData.query.trim())
         : inputData.query.trim();
-      useMessageQueueStore.getState().enqueue(queueSessionId, {
+      useMessageQueueStore.getState().enqueue(snapshot.queueSessionId, {
         text: queueText,
         attachments: attachments?.length ? attachments : undefined,
-        backendSessionId: identity.sessionId || undefined,
-        userId: identity.userId,
-        channel: identity.channel,
+        agentId: snapshot.agentId,
+        backendSessionId: snapshot.identity.sessionId || undefined,
+        userId: snapshot.identity.userId,
+        channel: snapshot.identity.channel,
       });
-      pendingFileListRef.current = [];
-      localStorage.removeItem(getDraftStorageKey(selectedAgent));
-      draftSuppressed = true;
+      const snapshotIsCurrent =
+        selectedAgentRef.current === snapshot.agentId &&
+        queueSessionIdRef.current === snapshot.queueSessionId;
+      if (snapshotIsCurrent) {
+        pendingFileListRef.current = [];
+        draftSuppressed = true;
+      }
+      localStorage.removeItem(getDraftStorageKey(snapshot.agentId));
+
+      // If navigation completed while admission was pending, the old page's
+      // cleanup ran before this item existed and could not start its sender.
+      if (
+        !snapshotIsCurrent &&
+        snapshot.identity.sessionId &&
+        snapshot.backendChatId &&
+        !hasBackgroundQueue(snapshot.queueSessionId)
+      ) {
+        void startBackgroundQueue(
+          snapshot.queueSessionId,
+          snapshot.identity.sessionId,
+          snapshot.backendChatId,
+        );
+      }
       return true;
     },
-    [message, queueSessionId, selectedAgent, t, usesQwenPawBackend],
+    [message, t],
   );
 
-  const shouldEnqueueSubmission = useCallback(async (): Promise<boolean> => {
-    if (!isOwnerRef.current) return true;
+  const shouldEnqueueSubmission = useCallback(
+    async (snapshot: SubmissionSnapshot): Promise<boolean> => {
+      if (
+        pendingDirectSubmissionRef.current ||
+        selectedAgentRef.current !== snapshot.agentId ||
+        queueSessionIdRef.current !== snapshot.queueSessionId
+      ) {
+        return true;
+      }
+      if (!isOwnerRef.current) return true;
 
-    const queueBusy =
-      chatLoadingRef.current ||
-      messageQueueRef.current.length > 0 ||
-      autoSendTimerRef.current !== null ||
-      useMessageQueueStore.getState().currentSendingId !== null;
-    if (queueBusy) return true;
-    if (!usesQwenPawBackend) return false;
+      const store = useMessageQueueStore.getState();
+      const queueBusy =
+        chatLoadingRef.current ||
+        store.getQueue(snapshot.queueSessionId).length > 0 ||
+        autoSendTimerRef.current !== null ||
+        store.currentSendingId !== null;
+      if (queueBusy) return true;
+      if (!snapshot.usesQwenPawBackend) return false;
 
-    // The SDK clears its loading flag as soon as it receives a Completed SSE,
-    // before the backend finishes response-cycle cleanup and releases the
-    // TaskTracker run. Use the backend chat status as the admission authority
-    // so submissions in that gap are queued instead of receiving HTTP 409.
-    const backendChatId = resolveBackendChatId(chatIdRef.current);
-    if (!backendChatId) return false;
-    try {
-      const chat = await chatApi.getChatStatus(backendChatId);
-      return chat.status === "running";
-    } catch {
-      // Preserve availability on a transient status-check failure. The
-      // backend's 409 remains the final cross-client concurrency guard.
-      return false;
-    }
-  }, [usesQwenPawBackend]);
+      // The SDK clears its loading flag as soon as it receives a Completed SSE,
+      // before the backend finishes response-cycle cleanup and releases the
+      // TaskTracker run. Use the backend chat status as the admission authority
+      // so submissions in that gap are queued instead of receiving HTTP 409.
+      if (!snapshot.backendChatId) return false;
+      try {
+        const chat = await chatApi.getChatStatus(snapshot.backendChatId, {
+          agentId: snapshot.agentId,
+        });
+        return (
+          chat.status === "running" ||
+          selectedAgentRef.current !== snapshot.agentId ||
+          queueSessionIdRef.current !== snapshot.queueSessionId
+        );
+      } catch {
+        // Preserve availability on a transient status-check failure. The
+        // backend's 409 remains the final cross-client concurrency guard.
+        return (
+          selectedAgentRef.current !== snapshot.agentId ||
+          queueSessionIdRef.current !== snapshot.queueSessionId
+        );
+      }
+    },
+    [],
+  );
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
   // takes over); start background senders for all OTHER sessions with pending
@@ -2591,18 +2664,24 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      const directSubmission = pendingDirectSubmissionRef.current;
+      pendingDirectSubmissionRef.current = null;
+      const requestAgentId = directSubmission?.agentId ?? selectedAgent;
+      const requestUsesQwenPawBackend =
+        directSubmission?.usesQwenPawBackend ?? usesQwenPawBackend;
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
       };
+      headers["X-Agent-Id"] = requestAgentId;
 
-      if (usesQwenPawBackend) {
+      if (requestUsesQwenPawBackend) {
         try {
           const activeModels = await providerApi.getActiveModels({
             scope: "effective",
-            agent_id: selectedAgent,
+            agent_id: requestAgentId,
           });
           if (
             !activeModels?.active_llm?.provider_id ||
@@ -2623,7 +2702,7 @@ export default function ChatPage() {
       if (submittedValue !== null) {
         clearSubmittedSenderInput(submittedValue);
         pendingSenderClearRef.current = null;
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        localStorage.removeItem(getDraftStorageKey(requestAgentId));
       }
 
       const { input = [], biz_params } = data;
@@ -2649,11 +2728,12 @@ export default function ChatPage() {
           ? [rewrittenLastMsg]
           : [];
 
-      const identity = sessionApi.getSessionIdentity();
+      const identity =
+        directSubmission?.identity ?? sessionApi.getSessionIdentity();
       const usageTurn = useTurnUsageStore
         .getState()
         .beginTurn(
-          selectedAgent,
+          requestAgentId,
           identity.sessionId || session?.session_id || "",
         );
       let requestBody: Record<string, unknown> = {
@@ -2671,7 +2751,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: requestAgentId,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -2695,19 +2775,20 @@ export default function ChatPage() {
           break;
         }
       }
-      if (usesQwenPawBackend) {
+      if (requestUsesQwenPawBackend) {
         applyApprovalLevelToRequestBody(
           requestBody,
           sessionApprovalLevelRef.current,
           runningConfigApprovalLevel,
         );
         projectSessionId =
+          directSubmission?.queueSessionId ??
           sessionApi.lastActiveChatId ??
           chatIdRef.current ??
           String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
-          selectedAgent,
+          requestAgentId,
           projectSessionId,
         );
         requestBody = pendingRequest.requestBody;
@@ -2725,6 +2806,7 @@ export default function ChatPage() {
       }
 
       const backendChatId =
+        directSubmission?.backendChatId ??
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
         String(requestBody.session_id || "");
@@ -2769,11 +2851,13 @@ export default function ChatPage() {
       }
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
-      if (response.ok && localIdToResolve) {
+      const submissionIdToResolve =
+        directSubmission?.queueSessionId ?? localIdToResolve;
+      if (response.ok && submissionIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
-          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
+          setPendingProjectDirectory(requestAgentId, projectSessionId, null);
         }
-        sessionApi.triggerResolve(localIdToResolve);
+        sessionApi.triggerResolve(submissionIdToResolve);
       }
 
       return wrapChatResponseUsageStream(response, chatRef, usageTurn);
@@ -2931,29 +3015,60 @@ export default function ChatPage() {
       inputData: IAgentScopeRuntimeWebUIInputData,
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (isComposingRef.current) return false;
-      // Sender submit paths share the same admission check. This covers Enter,
-      // the send button, and attachment submissions.
-      if (await shouldEnqueueSubmission()) {
-        const val = inputData.query.trim();
-        if (!val) return false;
-        if (!enqueueSubmittedInput(inputData)) return false;
+      const val = inputData.query.trim();
+      if (!val) return false;
+      const snapshot = captureSubmissionSnapshot();
+
+      // Serialize the async status decision. Without this gate, two rapid
+      // submissions can both observe stale "idle" responses and both POST.
+      const previousAdmission = submissionAdmissionTailRef.current;
+      let releaseAdmission = () => {};
+      submissionAdmissionTailRef.current = new Promise<void>((resolve) => {
+        releaseAdmission = resolve;
+      });
+      await previousAdmission;
+
+      let enqueue = false;
+      try {
+        enqueue = await shouldEnqueueSubmission(snapshot);
+        if (enqueue) {
+          if (!enqueueSubmittedInput(inputData, snapshot)) return false;
+        } else {
+          // Reserve the direct-send slot before releasing the admission gate.
+          // Later submissions will queue until customFetch consumes it.
+          pendingDirectSubmissionRef.current = snapshot;
+        }
+      } finally {
+        releaseAdmission();
+      }
+
+      if (enqueue) {
+        const snapshotIsCurrent =
+          selectedAgentRef.current === snapshot.agentId &&
+          queueSessionIdRef.current === snapshot.queueSessionId;
+        if (!snapshotIsCurrent) return false;
         const textarea = getActiveSenderTextarea();
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
         clearSenderAttachments();
         return false;
       }
-      localStorage.removeItem(getDraftStorageKey(selectedAgent));
-      draftSuppressed = true;
-      // Clear pending attachments when sending directly (not through queue)
-      pendingFileListRef.current = [];
+      const snapshotIsCurrent =
+        selectedAgentRef.current === snapshot.agentId &&
+        queueSessionIdRef.current === snapshot.queueSessionId;
+      localStorage.removeItem(getDraftStorageKey(snapshot.agentId));
+      if (snapshotIsCurrent) {
+        draftSuppressed = true;
+        // Clear pending attachments when sending directly (not through queue)
+        pendingFileListRef.current = [];
+      }
 
-      const prepared = usesQwenPawBackend
+      const prepared = snapshot.usesQwenPawBackend
         ? beginLoopModeSubmission(inputData.query)
         : inputData.query;
       pendingSenderClearRef.current = prepared;
 
-      const textarea = getActiveSenderTextarea();
+      const textarea = snapshotIsCurrent ? getActiveSenderTextarea() : null;
       if (textarea) {
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
@@ -3614,6 +3729,7 @@ export default function ChatPage() {
     filesWorkspaceOpen,
     toggleFilesWorkspace,
     isOwner,
+    captureSubmissionSnapshot,
     enqueueSubmittedInput,
     shouldEnqueueSubmission,
     bgTaskCount,
