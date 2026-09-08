@@ -333,24 +333,48 @@ async def test_auto_memory_schedules_structured_write(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_close_stops_inherited_summary_worker_before_client_close(
+async def test_auto_memory_worker_redacts_token_from_failure_status(
+    tmp_path,
+    caplog,
+):
+    token = "pc-secret-token-should-not-leak"
+    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager._client = SimpleNamespace(
+        config=SimpleNamespace(token=token),
+        remember=AsyncMock(side_effect=RuntimeError(token)),
+        close=AsyncMock(),
+    )
+
+    manager.submit_auto_memory([user("goal A")])
+    await manager._auto_memory_task_queue.join()
+
+    status = manager.get_runtime_status()
+    assert token not in caplog.text
+    assert token not in status["recent"]["last_error"]
+    assert "<redacted>" in caplog.text
+    assert "<redacted>" in status["recent"]["last_error"]
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_close_stops_inherited_auto_memory_worker_before_client_close(
     tmp_path,
 ):
     manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
 
     async def assert_worker_is_stopped() -> None:
-        assert manager._worker_task is None
+        assert manager._auto_memory_worker_task is None
 
     client = SimpleNamespace(close=AsyncMock())
     client.close.side_effect = assert_worker_is_stopped
     manager._client = client
-    manager.add_summarize_task([user("queued summary")])
-    worker = manager._worker_task
+    manager.submit_auto_memory([user("queued auto-memory")])
+    worker = manager._auto_memory_worker_task
 
     assert worker is not None
     assert not worker.done()
     assert await manager.close() is True
-    assert manager._worker_task is None
+    assert manager._auto_memory_worker_task is None
     assert worker.done()
     client.close.assert_awaited_once()
 
