@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import {
-  getOfficialPluginInstallAction,
+  getOfficialPluginVersionOptions,
   groupOfficialPlugins,
+  resolveOfficialPluginSelection,
 } from "./officialPluginVersions";
 
 function makeEntry(
@@ -79,33 +80,54 @@ describe("officialPluginVersions", () => {
     expect(groups[1].defaultVersion.version).toBe("1.0.1");
   });
 
-  it("derives install actions from the selected and installed versions", () => {
-    expect(getOfficialPluginInstallAction(makeEntry("demo", "1.0.0"))).toBe(
-      "install",
+  it("defaults to the installed version and classifies catalog versions", () => {
+    const installed = {
+      installed: true,
+      installed_version: "1.1.0",
+    };
+    const group = groupOfficialPlugins([
+      makeEntry("demo", "1.2.0", installed),
+      makeEntry("demo", "1.1.0", installed),
+      makeEntry("demo", "1.0.0", installed),
+    ])[0];
+
+    expect(group.installedVersion).toBe("1.1.0");
+    expect(getOfficialPluginVersionOptions(group)).toEqual([
+      { version: "1.2.0", relation: "upgrade" },
+      { version: "1.1.0", relation: "installed" },
+      { version: "1.0.0", relation: "downgrade" },
+    ]);
+    expect(resolveOfficialPluginSelection(group)).toMatchObject({
+      selectedVersion: "1.1.0",
+      action: "reinstall",
+    });
+    expect(resolveOfficialPluginSelection(group, "1.2.0").action).toBe(
+      "upgrade",
     );
-    expect(
-      getOfficialPluginInstallAction(
-        makeEntry("demo", "1.2.0", {
-          installed: true,
-          installed_version: "1.1.0",
-        }),
-      ),
-    ).toBe("upgrade");
-    expect(
-      getOfficialPluginInstallAction(
-        makeEntry("demo", "1.1.0", {
-          installed: true,
-          installed_version: "1.1.0",
-        }),
-      ),
-    ).toBe("reinstall");
-    expect(
-      getOfficialPluginInstallAction(
-        makeEntry("demo", "1.0.0", {
-          installed: true,
-          installed_version: "1.1.0",
-        }),
-      ),
-    ).toBe("downgrade");
+    expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
+      "downgrade",
+    );
+  });
+
+  it("keeps an installed version that is absent from the catalog selectable", () => {
+    const group = groupOfficialPlugins([
+      makeEntry("demo", "1.0.0", {
+        installed: true,
+        installed_version: "1.1.0",
+      }),
+    ])[0];
+
+    expect(getOfficialPluginVersionOptions(group)).toEqual([
+      { version: "1.1.0", relation: "installed" },
+      { version: "1.0.0", relation: "downgrade" },
+    ]);
+    expect(resolveOfficialPluginSelection(group)).toMatchObject({
+      selectedVersion: "1.1.0",
+      catalogEntry: undefined,
+      action: "current",
+    });
+    expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
+      "downgrade",
+    );
   });
 });

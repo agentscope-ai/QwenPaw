@@ -10,18 +10,19 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { Download, Package, RefreshCw } from "lucide-react";
+import { Check, Download, Package, RefreshCw } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { compareVersions } from "@/layouts/constants";
 import type {
   InstallPluginResult,
   OfficialPluginCatalogEntry,
 } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
 import {
-  getOfficialPluginInstallAction,
+  getOfficialPluginVersionOptions,
   groupOfficialPlugins,
   type OfficialPluginGroup,
+  type OfficialPluginSelection,
+  resolveOfficialPluginSelection,
 } from "../officialPluginVersions";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import styles from "./OfficialPluginList.module.less";
@@ -82,13 +83,13 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
 
   const selectedPlugins = useMemo(
     () =>
-      pluginGroups.map((group) => ({
-        group,
-        entry:
-          group.versions.find(
-            (entry) => entry.version === selectedVersions[group.key],
-          ) ?? group.defaultVersion,
-      })),
+      pluginGroups.map((group) => {
+        const selection = resolveOfficialPluginSelection(
+          group,
+          selectedVersions[group.key],
+        );
+        return { group, selection, entry: selection.displayEntry };
+      }),
     [pluginGroups, selectedVersions],
   );
 
@@ -122,16 +123,15 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
       </Tag>
     ) : null;
 
-  const renderStatusTag = (entry: OfficialPluginCatalogEntry) => {
-    const action = getOfficialPluginInstallAction(entry);
-    if (action === "upgrade") {
+  const renderStatusTag = (selection: OfficialPluginSelection) => {
+    if (selection.action === "upgrade") {
       return (
         <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
           {t("pluginManager.catalogUpgrade")}
         </Tag>
       );
     }
-    if (action !== "install") {
+    if (selection.installedVersion) {
       return (
         <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
           {t("pluginManager.catalogInstalled")}
@@ -141,14 +141,17 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     return null;
   };
 
-  const requestInstall = (entry: OfficialPluginCatalogEntry) => {
-    if (getOfficialPluginInstallAction(entry) === "downgrade") {
+  const requestInstall = (selection: OfficialPluginSelection) => {
+    const entry = selection.catalogEntry;
+    if (!entry) return;
+
+    if (selection.action === "downgrade") {
       Modal.confirm({
         title: t("pluginManager.catalogDowngradeTitle"),
         content: t("pluginManager.catalogDowngradeConfirm", {
           name: entry.name,
-          installedVersion: entry.installed_version,
-          selectedVersion: entry.version,
+          installedVersion: selection.installedVersion,
+          selectedVersion: selection.selectedVersion,
         }),
         okText: t("pluginManager.catalogDowngrade"),
         cancelText: t("common.cancel"),
@@ -160,13 +163,14 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     void handleInstall(entry);
   };
 
-  const renderInstallButton = (entry: OfficialPluginCatalogEntry) => {
-    const action = getOfficialPluginInstallAction(entry);
+  const renderInstallButton = (selection: OfficialPluginSelection) => {
+    const { action, catalogEntry } = selection;
     const buttonText = {
       install: t("pluginManager.catalogInstall"),
       upgrade: t("pluginManager.catalogUpgradeBtn"),
       reinstall: t("pluginManager.catalogReinstall"),
       downgrade: t("pluginManager.catalogDowngrade"),
+      current: t("pluginManager.catalogCurrentVersion"),
     }[action];
 
     return (
@@ -174,10 +178,15 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         type={
           action === "install" || action === "upgrade" ? "primary" : "default"
         }
-        icon={<Download size={14} />}
-        loading={installingId === entry.id}
-        disabled={installingId !== null && installingId !== entry.id}
-        onClick={() => requestInstall(entry)}
+        icon={
+          action === "current" ? <Check size={14} /> : <Download size={14} />
+        }
+        loading={Boolean(catalogEntry && installingId === catalogEntry.id)}
+        disabled={
+          action === "current" ||
+          (installingId !== null && installingId !== catalogEntry?.id)
+        }
+        onClick={() => requestInstall(selection)}
       >
         {buttonText}
       </Button>
@@ -186,34 +195,48 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
 
   const renderVersionSelect = (
     group: OfficialPluginGroup,
-    entry: OfficialPluginCatalogEntry,
-  ) => (
-    <Select
-      className={styles.versionSelect}
-      aria-label={t("pluginManager.catalogVersion")}
-      value={entry.version}
-      onChange={(version) =>
-        setSelectedVersions((current) => ({
-          ...current,
-          [group.key]: version,
-        }))
-      }
-      options={group.versions.map((candidate) => {
-        const isInstalled = Boolean(
-          candidate.installed_version &&
-            compareVersions(candidate.version, candidate.installed_version) ===
-              0,
-        );
-        return {
-          value: candidate.version,
-          label: isInstalled
-            ? `v${candidate.version} · ${t(
-                "pluginManager.catalogInstalledVersion",
-              )}`
-            : `v${candidate.version}`,
-        };
-      })}
-    />
+    selection: OfficialPluginSelection,
+  ) => {
+    const versionOptions = getOfficialPluginVersionOptions(group);
+    if (versionOptions.length <= 1) return null;
+
+    const relationLabels = {
+      available: "",
+      installed: t("pluginManager.catalogInstalledVersion"),
+      upgrade: t("pluginManager.catalogUpgrade"),
+      downgrade: t("pluginManager.catalogDowngradeAvailable"),
+    };
+
+    return (
+      <Select
+        className={styles.versionSelect}
+        aria-label={t("pluginManager.catalogVersion")}
+        popupMatchSelectWidth={false}
+        value={selection.selectedVersion}
+        onChange={(version) =>
+          setSelectedVersions((current) => ({
+            ...current,
+            [group.key]: version,
+          }))
+        }
+        options={versionOptions.map((option) => ({
+          value: option.version,
+          label: relationLabels[option.relation]
+            ? `v${option.version} · ${relationLabels[option.relation]}`
+            : `v${option.version}`,
+        }))}
+      />
+    );
+  };
+
+  const renderMetadata = (selection: OfficialPluginSelection) => (
+    <>
+      v{selection.selectedVersion}
+      {selection.catalogEntry?.size ? ` · ${selection.catalogEntry.size}` : ""}
+      {selection.displayEntry.author
+        ? ` · ${selection.displayEntry.author}`
+        : ""}
+    </>
   );
 
   return (
@@ -286,7 +309,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         )}
         {isMobile || viewMode === "card" ? (
           <div className={cardStyles.cardGrid}>
-            {filteredPlugins.map(({ group, entry }) => (
+            {filteredPlugins.map(({ group, selection, entry }) => (
               <article
                 className={cardStyles.pluginCard}
                 key={group.key}
@@ -296,7 +319,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   <div className={cardStyles.cardIcon}>
                     <Package size={18} />
                   </div>
-                  {renderStatusTag(entry)}
+                  {renderStatusTag(selection)}
                 </div>
                 <div className={cardStyles.cardTitleRow}>
                   <Text
@@ -314,21 +337,19 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                 </div>
                 <div className={cardStyles.cardFooter}>
                   <span className={cardStyles.cardMetadata}>
-                    v{entry.version}
-                    {entry.size ? ` · ${entry.size}` : ""}
-                    {entry.author ? ` · ${entry.author}` : ""}
+                    {renderMetadata(selection)}
                   </span>
                 </div>
                 <div className={cardStyles.cardActions}>
-                  {renderVersionSelect(group, entry)}
-                  {renderInstallButton(entry)}
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
                 </div>
               </article>
             ))}
           </div>
         ) : (
           <div className={styles.catalogList}>
-            {filteredPlugins.map(({ group, entry }) => (
+            {filteredPlugins.map(({ group, selection, entry }) => (
               <div className={styles.catalogRow} key={group.key}>
                 <div className={styles.catalogIcon}>
                   <Package size={18} />
@@ -337,7 +358,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   <div className={styles.catalogNameRow}>
                     <Text strong>{entry.name}</Text>
                     {renderKindTag(entry)}
-                    {renderStatusTag(entry)}
+                    {renderStatusTag(selection)}
                   </div>
                   {(entry.description || entry.description_i18n) && (
                     <div className={styles.catalogDescription}>
@@ -345,14 +366,12 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                     </div>
                   )}
                   <div className={styles.catalogMeta}>
-                    v{entry.version}
-                    {entry.size ? ` · ${entry.size}` : ""}
-                    {entry.author ? ` · ${entry.author}` : ""}
+                    {renderMetadata(selection)}
                   </div>
                 </div>
                 <div className={styles.catalogActions}>
-                  {renderVersionSelect(group, entry)}
-                  {renderInstallButton(entry)}
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
                 </div>
               </div>
             ))}

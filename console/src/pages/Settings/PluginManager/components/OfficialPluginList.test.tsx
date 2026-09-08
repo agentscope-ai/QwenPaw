@@ -59,7 +59,7 @@ function selectVersion(article: HTMLElement, version: string) {
       name: "pluginManager.catalogVersion",
     }),
   );
-  fireEvent.click(screen.getByText(`v${version}`));
+  fireEvent.click(screen.getByText(`v${version}`, { exact: false }));
 }
 
 describe("OfficialPluginList", () => {
@@ -147,9 +147,17 @@ describe("OfficialPluginList", () => {
     const article = screen.getByRole("article", { name: "Creator" });
     fireEvent.mouseDown(within(article).getByRole("combobox"));
     expect(
-      screen.getByText("v1.1.0 · pluginManager.catalogInstalledVersion"),
+      screen.getAllByText("v1.1.0 · pluginManager.catalogInstalledVersion"),
+    ).toHaveLength(2);
+    expect(
+      screen.getByText("v1.2.0 · pluginManager.catalogUpgrade"),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByText("v1.0.0"));
+    expect(
+      screen.getByText("v1.0.0 · pluginManager.catalogDowngradeAvailable"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByText("v1.0.0 · pluginManager.catalogDowngradeAvailable"),
+    );
     fireEvent.click(
       within(article).getByRole("button", {
         name: /pluginManager.catalogDowngrade/,
@@ -182,11 +190,54 @@ describe("OfficialPluginList", () => {
 
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
-    fireEvent.mouseDown(within(article).getByRole("combobox"));
-    fireEvent.click(
-      screen.getByText("v1.1.0 · pluginManager.catalogInstalledVersion"),
+
+    expect(
+      within(article).getByRole("button", {
+        name: /pluginManager.catalogReinstall/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a catalog-external installed version as the current selection", () => {
+    hoisted.plugins.push(
+      makeEntry("1.0.0", {
+        installed: true,
+        installed_version: "1.1.0",
+      }),
     );
 
+    render(<OfficialPluginList onInstalled={vi.fn()} />);
+    const article = screen.getByRole("article", { name: "Creator" });
+    const currentButton = within(article).getByRole("button", {
+      name: /pluginManager.catalogCurrentVersion/,
+    });
+
+    expect(currentButton).toBeDisabled();
+    expect(
+      within(article).getByTitle(
+        "v1.1.0 · pluginManager.catalogInstalledVersion",
+      ),
+    ).toBeInTheDocument();
+    selectVersion(article, "1.0.0");
+    expect(
+      within(article).getByRole("button", {
+        name: /pluginManager.catalogDowngrade/,
+      }),
+    ).toBeEnabled();
+  });
+
+  it("hides the version selector when only one version is available", () => {
+    hoisted.plugins.push(
+      makeEntry("1.0.0", {
+        installed: true,
+        installed_version: "1.0.0",
+      }),
+    );
+
+    render(<OfficialPluginList onInstalled={vi.fn()} />);
+    const article = screen.getByRole("article", { name: "Creator" });
+
+    expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
     expect(
       within(article).getByRole("button", {
         name: /pluginManager.catalogReinstall/,
