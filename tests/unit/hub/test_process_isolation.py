@@ -38,6 +38,7 @@ class _RecordingIsolator(ProcessIsolator):
     ) -> IsolatedLaunch:
         del record
         self.called = True
+        self.environment = dict(environment)
         return IsolatedLaunch(
             ["isolation-wrapper", *command],
             dict(environment),
@@ -60,6 +61,7 @@ class _WindowsRecordingIsolator(_RecordingIsolator):
     ) -> IsolatedLaunch:
         del record
         self.called = True
+        self.environment = dict(environment)
         self.command = list(command)
         return IsolatedLaunch(list(command), dict(environment))
 
@@ -384,6 +386,9 @@ def test_provisioner_launches_through_injected_isolator(
 
     assert isolator.called is True
     assert started.state is RuntimeState.RUNNING
+    assert isolator.environment["QWENPAW_RUNTIME_API_URL"] == (
+        f"http://{started.host}:{started.port}"
+    )
     provisioner.close()
 
 
@@ -418,6 +423,10 @@ def test_windows_runtime_uses_outbound_reverse_tunnel(
         "qwenpaw",
     ]
     assert command[command.index("--host", separator) + 1] == "127.0.0.1"
+    internal_port = command[command.index("--target-port") + 1]
+    assert isolator.environment["QWENPAW_RUNTIME_API_URL"] == (
+        f"http://127.0.0.1:{internal_port}"
+    )
     assert started.port == 9001
     assert _TunnelBroker.instances[0].started is True
 
