@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
 """Install the governance declarations normally owned by plugin startup."""
 
+import logging
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let caplog observe records emitted through the app logger tree."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
 
 
 @pytest.fixture(scope="session", autouse=True)

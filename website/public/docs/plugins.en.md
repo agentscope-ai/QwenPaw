@@ -211,8 +211,10 @@ backend as an implicit fallback.
 
 Import the stable contracts from `qwenpaw.memory`, not from the internal
 `qwenpaw.agents.memory` package. A backend factory receives one
-`MemoryBackendContext` containing the Agent ID, workspace path, plugin-owned
-configuration, language, and token-estimation divisor.
+`MemoryBackendContext` containing the Agent ID, workspace path, canonical host
+working directory, plugin-owned configuration, language, and token-estimation
+divisor. Installation-scoped plugin state must be anchored under
+`context.host_working_dir`, not inferred from an Agent workspace path.
 
 ```python
 from pydantic import BaseModel

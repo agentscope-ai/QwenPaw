@@ -47,6 +47,7 @@ def test_plugin_registration_is_owned_and_unregistered(tmp_path: Path) -> None:
             MemoryBackendContext(
                 agent_id="agent",
                 working_dir=tmp_path,
+                host_working_dir=tmp_path,
                 backend_config={"opaque": True},
             ),
         )

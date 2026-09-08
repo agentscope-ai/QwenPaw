@@ -206,8 +206,9 @@ Memory 插件属于启动关键插件：`type: "memory"` 的插件会在 Agent �
 #### Python Backend 注册
 
 应从稳定的 `qwenpaw.memory` 导入协议，而不是依赖内部的 `qwenpaw.agents.memory` 包。Backend
-factory 接收一个 `MemoryBackendContext`，其中包含 Agent ID、workspace 路径、插件配置、
-语言和 token 估算除数。
+factory 接收一个 `MemoryBackendContext`，其中包含 Agent ID、workspace 路径、宿主规范工作
+目录、插件配置、语言和 token 估算除数。安装级插件状态必须基于
+`context.host_working_dir` 保存，不能从 Agent workspace 路径反推。
 
 ```python
 from pydantic import BaseModel

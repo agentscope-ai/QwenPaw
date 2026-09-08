@@ -24,6 +24,7 @@ def _manager(
         MemoryBackendContext(
             agent_id=agent_id,
             working_dir=tmp_path,
+            host_working_dir=tmp_path,
             backend_config=(config or ADBPGMemoryConfig()).model_dump(),
         ),
     )

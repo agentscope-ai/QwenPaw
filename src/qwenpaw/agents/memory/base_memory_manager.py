@@ -52,6 +52,7 @@ class MemoryBackendContext:
 
     agent_id: str
     working_dir: Path
+    host_working_dir: Path
     backend_config: Mapping[str, Any]
     language: str = "zh"
     token_estimate_divisor: float = 4.0

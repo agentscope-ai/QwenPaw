@@ -133,6 +133,7 @@ async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
         context=MemoryBackendContext(
             agent_id="agent-1",
             working_dir=tmp_path,
+            host_working_dir=tmp_path,
             backend_config={"kind": "old"},
         ),
         close=AsyncMock(),
@@ -164,6 +165,7 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
         context=MemoryBackendContext(
             agent_id="agent-1",
             working_dir=tmp_path,
+            host_working_dir=tmp_path,
             backend_config={},
         ),
     )
@@ -211,6 +213,7 @@ async def test_workspace_recreates_plugin_manager_when_config_changes(
         MemoryBackendContext(
             agent_id="agent-1",
             working_dir=tmp_path,
+            host_working_dir=tmp_path,
             backend_config=old_config,
         ),
     )

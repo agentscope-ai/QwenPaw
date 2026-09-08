@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -43,14 +44,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CONTEXT_BYTES = 12000
 
 
-def get_or_create_installation_id(working_dir: str) -> str:
-    """Persist a plugin-owned installation scope beside agent workspaces.
+def get_or_create_installation_id(host_working_dir: str | Path) -> str:
+    """Persist a plugin-owned identity under the canonical host state root.
 
     Before PowerContext became a plugin, the identifier lived in the root
     ``config.json``.  Adopt that value on first use so upgrading does not move
     an Agent with an implicit scope into a fresh, apparently empty scope.
     """
-    path = Path(working_dir).resolve().parent / ".powercontext-installation-id"
+    host_root = Path(host_working_dir).expanduser().resolve()
+    path = (
+        host_root / "plugin-state" / "memory-powercontext" / "installation-id"
+    )
     try:
         existing = path.read_text(encoding="utf-8").strip()
         if re.fullmatch(r"[0-9a-f]{32}", existing):
@@ -60,7 +64,7 @@ def get_or_create_installation_id(working_dir: str) -> str:
     else:
         raise ValueError(f"Invalid PowerContext installation id in {path}")
 
-    generated = _legacy_installation_id(working_dir) or uuid.uuid4().hex
+    generated = _legacy_installation_id(host_root) or uuid.uuid4().hex
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -76,26 +80,18 @@ def get_or_create_installation_id(working_dir: str) -> str:
     return generated
 
 
-def _legacy_installation_id(working_dir: str) -> str:
+def _legacy_installation_id(host_working_dir: str | Path) -> str:
     """Read the pre-plugin installation id without importing core internals."""
-    workspace = Path(working_dir).resolve()
-    candidates: list[Path] = []
-    configured_root = os.environ.get("QWENPAW_WORKING_DIR", "").strip()
-    if configured_root:
-        candidates.append(Path(configured_root).expanduser() / "config.json")
-    if workspace.parent.name == "workspaces":
-        candidates.append(workspace.parent.parent / "config.json")
-
-    for config_path in dict.fromkeys(candidates):
-        try:
-            payload = json.loads(config_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, ValueError, TypeError):
-            continue
-        legacy_id = payload.get("powercontext_installation_id", "")
-        if isinstance(legacy_id, str):
-            legacy_id = legacy_id.strip()
-            if re.fullmatch(r"[0-9a-f]{32}", legacy_id):
-                return legacy_id
+    config_path = Path(host_working_dir).expanduser().resolve() / "config.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return ""
+    legacy_id = payload.get("powercontext_installation_id", "")
+    if isinstance(legacy_id, str):
+        legacy_id = legacy_id.strip()
+        if re.fullmatch(r"[0-9a-f]{32}", legacy_id):
+            return legacy_id
     return ""
 
 
@@ -117,7 +113,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
         try:
             scope_id = cfg.scope_id.strip()
             if not scope_id:
-                installation_id = self._get_installation_id()
+                installation_id = await asyncio.to_thread(
+                    self._get_installation_id,
+                )
                 scope_id = f"qwenpaw:{installation_id}:agent:{self.agent_id}"
             self._client = PowerContextMemoryClient(
                 PowerContextConfig(
@@ -138,7 +136,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
             self._resolved_scope_id = ""
 
     def _get_installation_id(self) -> str:
-        return get_or_create_installation_id(self.working_dir)
+        return get_or_create_installation_id(self.context.host_working_dir)
 
     async def _close_backend(self) -> bool:
         """Close the remote client after shared auto-memory work stops."""

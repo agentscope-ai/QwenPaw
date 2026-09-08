@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -33,6 +34,7 @@ def _manager(
         MemoryBackendContext(
             agent_id=agent_id,
             working_dir=tmp_path,
+            host_working_dir=tmp_path,
             backend_config=(config or PowerContextMemoryConfig()).model_dump(),
         ),
     )
@@ -48,27 +50,119 @@ def user(text: str) -> Msg:
 
 def test_installation_id_adopts_legacy_root_config(tmp_path):
     legacy_id = "0123456789abcdef0123456789abcdef"
-    workspace = tmp_path / "workspaces" / "default"
-    workspace.mkdir(parents=True)
     (tmp_path / "config.json").write_text(
         '{"powercontext_installation_id": "' + legacy_id + '"}',
         encoding="utf-8",
     )
 
-    assert get_or_create_installation_id(str(workspace)) == legacy_id
+    assert get_or_create_installation_id(tmp_path) == legacy_id
     assert (
-        tmp_path / "workspaces" / ".powercontext-installation-id"
+        tmp_path / "plugin-state" / "memory-powercontext" / "installation-id"
     ).read_text(encoding="utf-8") == legacy_id
 
 
 def test_installation_id_rejects_corrupt_plugin_state(tmp_path):
-    workspace = tmp_path / "workspaces" / "default"
-    workspace.mkdir(parents=True)
-    identity_path = tmp_path / "workspaces" / ".powercontext-installation-id"
+    identity_path = (
+        tmp_path / "plugin-state" / "memory-powercontext" / "installation-id"
+    )
+    identity_path.parent.mkdir(parents=True)
     identity_path.write_text("x" * 32, encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid PowerContext installation"):
-        get_or_create_installation_id(str(workspace))
+        get_or_create_installation_id(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_installation_id_is_independent_of_custom_workspace_parent(
+    tmp_path,
+):
+    first_host = tmp_path / "install-a"
+    second_host = tmp_path / "install-b"
+    shared_workspace_parent = tmp_path / "external-workspaces"
+    shared_workspace_parent.mkdir()
+    first_host.mkdir()
+    second_host.mkdir()
+    config = PowerContextMemoryConfig(base_url="http://pc").model_dump()
+    first = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=shared_workspace_parent / "agent-a",
+            host_working_dir=first_host,
+            backend_config=config,
+        ),
+    )
+    second = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=shared_workspace_parent / "agent-b",
+            host_working_dir=second_host,
+            backend_config=config,
+        ),
+    )
+
+    await first.start()
+    await second.start()
+
+    assert first._client.config.scope_id != second._client.config.scope_id
+    await first.close()
+    await second.close()
+
+
+@pytest.mark.asyncio
+async def test_custom_workspace_adopts_canonical_host_legacy_id(tmp_path):
+    legacy_id = "0123456789abcdef0123456789abcdef"
+    host_root = tmp_path / "host"
+    workspace = tmp_path / "external" / "custom-agent"
+    host_root.mkdir()
+    workspace.mkdir(parents=True)
+    (host_root / "config.json").write_text(
+        '{"powercontext_installation_id": "' + legacy_id + '"}',
+        encoding="utf-8",
+    )
+    manager = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=workspace,
+            host_working_dir=host_root,
+            backend_config=PowerContextMemoryConfig(
+                base_url="http://pc",
+            ).model_dump(),
+        ),
+    )
+
+    await manager.start()
+
+    assert manager._client.config.scope_id == (
+        f"qwenpaw:{legacy_id}:agent:default"
+    )
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_installation_identity_io_runs_off_event_loop(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _manager(
+        tmp_path,
+        "default",
+        PowerContextMemoryConfig(base_url="http://pc"),
+    )
+    event_loop_thread = threading.get_ident()
+    identity_thread = None
+
+    def resolve_identity():
+        nonlocal identity_thread
+        identity_thread = threading.get_ident()
+        return "0123456789abcdef0123456789abcdef"
+
+    monkeypatch.setattr(manager, "_get_installation_id", resolve_identity)
+
+    await manager.start()
+
+    assert identity_thread is not None
+    assert identity_thread != event_loop_thread
+    await manager.close()
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
+from ...constant import WORKING_DIR
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -413,6 +414,7 @@ class Workspace:
             return MemoryBackendContext(
                 agent_id=ws.agent_id,
                 working_dir=ws.workspace_dir,
+                host_working_dir=WORKING_DIR,
                 backend_config=raw_config,
                 language=getattr(ws._config, "language", "zh") or "zh",
                 token_estimate_divisor=(

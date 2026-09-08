@@ -98,8 +98,10 @@ required. The equivalent `agent.json` fragment is:
 `memory_backend_configs.powercontext` is the configuration location. The
 former core-owned `powercontext_memory_config` field is no longer supported.
 On first start after upgrading, the plugin adopts the former root
-`powercontext_installation_id` when creating its plugin-owned identity file,
-so an empty `scope_id` continues to address the same remote memories.
+`powercontext_installation_id` into
+`plugin-state/memory-powercontext/installation-id` under the canonical QwenPaw
+working directory. An empty `scope_id` therefore continues to address the same
+remote memories even when an Agent uses a custom workspace path.
 
 ### 5. Verify
 
