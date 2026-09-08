@@ -381,11 +381,8 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
-      // the no-downloaded-model hint (translation key) must be shown
+      // Wait for the resolved runtime status and model list to be reflected in
+      // the UI, rather than merely waiting for the requests to start.
       expect(
         await screen.findByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
