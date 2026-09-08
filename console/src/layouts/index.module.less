@@ -2,6 +2,15 @@
 .mainLayout {
   height: 100vh;
   min-height: 100vh;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.mainContentLayout {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @supports (height: 100dvh) {
@@ -37,6 +46,19 @@
   }
 }
 
+.headerPluginLeft {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+
+  > .appBrand {
+    flex-basis: auto;
+    margin-left: -12px;
+    margin-right: 16px;
+  }
+}
+
 @media (max-width: 768px) {
   .header {
     padding: 0 12px;
@@ -55,22 +77,12 @@
   }
 }
 
-.headerTitle {
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--app-text);
-  min-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
   background: var(--app-shell-bg) !important;
   border-right-color: var(--app-border-subtle) !important;
   overflow: auto;
-  height: calc(100vh - 64px) !important;
+  height: 100vh !important;
   padding: 0 16px;
 
   // Hide scrollbar in browser
@@ -119,68 +131,14 @@
     border-radius: 12px 12px 0 0;
   }
 
-  // Sticky Chat button — matches menu item appearance
-  .stickyChatButton {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    height: 40px;
-    padding: 0 8px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--app-text);
-    font-size: 14px;
-    cursor: pointer;
-    transition: background 0.2s;
-    padding-left: 12px;
-
-    &:hover {
-      background: var(--app-fill);
-    }
-  }
-
-  .stickyChatButtonActive {
-    background: var(--app-nav-selected-bg);
-    color: var(--app-nav-selected-text);
-
-    &:hover {
-      background: var(--app-nav-selected-bg-hover);
-      color: var(--app-nav-selected-text);
-    }
-  }
-
-  // Menu takes remaining space
-  .sideMenu {
-    flex: 1;
-    overflow-y: auto;
-
-    // Hide scrollbar for menu too
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    &::-moz-scrollbar {
-      display: none;
-    }
-
-    &::-ms-scrollbar {
-      display: none;
-    }
-
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  &.siderSimple {
+  &.siderExpanded {
     display: flex;
     flex-direction: column;
     overflow: hidden;
 
-    // In simple mode the children wrapper must itself be a flex column so that
-    // agentScopedSection / sessionList / collapseToggleContainer become flex
-    // items and only the sessionList scrolls.
+    // The children wrapper must itself be a flex column so that
+    // agentScopedSection / sessionArea / collapseToggleContainer become flex
+    // items and only the session area scrolls.
     :global {
       .qwenpaw-layout-sider-children {
         flex: 1;
@@ -304,33 +262,150 @@
       align-items: center !important;
       justify-content: center !important;
 
-      &:hover {
-        background: var(--app-nav-selected-bg-hover) !important;
-        color: var(--app-nav-selected-text) !important;
-      }
-
       .qwenpaw-menu-title-content {
         display: flex !important;
         align-items: center !important;
       }
+
+      &:hover {
+        background: var(--app-nav-selected-bg-hover) !important;
+        color: var(--app-nav-selected-text) !important;
+      }
     }
 
-    /* Keep nested selected items on the same navigation treatment. */
+    /* Selected submenu item - keep text color unchanged */
     .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
       color: var(--app-nav-selected-text) !important;
     }
   }
 }
 
-.logoWrapper {
+.siderDark {
+  background: #1a1a1a !important;
+  border-right-color: rgba(255, 255, 255, 0.08) !important;
+
+  // Agent-scoped section (dark mode)
+  .agentScopedSection {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  // Sticky container background (dark mode)
+  .agentSelectorContainer {
+    background: #1e1e1e;
+  }
+
+  // Sticky bottom bar background (dark mode)
+  .collapseToggleContainer {
+    background: #1a1a1a;
+  }
+
+  :global {
+    .qwenpaw-menu {
+      background: #1a1a1a !important;
+      border-inline-end: 0 !important;
+    }
+
+    /* Group title (sub-menu label) */
+    .qwenpaw-menu-submenu-title {
+      color: rgba(255, 255, 255, 0.45) !important;
+
+      /* No hover effect for group titles in dark mode */
+      &:hover {
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.45) !important;
+      }
+    }
+
+    /* Regular menu item */
+    .qwenpaw-menu-item {
+      color: rgba(255, 255, 255, 0.75) !important;
+    }
+
+    /* Hover state - only for menu items, not group titles */
+    .qwenpaw-menu-item:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(255, 255, 255, 0.95) !important;
+    }
+
+    /* Selected item */
+    .qwenpaw-menu-item-selected {
+      background: rgba(255, 127, 22, 0.5) !important;
+      color: #ff7f16 !important;
+    }
+  }
+}
+
+.appBrand {
   display: flex;
+  height: 56px;
+  flex: 0 0 56px;
+  min-width: 0;
   align-items: center;
-  gap: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  cursor: default;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.appBrandLogo {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+
+  > * {
+    max-width: 100%;
+  }
+}
+
+.appBrandVersionArea {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.appBrandAction {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+}
+
+.brandCollapseToggle {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border-radius: 7px !important;
+  color: rgba(26, 23, 22, 0.52) !important;
+
+  &:hover {
+    color: #ff7f16 !important;
+    background: rgba(255, 127, 22, 0.08) !important;
+  }
+}
+
+.appBrandUpdateIcon,
+.appBrandReadyIcon,
+.appBrandFailedIcon {
+  font-size: 13px;
+  color: #ff7f16;
+}
+
+.appBrandFailedIcon {
+  color: #ff4d4f;
+  cursor: pointer;
 }
 
 .logoImg {
-  height: 16px;
+  height: 18px;
   width: auto;
+  max-width: 128px;
 }
 
 .logoDivider {
@@ -351,31 +426,20 @@
 
 .versionBadge {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: #1a171673;
   font-weight: 600;
   line-height: 1;
-  position: relative;
-  top: 3px;
 }
 
 .versionBadgeClickable {
   cursor: pointer;
 }
 
-.versionBadgeDefault {
-  cursor: default;
-}
-
-.collapseBtn {
-  margin: auto;
-  color: var(--app-accent);
-}
-
-// ─── Auth actions (account + logout) ──────────────────────────────────────────
+// ─── Hub administration ───────────────────────────────────────────────────────
 .authActions {
   flex-shrink: 0;
   padding: 12px 16px;
-  border-top: 1px solid var(--app-border-subtle);
+  border-top: 1px solid #f0f0f0;
 }
 
 .authBtn {
@@ -383,16 +447,12 @@
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
-  color: var(--app-text-secondary);
+  color: rgba(0, 0, 0, 0.65);
 
   &:hover {
-    color: var(--app-text) !important;
-    background: var(--app-fill-subtle) !important;
+    color: rgba(0, 0, 0, 0.88) !important;
+    background: rgba(0, 0, 0, 0.04) !important;
   }
-}
-
-.authBtnCollapsed {
-  justify-content: center;
 }
 
 .authBtn + .authBtn {
@@ -406,17 +466,17 @@
   gap: 16px;
   margin-bottom: 20px;
   padding: 14px 16px;
-  border: 1px solid var(--app-border-subtle);
+  border: 1px solid rgba(26, 23, 22, 0.08);
   border-radius: 10px;
-  background: var(--app-fill-faint);
+  background: rgba(26, 23, 22, 0.025);
 
   span {
-    color: var(--app-text-secondary);
+    color: rgba(26, 23, 22, 0.52);
   }
 
   strong {
     overflow: hidden;
-    color: var(--app-text);
+    color: rgba(26, 23, 22, 0.88);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -426,12 +486,12 @@
   strong {
     display: block;
     margin-bottom: 6px;
-    color: var(--app-text);
+    color: rgba(26, 23, 22, 0.88);
   }
 
   p {
     margin: 0 0 14px;
-    color: var(--app-text-secondary);
+    color: rgba(26, 23, 22, 0.52);
     font-size: 13px;
     line-height: 1.6;
   }
@@ -482,13 +542,17 @@
   transform-origin: center center;
   // Show a persistent hover-like background so the "rectangle" rotates
   // together with the content.
-  background-color: var(--app-fill) !important;
+  background-color: rgba(0, 0, 0, 0.06) !important;
 
   // Pause immediately on hover as a visual safety net (JS handler
   // will permanently remove the class on the next React render).
   &:hover {
     animation-play-state: paused;
   }
+}
+
+:global(.dark-mode) .inboxShake {
+  background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Collapse Toggle Button */
@@ -504,30 +568,181 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
-  background: var(
-    --app-shell-bg
-  ); // match sider background so scrolled content is hidden
+  background: #f9f8f4; // match sider background so scrolled content is hidden
+}
+
+.sidebarUser {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding-left: 2px;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebarUserAvatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(26, 23, 22, 0.1);
+  border-radius: 50%;
+  background: rgba(26, 23, 22, 0.045);
+  color: rgba(26, 23, 22, 0.72);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.sidebarUserText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.25;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: rgba(26, 23, 22, 0.86);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    margin-top: 2px;
+    color: rgba(26, 23, 22, 0.4);
+    font-size: 10px;
+  }
 }
 
 .collapseToggle {
-  color: var(--app-text-tertiary);
+  color: rgba(0, 0, 0, 0.45);
   border-radius: 8px;
   transition: all 0.2s;
 
   &:hover {
-    background: var(--app-fill) !important;
-    color: var(--app-accent) !important;
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: #ff7f16 !important;
   }
 }
 
-.modeToggleActive {
-  color: var(--app-accent) !important;
-  background: var(--app-accent-soft);
+.quickSettingsPopover {
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 0;
+    border-radius: 13px;
+    background: transparent !important;
+    box-shadow: none;
+  }
+
+  :global(.ant-popover-inner-content),
+  :global(.qwenpaw-popover-inner-content) {
+    overflow: hidden;
+    border-radius: inherit;
+  }
+
+  :global(.ant-popover-arrow),
+  :global(.qwenpaw-popover-arrow) {
+    display: none;
+  }
 }
 
-// ─── Simple mode: flat nav + session list ─────────────────────────────────────
+.collapsedHistoryPopover,
+.collapsedAgentPopover {
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner) {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid rgba(26, 23, 22, 0.08);
+    border-radius: 12px;
+    background: #f9f8f4 !important;
+    box-shadow: 0 12px 32px rgba(26, 23, 22, 0.14);
+  }
 
-.simpleAgentPanel {
+  :global(.ant-popover-inner-content),
+  :global(.qwenpaw-popover-inner-content) {
+    height: 100%;
+  }
+}
+
+.collapsedHistoryPanel {
+  display: flex;
+  width: 320px;
+  height: min(680px, calc(100vh - 32px));
+  min-height: 320px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.collapsedAgentPanel {
+  width: 268px;
+  padding: 8px;
+}
+
+.collapsedPanelTitle {
+  padding: 6px 10px 8px;
+  color: rgba(26, 23, 22, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.collapsedAgentList {
+  display: flex;
+  max-height: min(480px, calc(100vh - 80px));
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.collapsedAgentOption {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: rgba(26, 23, 22, 0.75);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: rgba(26, 23, 22, 0.92);
+    background: rgba(26, 23, 22, 0.06);
+  }
+}
+
+.collapsedAgentName {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsedAgentOptionActive {
+  color: #ff7f16;
+  background: rgba(255, 127, 22, 0.1);
+}
+
+// ─── Expanded sidebar: flat nav + session list ────────────────────────────────
+
+.expandedAgentPanel {
   flex-shrink: 0;
 
   .agentSelectorContainer {
@@ -538,104 +753,73 @@
   > .agentSelectorContainer > :first-child {
     margin-bottom: 4px;
   }
+}
 
-  .simpleNavItems {
-    max-height: min(216px, 34vh);
-    overflow-y: auto;
-    padding: 2px 0 4px;
-    scrollbar-width: none;
+.navigationScroll {
+  max-height: min(198px, 30vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px 0;
+  scrollbar-color: rgba(43, 18, 0, 0.18) transparent;
+  scrollbar-width: thin;
 
-    &::-webkit-scrollbar {
-      display: none;
-    }
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(43, 18, 0, 0.18);
+  }
+
+  > .navigationItem {
+    flex: 0 0 36px;
   }
 }
 
-.simpleAgentDisclosure {
-  display: grid;
-  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
-  width: 100%;
-  height: 30px;
+.moreSettings {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  margin-top: 4px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-top: 1px solid rgba(26, 23, 22, 0.07);
+  border-radius: 0 0 8px 8px;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
   background: transparent;
-  color: var(--app-text-tertiary);
   cursor: pointer;
 
-  &:hover,
-  &:focus-visible,
-  &[aria-expanded="true"] {
-    color: var(--app-accent);
-
-    .simpleAgentDisclosureLine {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in srgb, var(--app-accent) 44%, transparent)
-      );
-    }
-
-    .simpleAgentDisclosureHandle {
-      border-color: color-mix(in srgb, var(--app-accent) 34%, transparent);
-      background: color-mix(in srgb, var(--app-accent) 9%, transparent);
-      box-shadow: 0 3px 10px rgba(255, 127, 22, 0.12);
-    }
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--app-accent) 30%, transparent);
-    outline-offset: 1px;
+  &:hover {
+    color: rgba(0, 0, 0, 0.82);
+    background: rgba(0, 0, 0, 0.045);
   }
 }
 
-.simpleAgentDisclosureLine {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--app-border));
-  transition: background 0.16s ease;
-
-  &:last-child {
-    transform: scaleX(-1);
-  }
+.sessionArea {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
 }
 
-.simpleAgentDisclosureHandle {
-  display: inline-flex;
-  width: 30px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, white 48%, transparent);
-  box-shadow: 0 2px 8px rgba(43, 18, 0, 0.055);
-  transition:
-    border-color 0.16s ease,
-    background 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.simpleAgentFunctionsMotion {
-  overflow: hidden;
-}
-
-.simpleInboxItem {
+.inboxItem {
   margin-bottom: 1px;
 }
 
-.simpleChatItem {
-  margin-top: 1px;
-}
-
-.simpleInboxIcon {
+.inboxIcon {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
 }
 
-.simpleInboxUnreadDot {
+.inboxUnreadDot {
   position: absolute;
   top: -1px;
   right: -3px;
@@ -644,36 +828,36 @@
   border-radius: 50%;
 }
 
-.simpleNewChat {
+.newTask {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 38px;
+  height: 36px;
   padding: 0 12px;
-  margin: 4px 0;
+  margin: 4px 0 2px;
   border: none;
   border-radius: 8px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent);
+  background: rgba(255, 127, 22, 0.08);
+  color: #ff7f16;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
 
   &:hover {
-    background: var(--app-accent-soft-hover);
+    background: rgba(255, 127, 22, 0.14);
   }
 }
 
-.simpleNavItems {
+.navigationItems {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding-top: 4px;
 }
 
-.simpleNavItem {
+.navigationItem {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -683,7 +867,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--app-text-secondary);
+  color: rgba(0, 0, 0, 0.75);
   font-size: 14px;
   cursor: pointer;
   transition:
@@ -692,132 +876,14 @@
   text-align: left;
 
   &:hover {
-    background: var(--app-fill);
-    color: var(--app-text);
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
   }
 }
 
-.simpleNavItemActive {
-  background: var(--app-nav-selected-bg);
-  color: var(--app-nav-selected-text);
-
-  &:hover {
-    background: var(--app-nav-selected-bg-hover);
-    color: var(--app-nav-selected-text);
-  }
-}
-
-// Session list container
-.simpleSessionList {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin-top: 8px;
-}
-
-.simpleSessionHeader {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text-quaternary);
-  padding: 4px 12px 6px;
-  flex-shrink: 0;
-}
-
-.simpleSessionScroll {
-  flex: 1;
-  overflow-y: auto;
-  scrollbar-width: thin;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
-}
-
-.simpleSessionItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  position: relative;
-
-  &:hover {
-    background: var(--app-fill);
-
-    .simpleSessionActions {
-      opacity: 1;
-      pointer-events: auto;
-    }
-  }
-}
-
-.simpleSessionItemActive {
-  background: var(--app-fill);
-}
-
-.simpleSessionItemDisabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.simpleSessionName {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--app-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.simpleSessionTime {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--app-text-quaternary);
-}
-
-.simpleSessionActions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-
-.simpleSessionActionBtn {
-  width: 22px !important;
-  height: 22px !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-tertiary);
-
-  &:hover {
-    color: var(--app-text);
-    background: var(--app-fill);
-  }
-}
-
-.simpleSessionActionBtnActive {
-  color: #ff7f16 !important;
-}
-
-.simpleSessionLoading {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 24px 0;
+.navigationItemActive {
+  background: rgba(43, 18, 0, 0.08);
+  color: rgba(0, 0, 0, 0.88);
 }
 
 /* Collapsed nav (icon-only group list) */
@@ -836,6 +902,9 @@
   width: 100%;
   display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   justify-content: center;
 }
 
@@ -866,12 +935,12 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--app-text-secondary);
+  color: rgba(0, 0, 0, 0.55);
   transition: all 0.15s;
 
   &:hover {
-    background: var(--app-fill);
-    color: var(--app-text);
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
   }
 
   &.inboxShake {
@@ -880,18 +949,13 @@
 }
 
 .collapsedNavItemActive {
-  background: var(--app-nav-selected-bg) !important;
-  color: var(--app-nav-selected-text) !important;
-
-  &:hover {
-    background: var(--app-nav-selected-bg-hover) !important;
-    color: var(--app-nav-selected-text) !important;
-  }
+  background: rgba(43, 18, 0, 0.08) !important;
+  color: rgba(0, 0, 0, 0.88) !important;
 }
 
 @media (max-width: 768px) {
   .sider {
-    height: calc(100vh - 56px) !important;
+    height: 100vh !important;
     padding: 0 8px;
     flex: 0 0 auto !important;
     max-width: 240px !important;
@@ -932,7 +996,7 @@
 @supports (height: 100dvh) {
   @media (max-width: 768px) {
     .sider {
-      height: calc(100dvh - 56px) !important;
+      height: 100dvh !important;
     }
   }
 }
@@ -1005,10 +1069,6 @@
   color: #ff7f16;
 }
 
-.updateModalTitle {
-  color: #ff7f16;
-}
-
 .updateModalBody {
   max-height: 400px;
   overflow-y: auto;
@@ -1035,16 +1095,11 @@
   }
 }
 
-.updateModalPrimaryBtn {
-  background: #ff7f16;
-  border-color: #ff7f16;
-}
-
 // ─── Code block inside update modal ──────────────────────────────────────────
 .codeBlock {
   position: relative;
-  background: var(--app-fill-subtle);
-  border: 1px solid var(--app-border);
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
   border-radius: 6px;
   padding: 12px 40px 12px 16px;
   overflow-x: auto;
@@ -1057,8 +1112,7 @@
 }
 
 .codeInline {
-  background: var(--app-fill-subtle);
-  color: var(--app-text);
+  background: #f5f5f5;
   border-radius: 3px;
   padding: 1px 5px;
   font-family: monospace;
@@ -1079,7 +1133,7 @@
   border-radius: 4px;
 
   &:hover {
-    background: var(--app-fill);
+    background: rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -1088,22 +1142,24 @@
 }
 
 .copyBtnDefault {
-  color: var(--app-text-tertiary);
+  color: #999;
 }
 
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
-/* Dark-only exceptions. Everything else now comes from the base rules via
- * tokens; these four differ from the light design on purpose. */
 :global(.dark-mode) {
   .header {
-    /* antd paints its own text-button colours, which do not follow our tokens. */
+    background: #1a1a1a !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    color: rgba(255, 255, 255, 0.85);
+
+    /* Text buttons (Docs / FAQ / GitHub / Changelog) */
     :global(.qwenpaw-btn-text),
     :global(.ant-btn-text) {
-      color: var(--app-text-secondary) !important;
+      color: rgba(255, 255, 255, 0.75) !important;
 
       &:hover {
-        color: var(--app-text) !important;
-        background: var(--app-fill-subtle) !important;
+        color: #fff !important;
+        background: rgba(255, 255, 255, 0.08) !important;
       }
 
       .anticon,
@@ -1112,213 +1168,191 @@
       }
     }
 
+    /* Fallback: any icon or text directly inside header */
     :global(.anticon) {
-      color: var(--app-text-secondary);
+      color: rgba(255, 255, 255, 0.75);
     }
   }
 
-  /* The light sider has no divider under its top block. */
-  .siderTop {
-    border-bottom: 1px solid var(--app-border-subtle);
+  .sider {
+    background: #1a1a1a !important;
+    border-right-color: rgba(255, 255, 255, 0.08) !important;
   }
 
-  /* Muted grey in light, brand orange here. */
+  .collapsedHistoryPopover,
+  .collapsedAgentPopover {
+    :global(.ant-popover-inner),
+    :global(.qwenpaw-popover-inner) {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: #1a1a1a !important;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+    }
+  }
+
+  .collapsedPanelTitle {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .collapsedAgentOption {
+    color: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.95);
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .collapsedAgentOptionActive {
+    color: #ff7f16;
+    background: rgba(255, 127, 22, 0.14);
+  }
+
   .versionBadge {
-    color: var(--app-accent);
-  }
-}
-
-// ─── Simple mode: flat nav + session list ─────────────────────────────────────
-
-.simpleNewChat {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 38px;
-  padding: 0 12px;
-  margin: 4px 0;
-  border: none;
-  border-radius: 8px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-
-  &:hover {
-    background: var(--app-accent-soft-hover);
-  }
-}
-
-.simpleNavItems {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: 4px;
-}
-
-.simpleNavItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 36px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    color 0.15s;
-  text-align: left;
-
-  &:hover {
-    background: var(--app-fill);
-    color: var(--app-text);
-  }
-}
-
-.simpleNavItemActive {
-  background: var(--app-nav-selected-bg);
-  color: var(--app-nav-selected-text);
-
-  &:hover {
-    background: var(--app-nav-selected-bg-hover);
-    color: var(--app-nav-selected-text);
-  }
-}
-
-// Session list container
-.simpleSessionList {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin-top: 8px;
-}
-
-.simpleSessionHeader {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text-quaternary);
-  padding: 4px 12px 6px;
-  flex-shrink: 0;
-}
-
-.simpleSessionScroll {
-  flex: 1;
-  overflow-y: auto;
-  scrollbar-width: thin;
-
-  &::-webkit-scrollbar {
-    width: 4px;
+    color: #ff7f16;
   }
 
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
-}
+  .brandCollapseToggle {
+    color: rgba(255, 255, 255, 0.58) !important;
 
-.simpleSessionItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-  position: relative;
-
-  &:hover {
-    background: var(--app-fill);
-
-    .simpleSessionActions {
-      opacity: 1;
-      pointer-events: auto;
+    &:hover {
+      color: #ff9d4d !important;
+      background: rgba(255, 127, 22, 0.12) !important;
     }
   }
-}
 
-.simpleSessionItemActive {
-  background: var(--app-fill);
-}
+  .authActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
 
-.simpleSessionItemDisabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
+  .authBtn {
+    color: rgba(255, 255, 255, 0.75);
 
-.simpleSessionName {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--app-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-}
+    &:hover {
+      color: rgba(255, 255, 255, 0.9) !important;
+      background: rgba(255, 255, 255, 0.06) !important;
+    }
+  }
 
-.simpleSessionTime {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--app-text-quaternary);
-}
+  .accountIdentity {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
 
-.simpleSessionActions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
+    span {
+      color: rgba(255, 255, 255, 0.5);
+    }
 
-.simpleSessionActionBtn {
-  width: 22px !important;
-  height: 22px !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-tertiary);
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+  }
 
-  &:hover {
-    color: var(--app-text);
-    background: var(--app-fill);
+  .runtimeRecovery {
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    p {
+      color: rgba(255, 255, 255, 0.5);
+    }
+  }
+
+  .collapseToggle {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ff7f16;
+    }
+  }
+
+  .sidebarUserAvatar {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .sidebarUserText {
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    span {
+      color: rgba(255, 255, 255, 0.42);
+    }
+  }
+
+  .collapsedNavItem {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .collapsedNavItemActive {
+    background: rgba(255, 127, 22, 0.5) !important;
+    color: rgba(255, 255, 255, 0.88) !important;
+  }
+
+  .codeBlock {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .codeInline {
+    background: #2a2a2a;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .copyBtnDefault {
+    color: rgba(255, 255, 255, 0.3);
   }
 }
 
-.simpleSessionActionBtnActive {
-  color: #ff7f16 !important;
-}
+// ─── Expanded sidebar dark overrides ──────────────────────────────────────────
 
-.simpleSessionLoading {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 24px 0;
-}
-
-// ─── Simple mode dark overrides ───────────────────────────────────────────────
-
-.siderSimple {
-  /* Dark-only exceptions: the accent-tinted divider reads as neutral here, the
-   * glass handle has no light-glass equivalent. */
+.siderExpanded {
   :global(.dark-mode) & {
-    .simpleAgentDisclosureLine {
-      background: linear-gradient(90deg, transparent, var(--app-fill));
+    .navigationScroll {
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+
+      &::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+      }
     }
 
-    .simpleAgentDisclosureHandle {
-      background: var(--app-fill-faint);
-      box-shadow: none;
+    .newTask {
+      background: rgba(255, 127, 22, 0.12);
+      color: #ff7f16;
+
+      &:hover {
+        background: rgba(255, 127, 22, 0.2);
+      }
+    }
+
+    .moreSettings {
+      border-top-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.52);
+
+      &:hover {
+        color: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
+
+    .navigationItem {
+      color: rgba(255, 255, 255, 0.75);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.95);
+      }
+    }
+
+    .navigationItemActive {
+      background: rgba(255, 127, 22, 0.5);
+      color: #ff7f16;
     }
   }
 }

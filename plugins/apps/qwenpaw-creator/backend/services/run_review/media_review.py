@@ -107,6 +107,7 @@ REVIEWED_COMMANDS: dict[str, str] = {
     "GENERATE_ASSET": "image",
     "GENERATE_STORYBOARD_IMAGE": "image",
     "GENERATE_R2V_VIDEO": "element_video",
+    "GENERATE_S2V_VIDEO": "element_video",
 }
 
 
@@ -210,7 +211,6 @@ def _derive_plan_context(
             # Declared frame shape feeds the machine-parameter check.
             context["aspect_ratio"] = aspect_ratio
         target_ref = context["target_ref"]
-        shots: list[dict[str, Any]] = []
         planned_texts: list[str] = []
         for timeline in project.timelines.items.values():
             for element in timeline.elements_by_id.values():
@@ -221,22 +221,17 @@ def _derive_plan_context(
                         # Overlay strings are burned into the frame, so
                         # they are what the OCR check compares against.
                         planned_texts.append(text)
-                if element.element_id not in target_ref:
+                if target_ref != f"element:{element.element_id}":
                     continue
-                items = getattr(creation, "shots", None)
-                if items is None:
-                    continue
-                for shot in items.items.values():
-                    shots.append(
-                        {
-                            "shot_id": shot.shot_id,
-                            "description": shot.description,
-                            "dialogue": shot.dialogue,
-                            "duration_seconds": shot.duration_seconds,
-                        },
-                    )
-        if shots:
-            context["planned_shots"] = shots[:12]
+                context["narrative"] = str(
+                    getattr(creation, "narrative", "") or "",
+                )
+                context["generation_prompt"] = str(
+                    getattr(creation, "video_prompt", "") or "",
+                )
+                context["expected_duration_seconds"] = (
+                    element.span.duration_tick / timeline.ticks_per_second
+                )
         if planned_texts:
             context["planned_texts"] = planned_texts[:12]
     except Exception:
@@ -456,24 +451,17 @@ async def _video_objective_facts(
 ) -> dict[str, Any] | None:
     """Tier-0 objective facts for one element video (fail-open)."""
     try:
-        shots = plan_context.get("planned_shots") or []
-        planned_duration = sum(
-            float(shot.get("duration_seconds") or 0.0)
-            for shot in shots
-            if isinstance(shot, Mapping)
-        )
+        planned_duration = plan_context.get("expected_duration_seconds")
         # The transcript only feeds ASR-backed facts, which need at least
         # one cut to measure against; a single-shot element (the common
         # case) would burn the ASR call for a "nothing to compare" note.
         transcript = None
         predecoded_gray_samples = None
         if is_operator_enabled("av_sync"):
-            multi_shot = len(shots) >= 2
-            if not multi_shot:
-                predecoded_gray_samples, multi_shot = await _to_thread_or_join(
-                    _gray_samples_and_has_cuts,
-                    media_path,
-                )
+            predecoded_gray_samples, multi_shot = await _to_thread_or_join(
+                _gray_samples_and_has_cuts,
+                media_path,
+            )
             if multi_shot:
                 transcript = await transcript_sentences(media_path)
         return await _to_thread_or_join(
@@ -482,7 +470,6 @@ async def _video_objective_facts(
             expected_duration_seconds=planned_duration or None,
             expected_aspect=plan_context.get("aspect_ratio"),
             expected_texts=plan_context.get("planned_texts"),
-            planned_shot_count=len(shots) or None,
             transcript_sentences=transcript,
             predecoded_gray_samples=predecoded_gray_samples,
         )
@@ -709,9 +696,8 @@ async def review_media_artifact(
             if is_operator_enabled("focused_frames")
             else []
         )
-        planned_shots = plan_context.get("planned_shots") or []
         index_facts = (objective_facts or {}).get("video_index") or {}
-        multi_shot = len(planned_shots) >= 2 or bool(
+        multi_shot = bool(
             isinstance(index_facts, Mapping)
             and int(index_facts.get("cut_count") or 0) >= 1,
         )
@@ -940,12 +926,25 @@ async def run_media_review_loop(
             owner=owner,
         )
         if admitted is None:
+            reason = await asyncio.to_thread(
+                admission.media_skip_reason,
+                reports_root,
+                slot_id=slot_id,
+                version_id=version_id,
+            )
+            if reason == "budget_spent":
+                logger.warning(
+                    "media review budget exhausted for slot %s: new "
+                    "versions of this artifact will no longer be "
+                    "auto-reviewed",
+                    slot_id,
+                )
             trace_event(
                 "run_review.media_skipped",
                 component=_TRACE_COMPONENT,
                 attributes={
                     "artifactRef": f"artifact-version:{version_id}",
-                    "reason": "already_reviewed_or_budget_spent",
+                    "reason": reason,
                 },
                 projectId=project_id,
             )

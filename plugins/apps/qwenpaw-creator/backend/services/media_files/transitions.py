@@ -27,6 +27,13 @@ from dataclasses import dataclass
 
 
 DEFAULT_TRANSITION_DURATION_SECONDS = 0.4
+# Adjacent generated clips carry unrelated native ambiences; a hard-cut
+# join steps between them instantly. The plain-concat path softens every
+# joint with a short per-edge afade — keep the exact same convention on
+# cut joins inside the transition chain (xfade joins already blend via
+# acrossfade). Micro-clips skip the fade so the ramps don't eat the audio.
+HARD_CUT_AUDIO_EDGE_FADE_SECONDS = 0.04
+MIN_EDGE_FADE_CLIP_SECONDS = 0.3
 # Whitelist of official xfade filter names; crossfade is a common
 # model-side alias and is normalised to fade.
 SUPPORTED_XFADE_KINDS = {
@@ -175,11 +182,30 @@ def build_transition_filter_chain(
             f"fps={fps:g},settb=AVTB,format=yuv420p,setpts=PTS-STARTPTS[v{i}]",
         )
         if clip.has_audio:
+            # Soften hard-cut joins only: the leading edge fades in when the
+            # previous join is a cut, the trailing edge fades out when the
+            # next join is a cut. xfade sides stay untouched — acrossfade
+            # already ramps both neighbours across the blend window.
+            edge_fades = ""
+            if clip.duration_seconds >= MIN_EDGE_FADE_CLIP_SECONDS:
+                fade = min(
+                    HARD_CUT_AUDIO_EDGE_FADE_SECONDS,
+                    clip.duration_seconds / 4,
+                )
+                # pylint: disable-next=chained-comparison
+                if i > 0 and joins[i - 1].effective_blend() <= 0:
+                    edge_fades += f",afade=t=in:d={fade:.3f}"
+                if i < n - 1 and joins[i].effective_blend() <= 0:
+                    edge_fades += (
+                        f",afade=t=out:"
+                        f"st={max(0.0, clip.duration_seconds - fade):.3f}"
+                        f":d={fade:.3f}"
+                    )
             filters.append(
                 f"[{i}:a]aresample=44100,"
                 "aformat=sample_fmts=fltp:channel_layouts=stereo,"
                 f"apad=whole_dur={clip.duration_seconds:.6f},"
-                f"asetpts=PTS-STARTPTS[ai{i}]",
+                f"asetpts=PTS-STARTPTS{edge_fades}[ai{i}]",
             )
         else:
             filters.append(
@@ -231,6 +257,8 @@ def build_transition_filter_chain(
 
 __all__ = [
     "DEFAULT_TRANSITION_DURATION_SECONDS",
+    "HARD_CUT_AUDIO_EDGE_FADE_SECONDS",
+    "MIN_EDGE_FADE_CLIP_SECONDS",
     "SUPPORTED_XFADE_KINDS",
     "TransitionClip",
     "TransitionJoin",

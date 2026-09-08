@@ -703,6 +703,7 @@ async def test_execute_posix_host_captures_regular_file_output(tmp_path):
     proc.wait.assert_awaited_once()
     assert create_process.call_args.args == ("/bin/sh", "-c", "echo hello")
     kwargs = create_process.call_args.kwargs
+    assert kwargs["stdin"] is asyncio.subprocess.DEVNULL
     assert kwargs["stdout"] != asyncio.subprocess.PIPE
     assert kwargs["stderr"] != asyncio.subprocess.PIPE
     assert kwargs["cwd"] == str(tmp_path)
@@ -2097,7 +2098,7 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
         patch(
             "qwenpaw.agents.tools.shell.subprocess.Popen",
             return_value=proc,
-        ),
+        ) as popen_mock,
         patch(
             "qwenpaw.agents.tools.shell._create_job_object_win32",
             return_value=None,
@@ -2118,6 +2119,7 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
         )
 
     assert code == -1
+    assert popen_mock.call_args.kwargs["stdin"] is subprocess.DEVNULL
     kill_tree.assert_called_once_with(4321)
     proc.kill.assert_called_once_with()
     # The final reap is bounded so a child stuck in kernel I/O costs a

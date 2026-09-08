@@ -4,11 +4,7 @@
  * session lists, so they can scroll it into view after remount.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import {
-  findSessionRowIndex,
-  getDateGroup,
-  groupSessions,
-} from "./sessionGrouping";
+import { findSessionRowIndex, getDateGroup } from "./sessionGrouping";
 
 const rows = [
   { kind: "groupHeader" as const },
@@ -85,67 +81,5 @@ describe("getDateGroup", () => {
     expect(getDateGroup(undefined)).toBe("older");
     expect(getDateGroup("")).toBe("older");
     expect(getDateGroup("not-a-date")).toBe("older");
-  });
-});
-
-/**
- * groupSessions: pinned sessions always lead, remaining sessions fall
- * into date buckets, and empty buckets are omitted from the output.
- */
-describe("groupSessions", () => {
-  beforeEach(() => {
-    vi.setSystemTime(new Date(2026, 0, 15, 10, 0, 0));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  const t = (_key: string, fallback: string) => fallback;
-
-  it("pins pinned sessions into the pinned group first", () => {
-    const groups = groupSessions(
-      [
-        { id: "old-pinned", pinned: true, updatedAt: "2020-01-01T00:00:00" },
-        { id: "fresh", updatedAt: "2026-01-15T09:00:00" },
-      ],
-      t,
-    );
-    expect(groups[0].key).toBe("pinned");
-    expect(groups[0].sessions.map((s) => s.id)).toEqual(["old-pinned"]);
-    expect(groups[1].key).toBe("today");
-  });
-
-  it("groups by date and drops empty buckets", () => {
-    const groups = groupSessions(
-      [
-        { id: "today", updatedAt: "2026-01-15T09:00:00" },
-        { id: "older", updatedAt: "2025-06-01T09:00:00" },
-      ],
-      t,
-    );
-    expect(groups.map((g) => g.key)).toEqual(["today", "older"]);
-  });
-
-  it("falls back to createdAt when updatedAt is missing", () => {
-    const groups = groupSessions(
-      [{ id: "a", updatedAt: null, createdAt: "2026-01-14T09:00:00" }],
-      t,
-    );
-    expect(groups[0].key).toBe("week");
-  });
-
-  it("returns an empty list for no sessions", () => {
-    expect(groupSessions([], t)).toEqual([]);
-  });
-
-  it("labels groups via the translation function", () => {
-    const seen: string[] = [];
-    const trackingT = (key: string, fallback: string) => {
-      seen.push(key);
-      return fallback;
-    };
-    groupSessions([{ id: "a", updatedAt: "2026-01-15T09:00:00" }], trackingT);
-    expect(seen).toContain("chat.group.today");
   });
 });

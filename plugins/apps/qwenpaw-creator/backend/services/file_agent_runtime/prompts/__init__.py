@@ -39,7 +39,9 @@ FILE_AGENT_PROMPT_SPECS = {
             "project_id",
             "workspace_schema",
             "tts_guidance",
+            "video_duration_guidance",
             "video_model_guidance",
+            "image_model_guidance",
             "external_skills",
             "live_operation_guidance",
         ),
@@ -49,22 +51,6 @@ FILE_AGENT_PROMPT_SPECS = {
             "project_id",
             "workspace_schema",
             "memory_guidance",
-        ),
-        _spec(
-            "visual_development_agent.system",
-            "visual_development_agent.system.txt",
-            "project_id",
-            "workspace_schema",
-            "tts_guidance",
-            "image_model_guidance",
-        ),
-        _spec(
-            "r2v_generation_director.system",
-            "r2v_generation_director.system.txt",
-            "project_id",
-            "workspace_schema",
-            "video_model_guidance",
-            "image_model_guidance",
         ),
         _spec(
             "ai_editing_director.system",
@@ -133,7 +119,12 @@ def render_creator_system_prompt(
         delegator_guidance,
     )
     from models import config as model_config
-    from models.video_capabilities import video_model_delegator_guidance
+    from models.image.base import image_model_prompt_guidance
+    from models.video_capabilities import (
+        video_model_delegator_guidance,
+        video_model_duration_guidance,
+        video_model_prompt_guidance,
+    )
 
     if external_skills is None:
         # Isolated by design: the loader never raises, a broken skill only
@@ -149,18 +140,52 @@ def render_creator_system_prompt(
         )
 
         live_operation = _live_operation_module.live_operation_guidance()
-    return render_file_agent_prompt(
+    if (
+        model_config.get_execution_authorization_mode()
+        == model_config.EXECUTION_AUTHORIZATION_ALLOW_ALL
+    ):
+        execution_guidance = (
+            "当前允许自动制作。已提交的媒体目标在输入、审阅和依赖满足后开始执行；"
+            "已有运行中的任务时，等待结果通知，不重复请求相同制作。"
+            "写入项目或通过审阅不证明任务已经开始；只依据真实任务和产物报告进展。"
+        )
+    else:
+        execution_guidance = (
+            "当前媒体生成需要逐项授权。"
+            "用户要求制作时，必须调用 request_workgraph_execution 提出真实请求；"
+            "每项批准后才执行。若调用因现有审阅而返回阻塞，该请求已结束、未排队，"
+            "审阅通过后须重新请求，不能声称会自动续跑。"
+            "全部片段就绪后，用该工具的 compose 阶段提交本地成片合成；"
+            "合成复用已有片段，不新增付费生成授权。"
+        )
+    rendered = render_file_agent_prompt(
         "creator_agent.system",
         project_id=project_id,
         workspace_schema=workspace_schema,
         tts_guidance=delegator_guidance(),
-        video_model_guidance=video_model_delegator_guidance(
+        video_duration_guidance=video_model_duration_guidance(
             model_config.get_video_model_name(),
             model_config.get_video_backend(),
+        ),
+        video_model_guidance="\n\n".join(
+            (
+                video_model_delegator_guidance(
+                    model_config.get_video_model_name(),
+                    model_config.get_video_backend(),
+                ),
+                video_model_prompt_guidance(
+                    model_config.get_video_model_name(),
+                    model_config.get_video_backend(),
+                ),
+            ),
+        ),
+        image_model_guidance=image_model_prompt_guidance(
+            model_config.get_image_model_name(),
         ),
         external_skills=external_skills,
         live_operation_guidance=live_operation,
     )
+    return rendered + "\n\n# 当前制作执行方式\n\n" + execution_guidance
 
 
 __all__ = [

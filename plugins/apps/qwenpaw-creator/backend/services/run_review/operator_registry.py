@@ -51,7 +51,7 @@ REVIEW_OPERATORS: tuple[ReviewOperator, ...] = (
         degrades_without_dependency=True,
     ),
     ReviewOperator("ocr_text", 0, dependency="ocr"),
-    # Tier 1 — script-to-shots reasoning check.
+    # Tier 1 — script-to-generation-content reasoning check.
     ReviewOperator("script_check", 1),
     # Tier 2 — media review probe surfaces.
     ReviewOperator("defect_bank", 2),

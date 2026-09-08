@@ -58,7 +58,7 @@
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -460,14 +460,14 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 
 查看和管理对话历史的命令。
 
-| 命令                | 返回内容                 |
-| ------------------- | ------------------------ |
-| `/history`          | 📋 消息列表 + Token 统计 |
-| `/message`          | 📄 指定消息详情          |
-| `/compact_str`      | 📝 压缩摘要内容          |
-| `/summarize_status` | 📊 摘要任务状态          |
-| `/dump_history`     | 📁 历史导出文件路径      |
-| `/load_history`     | ✅ 历史加载结果          |
+| 命令                  | 返回内容                 |
+| --------------------- | ------------------------ |
+| `/history`            | 📋 消息列表 + Token 统计 |
+| `/message`            | 📄 指定消息详情          |
+| `/compact_str`        | 📝 压缩摘要内容          |
+| `/auto_memory_status` | 📊 自动记忆任务状态      |
+| `/dump_history`       | 📁 历史导出文件路径      |
+| `/load_history`       | ✅ 历史加载结果          |
 
 ---
 
@@ -583,30 +583,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - 查看摘要任务状态
+### /auto_memory_status - 查看自动记忆任务状态
 
-显示所有后台摘要任务的运行状态，包括任务 ID、开始时间和执行结果。
+显示所有后台自动记忆任务的运行状态，包括任务 ID、开始时间和执行结果。
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **返回示例：**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: 用户请求帮助构建用户认证系统...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动摘要任务，可通过此命令查看其执行情况。
+> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动自动记忆任务，可通过此命令查看其执行情况。
 
 ---
 

@@ -3,7 +3,6 @@ import type { CreatorEvent, CreatorMessage } from "@/contracts/creator";
 import {
   actionAwareConversationContent,
   actionEnvelopeFromStreamText,
-  conversationContent,
   creatorActionEnvelope,
   deduplicateReviewFeedbackMessages,
   isReviewFeedbackMessage,
@@ -138,21 +137,6 @@ describe("Creator conversation presentation", () => {
     ).toBe(true);
   });
 
-  it.each([
-    "[RUNTIME_EVENT: CREATOR_WAITING]\n\nCreator 已显式等待异步 Run",
-    '我会等待当前任务完成。\n[RUNTIME_ACTION_RESULT]\n\n{"ok":true}',
-    "我会先处理可恢复问题。\n[RUNTIME_ACTION_BLOCKED]\n\ninternal",
-    "USER_HARD_STOP",
-    "正在重新确认已有任务。\n这里连续出现了 `[CREATOR_OUTPUT_REJECTED]`，说明内部协议被拒绝。",
-  ])("keeps every in-flight assistant stream byte unchanged: %s", (body) => {
-    const message = creatorMessage({
-      role: "assistant",
-      source: "creator_agent_stream",
-      content: text(body),
-    });
-    expect(conversationContent(message)).toEqual(message.content);
-  });
-
   it("recognizes a tool action before its SSE JSON is complete and moves syntax into the action card", () => {
     const message = creatorMessage({
       role: "assistant",
@@ -225,6 +209,7 @@ describe("Creator conversation presentation", () => {
         anchorMessageId: "assistant-1",
         order: 2,
         status: "succeeded",
+        executing: false,
         tool: "read_project_file",
         arguments: { path: "plan.json" },
         result: { head: "h2", ok: true },

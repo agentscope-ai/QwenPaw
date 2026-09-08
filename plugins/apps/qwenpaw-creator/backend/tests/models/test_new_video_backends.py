@@ -19,6 +19,7 @@ from models import config as model_config
 from models import video_model
 from models.video_backends import kling as kling_backend
 from models.video_backends import minimax as minimax_backend
+from models.video_backends import minimax_sglang as minimax_sglang_backend
 from models.video_backends import veo as veo_backend
 from models.video_backends import vidu as vidu_backend
 from models.video_capabilities import video_reference_capability
@@ -123,6 +124,10 @@ def _bind(
         ("kling-2.6", None),
         ("S2V-01", (1, 0, 1)),
         ("MiniMax-Hailuo-2.3", None),
+        ("MiniMax-H3", (9, 3, 12)),
+        ("MiniMax-H3-Max", (9, 3, 12)),
+        ("MiniMax-H3-Ref2VA", (9, 3, 12)),  # SGLang omni-reference variant
+        ("MiniMax-H3-FL2VA", None),  # SGLang keyframe variant: no references
         ("vidu/viduq3-mix_reference2video", (7, 0, 7)),
         ("vidu/viduq2-pro_reference2video", (7, 2, 7)),
         ("viduq3-mix", (7, 0, 7)),  # official channel
@@ -268,7 +273,7 @@ def _minimax_submit(**overrides):
 
 
 def test_minimax_request_shapes() -> None:
-    url, headers, body = _minimax_submit()
+    url, headers, body = _minimax_submit(ratio="16:9")
     assert url == "https://api.minimax.io/v1/video_generation"
     assert headers["Authorization"] == "Bearer mm-key"
     assert body == {
@@ -277,6 +282,7 @@ def test_minimax_request_shapes() -> None:
         "duration": 6,
         "resolution": "1080P",
     }
+    assert "ratio" not in body  # the ratio keyword is v2-only
     _, _, body = _minimax_submit(
         mode="i2v",
         media=[{"type": "first_frame", "url": _DATA_URL}],
@@ -330,6 +336,295 @@ def test_minimax_request_shapes() -> None:
 def test_minimax_constraints(overrides, match) -> None:
     with pytest.raises(ModelError, match=match):
         _minimax_submit(**overrides)
+
+
+# ── MiniMax H3 (official v2 content API) ─────────────────────────────────────
+
+
+def _h3_submit(**overrides):
+    kwargs = {
+        "prompt": "a captain watches the fleet jump",
+        "mode": "t2v",
+        "media": [],
+        "duration": 10,
+        "resolution": "768P",
+        "ratio": "16:9",
+        "model_name": "MiniMax-H3",
+        "api_key": "mm-key",
+        "base_url": "https://api.minimax.io",
+    }
+    kwargs.update(overrides)
+    return minimax_backend.build_submit_request(**kwargs)
+
+
+def test_minimax_h3_request_shapes() -> None:
+    url, headers, body = _h3_submit()
+    assert url == "https://api.minimax.io/v2/video_generation"
+    assert headers["Authorization"] == "Bearer mm-key"
+    assert body == {
+        "model": "MiniMax-H3",
+        "content": [
+            {"type": "text", "text": "a captain watches the fleet jump"},
+        ],
+        "resolution": "768P",
+        "duration": 10,
+        "ratio": "16:9",
+    }
+    # i2v: the first frame rides the content array (data URLs accepted);
+    # an empty ratio defaults to adaptive outside t2v.
+    _, _, body = _h3_submit(
+        mode="i2v",
+        media=[{"type": "first_frame", "url": _DATA_URL}],
+        ratio="",
+        duration=8,
+    )
+    assert body["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": _DATA_URL},
+        "role": "first_frame",
+    }
+    assert body["ratio"] == "adaptive"
+    # r2v: every reference kind keeps its role; 2K is a valid cloud tier;
+    # "auto" is the legacy alias of adaptive.
+    _, _, body = _h3_submit(
+        mode="r2v",
+        resolution="2K",
+        ratio="auto",
+        duration=5,
+        media=[
+            {"type": "reference_image", "url": "https://c/i.png"},
+            {"type": "reference_video", "url": "https://c/v.mp4"},
+            {"type": "reference_audio", "url": "https://c/a.mp3"},
+        ],
+    )
+    assert [(p["type"], p["role"]) for p in body["content"][1:]] == [
+        ("image_url", "reference_image"),
+        ("video_url", "reference_video"),
+        ("audio_url", "reference_audio"),
+    ]
+    assert body["content"][2]["video_url"] == {"url": "https://c/v.mp4"}
+    assert (body["resolution"], body["ratio"]) == ("2K", "adaptive")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"prompt": "x" * 7001}, "7000"),
+        ({"duration": 16}, "supports"),  # H3 window is 4-15s
+        ({"model_name": "MiniMax-H3-Max", "duration": 4}, "supports"),
+        ({"resolution": "1080P"}, "resolutions"),
+        ({"ratio": "2:3"}, "ratios"),
+        ({"ratio": "adaptive"}, "adaptive"),  # t2v needs an explicit ratio
+        (
+            {
+                "mode": "r2v",
+                "duration": 5,
+                "media": (
+                    [
+                        {"type": "reference_image", "url": _DATA_URL}
+                        for _ in range(9)
+                    ]
+                    + [
+                        {"type": "reference_video", "url": "https://v/x.mp4"}
+                        for _ in range(3)
+                    ]
+                    + [{"type": "reference_audio", "url": "https://a/x.mp3"}]
+                ),
+            },
+            "12",  # the total cap also counts reference audio
+        ),
+    ],
+)
+def test_minimax_h3_constraints(overrides, match) -> None:
+    with pytest.raises(ModelError, match=match):
+        _h3_submit(**overrides)
+
+
+def test_minimax_h3_check_status(monkeypatch) -> None:
+    # v2 polling delivers the video URL inline — no file-retrieve step.
+    cases = [
+        (
+            {
+                "task": {
+                    "status": "succeeded",
+                    "content": {"url": "https://cdn.example/h3.mp4"},
+                },
+            },
+            "SUCCEEDED",
+            "https://cdn.example/h3.mp4",
+        ),
+        (
+            {
+                "task": {
+                    "status": "cancelled",
+                    "error": {"code": "1027", "message": "moderation"},
+                },
+            },
+            "FAILED",
+            None,
+        ),
+    ]
+    for payload, expected, result_url in cases:
+        captured: dict = {}
+        monkeypatch.setattr(
+            minimax_backend.httpx,
+            "AsyncClient",
+            lambda timeout, _c=captured, _p=payload: _FakeAsyncClient(_c, _p),
+        )
+        result = asyncio.run(
+            minimax_backend.check_status(
+                "task-h3",
+                api_key="mm-key",
+                base_url="https://api.minimax.io",
+                timeout=10,
+                model_name="MiniMax-H3",
+            ),
+        )
+        assert captured["url"] == (
+            "https://api.minimax.io/v2/query/video_generation/task-h3"
+        )
+        assert result["status"] == expected
+        if result_url:
+            assert result["result_url"] == result_url
+        if expected == "FAILED":
+            assert "1027" in result["error"]
+            assert "moderation" in result["error"]
+
+
+# ── MiniMax H3 self-hosted (SGLang) ──────────────────────────────────────────
+
+
+def _sglang_submit(**overrides):
+    kwargs = {
+        "prompt": "a cozy family dinner",
+        "mode": "t2v",
+        "media": [],
+        "duration": 10,
+        "resolution": "",
+        "ratio": "16:9",
+        "model_name": "MiniMax-H3-FL2VA",
+        "api_key": "",
+        "base_url": "http://localhost:30010",
+    }
+    kwargs.update(overrides)
+    return minimax_sglang_backend.build_submit_request(**kwargs)
+
+
+def test_minimax_sglang_request_shapes() -> None:
+    # t2va: keyless deployments send no Authorization header; an empty
+    # ratio pins the official t2va script value 16:9.
+    url, headers, body = _sglang_submit(ratio="")
+    assert url == "http://localhost:30010/v1/videos"
+    assert "Authorization" not in headers
+    assert body == {
+        "task": "t2va",
+        "prompt": "a cozy family dinner",
+        "conditions": [],
+        "target": {
+            "short_edge": 768,
+            "aspect_ratio": "16:9",
+            "duration_seconds": 10,
+        },
+    }
+    # fl2va: the first frame becomes a keyframe condition at frame 0;
+    # adaptive maps onto the server's "auto"; --api-key adds Bearer.
+    _, headers, body = _sglang_submit(
+        mode="i2v",
+        media=[{"type": "first_frame", "url": _DATA_URL}],
+        ratio="adaptive",
+        duration=8,
+        api_key="sk-local",
+    )
+    assert headers["Authorization"] == "Bearer sk-local"
+    assert body["task"] == "fl2va"
+    assert body["conditions"] == [
+        {
+            "type": "image",
+            "uri": _DATA_URL,
+            "role": "keyframe",
+            "frame_index": 0,
+        },
+    ]
+    assert body["target"]["aspect_ratio"] == "auto"
+    # ref2va: reference conditions keep their media kind.
+    _, _, body = _sglang_submit(
+        mode="r2v",
+        model_name="MiniMax-H3-Ref2VA",
+        base_url="http://localhost:30011",
+        duration=5,
+        media=[
+            {"type": "reference_video", "url": "https://cdn.example/v.mp4"},
+            {"type": "reference_audio", "url": "https://cdn.example/a.mp3"},
+        ],
+    )
+    assert body["task"] == "ref2va"
+    assert [(c["type"], c["role"]) for c in body["conditions"]] == [
+        ("video", "reference"),
+        ("audio", "reference"),
+    ]
+    assert body["conditions"][0]["uri"] == "https://cdn.example/v.mp4"
+    assert minimax_sglang_backend.extract_task_id({"id": "vid-1"}) == "vid-1"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        # One instance serves one checkpoint variant: the configured model
+        # name fail-closes the modes the deployed server cannot run.
+        ({"mode": "r2v"}, "不支持 mode=r2v"),
+        (
+            {"mode": "i2v", "model_name": "MiniMax-H3-Ref2VA"},
+            "不支持 mode=i2v",
+        ),
+        (
+            {"model_name": "MiniMax-H3"},
+            "VIDEO_MODEL_CAPABILITY_UNKNOWN",
+        ),
+        ({"resolution": "1080P"}, "768P"),  # self-hosted H3-Base is 768P-only
+        ({"duration": 16}, "4-15"),
+        ({"ratio": "adaptive"}, "adaptive"),  # t2v needs an explicit ratio
+    ],
+)
+def test_minimax_sglang_constraints(overrides, match) -> None:
+    with pytest.raises(ModelError, match=match):
+        _sglang_submit(**overrides)
+
+
+def test_minimax_sglang_check_status(monkeypatch) -> None:
+    cases = [
+        ({"status": "failed", "error": "oom"}, "", "FAILED"),
+        ({"status": "completed"}, "", "SUCCEEDED"),
+        ({"status": "completed"}, "sk-local", "SUCCEEDED"),
+    ]
+    for payload, api_key, expected in cases:
+        captured: dict = {}
+        monkeypatch.setattr(
+            minimax_sglang_backend.httpx,
+            "AsyncClient",
+            lambda timeout, _c=captured, _p=payload: _FakeAsyncClient(_c, _p),
+        )
+        result = asyncio.run(
+            minimax_sglang_backend.check_status(
+                "vid-1",
+                api_key=api_key,
+                base_url="http://localhost:30010",
+                timeout=10,
+                model_name="MiniMax-H3-FL2VA",
+            ),
+        )
+        assert captured["url"] == "http://localhost:30010/v1/videos/vid-1"
+        assert result["status"] == expected
+        if expected == "SUCCEEDED":
+            # The result URL is the server's own content endpoint; the
+            # bearer download marker appears only for protected deployments.
+            assert result["result_url"] == (
+                "http://localhost:30010/v1/videos/vid-1/content"
+            )
+            assert ("download_auth" in result) == bool(api_key)
+            if api_key:
+                assert result["download_auth"] == "authorization-bearer"
+        if expected == "FAILED":
+            assert "oom" in result["error"]
 
 
 # ── Kling: Bailian hosting & official channel ────────────────────────────────
@@ -579,6 +874,29 @@ def test_vidu_direct_request_shape(monkeypatch) -> None:
                 resolution="540p",
             ),
         )
+
+
+def test_viduq2_pro_rejects_zero_duration_and_normalizes_model_case() -> None:
+    common = {
+        "prompt": "A subject follows the reference.",
+        "mode": "r2v",
+        "media": [{"type": "image", "url": "https://cdn.example/ref.png"}],
+        "ratio": "16:9",
+        "resolution": "720p",
+        "generate_audio": False,
+        "model_name": "VIDUQ2-PRO",
+        "api_key": "sk-test",
+        "base_url": "https://api.vidu.com",
+    }
+    with pytest.raises(ModelError, match="between 1 and 10"):
+        vidu_backend.build_submit_request(duration=0, **common)
+
+    _url, _headers, body = vidu_backend.build_submit_request(
+        duration=1,
+        **common,
+    )
+    assert body["model"] == "viduq2-pro"
+    assert body["duration"] == 1
 
 
 def test_vidu_direct_uses_mode_specific_endpoints(monkeypatch) -> None:

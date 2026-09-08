@@ -573,8 +573,8 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
       await screen.findByText("Not a directory: /nope"),
     ).toBeInTheDocument();
     // Previously bound directories are still rendered.
-    expect(screen.getByText("/projects/alpha")).toBeInTheDocument();
-    expect(screen.getByText("/projects/beta")).toBeInTheDocument();
+    expect(screen.getByTitle("/projects/alpha")).toBeInTheDocument();
+    expect(screen.getByTitle("/projects/beta")).toBeInTheDocument();
   });
 
   it("does nothing destructive on Enter with the current primary", async () => {

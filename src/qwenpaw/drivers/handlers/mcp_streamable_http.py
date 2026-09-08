@@ -48,6 +48,7 @@ _JSONRPC_UNSUPPORTED_PROTOCOL_VERSION = -32022
 _MCP_SESSION_ID_HEADER = "mcp-session-id"
 
 _LIST_TOOLS_MAX_PAGES = 50
+_OAUTH_BODY_SNIPPET_LIMIT = 200
 _IEEE754_SAFE_INT_MIN = -(2**53 - 1)
 _IEEE754_SAFE_INT_MAX = 2**53 - 1
 
@@ -76,6 +77,14 @@ _MISSING = object()
 
 class _LegacyProtocolError(Exception):
     """Handshake-era peer; triggers AutoClient fallback."""
+
+
+class _OAuthRequiredError(RuntimeError):
+    """Peer answered HTTP 401.
+
+    Subclasses ``RuntimeError`` so callers keep their existing contract,
+    while ``_negotiate`` can reclassify the handshake probe alone.
+    """
 
 
 class _JsonRpcError(Exception):
@@ -449,6 +458,39 @@ def _discover_rpc_error(exc: _JsonRpcError) -> RuntimeError:
     )
 
 
+def _oauth_required_message(
+    *,
+    name: str,
+    method: str,
+    body: bytes,
+    www_authenticate: str | None,
+) -> str:
+    """Build a 401 message that keeps the peer's own diagnostics visible.
+
+    A 401 is not always a credential failure: gateways in front of
+    handshake-era servers may wrap "unknown method" in a Bearer challenge.
+    Echoing the body lets that case be diagnosed without a packet capture.
+    """
+    challenge = (
+        f"www-authenticate={www_authenticate}"
+        if www_authenticate
+        else "no www-authenticate header"
+    )
+    parts = [
+        f"MCP client '{name}' requires OAuth authorization: HTTP 401 "
+        f"for '{method}' ({challenge}). Authorize via the UI.",
+    ]
+    text = body.decode("utf-8", errors="replace").strip()
+    if text:
+        parts.append(f"Peer body: {text[:_OAUTH_BODY_SNIPPET_LIMIT]}")
+    parts.append(
+        "If this peer is a legacy server that does not implement MCP "
+        f"{_MODERN_PROTOCOL_VERSION}, the 401 may be its gateway reporting "
+        "an unsupported method rather than a real credential failure.",
+    )
+    return " ".join(parts)
+
+
 class _HttpClientBase:
     """Shared constructor fields for Streamable-HTTP clients."""
 
@@ -707,6 +749,15 @@ class HttpStatelessClient(_HttpClientBase):
             ):
                 raise _LegacyProtocolError(str(exc)) from exc
             raise _discover_rpc_error(exc) from exc
+        except _OAuthRequiredError as exc:
+            # A gateway may wrap "unknown method" in a Bearer challenge
+            # instead of 400/404/405, so a 401 here is not proof that
+            # credentials are missing. Let the legacy handshake arbitrate:
+            # a peer that truly requires OAuth answers 401 there too, and
+            # HttpStatefulClient surfaces the OAuth error itself.
+            raise _LegacyProtocolError(
+                f"discover probe got HTTP 401: {exc}",
+            ) from exc
         except httpx.HTTPStatusError as exc:
             # Bare 400/404/405 ⇒ one legacy fallback.
             if _is_legacy_protocol_evidence(
@@ -778,11 +829,16 @@ class HttpStatelessClient(_HttpClientBase):
             response_headers = dict(response.headers)
             raw_body = b""
             if status == 401:
-                await response.aread()
-                raise RuntimeError(
-                    f"MCP client '{self.name}' requires OAuth "
-                    "authorization (HTTP 401). Please authorize "
-                    "via the UI.",
+                raw_body = await response.aread()
+                raise _OAuthRequiredError(
+                    _oauth_required_message(
+                        name=self.name,
+                        method=method,
+                        body=raw_body,
+                        www_authenticate=response.headers.get(
+                            "www-authenticate",
+                        ),
+                    ),
                 )
             if "text/event-stream" in ctype:
                 data = await self._read_sse_rpc_response(
@@ -902,9 +958,11 @@ class HttpAutoClient(_HttpClientBase):
             follow_redirects=follow_redirects,
             **shared,
         )
+        fallback_reason = ""
         try:
             await modern.connect(timeout=timeout)
         except _LegacyProtocolError as exc:
+            fallback_reason = str(exc)
             logger.info(
                 f"MCP client '{self.name}' falling back to legacy: {exc}",
             )
@@ -928,8 +986,15 @@ class HttpAutoClient(_HttpClientBase):
         legacy = HttpStatefulClient(**shared)
         try:
             await legacy.connect(timeout=remaining)
-        except BaseException:
+        except BaseException as exc:
             await legacy.close(ignore_errors=True)
+            if fallback_reason:
+                # Keep the modern probe's verdict reachable: the legacy
+                # error alone can hide that the peer first answered 401.
+                logger.warning(
+                    f"MCP client '{self.name}' legacy fallback failed "
+                    f"({exc}); modern probe reported: {fallback_reason}",
+                )
             raise
         self._impl = legacy
         self.is_stateful = True
