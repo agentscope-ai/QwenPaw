@@ -1,3 +1,4 @@
 # TEST: Release Window Verification
 This is a test PR to verify the Release Window interception mechanism.
 Will be closed after verification.
+test commit during simulated release
