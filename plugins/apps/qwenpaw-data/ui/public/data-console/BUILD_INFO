@@ -1,0 +1,8 @@
+format_version=1
+source_project=QwenPaw-Data-Cloud
+source_commit=45cfbb4441416cdee4a6ff597264d9f1f4877218
+source_lock_sha256=cbd6da0574627e0737910e9324dd94d3b6852b8735ad1e619332bf6b2d8da3b6
+patch_sha256=e4641eac32aca20b70d75bd6eaf07531fbeca9e91112cd8a4fad9d72ed74f9ca
+bridge_sha256=b42ea89564dd03a7dc4f4b8514e1c700b5a98e8804812e01681c7992d3b355d8
+gateway_base=/api/qwenpaw-data/engine
+context_console_url=/api/frontend_plugin/qwenpaw-data/files/ui/dist/context-console/index.html#

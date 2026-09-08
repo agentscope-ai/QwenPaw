@@ -25,6 +25,11 @@ WORKING_DIR="${WORKING_DIR/#\~/$HOME}"
 
 "$SCRIPT_DIR/setup-dev.sh"
 
+python3 "$SCRIPT_DIR/verify-data-console.py" \
+  "$APP_DIR/ui/public/data-console" \
+  --canonical-bridge "$SCRIPT_DIR/data-console/paw-bridge.js" \
+  --canonical-patch "$SCRIPT_DIR/data-console/patches/console-embed.patch"
+
 echo "==> Building the QwenPaw-Data native UI"
 (cd "$APP_DIR/ui" && npm install --ignore-scripts --no-audit --no-fund && npm run build)
 
@@ -56,12 +61,11 @@ else
 fi
 
 DATA_CONSOLE_DIR="$APP_DIR/ui/dist/data-console"
-if [[ -d "$DATA_CONSOLE_DIR" ]]; then
-  cp -R "$DATA_CONSOLE_DIR" "$STAGE_DIR/ui/dist/data-console"
-else
-  echo "NOTE: embedded engine console not found; run" \
-    "scripts/sync-console-ui.sh to vendor it." >&2
+if [[ ! -f "$DATA_CONSOLE_DIR/index.html" ]]; then
+  echo "Required Data console was not built: $DATA_CONSOLE_DIR" >&2
+  exit 1
 fi
+cp -R "$DATA_CONSOLE_DIR" "$STAGE_DIR/ui/dist/data-console"
 
 # Hot-install against the configured instance. The CLI's hot-install path
 # routes via config.json's last_api (ignoring --host/--port), which can point

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><script src="./paw-bridge.js"></script><style>html,body,#root{height:100%;margin:0}</style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1677ff" />
+    <script>
+      try {
+        if (localStorage.getItem('datapaw-color-mode') === 'dark') {
+          document.documentElement.dataset.datapawTheme = 'dark';
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      } catch (_) {
+        // Keep the default light theme when storage is unavailable.
+      }
+    </script>
+    <link rel="icon" type="image/png" href="./mascot-blue-transparent.png" />
+    <link
+      rel="preload"
+      as="video"
+      href="./snow-leopard-loading.mp4"
+      type="video/mp4"
+      media="(prefers-reduced-motion: no-preference)"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="./snow-leopard-loading.png"
+      media="(prefers-reduced-motion: reduce)"
+    />
+    <style>
+      .initial-loading {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 4px;
+        color: #64748b;
+        font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0.02em;
+        background: #fff;
+      }
+
+      .initial-loading__visual {
+        width: min(180px, calc(100vw - 48px));
+        aspect-ratio: 16 / 9;
+      }
+
+      .initial-loading__media {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      html[data-datapaw-theme='dark'] .initial-loading {
+        color: #b8c2cf;
+        background: #000;
+      }
+
+      html[data-datapaw-theme='dark'] .initial-loading__visual {
+        overflow: hidden;
+        background: #000;
+      }
+
+      html[data-datapaw-theme='dark'] .initial-loading__media {
+        background: #000;
+      }
+    </style>
+    <title>QwenPaw Data Console</title>
+    <script>
+      // crypto.randomUUID polyfill: 非安全上下文（HTTP + 非 localhost）下浏览器
+      // 不暴露此 API，React/antd 组件在 useState 初始化时调用会 TypeError
+      // 导致整页空白。此 polyfill 必须在 main.tsx 之前执行。
+      if (!globalThis.crypto?.randomUUID && globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.randomUUID = function () {
+          var bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+          bytes[6] = (bytes[6] & 0x0f) | 0x40;
+          bytes[8] = (bytes[8] & 0x3f) | 0x80;
+          var hex = Array.from(bytes, function (byte) {
+            return byte.toString(16).padStart(2, '0');
+          });
+          return [
+            hex.slice(0, 4).join(''),
+            hex.slice(4, 6).join(''),
+            hex.slice(6, 8).join(''),
+            hex.slice(8, 10).join(''),
+            hex.slice(10, 16).join(''),
+          ].join('-');
+        };
+      }
+    </script>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/index-CYUafEkj.js">
+    <link rel="modulepreload" crossorigin href="./assets/agentscope-chat-Dv3tAZy2.js">
+    <link rel="stylesheet" crossorigin href="./assets/style.css">
+  </head>
+  <body>
+    <div id="initial-loading" class="initial-loading" role="status" aria-live="polite">
+      <div id="initial-loading-visual" class="initial-loading__visual" aria-hidden="true"></div>
+      <span>加载中…</span>
+    </div>
+    <div id="root"></div>
+    <script>
+      (function () {
+        var visual = document.getElementById('initial-loading-visual');
+        var prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        var darkAssetSuffix = document.documentElement.dataset.datapawTheme === 'dark' ? '-dark' : '';
+        var media;
+
+        if (prefersReducedMotion) {
+          media = document.createElement('img');
+          media.src = './snow-leopard-loading' + darkAssetSuffix + '.png';
+          media.alt = '';
+        } else {
+          media = document.createElement('video');
+          media.src = './snow-leopard-loading' + darkAssetSuffix + '.mp4';
+          media.autoplay = true;
+          media.loop = true;
+          media.muted = true;
+          media.playsInline = true;
+          media.preload = 'auto';
+          media.disablePictureInPicture = true;
+        }
+
+        media.className = 'initial-loading__media';
+        visual.appendChild(media);
+      })();
+    </script>
+  </body>
+</html>

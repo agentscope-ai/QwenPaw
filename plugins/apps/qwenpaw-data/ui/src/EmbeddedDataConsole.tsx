@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Same-origin static build of the engine console (the Data-Cloud host-core
- * console frontend), vendored by scripts/sync-console-ui.sh. The build uses
+ * console frontend), refreshed by scripts/update-data-console.sh. The build uses
  * hash routing, so tab switches navigate the live iframe without reloading
  * it — chat runs keep streaming while other pages are visible.
  */
@@ -54,10 +54,10 @@ export function EmbeddedDataConsole({
   if (availability === "missing") {
     return (
       <div className="qwenpaw-data-embedded-console__empty">
-        <b>Analysis console is not bundled</b>
+        <b>Analysis console installation is incomplete</b>
         <p>
-          The embedded engine console was not found in this build. Vendor it
-          with <code>scripts/sync-console-ui.sh</code> and reinstall the app.
+          The embedded Data console is missing from this app package. Reinstall
+          QwenPaw-Data or ask the package maintainer for a complete build.
         </p>
       </div>
     );

@@ -116,6 +116,8 @@ cd ui && npm install && npm run build
 
 UI 以浏览器原生 ES module 形式交付。其 Vite 配置在构建时替换 `process.env.NODE_ENV`，因此打包后的依赖不会把 Node 专属的 `process` 全局变量泄漏到 QwenPaw Console 中。
 
+完整 Data console 以经过审核的 vendor snapshot 形式存放在 `ui/public/data-console/`。常规构建、CI 和用户均无需访问 QwenPaw-Data-Cloud；只有获得授权的维护者或 coding agent 才通过 `scripts/update-data-console.sh` 刷新 snapshot，并审核、发布所产生的 diff。Context console 则由 `scripts/sync-context-ui.sh` 从公开的 QwenPaw-Data 源码单独构建。
+
 `setup-dev.sh` 会同步 QwenPaw-Data 工作区并在本 app 下创建被忽略的 development links。如需使用其他 checkout，请设置 `QWENPAW_DATA_SOURCE_DIR`。运行时仅当另一个进程管理器拥有该服务时，才使用 `QWENPAW_DATA_CONTEXT_MODE=external` 并配置 `QWENPAW_DATA_CONTEXT_URL` 和 `QWENPAW_DATA_CONTEXT_TOKEN`。
 
 如需一步完成构建、暂存并安装到本地 QwenPaw 实例，运行 `./scripts/dev.sh`。`QWENPAW_BIN` 和 `QWENPAW_WORKING_DIR` 用于选择目标实例。安装程序默认指向 `127.0.0.1:8089`；需要时可通过 `QWENPAW_HOST` 和 `QWENPAW_PORT` 覆盖。

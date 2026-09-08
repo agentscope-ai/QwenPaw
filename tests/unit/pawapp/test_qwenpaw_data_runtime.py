@@ -47,6 +47,40 @@ def test_context_python_preserves_virtualenv_launcher_symlink(
     assert selected != launcher.resolve()
 
 
+def test_runtime_packages_available_probes_service_entrypoints(
+    monkeypatch,
+) -> None:
+    runtime = _load_runtime_module()
+    imported: list[str] = []
+
+    def import_module(name: str) -> object:
+        imported.append(name)
+        return object()
+
+    monkeypatch.setattr(runtime.importlib, "import_module", import_module)
+
+    assert runtime.runtime_packages_available()
+    assert imported == [
+        "context_manager.api.server",
+        "qwenpaw_data.host.core.api.app",
+    ]
+
+
+def test_runtime_packages_unavailable_when_engine_entrypoint_is_missing(
+    monkeypatch,
+) -> None:
+    runtime = _load_runtime_module()
+
+    def import_module(name: str) -> object:
+        if name == "qwenpaw_data.host.core.api.app":
+            raise ImportError(name)
+        return object()
+
+    monkeypatch.setattr(runtime.importlib, "import_module", import_module)
+
+    assert not runtime.runtime_packages_available()
+
+
 def test_skill_layers_return_only_category_directories(tmp_path: Path) -> None:
     runtime = _load_runtime_module()
     analytics = tmp_path / "analytics"
