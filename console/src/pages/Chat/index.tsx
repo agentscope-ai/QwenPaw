@@ -2909,11 +2909,6 @@ export default function ChatPage() {
     const i18nConfig = getDefaultConfig(t);
     const hostCommands: CommandSuggestion[] = [
       {
-        command: "/new",
-        value: "new",
-        description: "",
-      },
-      {
         command: "/clear",
         value: "clear",
         description: t("chat.commands.clear.description"),
