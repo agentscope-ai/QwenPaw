@@ -44,6 +44,25 @@ def managed_runtime(monkeypatch):
     )
 
 
+def _boundary_transport(boundary: TestClient) -> httpx.MockTransport:
+    """Exercise the real app through TestClient's public HTTP interface."""
+
+    def respond(request):
+        response = boundary.request(
+            request.method,
+            str(request.url),
+            headers=request.headers.multi_items(),
+            content=request.read(),
+        )
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers.multi_items(),
+            content=response.content,
+        )
+
+    return httpx.MockTransport(respond)
+
+
 @pytest.mark.parametrize("managed", [True, False])
 def test_agents_list_passes_real_boundary(monkeypatch, managed):
     """Exercise Click, the HTTP client, and the real boundary middleware."""
@@ -61,11 +80,10 @@ def test_agents_list_passes_real_boundary(monkeypatch, managed):
         monkeypatch.delenv("QWENPAW_RUNTIME_ID")
         monkeypatch.delenv("QWENPAW_RUNTIME_API_URL")
     with TestClient(app) as boundary:
-        # Use the ASGI transport without replacing client request behavior.
         monkeypatch.setattr(
             httpx,
             "Client",
-            partial(httpx.Client, transport=boundary._transport),
+            partial(httpx.Client, transport=_boundary_transport(boundary)),
         )
         result = CliRunner().invoke(cli, ["agents", "list"])
     expected_port = 9001 if managed else 9002
@@ -358,7 +376,7 @@ def test_cli_api_operations_pass_boundary(
         monkeypatch.setattr(
             httpx,
             "Client",
-            partial(httpx.Client, transport=boundary._transport),
+            partial(httpx.Client, transport=_boundary_transport(boundary)),
         )
         ok, _ = doctor_cmd._check_api_health(f"http://127.0.0.1:{port}", 2)
         assert ok

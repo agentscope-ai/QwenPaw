@@ -568,7 +568,8 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
             import socket
             import subprocess
             import sys
-            from http.server import BaseHTTPRequestHandler, HTTPServer
+            from http.server import BaseHTTPRequestHandler
+            from socketserver import TCPServer
             from threading import Thread
 
             class Handler(BaseHTTPRequestHandler):
@@ -582,19 +583,19 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
                 def log_message(self, *args):
                     pass
 
-            with HTTPServer(("127.0.0.1", {record.port}), Handler) as server:
+            # TCPServer avoids HTTPServer's unrelated reverse-DNS lookup.
+            with TCPServer(("127.0.0.1", {record.port}), Handler) as server:
                 Thread(target=server.serve_forever, daemon=True).start()
                 with socket.socket() as client:
                     client.settimeout(2)
                     assert client.connect_ex(
                         ("127.0.0.1", {other.getsockname()[1]})
                     ) == errno.EPERM
-                result = subprocess.run(
+                print("sandbox ready; starting CLI", flush=True)
+                subprocess.run(
                     [sys.executable, "-m", "qwenpaw", "agents", "list"],
-                    capture_output=True, text=True, timeout=30,
+                    timeout=30, check=True,
                 )
-                assert result.returncode == 0, result.stderr
-                assert '"id": "sandbox-agent"' in result.stdout
                 print("sandbox CLI OK; other port denied")
             """,
         )
@@ -613,4 +614,5 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
             check=False,
         )
     assert result.returncode == 0, result.stderr
+    assert '"id": "sandbox-agent"' in result.stdout
     assert "sandbox CLI OK; other port denied" in result.stdout
