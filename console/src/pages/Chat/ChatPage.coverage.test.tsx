@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle } from "react";
-import { screen, waitFor, act } from "@testing-library/react";
+import { screen, waitFor, act, fireEvent } from "@testing-library/react";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
@@ -1196,6 +1197,46 @@ describe("ChatPage coverage", () => {
       expect.objectContaining({ text: "second" }),
     ]);
     act(() => useMessageQueueStore.getState().clear(chatId));
+  });
+
+  it("releases an unconsumed direct-send slot when switching sessions", async () => {
+    const sourceChatId = "33322222-2222-4222-8222-222222222224";
+    const targetChatId = "33322222-2222-4222-8222-222222222225";
+
+    function ChatHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${targetChatId}`)}>
+            Switch session
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    renderWithProviders(<ChatHarness />, {
+      initialEntries: [`/chat/${sourceChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const first = await capturedOptions.sender.beforeSubmit({
+      query: "abandoned direct send",
+    });
+    expect(first).toEqual({ proceed: true, query: "abandoned direct send" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+
+    let second: unknown;
+    await act(async () => {
+      second = await capturedOptions.sender.beforeSubmit({
+        query: "send after switch",
+      });
+    });
+
+    expect(second).toEqual({ proceed: true, query: "send after switch" });
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(2);
+    expect(useMessageQueueStore.getState().getQueue(targetChatId)).toEqual([]);
   });
 
   it("uses the admission-time session identity when direct send starts later", async () => {

@@ -2081,6 +2081,7 @@ export default function ChatPage() {
       }
       foregroundQueueWaitAbortRef.current?.abort();
       foregroundQueueWaitAbortRef.current = null;
+      pendingDirectSubmissionRef.current = null;
       // Only the owner tab may continue sending in the background; non-owner
       // tabs leave the queue alone for the owner (or next owner) to handle.
       if (!isOwnerRef.current) return;
