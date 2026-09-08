@@ -88,6 +88,21 @@ describe("OfficialPluginList", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the version selector for an uninstalled single version", () => {
+    hoisted.plugins.push(makeEntry("1.0.0"));
+
+    render(<OfficialPluginList onInstalled={vi.fn()} />);
+    const article = screen.getByRole("article", { name: "Creator" });
+
+    expect(within(article).getByRole("combobox")).toBeInTheDocument();
+    expect(within(article).getByText("v1.0.0")).toBeInTheDocument();
+    expect(
+      within(article).getByRole("button", {
+        name: /pluginManager.catalogInstall/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("installs the version selected from the shared plugin card", () => {
     const oldVersion = makeEntry("1.0.1");
     hoisted.plugins.push(oldVersion, makeEntry("1.1.1"));

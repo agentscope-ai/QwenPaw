@@ -157,12 +157,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     selection: OfficialPluginSelection,
   ) => {
     const versions = getOfficialPluginVersions(group);
-    if (
-      selection.action === "update" ||
-      (selection.action !== "current" && versions.length <= 1)
-    ) {
-      return null;
-    }
+    if (selection.action === "update") return null;
 
     return (
       <Select
