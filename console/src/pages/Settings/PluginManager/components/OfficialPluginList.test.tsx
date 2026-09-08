@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Modal } from "antd";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import { OfficialPluginList } from "./OfficialPluginList";
 
@@ -122,13 +121,13 @@ describe("OfficialPluginList", () => {
     expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
   });
 
-  it("marks the installed version and confirms a downgrade", async () => {
-    const downgradeVersion = makeEntry("1.0.0", {
+  it("marks the installed version and installs an older selected version", () => {
+    const oldVersion = makeEntry("1.0.0", {
       installed: true,
       installed_version: "1.1.0",
     });
     hoisted.plugins.push(
-      downgradeVersion,
+      oldVersion,
       makeEntry("1.2.0", {
         installed: true,
         installed_version: "1.1.0",
@@ -138,11 +137,6 @@ describe("OfficialPluginList", () => {
         installed_version: "1.1.0",
       }),
     );
-    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
-      destroy: vi.fn(),
-      update: vi.fn(),
-    });
-
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
     fireEvent.mouseDown(within(article).getByRole("combobox"));
@@ -155,23 +149,14 @@ describe("OfficialPluginList", () => {
     fireEvent.click(screen.getByText("v1.0.0"));
     fireEvent.click(
       within(article).getByRole("button", {
-        name: /pluginManager.catalogDowngrade/,
+        name: /pluginManager.catalogInstall/,
       }),
     );
 
-    expect(confirm).toHaveBeenCalledTimes(1);
-    const options = confirm.mock.calls[0][0] as {
-      okType: string;
-      onOk: () => Promise<void>;
-    };
-    expect(options.okType).toBe("danger");
-    await act(async () => {
-      await options.onOk();
-    });
-    expect(hoisted.handleInstall).toHaveBeenCalledWith(downgradeVersion);
+    expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
   });
 
-  it("shows reinstall when the installed version is selected", () => {
+  it("shows install when the installed catalog version is selected", () => {
     hoisted.plugins.push(
       makeEntry("1.2.0", {
         installed: true,
@@ -188,7 +173,7 @@ describe("OfficialPluginList", () => {
 
     expect(
       within(article).getByRole("button", {
-        name: /pluginManager.catalogReinstall/,
+        name: /pluginManager.catalogInstall/,
       }),
     ).toBeInTheDocument();
   });
@@ -212,7 +197,7 @@ describe("OfficialPluginList", () => {
     selectVersion(article, "1.0.0");
     expect(
       within(article).getByRole("button", {
-        name: /pluginManager.catalogDowngrade/,
+        name: /pluginManager.catalogInstall/,
       }),
     ).toBeEnabled();
   });
@@ -231,7 +216,7 @@ describe("OfficialPluginList", () => {
     expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
     expect(
       within(article).getByRole("button", {
-        name: /pluginManager.catalogReinstall/,
+        name: /pluginManager.catalogInstall/,
       }),
     ).toBeInTheDocument();
   });

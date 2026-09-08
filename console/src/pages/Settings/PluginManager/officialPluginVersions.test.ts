@@ -80,7 +80,7 @@ describe("officialPluginVersions", () => {
     expect(groups[1].defaultVersion.version).toBe("1.0.1");
   });
 
-  it("defaults to the installed version and classifies catalog versions", () => {
+  it("defaults to the installed version and installs any catalog version", () => {
     const installed = {
       installed: true,
       installed_version: "1.1.0",
@@ -99,13 +99,13 @@ describe("officialPluginVersions", () => {
     ]);
     expect(resolveOfficialPluginSelection(group)).toMatchObject({
       selectedVersion: "1.1.0",
-      action: "reinstall",
+      action: "install",
     });
     expect(resolveOfficialPluginSelection(group, "1.2.0").action).toBe(
-      "upgrade",
+      "install",
     );
     expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
-      "downgrade",
+      "install",
     );
   });
 
@@ -124,7 +124,7 @@ describe("officialPluginVersions", () => {
       action: "current",
     });
     expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
-      "downgrade",
+      "install",
     );
   });
 });

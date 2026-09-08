@@ -8,12 +8,7 @@ export interface OfficialPluginGroup {
   installedVersion?: string;
 }
 
-export type OfficialPluginInstallAction =
-  | "install"
-  | "upgrade"
-  | "reinstall"
-  | "downgrade"
-  | "current";
+export type OfficialPluginInstallAction = "install" | "current";
 
 export interface OfficialPluginSelection {
   selectedVersion: string;
@@ -88,14 +83,9 @@ export function resolveOfficialPluginSelection(
     (entry) => entry.version === selectedVersion,
   );
 
-  let action: OfficialPluginInstallAction = "install";
-  if (!catalogEntry) {
-    action = "current";
-  } else if (group.installedVersion) {
-    const comparison = compareVersions(selectedVersion, group.installedVersion);
-    action =
-      comparison > 0 ? "upgrade" : comparison < 0 ? "downgrade" : "reinstall";
-  }
+  const action: OfficialPluginInstallAction = catalogEntry
+    ? "install"
+    : "current";
 
   return {
     selectedVersion,

@@ -4,7 +4,6 @@ import {
   Alert,
   Button,
   Input,
-  Modal,
   Select,
   Spin,
   Tag,
@@ -124,13 +123,6 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     ) : null;
 
   const renderStatusTag = (selection: OfficialPluginSelection) => {
-    if (selection.action === "upgrade") {
-      return (
-        <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
-          {t("pluginManager.catalogUpgrade")}
-        </Tag>
-      );
-    }
     if (selection.installedVersion) {
       return (
         <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
@@ -144,51 +136,30 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   const requestInstall = (selection: OfficialPluginSelection) => {
     const entry = selection.catalogEntry;
     if (!entry) return;
-
-    if (selection.action === "downgrade") {
-      Modal.confirm({
-        title: t("pluginManager.catalogDowngradeTitle"),
-        content: t("pluginManager.catalogDowngradeConfirm", {
-          name: entry.name,
-          installedVersion: selection.installedVersion,
-          selectedVersion: selection.selectedVersion,
-        }),
-        okText: t("pluginManager.catalogDowngrade"),
-        cancelText: t("common.cancel"),
-        okType: "danger",
-        onOk: () => handleInstall(entry),
-      });
-      return;
-    }
     void handleInstall(entry);
   };
 
   const renderInstallButton = (selection: OfficialPluginSelection) => {
-    const { action, catalogEntry } = selection;
-    const buttonText = {
-      install: t("pluginManager.catalogInstall"),
-      upgrade: t("pluginManager.catalogUpgradeBtn"),
-      reinstall: t("pluginManager.catalogReinstall"),
-      downgrade: t("pluginManager.catalogDowngrade"),
-      current: t("pluginManager.catalogCurrentVersion"),
-    }[action];
+    const { catalogEntry } = selection;
 
     return (
       <Button
-        type={
-          action === "install" || action === "upgrade" ? "primary" : "default"
-        }
+        type={catalogEntry ? "primary" : "default"}
         icon={
-          action === "current" ? <Check size={14} /> : <Download size={14} />
+          catalogEntry ? <Download size={14} /> : <Check size={14} />
         }
         loading={Boolean(catalogEntry && installingId === catalogEntry.id)}
         disabled={
-          action === "current" ||
+          !catalogEntry ||
           (installingId !== null && installingId !== catalogEntry?.id)
         }
         onClick={() => requestInstall(selection)}
       >
-        {buttonText}
+        {t(
+          catalogEntry
+            ? "pluginManager.catalogInstall"
+            : "pluginManager.catalogCurrentVersion",
+        )}
       </Button>
     );
   };
