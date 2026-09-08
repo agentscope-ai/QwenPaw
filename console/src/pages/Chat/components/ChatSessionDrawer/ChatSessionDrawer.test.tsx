@@ -259,12 +259,13 @@ describe("ChatSessionDrawer", () => {
     expect(screen.getByText("chat.allChats")).toBeInTheDocument();
   });
 
-  it("clicking new chat calls createSession", async () => {
+  it("clicking new chat opens an empty composer without persisting a session", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
     await user.click(screen.getByText("chat.createNewChat"));
-    expect(mockCreateSession).toHaveBeenCalledOnce();
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockSetCurrentSessionId).toHaveBeenCalledWith(undefined);
   });
 
   it("renders SessionItem for each session", async () => {

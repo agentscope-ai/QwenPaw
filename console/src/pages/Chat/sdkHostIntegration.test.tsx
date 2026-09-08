@@ -1781,6 +1781,20 @@ describe("ChatPage coverage", () => {
     expect(capturedOptions?.session?.currentSessionId).toBeUndefined();
   });
 
+  it("ignores a late history selection after opening the blank composer", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const session = (await import("./sessionApi")).default;
+
+    act(() => session.onSessionSelected?.("previous-chat", "previous-chat"));
+
+    expect(capturedOptions?.session?.currentSessionId).toBeUndefined();
+
+    // A first send still activates its newly allocated backend UUID.
+    act(() => session.onSessionCreated?.("first-send-chat"));
+    expect(capturedOptions?.session?.currentSessionId).toBe("first-send-chat");
+  });
+
   // ── welcome config ─────────────────────────────────────────────────────
   it("welcome config has nick and avatar", async () => {
     renderWithProviders(<ChatPage />, {
@@ -2303,11 +2317,23 @@ describe("ChatPage coverage", () => {
       await screen.findByTestId("chat-ui");
       const { getDraftStorageKey } = await import("./chatInputDraft");
       const key = getDraftStorageKey("default");
+      // Direct submission is available only after history and ownership settle.
+      // Submitting sooner exercises the queue path, which correctly clears its draft.
+      const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+      await waitFor(() =>
+        expect(holdOwnershipLock).toHaveBeenCalledWith(
+          "test-session",
+          expect.any(Function),
+          expect.any(AbortSignal),
+        ),
+      );
       localStorage.setItem(key, "submitted-draft");
-      await capturedOptions.sender.beforeSubmit({
-        query: "hello",
-        fileList: [],
-      });
+      expect(
+        await capturedOptions.sender.beforeSubmit({
+          query: "hello",
+          fileList: [],
+        }),
+      ).toMatchObject({ proceed: true });
       let finish!: (response: any) => void;
       global.fetch = vi.fn(
         () =>

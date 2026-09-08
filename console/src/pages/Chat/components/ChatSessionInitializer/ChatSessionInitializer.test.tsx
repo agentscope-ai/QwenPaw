@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -70,6 +70,23 @@ describe("ChatSessionInitializer", () => {
       lastUpdated: 0,
       _setLibrarySessions: null,
     });
+  });
+
+  it("handles post-delete and repeated sidebar new-chat events without creating sessions", () => {
+    renderWithProviders(<NavigationHarness />, {
+      initialEntries: [`/chat/${HISTORY_SESSION_ID}`],
+    });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+    });
+
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockSetCurrentSessionId).toHaveBeenLastCalledWith(undefined);
+    expect(useSessionListStore.getState().sessions).toEqual([
+      { id: HISTORY_SESSION_ID },
+    ]);
   });
 
   it("leaves route selection to the controlled SDK option after a blank chat", async () => {

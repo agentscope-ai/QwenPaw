@@ -2957,6 +2957,10 @@ export default function ChatPage() {
       realId: string | null,
     ) => {
       if (!isChatActiveRef.current) return;
+      // `/chat` deliberately has no session. A history request started before
+      // opening the blank composer must not navigate back when it completes.
+      // First-send allocation navigates through onSessionCreated instead.
+      if (!chatIdRef.current) return;
 
       // Issue #4557: When a user-initiated session switch is in progress,
       // handleSessionClick owns the navigate call. Do NOT navigate here
