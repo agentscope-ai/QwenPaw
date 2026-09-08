@@ -775,6 +775,7 @@ async def upload_workspace_files(
     path: str = Query(default=""),
     root: str = Query(default="project"),
     conflict: str | None = Query(default=None),
+    create_directory: bool = Query(default=False),
 ) -> dict:
     """Upload files, requesting a policy only when names conflict."""
     if conflict is not None and conflict not in {
@@ -795,6 +796,8 @@ async def upload_workspace_files(
             path,
             allow_root=True,
         )
+        if create_directory and not directory.exists():
+            directory.mkdir(parents=True, exist_ok=True)
         if not directory.is_dir():
             raise NotADirectoryError(path)
         return directory
