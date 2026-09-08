@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import importlib.util
@@ -11,7 +12,9 @@ APP_DIR = REPOSITORY_ROOT / "plugins" / "apps" / "qwenpaw-data"
 VERIFY_FILE = APP_DIR / "scripts" / "verify-data-console.py"
 SNAPSHOT_DIR = APP_DIR / "ui" / "public" / "data-console"
 BRIDGE_FILE = APP_DIR / "scripts" / "data-console" / "paw-bridge.js"
-PATCH_FILE = APP_DIR / "scripts" / "data-console" / "patches" / "console-embed.patch"
+PATCH_FILE = (
+    APP_DIR / "scripts" / "data-console" / "patches" / "console-embed.patch"
+)
 
 
 def _load_verifier():
@@ -30,7 +33,7 @@ def _snapshot(tmp_path: Path):
     root = tmp_path / "data-console"
     assets = root / "assets"
     assets.mkdir(parents=True)
-    bridge = "var API_PREFIX = \"/api/qwenpaw-data/\";\n"
+    bridge = 'var API_PREFIX = "/api/qwenpaw-data/";\n'
     (root / "paw-bridge.js").write_text(bridge, encoding="utf-8")
     (assets / "index.js").write_text("export {};\n", encoding="utf-8")
     (assets / "style.css").write_text("body {}\n", encoding="utf-8")
@@ -94,7 +97,9 @@ def test_data_console_verifier_rejects_corruption(
         verifier.validate(root, None)
 
 
-def test_data_console_verifier_rejects_malformed_provenance(tmp_path: Path) -> None:
+def test_data_console_verifier_rejects_malformed_provenance(
+    tmp_path: Path,
+) -> None:
     verifier, root = _snapshot(tmp_path)
     info = root / "BUILD_INFO"
     info.write_text(
@@ -128,7 +133,10 @@ def test_data_console_verifier_rejects_root_absolute_asset(
     )
     verifier.write_checksums(root)
 
-    with pytest.raises(verifier.ValidationError, match="root-absolute static asset"):
+    with pytest.raises(
+        verifier.ValidationError,
+        match="root-absolute static asset",
+    ):
         verifier.validate(root, None)
 
 
