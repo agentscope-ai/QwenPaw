@@ -256,9 +256,21 @@ class IssuePatch(BaseModel):
     language: Optional[str] = None
 
 
+def _normalize_language(language: Any) -> str:
+    """Map supported Chinese values to zh and everything else to English."""
+    return "zh" if language == "zh" else "en"
+
+
+def _issue_language(issue: Dict[str, Any]) -> str:
+    """Resolve an issue language while preserving pre-i18n task behavior."""
+    if "language" not in issue:
+        return "zh"
+    return _normalize_language(issue.get("language"))
+
+
 def _build_issue_prompt(issue: Dict[str, Any]) -> str:
     """Build the agent prompt in the issue's selected UI language."""
-    language = "zh" if issue.get("language") == "zh" else "en"
+    language = _issue_language(issue)
     title = issue["title"]
     description = issue.get("description")
     if language == "en":
@@ -321,7 +333,7 @@ async def create_issue(
             "description": body.description,
             "status": status,
             "assignee": assignee,
-            "language": body.language if body.language == "zh" else "en",
+            "language": _normalize_language(body.language),
             # No result field - results are stored in session
             "created_at": _now(),
             "updated_at": _now(),
@@ -371,7 +383,7 @@ async def patch_issue(
         if body.description is not None:
             issue["description"] = body.description
         if body.language is not None:
-            issue["language"] = "zh" if body.language == "zh" else "en"
+            issue["language"] = _normalize_language(body.language)
 
         # Apply assignee first so the status check below sees it.
         old_assignee = issue.get("assignee") or ""
@@ -715,6 +727,9 @@ async def run_issue(
     If the agent is busy, the issue is queued as ``todo`` and will
     be auto-dispatched when the agent becomes idle.
     """
+    normalized_language = (
+        _normalize_language(language) if language is not None else None
+    )
     async with _txn():
         issues = _read_all()
         issue = _find(issues, issue_id)
@@ -723,14 +738,14 @@ async def run_issue(
                 status_code=404,
                 detail="Issue not found",
             )
-        if language is not None:
-            issue["language"] = "zh" if language == "zh" else "en"
         assignee = issue.get("assignee")
         if not assignee:
             raise HTTPException(
                 status_code=400,
                 detail="Cannot run issue without assignee",
             )
+        if normalized_language is not None:
+            issue["language"] = normalized_language
 
         if _agent_has_running(assignee, issues):
             issue["status"] = "todo"
