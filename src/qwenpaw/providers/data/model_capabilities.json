@@ -730,6 +730,22 @@
       "expected_video": false,
       "doc_url": "https://opencode.ai/docs/zen",
       "note": "OpenCode Zen aggregates heterogeneous providers; capability varies by model, probe to determine."
+    },
+    {
+      "provider_id": "requesty",
+      "model_id": "openai/gpt-4o-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://docs.requesty.ai",
+      "note": "Requesty routes to upstream vendors; GPT-4o mini accepts image input, no video."
+    },
+    {
+      "provider_id": "requesty",
+      "model_id": "deepseek/deepseek-chat",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.requesty.ai",
+      "note": "DeepSeek chat models are text-only"
     }
   ]
 }

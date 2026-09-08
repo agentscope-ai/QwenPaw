@@ -48,6 +48,7 @@ describe("providerIcon", () => {
       "zhipu-cn-codingplan",
       "zhipu-intl-codingplan",
       "openrouter",
+      "requesty",
       "opencode",
       "kilo",
       "github-models",

@@ -66,6 +66,10 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
         "provider_specific",
         sync_mode="startup",
     ),
+    "requesty": ProviderDiscoveryPolicy(
+        "openai_models",
+        sync_mode="startup",
+    ),
     "github-models": _CATALOG_PLAN,
     "modelscope": ProviderDiscoveryPolicy("provider_specific"),
     "dashscope": ProviderDiscoveryPolicy("provider_specific"),

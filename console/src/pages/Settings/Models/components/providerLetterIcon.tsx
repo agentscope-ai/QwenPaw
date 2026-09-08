@@ -25,6 +25,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "zhipu-cn-codingplan": "#3366FF",
   "zhipu-intl-codingplan": "#3366FF",
   openrouter: "#6366F1",
+  requesty: "#1E7BFF",
   opencode: "#2563EB",
   kilo: "#FF5722",
   "github-models": "#24292F",

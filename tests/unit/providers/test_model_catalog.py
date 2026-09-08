@@ -37,8 +37,8 @@ def _write_catalog(
 def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
-    assert len(catalog) == 21
-    assert sum(len(models) for models in catalog.values()) == 133
+    assert len(catalog) == 22
+    assert sum(len(models) for models in catalog.values()) == 143
     assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
     assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
     assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True

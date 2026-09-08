@@ -21,6 +21,7 @@ from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .provider import ModelInfo, Provider
 from .provider_discovery_policy import apply_discovery_policy
+from .requesty_provider import RequestyProvider
 
 # -------------------------------------------------------
 # Built-in provider definitions and their default models.
@@ -52,6 +53,7 @@ ANTHROPIC_MODELS = _models("ANTHROPIC_MODELS")
 GEMINI_MODELS = _models("GEMINI_MODELS")
 KIMI_CODINGPLAN_MODELS = _models("KIMI_CODINGPLAN_MODELS")
 GITHUB_MODELS_MODELS = _models("GITHUB_MODELS_MODELS")
+REQUESTY_MODELS = _models("REQUESTY_MODELS")
 
 PROVIDER_MODELSCOPE = ModelScopeProvider(
     id="modelscope",
@@ -391,6 +393,15 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     },
 )
 
+PROVIDER_REQUESTY = RequestyProvider(
+    id="requesty",
+    name="Requesty",
+    base_url="https://router.requesty.ai/v1",
+    models=REQUESTY_MODELS,
+    freeze_url=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_GITHUB_MODELS = GitHubModelsProvider(
     id="github-models",
     name="GitHub Models",
@@ -522,6 +533,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_OLLAMA,
     PROVIDER_LMSTUDIO,
     PROVIDER_OPENROUTER,
+    PROVIDER_REQUESTY,
     PROVIDER_GITHUB_MODELS,
     PROVIDER_MODELSCOPE,
     PROVIDER_DASHSCOPE,
@@ -580,6 +592,7 @@ BUILTIN_PROVIDER_CATALOG_KEYS = {
     "anthropic": "ANTHROPIC_MODELS",
     "gemini": "GEMINI_MODELS",
     "github-models": "GITHUB_MODELS_MODELS",
+    "requesty": "REQUESTY_MODELS",
     "volcengine-cn": "VOLCENGINE_MODELS",
     "volcengine-cn-codingplan": "VOLCENGINE_CODINGPLAN_MODELS",
     "volcengine-cn-agentplan": "VOLCENGINE_AGENTPLAN_MODELS",
@@ -637,6 +650,7 @@ __all__ = [
     "PROVIDER_OPENAI_RESPONSE",
     "PROVIDER_OPENROUTER",
     "PROVIDER_QWENPAW",
+    "PROVIDER_REQUESTY",
     "PROVIDER_SILICONFLOW_CN",
     "PROVIDER_SILICONFLOW_INTL",
     "PROVIDER_VOLCENGINE_CN",
@@ -646,6 +660,7 @@ __all__ = [
     "PROVIDER_ZHIPU_CN_CODINGPLAN",
     "PROVIDER_ZHIPU_INTL",
     "PROVIDER_ZHIPU_INTL_CODINGPLAN",
+    "REQUESTY_MODELS",
     "VOLCENGINE_AGENTPLAN_MODELS",
     "VOLCENGINE_CODINGPLAN_MODELS",
     "VOLCENGINE_MODELS",
