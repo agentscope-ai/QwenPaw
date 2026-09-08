@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 """Regression coverage for CLI access to managed runtime APIs."""
 
+import asyncio
 from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
@@ -13,9 +14,12 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from qwenpaw.agents.tools import agent_management
+from qwenpaw.agents.memory.proactive.proactive_responder import (
+    send_proactive_message_via_http,
+)
 from qwenpaw.app.auth import RuntimeBoundaryMiddleware
 from qwenpaw.cli import http as cli_http
-from qwenpaw.cli import doctor_cmd, plugin_commands
+from qwenpaw.cli import doctor_cmd, plugin_commands, update_cmd
 from qwenpaw.utils.runtime_api import async_api_client
 from qwenpaw.cli.main import cli
 
@@ -223,6 +227,7 @@ async def test_async_agent_requests_scope_token(monkeypatch, target):
     "endpoint",
     [
         "http://example.com:9001",
+        "http://localhost:9001",
         "https://127.0.0.1:9001",
         "http://user:password@127.0.0.1:9001",
         "http://127.0.0.1:bad",
@@ -236,6 +241,20 @@ def test_invalid_runtime_endpoint_does_not_override_app(monkeypatch, endpoint):
     assert agent_management.resolve_agent_api_base_url() == (
         "http://127.0.0.1:9002"
     )
+    seen = []
+
+    def respond(request):
+        seen.append(request.headers.get(_TOKEN_HEADER))
+        return httpx.Response(200)
+
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        partial(httpx.Client, transport=httpx.MockTransport(respond)),
+    )
+    with cli_http.client(_RUNTIME_URL) as client:
+        client.get("/agents")
+    assert seen == [None]
 
 
 def test_ipv6_runtime_endpoint(monkeypatch):
@@ -305,7 +324,7 @@ async def test_external_client_cannot_send_token_through_proxy(
 
 
 @pytest.mark.parametrize("managed", [True, False])
-def test_doctor_and_plugin_operations_pass_boundary(
+def test_cli_api_operations_pass_boundary(
     monkeypatch,
     tmp_path,
     managed,
@@ -343,12 +362,57 @@ def test_doctor_and_plugin_operations_pass_boundary(
         )
         ok, _ = doctor_cmd._check_api_health(f"http://127.0.0.1:{port}", 2)
         assert ok
+        assert update_cmd._probe_service(f"http://127.0.0.1:{port}").is_running
         assert plugin_commands._api_install_plugin("fixture")
         assert plugin_commands._api_upload_plugin(archive)
         assert plugin_commands._api_uninstall_plugin("demo")
     assert seen == [
         ("GET", "healthz", port),
+        ("GET", "version", port),
         ("POST", "plugins/install", port),
         ("POST", "plugins/upload", port),
         ("DELETE", "plugins/demo", port),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slow_stream", [False, True])
+async def test_proactive_request_auth_stream_and_total_timeout(
+    monkeypatch,
+    caplog,
+    slow_stream,
+):
+    seen = []
+    closed = []
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"da"
+            if slow_stream:
+                await asyncio.sleep(2)
+            yield b'ta: {"done":true}\n\n'
+
+        async def aclose(self):
+            closed.append(True)
+
+    def respond(request):
+        seen.append(
+            (
+                request.url.port,
+                request.headers.get(_TOKEN_HEADER),
+                request.headers.get("X-Agent-Id"),
+            ),
+        )
+        return httpx.Response(200, stream=Stream())
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)),
+    )
+    with caplog.at_level("INFO"):
+        await send_proactive_message_via_http("agent-a", "message", 1)
+    assert seen == [(9001, "secret-a", "agent-a")]
+    assert closed == [True]
+    expected = "Timeout (1s)" if slow_stream else "sent successfully via HTTP"
+    assert expected in caplog.text

@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 from functools import partial
 
 import httpx
 
 from ..constant import EnvVarLoader
-from .http import is_loopback_host, trust_env_for_url
+from .http import trust_env_for_url
 
 _TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
 _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
@@ -24,9 +25,10 @@ def _runtime_url() -> httpx.URL | None:
         return None
     try:
         url = httpx.URL(value)
-    except httpx.InvalidURL:
+        address = ipaddress.ip_address(url.host)
+    except (httpx.InvalidURL, ValueError):
         return None
-    if url.scheme != "http" or not is_loopback_host(url.host):
+    if url.scheme != "http" or not address.is_loopback:
         return None
     if url.userinfo or url.path != "/" or url.query or url.fragment:
         return None
@@ -80,12 +82,13 @@ def api_client(
     base_url: str,
     *,
     timeout: float = 30.0,
+    trust_env: bool = True,
 ) -> httpx.Client:
-    """Bind authentication to the client's endpoint and proxy policy."""
+    """Bind auth to the endpoint; loopback always bypasses env proxies."""
     return httpx.Client(
         base_url=base_url,
         timeout=timeout,
-        trust_env=trust_env_for_url(base_url),
+        trust_env=trust_env and trust_env_for_url(base_url),
         event_hooks={
             "request": [
                 partial(_add_runtime_token, base_url=httpx.URL(base_url)),
