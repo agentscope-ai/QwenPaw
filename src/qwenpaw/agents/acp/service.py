@@ -387,8 +387,27 @@ class ACPService:
                 await conversation.client.finish_prompt()
                 raise ACPSessionError(str(exc)) from exc
 
+            # Wait for any in-flight AgentMessageChunk notifications to be
+            # processed before calling finish_prompt(). The client sets
+            # _assistant_text_event when a new chunk arrives; we wait with a
+            # short timeout to avoid blocking indefinitely if the event is
+            # never set (e.g., response with no text content).
+            try:
+                await asyncio.wait_for(
+                    conversation.client._assistant_text_event.wait(),
+                    timeout=0.5,
+                )
+            except asyncio.TimeoutError:
+                pass
+
             conversation.prompt_task = None
             finished_event = await conversation.client.finish_prompt()
+            # If finish_prompt() returned no text but we know chunks arrived
+            # (event is set), retry once after a tiny yield — this covers
+            # the case where the notification task hasn't quite flushed yet.
+            if finished_event is None and conversation.client._assistant_text_event.is_set():
+                await asyncio.sleep(0)
+                finished_event = await conversation.client.finish_prompt()
             pending_permission = conversation.client.pending_permission
             if pending_permission is not None:
                 return {

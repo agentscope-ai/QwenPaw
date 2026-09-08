@@ -61,6 +61,10 @@ class ACPHostedClient:
             RequestPermissionResponse
         ] | None = None
         self._permission_requested = asyncio.Event()
+        # Set when new assistant text chunks arrive; waited on by
+        # _wait_for_prompt_outcome to ensure all chunks are processed
+        # before finish_prompt() is called.
+        self._assistant_text_event = asyncio.Event()
 
     @property
     def pending_permission(self) -> SuspendedPermission | None:
@@ -79,6 +83,7 @@ class ACPHostedClient:
         self._thinking_active = False
         self._pending_permission = None
         self._permission_requested.clear()
+        self._assistant_text_event.clear()
         self._session_acc = SessionAccumulator()
 
     def resume_prompt(self, on_message: MessageHandler) -> None:
@@ -231,6 +236,10 @@ class ACPHostedClient:
         if isinstance(update, AgentMessageChunk):
             self._thinking_active = False
             await self._accumulate_assistant_content(update.content)
+            # Signal that new assistant text is available. The service layer
+            # will wait on this event (with a timeout) before calling
+            # finish_prompt(), ensuring all chunks have been processed.
+            self._assistant_text_event.set()
             return
 
         await self.flush_assistant_text()
