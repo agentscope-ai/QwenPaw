@@ -17,6 +17,8 @@ export interface MemoryMaintenanceState {
   checkMemoryStatus: (includeDiagnostics?: boolean) => Promise<void>;
   rerankerExpanded: boolean;
   setRerankerExpanded: (value: boolean) => void;
+  /** Increments after every successful config load, including Reset. */
+  configLoadRevision: number;
 }
 
 export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
@@ -32,6 +34,7 @@ export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
   checkMemoryStatus: async () => {},
   rerankerExpanded: false,
   setRerankerExpanded: () => {},
+  configLoadRevision: 0,
 });
 
 export function useMemoryMaintenance() {

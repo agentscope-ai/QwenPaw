@@ -98,6 +98,7 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
         checkMemoryStatus,
         rerankerExpanded,
         setRerankerExpanded,
+        configLoadRevision: 0,
       }}
     >
       {children}
@@ -105,7 +106,13 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function StaticMemoryProvider({ children }: { children: ReactNode }) {
+function StaticMemoryProvider({
+  children,
+  configLoadRevision = 0,
+}: {
+  children: ReactNode;
+  configLoadRevision?: number;
+}) {
   const [rerankerExpanded, setRerankerExpanded] = useState(false);
   return (
     <MemoryMaintenanceContext.Provider
@@ -120,6 +127,7 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
         checkMemoryStatus: noopStatusCheck,
         rerankerExpanded,
         setRerankerExpanded,
+        configLoadRevision,
       }}
     >
       {children}
@@ -213,6 +221,7 @@ function ReindexingEmbeddingForm() {
         checkMemoryStatus: noopStatusCheck,
         rerankerExpanded: false,
         setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -242,6 +251,7 @@ function PersistedEmbeddingForm() {
         checkMemoryStatus: noopStatusCheck,
         rerankerExpanded: false,
         setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -276,6 +286,7 @@ function PersistedDashScopeEmbeddingForm() {
         checkMemoryStatus: noopStatusCheck,
         rerankerExpanded: false,
         setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
       }}
     >
       <Form form={form}>
@@ -307,6 +318,7 @@ function NeedsReindexEmbeddingForm({ undoAvailable = true }) {
         checkMemoryStatus: noopStatusCheck,
         rerankerExpanded: false,
         setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -336,6 +348,7 @@ function MemoryAndEmbeddingForm() {
         checkMemoryStatus,
         rerankerExpanded,
         setRerankerExpanded,
+        configLoadRevision: 0,
       }}
     >
       <Form
@@ -1027,17 +1040,19 @@ describe("reranker validation", () => {
     enabled = false,
     base_url = "",
     model_name = "",
+    configLoadRevision = 0,
     formRef,
   }: {
     enabled?: boolean;
     base_url?: string;
     model_name?: string;
+    configLoadRevision?: number;
     formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
   }) {
     const [form] = Form.useForm();
     formRef.current = form;
     return (
-      <StaticMemoryProvider>
+      <StaticMemoryProvider configLoadRevision={configLoadRevision}>
         <Form
           form={form}
           initialValues={{
@@ -1310,6 +1325,46 @@ describe("reranker validation", () => {
     await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
 
     act(() => useAgentStore.setState({ selectedAgent: "default" }));
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+  });
+
+  it("restores reranker expansion after a reset reloads the same config", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container, rerender } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+        configLoadRevision={1}
+      />,
+    );
+
+    // Enabled by default: details expanded
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Manual collapse
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Reset reloads the persisted config, so rerankerEnabled comes back
+    // unchanged and only the load revision advances.
+    rerender(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+        configLoadRevision={2}
+      />,
+    );
     await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
   });
 

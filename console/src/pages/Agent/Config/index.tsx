@@ -55,6 +55,7 @@ function AgentConfigPage() {
     savingTimezone,
     approvalLevel,
     setApprovalLevel,
+    configLoadRevision,
     fetchConfig,
     handleSave,
     handleLanguageChange,
@@ -341,6 +342,7 @@ function AgentConfigPage() {
             checkMemoryStatus,
             rerankerExpanded,
             setRerankerExpanded,
+            configLoadRevision,
           }}
         >
           <Form

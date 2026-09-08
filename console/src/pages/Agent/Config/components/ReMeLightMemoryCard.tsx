@@ -63,6 +63,7 @@ export function ReMeLightMemoryCard() {
     checkMemoryStatus,
     rerankerExpanded,
     setRerankerExpanded,
+    configLoadRevision,
   } = useMemoryMaintenance();
   const [statusView, setStatusView] = useState<"tasks" | "diagnostics" | null>(
     null,
@@ -79,14 +80,16 @@ export function ReMeLightMemoryCard() {
     | undefined;
   const rerankerEnabled = remeConfig?.reranker_config?.enabled ?? false;
 
-  // Reset to the default expansion state whenever the enable/disable signal
-  // or the selected Agent changes. This keeps the details collapsed after
-  // disabling reranking and prevents the page-level rerankerExpanded state
-  // from leaking across Agent switches or Reset.
+  // Reset to the default expansion state whenever the enable/disable signal,
+  // the selected Agent, or a config load changes. This keeps the details
+  // collapsed after disabling reranking and prevents the page-level
+  // rerankerExpanded state from leaking across Agent switches or Reset.
+  // configLoadRevision is needed because Reset reloads the persisted config,
+  // so rerankerEnabled may come back unchanged and the effect would not run.
   useEffect(() => {
     setRerankerExpanded(rerankerEnabled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rerankerEnabled, selectedAgent]);
+  }, [rerankerEnabled, selectedAgent, configLoadRevision]);
 
   const rerankerPath = (field: string): string[] => [
     "reme_light_memory_config",
