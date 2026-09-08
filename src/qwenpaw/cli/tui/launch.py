@@ -6,9 +6,11 @@
 ``qwenpaw tui --agent NAME``   chat with a specific agent
 ``qwenpaw tui --resume ID``    resume a previous session and continue it
 
-The TUI spawns ``qwenpaw acp`` using the *current* interpreter
-(``python -m qwenpaw acp --local-diagnostics``), so it always drives the same
-install/venv it ships in -- no reliance on ``qwenpaw`` being on ``PATH``.
+The TUI spawns ``qwenpaw acp`` from this very install (``python -m qwenpaw acp
+--local-diagnostics`` under a real interpreter, the packaged binary's own
+``acp`` subcommand in the Desktop build -- see ``qwenpaw.utils.self_invoke``),
+so it always drives the same install/venv it ships in -- no reliance on
+``qwenpaw`` being on ``PATH``.
 
 Textual and the transport are imported lazily so ``qwenpaw --help`` and other
 subcommands stay fast.
@@ -136,33 +138,34 @@ def _build_transport(
 ):
     """Return ``(transport, description)`` for the requested target.
 
-    ``command=None`` lets :class:`AcpTransport` use its default,
-    ``[sys.executable, "-m", "qwenpaw", "acp", "--local-diagnostics"]`` --
-    the same interpreter the TUI is running under. The ``--agent`` suffix is
-    *not* appended here: ``AcpTransport`` appends ``--agent <id>`` itself when
-    ``agent`` is set, so doing it here too would double it.
+    ``command=None`` lets :class:`AcpTransport` resolve its own default, which
+    re-invokes this very install (see ``qwenpaw.utils.self_invoke``). The
+    ``--agent`` suffix is *not* appended here: ``AcpTransport`` appends
+    ``--agent <id>`` itself when ``agent`` is set, so doing it here too would
+    double it.
     """
     from .transport.acp import AcpTransport
 
     project_dir = _resolve_project_dir(project)
-    description = (
-        f"qwenpaw acp ({sys.executable} -m qwenpaw acp --local-diagnostics)"
+    # Project-bound TUI sessions start ACP in the project root and also send
+    # explicit metadata so Coding Mode can apply a request overlay.
+    transport = AcpTransport(
+        agent=agent,
+        cwd=project_dir,
+        command=None,
+        project_dir=project_dir,
+        resume_session_id=resume,
     )
+    # Render the argv the transport actually resolved, so what we show can
+    # never drift from what gets spawned. An empty argv means resolution
+    # failed; ``start()`` reports the reason inside the TUI.
+    argv = transport.command
+    rendered = " ".join(argv) if argv else "unresolved"
+    description = f"qwenpaw acp ({rendered})"
     if project_dir:
         description = f"{description} cwd={project_dir}"
 
-    return (
-        # Project-bound TUI sessions start ACP in the project root and also
-        # send explicit metadata so Coding Mode can apply a request overlay.
-        AcpTransport(
-            agent=agent,
-            cwd=project_dir,
-            command=None,
-            project_dir=project_dir,
-            resume_session_id=resume,
-        ),
-        description,
-    )
+    return transport, description
 
 
 def run_tui(
