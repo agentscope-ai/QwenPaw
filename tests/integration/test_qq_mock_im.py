@@ -694,7 +694,9 @@ def test_qq_bot_prefix_message_is_skipped(
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
     qq_channel_up.reset_identified()
-    provider_id = register_mock_provider(app_server, mock_url)
+    # Initial model activation in the p2 shard also reloads QQ.
+    # Save the prefix first so both reloads use it; the mock's
+    # IDENTIFY flag cannot distinguish which reload connected.
     put = app_server.api_request(
         "PUT",
         "/api/config/channels/qq",
@@ -707,6 +709,7 @@ def test_qq_bot_prefix_message_is_skipped(
         timeout=_HTTP_TIMEOUT,
     )
     assert put.status_code == 200, app_server.logs_tail()
+    provider_id = register_mock_provider(app_server, mock_url)
     assert qq_channel_up.wait_identified(timeout=60.0), app_server.logs_tail()[
         -2000:
     ]
