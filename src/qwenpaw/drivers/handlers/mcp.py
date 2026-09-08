@@ -96,11 +96,18 @@ class MCPDriverHandler(DriverHandler):
                 if transport == "streamable_http"
                 else HttpStatefulClient
             )
+            http_timeout = endpoint.get("http_timeout")
+            extra = (
+                {"timeout": float(http_timeout)}
+                if http_timeout is not None
+                else {}
+            )
             self._client = client_cls(
                 name=self._card.name,
                 transport=transport,
                 url=str(endpoint.get("url") or ""),
                 headers=headers or None,
+                **extra,
             )
 
         try:
