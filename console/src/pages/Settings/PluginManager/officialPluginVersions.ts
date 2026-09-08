@@ -8,7 +8,7 @@ export interface OfficialPluginGroup {
   installedVersion?: string;
 }
 
-export type OfficialPluginInstallAction = "install" | "current";
+export type OfficialPluginInstallAction = "install" | "update" | "current";
 
 export interface OfficialPluginSelection {
   selectedVersion: string;
@@ -72,6 +72,22 @@ export function resolveOfficialPluginSelection(
   requestedVersion?: string,
 ): OfficialPluginSelection {
   const versions = getOfficialPluginVersions(group);
+  const latestVersion = group.defaultVersion.version;
+  const updateAvailable = Boolean(
+    group.installedVersion &&
+      compareVersions(latestVersion, group.installedVersion) > 0,
+  );
+
+  if (updateAvailable) {
+    return {
+      selectedVersion: latestVersion,
+      catalogEntry: group.defaultVersion,
+      displayEntry: group.defaultVersion,
+      action: "update",
+      installedVersion: group.installedVersion,
+    };
+  }
+
   const requestedSelection = versions.includes(requestedVersion ?? "")
     ? requestedVersion
     : undefined;
@@ -83,9 +99,12 @@ export function resolveOfficialPluginSelection(
     (entry) => entry.version === selectedVersion,
   );
 
-  const action: OfficialPluginInstallAction = catalogEntry
-    ? "install"
-    : "current";
+  const action: OfficialPluginInstallAction =
+    group.installedVersion === selectedVersion
+      ? "current"
+      : catalogEntry
+      ? "install"
+      : "current";
 
   return {
     selectedVersion,

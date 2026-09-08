@@ -121,17 +121,18 @@ describe("OfficialPluginList", () => {
     expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
   });
 
-  it("marks the installed version and installs an older selected version", () => {
+  it("only shows update when the installed version is outdated", () => {
     const oldVersion = makeEntry("1.0.0", {
+      installed: true,
+      installed_version: "1.1.0",
+    });
+    const latestVersion = makeEntry("1.2.0", {
       installed: true,
       installed_version: "1.1.0",
     });
     hoisted.plugins.push(
       oldVersion,
-      makeEntry("1.2.0", {
-        installed: true,
-        installed_version: "1.1.0",
-      }),
+      latestVersion,
       makeEntry("1.1.0", {
         installed: true,
         installed_version: "1.1.0",
@@ -139,43 +140,66 @@ describe("OfficialPluginList", () => {
     );
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
-    fireEvent.mouseDown(within(article).getByRole("combobox"));
-    expect(screen.getAllByText("v1.1.0")).toHaveLength(2);
-    expect(screen.getByText("v1.2.0")).toBeInTheDocument();
-    expect(screen.getByText("v1.0.0")).toBeInTheDocument();
-    expect(
-      document.querySelector(".ant-select-item-option-selected .lucide-check"),
-    ).not.toBeNull();
-    fireEvent.click(screen.getByText("v1.0.0"));
+
+    expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.click(
       within(article).getByRole("button", {
-        name: /pluginManager.catalogInstall/,
+        name: /pluginManager.update/,
       }),
     );
 
-    expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
+    expect(hoisted.handleInstall).toHaveBeenCalledWith(latestVersion);
   });
 
-  it("shows install when the installed catalog version is selected", () => {
+  it("only shows the selector when the latest version is installed", () => {
+    const oldVersion = makeEntry("1.1.0", {
+      installed: true,
+      installed_version: "1.2.0",
+    });
     hoisted.plugins.push(
       makeEntry("1.2.0", {
         installed: true,
-        installed_version: "1.1.0",
+        installed_version: "1.2.0",
       }),
-      makeEntry("1.1.0", {
-        installed: true,
-        installed_version: "1.1.0",
-      }),
+      oldVersion,
     );
 
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
 
+    expect(within(article).getByRole("combobox")).toBeInTheDocument();
+    expect(within(article).queryByRole("button")).not.toBeInTheDocument();
+    fireEvent.mouseDown(within(article).getByRole("combobox"));
+    expect(
+      document.querySelector(".ant-select-item-option-selected .lucide-check"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByText("v1.1.0"));
     expect(
       within(article).getByRole("button", {
         name: /pluginManager.catalogInstall/,
       }),
     ).toBeInTheDocument();
+    fireEvent.click(
+      within(article).getByRole("button", {
+        name: /pluginManager.catalogInstall/,
+      }),
+    );
+    expect(hoisted.handleInstall).toHaveBeenCalledWith(oldVersion);
+  });
+
+  it("shows no action when the only catalog version is installed", () => {
+    hoisted.plugins.push(
+      makeEntry("1.0.0", {
+        installed: true,
+        installed_version: "1.0.0",
+      }),
+    );
+
+    render(<OfficialPluginList onInstalled={vi.fn()} />);
+    const article = screen.getByRole("article", { name: "Creator" });
+
+    expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(article).queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows a catalog-external installed version as the current selection", () => {
@@ -188,11 +212,7 @@ describe("OfficialPluginList", () => {
 
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
-    const currentButton = within(article).getByRole("button", {
-      name: /pluginManager.catalogCurrentVersion/,
-    });
-
-    expect(currentButton).toBeDisabled();
+    expect(within(article).queryByRole("button")).not.toBeInTheDocument();
     expect(within(article).getByTitle("v1.1.0")).toBeInTheDocument();
     selectVersion(article, "1.0.0");
     expect(
@@ -200,24 +220,5 @@ describe("OfficialPluginList", () => {
         name: /pluginManager.catalogInstall/,
       }),
     ).toBeEnabled();
-  });
-
-  it("hides the version selector when only one version is available", () => {
-    hoisted.plugins.push(
-      makeEntry("1.0.0", {
-        installed: true,
-        installed_version: "1.0.0",
-      }),
-    );
-
-    render(<OfficialPluginList onInstalled={vi.fn()} />);
-    const article = screen.getByRole("article", { name: "Creator" });
-
-    expect(within(article).queryByRole("combobox")).not.toBeInTheDocument();
-    expect(
-      within(article).getByRole("button", {
-        name: /pluginManager.catalogInstall/,
-      }),
-    ).toBeInTheDocument();
   });
 });

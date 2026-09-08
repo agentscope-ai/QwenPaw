@@ -80,7 +80,7 @@ describe("officialPluginVersions", () => {
     expect(groups[1].defaultVersion.version).toBe("1.0.1");
   });
 
-  it("defaults to the installed version and installs any catalog version", () => {
+  it("selects the latest catalog version when an update is available", () => {
     const installed = {
       installed: true,
       installed_version: "1.1.0",
@@ -98,15 +98,35 @@ describe("officialPluginVersions", () => {
       "1.0.0",
     ]);
     expect(resolveOfficialPluginSelection(group)).toMatchObject({
+      selectedVersion: "1.2.0",
+      action: "update",
+    });
+    expect(resolveOfficialPluginSelection(group, "1.2.0").action).toBe(
+      "update",
+    );
+    expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
+      "update",
+    );
+  });
+
+  it("keeps the latest installed version selected until another is chosen", () => {
+    const installed = {
+      installed: true,
+      installed_version: "1.2.0",
+    };
+    const group = groupOfficialPlugins([
+      makeEntry("demo", "1.2.0", installed),
+      makeEntry("demo", "1.1.0", installed),
+    ])[0];
+
+    expect(resolveOfficialPluginSelection(group)).toMatchObject({
+      selectedVersion: "1.2.0",
+      action: "current",
+    });
+    expect(resolveOfficialPluginSelection(group, "1.1.0")).toMatchObject({
       selectedVersion: "1.1.0",
       action: "install",
     });
-    expect(resolveOfficialPluginSelection(group, "1.2.0").action).toBe(
-      "install",
-    );
-    expect(resolveOfficialPluginSelection(group, "1.0.0").action).toBe(
-      "install",
-    );
   });
 
   it("keeps an installed version that is absent from the catalog selectable", () => {
