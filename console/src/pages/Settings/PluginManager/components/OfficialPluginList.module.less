@@ -95,6 +95,11 @@
   gap: 8px;
 }
 
+.versionSelect {
+  width: 154px;
+  min-width: 0;
+}
+
 @media (max-width: 768px) {
   .catalogRow {
     align-items: flex-start;
@@ -121,6 +126,11 @@
   .catalogActions {
     width: 100%;
     padding-left: 48px;
+
+    .versionSelect {
+      flex: 1.25 1 0;
+      width: auto;
+    }
 
     :global(.ant-btn),
     :global(.qwenpaw-btn) {

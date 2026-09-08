@@ -1,13 +1,28 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Spin, Tag, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  Select,
+  Spin,
+  Tag,
+  Typography,
+} from "antd";
 import { Download, Package, RefreshCw } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { compareVersions } from "@/layouts/constants";
 import type {
   InstallPluginResult,
   OfficialPluginCatalogEntry,
 } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
+import {
+  getOfficialPluginInstallAction,
+  groupOfficialPlugins,
+  type OfficialPluginGroup,
+} from "../officialPluginVersions";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import styles from "./OfficialPluginList.module.less";
 import cardStyles from "./MarketPluginList.module.less";
@@ -49,6 +64,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
+  const [selectedVersions, setSelectedVersions] = useState<
+    Record<string, string>
+  >({});
   const isMobile = useIsMobile();
 
   const {
@@ -60,20 +78,38 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     handleInstall,
   } = useOfficialPlugins({ onInstalled });
 
+  const pluginGroups = useMemo(() => groupOfficialPlugins(plugins), [plugins]);
+
+  const selectedPlugins = useMemo(
+    () =>
+      pluginGroups.map((group) => ({
+        group,
+        entry:
+          group.versions.find(
+            (entry) => entry.version === selectedVersions[group.key],
+          ) ?? group.defaultVersion,
+      })),
+    [pluginGroups, selectedVersions],
+  );
+
   const filteredPlugins = useMemo(() => {
     const keyword = nameFilter.trim().toLocaleLowerCase();
-    return plugins.filter((entry) => {
+    return selectedPlugins.filter(({ entry }) => {
       const matchesName =
         !keyword || entry.name.toLocaleLowerCase().includes(keyword);
       const matchesKind =
         !kindFilter || entry.kind?.toLowerCase() === kindFilter;
       return matchesName && matchesKind;
     });
-  }, [kindFilter, nameFilter, plugins]);
+  }, [kindFilter, nameFilter, selectedPlugins]);
 
   const kindOptions = useMemo(
-    () => [...new Set(plugins.map((plugin) => plugin.kind).filter(Boolean))],
-    [plugins],
+    () => [
+      ...new Set(
+        pluginGroups.map((group) => group.defaultVersion.kind).filter(Boolean),
+      ),
+    ],
+    [pluginGroups],
   );
 
   const renderKindTag = (entry: OfficialPluginCatalogEntry) =>
@@ -87,14 +123,15 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     ) : null;
 
   const renderStatusTag = (entry: OfficialPluginCatalogEntry) => {
-    if (entry.upgrade_available) {
+    const action = getOfficialPluginInstallAction(entry);
+    if (action === "upgrade") {
       return (
         <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
           {t("pluginManager.catalogUpgrade")}
         </Tag>
       );
     }
-    if (entry.installed) {
+    if (action !== "install") {
       return (
         <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
           {t("pluginManager.catalogInstalled")}
@@ -104,20 +141,79 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     return null;
   };
 
-  const renderInstallButton = (entry: OfficialPluginCatalogEntry) => (
-    <Button
-      type={entry.installed && !entry.upgrade_available ? "default" : "primary"}
-      icon={<Download size={14} />}
-      loading={installingId === entry.id}
-      disabled={installingId !== null && installingId !== entry.id}
-      onClick={() => void handleInstall(entry)}
-    >
-      {entry.upgrade_available
-        ? t("pluginManager.catalogUpgradeBtn")
-        : entry.installed
-        ? t("pluginManager.catalogReinstall")
-        : t("pluginManager.catalogInstall")}
-    </Button>
+  const requestInstall = (entry: OfficialPluginCatalogEntry) => {
+    if (getOfficialPluginInstallAction(entry) === "downgrade") {
+      Modal.confirm({
+        title: t("pluginManager.catalogDowngradeTitle"),
+        content: t("pluginManager.catalogDowngradeConfirm", {
+          name: entry.name,
+          installedVersion: entry.installed_version,
+          selectedVersion: entry.version,
+        }),
+        okText: t("pluginManager.catalogDowngrade"),
+        cancelText: t("common.cancel"),
+        okType: "danger",
+        onOk: () => handleInstall(entry),
+      });
+      return;
+    }
+    void handleInstall(entry);
+  };
+
+  const renderInstallButton = (entry: OfficialPluginCatalogEntry) => {
+    const action = getOfficialPluginInstallAction(entry);
+    const buttonText = {
+      install: t("pluginManager.catalogInstall"),
+      upgrade: t("pluginManager.catalogUpgradeBtn"),
+      reinstall: t("pluginManager.catalogReinstall"),
+      downgrade: t("pluginManager.catalogDowngrade"),
+    }[action];
+
+    return (
+      <Button
+        type={
+          action === "install" || action === "upgrade" ? "primary" : "default"
+        }
+        icon={<Download size={14} />}
+        loading={installingId === entry.id}
+        disabled={installingId !== null && installingId !== entry.id}
+        onClick={() => requestInstall(entry)}
+      >
+        {buttonText}
+      </Button>
+    );
+  };
+
+  const renderVersionSelect = (
+    group: OfficialPluginGroup,
+    entry: OfficialPluginCatalogEntry,
+  ) => (
+    <Select
+      className={styles.versionSelect}
+      aria-label={t("pluginManager.catalogVersion")}
+      value={entry.version}
+      onChange={(version) =>
+        setSelectedVersions((current) => ({
+          ...current,
+          [group.key]: version,
+        }))
+      }
+      options={group.versions.map((candidate) => {
+        const isInstalled = Boolean(
+          candidate.installed_version &&
+            compareVersions(candidate.version, candidate.installed_version) ===
+              0,
+        );
+        return {
+          value: candidate.version,
+          label: isInstalled
+            ? `v${candidate.version} · ${t(
+                "pluginManager.catalogInstalledVersion",
+              )}`
+            : `v${candidate.version}`,
+        };
+      })}
+    />
   );
 
   return (
@@ -190,10 +286,10 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         )}
         {isMobile || viewMode === "card" ? (
           <div className={cardStyles.cardGrid}>
-            {filteredPlugins.map((entry) => (
+            {filteredPlugins.map(({ group, entry }) => (
               <article
                 className={cardStyles.pluginCard}
-                key={entry.id}
+                key={group.key}
                 aria-label={entry.name}
               >
                 <div className={cardStyles.cardTopRow}>
@@ -224,6 +320,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   </span>
                 </div>
                 <div className={cardStyles.cardActions}>
+                  {renderVersionSelect(group, entry)}
                   {renderInstallButton(entry)}
                 </div>
               </article>
@@ -231,8 +328,8 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
           </div>
         ) : (
           <div className={styles.catalogList}>
-            {filteredPlugins.map((entry) => (
-              <div className={styles.catalogRow} key={entry.id}>
+            {filteredPlugins.map(({ group, entry }) => (
+              <div className={styles.catalogRow} key={group.key}>
                 <div className={styles.catalogIcon}>
                   <Package size={18} />
                 </div>
@@ -254,6 +351,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   </div>
                 </div>
                 <div className={styles.catalogActions}>
+                  {renderVersionSelect(group, entry)}
                   {renderInstallButton(entry)}
                 </div>
               </div>
