@@ -15,17 +15,6 @@ export type OfficialPluginInstallAction =
   | "downgrade"
   | "current";
 
-export type OfficialPluginVersionRelation =
-  | "available"
-  | "installed"
-  | "upgrade"
-  | "downgrade";
-
-export interface OfficialPluginVersionOption {
-  version: string;
-  relation: OfficialPluginVersionRelation;
-}
-
 export interface OfficialPluginSelection {
   selectedVersion: string;
   catalogEntry?: OfficialPluginCatalogEntry;
@@ -71,39 +60,24 @@ export function groupOfficialPlugins(
   });
 }
 
-export function getOfficialPluginVersionOptions(
+export function getOfficialPluginVersions(
   group: OfficialPluginGroup,
-): OfficialPluginVersionOption[] {
-  const { installedVersion } = group;
-  const options = group.versions.map((entry) => {
-    if (!installedVersion) {
-      return { version: entry.version, relation: "available" as const };
-    }
+): string[] {
+  const versions = group.versions.map((entry) => entry.version);
 
-    const comparison = compareVersions(entry.version, installedVersion);
-    const relation: OfficialPluginVersionRelation =
-      comparison > 0 ? "upgrade" : comparison < 0 ? "downgrade" : "installed";
-    return { version: entry.version, relation };
-  });
-
-  if (
-    installedVersion &&
-    !options.some((option) => option.version === installedVersion)
-  ) {
-    options.unshift({ version: installedVersion, relation: "installed" });
+  if (group.installedVersion && !versions.includes(group.installedVersion)) {
+    versions.unshift(group.installedVersion);
   }
 
-  return options;
+  return versions;
 }
 
 export function resolveOfficialPluginSelection(
   group: OfficialPluginGroup,
   requestedVersion?: string,
 ): OfficialPluginSelection {
-  const options = getOfficialPluginVersionOptions(group);
-  const requestedSelection = options.some(
-    (option) => option.version === requestedVersion,
-  )
+  const versions = getOfficialPluginVersions(group);
+  const requestedSelection = versions.includes(requestedVersion ?? "")
     ? requestedVersion
     : undefined;
   const selectedVersion =

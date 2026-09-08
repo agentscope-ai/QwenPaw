@@ -59,7 +59,7 @@ function selectVersion(article: HTMLElement, version: string) {
       name: "pluginManager.catalogVersion",
     }),
   );
-  fireEvent.click(screen.getByText(`v${version}`, { exact: false }));
+  fireEvent.click(screen.getByText(`v${version}`));
 }
 
 describe("OfficialPluginList", () => {
@@ -146,18 +146,13 @@ describe("OfficialPluginList", () => {
     render(<OfficialPluginList onInstalled={vi.fn()} />);
     const article = screen.getByRole("article", { name: "Creator" });
     fireEvent.mouseDown(within(article).getByRole("combobox"));
+    expect(screen.getAllByText("v1.1.0")).toHaveLength(2);
+    expect(screen.getByText("v1.2.0")).toBeInTheDocument();
+    expect(screen.getByText("v1.0.0")).toBeInTheDocument();
     expect(
-      screen.getAllByText("v1.1.0 · pluginManager.catalogInstalledVersion"),
-    ).toHaveLength(2);
-    expect(
-      screen.getByText("v1.2.0 · pluginManager.catalogUpgrade"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("v1.0.0 · pluginManager.catalogDowngradeAvailable"),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByText("v1.0.0 · pluginManager.catalogDowngradeAvailable"),
-    );
+      document.querySelector(".ant-select-item-option-selected .lucide-check"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByText("v1.0.0"));
     fireEvent.click(
       within(article).getByRole("button", {
         name: /pluginManager.catalogDowngrade/,
@@ -213,11 +208,7 @@ describe("OfficialPluginList", () => {
     });
 
     expect(currentButton).toBeDisabled();
-    expect(
-      within(article).getByTitle(
-        "v1.1.0 · pluginManager.catalogInstalledVersion",
-      ),
-    ).toBeInTheDocument();
+    expect(within(article).getByTitle("v1.1.0")).toBeInTheDocument();
     selectVersion(article, "1.0.0");
     expect(
       within(article).getByRole("button", {

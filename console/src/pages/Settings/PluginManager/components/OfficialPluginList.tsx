@@ -18,7 +18,7 @@ import type {
 } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
 import {
-  getOfficialPluginVersionOptions,
+  getOfficialPluginVersions,
   groupOfficialPlugins,
   type OfficialPluginGroup,
   type OfficialPluginSelection,
@@ -197,21 +197,14 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     group: OfficialPluginGroup,
     selection: OfficialPluginSelection,
   ) => {
-    const versionOptions = getOfficialPluginVersionOptions(group);
-    if (versionOptions.length <= 1) return null;
-
-    const relationLabels = {
-      available: "",
-      installed: t("pluginManager.catalogInstalledVersion"),
-      upgrade: t("pluginManager.catalogUpgrade"),
-      downgrade: t("pluginManager.catalogDowngradeAvailable"),
-    };
+    const versions = getOfficialPluginVersions(group);
+    if (versions.length <= 1) return null;
 
     return (
       <Select
         className={styles.versionSelect}
         aria-label={t("pluginManager.catalogVersion")}
-        popupMatchSelectWidth={false}
+        menuItemSelectedIcon={<Check size={14} />}
         value={selection.selectedVersion}
         onChange={(version) =>
           setSelectedVersions((current) => ({
@@ -219,11 +212,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
             [group.key]: version,
           }))
         }
-        options={versionOptions.map((option) => ({
-          value: option.version,
-          label: relationLabels[option.relation]
-            ? `v${option.version} · ${relationLabels[option.relation]}`
-            : `v${option.version}`,
+        options={versions.map((version) => ({
+          value: version,
+          label: `v${version}`,
         }))}
       />
     );

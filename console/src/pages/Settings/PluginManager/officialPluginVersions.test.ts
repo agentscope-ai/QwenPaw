@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import {
-  getOfficialPluginVersionOptions,
+  getOfficialPluginVersions,
   groupOfficialPlugins,
   resolveOfficialPluginSelection,
 } from "./officialPluginVersions";
@@ -92,10 +92,10 @@ describe("officialPluginVersions", () => {
     ])[0];
 
     expect(group.installedVersion).toBe("1.1.0");
-    expect(getOfficialPluginVersionOptions(group)).toEqual([
-      { version: "1.2.0", relation: "upgrade" },
-      { version: "1.1.0", relation: "installed" },
-      { version: "1.0.0", relation: "downgrade" },
+    expect(getOfficialPluginVersions(group)).toEqual([
+      "1.2.0",
+      "1.1.0",
+      "1.0.0",
     ]);
     expect(resolveOfficialPluginSelection(group)).toMatchObject({
       selectedVersion: "1.1.0",
@@ -117,10 +117,7 @@ describe("officialPluginVersions", () => {
       }),
     ])[0];
 
-    expect(getOfficialPluginVersionOptions(group)).toEqual([
-      { version: "1.1.0", relation: "installed" },
-      { version: "1.0.0", relation: "downgrade" },
-    ]);
+    expect(getOfficialPluginVersions(group)).toEqual(["1.1.0", "1.0.0"]);
     expect(resolveOfficialPluginSelection(group)).toMatchObject({
       selectedVersion: "1.1.0",
       catalogEntry: undefined,
