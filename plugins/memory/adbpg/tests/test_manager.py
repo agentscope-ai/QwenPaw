@@ -252,7 +252,7 @@ async def test_remote_failure_still_recalls_local_memory(tmp_path):
     (tmp_path / "MEMORY.md").write_text("I like cats", encoding="utf-8")
     manager = await _rest_manager(
         tmp_path,
-        lambda request: httpx.Response(503, json={"detail": "offline"}),
+        lambda _request: httpx.Response(503, json={"detail": "offline"}),
     )
     try:
         result = await manager.auto_memory_search([_user_msg("cats")])
@@ -267,7 +267,7 @@ async def test_remote_failure_still_recalls_local_memory(tmp_path):
 async def test_close_drains_writes_before_closing_http_client(tmp_path):
     started, release = asyncio.Event(), asyncio.Event()
 
-    async def handler(request):
+    async def handler(_request):
         started.set()
         await release.wait()
         return httpx.Response(202, json={"results": []})

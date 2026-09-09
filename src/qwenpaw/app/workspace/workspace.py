@@ -56,7 +56,8 @@ def _memory_backend_context(ws: "Workspace") -> "MemoryBackendContext":
     """Snapshot all construction settings used by core and plugin backends."""
     from ...memory import MemoryBackendContext
 
-    running = ws._config.running
+    config = ws.config
+    running = config.running
     backend_id = running.memory_manager_backend.strip().lower()
     backend_configs = getattr(running, "memory_backend_configs", {})
     raw_config = dict(backend_configs.get(backend_id, {}) or {})
@@ -71,7 +72,7 @@ def _memory_backend_context(ws: "Workspace") -> "MemoryBackendContext":
         working_dir=ws.workspace_dir,
         host_working_dir=WORKING_DIR,
         backend_config=raw_config,
-        language=getattr(ws._config, "language", "zh") or "zh",
+        language=getattr(config, "language", "zh") or "zh",
         token_estimate_divisor=(
             estimate_divisor if estimate_divisor > 0 else 4.0
         ),

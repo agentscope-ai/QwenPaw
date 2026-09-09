@@ -819,9 +819,10 @@ class MemoryBackendRegistry:
 
     def __init__(self) -> None:
         self._registrations: dict[str, MemoryBackendRegistration] = {}
-        self._instances: WeakValueDictionary[int, BaseMemoryManager] = (
-            WeakValueDictionary()
-        )
+        self._instances: WeakValueDictionary[
+            int,
+            BaseMemoryManager,
+        ] = WeakValueDictionary()
         # Service constructors run in worker threads, while unload and close
         # run on the event loop. Instance snapshots must serialize with adds.
         self._instances_lock = RLock()
