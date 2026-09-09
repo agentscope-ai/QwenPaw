@@ -25,6 +25,7 @@ from qwenpaw.config import config as config_module
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
+from qwenpaw.providers.dashscope_provider import DashScopeProvider
 
 
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
@@ -169,20 +170,51 @@ def test_implicit_default_context_size_is_replaced():
     assert model.context_size == 131_072
 
 
-def test_explicit_default_context_size_is_preserved():
-    """Preserve an explicitly configured 32K context window."""
-    model = SimpleNamespace(context_size=32_768)
-    provider = SimpleNamespace(
-        id="provider",
-        get_context_size=lambda _model_id: 131_072,
-        get_model_info=lambda _model_id: SimpleNamespace(
-            max_input_length_configured=True,
-        ),
+@pytest.mark.parametrize("configured_size", [131_072, 32_768])
+@pytest.mark.parametrize("current_size", [None, 32_768])
+def test_factory_restores_explicit_context_size(
+    monkeypatch,
+    configured_size,
+    current_size,
+):
+    """Use provider resolution for missing or defaulted model windows."""
+    model_id = "qwen3.8-max"
+    provider = DashScopeProvider(
+        id="dashscope",
+        name="DashScope",
+        models=[
+            provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+                max_input_length_auto_detected=262_144,
+            ),
+        ],
+    )
+    assert provider.update_model_config(
+        model_id,
+        {"max_input_length": configured_size},
+    )
+    assert provider.get_context_size(model_id) == configured_size
+
+    model = _FakeChatModel(model_id)
+    model.context_size = current_size
+    monkeypatch.setattr(
+        DashScopeProvider,
+        "get_chat_model_instance",
+        lambda _self, _model_id: model,
+    )
+    monkeypatch.setattr(
+        model_factory.ProviderManager,
+        "get_instance",
+        lambda: SimpleNamespace(get_provider=lambda _provider_id: provider),
     )
 
-    model_factory._ensure_model_context_size(model, provider, "model")
+    actual, _ = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        model_slot_override=f"dashscope:{model_id}",
+    )
 
-    assert model.context_size == 32_768
+    assert actual.context_size == configured_size
 
 
 def test_factory_binds_returned_formatter_to_provider_model():

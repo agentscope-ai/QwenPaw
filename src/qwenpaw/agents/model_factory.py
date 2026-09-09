@@ -1917,36 +1917,26 @@ def _ensure_model_context_size(
     provider: Any,
     model_id: str,
 ) -> None:
-    """Restore a missing model window from the Provider resolution path."""
+    """Restore missing or defaulted windows from provider resolution."""
     current = getattr(model, "context_size", None)
     if isinstance(current, (int, float)) and current > 0 and current != 32768:
         return
     try:
         resolved = provider.get_context_size(model_id)
-        get_model_info = getattr(provider, "get_model_info", None)
-        model_info = (
-            get_model_info(model_id) if callable(get_model_info) else None
-        )
-        explicitly_configured = bool(
-            getattr(model_info, "max_input_length_configured", False),
-        )
         needs_restore = not (isinstance(current, (int, float)) and current > 0)
-        defaulted_without_explicit_config = (
-            current == 32768
-            and resolved != 32768
-            and not explicitly_configured
-        )
+        defaulted_context = current == 32768 and resolved != 32768
         if (
             isinstance(resolved, int)
             and resolved > 0
-            and (needs_restore or defaulted_without_explicit_config)
+            and (needs_restore or defaulted_context)
         ):
             setattr(model, "context_size", resolved)
             logger.warning(
-                "Model %s:%s did not expose context_size; restored %s "
+                "Model %s:%s context_size=%r; restored %s "
                 "from Provider configuration",
                 getattr(provider, "id", "unknown"),
                 model_id,
+                current,
                 resolved,
             )
     except Exception as exc:  # pylint: disable=broad-exception-caught
