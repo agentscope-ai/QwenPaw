@@ -19,6 +19,7 @@ import {
 } from "./ReMeLightMemoryCard";
 import { EmbeddingModelCard } from "./EmbeddingModelCard";
 import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
+import { handleRerankerFieldsChange } from "../rerankerVisibility";
 import { useReMeRuntimeStatus } from "../useReMeRuntimeStatus";
 import {
   getEmbeddingConfigFingerprint,
@@ -131,6 +132,65 @@ function StaticMemoryProvider({
       }}
     >
       {children}
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+/**
+ * Mirrors the AgentConfigPage wiring for the validation-visibility path: the
+ * rerankerExpanded state lives in the memory maintenance context and the form
+ * uses the shared onFieldsChange handler, so collapsed errors surface the
+ * section instead of failing the save silently.
+ */
+function RerankerVisibilityForm({
+  base_url = "",
+  model_name = "",
+  formRef,
+}: {
+  base_url?: string;
+  model_name?: string;
+  formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+}) {
+  const [form] = Form.useForm();
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
+  formRef.current = form;
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded,
+        setRerankerExpanded,
+        configLoadRevision: 0,
+      }}
+    >
+      <Form
+        form={form}
+        onFieldsChange={handleRerankerFieldsChange(form, setRerankerExpanded)}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            dream_cron_enabled: false,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            reranker_config: {
+              enabled: true,
+              base_url,
+              model_name,
+              api_key: "",
+              candidate_multiplier: 3,
+              timeout: 10,
+            },
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+      </Form>
     </MemoryMaintenanceContext.Provider>
   );
 }
@@ -1484,6 +1544,64 @@ describe("reranker validation", () => {
     expect(errorNames).toContain(
       "reme_light_memory_config.reranker_config.model_name",
     );
+  });
+
+  it("expands the details when a collapsed numeric field fails validation", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerVisibilityForm
+        formRef={formRef}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    // Details are expanded because reranking is enabled
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Clear both numeric fields. InputNumber commits an empty value as null
+    // (values below min are clamped back, so they cannot be made invalid by
+    // typing), and the required rule rejects it.
+    const multiplierInput = screen.getByLabelText(
+      "agentConfig.rerankerCandidateMultiplier",
+    );
+    const timeoutInput = screen.getByLabelText("agentConfig.rerankerTimeout");
+    await act(async () => {
+      fireEvent.change(multiplierInput, { target: { value: "" } });
+    });
+    await act(async () => {
+      fireEvent.change(timeoutInput, { target: { value: "" } });
+    });
+
+    // Collapse the details section
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Save rejects...
+    const errors = await act(async () => {
+      return await form
+        .validateFields()
+        .then(() => [])
+        .catch((e) => e.errorFields ?? []);
+    });
+    const errorNames = errors.map((e: { name: string[] }) => e.name.join("."));
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.candidate_multiplier",
+    );
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.timeout",
+    );
+
+    // ...and the details expand so the user can see what failed
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
   });
 });
 
