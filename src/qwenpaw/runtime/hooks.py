@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import HookCycleError
+from .occupancy import occupancy_conflict
 from .phases import Phase
 
 if TYPE_CHECKING:
@@ -155,6 +156,7 @@ class HookBase:
     priority: int = 100
     before: tuple[str, ...] = ()
     after: tuple[str, ...] = ()
+    owner_plugin_id: str = ""
 
     async def run(self, _ctx: HookContext) -> HookResult:  # noqa: D401
         return HookResult()
@@ -278,8 +280,35 @@ class HookRegistry:
             raise TypeError(
                 f"hook {hook.name!r} has invalid phase {hook.phase!r}",
             )
+        occupant = self._hook_named(hook.name)
+        if occupant is not None:
+            raise ValueError(
+                occupancy_conflict(
+                    "hook",
+                    hook.name,
+                    getattr(occupant, "owner_plugin_id", "") or "",
+                ),
+            )
         self._by_phase[hook.phase].append(hook)
         self._sorted_cache.pop(hook.phase, None)
+
+    def _hook_named(self, name: str) -> HookBase | None:
+        for hooks in self._by_phase.values():
+            for hook in hooks:
+                if hook.name == name:
+                    return hook
+        return None
+
+    def unregister(self, name: str) -> bool:
+        """Remove a hook by name. Returns ``True`` if it was present."""
+        found = False
+        for phase, hooks in list(self._by_phase.items()):
+            kept = [h for h in hooks if h.name != name]
+            if len(kept) != len(hooks):
+                self._by_phase[phase] = kept
+                self._sorted_cache.pop(phase, None)
+                found = True
+        return found
 
     def hooks_for(self, phase: Phase) -> list[HookBase]:
         """Return the topologically sorted hooks registered for ``phase``."""
@@ -298,13 +327,35 @@ class HookRegistry:
         * ``SKIP_AGENT`` is sticky: subsequent hooks still run, but the
           final result of the phase carries ``SKIP_AGENT`` so the Runtime
           can skip the two fixed agent steps.
-        * Any hook raising propagates to the runtime's ``ON_ERROR`` chain
-          via the normal exception path — the registry does **not** swallow
-          exceptions; tests rely on this contract.
+        * Host hooks (empty ``owner_plugin_id``) that raise still
+          propagate to the runtime's ``ON_ERROR`` chain.
+        * Plugin-owned hooks are isolated: the error is logged and
+          recorded on that plugin, and the phase continues.
         """
         final_action = HookAction.CONTINUE
         for hook in self.hooks_for(phase):
-            result = await hook.run(ctx)
+            try:
+                result = await hook.run(ctx)
+            except Exception as exc:
+                owner = getattr(hook, "owner_plugin_id", "") or ""
+                if owner:
+                    logger.error(
+                        "Plugin '%s' runtime hook '%s' failed: %s",
+                        owner,
+                        hook.name,
+                        exc,
+                        exc_info=True,
+                    )
+                    from qwenpaw.plugins.lifecycle import (
+                        note_plugin_diagnostic,
+                    )
+
+                    note_plugin_diagnostic(
+                        owner,
+                        f"runtime hook {hook.name}: {exc}",
+                    )
+                    continue
+                raise
             if result.action == HookAction.SHORT_CIRCUIT:
                 return result
             if result.action == HookAction.SKIP_AGENT:

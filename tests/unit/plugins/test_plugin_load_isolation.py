@@ -439,8 +439,11 @@ class TestLoadAllPluginsIsolation:
         assert "zzz-good" in loaded
         assert loaded["zzz-good"].enabled is True
 
-        # Bad plugin is NOT in loaded dict
-        assert "aaa-bad" not in loaded
+        # Failed register() stays as a FAILED record so repair/uninstall
+        # can still find it. Runtime hooks from the failed load are gone.
+        assert "aaa-bad" in loaded
+        assert loaded["aaa-bad"].status == "failed"
+        assert loaded["aaa-bad"].enabled is False
 
         # Registry contains only the good plugin's hook, not the bad one
         hooks = fresh_registry.get_startup_hooks()

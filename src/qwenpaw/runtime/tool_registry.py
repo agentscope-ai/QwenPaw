@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from .occupancy import occupancy_conflict
+
 
 @dataclass(frozen=True)
 class ToolGovernanceSpec:
@@ -84,6 +86,7 @@ class ToolDescriptor:
         default_factory=ToolGovernanceSpec,
     )
     ui: ToolUISpec = field(default_factory=ToolUISpec)
+    owner_plugin_id: str = ""
 
 
 class ToolRegistry:
@@ -100,7 +103,14 @@ class ToolRegistry:
                 f" got {type(desc).__name__}",
             )
         if desc.name in self._descs:
-            raise ValueError(f"tool {desc.name!r} already registered")
+            existing = self._descs[desc.name]
+            raise ValueError(
+                occupancy_conflict(
+                    "tool",
+                    desc.name,
+                    getattr(existing, "owner_plugin_id", "") or "",
+                ),
+            )
         self._descs[desc.name] = desc
 
     def register_many(self, descs: Iterable[ToolDescriptor]) -> None:

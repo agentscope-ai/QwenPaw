@@ -86,11 +86,12 @@ class TestUninstallHook:
     ):
         """Uninstall hooks are stored in registry after registration."""
         callback = MagicMock()
-        plugin_api.register_uninstall_hook(
-            hook_name="test_cleanup",
-            callback=callback,
-            priority=50,
-        )
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook(
+                hook_name="test_cleanup",
+                callback=callback,
+                priority=50,
+            )
 
         hooks = fresh_registry.get_uninstall_hooks()
         assert len(hooks) == 1
@@ -98,6 +99,12 @@ class TestUninstallHook:
         assert hooks[0].hook_name == "test_cleanup"
         assert hooks[0].callback is callback
         assert hooks[0].priority == 50
+
+    def test_legacy_hooks_are_deprecated(self, plugin_api):
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook("u", lambda: None)
+        with pytest.warns(DeprecationWarning, match="register_shutdown_hook"):
+            plugin_api.register_shutdown_hook("s", lambda: None)
 
     def test_uninstall_hooks_sorted_by_priority(
         self,
@@ -459,7 +466,11 @@ class TestRegisterSkillProvider:
         plugin_api,
         fresh_registry,
     ):
-        """register_skill_provider registers startup and uninstall hooks."""
+        """register_skill_provider uses install-layer teardown, not hooks."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             # Create a fake skill
@@ -481,10 +492,11 @@ class TestRegisterSkillProvider:
         startup_names = [h.hook_name for h in startup_hooks]
         assert "install_skills_test-plugin" in startup_names
 
-        # Check uninstall hook registered
         uninstall_hooks = fresh_registry.get_uninstall_hooks()
-        uninstall_names = [h.hook_name for h in uninstall_hooks]
-        assert "uninstall_skills_test-plugin" in uninstall_names
+        assert uninstall_hooks == []
+        assert any(
+            entry.desc.startswith("skill_provider:") for entry in inst._install
+        )
 
     def test_register_skill_provider_default_channels(
         self,
@@ -537,6 +549,49 @@ class TestRegisterSkillProvider:
         hooks = fresh_registry.get_workspace_created_hooks()
         hook_names = [h.hook_name for h in hooks]
         assert "provision_skills_test-plugin" in hook_names
+
+    def test_skill_install_records_provision_inventory(
+        self,
+        plugin_api,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Skill copy goes through provision_files (hash / create branch)."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+        from qwenpaw.plugins.provision import load_inventory
+
+        monkeypatch.setattr(
+            "qwenpaw.constant.WORKING_DIR",
+            tmp_path / "work",
+        )
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
+        plugin_api.manifest = {
+            "id": "test-plugin",
+            "version": "3.1.0",
+        }
+        skills_dir = tmp_path / "skills"
+        skill_dir = skills_dir / "hashed-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: hashed\n---\nHi.",
+            encoding="utf-8",
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        plugin_api._install_skills_into_workspace(
+            {"workspace_dir": str(workspace), "agent_id": "a"},
+            skills_dir,
+            "plugin:test-plugin",
+            True,
+            ["all"],
+        )
+        dest = workspace / "skills" / "hashed-skill"
+        data = load_inventory("test-plugin")
+        loc = data["locations"][str(dest)]
+        assert loc["branch"] == "create"
+        assert loc["version"] == "3.1.0"
+        assert loc["files"]["SKILL.md"]["factory_hash"]
 
 
 # ---------------------------------------------------------------------------

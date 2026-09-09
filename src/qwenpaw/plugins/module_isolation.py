@@ -53,10 +53,12 @@ Known limitations (documented, not silently broken):
   string-annotation resolution or pickling) fail afterwards.
 """
 
+import ast
 import builtins
 import importlib
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import os
 import sys
 import threading
@@ -119,6 +121,9 @@ class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
 
     def is_registered(self, module_name: str) -> bool:
         return module_name in self._namespaces
+
+    def builtins_for(self, module_name: str) -> Dict[str, Any] | None:
+        return self._namespaces.get(module_name)
 
     def find_spec(
         self,
@@ -387,3 +392,181 @@ def build_plugin_builtins(
     plugin_builtins = dict(vars(builtins))
     plugin_builtins["__import__"] = _plugin_import
     return plugin_builtins
+
+
+def plugin_module_name(plugin_id: str, *, probe: bool = False) -> str:
+    """Return the isolated top-level module name for *plugin_id*."""
+    base = f"plugin_{plugin_id.replace('-', '_')}"
+    return f"{base}__probe" if probe else base
+
+
+def snapshot_plugin_import_state(
+    plugin_id: str,
+    source_path: Path,
+) -> dict[str, Any]:
+    """Capture prefix modules, bare tree modules, sys.path, and finder."""
+    module_name = plugin_module_name(plugin_id)
+    prefix = module_name + "."
+    modules = {
+        key: sys.modules[key]
+        for key in list(sys.modules)
+        if key == module_name or key.startswith(prefix)
+    }
+    root = _norm(source_path)
+    sep = root + os.sep
+    bare: dict[str, Any] = {}
+    for key, mod in list(sys.modules.items()):
+        if key in modules:
+            continue
+        origin = getattr(mod, "__file__", None)
+        if origin is None:
+            continue
+        resolved = _norm(origin)
+        if resolved == root or resolved.startswith(sep):
+            bare[key] = mod
+    path_entries = [
+        entry
+        for entry in sys.path
+        if os.path.isabs(entry)
+        and (_norm(entry) == root or _norm(entry).startswith(sep))
+    ]
+    finder = get_namespace_finder()
+    return {
+        "plugin_id": plugin_id,
+        "module_name": module_name,
+        "source_path": source_path,
+        "modules": modules,
+        "bare": bare,
+        "path_entries": path_entries,
+        "finder_builtins": finder.builtins_for(module_name),
+    }
+
+
+def restore_plugin_import_state(snapshot: dict[str, Any]) -> None:
+    """Put a :func:`snapshot_plugin_import_state` result back."""
+    module_name = snapshot["module_name"]
+    prefix = module_name + "."
+    for key in list(sys.modules):
+        if key == module_name or key.startswith(prefix):
+            sys.modules.pop(key, None)
+    sys.modules.update(snapshot.get("modules") or {})
+    sys.modules.update(snapshot.get("bare") or {})
+    for entry in snapshot.get("path_entries") or []:
+        if entry not in sys.path:
+            sys.path.append(entry)
+    builtins_map = snapshot.get("finder_builtins")
+    if builtins_map is not None:
+        get_namespace_finder().register(module_name, builtins_map)
+
+
+def compile_plugin_import_closure(
+    entry_file: Path,
+    search_paths: list[str],
+) -> None:
+    """``compile()`` the entry file and locally imported siblings."""
+    seen: set[Path] = set()
+    _compile_file(Path(entry_file), search_paths, seen)
+
+
+def probe_plugin_source(
+    plugin_id: str,
+    source_path: Path,
+    entry_file: Path,
+) -> None:
+    """Import *entry_file* under ``plugin_<id>__probe``, then clean up."""
+    probe_name = plugin_module_name(plugin_id, probe=True)
+    plugin_dir = str(source_path)
+    entry_dir = str(entry_file.parent)
+    search_paths = [entry_dir]
+    if _norm(entry_dir) != _norm(plugin_dir):
+        search_paths.append(plugin_dir)
+    compile_plugin_import_closure(entry_file, search_paths)
+    plugin_builtins = build_plugin_builtins(
+        probe_name,
+        search_paths,
+        entry_file=entry_file,
+    )
+    finder = get_namespace_finder()
+    finder.register(probe_name, plugin_builtins)
+    spec = importlib.util.spec_from_file_location(
+        probe_name,
+        entry_file,
+        submodule_search_locations=search_paths,
+    )
+    if spec is None or spec.loader is None:
+        unregister_namespace(probe_name)
+        raise ImportError(f"Failed to load probe spec for {entry_file}")
+    module = importlib.util.module_from_spec(spec)
+    module.__dict__["__builtins__"] = plugin_builtins
+    try:
+        sys.modules[probe_name] = module
+        module.__package__ = probe_name
+        module.__path__ = search_paths
+        spec.loader.exec_module(module)
+        if (
+            getattr(module, "plugin", None) is None
+            and getattr(
+                module,
+                "app",
+                None,
+            )
+            is None
+        ):
+            raise AttributeError(
+                "Plugin module must export a 'plugin' object "
+                "(or a PawApp 'app' instance)",
+            )
+    finally:
+        finish_probe_import(plugin_id, source_path)
+
+
+def finish_probe_import(plugin_id: str, source_path: Path) -> None:
+    """Drop the probe namespace so later sweeps are not exempt."""
+    probe_name = plugin_module_name(plugin_id, probe=True)
+    unregister_namespace(probe_name)
+    sweep_bare_tree_modules(source_path)
+    prefix = probe_name + "."
+    for key in list(sys.modules):
+        if key == probe_name or key.startswith(prefix):
+            sys.modules.pop(key, None)
+
+
+def _compile_file(
+    path: Path,
+    search_paths: list[str],
+    seen: set[Path],
+) -> None:
+    resolved = path.resolve()
+    if resolved in seen or not resolved.is_file():
+        return
+    seen.add(resolved)
+    source = resolved.read_text(encoding="utf-8")
+    compile(source, str(resolved), "exec")
+    tree = ast.parse(source, filename=str(resolved))
+    for name in _imported_top_names(tree):
+        child = _find_local_py(name, search_paths)
+        if child is not None:
+            _compile_file(child, search_paths, seen)
+
+
+def _imported_top_names(tree: ast.AST) -> list[str]:
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.append(alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            if node.module:
+                names.append(node.module.split(".", 1)[0])
+    return names
+
+
+def _find_local_py(name: str, search_paths: list[str]) -> Path | None:
+    for root in search_paths:
+        candidate = Path(root) / f"{name}.py"
+        if candidate.is_file():
+            return candidate
+        package = Path(root) / name / "__init__.py"
+        if package.is_file():
+            return package
+    return None

@@ -60,6 +60,7 @@ class StopHandlerRegistration:
     name: str = ""
     scope: str = ""
     is_active: Callable[[], bool] | None = None
+    owner_plugin_id: str = ""
 
 
 class StopGate(ABC):
