@@ -1930,9 +1930,7 @@ def _ensure_model_context_size(
         explicitly_configured = bool(
             getattr(model_info, "max_input_length_configured", False),
         )
-        needs_restore = not (
-            isinstance(current, (int, float)) and current > 0
-        )
+        needs_restore = not (isinstance(current, (int, float)) and current > 0)
         defaulted_without_explicit_config = (
             current == 32768
             and resolved != 32768
