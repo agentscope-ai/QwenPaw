@@ -20,6 +20,7 @@ import { DebugSettings } from "../../features/workbench/DebugSettings";
 import { EnvironmentSettings } from "../../features/workbench/EnvironmentSettings";
 import { ExtensionsSettings } from "../../features/workbench/ExtensionsSettings";
 import { FilesSettings } from "../../features/workbench/FilesSettings";
+import { HubSettings } from "../../features/workbench/HubSettings";
 import { McpSettings } from "../../features/workbench/McpSettings";
 import { ModelsSettings } from "../../features/workbench/ModelsSettings";
 import { OffloadSettings } from "../../features/workbench/OffloadSettings";
@@ -88,6 +89,7 @@ function ModuleContent({
   module: WorkbenchModule;
 }) {
   if (module.key === "agent-config") return <AgentSettings connection={connection} />;
+  if (module.key === "hub") return <HubSettings connection={connection} />;
   if (module.key === "models") return <ModelsSettings connection={connection} />;
   if (module.key === "skills") return <SkillSettings connection={connection} />;
   if (module.key === "skill-pool") {

@@ -94,3 +94,23 @@ def test_migration_applies_to_extra_models_and_is_idempotent() -> None:
     migrated = deepcopy(snapshot)
     assert migrate_provider_snapshot(snapshot) is False
     assert snapshot == migrated
+
+
+def test_discovered_model_migration_preserves_secret() -> None:
+    snapshot: dict[str, Any] = {
+        "api_key": "ENC:encrypted-provider-key",
+        "discovered_models": [
+            {
+                "id": "discovered-model",
+                "name": "Discovered Model",
+                "max_tokens": 4096,
+            },
+        ],
+    }
+
+    assert migrate_provider_snapshot(snapshot) is True
+
+    model = snapshot["discovered_models"][0]
+    assert "max_tokens" not in model
+    assert model["generate_kwargs"]["max_tokens"] == 4096
+    assert snapshot["api_key"] == "ENC:encrypted-provider-key"

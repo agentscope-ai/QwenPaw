@@ -12,6 +12,7 @@ import {
 } from "./sse";
 import { requestWithPlatformGateway } from "./platformGateway";
 import {
+  qwenPawCredentialEndpoint,
   requiresQwenPawCredentials,
   type QwenPawAuthStatus,
 } from "./qwenPawAuthModel";
@@ -27,6 +28,11 @@ import type {
   ChatSpec,
   Connection,
   ContentItem,
+  HubHealth,
+  HubIdentity,
+  HubOverview,
+  HubPage,
+  HubRuntime,
   LoopModeInfo,
   LoopStatus,
   ModelSlotOverride,
@@ -127,6 +133,44 @@ export class QwenPawClient {
 
   async inspectModule(path: string): Promise<unknown> {
     return this.request(path);
+  }
+
+  async getHubHealth(): Promise<HubHealth> {
+    return this.request<HubHealth>("/hub/healthz");
+  }
+
+  async getHubIdentity(): Promise<HubIdentity> {
+    return this.request<HubIdentity>("/hub/me");
+  }
+
+  async listHubRuntimes(): Promise<HubPage<HubRuntime>> {
+    return this.request<HubPage<HubRuntime>>("/hub/runtimes?page_size=100");
+  }
+
+  async getHubOverview(): Promise<HubOverview> {
+    return this.request<HubOverview>("/hub/admin/overview");
+  }
+
+  async restartOwnHubRuntime(): Promise<HubRuntime> {
+    return this.request<HubRuntime>("/hub/me/runtime/restart", {
+      method: "POST",
+    });
+  }
+
+  async manageHubRuntime(
+    runtimeId: string,
+    action: "start" | "stop" | "rebuild" | "disable",
+  ): Promise<HubRuntime> {
+    return this.request<HubRuntime>(
+      `/hub/runtimes/${encodeURIComponent(runtimeId)}/${action}`,
+      { method: "POST" },
+    );
+  }
+
+  async deleteHubRuntime(runtimeId: string): Promise<void> {
+    await this.request(`/hub/runtimes/${encodeURIComponent(runtimeId)}`, {
+      method: "DELETE",
+    });
   }
 
   async mutateModule<T = unknown>(
@@ -615,8 +659,9 @@ export async function loginQwenPaw(
   ) {
     throw new QwenPawCredentialsRequiredError();
   }
+  const authPath = qwenPawCredentialEndpoint(status);
   const request = () =>
-    fetch(`${baseUrl}/api/auth/login`, {
+    fetch(`${baseUrl}${authPath}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password, expires_in: 0 }),
@@ -631,7 +676,11 @@ export async function loginQwenPaw(
     platformAccessPath,
   );
   if (!response.ok) throw await responseError(response);
-  const data = (await response.json()) as { token: string; username: string };
+  const data = (await response.json()) as {
+    mode?: "hub";
+    token: string;
+    username: string;
+  };
   return {
     baseUrl,
     token: data.token,
@@ -639,12 +688,13 @@ export async function loginQwenPaw(
     agentId: "default",
     source,
     platformAccessPath,
+    serverMode: status?.mode === "hub" ? "hub" : undefined,
   };
 }
 
 export class QwenPawCredentialsRequiredError extends Error {
   constructor() {
-    super("检测到 QwenPaw 独立认证状态，需要额外处理。");
+    super("请输入 Hub 或 QwenPaw 的登录账号和密码。");
     this.name = "QwenPawCredentialsRequiredError";
   }
 }
@@ -687,13 +737,18 @@ export async function redeemPairing(
     body: JSON.stringify({ ticket }),
   });
   if (!response.ok) throw await responseError(response);
-  const data = (await response.json()) as { token: string; username: string };
+  const data = (await response.json()) as {
+    mode?: "hub";
+    token: string;
+    username: string;
+  };
   return {
     baseUrl,
     token: data.token,
     username: data.username,
     agentId: "default",
     source: "private",
+    serverMode: data.mode === "hub" ? "hub" : undefined,
   };
 }
 

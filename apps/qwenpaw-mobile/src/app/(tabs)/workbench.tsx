@@ -13,7 +13,7 @@ import {
   Waypoints,
   type LucideIcon,
 } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -26,6 +26,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { QwenPawClient } from "../../api/client";
 import { IosHeader } from "../../components/IosHeader";
 import { IosGroup, IosRow } from "../../components/IosList";
 import { MobileToast } from "../../components/MobileToast";
@@ -40,6 +41,7 @@ import {
 } from "../../features/workspaces/WorkspaceSwitcher";
 import { mobileText } from "../../i18n/locale";
 import { resolveAgentAppearance } from "../../storage/agentAppearance";
+import { connectionKey } from "../../storage/connection";
 import { useAppStore } from "../../store/app";
 import { qwenPawBrandAssets } from "../../theme/brandAssets";
 import { colors, radius, spacing } from "../../theme/tokens";
@@ -95,12 +97,30 @@ export default function WorkbenchScreen() {
   const agents = useAppStore((state) => state.agents);
   const appearances = useAppStore((state) => state.agentAppearances);
   const createChat = useAppStore((state) => state.createChat);
+  const [detectedHubKey, setDetectedHubKey] = useState<string | null>(null);
+  const currentConnectionKey = connection ? connectionKey(connection) : null;
+  const hubAvailable = connection?.serverMode === "hub" ||
+    (currentConnectionKey !== null && detectedHubKey === currentConnectionKey);
+  const visibleCategories = useMemo(
+    () => workbenchCategories.map((category) => ({
+      ...category,
+      modules: category.modules.filter(
+        (module) => module.key !== "hub" || hubAvailable,
+      ),
+    })),
+    [hubAvailable],
+  );
+  const visibleActiveCategory = activeCategory
+    ? visibleCategories.find((category) => (
+        category.title === activeCategory.title
+      )) ?? null
+    : null;
   const agent = agents.find((item) => item.id === connection?.agentId);
   const appearance = resolveAgentAppearance(appearances, connection, agent);
   const searchResults = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return [];
-    return workbenchCategories.flatMap((section) => section.modules.filter(
+    return visibleCategories.flatMap((section) => section.modules.filter(
       (module) => [
         module.title,
         module.subtitle,
@@ -108,11 +128,26 @@ export default function WorkbenchScreen() {
         ...(module.keywords ?? []),
       ].join(" ").toLocaleLowerCase().includes(normalized),
     ));
-  }, [query]);
+  }, [query, visibleCategories]);
   const accountMatches = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return Boolean(normalized && accountSearchText.includes(normalized));
   }, [query]);
+
+  useEffect(() => {
+    let active = true;
+    if (!connection || connection.source === "relay" || status !== "ready") {
+      return () => { active = false; };
+    }
+    if (connection.serverMode === "hub") {
+      return () => { active = false; };
+    }
+    const key = connectionKey(connection);
+    void new QwenPawClient(connection).getHubHealth()
+      .then(() => { if (active) setDetectedHubKey(key); })
+      .catch(() => { if (active) setDetectedHubKey(null); });
+    return () => { active = false; };
+  }, [connection, status]);
 
   const openModule = (key: string) => {
     if (key === "sessions") {
@@ -145,18 +180,19 @@ export default function WorkbenchScreen() {
   return (
     <SafeAreaView edges={["top"]} style={styles.root}>
       <IosHeader
-        title={activeCategory
-          ? categoryPresentation[activeCategory.title]?.title ?? activeCategory.title
+        title={visibleActiveCategory
+          ? categoryPresentation[visibleActiveCategory.title]?.title ??
+            visibleActiveCategory.title
           : mobileText("工作台", "Workbench")}
-        onBack={activeCategory ? back : undefined}
+        onBack={visibleActiveCategory ? back : undefined}
       />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
       >
-        {activeCategory ? (
-          <CategoryDetail category={activeCategory} onOpen={openModule} />
+        {visibleActiveCategory ? (
+          <CategoryDetail category={visibleActiveCategory} onOpen={openModule} />
         ) : (
           <>
             <Pressable
@@ -263,7 +299,7 @@ export default function WorkbenchScreen() {
                   </Text>
                 </View>
                 <View style={styles.categoryGroup}>
-                  {workbenchCategories.map((category, index) => (
+                  {visibleCategories.map((category, index) => (
                     <CategoryRow
                       category={category}
                       divider={index > 0}

@@ -113,6 +113,11 @@ export interface ProviderConfigRequest {
   auth_mode?: "api_key" | "auth_token";
 }
 
+export type CustomChatModelName =
+  | "OpenAIChatModel"
+  | "OpenAIResponseModel"
+  | "AnthropicChatModel";
+
 export interface ModelSlotConfig {
   provider_id: string;
   model: string;
@@ -144,7 +149,7 @@ export interface CreateCustomProviderRequest {
   name: string;
   default_base_url?: string;
   api_key_prefix?: string;
-  chat_model?: string;
+  chat_model?: CustomChatModelName;
   models?: ModelInfo[];
 }
 

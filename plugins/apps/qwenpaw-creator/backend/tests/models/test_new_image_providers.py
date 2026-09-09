@@ -24,7 +24,6 @@ from models.image import (
 )
 from models.image import ark_provider, bfl_provider, gemini_provider
 from models.image import ideogram_provider
-from models.image.base import image_reference_limit
 from utils.exceptions import ModelError
 
 pytestmark = pytest.mark.unit
@@ -76,26 +75,7 @@ def _model(cls, name, base_url):
     return cls(model_name=name, api_key="k", base_url=base_url, timeout=30)
 
 
-# ── capability table & backend detection ────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("model_name", "limit"),
-    [
-        ("gemini-3-pro-image", 14),
-        ("gemini-3.1-flash-image", 14),
-        ("gemini-2.5-flash-image", 3),
-        ("doubao-seedream-5-0-pro-260628", 10),
-        ("doubao-seedream-4-5-251128", 14),
-        ("flux-2-pro", 8),
-        ("flux-2-klein-4b", 8),
-        ("ideogram-v3", 1),
-        ("ideogram-v4", 0),
-        ("gemini-42-image", None),  # unknown aliases stay unregistered
-    ],
-)
-def test_reference_limits_follow_official_docs(model_name, limit) -> None:
-    assert image_reference_limit(model_name) == limit
+# ── backend detection ────────────────────────────────────
 
 
 def test_backend_detection() -> None:

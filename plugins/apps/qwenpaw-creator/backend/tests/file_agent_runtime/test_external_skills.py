@@ -97,6 +97,56 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert not invalid.available
 
 
+def test_professional_media_prompt_skill_is_builtin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The Creator ships the detailed prompt compiler without config."""
+
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    external_skills._clear_load_cache()
+
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    skill = loaded["professional-media-prompts"]
+    assert skill.available
+    parsed = external_skills.parse_skill_md(skill.skill_md)
+    assert parsed["description"] and parsed["body"]
+    # Keep the interoperable reference convention covered; layout semantics
+    # belong to executable layout tests, not exact prose-copy assertions.
+    assert "[Image 1]" in parsed["body"]
+    viewed = external_skills.view_skill(
+        skill_name="professional-media-prompts",
+    )
+    assert viewed["ok"] is True
+    assert viewed["content"] == skill.skill_md
+
+
+def test_visual_asset_design_skill_is_builtin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The visual doctrine retired from the specialist ships as a skill."""
+
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    external_skills._clear_load_cache()
+
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    skill = loaded["visual-asset-design"]
+    assert skill.available
+    parsed = external_skills.parse_skill_md(skill.skill_md)
+    assert "VisualVariant" in parsed["description"]
+    assert "电影感艺术身份板" in parsed["body"]
+    assert "规避图片审核误判（硬性）" in parsed["body"]
+    assert "构图与镜头语言" in parsed["body"]
+    viewed = external_skills.view_skill(skill_name="visual-asset-design")
+    assert viewed["ok"] is True
+    assert "序列关键帧参考图" in viewed["content"]
+
+
 # ── Driver loop: progressive disclosure end to end ───────────────────────────
 
 

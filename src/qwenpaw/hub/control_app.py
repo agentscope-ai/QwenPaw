@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 import uvicorn
@@ -30,6 +31,8 @@ from fastapi.responses import (
 from starlette.concurrency import run_in_threadpool
 
 from ..__version__ import __version__
+from ..app.channels.qrcode_auth_handler import generate_qrcode_image
+from ..app.pairing import PairingTicketStore
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
@@ -40,6 +43,8 @@ from .api_models import (
     CredentialBody,
     CredentialsBody,
     DockerImagePullBody,
+    HubPairingCreateBody,
+    HubPairingRedeemBody,
     HubSettingsBody,
     PasswordChangeBody,
     RuntimeCreateBody,
@@ -70,7 +75,7 @@ from .proxy_limits import (
     send_with_response_header_timeout,
 )
 from .registry import RuntimeRegistry
-from .service import RuntimeService
+from .service import RuntimeOperationConflictError, RuntimeService
 from .static_files import (
     CompressedStaticFiles,
     resolve_console_response,
@@ -167,6 +172,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         if isinstance(docker_provisioner, DockerRuntimeProvisioner)
         else None
     )
+    mobile_pairing_tickets = PairingTicketStore()
 
     async def runtime_payload(record: Any) -> dict[str, Any]:
         owner = await run_in_threadpool(
@@ -364,10 +370,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=423, detail=detail)
         if record.state is not RuntimeState.RUNNING:
             try:
-                record = await run_in_threadpool(
-                    runtime_service.start,
+                record = await runtime_service.execute(
+                    "start",
                     record.runtime_id,
                 )
+            except RuntimeOperationConflictError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             except Exception as exc:
                 raise HTTPException(
                     status_code=503,
@@ -407,25 +415,57 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         runtime_available = runtime_service.runtime_available()
         record = await personal_runtime(user) if runtime_available else None
+        if (
+            record is not None
+            and record.desired_state is not RuntimeState.STOPPED
+            and record.state in {RuntimeState.CREATED, RuntimeState.STOPPED}
+        ):
+            try:
+                runtime_service.submit("start", record.runtime_id)
+            except RuntimeOperationConflictError:
+                pass
+        active_operation = (
+            runtime_service.active_operation(record.runtime_id)
+            if record is not None
+            else None
+        )
+        if record is not None and active_operation is None:
+            record = await run_in_threadpool(
+                runtime_service.get,
+                record.runtime_id,
+            )
+        runtime_state = (
+            RuntimeState.STARTING
+            if active_operation in {"start", "restart", "rebuild"}
+            else record.state
+            if record is not None
+            else None
+        )
         security_levels = {
             name: provisioner.security_level
             for name, provisioner in runtime_service.provisioners.items()
         }
         return {
-            "status": ("ok" if runtime_available else "degraded"),
+            "status": (
+                "ok"
+                if runtime_available
+                and runtime_state is not RuntimeState.FAILED
+                else "degraded"
+            ),
             "mode": "hub",
             "security_levels": security_levels,
             "provisioners": sorted(runtime_service.provisioners),
             "provisioner_statuses": runtime_service.provisioner_statuses(),
             "default_provisioner": runtime_service.default_provisioner,
             "runtime_available": runtime_available,
-            "runtime_state": record.state.value if record else None,
+            "runtime_state": runtime_state.value if runtime_state else None,
             "runtime_desired_state": (
                 record.desired_state.value if record else None
             ),
             "runtime_start_policy": (
                 record.start_policy.value if record else None
             ),
+            "runtime_last_error": record.last_error if record else None,
         }
 
     @app.get("/api/version")
@@ -489,6 +529,60 @@ def create_hub_app(  # pylint: disable=too-many-statements
             "user": user.to_dict(),
         }
 
+    @app.post("/api/auth/pairing")
+    async def create_mobile_pairing(
+        body: HubPairingCreateBody,
+        user: HubUser = Depends(require_user),
+    ) -> dict[str, object]:
+        base_url = _normalize_hub_pairing_base_url(body.base_url)
+        ticket, expires_at = mobile_pairing_tickets.create(user.user_id)
+        pairing_query = urlencode(
+            {
+                "v": "1",
+                "base_url": base_url,
+                "ticket": ticket,
+            },
+        )
+        pairing_uri = f"qwenpaw://pair?{pairing_query}"
+        await record_audit(
+            user,
+            "auth.mobile_pairing_create",
+            "user",
+            user.user_id,
+        )
+        return {
+            "pairing_uri": pairing_uri,
+            "qrcode_img": generate_qrcode_image(pairing_uri),
+            "expires_at": expires_at,
+        }
+
+    @app.post("/api/auth/pairing/redeem")
+    async def redeem_mobile_pairing(
+        body: HubPairingRedeemBody,
+    ) -> dict[str, object]:
+        user_id = mobile_pairing_tickets.redeem(body.ticket)
+        user = (
+            await run_in_threadpool(hub_auth.get_user, user_id)
+            if user_id is not None
+            else None
+        )
+        if user is None or user.disabled:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired pairing code",
+            )
+        await record_audit(
+            user,
+            "auth.mobile_pairing_redeem",
+            "user",
+            user.user_id,
+        )
+        return {
+            "token": hub_auth.create_token(user),
+            "username": user.username,
+            "mode": "hub",
+        }
+
     @app.get("/api/auth/verify")
     async def verify(
         user: HubUser = Depends(require_user),
@@ -529,11 +623,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         record = await personal_runtime(user)
         try:
-            restarted = await run_in_threadpool(
-                runtime_service.restart,
+            restarted = await runtime_service.execute(
+                "restart",
                 record.runtime_id,
                 owner_initiated=True,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except PermissionError as exc:
             raise HTTPException(status_code=423, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
@@ -911,8 +1007,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 ),
             )
             if body.auto_start:
-                record = await run_in_threadpool(
-                    runtime_service.start,
+                record = await runtime_service.execute(
+                    "start",
                     body.runtime_id,
                 )
             await record_audit(
@@ -926,6 +1022,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 },
             )
             return await runtime_payload(record)
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
@@ -958,10 +1056,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.start,
+            record = await runtime_service.execute(
+                "start",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
@@ -989,10 +1089,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         """Rebuild a Docker runtime with the current global image."""
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.rebuild,
+            record = await runtime_service.execute(
+                "rebuild",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
@@ -1019,10 +1121,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.stop,
+            record = await runtime_service.execute(
+                "stop",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1043,11 +1147,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.stop,
+            record = await runtime_service.execute(
+                "stop",
                 runtime_id,
                 start_policy=RuntimeStartPolicy.ADMIN_ONLY,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1068,7 +1174,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> None:
         await require_runtime_access(runtime_id, user)
         try:
-            await run_in_threadpool(runtime_service.delete, runtime_id)
+            await runtime_service.execute(
+                "delete",
+                runtime_id,
+            )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1486,6 +1597,23 @@ def _page_payload(
         "total": total,
         "pages": max(1, (total + page_size - 1) // page_size),
     }
+
+
+def _normalize_hub_pairing_base_url(value: str) -> str:
+    """Validate the public Hub origin embedded in a mobile pairing code."""
+    parsed = urlsplit(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address must use HTTP or HTTPS",
+        )
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address contains unsupported components",
+        )
+    path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def run_hub_app(

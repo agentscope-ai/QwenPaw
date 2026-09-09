@@ -66,6 +66,12 @@ export interface OfficialPluginCatalogEntry {
   upgrade_available: boolean;
 }
 
+export interface PluginUpdateInfo {
+  version: string;
+  source: string;
+  name: string;
+}
+
 export interface OfficialPluginCatalog {
   updated_at: string | null;
   plugins: OfficialPluginCatalogEntry[];

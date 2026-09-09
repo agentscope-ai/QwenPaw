@@ -71,3 +71,7 @@ def patch_mcp_runtime_clients(monkeypatch) -> None:
         "qwenpaw.drivers.handlers.mcp.HttpStatefulClient",
         FakeHttpClient,
     )
+    monkeypatch.setattr(
+        "qwenpaw.drivers.handlers.mcp.HttpAutoClient",
+        FakeHttpClient,
+    )

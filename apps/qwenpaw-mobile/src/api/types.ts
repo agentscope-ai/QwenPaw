@@ -7,6 +7,63 @@ export interface Connection {
   platformAccessPath?: string;
   relayNodeId?: string;
   qwenPawId?: string;
+  serverMode?: "hub";
+}
+
+export type HubRuntimeState =
+  | "created"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "failed";
+
+export interface HubHealth {
+  status: "ok" | "degraded";
+  mode: "hub";
+  default_provisioner: string;
+  runtime_available: boolean;
+  runtime_state: HubRuntimeState | null;
+  runtime_desired_state: "created" | "running" | "stopped" | null;
+  runtime_start_policy: "owner_allowed" | "admin_only" | null;
+  runtime_last_error: string | null;
+}
+
+export interface HubIdentity {
+  user_id: string;
+  username: string;
+  role: "admin" | "user";
+  disabled: boolean;
+}
+
+export interface HubRuntime {
+  runtime_id: string;
+  owner_username: string | null;
+  provisioner: string;
+  state: HubRuntimeState;
+  desired_state: "created" | "running" | "stopped";
+  start_policy: "owner_allowed" | "admin_only";
+  security_level: string;
+  last_error?: string | null;
+}
+
+export interface HubPage<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+}
+
+export interface HubOverview {
+  runtime_counts: Partial<Record<HubRuntimeState, number>>;
+  total_runtimes: number;
+  total_users: number;
+  runtime_available: boolean;
+  host: {
+    cpu_percent: number;
+    memory_percent: number;
+    disk_percent: number;
+  };
 }
 
 export interface AgentSummary {

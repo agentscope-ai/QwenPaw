@@ -25,7 +25,7 @@ import asyncio
 import time
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-from domain.enums import CreatorCommandType
+from domain.enums import CreatorCommandType, CreatorSessionStatus
 from models.config import (
     EXECUTION_AUTHORIZATION_ALLOW_ALL,
     get_execution_authorization_mode,
@@ -39,13 +39,20 @@ from services.media_files.call_budget import (
     ensure_media_call_budget,
 )
 from services.media_files.transient_errors import is_transient_error_message
+from services.file_agent_runtime.notifications import RuntimeEventKind
 from services.file_agent_runtime.work_graph import (
+    dispatch_key_predates_digest_ledger,
+    dispatch_ledger_fingerprint,
+    dispatch_slot,
     WorkGraph,
     WorkNode,
+    WorkNodeStatus,
     derive_work_graph,
 )
+from services.project_files import frontend_edit_hold
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.execution_store import ProjectExecutionStore
+from services.runtime_files.session_store import RuntimeSessionNotFound
 from utils.logger import setup_logger
 
 logger = setup_logger("creator.work_scheduler")
@@ -88,6 +95,7 @@ _DETERMINISTIC_ERROR_CODES = frozenset(
         "VIDEO_REFERENCE_BUDGET_EXCEEDED",
         "IMAGE_MODEL_CAPABILITY_UNKNOWN",
         "VIDEO_MODEL_CAPABILITY_UNKNOWN",
+        "VALIDATION_ERROR",
     },
 )
 
@@ -133,21 +141,42 @@ def _quarantined_stale_targets(tasks: Sequence[Any]) -> set[str]:
 
 
 _R2V_COMMANDS = {CreatorCommandType.GENERATE_R2V_VIDEO.value}
+_S2V_COMMANDS = {CreatorCommandType.GENERATE_S2V_VIDEO.value}
 _COMPOSE_COMMANDS = {CreatorCommandType.COMPOSE_FINAL_VIDEO.value}
+_SCRIPT_COMMANDS = {CreatorCommandType.GENERATE_TIMELINE_SCRIPT.value}
 
 # Publication stays non-blocking, but dependent unattended work waits for the
 # asynchronous reviewer to settle. Otherwise a short image review can replace
 # a storyboard while a paid two-minute video is already running; that finished
 # video is quarantined as stale and the provider gets billed a second time.
-# Independent visual/lineup image nodes remain parallel.
-_MEDIA_REVIEW_DEPENDENT_KINDS = frozenset({"storyboard", "video", "compose"})
+# Visual/lineup nodes are blocked only when targeting a slot under review,
+# preventing double-generation that would invalidate the pending review.
+_MEDIA_REVIEW_DEPENDENT_KINDS = frozenset(
+    {"visual", "lineup", "storyboard", "video", "compose"},
+)
+# Heavy/billed nodes that need stable inputs: storyboard, video, and compose.
+# These are unconditionally fenced by both media review (any active slot) and
+# sync review (text review pending). Visual/lineup are lighter and only fenced
+# when their specific target slot is under review.
+_HEAVY_NODE_KINDS = frozenset({"storyboard", "video", "compose"})
 
 
 def _blocked_by_active_media_review(
     node: WorkNode,
     active_slots: frozenset[str],
+    active_owner_refs: frozenset[str],
 ) -> bool:
-    return bool(active_slots) and node.kind in _MEDIA_REVIEW_DEPENDENT_KINDS
+    if not active_slots or node.kind not in _MEDIA_REVIEW_DEPENDENT_KINDS:
+        return False
+    if node.kind in _HEAVY_NODE_KINDS:
+        return True
+    # ArtifactSlot ids are opaque (asset:{id}:variant:{vid}:image), while a
+    # visual/lineup node's target_ref is the slot's owner_ref (asset:{id},
+    # lineup:{id}); the caller resolves reviewing slots to owner refs so the
+    # membership check compares like with like.
+    if node.target_ref is not None:
+        return node.target_ref in active_owner_refs
+    return False
 
 
 def _blocked_by_active_sync_review(
@@ -157,10 +186,7 @@ def _blocked_by_active_sync_review(
 ) -> bool:
     """Fence storyboard/video/compose until pre-generation text review ends."""
 
-    return sync_review_pending and node.kind in _MEDIA_REVIEW_DEPENDENT_KINDS
-
-
-DispatchHook = Callable[[str, WorkGraph], Awaitable[None]]
+    return sync_review_pending and node.kind in _HEAVY_NODE_KINDS
 
 
 class WorkGraphScheduler:
@@ -172,13 +198,18 @@ class WorkGraphScheduler:
         *,
         image_dispatch: Callable[..., Awaitable[Any]] | None = None,
         r2v_dispatch: Callable[..., Awaitable[Any]] | None = None,
-        on_tick: DispatchHook | None = None,
+        s2v_dispatch: Callable[..., Awaitable[Any]] | None = None,
+        notifications: Any | None = None,
     ) -> None:
         self.services = services
         self.executions = ProjectExecutionStore(services.root)
         self._image_dispatch = image_dispatch
         self._r2v_dispatch = r2v_dispatch
-        self._on_tick = on_tick
+        self._s2v_dispatch = s2v_dispatch
+        self._notifications = notifications
+        # Per-project last observed node states for edge-triggered
+        # notifications: {project_id: {node_id: (status, fingerprint)}}.
+        self._graph_progress: dict[str, dict[str, tuple[str, str]]] = {}
         self._wakes: dict[str, asyncio.Event] = {}
         self._loops: dict[str, asyncio.Task[None]] = {}
         # (project_id, node_id, fingerprint) -> already dispatched once.
@@ -227,22 +258,43 @@ class WorkGraphScheduler:
         larger reference budget after IMAGE_REFERENCE_BUDGET_EXCEEDED
         left the node deterministically locked forever (same inputs,
         same fingerprint, no unlock path).
+
+        The value is embedded in the dispatch idempotency key, which is
+        persisted as a single filesystem path segment.  Model names carry
+        characters outside that alphabet, and joining them raw with "|"
+        made every dispatch fail path validation before reaching a
+        provider, so inputs and models are folded into one digest.
         """
 
         base = node.dispatch_fingerprint or node.node_id
-        return (
-            f"{base}|img:{get_image_model_name().strip()}"
-            f"|vid:{get_video_model_name().strip()}"
+        # This value is interpolated into the dispatch idempotency key, which
+        # becomes a Task's caused_by_request_id and must stay inside the
+        # [A-Za-z0-9._:-] segment alphabet. Model names are opaque and may
+        # carry "/" or other unsafe characters, so digest them rather than
+        # interpolating them.
+        fingerprint = dispatch_ledger_fingerprint(
+            base,
+            (get_image_model_name(), get_video_model_name()),
         )
+        if getattr(node, "regeneration_of", None):
+            # Replacing the same obsolete selection replays across ticks and
+            # restarts. A later revision of a new selection gets a new slot,
+            # even if the author deliberately reverted to an earlier prompt.
+            fingerprint += f"-regen-{dispatch_slot(node.regeneration_of)}"
+        return fingerprint
+
+    @staticmethod
+    def _dispatch_slot(fingerprint: str) -> str:
+        return dispatch_slot(fingerprint)
 
     # -- lifecycle -----------------------------------------------------
 
     def wake(self, project_id: str) -> None:
         """Signal that durable state changed; start the loop if needed."""
 
-        # A real post-stop Project change/new run explicitly re-arms the
-        # scheduler. Cancelled dispatch finalizers do not call this method (see
-        # _dispatch), so they cannot resurrect a stopped project by themselves.
+        # A wake is a state-change signal, not authorization to resume. tick()
+        # checks the durable Session stop even for startup/late-commit wakes.
+        # This local set only suppresses cancelled dispatch finalizers.
         self._cancelled_projects.discard(project_id)
         event = self._wakes.setdefault(project_id, asyncio.Event())
         event.set()
@@ -289,6 +341,7 @@ class WorkGraphScheduler:
             task.cancel()
         self._inflight.pop(project_id, None)
         self._wakes.pop(project_id, None)
+        self._graph_progress.pop(project_id, None)
         recheck = self._sync_gate_rechecks.pop(project_id, None)
         if recheck is not None:
             recheck.cancel()
@@ -324,6 +377,21 @@ class WorkGraphScheduler:
                 async with asyncio.timeout(_IDLE_EXIT_SECONDS):
                     await event.wait()
             except TimeoutError:
+                if self._inflight.get(project_id):
+                    continue
+                # A node can reach READY without a wake arriving here: a gate
+                # clears, or a commit's wake was already consumed by an
+                # earlier tick. wake() is only called from agent turns and
+                # media review, so returning now would strand that node for
+                # good and leave a permanent hole in the rendered timeline.
+                # Confirm the graph is really drained before giving up.
+                try:
+                    await self.tick(project_id)
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception(
+                        "work-graph drain check failed for %s",
+                        project_id,
+                    )
                 if not self._inflight.get(project_id):
                     return
                 continue
@@ -344,7 +412,49 @@ class WorkGraphScheduler:
             == EXECUTION_AUTHORIZATION_ALLOW_ALL
         )
 
+    def prompt_preparation_status(
+        self,
+        project_id: str,
+        node_id: str,
+    ) -> dict[str, str]:
+        """Actual scheduler activity for the public progress projection."""
+        if node_id in self._inflight.get(project_id, set()):
+            return {"state": "running"}
+        for (
+            pid,
+            nid,
+            fingerprint,
+        ), error in self._deterministic_failure_nodes.items():
+            if (
+                pid == project_id
+                and nid == node_id
+                and fingerprint.startswith("prepare-")
+            ):
+                return {"state": "failed", "error": error}
+        return {"state": "waiting"}
+
+    def deterministic_failure_nodes_for_project(
+        self,
+        project_id: str,
+    ) -> dict[str, str]:
+        """Nodes whose dispatch failed with a deterministic error.
+
+        These nodes are stuck READY but cannot be re-dispatched until the
+        agent modifies the project.  The driver uses this to decide whether
+        a model turn is needed.
+        """
+        return {
+            node_id: error
+            for (
+                pid,
+                node_id,
+                _fingerprint,
+            ), error in self._deterministic_failure_nodes.items()
+            if pid == project_id
+        }
+
     # pylint: disable=too-many-statements
+    # pylint: disable-next=too-many-branches
     async def tick(self, project_id: str) -> WorkGraph | None:
         """Derive the graph once and dispatch what capacity allows."""
 
@@ -353,6 +463,24 @@ class WorkGraphScheduler:
         if not await asyncio.to_thread(self.enabled):
             return None
         try:
+            try:
+                session = await asyncio.to_thread(
+                    self.services.sessions.get_project_session_snapshot,
+                    project_id,
+                )
+            except RuntimeSessionNotFound:
+                # Imported/programmatically authored Projects can have no
+                # Agent Session yet and therefore no durable stop to honor.
+                session = None
+            if session is not None and session.status in {
+                CreatorSessionStatus.INTERRUPT_REQUESTED,
+                CreatorSessionStatus.CANCELLED,
+            }:
+                # Stops survive reload and delayed worker commits. A newly
+                # admitted Agent run changes this status before planning and
+                # waking the graph again; notifications alone cannot resume
+                # paid media execution for an explicitly stopped Session.
+                return None
             snapshot = await asyncio.to_thread(
                 self.services.projects.read,
                 project_id,
@@ -375,11 +503,46 @@ class WorkGraphScheduler:
             tasks,
         )
 
-        graph = derive_work_graph(snapshot.project, tasks=tasks)
+        graph = derive_work_graph(
+            snapshot.project,
+            tasks=tasks,
+            media_models=(get_image_model_name(), get_video_model_name()),
+        )
         from services.run_review import admission
         from services.run_review.media_review import active_media_review_slots
+        from .workgraph_execution import _publication_artifacts
 
-        reviewing_slots = active_media_review_slots(project_id)
+        pending_reviews = await asyncio.to_thread(
+            self.services.reviews.all_pending,
+            project_id,
+        )
+        publications = [
+            _publication_artifacts(review) for review in pending_reviews
+        ]
+        if any(items is None for items in publications):
+            # A creative revision is still under human review. Admission must
+            # not turn an obsolete output into paid work before it settles.
+            await self._emit_graph_transitions(
+                project_id,
+                graph,
+                snapshot.generation,
+            )
+            return graph
+        pending_artifacts = [
+            artifact for items in publications if items for artifact in items
+        ]
+
+        reviewing_slots = active_media_review_slots(project_id) | frozenset(
+            artifact.slot_id for artifact in pending_artifacts
+        )
+        slots_by_id = snapshot.project.assets.artifact_slots_by_id
+        reviewing_owners = frozenset(
+            artifact.owner_ref for artifact in pending_artifacts
+        ) | frozenset(
+            slot.owner_ref
+            for slot_id in reviewing_slots
+            if (slot := slots_by_id.get(slot_id)) is not None
+        )
         reports_root = (
             self.services.projects.project_root(project_id)
             / "runtime"
@@ -410,16 +573,36 @@ class WorkGraphScheduler:
                 project_id,
                 exc,
             )
-            if self._on_tick is not None:
-                await self._on_tick(project_id, graph)
+            await self._emit_graph_transitions(
+                project_id,
+                graph,
+                snapshot.generation,
+            )
             return graph
         running = sum(
             1 for node in graph.nodes if node.status.value == "running"
         )
         capacity = get_media_parallelism() - running - len(inflight)
+        # Auto-saved frontend edits open a short grace window per element;
+        # dispatching inside it would hand a possibly half-finished prompt
+        # to a paid provider. Recheck once the earliest window expires.
+        held_recheck: float | None = None
         for node in self._dispatch_candidates(project_id, graph, tasks):
             if capacity <= 0:
                 break
+            target_ref = node.target_ref or ""
+            if target_ref.startswith("element:"):
+                held_for = frontend_edit_hold.hold_remaining(
+                    project_id,
+                    target_ref.removeprefix("element:"),
+                )
+                if held_for > 0:
+                    held_recheck = (
+                        held_for
+                        if held_recheck is None
+                        else min(held_recheck, held_for)
+                    )
+                    continue
             if _blocked_by_active_sync_review(
                 node,
                 sync_review_pending=sync_review_pending,
@@ -429,7 +612,11 @@ class WorkGraphScheduler:
                     node.node_id,
                 )
                 continue
-            if _blocked_by_active_media_review(node, reviewing_slots):
+            if _blocked_by_active_media_review(
+                node,
+                reviewing_slots,
+                reviewing_owners,
+            ):
                 logger.info(
                     "work-graph node %s waits for async review of %s",
                     node.node_id,
@@ -463,9 +650,174 @@ class WorkGraphScheduler:
                     done.exception()
 
             task.add_done_callback(discard)
-        if self._on_tick is not None:
-            await self._on_tick(project_id, graph)
+        if held_recheck is not None:
+            # Same one-shot wake mechanics as the sync-gate recheck timer.
+            self._schedule_sync_gate_recheck(project_id, held_recheck)
+        await self._prepare_changed_prompts(project_id, graph)
+        await self._emit_graph_transitions(
+            project_id,
+            graph,
+            snapshot.generation,
+        )
         return graph
+
+    # Keep all admission and publication gates around one proposal.
+    # pylint: disable-next=too-many-branches
+    async def _prepare_changed_prompts(
+        self,
+        project_id: str,
+        graph: WorkGraph,
+    ) -> None:
+        """Prepare one edited R2V representation before automatic media work.
+
+        Uses the same source-preserving, CAS-checked service as a workbench
+        regeneration click. Existing review/authorization/edit/budget gates
+        are checked before the model call and again before publication.
+        """
+        from domain.errors import ConflictError
+        from services.prompt_sync_service import PromptSyncService
+        from .workgraph_execution import ready_request_context
+
+        self._deterministic_failure_nodes = {
+            key: value
+            for key, value in self._deterministic_failure_nodes.items()
+            if key[0] != project_id
+            or not key[2].startswith("prepare-")
+            or (
+                key[1] in graph.by_id
+                and graph.by_id[key[1]].prompt_sync_required
+            )
+        }
+        for node in graph.nodes:
+            if (
+                # pylint: disable-next=too-many-boolean-expressions
+                node.kind != "storyboard"
+                or not getattr(node, "prompt_sync_required", False)
+                or not node.timeline_id
+                or not node.target_ref
+                or node.node_id in self._inflight.get(project_id, set())
+                or any(
+                    dep not in graph.by_id
+                    or graph.by_id[dep].status is not WorkNodeStatus.DONE
+                    for dep in node.deps
+                )
+                or any(
+                    other.target_ref == node.target_ref
+                    and other.status is WorkNodeStatus.RUNNING
+                    for other in graph.nodes
+                )
+            ):
+                continue
+            if not await asyncio.to_thread(self.enabled):
+                return
+            _, _, fresh_graph, blocked = await ready_request_context(
+                self.services,
+                self.executions,
+                project_id,
+            )
+            fresh = fresh_graph.by_id.get(node.node_id)
+            if blocked.get(node.node_id) == "EDIT_IN_PROGRESS":
+                self._schedule_sync_gate_recheck(
+                    project_id,
+                    max(
+                        0.1,
+                        frontend_edit_hold.hold_remaining(
+                            project_id,
+                            node.target_ref.removeprefix("element:"),
+                        ),
+                    ),
+                )
+            if (
+                fresh is None
+                or not fresh.prompt_sync_required
+                or blocked.get(node.node_id) != "GATED"
+                or any(
+                    dep not in fresh_graph.by_id
+                    or fresh_graph.by_id[dep].status is not WorkNodeStatus.DONE
+                    for dep in fresh.deps
+                )
+            ):
+                continue
+            element_id = node.target_ref.removeprefix("element:")
+            service = PromptSyncService(self.services)
+            status = await asyncio.to_thread(
+                service.status,
+                project_id,
+                node.timeline_id,
+                element_id,
+            )
+            if status["status"] not in {"needs_update", "needs_confirmation"}:
+                continue
+            fingerprint = "prepare-" + status["baselineToken"]
+            ledger_key = (project_id, node.node_id, fingerprint)
+            if ledger_key in self._deterministic_failure_nodes:
+                continue
+            self._deterministic_failure_nodes = {
+                key: value
+                for key, value in self._deterministic_failure_nodes.items()
+                if key[:2] != ledger_key[:2]
+                or not key[2].startswith("prepare-")
+            }
+            self._inflight.setdefault(project_id, set()).add(node.node_id)
+            try:
+                if status.get("validationMessage"):
+                    raise ValueError(status["validationMessage"])
+                await self._notify(
+                    project_id,
+                    kind=RuntimeEventKind.NODE_DISPATCH_STARTED,
+                    request_id=f"{fingerprint}-{node.node_id}",
+                    text=f"正在准备生成内容：{node.label}",
+                    node=node,
+                )
+                proposal = await service.propose(
+                    project_id,
+                    node.timeline_id,
+                    element_id,
+                    source=status.get("suggestedSource") or "storyboardPrompt",
+                )
+                if not await asyncio.to_thread(self.enabled):
+                    return
+                (
+                    _,
+                    _,
+                    latest_graph,
+                    latest_blocked,
+                ) = await ready_request_context(
+                    self.services,
+                    self.executions,
+                    project_id,
+                )
+                if latest_blocked.get(node.node_id) != "GATED" or any(
+                    other.target_ref == node.target_ref
+                    and other.status is WorkNodeStatus.RUNNING
+                    for other in latest_graph.nodes
+                ):
+                    return
+                await service.accept(
+                    project_id,
+                    node.timeline_id,
+                    element_id,
+                    proposal["proposalId"],
+                )
+            except ConflictError:
+                # A concurrent edit invalidated the proposal. The next wake
+                # reads that edit; never publish the older generated plan.
+                pass
+            except Exception as exc:
+                self._deterministic_failure_nodes[ledger_key] = str(exc)[:200]
+                await self._notify(
+                    project_id,
+                    kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                    request_id=f"failed-{fingerprint}-{node.node_id}",
+                    text=f"生成准备需要调整：{node.label}。{str(exc)[:200]}",
+                    node=node,
+                    error_code="PROMPT_PREPARATION_FAILED",
+                )
+            finally:
+                self._inflight.get(project_id, set()).discard(node.node_id)
+                if project_id not in self._cancelled_projects:
+                    self.wake(project_id)
+            return
 
     async def _rereview_stale_scenes(
         self,
@@ -572,7 +924,7 @@ class WorkGraphScheduler:
         validation) never re-enter.
         """
 
-        candidates = list(graph.ready_media_nodes())
+        candidates = [*graph.ready_media_nodes(), *graph.regeneration_nodes()]
         rescuable = _quarantined_stale_targets(tasks)
         inflight = self._inflight.get(project_id, set())
         if rescuable:
@@ -661,8 +1013,20 @@ class WorkGraphScheduler:
             ledger_key = (project_id, node.node_id, fingerprint)
             if ledger_key not in self._dispatched or node.node_id in inflight:
                 continue
-            prefix = f"dag-{node.node_id}-{fingerprint}"
-            if any(key.startswith(prefix) for key in recorded_keys):
+            prefix = f"dag-{node.node_id}-{self._dispatch_slot(fingerprint)}"
+            node_prefix = f"dag-{node.node_id}-"
+            if any(
+                key.startswith(prefix)
+                # A record minted under the old plaintext-model ledger format
+                # cannot match today's digest prefix. Treating it as absent
+                # would reopen a node that already owns a durable task and
+                # pay for the same render twice across an upgrade.
+                or (
+                    key.startswith(node_prefix)
+                    and dispatch_key_predates_digest_ledger(key)
+                )
+                for key in recorded_keys
+            ):
                 # A durable record exists (running / failed / quarantined):
                 # the record — not this reopen path — owns its lifecycle.
                 continue
@@ -670,6 +1034,162 @@ class WorkGraphScheduler:
                 continue
             self._note_transient_retry(ledger_key)
             self._dispatched.discard(ledger_key)
+
+    async def _notify(
+        self,
+        project_id: str,
+        *,
+        kind: RuntimeEventKind,
+        request_id: str,
+        text: str,
+        node: WorkNode | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        """Report one event to the Agent; delivery failures never propagate."""
+
+        if self._notifications is None:
+            return
+        payload: dict[str, Any] = {}
+        if node is not None:
+            payload = {
+                "nodeId": node.node_id,
+                "nodeKind": node.kind,
+                "targetRef": node.target_ref,
+            }
+        if error_code is not None:
+            payload["errorCode"] = error_code
+        try:
+            await self._notifications.notify(
+                project_id,
+                kind=kind,
+                request_id=request_id,
+                text=text,
+                payload=payload,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "work-graph notification failed project=%s event=%s",
+                project_id,
+                request_id,
+            )
+
+    async def _emit_graph_transitions(
+        self,
+        project_id: str,
+        graph: WorkGraph,
+        generation: int,
+    ) -> None:
+        """Edge-triggered progress events from consecutive graph snapshots.
+
+        Covers completions the dispatch return cannot observe (r2v/s2v write
+        their terminal state from a background poller; the commit listener
+        wakes this scheduler and the next tick lands here). The first
+        observed snapshot only establishes the baseline — replaying the
+        whole historical graph as events after a restart would be noise;
+        the request-id idempotency layers absorb any duplicates.
+        """
+
+        if self._notifications is None:
+            return
+        previous = self._graph_progress.get(project_id)
+        current: dict[str, tuple[str, str]] = {}
+        for node in graph.nodes:
+            current[node.node_id] = (
+                node.status.value,
+                self._ledger_fingerprint(node),
+            )
+        self._graph_progress[project_id] = current
+        for node in graph.nodes:
+            fingerprint = current[node.node_id][1]
+            prior = previous.get(node.node_id) if previous else None
+            prior_status = prior[0] if prior is not None else None
+            # A durably FAILED node the scheduler will not retry on its own
+            # (deterministic refusals, interrupted provider claims, spent
+            # budgets) needs the Agent. Unlike DONE/GATED progress this
+            # fires even on the baseline-establishing tick: after a restart
+            # the failure edge happened while nobody watched, and the
+            # request-id idempotency absorbs re-emission.
+            if (
+                node.status is WorkNodeStatus.FAILED
+                and prior_status != WorkNodeStatus.FAILED.value
+                and node.node_id not in self._inflight.get(project_id, set())
+            ):
+                await self._notify(
+                    project_id,
+                    kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                    request_id=f"nodefail-{node.node_id}-{fingerprint}",
+                    text=(
+                        f"媒体节点 {node.label}（{node.node_id}）处于失败状态，"
+                        f"调度器不会自动重试：{node.error or '未知原因'}\n"
+                        "请检查该节点的输入（prompt、参考、上游选择），修复后"
+                        "调度器会以新的输入指纹自动重新生成；如输入本身无误，"
+                        "可通过重新触发该环节生成新的任务。"
+                    ),
+                    node=node,
+                )
+        if previous is not None:
+            for node in graph.nodes:
+                fingerprint = current[node.node_id][1]
+                prior = previous.get(node.node_id)
+                prior_status = prior[0] if prior is not None else None
+                if (
+                    node.status is WorkNodeStatus.DONE
+                    and prior is not None
+                    and prior_status != WorkNodeStatus.DONE.value
+                ):
+                    if node.kind == "compose":
+                        await self._notify(
+                            project_id,
+                            kind=RuntimeEventKind.COMPOSE_COMPLETED,
+                            request_id=f"compose-{node.node_id}-{fingerprint}",
+                            text=(
+                                f"成片合成完成：{node.label}。请读取 Project "
+                                "核对最终产物与用户目标，确认交付状态。"
+                            ),
+                            node=node,
+                        )
+                    else:
+                        await self._notify(
+                            project_id,
+                            kind=RuntimeEventKind.NODE_SUCCEEDED,
+                            request_id=(
+                                f"node_succeeded-{node.node_id}-{fingerprint}"
+                            ),
+                            text=f"生成完成：{node.label}",
+                            node=node,
+                        )
+                elif (
+                    node.status is WorkNodeStatus.GATED
+                    and prior_status != WorkNodeStatus.GATED.value
+                ):
+                    reasons = "；".join(node.missing[:3]) or "等待依赖"
+                    await self._notify(
+                        project_id,
+                        kind=RuntimeEventKind.NODE_GATED,
+                        request_id=f"node_gated-{node.node_id}-{fingerprint}",
+                        text=f"待条件满足：{node.label}（{reasons}）",
+                        node=node,
+                    )
+        # Only a real unfinished→done edge is a milestone. An all-DONE
+        # baseline (previous is None: restart, or first wake of a long-
+        # completed project) must stay silent — emitting there would replay
+        # one NEXT_STEP message and a paid model run per historical project
+        # on every deploy without the outbox history.
+        had_unfinished = previous is not None and any(
+            status != WorkNodeStatus.DONE.value
+            for status, _fingerprint in previous.values()
+        )
+        if graph.nodes and not graph.unfinished() and had_unfinished:
+            await self._notify(
+                project_id,
+                kind=RuntimeEventKind.GRAPH_ALL_DONE,
+                request_id=f"graphdone-g{generation}",
+                text=(
+                    f"当前工作图全部 {len(graph.nodes)} 个节点已完成"
+                    f"（generation {generation}）。请核对产物是否达成用户"
+                    "目标并进行收尾确认；不要重复生成。"
+                ),
+            )
 
     async def _dispatch(
         self,
@@ -683,12 +1203,34 @@ class WorkGraphScheduler:
             node.node_id,
             node.command,
         )
+        await self._notify(
+            project_id,
+            kind=RuntimeEventKind.NODE_DISPATCH_STARTED,
+            request_id=f"node_dispatch_started-{node.node_id}-{fingerprint}",
+            text=f"正在提交制作请求：{node.label}",
+            node=node,
+        )
         try:
             await self.dispatch_node(project_id, node, fingerprint)
             self._deterministic_failure_nodes.pop(
                 (project_id, node.node_id, fingerprint),
                 None,
             )
+            # r2v/s2v dispatch only admits the provider task (the background
+            # poller writes its terminal state; the tick graph diff reports
+            # it); compose completion is the COMPOSE_COMPLETED milestone.
+            if (
+                node.command not in _R2V_COMMANDS
+                and node.command not in _S2V_COMMANDS
+                and node.command not in _COMPOSE_COMMANDS
+            ):
+                await self._notify(
+                    project_id,
+                    kind=RuntimeEventKind.NODE_SUCCEEDED,
+                    request_id=f"node_succeeded-{node.node_id}-{fingerprint}",
+                    text=f"生成完成：{node.label}",
+                    node=node,
+                )
         except Exception as exc:  # pylint: disable=broad-except
             ledger_key = (project_id, node.node_id, fingerprint)
             if _is_transient_dispatch_error(
@@ -727,6 +1269,40 @@ class WorkGraphScheduler:
                     self._deterministic_failure_nodes[
                         (project_id, node.node_id, fingerprint)
                     ] = str(exc)[:200]
+                    await self._notify(
+                        project_id,
+                        kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                        request_id=(
+                            f"detfail-{node.node_id}-{fingerprint}"
+                            f"-{error_code}"
+                        ),
+                        text=(
+                            f"媒体节点 {node.label}（{node.node_id}）生成失败，"
+                            f"且在输入修改前不会自动重试：{exc}\n"
+                            "请修复对应 Project 字段（如参考图数量、prompt "
+                            "或引用）；修复后调度器会自动重新生成。"
+                        ),
+                        node=node,
+                        error_code=str(error_code),
+                    )
+                elif (
+                    _is_transient_dispatch_error(exc)
+                    and self._transient_retries.get(ledger_key, 0)
+                    >= _TRANSIENT_RETRY_HARD_CAP
+                ):
+                    await self._notify(
+                        project_id,
+                        kind=RuntimeEventKind.NODE_TRANSIENT_CAP_EXHAUSTED,
+                        request_id=(
+                            f"transientcap-{node.node_id}-{fingerprint}"
+                        ),
+                        text=(
+                            f"媒体节点 {node.label}（{node.node_id}）连续多次"
+                            f"瞬态失败，自动重试预算已用尽：{exc}\n"
+                            "请检查供应商状态，或调整该节点的输入后再继续。"
+                        ),
+                        node=node,
+                    )
                 logger.warning(
                     "work-graph dispatch failed project=%s node=%s: %s",
                     project_id,
@@ -743,14 +1319,19 @@ class WorkGraphScheduler:
         project_id: str,
         node: WorkNode,
         fingerprint: str | None = None,
+        *,
+        expected_object_versions: Sequence[str] = (),
     ) -> Any:
         """Execute one node through the shared media executors."""
 
         if node.command is None or node.target_ref is None:
             raise ValueError(f"node {node.node_id} is not dispatchable")
+        raw_fingerprint = fingerprint or self._ledger_fingerprint(node)
+        # The key becomes a durable record's caused_by_request_id, so the
+        # fingerprint (which carries "|"-separated model names) is hashed
+        # into a safe path segment first.
         idempotency_key = (
-            f"dag-{node.node_id}-"
-            f"{fingerprint or self._ledger_fingerprint(node)}"
+            f"dag-{node.node_id}-{self._dispatch_slot(raw_fingerprint)}"
         )
         if node.command in _COMPOSE_COMMANDS:
             # A failed master render is retried without content changes
@@ -760,15 +1341,19 @@ class WorkGraphScheduler:
             ledger_key = (
                 project_id,
                 node.node_id,
-                fingerprint or self._ledger_fingerprint(node),
+                raw_fingerprint,
             )
             generation = self._transient_retries.get(ledger_key, 0)
             if generation:
                 idempotency_key = f"{idempotency_key}-r{generation}"
-        if node.command in _R2V_COMMANDS:
+        if node.command in _S2V_COMMANDS:
+            dispatch = self._s2v_dispatch or _default_s2v_dispatch
+        elif node.command in _R2V_COMMANDS:
             dispatch = self._r2v_dispatch or _default_r2v_dispatch
         elif node.command in _COMPOSE_COMMANDS:
             dispatch = _default_compose_dispatch
+        elif node.command in _SCRIPT_COMMANDS:
+            dispatch = _default_script_dispatch
         else:
             dispatch = self._image_dispatch or _default_image_dispatch
         return await dispatch(
@@ -778,6 +1363,11 @@ class WorkGraphScheduler:
             target_ref=node.target_ref,
             arguments=dict(node.dispatch_arguments),
             idempotency_key=idempotency_key,
+            **(
+                {"expected_object_versions": expected_object_versions}
+                if expected_object_versions
+                else {}
+            ),
         )
 
 
@@ -789,6 +1379,7 @@ async def _default_image_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     # Imported lazily: media executors pull heavy provider dependencies.
     # pylint: disable=import-outside-toplevel
@@ -803,6 +1394,34 @@ async def _default_image_dispatch(
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
+    )
+
+
+async def _default_script_dispatch(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    command: str | None = None,
+    target_ref: str,
+    arguments: dict[str, Any],
+    idempotency_key: str,
+) -> Any:
+    """Draft one timeline's script via the text model (free of media spend)."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.media_files.script_execution import (
+        execute_file_script_command,
+    )
+
+    # The script entry point has a single command and takes no command kwarg.
+    del command
+    return await execute_file_script_command(
+        services,
+        project_id=project_id,
+        target_ref=target_ref,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -814,6 +1433,7 @@ async def _default_r2v_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     # pylint: disable=import-outside-toplevel
     from services.media_files.r2v_execution import (
@@ -828,6 +1448,40 @@ async def _default_r2v_dispatch(
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
+    )
+
+
+async def _default_s2v_dispatch(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    command: str | None = None,
+    target_ref: str,
+    arguments: dict[str, Any],
+    idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
+) -> Any:
+    # pylint: disable=import-outside-toplevel
+    from services.media_files.r2v_execution import (
+        execute_file_s2v_command,
+        preflight_s2v_face_detect,
+    )
+
+    del command
+    await preflight_s2v_face_detect(
+        services,
+        project_id=project_id,
+        target_ref=target_ref,
+        arguments=arguments,
+    )
+    return await execute_file_s2v_command(
+        services,
+        project_id=project_id,
+        target_ref=target_ref,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
     )
 
 

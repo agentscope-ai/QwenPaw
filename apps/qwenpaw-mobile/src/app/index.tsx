@@ -587,7 +587,9 @@ function modeTitle(mode: Mode): string {
 }
 
 function modeCopy(mode: Mode): string {
-  if (mode === "direct") return "输入手机或模拟器能够访问的 QwenPaw 地址。";
+  if (mode === "direct") {
+    return "输入手机或模拟器能够访问的 QwenPaw 或 QwenPaw Hub 地址。";
+  }
   if (mode === "platform") return "登录后自动查找并启动你的云端 QwenPaw。";
   return "无效 Host 或 Port 会回退到 127.0.0.1:8088。";
 }

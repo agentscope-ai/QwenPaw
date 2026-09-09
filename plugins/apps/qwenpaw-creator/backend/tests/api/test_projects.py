@@ -2,9 +2,32 @@
 # pylint: disable=unused-argument,use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
+import asyncio
+import os
+from pathlib import Path
+
+from services.project_files.json_pointer import hash_json_value
 from services.project_files.models import Project
 from services.runtime_files import ProjectRuntimeSessionStore
 from services.runtime_files.errors import RuntimeFileValidationError
+
+
+def _sqlite_files(root: Path) -> list[str]:
+    """Return leaked sqlite files without racing deletion cleanup.
+
+    Deleting a Project stages its tree as ``.deleted-<id>-<uuid>`` and removes
+    it in the background, so a plain ``rglob`` can descend into that tree and
+    fail when it disappears mid-walk. Prune the staging dirs and ignore walk
+    errors: the assertion only cares that the store leaks no sqlite file.
+    """
+
+    found: list[str] = []
+    for current, dirs, files in os.walk(root, onerror=lambda _error: None):
+        dirs[:] = [name for name in dirs if not name.startswith(".deleted-")]
+        found.extend(
+            os.path.join(current, name) for name in files if ".sqlite" in name
+        )
+    return found
 
 
 def _create_payload(request_id: str, name: str, **overrides) -> dict:
@@ -57,7 +80,7 @@ def test_project_create_is_atomic_file_native_and_has_no_goal(
     session = runtime.get_project_session(project_id)
     assert session.session_id == body["creatorSessionId"]
     assert session.active_goal_id is None
-    assert not list(api_runtime_root.rglob("*.sqlite*"))
+    assert not _sqlite_files(api_runtime_root)
 
 
 def test_project_create_rejects_payload_drift_and_delete_is_idempotent(
@@ -88,7 +111,7 @@ def test_project_create_rejects_payload_drift_and_delete_is_idempotent(
     assert deleted.status_code == 204
     assert replay.status_code == 204
     assert listed.json()["items"] == []
-    assert not list(api_runtime_root.rglob("*.sqlite*"))
+    assert not _sqlite_files(api_runtime_root)
 
 
 def test_project_runtime_bootstrap_failure_never_publishes_half_project(
@@ -236,3 +259,165 @@ def test_project_routes_translate_store_addressing_failures(
         status_code, code = expected[project_id]
         assert response.status_code == status_code
         assert response.json()["code"] == code
+
+
+def test_project_list_degrades_corrupt_session_instead_of_500(
+    app,
+    api_runtime_root,
+    run_scenario,
+):
+    """A single Project whose Session record fails the integrity check must
+    surface as ``status: null`` in the listing instead of turning the whole
+    ``GET /projects`` into a 500 (field incident: one stale test Project hid
+    every other Project from the UI).
+    """
+    import json
+
+    async def scenario(client):
+        healthy = await client.post(
+            "/projects",
+            json=_create_payload("list-degrade-request-1", "健康项目"),
+        )
+        corrupt = await client.post(
+            "/projects",
+            json=_create_payload("list-degrade-request-2", "损坏项目"),
+        )
+        healthy_id = healthy.json()["projectId"]
+        corrupt_id = corrupt.json()["projectId"]
+
+        session_file = next(
+            (api_runtime_root / corrupt_id / "runtime" / "sessions").glob(
+                "*/session.json",
+            ),
+        )
+        record = json.loads(session_file.read_text(encoding="utf-8"))
+        record["project_id"] = healthy_id
+        session_file.write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        listed = await client.get("/projects")
+        return healthy_id, corrupt_id, listed
+
+    healthy_id, corrupt_id, listed = run_scenario(app, scenario)
+    assert listed.status_code == 200
+    by_id = {item["projectId"]: item for item in listed.json()["items"]}
+    assert set(by_id) == {healthy_id, corrupt_id}
+    assert by_id[corrupt_id]["status"] is None
+    assert by_id[healthy_id]["status"] is not None
+
+
+def test_parallel_creates_and_copies_never_hit_lock_timeouts(
+    app,
+    run_scenario,
+):
+    """Concurrent lifecycle writes must not serialize behind a global lock."""
+
+    async def scenario(client):
+        source = await client.post(
+            "/projects",
+            json=_create_payload("request-source", "Source"),
+        )
+        assert source.status_code == 201
+        source_id = source.json()["projectId"]
+
+        responses = await asyncio.gather(
+            *[
+                client.post(
+                    "/projects",
+                    json=_create_payload(f"request-{index}", f"Storm {index}"),
+                )
+                for index in range(6)
+            ],
+            *[
+                client.post(
+                    f"/projects/{source_id}/copy",
+                    headers={"Idempotency-Key": f"copy-{index}"},
+                )
+                for index in range(2)
+            ],
+            *[client.get("/projects") for _ in range(10)],
+        )
+        listed = await client.get("/projects")
+        return responses, listed
+
+    responses, listed = run_scenario(app, scenario)
+    for response in responses:
+        assert response.status_code < 500, response.text
+    creates, copies = responses[:6], responses[6:8]
+    assert all(item.status_code == 201 for item in creates)
+    assert all(item.status_code == 201 for item in copies)
+    assert len({item.json()["projectId"] for item in copies}) == 2
+    items = listed.json()["items"]
+    names = {item["name"] for item in items}
+    assert {"Source", "Source copy"} <= names
+    assert {f"Storm {index}" for index in range(6)} <= names
+    # Publishing outside the global name lock means simultaneous copies (and
+    # simultaneous creates) can pick the same display name: the suffix scan
+    # cannot see a sibling that has not published yet.  Names are never an
+    # addressing key, and this buys a name lock that never spans the asset
+    # tree copy — which used to cause routine 10s lock timeouts.
+    copied = [item for item in items if item["name"].startswith("Source copy")]
+    assert len({item["projectId"] for item in copied}) == 2
+
+
+def test_snapshot_polling_during_edits_never_returns_busy(app, run_scenario):
+    """Lock-free reads: polling stays 200 while edits keep committing."""
+
+    async def scenario(client):
+        created = await client.post(
+            "/projects",
+            json=_create_payload("request-edit", "Edited"),
+        )
+        assert created.status_code == 201
+        project_url = f"/projects/{created.json()['projectId']}/project"
+
+        async def edit_loop() -> list[int]:
+            statuses: list[int] = []
+            name = "Edited"
+            for index in range(10):
+                current = await client.get(project_url)
+                assert current.status_code == 200
+                snapshot = current.json()
+                new_name = f"Edited {index}"
+                response = await client.patch(
+                    project_url,
+                    json={
+                        "clientCommandId": f"command-{index}",
+                        "editSessionId": "edit",
+                        "baseGeneration": snapshot["generation"],
+                        "baseEtag": snapshot["etag"],
+                        "operations": [
+                            {
+                                "op": "replace",
+                                "path": "/name",
+                                "value": new_name,
+                                "expectedValueHash": hash_json_value(name),
+                            },
+                        ],
+                    },
+                )
+                statuses.append(response.status_code)
+                if response.status_code == 200:
+                    name = new_name
+            return statuses
+
+        async def poll_loop() -> list[int]:
+            return [
+                (await client.get(project_url)).status_code for _ in range(60)
+            ]
+
+        edit_statuses, *poll_statuses = await asyncio.gather(
+            edit_loop(),
+            poll_loop(),
+            poll_loop(),
+            poll_loop(),
+        )
+        final = await client.get(project_url)
+        return edit_statuses, poll_statuses, final
+
+    edit_statuses, poll_statuses, final = run_scenario(app, scenario)
+    assert edit_statuses == [200] * 10
+    assert {status for loop in poll_statuses for status in loop} == {200}
+    assert final.json()["project"]["name"] == "Edited 9"

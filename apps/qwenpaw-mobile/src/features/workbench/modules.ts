@@ -14,6 +14,7 @@ import {
   GitFork,
   Library,
   KeyRound,
+  Network,
   Radio,
   ShieldCheck,
   Sparkles,
@@ -42,6 +43,7 @@ export type WorkbenchModuleKey =
   | "voice"
   | "debug"
   | "operations"
+  | "hub"
   | "extensions";
 
 export interface WorkbenchModule {
@@ -203,6 +205,15 @@ export const workbenchSections: WorkbenchSection[] = [
     title: "系统",
     modules: [
       {
+        key: "hub",
+        title: "QwenPaw Hub",
+        subtitle: "身份、Runtime 与多用户运行",
+        icon: Network,
+        endpoint: "/hub/healthz",
+        keywords: ["hub", "多用户", "runtime", "控制面", "管理员"],
+        scope: ["Hub 身份", "个人 Runtime", "多用户运行管理"],
+      },
+      {
         key: "models",
         title: "Models 与 Providers",
         subtitle: "模型服务与默认模型",
@@ -300,6 +311,7 @@ const categoryBlueprints: {
   {
     title: "运行与安全",
     keys: [
+      "hub",
       "skills",
       "skill-pool",
       "security",

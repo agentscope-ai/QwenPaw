@@ -290,6 +290,10 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             "(allow ipc-posix-shm)",
             "(allow network-outbound)",
             '(deny network-outbound (remote ip "localhost:*"))',
+            (
+                "(allow network-outbound "
+                f'(remote ip "localhost:{record.port}"))'
+            ),
             ("(allow network-bind " f'(local ip "localhost:{record.port}"))'),
             (
                 "(allow network-inbound "
@@ -365,11 +369,55 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             raise ProcessIsolationError(
                 "Seatbelt isolation probe read a host file.",
             )
+        self._probe_loopback_allowed(
+            profile_path,
+            record,
+            environment,
+        )
         self._probe_loopback_denied(
             profile_path,
             record,
             environment,
         )
+
+    def _probe_loopback_allowed(
+        self,
+        profile_path: Path,
+        record: RuntimeRecord,
+        environment: Mapping[str, str],
+    ) -> None:
+        """Verify a listener and its client can share the runtime sandbox."""
+        probe = (
+            "import socket;"
+            "listener=socket.socket();"
+            f"listener.bind(('127.0.0.1',{record.port}));"
+            "listener.listen(1);"
+            "client=socket.socket();"
+            "client.settimeout(2);"
+            f"client.connect(('127.0.0.1',{record.port}))"
+        )
+        result = subprocess.run(
+            [
+                self._executable,
+                "-f",
+                str(profile_path),
+                sys.executable,
+                "-B",
+                "-c",
+                probe,
+            ],
+            env=dict(environment),
+            cwd=record.working_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ProcessIsolationError(
+                "Seatbelt isolation cannot connect to its runtime port: "
+                f"{result.stderr.strip()}",
+            )
 
     def _probe_loopback_denied(
         self,

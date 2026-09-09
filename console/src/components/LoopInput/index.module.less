@@ -4,14 +4,10 @@
   min-height: 28px;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--ant-color-border-secondary);
+  border: 1px solid var(--app-border);
   border-radius: 9px;
-  background: color-mix(
-    in srgb,
-    var(--ant-color-bg-container) 92%,
-    transparent
-  );
-  color: var(--ant-color-text-secondary);
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  color: var(--app-text-secondary);
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
@@ -29,47 +25,47 @@
 
 .modeTrigger:hover,
 .modeTrigger[aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--ant-color-primary) 42%, transparent);
-  background: color-mix(in srgb, var(--ant-color-primary-bg) 64%, transparent);
-  color: var(--ant-color-text);
+  border-color: color-mix(in srgb, var(--app-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--app-accent-soft) 64%, transparent);
+  color: var(--app-text);
 }
 
 .modeTrigger:focus-visible,
 .modeOption:focus-visible,
 .settingsButton:focus-visible {
-  outline: 2px solid var(--ant-color-primary-border);
+  outline: 2px solid var(--app-accent-border);
   outline-offset: 2px;
 }
 
 .activeMode {
   padding: 0 10px;
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .activeMode[data-state="starting"] {
-  border-color: color-mix(in srgb, var(--ant-color-primary) 28%, transparent);
-  background: color-mix(in srgb, var(--ant-color-primary-bg) 66%, transparent);
+  border-color: color-mix(in srgb, var(--app-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--app-accent-soft) 66%, transparent);
 }
 
 .activeMode[data-state="running"] {
-  border-color: color-mix(in srgb, var(--ant-color-success) 32%, transparent);
-  background: color-mix(in srgb, var(--ant-color-success-bg) 70%, transparent);
+  border-color: color-mix(in srgb, var(--app-success) 32%, transparent);
+  background: color-mix(in srgb, var(--app-success-bg) 70%, transparent);
 }
 
 .activeMode[data-state="awaiting_user"] {
-  border-color: color-mix(in srgb, var(--ant-color-warning) 24%, transparent);
-  background: color-mix(in srgb, var(--ant-color-warning-bg) 62%, transparent);
+  border-color: color-mix(in srgb, var(--app-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--app-warning-bg) 62%, transparent);
 }
 
 .activeState {
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   font-weight: 500;
 }
 
 .activeState::before {
   margin-right: 5px;
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   content: "·";
 }
 
@@ -85,7 +81,7 @@
 
 .modePopover :global(.ant-popover-inner) {
   padding: 0;
-  border: 1px solid var(--ant-color-border-secondary);
+  border: 1px solid var(--app-border);
   border-radius: 14px;
   box-shadow: var(--ant-box-shadow-secondary);
   overflow: hidden;
@@ -94,7 +90,7 @@
 .modeMenu {
   width: min(360px, calc(100vw - 24px));
   padding: 10px;
-  background: var(--ant-color-bg-elevated);
+  background: var(--app-surface-raised);
 }
 
 .menuHeader {
@@ -113,14 +109,14 @@
 }
 
 .menuTitle {
-  color: var(--ant-color-text);
+  color: var(--app-text);
   font-size: 13px;
   font-weight: 650;
 }
 
 .menuHint {
   margin-top: 3px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 11px;
 }
 
@@ -133,13 +129,13 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   cursor: pointer;
 }
 
 .settingsButton:hover {
-  background: var(--ant-color-fill-tertiary);
-  color: var(--ant-color-text);
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
 }
 
 .modeList {
@@ -149,12 +145,12 @@
 .modeGroup + .modeGroup {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--ant-color-split);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .groupLabel {
   padding: 4px 7px 5px;
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -171,18 +167,18 @@
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   text-align: left;
   cursor: pointer;
 }
 
 .modeOption:hover,
 .modeOption.selected {
-  background: var(--ant-color-fill-quaternary);
+  background: var(--app-fill-faint);
 }
 
 .modeOption.selected {
-  color: var(--ant-color-primary);
+  color: var(--app-accent);
 }
 
 .optionIcon {
@@ -192,13 +188,13 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 9px;
-  background: var(--ant-color-fill-tertiary);
-  color: var(--ant-color-text-secondary);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
 }
 
 .selected .optionIcon {
-  background: var(--ant-color-primary-bg);
-  color: var(--ant-color-primary);
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
 }
 
 .optionCopy {
@@ -211,7 +207,7 @@
 
 .optionName {
   overflow: hidden;
-  color: var(--ant-color-text);
+  color: var(--app-text);
   font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -221,7 +217,7 @@
 .optionDescription {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   font-size: 11px;
   line-height: 1.35;
   -webkit-box-orient: vertical;
@@ -234,7 +230,7 @@
   justify-content: space-between;
   gap: 12px;
   margin: 8px 6px 2px;
-  color: var(--ant-color-error);
+  color: var(--app-error);
   font-size: 11px;
 }
 
@@ -242,7 +238,7 @@
   padding: 2px 5px;
   border: 0;
   background: transparent;
-  color: var(--ant-color-primary);
+  color: var(--app-accent);
   font: inherit;
   cursor: pointer;
 }

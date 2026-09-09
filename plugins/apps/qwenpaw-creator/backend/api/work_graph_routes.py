@@ -15,7 +15,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Response
 
 from domain.errors import NotFoundError, ValidationError
-from models.config import get_media_call_budget
+from models.config import (
+    get_media_call_budget,
+    get_image_model_name,
+    get_video_model_name,
+)
 from services.file_agent_runtime.work_graph import derive_work_graph
 from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
 from services.media_files.call_budget import media_call_count
@@ -24,7 +28,6 @@ from services.project_files.store import ProjectNotFound
 from services.runtime_files.execution_store import ProjectExecutionStore
 
 from .dependencies import CreatorErrorRoute, project_file_services
-
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -39,7 +42,11 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
     except ProjectNotFound as exc:
         raise NotFoundError(str(exc)) from exc
     tasks = ProjectExecutionStore(services.root).list_tasks(project_id)
-    graph = derive_work_graph(snapshot.project, tasks=tasks)
+    graph = derive_work_graph(
+        snapshot.project,
+        tasks=tasks,
+        media_models=(get_image_model_name(), get_video_model_name()),
+    )
     return {
         "projectId": project_id,
         "generation": graph.generation,
@@ -55,12 +62,17 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
                 "status": node.status.value,
                 "deps": list(node.deps),
                 "lane": node.lane,
+                "timelineId": node.timeline_id,
                 "taskId": node.task_id,
                 "progress": node.progress,
                 "error": node.error,
                 "missing": list(node.missing),
                 "locator": node.locator,
                 "dispatchable": node.command is not None,
+                "promptSyncRequired": node.prompt_sync_required,
+                "preparationState": (
+                    "waiting" if node.prompt_sync_required else None
+                ),
             }
             for node in graph.nodes
         ],
@@ -81,6 +93,21 @@ async def get_work_graph(
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
     payload = await asyncio.to_thread(_graph_payload, project_id, services)
+    # Read process activity on the event loop that owns the scheduler. A
+    # saved synchronization gap alone is never evidence of user action.
+    from services.file_agent_runtime.registry import get_creator_agent_runtime
+
+    runtime = get_creator_agent_runtime()
+    if runtime is not None and runtime.services.root == services.root:
+        for node in payload["nodes"]:
+            if node["promptSyncRequired"]:
+                preparation = runtime.work_scheduler.prompt_preparation_status(
+                    project_id,
+                    node["id"],
+                )
+                node["preparationState"] = preparation["state"]
+                if preparation.get("error"):
+                    node["error"] = preparation["error"]
     response.headers["Cache-Control"] = "no-store"
     return payload
 
@@ -96,7 +123,11 @@ async def dispatch_work_graph_node(
         ProjectExecutionStore(services.root).list_tasks,
         project_id,
     )
-    graph = derive_work_graph(snapshot.project, tasks=tasks)
+    graph = derive_work_graph(
+        snapshot.project,
+        tasks=tasks,
+        media_models=(get_image_model_name(), get_video_model_name()),
+    )
     node = graph.by_id.get(node_id)
     if node is None:
         raise NotFoundError(f"work-graph 节点不存在: {node_id}")

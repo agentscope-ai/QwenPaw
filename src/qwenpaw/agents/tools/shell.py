@@ -31,6 +31,10 @@ from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
+from ...utils.shell_normalization import (
+    normalize_posix_line_continuations,
+    shell_execution_path,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -218,8 +222,9 @@ def _collapse_embedded_newlines(
 
     Unix-like shells natively assign meaning to newlines in command lists,
     control structures, comments, and heredocs.  Rewriting those newlines
-    changes the program, so commands on Unix/macOS are passed through
-    unchanged.
+    changes the program, so ordinary newlines are preserved. POSIX
+    backslash-newline continuations are removed using the same normalization
+    as the security checks.
 
     On Windows, PowerShell also supports multiline scripts and keeps the
     original command.  ``cmd.exe`` (and unknown cmd-like shells) can truncate
@@ -229,7 +234,7 @@ def _collapse_embedded_newlines(
     if "\n" not in cmd:
         return cmd
     if sys.platform != "win32":
-        return cmd
+        return normalize_posix_line_continuations(cmd)
     if shell_executable and _is_powershell(shell_executable):
         return cmd
     return cmd.replace("\r\n", " ").replace("\n", " ")
@@ -652,6 +657,7 @@ def _execute_subprocess_sync(
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             wrapped,
             shell=False,
+            stdin=subprocess.DEVNULL,
             stdout=stdout_file,
             stderr=stderr_file,
             text=False,
@@ -1136,6 +1142,7 @@ async def _execute_posix_host(
             shell_executable or "/bin/sh",
             "-c",
             cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=outputs.stdout_file,
             stderr=outputs.stderr_file,
             bufsize=0,
@@ -1336,12 +1343,7 @@ async def execute_shell_command(
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
-    existing_path = env.get("PATH", "")
-    if existing_path:
-        env["PATH"] = python_bin_dir + os.pathsep + existing_path
-    else:
-        env["PATH"] = python_bin_dir
+    env["PATH"] = shell_execution_path(env.get("PATH"))
 
     if sandbox_config is not None and not isinstance(
         sandbox_config,

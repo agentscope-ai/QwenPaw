@@ -238,6 +238,8 @@ class ProviderManager(
             if field in candidate.__class__.model_fields
             and before_update.get(field) != getattr(candidate, field)
         }
+        if candidate.is_custom:
+            candidate = self._provider_from_data(candidate.model_dump())
         if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
             self._reset_model_availability(candidate)
             candidate.models_syncing = False
@@ -264,6 +266,10 @@ class ProviderManager(
             self.plugin_providers[provider_id]["info"] = ProviderInfo(
                 **candidate.model_dump(),
             )
+        elif (
+            current.__class__ is not candidate.__class__ and current.is_custom
+        ):
+            self.custom_providers[provider_id] = candidate
         else:
             self._copy_provider_state(current, candidate)
         if changed_fields:
@@ -302,16 +308,23 @@ class ProviderManager(
                 if field in provider.__class__.model_fields
                 and before_update.get(field) != getattr(provider, field)
             }
+            snapshot = provider
+            if provider.is_custom:
+                snapshot = self._provider_from_data(
+                    provider.model_dump(),
+                )
             if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
-                self._reset_model_availability(provider)
-                provider.models_syncing = False
+                self._reset_model_availability(snapshot)
+                snapshot.models_syncing = False
             if changed_fields:
                 self._bump_provider_revision(provider_id)
-            self._save_provider_snapshot(provider_id, provider)
+            self._save_provider_snapshot(provider_id, snapshot)
             if provider_id in self.plugin_providers:
                 self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                    **provider.model_dump(),
+                    **snapshot.model_dump(),
                 )
+            elif snapshot is not provider:
+                self.custom_providers[provider_id] = snapshot
             return True
 
     def _merge_persisted_discovery_state(
@@ -468,12 +481,6 @@ class ProviderManager(
         provider = self._provider_from_data(
             provider_payload,
         )  # Validate provider data
-        provider.support_model_discovery = provider.chat_model in {
-            "OpenAIChatModel",
-            "OpenAIResponseModel",
-            "AnthropicChatModel",
-            "GeminiChatModel",
-        }
         # For custom providers, we assume they don't support connection check
         # without model config, to avoid false negatives in the UI.
         provider.support_connection_check = False

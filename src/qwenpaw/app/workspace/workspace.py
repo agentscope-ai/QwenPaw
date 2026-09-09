@@ -40,6 +40,34 @@ from ...utils.logging import sanitize_log_value
 logger = logging.getLogger(__name__)
 
 
+def _memory_manager_reuse_compatible(
+    workspace: "Workspace",
+    instance: Any,
+) -> bool:
+    """Keep a memory service only when its backend configuration is unchanged.
+
+    Reused services do not receive ``start()`` on workspace reload.  Remote
+    backends therefore must be recreated when their endpoint, credentials,
+    scope, timeout, or search settings change; otherwise the old HTTP client
+    would continue serving the new workspace configuration.
+    """
+    from ...agents.memory.powercontext_memory_manager import (
+        PowerContextMemoryManager,
+    )
+
+    if not isinstance(instance, PowerContextMemoryManager):
+        return True
+    old_config = getattr(instance, "_config", None)
+    new_running = getattr(getattr(workspace, "_config", None), "running", None)
+    new_config = getattr(new_running, "powercontext_memory_config", None)
+    if old_config is None or new_config is None:
+        return old_config is new_config
+    try:
+        return old_config.model_dump() == new_config.model_dump()
+    except AttributeError:
+        return old_config == new_config
+
+
 class Workspace:
     """Single agent workspace with complete runtime components.
 
@@ -422,6 +450,7 @@ class Workspace:
                 start_method="start",
                 stop_method="close",
                 reusable=True,
+                reuse_compatibility=_memory_manager_reuse_compatible,
                 priority=20,
                 concurrent_init=True,
                 # reme depends on `agentscope.token`, which agentscope no

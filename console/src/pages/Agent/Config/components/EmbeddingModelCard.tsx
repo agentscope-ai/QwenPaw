@@ -1,6 +1,4 @@
 import {
-  Alert,
-  Button,
   Card,
   Form,
   Input,
@@ -9,12 +7,16 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { BadgeCheck, ChevronRight, Cpu, Power, Ruler } from "lucide-react";
+import { BadgeCheck, ChevronRight, Cpu, Database, Power } from "lucide-react";
 
-import { api } from "@/api";
+import { api, agentsApi } from "@/api";
 import type { EmbeddingModelConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { isEmbeddingEnabled } from "./embeddingUtils";
+import { useAgentStore } from "@/stores/agentStore";
+import {
+  getEmbeddingConfigFingerprint,
+  isEmbeddingEnabled,
+} from "./embeddingUtils";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { useEmbeddingVerification } from "./useEmbeddingVerification";
@@ -29,10 +31,19 @@ const EMBEDDING_BACKEND_OPTIONS = [
 
 export function EmbeddingModelCard() {
   const { t } = useTranslation();
-  const { modal } = useAppMessage();
+  const { message, modal } = useAppMessage();
+  const { selectedAgent } = useAgentStore();
   const form = Form.useFormInstance();
-  const { needsReindex, reindexing, openMemorySettings } =
-    useMemoryMaintenance();
+  const {
+    needsReindex,
+    setNeedsReindex,
+    reindexing,
+    setReindexing,
+    persistedEmbeddingFingerprint,
+    setPersistedEmbeddingFingerprint,
+    runtimeStatus,
+    checkMemoryStatus,
+  } = useMemoryMaintenance();
 
   const embeddingConfig = Form.useWatch(
     ["reme_light_memory_config", "embedding_model_config"],
@@ -59,6 +70,80 @@ export function EmbeddingModelCard() {
     clearVerification,
   } = useEmbeddingVerification(embeddingConfig, embeddingEnabled);
   const embeddingCacheEnabled = embeddingConfig?.enable_cache ?? true;
+  const hasUnsavedEmbeddingChanges =
+    persistedEmbeddingFingerprint !== undefined &&
+    getEmbeddingConfigFingerprint(embeddingConfig) !==
+      persistedEmbeddingFingerprint;
+  const undoEmbeddingAvailable =
+    needsReindex &&
+    runtimeStatus.type === "healthy" &&
+    runtimeStatus.data.embedding_reindex_undo_available;
+
+  const rebuildEmbeddingIndex = () => {
+    modal.confirm({
+      title: t("agentConfig.rebuildEmbeddingIndexConfirmTitle"),
+      content: t("agentConfig.rebuildEmbeddingIndexConfirm"),
+      okText: t("agentConfig.rebuildEmbeddingIndex"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        setReindexing(true);
+        try {
+          await agentsApi.rebuildMemoryIndex(
+            selectedAgent || "default",
+            "embedding",
+          );
+          setNeedsReindex(false);
+          message.success(t("agentConfig.rebuildEmbeddingIndexSuccess"));
+        } catch (error) {
+          message.error(
+            t("agentConfig.rebuildEmbeddingIndexFailed", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          throw error;
+        } finally {
+          setReindexing(false);
+          void checkMemoryStatus();
+        }
+      },
+    });
+  };
+
+  const undoEmbeddingChange = () => {
+    modal.confirm({
+      title: t("agentConfig.undoEmbeddingChangeConfirmTitle"),
+      content: t("agentConfig.undoEmbeddingChangeConfirm"),
+      okText: t("agentConfig.undoEmbeddingChange"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        setReindexing(true);
+        try {
+          const result = await agentsApi.undoEmbeddingReindex(
+            selectedAgent || "default",
+          );
+          form.setFieldValue(
+            ["reme_light_memory_config", "embedding_model_config"],
+            result,
+          );
+          setPersistedEmbeddingFingerprint?.(
+            getEmbeddingConfigFingerprint(result),
+          );
+          setNeedsReindex(false);
+          message.success(t("agentConfig.undoEmbeddingChangeSuccess"));
+        } catch (error) {
+          message.error(
+            t("agentConfig.undoEmbeddingChangeFailed", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          throw error;
+        } finally {
+          setReindexing(false);
+          void checkMemoryStatus();
+        }
+      },
+    });
+  };
 
   const testEmbedding = async () => {
     const config = form.getFieldValue([
@@ -113,19 +198,6 @@ export function EmbeddingModelCard() {
 
   return (
     <Card className={styles.formCard}>
-      {needsReindex && (
-        <Alert
-          type="warning"
-          showIcon
-          message={t("agentConfig.rebuildMemoryIndexRequired")}
-          action={
-            <Button size="small" onClick={openMemorySettings}>
-              {t("agentConfig.goToLongTermMemory")}
-            </Button>
-          }
-          className={styles.embeddingReindexAlert}
-        />
-      )}
       <section className={styles.memoryOverview}>
         <div className={styles.memoryOverviewHeader}>
           <div>
@@ -154,6 +226,15 @@ export function EmbeddingModelCard() {
                   : "agentConfig.embeddingCapabilityDisabled",
               )}
             </strong>
+            <small>
+              {t(
+                !embeddingEnabled
+                  ? "agentConfig.embeddingSearchModeBm25"
+                  : needsReindex
+                  ? "agentConfig.embeddingSearchModeBm25Pending"
+                  : "agentConfig.embeddingSearchModeHybrid",
+              )}
+            </small>
           </div>
           <div className={styles.memoryOverviewItem}>
             <span className={styles.memoryOverviewLabel}>
@@ -161,18 +242,13 @@ export function EmbeddingModelCard() {
               {t("agentConfig.embeddingCurrentModel")}
             </span>
             <strong title={modelName}>{modelName || "—"}</strong>
-            <small>{normalizedBackend || "—"}</small>
-          </div>
-          <div className={styles.memoryOverviewItem}>
-            <span className={styles.memoryOverviewLabel}>
-              <Ruler size={14} aria-hidden="true" />
-              {t("agentConfig.embeddingConfiguredDimensions")}
-            </span>
-            <strong>{embeddingConfig?.dimensions || "—"}</strong>
             <small>
+              {normalizedBackend || "—"}
               {embeddingConfig?.dimensions
-                ? t("agentConfig.embeddingDimensionsUnit")
-                : "\u00a0"}
+                ? ` · ${embeddingConfig.dimensions} ${t(
+                    "agentConfig.embeddingDimensionsUnit",
+                  )}`
+                : ""}
             </small>
           </div>
           <button
@@ -209,6 +285,92 @@ export function EmbeddingModelCard() {
             )}
             <ChevronRight size={16} aria-hidden="true" />
           </button>
+          <div
+            className={`${styles.embeddingIndexItem} ${
+              !embeddingEnabled
+                ? styles.embeddingIndexDisabled
+                : reindexing || hasUnsavedEmbeddingChanges
+                ? styles.embeddingIndexRebuildRequired
+                : needsReindex
+                ? styles.embeddingIndexRebuildRequired
+                : styles.embeddingIndexReady
+            }`}
+          >
+            <button
+              type="button"
+              className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem} ${styles.embeddingIndexPrimaryAction}`}
+              onClick={rebuildEmbeddingIndex}
+              disabled={
+                !embeddingEnabled || reindexing || hasUnsavedEmbeddingChanges
+              }
+              aria-busy={reindexing}
+              aria-label={t("agentConfig.rebuildEmbeddingIndex")}
+            >
+              <span className={styles.memoryOverviewLabel}>
+                <Database size={14} aria-hidden="true" />
+                {t("agentConfig.embeddingIndexStatus")}
+              </span>
+              <strong
+                className={
+                  !embeddingEnabled
+                    ? styles.embeddingStatusValueDisabled
+                    : reindexing || hasUnsavedEmbeddingChanges
+                    ? styles.embeddingStatusValuePending
+                    : needsReindex
+                    ? styles.embeddingStatusValuePending
+                    : styles.embeddingStatusValueVerified
+                }
+              >
+                {t(
+                  !embeddingEnabled
+                    ? "agentConfig.embeddingIndexDisabled"
+                    : reindexing
+                    ? "agentConfig.embeddingIndexRebuilding"
+                    : hasUnsavedEmbeddingChanges
+                    ? "agentConfig.embeddingIndexSaveFirst"
+                    : needsReindex
+                    ? "agentConfig.embeddingIndexNeedsRebuild"
+                    : "agentConfig.embeddingIndexAvailable",
+                )}
+              </strong>
+              <small
+                title={t(
+                  !embeddingEnabled
+                    ? "agentConfig.embeddingIndexEnableFirst"
+                    : reindexing
+                    ? "agentConfig.embeddingIndexRebuildingHint"
+                    : hasUnsavedEmbeddingChanges
+                    ? "agentConfig.embeddingIndexUnsavedHint"
+                    : needsReindex
+                    ? "agentConfig.rebuildMemoryIndexRequired"
+                    : "agentConfig.embeddingIndexReady",
+                )}
+              >
+                {t(
+                  !embeddingEnabled
+                    ? "agentConfig.embeddingIndexEnableFirst"
+                    : reindexing
+                    ? "agentConfig.embeddingIndexRebuildingHint"
+                    : hasUnsavedEmbeddingChanges
+                    ? "agentConfig.embeddingIndexUnsavedHint"
+                    : needsReindex
+                    ? "agentConfig.embeddingIndexBm25Fallback"
+                    : "agentConfig.embeddingIndexMatchesConfig",
+                )}
+              </small>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+            {undoEmbeddingAvailable && (
+              <button
+                type="button"
+                className={styles.embeddingIndexUndoAction}
+                disabled={reindexing}
+                onClick={undoEmbeddingChange}
+              >
+                {t("agentConfig.undoEmbeddingChange")}
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -441,6 +603,31 @@ export function EmbeddingModelCard() {
               style={{ width: "100%" }}
               min={1}
               step={1}
+              disabled={reindexing || !embeddingEnabled}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={t("agentConfig.embeddingHealthCheckTimeout")}
+            name={[
+              "reme_light_memory_config",
+              "embedding_model_config",
+              "health_check_timeout",
+            ]}
+            rules={[
+              {
+                required: true,
+                message: t("agentConfig.embeddingHealthCheckTimeoutRequired"),
+              },
+            ]}
+            tooltip={t("agentConfig.embeddingHealthCheckTimeoutTooltip")}
+          >
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1}
+              max={300}
+              step={5}
+              addonAfter="s"
               disabled={reindexing || !embeddingEnabled}
             />
           </Form.Item>

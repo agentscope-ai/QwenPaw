@@ -1,6 +1,12 @@
 name: Pre-commit Checks
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the checks really run
+    # right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   spam-gate:
@@ -23,26 +29,47 @@ jobs:
       OS: ubuntu-latest
       PYTHON: "3.11"
     steps:
+      # Draft PRs defer the real run: this job still reports a green
+      # placeholder so the required-check context stays present (GitHub
+      # forbids merging drafts), and the ready_for_review trigger
+      # re-runs everything once the PR is marked ready.
+      - name: Detect draft PR
+        id: draft
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.draft.outputs.value != 'true'
 
       - name: Setup Python
+        if: steps.draft.outputs.value != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Update setuptools and wheel
+        if: steps.draft.outputs.value != 'true'
         run: |
           pip install setuptools==68.2.2 wheel==0.41.2
 
       - name: Install QwenPaw with dev dependencies
+        if: steps.draft.outputs.value != 'true'
         run: |
           pip install -q -e ".[dev]"
 
       - name: Install pre-commit hooks
+        if: steps.draft.outputs.value != 'true'
         run: |
           pre-commit install
 
       - name: Run pre-commit
+        if: steps.draft.outputs.value != 'true'
         run: |
           pre-commit run --all-files 2>&1 | tee pre-commit.log || true
           if grep -q Failed pre-commit.log; then
@@ -50,3 +77,8 @@ jobs:
             exit 1
           fi
           echo -e "\e[46m  ********************************Passed******************************** \e[0m"
+
+      - name: Report draft placeholder
+        if: steps.draft.outputs.value == 'true'
+        shell: bash
+        run: echo "✅ Draft PR — pre-commit checks deferred until the PR is marked ready for review"

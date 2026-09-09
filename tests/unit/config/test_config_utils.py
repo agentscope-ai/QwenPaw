@@ -488,3 +488,41 @@ class TestIsRunningInContainer:
 
         monkeypatch.setattr(builtins, "open", fake_open)
         assert cu.is_running_in_container() is False
+
+
+# ---------------------------------------------------------------------------
+# get_agent_dirs
+# ---------------------------------------------------------------------------
+
+
+class TestGetAgentDirs:
+    def test_expands_tilde_and_skips_missing(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        abs_ws = tmp_path / "abs_ws"
+        abs_ws.mkdir()
+        (abs_ws / "agent.json").write_text("{}", encoding="utf-8")
+
+        home = tmp_path / "home"
+        tilde_ws = home / "tilde_ws"
+        tilde_ws.mkdir(parents=True)
+        (tilde_ws / "agent.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("HOME", str(home))
+        # expanduser() prefers USERPROFILE over HOME on Windows (py<3.12)
+        monkeypatch.setenv("USERPROFILE", str(home))
+
+        fake_config = SimpleNamespace(
+            agents=SimpleNamespace(
+                profiles={
+                    "abs": SimpleNamespace(workspace_dir=str(abs_ws)),
+                    "tilde": SimpleNamespace(workspace_dir="~/tilde_ws"),
+                    "missing": SimpleNamespace(
+                        workspace_dir=str(tmp_path / "missing_ws"),
+                    ),
+                },
+            ),
+        )
+        monkeypatch.setattr(cu, "load_config", lambda: fake_config)
+
+        dirs = cu.get_agent_dirs()
+        assert dirs == [abs_ws, tilde_ws]

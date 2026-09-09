@@ -8,7 +8,8 @@ import gzip
 from pathlib import Path
 import sqlite3
 import threading
-from urllib.parse import urlsplit
+import time
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 import httpx
@@ -95,6 +96,7 @@ def _client(
     hub_config: HubConfig | None = None,
     provisioner_available: bool = True,
     runtime_port: int = 0,
+    runtime_provisioner: RuntimeProvisioner | None = None,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -117,15 +119,14 @@ def _client(
         )
         return environment
 
+    provisioner = runtime_provisioner or _FakeProvisioner(
+        provisioner_available,
+        runtime_port,
+    )
     service = RuntimeService(
         root_dir=tmp_path,
         registry=registry,
-        provisioners={
-            "local": _FakeProvisioner(
-                provisioner_available,
-                runtime_port,
-            ),
-        },
+        provisioners={"local": provisioner},
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -270,6 +271,48 @@ def test_public_version_does_not_create_runtime(
     assert response.status_code == 200
     assert response.json() == {"version": __version__}
     assert hub_client.app.state.runtime_service.registry.list() == []
+
+
+def test_mobile_pairing_issues_one_time_hub_token(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    client, token = admin_client
+    unauthorized = client.post(
+        "/api/auth/pairing",
+        json={"base_url": "https://hub.example.test/"},
+    )
+    assert unauthorized.status_code == 401
+
+    created = client.post(
+        "/api/auth/pairing",
+        headers=_headers(token),
+        json={"base_url": "https://hub.example.test/"},
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    query = parse_qs(urlsplit(payload["pairing_uri"]).query)
+    assert query["base_url"] == ["https://hub.example.test"]
+    assert payload["qrcode_img"]
+
+    ticket = query["ticket"][0]
+    redeemed = client.post(
+        "/api/auth/pairing/redeem",
+        json={"ticket": ticket},
+    )
+    assert redeemed.status_code == 200
+    assert redeemed.json()["mode"] == "hub"
+    verified = client.get(
+        "/api/auth/verify",
+        headers=_headers(redeemed.json()["token"]),
+    )
+    assert verified.status_code == 200
+    assert verified.json()["username"] == "owner"
+
+    repeated = client.post(
+        "/api/auth/pairing/redeem",
+        json={"ticket": ticket},
+    )
+    assert repeated.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -525,6 +568,77 @@ def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
         assert created.status_code == 503
         assert proxied.status_code == 503
         assert client.app.state.runtime_service.registry.list() == []
+
+
+def test_health_starts_runtime_once_without_blocking_control_plane(
+    tmp_path: Path,
+) -> None:
+    provisioner = _FakeProvisioner()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_start(
+        record: RuntimeRecord,
+        credentials: Mapping[str, str],
+    ) -> RuntimeRecord:
+        del credentials
+        entered.set()
+        assert release.wait(timeout=3)
+        return replace(record, state=RuntimeState.RUNNING, pid=100)
+
+    with (
+        patch.object(provisioner, "start", side_effect=slow_start) as start,
+        _client(tmp_path, runtime_provisioner=provisioner) as client,
+    ):
+        headers = _headers(_register(client, "owner"))
+
+        first = client.get("/api/hub/healthz", headers=headers)
+        assert first.status_code == 200
+        assert first.json()["runtime_state"] == "starting"
+        assert entered.wait(timeout=1)
+
+        version = client.get("/api/version")
+        second = client.get("/api/hub/healthz", headers=headers)
+
+        assert version.status_code == 200
+        assert second.status_code == 200
+        assert second.json()["runtime_state"] == "starting"
+        assert start.call_count == 1
+
+        release.set()
+        deadline = time.monotonic() + 1
+        service = client.app.state.runtime_service
+        runtime_id = service.registry.list()[0].runtime_id
+        while service.active_operation(runtime_id):
+            if time.monotonic() >= deadline:
+                pytest.fail("Runtime start operation did not finish")
+            time.sleep(0.01)
+
+        ready = client.get("/api/hub/healthz", headers=headers)
+        assert ready.json()["runtime_state"] == "running"
+
+        event_loop_threads: list[int] = []
+        registry_read_threads: list[int] = []
+        runtime_available = service.runtime_available
+        get_runtime = service.get
+
+        def track_event_loop() -> bool:
+            event_loop_threads.append(threading.get_ident())
+            return runtime_available()
+
+        def track_registry_read(runtime_id: str) -> RuntimeRecord:
+            registry_read_threads.append(threading.get_ident())
+            return get_runtime(runtime_id)
+
+        with (
+            patch.object(service, "runtime_available", track_event_loop),
+            patch.object(service, "get", track_registry_read),
+        ):
+            checked = client.get("/api/hub/healthz", headers=headers)
+
+        assert checked.status_code == 200
+        assert registry_read_threads
+        assert event_loop_threads[0] not in registry_read_threads
 
 
 def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
