@@ -354,6 +354,22 @@ describe("agent session ownership epochs", () => {
     expect(sessionApi.isSessionSwitching).toBe(false);
   });
 
+  it("keeps a prepared blank session ahead of agent history", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    sessionApi.setActiveAgent("agent-b");
+    const blank: { id?: string } = {};
+
+    await sessionApi.createSession(blank);
+    listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, "console:b")]);
+    const sessions = await sessionApi.getSessionList();
+    await sessionApi.getSession(blank.id!);
+
+    expect(sessions[0].id).toBe(blank.id);
+    expect(blank.id).toMatch(/^\d+-[a-z0-9]+$/);
+    expect(getSpy).not.toHaveBeenCalled();
+  });
+
   it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {
     const listSpy = vi.spyOn(api, "listChats");
 

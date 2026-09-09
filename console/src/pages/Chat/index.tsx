@@ -174,6 +174,9 @@ interface SubmissionSnapshot {
 
 function resolveBackendChatId(chatId?: string | null): string | undefined {
   if (!chatId) return undefined;
+  const identity = sessionApi.getSessionIdentity(chatId);
+  if (!identity.sessionId) return undefined;
+  if (identity.chatId) return identity.chatId;
   const resolved = sessionApi.getRealIdForSession(chatId);
   if (resolved) return resolved;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -1211,15 +1214,26 @@ export default function ChatPage() {
   const location = useLocation();
   const { isDark } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
-  const prevSelectedAgentRef = useRef(selectedAgent);
-  const isAgentSwitchTransition =
-    prevSelectedAgentRef.current !== selectedAgent;
-  const agentSwitchTransitionRef = useRef(isAgentSwitchTransition);
-  agentSwitchTransitionRef.current = isAgentSwitchTransition;
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  const pendingAgentSwitchRef = useRef<string | null>(null);
+  const agentJustChanged = prevSelectedAgentRef.current !== selectedAgent;
+  if (agentJustChanged) {
+    pendingAgentSwitchRef.current = selectedAgent;
+  } else if (pendingAgentSwitchRef.current === selectedAgent && !chatId) {
+    pendingAgentSwitchRef.current = null;
+  }
+  const isAgentSwitchTransition =
+    agentJustChanged || pendingAgentSwitchRef.current === selectedAgent;
+  const agentSwitchTransitionRef = useRef(isAgentSwitchTransition);
+  agentSwitchTransitionRef.current = isAgentSwitchTransition;
+  if (agentJustChanged) {
+    sessionApi.preferredChatId = null;
+    sessionApi.lastActiveChatId = null;
+  }
   const lastActiveChatId = sessionApi.lastActiveChatId;
   const validLastActiveChatId =
     lastActiveChatId &&
@@ -1446,12 +1460,14 @@ export default function ChatPage() {
 
   const syncLoopModeStatus = useCallback(() => {
     if (isAgentSwitchTransition) return Promise.resolve();
-    const backendSessionId =
-      activeSessionId !== "new"
-        ? sessionApi.getSessionIdentity(activeSessionId).sessionId
-        : "";
+    const sessionReference =
+      chatId ?? (activeSessionId !== "new" ? activeSessionId : undefined);
+    const verifiedChatId = resolveBackendChatId(sessionReference);
+    const backendSessionId = verifiedChatId
+      ? sessionApi.getSessionIdentity(sessionReference).sessionId
+      : "";
     return fetchActiveLoopMode({
-      chatId,
+      chatId: verifiedChatId,
       sessionId: backendSessionId,
     });
   }, [activeSessionId, chatId, isAgentSwitchTransition]);
@@ -1460,9 +1476,10 @@ export default function ChatPage() {
     const controller = new AbortController();
     useLoopStore.getState().resetSessionMode();
     void fetchAvailableLoopModes(controller.signal);
-    if (chatId && !isAgentSwitchTransition) {
+    const verifiedChatId = resolveBackendChatId(chatId);
+    if (verifiedChatId && !isAgentSwitchTransition) {
       void fetchActiveLoopMode({
-        chatId,
+        chatId: verifiedChatId,
         sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
         signal: controller.signal,
       });
@@ -1491,7 +1508,7 @@ export default function ChatPage() {
     // Invalidate immediately so A→B never briefly filters/shows A's tasks.
     setBgBackendSessionId("");
 
-    if (!queueSessionId || isNewQueueKey(queueSessionId)) {
+    if (!queueSessionId || isNewQueueKey(queueSessionId) || !backendChatId) {
       stopBackgroundWatchersNotInSession("");
       return;
     }
@@ -1524,7 +1541,7 @@ export default function ChatPage() {
       // Drop stale binding as soon as queueSessionId changes / unmounts.
       setBgBackendSessionId("");
     };
-  }, [queueSessionId]);
+  }, [backendChatId, queueSessionId]);
 
   const scheduleNextSend = useCallback(() => {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
@@ -2433,7 +2450,9 @@ export default function ChatPage() {
   const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
     ? null
     : getLastChatId(selectedAgent);
-  const effectiveChatId = chatId || safeLastActive || safeLastStored;
+  const effectiveChatId = isAgentSwitchTransition
+    ? undefined
+    : chatId || safeLastActive || safeLastStored;
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -2624,7 +2643,7 @@ export default function ChatPage() {
 
   // Setup multimodal capabilities tracking via custom hook
 
-  // Refresh chat when selectedAgent changes, preserving last active chat per agent
+  // Refresh chat on agent changes and start the new agent on a blank session.
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
@@ -2645,20 +2664,6 @@ export default function ChatPage() {
         setLastChatId(prevAgent, currentChatId);
       }
 
-      // Restore last chat ID for the agent we're switching to.
-      // Ignore temporary local timestamp ids that may have been persisted
-      // before this guard was added.
-      const restored = getLastChatId(selectedAgent);
-      if (restored && !isLocalTimestampId(restored)) {
-        navigateRef.current(buildChatPath(restored), {
-          replace: true,
-        });
-        sessionApi.preferredChatId = restored;
-        sessionApi.lastActiveChatId = restored;
-      } else {
-        navigateRef.current("/chat", { replace: true });
-        sessionApi.lastActiveChatId = null;
-      }
       // Mark the current session as stale so late-arriving onSessionSelected
       // callbacks from the OLD library instance are suppressed (Bug: after
       // agent switch, old library's in-flight getSession may complete and
@@ -2667,10 +2672,19 @@ export default function ChatPage() {
         lastSessionIdRef.current || chatIdRef.current || null;
       lastSessionIdRef.current = null;
 
+      // Always start the newly selected agent on a blank local conversation.
+      // Preparing it before the SDK remount ensures the SDK auto-selects this
+      // empty entry instead of loading the first historical conversation.
+      sessionApi.preferredChatId = null;
+      sessionApi.lastActiveChatId = null;
+      navigateRef.current(CHAT_BASE_PATH, { replace: true });
+      sessionApi.userInitiatedCreate = true;
+      void sessionApi.createSession({});
+
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, setLastChatId, getLastChatId]);
+  }, [selectedAgent, setLastChatId]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
