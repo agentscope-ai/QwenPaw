@@ -2950,14 +2950,16 @@ class DingTalkChannel(BaseChannel):
                     await self._mark_card_failed(conversation_id)
                 state.pop("nonstream_card", None)
 
-        # Also finalize any unused pre-created card (e.g. no messages produced)
+        # If a pre-created card was never consumed (agent produced no output),
+        # finalize it with a meaningful completion message instead of leaving
+        # it showing "处理中..." forever.
         unused_card = getattr(request, "_precreated_card", None)
         if unused_card:
             setattr(request, "_precreated_card", None)
             try:
                 await self._stream_ai_card(
                     unused_card,
-                    self._build_ai_card_initial_text(),
+                    self.bot_prefix + "✅ 处理完成，本次未生成输出内容",
                     finalize=True,
                 )
             except Exception:
