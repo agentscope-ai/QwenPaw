@@ -72,6 +72,31 @@ async def test_required_clean_stop_failure_is_propagated():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("async_stop", [True, False])
+async def test_required_clean_stop_false_result_is_propagated(async_stop):
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+
+    if async_stop:
+        stop = AsyncMock(return_value=False)
+    else:
+
+        def stop():
+            return False
+
+    service = SimpleNamespace(stop=stop)
+    descriptor = ServiceDescriptor(
+        name="memory_manager",
+        stop_method="stop",
+        require_clean_stop=True,
+    )
+    manager.register(descriptor)
+    manager.services[descriptor.name] = service
+
+    with pytest.raises(RuntimeError, match="reported an incomplete stop"):
+        await manager.stop_all()
+
+
+@pytest.mark.asyncio
 async def test_reused_service_can_be_rejected_by_configuration():
     workspace = SimpleNamespace(agent_id="agent-1", marker="new")
     manager = ServiceManager(workspace)

@@ -482,6 +482,7 @@ class Workspace:
                 stop_method="close",
                 reusable=True,
                 reuse_compatibility=_memory_manager_reuse_compatible,
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 # reme depends on `agentscope.token`, which agentscope no

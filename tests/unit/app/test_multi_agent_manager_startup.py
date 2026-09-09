@@ -117,6 +117,7 @@ def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
 
     descriptor = workspace._service_manager.descriptors["memory_manager"]
     assert descriptor.reusable is True
+    assert descriptor.require_clean_stop is True
 
 
 @pytest.mark.asyncio

@@ -597,9 +597,13 @@ class ServiceManager:
                 stop_fn = getattr(service, descriptor.stop_method, None)
                 if stop_fn:
                     if asyncio.iscoroutinefunction(stop_fn):
-                        await stop_fn()
+                        stop_result = await stop_fn()
                     else:
-                        await run_sync_io(stop_fn)
+                        stop_result = await run_sync_io(stop_fn)
+                    if stop_result is False:
+                        raise RuntimeError(
+                            f"Service '{name}' reported an incomplete stop",
+                        )
                     logger.debug(
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",
