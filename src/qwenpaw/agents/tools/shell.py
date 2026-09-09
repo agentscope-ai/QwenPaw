@@ -654,6 +654,7 @@ def _execute_subprocess_sync(
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             wrapped,
             shell=False,
+            stdin=subprocess.DEVNULL,
             stdout=stdout_file,
             stderr=stderr_file,
             text=False,
@@ -1138,6 +1139,7 @@ async def _execute_posix_host(
             shell_executable or "/bin/sh",
             "-c",
             cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=outputs.stdout_file,
             stderr=outputs.stderr_file,
             bufsize=0,

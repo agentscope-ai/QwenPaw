@@ -78,17 +78,16 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
   moduleKeyOrPath?: string,
 ) {
-  return lazy(() =>
-    retryImport(factory, MAX_RETRIES).then((mod) => {
-      if (!moduleKeyOrPath) return mod;
+  return lazy(() => {
+    if (moduleKeyOrPath) {
       const key = moduleKeyOrPath.startsWith(".")
         ? pathToModuleKey(moduleKeyOrPath)
         : moduleKeyOrPath;
       const patched = moduleRegistry.get(key, "default");
-      if (patched) return { default: patched as T };
-      return mod;
-    }),
-  );
+      if (patched) return Promise.resolve({ default: patched as T });
+    }
+    return retryImport(factory, MAX_RETRIES);
+  });
 }
 
 /**
@@ -129,14 +128,16 @@ export function lazyImportWithRetry(
     );
   }
   const key = pathToModuleKey(path);
-  return lazy(() =>
-    retryImport(
+  return lazy(() => {
+    const patched = moduleRegistry.get(key, "default");
+    if (patched) {
+      return Promise.resolve({
+        default: patched as ComponentType<unknown>,
+      });
+    }
+    return retryImport(
       () => factory().then((comp) => ({ default: comp })),
       MAX_RETRIES,
-    ).then((mod) => {
-      const patched = moduleRegistry.get(key, "default");
-      if (patched) return { default: patched as ComponentType<unknown> };
-      return mod;
-    }),
-  );
+    );
+  });
 }

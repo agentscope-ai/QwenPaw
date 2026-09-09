@@ -14,7 +14,10 @@ import { useLocation } from "react-router-dom";
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
-  sidebarMode: { mode: "full" as "full" | "simple" },
+  sidebar: {
+    focusItemIds: ["core.workspace", "core.models"] as string[],
+    hiddenPluginItemIds: [] as string[],
+  },
   menuItems: [] as unknown[],
   routes: [] as unknown[],
   authStatus: { enabled: false, mode: "normal" },
@@ -24,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
   restartRuntime: vi.fn().mockResolvedValue({}),
+  setSelectedAgent: vi.fn(),
+  refreshAgents: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -37,8 +42,8 @@ vi.mock("../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
 }));
 
-vi.mock("../stores/sidebarModeStore", () => ({
-  useSidebarModeStore: () => mocks.sidebarMode,
+vi.mock("../stores/sidebarStore", () => ({
+  useSidebarStore: () => mocks.sidebar,
 }));
 
 vi.mock("../stores/agentStore", () => ({
@@ -48,10 +53,13 @@ vi.mock("../stores/agentStore", () => ({
       {
         id: "agent-1",
         name: "Primary",
+        enabled: true,
         backend: "qwenpaw",
         backend_capabilities: { workspace_ui: true },
       },
     ],
+    setSelectedAgent: mocks.setSelectedAgent,
+    refreshAgents: mocks.refreshAgents,
   }),
 }));
 
@@ -86,6 +94,7 @@ vi.mock("../hooks/useAppMessage", () => ({
 
 vi.mock("../api", () => ({
   default: {
+    getVersion: () => Promise.resolve({ version: "2.2.0b3" }),
     getInboxEvents: () => Promise.resolve({ events: mocks.inboxEvents }),
     getPushMessages: () => Promise.resolve(mocks.pushMessages),
     getUserTimezone: () => Promise.resolve({ timezone: "UTC" }),
@@ -99,6 +108,7 @@ vi.mock("../api/config", () => ({
 vi.mock("../api/modules/auth", () => ({
   authApi: {
     getStatus: () => Promise.resolve(mocks.authStatus),
+    getCurrentUser: () => Promise.resolve({ username: "testuser" }),
     updateProfile: (...args: unknown[]) => mocks.updateProfile(...args),
   },
 }));
@@ -126,6 +136,20 @@ vi.mock("../components/AgentSelector", () => ({
   default: () => <div data-testid="agent-selector" />,
 }));
 
+vi.mock("./AppBrand", () => ({
+  default: ({
+    action,
+    hidden,
+  }: {
+    action?: React.ReactNode;
+    hidden?: boolean;
+  }) => (
+    <div data-testid="app-brand" hidden={hidden}>
+      {action}
+    </div>
+  ),
+}));
+
 vi.mock("./SidebarSessionList", () => ({
   default: ({
     onNewChat,
@@ -146,7 +170,11 @@ vi.mock("./SidebarSessionList", () => ({
 }));
 
 vi.mock("./SidebarSettingsPanel", () => ({
-  default: () => <div data-testid="settings-panel" />,
+  default: ({ onOpenAccount }: { onOpenAccount?: () => void }) => (
+    <div data-testid="settings-panel">
+      <button onClick={onOpenAccount}>account.title</button>
+    </div>
+  ),
 }));
 
 vi.mock("motion/react", () => ({
@@ -186,6 +214,10 @@ const iconStubs = vi.hoisted(() => {
     SparkMenuFoldLine: make("fold"),
     SparkEmailLine: make("email"),
     SparkSettingLine: make("setting"),
+    SparkAgentLine: make("agent"),
+    SparkNewChatLine: make("new-chat"),
+    SparkOperateLeftLine: make("operate-left"),
+    SparkOperateRightLine: make("operate-right"),
   };
 });
 
@@ -193,11 +225,18 @@ vi.mock("@agentscope-ai/icons", () => iconStubs);
 
 vi.mock("lucide-react", () => {
   const stub = ({ size }: { size?: number }) =>
-    React.createElement("span", { "data-testid": "lucide-icon" }, size ?? 16);
+    React.createElement(
+      "span",
+      { "aria-hidden": true, "data-testid": "lucide-icon" },
+      size ?? 16,
+    );
   return {
+    Check: stub,
     ChevronDown: stub,
+    History: stub,
     MessageSquareText: stub,
     RotateCw: stub,
+    Settings: stub,
     ShieldCheck: stub,
   };
 });
@@ -224,6 +263,30 @@ function renderSidebar(
   );
 }
 
+function mockMobileViewport(matches: boolean) {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query) =>
+      ({
+        matches: matches && query === "(max-width: 768px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as MediaQueryList,
+  );
+}
+
+async function openAccountModal() {
+  const settingsButtons = await screen.findAllByRole("button", {
+    name: "Settings",
+  });
+  fireEvent.click(settingsButtons[settingsButtons.length - 1]);
+  fireEvent.click(await screen.findByText("account.title"));
+}
+
 const inboxItem = {
   id: "core.inbox",
   location: "primary.agentScoped",
@@ -245,13 +308,15 @@ const modelsItem = {
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    mocks.sidebarMode = { mode: "full" };
+    mockMobileViewport(false);
+    mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
+    mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
     mocks.routes = [
-      { route: "core.workspace", path: "/workspace" },
-      { route: "core.inbox", path: "/inbox" },
-      { route: "core.models", path: "/models" },
-      { route: "core.chat", path: "/chat" },
+      { id: "core.workspace", path: "/workspace" },
+      { id: "core.inbox", path: "/inbox" },
+      { id: "core.models", path: "/models" },
+      { id: "core.chat", path: "/chat" },
     ];
     mocks.authStatus = { enabled: false, mode: "normal" };
     mocks.inboxEvents = [];
@@ -260,15 +325,16 @@ describe("Sidebar", () => {
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
     mocks.restartRuntime.mockClear().mockResolvedValue({});
+    mocks.setSelectedAgent.mockClear();
+    mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
   });
 
-  it("renders the full desktop sidebar with agent and settings menus", async () => {
+  it("renders the unified desktop sidebar with agent and settings menus", async () => {
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByTestId("agent-selector")).toBeTruthy();
     });
-    // Full mode does not embed the session list panel
-    expect(screen.queryByTestId("session-list")).toBeNull();
+    expect(screen.getByTestId("session-list")).toBeTruthy();
     // Menu labels resolve from the mocked menu registry
     expect(screen.getByText("Workspace")).toBeTruthy();
     expect(screen.getByText("Models")).toBeTruthy();
@@ -276,19 +342,28 @@ describe("Sidebar", () => {
 
   it("navigates to the chat path from the sticky chat button", async () => {
     renderSidebar();
-    const chatBtn = screen
-      .getAllByRole("button")
-      .find((b) => b.textContent?.includes("nav.chat"));
-    expect(chatBtn).toBeTruthy();
-    fireEvent.click(chatBtn!);
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
     });
   });
 
+  it("distinguishes full settings navigation from quick settings", async () => {
+    renderSidebar();
+
+    expect(
+      await screen.findByRole("button", { name: "More settings" }),
+    ).toBeVisible();
+    const quickSettings = screen.getByRole("button", { name: "Settings" });
+    expect(quickSettings).toHaveAttribute("aria-haspopup", "menu");
+    expect(quickSettings).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(quickSettings);
+
+    expect(quickSettings).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("handles session clicks by navigating to the resolved session path", async () => {
-    // Simple mode mounts the (mocked) session list
-    mocks.sidebarMode = { mode: "simple" };
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
@@ -300,7 +375,6 @@ describe("Sidebar", () => {
   });
 
   it("dispatches the new-chat flow from the session list", async () => {
-    mocks.sidebarMode = { mode: "simple" };
     renderSidebar();
     const btns = screen.getAllByTestId("sl-new-chat");
     // Route starts with /chat → dispatches the DOM event
@@ -319,22 +393,91 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
     });
-    // Last button is the collapse toggle (fold icon)
-    const toggles = screen.getAllByRole("button");
-    fireEvent.click(toggles[toggles.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     await waitFor(() => {
       // Collapsed nav has no menu labels, only tooltips/buttons
       expect(screen.queryByText("Workspace")).toBeNull();
     });
-    const collapsedToggles = screen.getAllByRole("button");
-    fireEvent.click(collapsedToggles[collapsedToggles.length - 1]);
+    expect(screen.getByTestId("app-brand")).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
     });
+    expect(screen.getByTestId("app-brand")).toBeVisible();
   });
 
-  it("simple mode shows the simple panel with the session list", async () => {
-    mocks.sidebarMode = { mode: "simple" };
+  it("restores the main branch sidebar widths on mobile", async () => {
+    mockMobileViewport(true);
+
+    renderSidebar();
+    const sider = document.querySelector<HTMLElement>(".ant-layout-sider");
+
+    expect(sider).toHaveStyle({ width: "56px", minWidth: "56px" });
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(sider).toHaveStyle({ width: "240px", minWidth: "240px" });
+  });
+
+  it("opens session history in a popover while collapsed", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    const historyButton = await screen.findByRole("button", {
+      name: "chat.chatHistoryTooltip",
+    });
+    expect(historyButton).not.toHaveAttribute("aria-haspopup");
+    expect(historyButton).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(historyButton);
+    expect(historyButton).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain(
+        "real-s-1",
+      );
+    });
+  });
+
+  it("switches agents from the collapsed popover", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    const agentButton = await screen.findByRole("button", {
+      name: "agent.selectAgent",
+    });
+    expect(agentButton).not.toHaveAttribute("aria-haspopup");
+    expect(agentButton).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(agentButton);
+    expect(agentButton).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Primary/ }));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("renders registered plugin shortcuts unless the user hides them", async () => {
+    const pluginItem = {
+      id: "plugin.cloud.dashboard",
+      location: "primary.settings",
+      label: "Cloud dashboard",
+      route: "plugin.cloud.dashboard",
+    };
+    mocks.menuItems = [...mocks.menuItems, pluginItem];
+    mocks.routes = [
+      ...mocks.routes,
+      { id: "plugin.cloud.dashboard", path: "/cloud-dashboard" },
+    ];
+
+    const view = renderSidebar();
+    expect(await screen.findByText("Cloud dashboard")).toBeVisible();
+
+    view.unmount();
+    mocks.sidebar.hiddenPluginItemIds = ["plugin.cloud.dashboard"];
+    renderSidebar();
+    expect(screen.queryByText("Cloud dashboard")).not.toBeInTheDocument();
+  });
+
+  it("shows the unified panel with the session list", async () => {
     renderSidebar();
     await waitFor(() => {
       expect(screen.getAllByTestId("session-list").length).toBeGreaterThan(0);
@@ -344,8 +487,7 @@ describe("Sidebar", () => {
   it("opens the account modal when auth is enabled and warns on empty update", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // Modal form renders; submit with only the current password filled
     const inputs = document.querySelectorAll("input");
     // currentPassword is the first input
@@ -357,11 +499,23 @@ describe("Sidebar", () => {
     });
   });
 
+  it("opens quick settings from the authenticated user area", async () => {
+    mocks.authStatus = { enabled: true, mode: "normal" };
+    renderSidebar();
+
+    const username = await screen.findByText("testuser");
+    fireEvent.click(username.closest("button")!);
+
+    const settingsPanel = await screen.findByTestId("settings-panel");
+    expect(settingsPanel.closest(".ant-popover")).not.toHaveClass(
+      "ant-popover-hidden",
+    );
+  });
+
   it("flags a whitespace-only new password", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     const inputs = document.querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[2], { target: { value: "   " } });
@@ -376,8 +530,7 @@ describe("Sidebar", () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     mocks.updateProfile.mockRejectedValue(new Error("password is incorrect"));
     renderSidebar();
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     const inputs = document.querySelectorAll("input");
     fireEvent.change(inputs[0], { target: { value: "current-pw" } });
     fireEvent.change(inputs[1], { target: { value: "new-user" } });
@@ -394,11 +547,10 @@ describe("Sidebar", () => {
   it("requires a password in hub mode", async () => {
     mocks.authStatus = { enabled: true, mode: "hub" };
     renderSidebar({ hubMode: true });
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // Hub mode shows the username identity
     await waitFor(() => {
-      expect(screen.getByText("hubuser")).toBeTruthy();
+      expect(screen.getAllByText("hubuser").length).toBeGreaterThan(0);
     });
     // Submit with an empty password → passwordRequired warning, no call
     fireEvent.click(screen.getByText("account.save"));
@@ -411,8 +563,7 @@ describe("Sidebar", () => {
     mocks.authStatus = { enabled: true, mode: "hub" };
     mocks.restartRuntime.mockRejectedValue(new Error("restart refused"));
     renderSidebar({ hubMode: true });
-    const accountBtn = await screen.findByText("account.title");
-    fireEvent.click(accountBtn);
+    await openAccountModal();
     // The restart confirm lives behind a Popconfirm; invoking the handler
     // directly via the rendered button is flaky with antd Popconfirm in
     // jsdom, so assert the modal content is present instead.

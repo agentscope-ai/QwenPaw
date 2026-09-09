@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, mock_open, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
@@ -225,6 +226,43 @@ class TestDetectPlatformMode:
 # ============================================================================
 # LinuxSandbox._generate_sandbox_script — rule compilation
 # ============================================================================
+
+
+class TestLinuxSandboxExecution:
+    """Test Landlock sandbox process configuration."""
+
+    def test_execute_redirects_stdin_to_devnull(self, tmp_path):
+        """Landlock commands must not inherit the parent console stdin."""
+        from qwenpaw.sandbox.linux_sandbox import LinuxSandbox
+
+        sandbox = LinuxSandbox(
+            SandboxConfig(
+                mode=SandboxMode.LANDLOCK,
+                workspace_dir=str(tmp_path),
+            ),
+        )
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"ok", b""))
+
+        with (
+            patch(
+                "qwenpaw.sandbox.linux_sandbox._generate_sandbox_script",
+                return_value="print('sandbox')",
+            ),
+            patch(
+                "qwenpaw.sandbox.linux_sandbox."
+                "asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=proc),
+            ) as create_process,
+        ):
+            result = asyncio.run(sandbox.execute("echo ok"))
+
+        assert result.exit_code == 0
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
 
 class TestLinuxSandboxRuleCompilation:
