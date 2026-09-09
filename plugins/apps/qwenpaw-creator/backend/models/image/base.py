@@ -18,17 +18,18 @@ Adding another backend later means writing one new subclass — no changes to
 callers or the retry shell.
 """
 
+from abc import ABC, abstractmethod
 import asyncio
 from dataclasses import dataclass
 import json
 import os
 import re
-from abc import ABC, abstractmethod
 
 import httpx
 
 from models import config as model_config
 from models.concurrency import model_slot
+from models.reference_markers import ReferenceMarkerSpec
 from services.runtime_files.atomic_store import atomic_replace_bytes
 from utils.logger import setup_logger
 from utils.exceptions import ModelError
@@ -78,8 +79,8 @@ _IDEOGRAM_DOCUMENTATION = (
 )
 
 # These are input-reference limits, not the number of generated outputs.
-# Keep the table closed over model families documented by the two providers
-# this module actually implements. An unknown compatible-gateway alias is not
+# Keep the table closed over documented families of registered providers.
+# An unknown compatible-gateway alias is not
 # assigned a guessed generic value: reference use then fails before billing
 # with a capability-registration error.
 _REFERENCE_CAPABILITIES = (
@@ -217,13 +218,21 @@ _REFERENCE_CAPABILITIES = (
     # (input_image .. input_image_8).
     (
         re.compile(
-            r"^flux-2-(?:pro|max|flex|pro-preview|klein-9b|klein-4b)$",
+            r"^flux-2-(?:pro|max|flex|pro-preview)$",
             re.IGNORECASE,
         ),
         ImageReferenceCapability(
             "bfl-flux-2",
             8,
             _BFL_FLUX_DOCUMENTATION,
+        ),
+    ),
+    (
+        re.compile(r"^flux-2-klein-(?:9b|4b)$", re.IGNORECASE),
+        ImageReferenceCapability(
+            "bfl-flux-2-klein",
+            4,
+            "https://docs.bfl.ai/guides/prompting_editing_multi_reference",
         ),
     ),
     # Ideogram: the v3 generate endpoint accepts exactly 1
@@ -249,6 +258,22 @@ _REFERENCE_CAPABILITIES = (
 )
 
 
+# These are documented prompt wording, not invented API control tokens.
+# Qwen numbers 图N against content order; Gemini and FLUX guides use image N
+# in multi-image instructions. Other providers use ordinary ordinal prose
+# with their ordered image payload (e.g. Seedream's 图一/图二 examples), not
+# a guessed video-model dialect such as Seedance's 图片N.
+_MARKER_TEMPLATES_BY_FAMILY = {
+    "qwen-image-2.x/3.x": "图{index}",
+    "qwen-image-edit": "图{index}",
+    "gemini-3-pro-image": "image {index}",
+    "gemini-3.1-flash-image": "image {index}",
+    "gemini-2.5-flash-image": "image {index}",
+    "bfl-flux-2": "image {index}",
+    "bfl-flux-2-klein": "image {index}",
+}
+
+
 def image_reference_capability(
     model_name: str,
 ) -> ImageReferenceCapability | None:
@@ -260,6 +285,34 @@ def image_reference_capability(
     for pattern, capability in _REFERENCE_CAPABILITIES:
         if pattern.fullmatch(normalized):
             return capability
+    return None
+
+
+def image_reference_marker_spec(
+    model_name: str,
+) -> ReferenceMarkerSpec | None:
+    """This model's documented in-prompt reference syntax, if it has one.
+
+    ``None`` means the provider documents no way to address an individual
+    input image, so a canonical marker must be reworded instead of emitted.
+    Unverified families deliberately land here too: guessing a syntax would
+    silently misdirect references.
+    """
+
+    capability = image_reference_capability(model_name)
+    if capability is None or capability.max_reference_images < 2:
+        # Nothing to disambiguate with zero or one reference.
+        return None
+    if capability.family in _MARKER_TEMPLATES_BY_FAMILY:
+        return ReferenceMarkerSpec(
+            template=_MARKER_TEMPLATES_BY_FAMILY[capability.family],
+            pattern=re.compile(r"(?:图|image)\s*(\d+)", re.IGNORECASE),
+            documentation_url=(
+                "https://docs.bfl.ai/guides/prompting_editing_multi_reference"
+                if capability.family.startswith("bfl-flux-2")
+                else capability.documentation_url
+            ),
+        )
     return None
 
 
@@ -280,6 +333,13 @@ def image_model_prompt_guidance(model_name: str) -> str:
     """
 
     normalized = model_name.strip() or "未配置"
+    canonical_guidance = (
+        " 提示词中一律使用 [Image 1]、[Image 2] 等统一占位符，"
+        "编号严格对应本次实际有序参考列表；不要在 Project 提示词中写死"
+        "‘第一张参考图’或供应商原生语法。Runtime 在提交时按当前图片模型"
+        "官方协议转换。分镜图输入不包含待生成的分镜图自身，不能套用"
+        "视频中分镜恒为第 1 张的编号。"
+    )
     capability = image_reference_capability(normalized)
     if capability is None:
         return (
@@ -296,12 +356,39 @@ def image_model_prompt_guidance(model_name: str) -> str:
             f"1–{capability.max_reference_images} 张=图生图），超出会被上游以 "
             "400 拒绝；每次调用所传递的参考版本 ID 总数必须不超过 "
             f"{capability.max_reference_images}，超出预算时只保留最关键的参考"
-            "（storyboard、角色/场景锚点优先）。"
+            "（角色/场景锚点优先）。" + canonical_guidance
         )
     return (
         f"当前图片生成模型是 `{normalized}`，官方文档限制单次最多 "
-        f"{capability.max_reference_images} 张输入参考图。"
+        f"{capability.max_reference_images} 张输入参考图。" + canonical_guidance
     )
+
+
+CONTENT_REFUSAL_MARKERS = (
+    "rejected by the safety system",
+    "content policy",
+    "content_policy",
+    # DashScope refuses the rendered output rather than the request.
+    "green net check failed",
+    "may contain inappropriate content",
+)
+
+CONTENT_REFUSAL_ADVICE = (
+    "The provider refused this on content grounds, which is deterministic: "
+    "the same prompt and references will be refused again, so this is not a "
+    "configuration problem and must not be retried unchanged. Rewrite the "
+    "prompt wording most likely to have been flagged (uniform insignia that "
+    "reads as police or military, injury, blood, nudity, minors, distress, "
+    "real public figures) and drop reference images containing real people, "
+    "then regenerate so the inputs change."
+)
+
+
+def is_content_refusal(message: str) -> bool:
+    """Whether a provider error is a deterministic content refusal."""
+
+    folded = (message or "").casefold()
+    return any(marker in folded for marker in CONTENT_REFUSAL_MARKERS)
 
 
 def format_http_error_detail(response: httpx.Response) -> str:
@@ -564,13 +651,17 @@ class BaseImageModel(ABC):
     @classmethod
     @abstractmethod
     def from_config(cls) -> "BaseImageModel":
-        """Construct an instance from the provider's own environment/Tools config."""
+        """
+        Construct an instance from the provider's own environment/Tools config.
+        """
 
     @property
     @abstractmethod
     def generation_url(self) -> str:
         """Return the full URL for a text-to-image generation request."""
 
+    # Keep ordered provider validation and retry handling together.
+    # pylint: disable-next=too-many-branches,too-many-statements
     async def generate(
         self,
         prompt: str,
@@ -607,10 +698,16 @@ class BaseImageModel(ABC):
                 model_name=self.model_name,
             )
 
-        clean_reference_urls = [
-            url.strip()
+        if any(
+            not isinstance(url, str) or not url.strip()
             for url in (reference_image_urls or [])
-            if url and url.strip()
+        ):
+            raise ModelError(
+                "Image references contain an empty input; repair the ordered reference list",
+                model_name=self.model_name,
+            )
+        clean_reference_urls = [
+            url.strip() for url in (reference_image_urls or [])
         ]
         active_mode = _validated_mode(
             mode,
@@ -707,7 +804,12 @@ class BaseImageModel(ABC):
             )
             raise ModelError(
                 f"Image generation failed with status {e.response.status_code}: "
-                f"{detail[:500]}. Check creator_image_model configuration.",
+                f"{detail[:500]}. "
+                + (
+                    CONTENT_REFUSAL_ADVICE
+                    if is_content_refusal(detail)
+                    else "Check creator_image_model configuration."
+                ),
                 model_name=self.model_name,
             )
         except Exception as e:

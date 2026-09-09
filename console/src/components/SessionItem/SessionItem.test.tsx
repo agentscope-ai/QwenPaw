@@ -24,14 +24,7 @@ describe("SessionItem status indicator", () => {
       label: "chat.statusIdle",
     },
   ])("renders $name", ({ props, label }) => {
-    render(
-      <SessionItem
-        variant="drawer"
-        sessionId="chat-1"
-        name="Chat"
-        {...props}
-      />,
-    );
+    render(<SessionItem sessionId="chat-1" name="Chat" {...props} />);
 
     expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
   });
@@ -42,7 +35,6 @@ describe("SessionItem keyboard selection", () => {
     const onClick = vi.fn();
     render(
       <SessionItem
-        variant="drawer"
         sessionId="chat-keyboard"
         name="Keyboard chat"
         onClick={onClick}
@@ -59,7 +51,6 @@ describe("SessionItem keyboard selection", () => {
     const onEditSubmit = vi.fn();
     render(
       <SessionItem
-        variant="drawer"
         sessionId="chat-editing"
         name="Original"
         editing
@@ -81,7 +72,6 @@ describe("SessionItem keyboard selection", () => {
     const onClick = vi.fn();
     render(
       <SessionItem
-        variant="drawer"
         sessionId="chat-disabled"
         name="Disabled chat"
         disabled

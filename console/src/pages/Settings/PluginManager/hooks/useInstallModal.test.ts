@@ -1,7 +1,7 @@
 /**
  * useInstallModal — plugin install modal orchestration: local zip/folder
  * selection (picker + drag-drop), zip packaging, URL install, and the
- * reload-guarded success flow.
+ * local refresh success flow.
  * Regression family: settings round-trip (installed plugin shows up) and
  * double-submit protection while installing.
  */
@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
-  reload: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -88,8 +87,6 @@ vi.mock("antd", () => ({
 
 import { useInstallModal } from "./useInstallModal";
 
-let realLocation: Location;
-
 beforeEach(() => {
   formStore.values = {};
   formStore.shouldReject = false;
@@ -99,22 +96,9 @@ beforeEach(() => {
   mocks.success.mockClear();
   mocks.error.mockClear();
   mocks.warning.mockClear();
-  // window.location.reload is not writable in jsdom; replace the whole
-  // location object via defineProperty on window.
-  realLocation = window.location;
-  Object.defineProperty(window, "location", {
-    value: { ...realLocation, reload: mocks.reload },
-    writable: true,
-    configurable: true,
-  });
 });
 
 afterEach(() => {
-  Object.defineProperty(window, "location", {
-    value: realLocation,
-    writable: true,
-    configurable: true,
-  });
   vi.clearAllMocks();
 });
 
@@ -286,7 +270,7 @@ describe("useInstallModal", () => {
     expect(result.current.localSel).toBeNull();
   });
 
-  it("uploads a picked zip and triggers success + reload", async () => {
+  it("uploads a picked zip and triggers success", async () => {
     vi.useFakeTimers();
     const onSuccess = vi.fn();
     const { result } = renderHook(() => useInstallModal(onSuccess));
@@ -307,7 +291,6 @@ describe("useInstallModal", () => {
     act(() => {
       vi.advanceTimersByTime(900);
     });
-    expect(mocks.reload).toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -377,7 +360,6 @@ describe("useInstallModal", () => {
     act(() => {
       vi.advanceTimersByTime(900);
     });
-    expect(mocks.reload).toHaveBeenCalled();
     vi.useRealTimers();
   });
 

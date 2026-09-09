@@ -24,6 +24,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from models.reference_markers import (
+    CANONICAL_MARKER_PATTERN,
+    ReferenceMarkerSpec,
+    canonical_marker_indices,
+)
+
 HAPPYHORSE_MODEL_PREFIX = "happyhorse"
 HAPPYHORSE_MAX_REFERENCE_IMAGES = 9
 HAPPYHORSE_RESOLUTIONS = frozenset({"720P", "1080P"})
@@ -104,6 +110,13 @@ _KLING_REFERENCE_DOCUMENTATION = (
 _MINIMAX_REFERENCE_DOCUMENTATION = (
     "https://platform.minimax.io/docs/api-reference/video-generation-t2v"
 )
+_MINIMAX_H3_VIDEO_DOCUMENTATION = (
+    "https://platform.minimax.io/docs/api-reference/"
+    "video-generation-v2-create"
+)
+_MINIMAX_H3_SGLANG_DOCUMENTATION = (
+    "https://docs.sglang.io/cookbook/diffusion/MiniMax/MiniMax-H3"
+)
 _VIDU_BAILIAN_DOCUMENTATION = (
     "https://help.aliyun.com/zh/model-studio/"
     "vidu-reference-to-video-api-reference"
@@ -118,16 +131,8 @@ _HAPPYHORSE_REFERENCE_PATTERN = re.compile(
     r"^happyhorse-1\.(?:0|1)(?:-r2v)?$",
     re.IGNORECASE,
 )
-_WAN_27_REFERENCE_PATTERN = re.compile(
-    r"^wan2\.7(?:-r2v)?(?:-20\d{2}-\d{2}-\d{2})?$",
-    re.IGNORECASE,
-)
 _WAN_30_REFERENCE_PATTERN = re.compile(
     r"^wan3\.0-video(?:-prime)?$",
-    re.IGNORECASE,
-)
-_WAN_26_REFERENCE_PATTERN = re.compile(
-    r"^wan2\.6(?:-r2v(?:-flash)?)?(?:-20\d{2}-\d{2}-\d{2})?$",
     re.IGNORECASE,
 )
 _SEEDANCE_20_REFERENCE_PATTERN = re.compile(
@@ -166,6 +171,10 @@ _VIDU_DIRECT_IMAGE_ONLY_REFERENCE_PATTERN = re.compile(
 )
 _MINIMAX_S2V_REFERENCE_PATTERN = re.compile(
     r"^s2v-01$",
+    re.IGNORECASE,
+)
+_MINIMAX_H3_REFERENCE_PATTERN = re.compile(
+    r"^minimax-h3(?:-max|-ref2va)?$",
     re.IGNORECASE,
 )
 _VIDU_IMAGE_ONLY_REFERENCE_PATTERN = re.compile(
@@ -272,6 +281,17 @@ _MINIMAX_S2V_REFERENCE_CAPABILITY = VideoReferenceCapability(
     max_reference_media=1,
     documentation_url=_MINIMAX_REFERENCE_DOCUMENTATION,
 )
+# MiniMax H3 omni reference (v2 API and SGLang Ref2VA): up to 9 reference
+# images and 3 reference videos. The official 12-file total also counts
+# reference audio, which this catalog does not track — the submit builders
+# enforce the audio-inclusive cap.
+_MINIMAX_H3_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="minimax-h3",
+    max_reference_images=9,
+    max_reference_videos=3,
+    max_reference_media=12,
+    documentation_url=_MINIMAX_H3_VIDEO_DOCUMENTATION,
+)
 # Vidu reference-to-video hosted on Bailian: image-only models accept
 # 1-7 reference images; viduq2-pro additionally accepts 1-2 reference
 # videos (with images then limited to 1-4 — enforced at submit time).
@@ -369,6 +389,8 @@ _KLING_DIRECT_MODEL_MODES: dict[str, frozenset[str]] = {
     "kling-2.6": frozenset({"t2v", "i2v"}),
 }
 _MINIMAX_MODEL_MODES: dict[str, frozenset[str]] = {
+    "minimax-h3": frozenset({"t2v", "i2v", "r2v"}),
+    "minimax-h3-max": frozenset({"t2v", "i2v", "r2v"}),
     "minimax-hailuo-2.3": frozenset({"t2v", "i2v"}),
     "minimax-hailuo-2.3-fast": frozenset({"i2v"}),
     "minimax-hailuo-02": frozenset({"t2v", "i2v"}),
@@ -378,6 +400,15 @@ _MINIMAX_MODEL_MODES: dict[str, frozenset[str]] = {
     "i2v-01-live": frozenset({"i2v"}),
     "i2v-01-director": frozenset({"i2v"}),
     "s2v-01": frozenset({"r2v"}),
+}
+# SGLang self-hosted H3: one server instance loads exactly one checkpoint
+# variant (``sglang serve --model-variant fl2va|ref2va``, official ports
+# 30010/30011), so the configured model name records which variant the
+# endpoint serves and fail-closes the other modes. The wire request never
+# carries the model name.
+_MINIMAX_H3_SGLANG_MODEL_MODES: dict[str, frozenset[str]] = {
+    "minimax-h3-fl2va": frozenset({"t2v", "i2v"}),
+    "minimax-h3-ref2va": frozenset({"r2v"}),
 }
 _VIDU_HOSTED_MODEL_MODES: dict[str, frozenset[str]] = {
     f"vidu/{name}_reference2video": frozenset({"r2v"})
@@ -413,7 +444,7 @@ _KNOWN_SUFFIX_SEGMENTS = ("-video-edit", "-t2v", "-i2v", "-r2v")
 # Backends whose providers keep the configured model name for every mode
 # (their upstream families do not encode the mode in the model ID).
 _CONFIGURED_NAME_BACKENDS = frozenset(
-    {"seedance2", "veo", "kling", "minimax", "vidu"},
+    {"seedance2", "veo", "kling", "minimax", "minimax_sglang", "vidu"},
 )
 
 # --- Official per-family request constraints -------------------------------
@@ -464,6 +495,29 @@ MINIMAX_HAILUO_02_RESOLUTIONS: dict[str, tuple[int, ...]] = {
 MINIMAX_LEGACY_RESOLUTIONS: dict[str, tuple[int, ...]] = {"720P": (6,)}
 MINIMAX_MAX_PROMPT_CHARS = 2000
 MINIMAX_SUBJECT_REFERENCE_MODEL = "S2V-01"
+
+# MiniMax H3 (v2 API): any integer duration inside the documented window;
+# H3-Max starts at 5s. 768P leads each matrix so it is the default tier.
+MINIMAX_H3_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(4, 16)),
+    "480P": tuple(range(4, 16)),
+    "2K": tuple(range(4, 16)),
+}
+MINIMAX_H3_MAX_MODEL_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(5, 16)),
+    "480P": tuple(range(5, 16)),
+    "2K": tuple(range(5, 16)),
+}
+# Self-hosted H3-Base renders 768p only; 2K needs the hosted Regenerate-2K.
+MINIMAX_H3_SGLANG_RESOLUTIONS: dict[str, tuple[int, ...]] = {
+    "768P": tuple(range(4, 16)),
+}
+MINIMAX_H3_MAX_PROMPT_CHARS = 7000
+MINIMAX_H3_RATIOS = frozenset(
+    {"adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"},
+)
+MINIMAX_H3_MAX_REFERENCE_AUDIO = 3
+MINIMAX_H3_MAX_TOTAL_MEDIA = 12
 
 # Bailian-hosted Vidu reference-to-video: per-model duration window
 # (inclusive), resolutions, default resolution, allowed ratios and whether
@@ -575,7 +629,7 @@ VIDU_DIRECT_SPECS: dict[str, dict] = {
         "audio": True,
     },
     "viduq2-pro": {
-        "durations": (0, 10),
+        "durations": (1, 10),
         "resolutions": ("540p", "720p", "1080p"),
         "default_resolution": "720p",
         "ratios": _VIDU_DIRECT_Q2_RATIOS,
@@ -641,6 +695,45 @@ SEEDANCE_FAMILY_SPECS: dict[str, tuple[frozenset[str], int, int, bool]] = {
     "1.0": (frozenset({"480p", "720p", "1080p"}), 2, 12, False),
 }
 
+# Reference-voice input shapes documented by the official R2V contracts:
+# - "per_media": wan2.7 binds one voice per reference entry via
+#   ``media[].reference_voice`` (video-to-video guide, 参数设置 table).
+# - "standalone": wan3.0 accepts up to five ``type=reference_audio`` media
+#   entries (total <= 15s); Seedance 2.x accepts ``type=audio_url`` content
+#   entries with role ``reference_audio`` (2.5: up to 10; 2.0: up to 3,
+#   paired with image/video references); MiniMax H3 accepts up to three
+#   ``audio_url`` content entries with role ``reference_audio`` (v2 API)
+#   or ``type=audio`` reference conditions (SGLang Ref2VA).
+# Every other family (wan2.6, HappyHorse, Kling, Vidu, Veo, the v1 MiniMax
+# models) documents no audio input — only automatic-audio switches.
+REFERENCE_VOICE_PER_MEDIA = "per_media"
+REFERENCE_VOICE_STANDALONE = "standalone"
+
+
+def video_reference_voice_support(  # pylint: disable=too-many-return-statements  # noqa: E501
+    model_name: str,
+    protocol_backend: str | None = None,
+) -> tuple[str, int] | None:
+    """Return ``(shape, max_audio_count)`` or ``None`` when unsupported."""
+
+    name = (model_name or "").strip()
+    if not name:
+        return None
+    if _MINIMAX_H3_REFERENCE_PATTERN.fullmatch(name):
+        return (REFERENCE_VOICE_STANDALONE, MINIMAX_H3_MAX_REFERENCE_AUDIO)
+    if _WAN_27_MODEL_PATTERN.match(name):
+        return (REFERENCE_VOICE_PER_MEDIA, 5)
+    if is_wan3_video_model(name):
+        return (REFERENCE_VOICE_STANDALONE, 5)
+    seedance_family = seedance_video_generation(name)
+    if seedance_family is None and (protocol_backend or "") == "seedance2":
+        return None
+    if seedance_family == "2.5":
+        return (REFERENCE_VOICE_STANDALONE, 10)
+    if seedance_family in ("2.0", "2.0-fast"):
+        return (REFERENCE_VOICE_STANDALONE, 3)
+    return None
+
 
 def is_happyhorse_model(model_name: str) -> bool:
     """True when the configured video model is a Bailian HappyHorse model."""
@@ -678,7 +771,13 @@ def video_backend_key(
     """Map a configured model (+ optional protocol backend) to a matrix key."""
     # pylint: disable=too-many-return-statements
     normalized_protocol = protocol_backend.strip().casefold()
-    if normalized_protocol in {"veo", "kling", "minimax", "vidu"}:
+    if normalized_protocol in {
+        "veo",
+        "kling",
+        "minimax",
+        "minimax_sglang",
+        "vidu",
+    }:
         return normalized_protocol
     if is_happyhorse_model(model_name):
         return "happyhorse"
@@ -710,7 +809,7 @@ def video_model_capability(
     """
     # Exact model registration is intentionally fail-closed and each provider
     # has a distinct naming contract, so the branches are the registry itself.
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches,too-many-statements
 
     model = model_name.strip()
     lowered = model.casefold()
@@ -776,6 +875,9 @@ def video_model_capability(
     elif backend == "minimax":
         modes = _MINIMAX_MODEL_MODES.get(lowered)
         documentation_url = _MINIMAX_VIDEO_DOCUMENTATION
+    elif backend == "minimax_sglang":
+        modes = _MINIMAX_H3_SGLANG_MODEL_MODES.get(lowered)
+        documentation_url = _MINIMAX_H3_SGLANG_DOCUMENTATION
     elif backend == "vidu":
         if lowered.startswith("vidu/"):
             modes = _VIDU_HOSTED_MODEL_MODES.get(lowered)
@@ -826,9 +928,15 @@ def video_reference_capability(  # pylint: disable=too-many-return-statements
         return _HAPPYHORSE_REFERENCE_CAPABILITY
     if _WAN_30_REFERENCE_PATTERN.fullmatch(normalized):
         return _WAN_30_REFERENCE_CAPABILITY
-    if _WAN_27_REFERENCE_PATTERN.fullmatch(normalized):
+    # These exact model IDs advertise a family reference contract even when
+    # their suffix names the t2v/i2v entry point. This catalog describes what
+    # the family can accept; submit-time mode validation independently decides
+    # whether the current request may carry references. Keeping the same model
+    # resolver here and in prompt guidance prevents known t2v/i2v IDs from
+    # falling into the false "unknown Wan protocol" blocker.
+    if _WAN_27_MODEL_PATTERN.fullmatch(normalized):
         return _WAN_27_REFERENCE_CAPABILITY
-    if _WAN_26_REFERENCE_PATTERN.fullmatch(normalized):
+    if _WAN_26_MODEL_PATTERN.fullmatch(normalized):
         return _WAN_26_REFERENCE_CAPABILITY
     if _VEO_31_LITE_REFERENCE_PATTERN.fullmatch(normalized):
         return _VEO_31_LITE_REFERENCE_CAPABILITY
@@ -838,6 +946,8 @@ def video_reference_capability(  # pylint: disable=too-many-return-statements
         return _KLING_OMNI_REFERENCE_CAPABILITY
     if _KLING_DIRECT_OMNI_REFERENCE_PATTERN.fullmatch(normalized):
         return _KLING_DIRECT_OMNI_REFERENCE_CAPABILITY
+    if _MINIMAX_H3_REFERENCE_PATTERN.fullmatch(normalized):
+        return _MINIMAX_H3_REFERENCE_CAPABILITY
     if _MINIMAX_S2V_REFERENCE_PATTERN.fullmatch(normalized):
         return _MINIMAX_S2V_REFERENCE_CAPABILITY
     if _VIDU_Q2_PRO_REFERENCE_PATTERN.fullmatch(normalized):
@@ -1115,6 +1225,16 @@ def _family_constraint_guidance(
     # pylint: disable=too-many-branches,too-many-return-statements
     backend = video_backend_key(model_name, protocol_backend)
     lowered = model_name.strip().casefold()
+    if backend == "happyhorse":
+        return "\n".join(
+            [
+                f"- 时长 duration 为 {HAPPYHORSE_MIN_DURATION_SECONDS}–"
+                f"{HAPPYHORSE_MAX_DURATION_SECONDS} 秒的整数。",
+                "- 分辨率仅支持 720P/1080P；画幅仅支持 "
+                + "/".join(sorted(HAPPYHORSE_RATIOS))
+                + "。",
+            ],
+        )
     if is_wan3_video_model(model_name):
         return "\n".join(
             [
@@ -1184,7 +1304,7 @@ def _family_constraint_guidance(
             ],
         )
     if backend == "vidu":
-        name = model_name.strip()
+        name = model_name.strip().casefold()
         spec = VIDU_MODEL_SPECS.get(name) or VIDU_DIRECT_SPECS.get(name)
         if spec is None:
             return (
@@ -1219,55 +1339,463 @@ def _family_constraint_guidance(
     return ""
 
 
+# Each return is an exact provider-specific protocol, kept separate to avoid
+# accidentally blending incompatible reference syntaxes.
+# pylint: disable-next=too-many-return-statements
+def _model_reference_syntax_guidance(
+    model_name: str,
+    protocol_backend: str = "",
+) -> str:
+    """Exact provider token contract for references in the prompt text.
+
+    Reference payload order and prompt identifiers are different concepts.
+    Some providers expose literal identifiers, some number images and videos
+    independently, and others carry references only in structured request
+    fields.
+
+    This describes the *wire* form, which really does differ per provider.
+    Authors no longer write it: they use canonical ``[Image N]`` and
+    ``render_reference_markers`` rewrites it at submit. What stays useful here
+    is each provider's counting rule and its video-reference syntax, which the
+    canonical image form does not cover.
+    """
+
+    normalized = model_name.strip()
+    backend = video_backend_key(normalized, protocol_backend)
+    if is_wan3_video_model(normalized):
+        return (
+            "- Wan3.0 All-in-One：中文 Prompt 用“图1、图2 …”和“视频1、"
+            "视频2 …”；图片与视频按 media 中各自类型的出现顺序分别计数；"
+            "storyboard 是第一张参考图，因此为“图1”。每次引用同时说明素材"
+            "中的具体主体、动作或用途。"
+        )
+    if is_happyhorse_model(normalized):
+        return (
+            "- HappyHorse：只能使用 `[Image 1]`、`[Image 2]` …；这是 media "
+            "数组中所有图片共用的单一顺序，storyboard 固定为第一张，因此是 "
+            "`[Image 1]`。每次标记后说明图中具体对象。不要改写成“图1”、"
+            "`image1` 或 `character1`，也不存在 `[Video N]`。"
+        )
+    if backend == "wan":
+        if _WAN_27_MODEL_PATTERN.fullmatch(normalized):
+            return (
+                "- Wan 2.7：中文 Prompt 用“图1、图2 …”和“视频1、视频2 …”；"
+                "英文 Prompt 用 `Image 1`、`Video 1`（首字母大写且英文单词与"
+                "数字间有空格）。图片与视频按 media 中各自类型的出现顺序"
+                "分别计数；storyboard 是第一张 reference_image，因此为“图1”。"
+                "不得使用 Wan 2.6 的 `character1`。"
+            )
+        if _WAN_26_MODEL_PATTERN.fullmatch(normalized):
+            return (
+                "- Wan 2.6：只用 `character1`、`character2` …；按 "
+                "reference_urls 的图片/视频混合总顺序统一计数，不按媒体类型"
+                "分开。Runtime 的 storyboard 排在第一，因此对应 `character1`。"
+                "每个 reference_url 必须只有一个主体；不得使用 Wan 2.7 的"
+                "“图1/视频1”或 HappyHorse 方括号。"
+            )
+        return (
+            "- 当前 Wan 名称没有匹配到已知 2.6/2.7 引用协议；不得猜测“图1”"
+            "或 `character1`，在付费 R2V 提交前报告阻塞。"
+        )
+    if backend == "seedance2":
+        return (
+            "- Seedance API：中文 Prompt 用“图片1、图片2 …”“视频1、视频2 …”"
+            "（有音频输入时用“音频1 …”），按 content 中同类型素材的出现顺序"
+            "分别计数；英文可用 `image1`、`video1`。storyboard 是第一张 "
+            "reference_image，因此为“图片1”。不得带 HappyHorse 方括号，也"
+            "不要把 Wan 的“图1”当成统一语法。"
+        )
+    if backend == "kling":
+        if "/" in normalized:
+            return (
+                "- Kling 百炼托管 Omni：严格使用 `<<<image_1>>>`、"
+                "`<<<image_2>>>` … 与 `<<<video_1>>>`；图片和视频分别按 media "
+                "顺序计数，storyboard 是 `<<<image_1>>>`。"
+            )
+        return (
+            "- Kling 官方直连 Omni：严格使用 `@image_1`、`@image_2` … 与 "
+            "`@video_1`；这些 ID 与 contents 中 refer_image/feature_video 的 id "
+            "一致，storyboard 是 `@image_1`。不得使用百炼的三尖括号语法。"
+        )
+    if backend == "veo":
+        return (
+            "- Veo 3.1：参考图通过结构化 `referenceImages` 传入，官方 Prompt "
+            "没有 `[Image N]`、`图N` 或 `@image_N` 位置标记。Prompt 直接用"
+            "自然语言描述要保留的角色/产品及动作；参考职责只作为编译前合同，"
+            "不要把虚构编号写进最终 Prompt。"
+        )
+    if backend == "minimax":
+        return (
+            "- MiniMax S2V-01：唯一角色图通过结构化 `subject_reference` 传入，"
+            "Prompt 直接用角色名称描述动作；没有官方图片序号标记，不得写"
+            " `[Image 1]`、`图1` 或 `@image_1`。"
+        )
+    if backend == "vidu":
+        if "/" in normalized:
+            return (
+                "- Vidu 百炼托管参考生视频：中文 Prompt 的图片强调段使用"
+                "“图1为…；图2为…”并按输入图片顺序计数；只有官方文档明确"
+                "支持的标记才使用。参考视频没有已文档化的位置标记时，用"
+                "自然语言说明其动作/运镜职责，不发明 `视频N`。"
+            )
+        return (
+            "- Vidu 官方直连 flat reference2video：图片/视频通过结构化 "
+            "`images`/`videos` 数组传入，官方 Prompt 没有位置标记。当前"
+            " Runtime 未使用 subjects API，因此这里不会渲染出任何位置标记；"
+            "直接用自然语言描述目标主体与动作。"
+        )
+    return (
+        "- 当前模型没有已文档化的 Prompt 引用标记协议。照常写 "
+        "`[Image N]`：Runtime 不会为它编造标记，而是改写成“第 N 张"
+        "参考图”这类自然语言，因此不会有任何标记被误当作字面协议。"
+    )
+
+
+# CJK has no word boundary, so a bare "图\d" also matches inside 地图2, 视图1,
+# 构图3, 草图2, 贴图1, 插图2, 截图3 … Enumerating those prefixes never ends;
+# requiring that the token is not preceded by a CJK character is the actual
+# rule, since a real marker starts a clause or follows punctuation. Without it
+# ordinary prose triggered VIDEO_REFERENCE_SYNTAX_INVALID and GATED the node.
+_POSITIONAL_REFERENCE_TOKEN = re.compile(
+    r"(?:\[Image\s*\d+\]|(?<![\u4e00-\u9fff])(?:图片|图)\s*\d+|"
+    r"Image\s+\d+|image\s*_?\d+|character\s*\d+|"
+    r"<<<(?:image|video)_\d+>>>|@(?:image|video)_\d+)",
+    re.IGNORECASE,
+)
+
+
+# Explicit family dispatch keeps incompatible provider grammars separate.
+# pylint: disable-next=too-many-return-statements
+def _image_reference_marker_spec(
+    model_name: str,
+    protocol_backend: str = "",
+    *,
+    language: str = "zh-CN",
+) -> tuple[re.Pattern[str], str] | None:
+    """Return the provider's pattern plus a ``{index}`` marker template.
+
+    The template is stored rather than an index-1 literal: rebuilding one by
+    substituting "1" silently misplaces the index the moment a literal
+    contains another "1".
+    """
+
+    normalized = model_name.strip()
+    backend = video_backend_key(normalized, protocol_backend)
+    is_chinese = language.strip().casefold().startswith("zh")
+    if is_happyhorse_model(normalized):
+        return (re.compile(r"\[Image\s+(\d+)\]"), "[Image {index}]")
+    if is_wan3_video_model(normalized) or (
+        backend == "wan" and _WAN_27_MODEL_PATTERN.fullmatch(normalized)
+    ):
+        return (
+            re.compile(r"图\s*(\d+)")
+            if is_chinese
+            else re.compile(r"\bImage\s+(\d+)\b", re.IGNORECASE),
+            "图{index}" if is_chinese else "Image {index}",
+        )
+    if backend == "wan" and _WAN_26_MODEL_PATTERN.fullmatch(normalized):
+        return (
+            re.compile(r"\bcharacter\s*(\d+)\b", re.IGNORECASE),
+            "character{index}",
+        )
+    if backend == "seedance2":
+        return (
+            re.compile(r"图片\s*(\d+)")
+            if is_chinese
+            else re.compile(r"\bimage\s*(\d+)\b", re.IGNORECASE),
+            "图片{index}" if is_chinese else "image{index}",
+        )
+    if backend == "kling":
+        if "/" in normalized:
+            return (
+                re.compile(r"<<<image_(\d+)>>>", re.IGNORECASE),
+                "<<<image_{index}>>>",
+            )
+        return (
+            re.compile(r"@image_(\d+)\b", re.IGNORECASE),
+            "@image_{index}",
+        )
+    if backend == "vidu" and "/" in normalized:
+        return (re.compile(r"图\s*(\d+)"), "图{index}")
+    return None
+
+
+def video_prompt_image_reference_markers(
+    prompt: str,
+    model_name: str,
+    protocol_backend: str = "",
+    *,
+    language: str = "zh-CN",
+) -> tuple[tuple[int, int, str], ...]:
+    """Extract ``(index, offset, literal)`` for official image markers.
+
+    An empty tuple means either the configured model uses structured
+    references or the prompt did not use that model's exact marker syntax.
+    Keeping extraction beside the capability table lets synchronous role
+    review share one provider grammar with first-storyboard validation.
+    """
+
+    spec = _image_reference_marker_spec(
+        model_name,
+        protocol_backend,
+        language=language,
+    )
+    if spec is None:
+        return ()
+    pattern, _literal = spec
+    return tuple(
+        (int(match.group(1)), match.start(), match.group(0))
+        for match in pattern.finditer(prompt or "")
+    )
+
+
+def video_prompt_image_reference_marker(
+    index: int,
+    model_name: str,
+    protocol_backend: str = "",
+    *,
+    language: str = "zh-CN",
+) -> str | None:
+    """Return the provider's exact marker literal for one image index.
+
+    ``None`` means the configured model takes structured references, where
+    inventing an inline number would misdescribe the actual payload.
+    """
+
+    spec = _image_reference_marker_spec(
+        model_name,
+        protocol_backend,
+        language=language,
+    )
+    if spec is None:
+        return None
+    _pattern, template = spec
+    return template.format(index=index)
+
+
+def video_reference_marker_spec(
+    model_name: str,
+    protocol_backend: str = "",
+    *,
+    language: str = "zh-CN",
+) -> ReferenceMarkerSpec | None:
+    """This provider's in-prompt reference syntax, for canonical rendering.
+
+    ``None`` means the model takes structured references and documents no
+    per-image addressing, so canonical markers must be reworded rather than
+    emitted.
+    """
+
+    spec = _image_reference_marker_spec(
+        model_name,
+        protocol_backend,
+        language=language,
+    )
+    if spec is None:
+        return None
+    pattern, template = spec
+    capability = video_reference_capability(
+        effective_video_model_name(
+            model_name.strip(),
+            "r2v",
+            video_backend_key(model_name.strip(), protocol_backend),
+        ),
+    )
+    return ReferenceMarkerSpec(
+        template=template,
+        pattern=pattern,
+        documentation_url=(capability.documentation_url if capability else ""),
+    )
+
+
+# Provider syntax is deliberately kept in one auditable dispatch table.
+# pylint: disable-next=too-many-branches
+def video_prompt_storyboard_reference_violation(
+    prompt: str,
+    model_name: str,
+    protocol_backend: str = "",
+    *,
+    language: str = "zh-CN",
+) -> str | None:
+    """Validate the provider literal for the first storyboard reference.
+
+    The exact payload is still assembled and checked at submit time. Keeping
+    this narrow authoring check beside the capability catalog prevents sync
+    review from growing a second, drifting provider-syntax table.
+    """
+
+    text = prompt or ""
+    normalized = model_name.strip()
+    backend = video_backend_key(normalized, protocol_backend)
+    expected = _image_reference_marker_spec(
+        normalized,
+        protocol_backend,
+        language=language,
+    )
+
+    # The canonical form is what authors write; the runtime renders it to the
+    # provider literal at submit. Demanding the literal here would reject
+    # every correctly authored prompt.
+    addresses_first = any(
+        index == 1 for index in canonical_marker_indices(text)
+    )
+
+    if expected is not None:
+        pattern, template = expected
+        literal = template.format(index=1)
+        if not addresses_first and not any(
+            int(match.group(1)) == 1 for match in pattern.finditer(text)
+        ):
+            return (
+                f"当前模型 `{normalized or '未配置'}` 的 storyboard 第一参考"
+                f"必须在 video_prompt 中用 `[Image 1]` 指代"
+                f"（Runtime 会渲染为 `{literal}`）"
+            )
+        return None
+
+    if backend in {"veo", "minimax"} or (
+        backend == "vidu" and "/" not in normalized
+    ):
+        # Canonical markers are rewritten to prose for these models, so they
+        # are not an invented provider token; strip them before looking.
+        invented = _POSITIONAL_REFERENCE_TOKEN.search(
+            CANONICAL_MARKER_PATTERN.sub("", text),
+        )
+        if invented is not None:
+            return (
+                f"当前模型 `{normalized or '未配置'}` 使用结构化参考，"
+                f"video_prompt 不得发明位置标记 `{invented.group(0)}`"
+            )
+    return None
+
+
 def video_model_prompt_guidance(
     model_name: str,
     protocol_backend: str = "",
 ) -> str:
-    """Model-specific prompt-writing rules injected into the R2V director.
-
-    The baseline reference-order contract lives in the static prompt; this
-    only adds requirements that depend on which video model is configured,
-    so the static prompt stays model-agnostic.
-    """
+    """Model-specific prompt-writing rules injected into Creator and R2V."""
 
     normalized = model_name.strip() or "未配置"
-    if is_wan3_video_model(normalized):
-        return (
-            f"当前视频生成模型是 `{normalized}`（Wan3.0 All-in-One）。"
-            "video prompt 必须按官方多模态引用协议书写：\n"
-            "- 参考图与参考视频分别编号：按 media 中同类素材的顺序使用“图1、图2”"
-            "与“视频1、视频2”；storyboard 是第一张参考图，即“图1”。\n"
-            "- 引用时同时说明素材中的具体主体及其动作或用途，避免只写编号。\n"
-            + _reference_guidance(normalized, protocol_backend)
-            + "\n"
-            + _family_constraint_guidance(normalized, protocol_backend)
-            + "\n"
-            + _mode_guidance(normalized, protocol_backend)
-        )
-    if is_happyhorse_model(normalized):
-        return (
-            f"当前视频生成模型是 `{normalized}`（HappyHorse 参考生视频），"
-            "video prompt 必须遵守其参考指代协议：\n"
-            "- 用 `[Image N]` 指代第 N 个参考素材，顺序与 Element creation 的"
-            " exact reference version 列表一致；storyboard 是第一参考，即 `[Image 1]`。\n"
-            "- 每次指代都要说明该参考图中的具体对象，例如“[Image 1] 分镜图中的角色”。\n"
-            + _reference_guidance(normalized, protocol_backend)
-            + "\n"
-            "- 视频时长必须是 3–15 秒的整数；分辨率仅支持 720P 或 1080P。\n"
-            + _mode_guidance(normalized, protocol_backend)
-        )
-    family_guidance = _family_constraint_guidance(
+    backend = video_backend_key(normalized, protocol_backend)
+    extra: list[str] = []
+    if backend == "seedance2":
+        # Prompt contract follows the official Seedance guides:
+        # https://ark.volcengine.com/region:cn-beijing/docs/82379/2607689?lang=zh
+        family = seedance_video_generation(normalized) or "未知"
+        if family == "2.5":
+            extra.append(
+                "- Seedance 2.5 可以使用整数秒时间段；区间必须连续、无空档，"
+                "不得使用小数秒。动作节点稠密时，把相邻节点合并为 3–6 个"
+                "可执行时间段，每段只写一个核心状态变化与明确结束状态。",
+            )
+        else:
+            extra.append(
+                f"- Seedance {family} 不套用 2.5 的时间戳语法；使用“镜头 1 / "
+                "镜头 2 …”或顺序段落表达镜头与动作推进，不写时间戳。",
+            )
+    family_constraints = _family_constraint_guidance(
         normalized,
         protocol_backend,
     )
+    return "\n".join(
+        item
+        for item in (
+            f"当前视频生成模型是 `{normalized}`。**引用参考图时统一写 "
+            f"`[Image 1]`、`[Image 2]` …**，Runtime 会在提交前把它渲染成该"
+            "模型官方文档规定的形式；不要自己写下面的字面语法，也不要跨模型"
+            "套用。下面列出的是渲染结果与各模型的计数规则，供你确认编号含义：",
+            _model_reference_syntax_guidance(normalized, protocol_backend),
+            "- 参考职责是语义合同。`[Image N]` 的 N 就是该图在参考图序列中的"
+            "位置（storyboard 为 1）；结构化引用模型没有位置标记，Runtime 会把"
+            "标记改写为“第 N 张参考图”这类自然语言。参考视频若需在 Prompt 中"
+            "点名，按上方该模型的视频标记规则自行书写——canonical 形式只覆盖"
+            "参考图。无论哪种协议，采用项/排除项必须和 Runtime "
+            "实际提交素材一致，storyboard 只提供阅读顺序、近似构图、动作链和"
+            "镜头节奏，最终视频不继承宫格、边框、编号、箭头、彩色标记、"
+            "说明文字、草图媒介或占位角色。",
+            *extra,
+            _reference_guidance(normalized, protocol_backend),
+            family_constraints,
+            _mode_guidance(normalized, protocol_backend),
+        )
+        if item
+    )
+
+
+# Duration guidance mirrors the provider capability families above.
+# pylint: disable-next=too-many-return-statements
+def video_model_duration_guidance(
+    model_name: str,
+    protocol_backend: str = "",
+) -> str:
+    """Concise duration planning contract for the Creator main agent.
+
+    Duration is a provider capability, never a global Creator default.  Keep
+    this surface beside the submit-time capability tables so planning can
+    accept a 3-second beat or a 30-second generation unit when the configured
+    model actually supports it, while still rejecting an invalid pairing.
+    """
+
+    normalized = model_name.strip() or "未配置"
+    backend = video_backend_key(normalized, protocol_backend)
+    if is_wan3_video_model(normalized):
+        return (
+            f"当前视频模型 `{normalized}`（Wan3.0 All-in-One）支持 "
+            "2–30 秒整数。可按内容直接规划 2 秒短段或 30 秒长段，不套用"
+            "固定 8–10 秒；t2v/i2v/r2v 均保持同一模型 ID。"
+        )
+    if backend == "happyhorse":
+        return (
+            f"当前视频模型 `{normalized}` 的 r2v/t2v/i2v 生成时长必须为 "
+            f"{HAPPYHORSE_MIN_DURATION_SECONDS}–"
+            f"{HAPPYHORSE_MAX_DURATION_SECONDS} 秒整数。3 秒短段合法；"
+            "30 秒单段不合法，必须换用支持 30 秒的模型或按叙事边界拆段。"
+        )
+    if backend == "seedance2":
+        family = seedance_video_generation(normalized)
+        spec = SEEDANCE_FAMILY_SPECS.get(family or "")
+        if spec is not None:
+            _resolutions, low, high, allows_auto = spec
+            auto = "，也可用 -1 让模型自动规划" if allows_auto else ""
+            return (
+                f"当前视频模型 `{normalized}`（Seedance {family}）支持 "
+                f"{low}–{high} 秒整数{auto}。只要叙事适合，允许直接规划为"
+                f" {low} 秒短段或 {high} 秒长段，不套用 8–10 秒默认值。"
+            )
+    if backend == "veo":
+        if "lite" in normalized.casefold():
+            reference_note = "该 Lite 型号不支持 r2v 参考图。"
+        else:
+            reference_note = "r2v 或 1080p/4k 时必须为 8 秒。"
+        return (
+            f"当前视频模型 `{normalized}` 只支持 4、6 或 8 秒；"
+            + reference_note
+            + "不得把范围中间的其他整数当作合法值。"
+        )
+    if backend == "kling":
+        if is_kling_omni_model(normalized):
+            return f"当前视频模型 `{normalized}` 支持 3–15 秒整数；携带特征" "参考视频时上限降为 10 秒。"
+        return f"当前视频模型 `{normalized}` 只支持 5 或 10 秒。"
+    if backend == "minimax":
+        return (
+            f"当前视频模型 `{normalized}` 的时长是离散能力：Hailuo 768P"
+            " 支持 6/10 秒，1080P 仅 6 秒；T2V-01/I2V-01 为 6 秒。"
+        )
+    if backend == "vidu":
+        lookup_name = normalized.casefold()
+        spec = VIDU_MODEL_SPECS.get(lookup_name) or VIDU_DIRECT_SPECS.get(
+            lookup_name,
+        )
+        if spec is not None:
+            low, high = spec["durations"]
+            return (
+                f"当前视频模型 `{normalized}` 支持 {low}–{high} 秒整数。"
+                "按内容选择任一合法时长，不套用固定 8–10 秒。"
+            )
     return (
-        f"当前视频生成模型是 `{normalized}`。video prompt 用自然语言直接描述"
-        "参考素材中的主体、场景与动作；参考素材顺序与 Element creation 的"
-        " exact reference version 列表一致，storyboard 是第一参考。\n"
-        + _reference_guidance(normalized, protocol_backend)
-        + "\n"
-        + (family_guidance + "\n" if family_guidance else "")
-        + _mode_guidance(normalized, protocol_backend)
+        f"当前视频模型 `{normalized}` 没有可注入的确定性时长表。不要使用"
+        " Creator 全局默认时长；必须依据该模型的 provider 能力确认合法值，"
+        "无法确认时在付费提交前报告阻塞。"
     )
 
 
@@ -1399,8 +1927,13 @@ __all__ = [
     "video_model_capability",
     "video_model_capability_payload",
     "video_model_delegator_guidance",
+    "video_model_duration_guidance",
     "video_model_prompt_guidance",
     "video_model_supported_modes",
+    "video_prompt_image_reference_marker",
+    "video_reference_marker_spec",
+    "video_prompt_image_reference_markers",
     "video_reference_capability",
+    "video_prompt_storyboard_reference_violation",
     "video_reference_violation",
 ]

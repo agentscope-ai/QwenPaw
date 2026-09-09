@@ -8,4 +8,5 @@ export * from "./fileProjectReview";
 export * from "./refs";
 export * from "./sessions";
 export * from "./tasks";
+export * from "./videoTemplates";
 export * from "./workGraph";

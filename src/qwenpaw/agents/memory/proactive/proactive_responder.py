@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, List, Dict
 
-import aiohttp
+import httpx
 
 from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.message import Msg, TextBlock
@@ -16,6 +16,8 @@ from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
+from ....utils.runtime_api import async_api_client
+from ...tools.agent_management import resolve_agent_api_base_url
 from ...tools import (
     browser,
     execute_shell_command,
@@ -294,8 +296,6 @@ async def send_proactive_message_via_http(
 ) -> Optional[Msg]:
     """Send a proactive message by directly calling the QwenPaw API."""
 
-    from ...tools.agent_management import resolve_agent_api_base_url
-
     session_id = f"proactive_mode:{active_agent_id}"
 
     request_payload = {
@@ -317,7 +317,6 @@ async def send_proactive_message_via_http(
     }
 
     headers = {"X-Agent-Id": active_agent_id}
-    timeout_config = aiohttp.ClientTimeout(total=timeout_seconds)
 
     base_url = resolve_agent_api_base_url()
     clean_base = base_url.rstrip("/")
@@ -326,30 +325,29 @@ async def send_proactive_message_via_http(
     )
 
     try:
-        async with aiohttp.ClientSession() as session:
-            url = f"{api_base_url.rstrip('/')}/console/chat"
-            async with session.post(
-                url,
+        async with (
+            asyncio.timeout(timeout_seconds),
+            async_api_client(api_base_url, timeout=timeout_seconds) as session,
+        ):
+            async with session.stream(
+                "POST",
+                "/console/chat",
                 json=request_payload,
                 headers=headers,
-                timeout=timeout_config,
             ) as resp:
                 resp.raise_for_status()
                 last_data = None
-                async for line_bytes in resp.content:
-                    line = line_bytes.decode("utf-8").strip()
+                async for line in resp.aiter_lines():
+                    line = line.strip()
                     if line.startswith("data: "):
-                        try:
-                            last_data = line[6:]
-                        except Exception:
-                            continue
+                        last_data = line[6:]
 
                 if last_data:
                     logger.info("Proactive message sent successfully via HTTP")
                 else:
                     logger.warning("No valid SSE data received from agent")
 
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, httpx.TimeoutException):
         logger.error(
             "Timeout (%ds) calling QwenPaw API for proactive message",
             timeout_seconds,

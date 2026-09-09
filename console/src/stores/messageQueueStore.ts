@@ -69,8 +69,9 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
-  /** Explicit route snapshot. Callers should provide these when available. */
+  /** Agent identity captured by the caller before any async admission check. */
   agentId?: string;
+  /** Authoritative backend session_id captured by the caller. */
   backendSessionId?: string;
   userId?: string;
   channel?: string;

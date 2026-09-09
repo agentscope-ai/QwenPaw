@@ -387,7 +387,7 @@ describe("LocalModelManageModal", () => {
 
       // the no-downloaded-model hint (translation key) must be shown
       expect(
-        screen.getByText("models.localNoDownloadedModelsHint"),
+        await screen.findByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
     });
   });
@@ -406,7 +406,7 @@ describe("LocalModelManageModal", () => {
       ).toBeInTheDocument();
 
       // the input must be shown
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       expect(input).toBeInTheDocument();
@@ -425,7 +425,7 @@ describe("LocalModelManageModal", () => {
       });
 
       // type the repo ID
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");
@@ -474,7 +474,7 @@ describe("LocalModelManageModal", () => {
       });
 
       // type the repo ID
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");

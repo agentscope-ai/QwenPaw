@@ -9,15 +9,23 @@
  *   so it re-renders when plugins register/dispose — no need to rebuild the
  *   parent useMemo (and avoid re-mounting bubbles on every plugin change).
  *
- * Request extensions use the SDK's public request.render/prepend/append seam.
+ * SDK 1.2 integrations use the public request.render/prepend/append seam.
+ * HostRequestCard retains the original vendor-card wrapper for callers that
+ * register it directly; do not also configure the same public request slots.
  * Vendor response primitives remain private dependencies because CoPaw
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, { useContext, useDeferredValue, useMemo } from "react";
+import React, {
+  useContext,
+  useDeferredValue,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkReplaceLine } from "@agentscope-ai/icons";
 import { ChatRegenerateContext } from "./ChatRegenerateContext";
+import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -43,12 +51,16 @@ import {
 } from "../../plugins/registry/useChatExtensions";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
-import type { ChatResponseData } from "../../plugins/registry/types";
+import type {
+  ChatRequestData,
+  ChatResponseData,
+} from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 import {
   countCollapsedSteps,
+  filterThinkingMessages,
   findActiveStepBlockIndex,
   findLastStepBlockIndex,
   getCollapsedGroupStatus,
@@ -59,6 +71,12 @@ import {
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
 import LazyAccordion from "./LazyAccordion";
+import {
+  getAssistantMessageDisplayPreference,
+  getShowThinkingPreference,
+  subscribeChatDisplayPreference,
+  type AssistantMessageDisplayPreference,
+} from "../../utils/chatDisplayPreference";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -207,11 +225,29 @@ function DefaultHostResponseCard({
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
   const nickNode =
     typeof nick === "string" || React.isValidElement(nick) ? nick : null;
-  const messages = useMemo(
+  const mergedMessages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
-  const messageDisplayMode = getResponseMessageDisplayMode(data.status);
+  const showThinking = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getShowThinkingPreference,
+    () => true,
+  );
+  const messages = useMemo(
+    () => filterThinkingMessages(mergedMessages, showThinking),
+    [mergedMessages, showThinking],
+  );
+  const assistantDisplayPreference =
+    useSyncExternalStore<AssistantMessageDisplayPreference>(
+      subscribeChatDisplayPreference,
+      getAssistantMessageDisplayPreference,
+      () => "result-collapsed",
+    );
+  const messageDisplayMode = getResponseMessageDisplayMode(
+    data.status,
+    assistantDisplayPreference,
+  );
   const messageBlocks = useMemo(
     () => groupResponseMessages(messages, messageDisplayMode),
     [messageDisplayMode, messages],
@@ -298,6 +334,78 @@ function DefaultHostResponseCard({
       ) : null}
     </>
   );
+}
+
+function HostRequestCardContent(props: { data: ChatRequestData }) {
+  const extScalar = useChatScalarSnapshot();
+  const extLists = useChatListSnapshot();
+
+  const renderEntry = extScalar[ChatScalar.requestRender];
+  const renderFn = renderEntry?.value;
+  const prependList = sortByOrder(extLists[ChatList.requestPrepend]);
+  const appendList = sortByOrder(extLists[ChatList.requestAppend]);
+
+  // prepend/append routed through vendor's contentPrepend/contentAppend
+  // slot so actions stay last. Mirrors HostResponseCard.
+  const contentPrepend =
+    prependList.length === 0 ? null : (
+      <>
+        {prependList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.requestPrepend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+  const contentAppend =
+    appendList.length === 0 ? null : (
+      <>
+        {appendList.map((e) => (
+          <PluginSlotBoundary
+            key={e.item.id}
+            slot={ChatList.requestAppend}
+            pluginId={e.pluginId}
+          >
+            {e.item.render({ data: props.data })}
+          </PluginSlotBoundary>
+        ))}
+      </>
+    );
+
+  const fallback = () => (
+    <VendorRequestCard
+      data={
+        props.data as unknown as React.ComponentProps<
+          typeof VendorRequestCard
+        >["data"]
+      }
+      contentPrepend={contentPrepend}
+      contentAppend={contentAppend}
+    />
+  );
+
+  if (renderFn) {
+    return (
+      <PluginSlotBoundary
+        slot={ChatScalar.requestRender}
+        pluginId={renderEntry!.pluginId}
+        fallback={fallback()}
+      >
+        {renderFn({ data: props.data, fallback })}
+      </PluginSlotBoundary>
+    );
+  }
+  return fallback();
+}
+
+const MemoizedHostRequestCard = React.memo(HostRequestCardContent);
+
+export function HostRequestCard(props: { data: ChatRequestData }) {
+  return <MemoizedHostRequestCard {...props} />;
 }
 
 function HostResponseCardContent(props: {

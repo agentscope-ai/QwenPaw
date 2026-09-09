@@ -37,6 +37,7 @@ import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 import { getMarketAppState, type MarketAppState } from "@/utils/marketAppState";
+import type { InstalledPluginIdentity } from "@/utils/marketPluginIdentity";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -115,6 +116,7 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 interface AppMarketProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
   installedAppVersions?: ReadonlyMap<string, string>;
+  installedApps?: readonly InstalledPluginIdentity[];
   channel?: "official" | "community";
 }
 
@@ -123,6 +125,7 @@ const EMPTY_INSTALLED_APP_VERSIONS: ReadonlyMap<string, string> = new Map();
 export function AppMarket({
   onInstalled,
   installedAppVersions = EMPTY_INSTALLED_APP_VERSIONS,
+  installedApps = [],
   channel = "community",
 }: AppMarketProps) {
   const { t, i18n } = useTranslation();
@@ -451,7 +454,8 @@ export function AppMarket({
                 const marketState: MarketAppState = getMarketAppState(
                   entry,
                   installedAppVersions,
-                  channel,
+                  isOfficial ? "official" : "app",
+                  installedApps,
                 );
                 const isInstalled = marketState === "installed";
                 const canUpdate = marketState === "update";

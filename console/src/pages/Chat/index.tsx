@@ -71,9 +71,11 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import { useChatAnywhereI18n } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereI18nContext";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
+import {
+  CHAT_WIDE_MODE_CHANGE_EVENT,
+  getChatWideModePreference,
+} from "@/utils/chatLayoutPreference";
 import ChatActionGroup from "./components/ChatActionGroup";
-import ChatSessionDrawer from "./components/ChatSessionDrawer";
-import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
   patchContextMaxInputLength,
@@ -741,7 +743,6 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
-const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -1239,8 +1240,6 @@ const timestampStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
-
 /**
  * Temporary local session ids (created before the first message is sent) are
  * not real backend sessions and must never be used for URL restore, session
@@ -1372,28 +1371,17 @@ export default function ChatPage() {
     [dispatchFilesDrawer],
   );
 
-  // Wide mode toggle: expand chat content to full available width
-  const [isWideMode, setIsWideMode] = useState(() => {
-    try {
-      return localStorage.getItem(WIDE_MODE_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleWideMode = useCallback(() => {
-    setIsWideMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) {
-          localStorage.setItem(WIDE_MODE_STORAGE_KEY, "true");
-        } else {
-          localStorage.removeItem(WIDE_MODE_STORAGE_KEY);
-        }
-      } catch {
-        // storage unavailable
-      }
-      return next;
-    });
+  const [isWideMode, setIsWideMode] = useState(getChatWideModePreference);
+
+  useEffect(() => {
+    const syncWideMode = () => {
+      setIsWideMode(getChatWideModePreference());
+    };
+
+    window.addEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+    return () => {
+      window.removeEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
+    };
   }, []);
 
   const [showModelPrompt, setShowModelPrompt] = useState(false);
@@ -1978,38 +1966,8 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-  const { mode: sidebarMode } = useSidebarModeStore();
-  const isFullMode = sidebarMode === "full";
-
-  // On mobile viewports the right-side history panel should always be
-  // available regardless of the sidebar mode setting.
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
-  const effectiveIsFullMode = isFullMode || isMobile;
-
-  // Right-side history panel state
-  const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
-    try {
-      return localStorage.getItem(HISTORY_PANEL_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const toggleHistoryPanel = useCallback(() => {
-    setHistoryPanelOpen((prev) => {
-      const next = !prev;
-      try {
-        if (next) {
-          localStorage.setItem(HISTORY_PANEL_STORAGE_KEY, "true");
-        } else {
-          localStorage.removeItem(HISTORY_PANEL_STORAGE_KEY);
-        }
-      } catch {
-        // storage unavailable
-      }
-      return next;
-    });
-  }, []);
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -3009,7 +2967,7 @@ export default function ChatPage() {
 
       // If the user just created a new chat that hasn't sent its first message
       // yet, suppress the library's auto-selection of another session.
-      // The pending session will enter the drawer (and become the selected
+      // The pending session will enter the sidebar (and become the selected
       // session) only after triggerResolve fires onSessionIdResolved.
       if (
         sessionApi.lastActiveChatId &&
@@ -3669,27 +3627,51 @@ export default function ChatPage() {
         !sdkSessionAdapter.isReady(chatIdRef.current)
       )
         return false;
-      // Every entry point obeys the same FIFO boundary. The send button and
-      // programmatic submissions must not bypass an existing host queue in
-      // the idle interval between turns, or interrupt an active SDK request.
-      if (
+      // Capture the original route and input before checking backend status.
+      // SDK 1.2 owns submission cancellation; the host owns queued snapshots.
+      const admissionVisit = queueVisitRef.current;
+      const enqueueIdentity = sessionApi.getSessionIdentity(
+        data.session_id ||
+          chatIdRef.current ||
+          (queueSessionId === "new" ? "" : queueSessionId),
+      );
+      const backendChatId = resolveBackendChatId(chatIdRef.current);
+      const textarea = getActiveSenderTextarea();
+      const val = data.query.trim() || textarea?.value.trim() || "";
+      const submittedAttachments = getSubmissionAttachments(data);
+      const queueAttachments =
+        submittedAttachments.length > 0
+          ? submittedAttachments
+          : pendingFileListRef.current.map((f) => ({
+              url: f.url,
+              name: f.name,
+              type: f.type,
+              size: f.size,
+            }));
+      const requestContext = captureRequestContext(data.context);
+      let backendRunning = false;
+      const queueBusy = () =>
         !isOwnerRef.current ||
-        chatLoadingRef.current ||
-        messageQueueRef.current.length > 0 ||
-        autoSendTimerRef.current !== null
-      ) {
-        const textarea = getActiveSenderTextarea();
-        const val = data.query.trim() || textarea?.value.trim() || "";
-        const submittedAttachments = getSubmissionAttachments(data);
-        const queueAttachments =
-          submittedAttachments.length > 0
-            ? submittedAttachments
-            : pendingFileListRef.current.map((f) => ({
-                url: f.url,
-                name: f.name,
-                type: f.type,
-                size: f.size,
-              }));
+        Boolean(chatLoadingRef.current) ||
+        useMessageQueueStore.getState().getQueue(queueKey).length > 0 ||
+        autoSendTimerRef.current !== null;
+      if (!queueBusy() && usesQwenPawBackend && backendChatId) {
+        try {
+          // Completed SSE can precede TaskTracker cleanup. Retain upstream's
+          // admission check so a send in that gap joins the durable queue.
+          const chat = await chatApi.getChatStatus(backendChatId, {
+            agentId: selectedAgent,
+          });
+          backendRunning = chat.status === "running";
+        } catch {
+          // Match direct-send availability on status lookup failure; queued
+          // execution still requires authoritative idle before dispatch.
+        }
+      }
+      const sameVisit = queueVisitRef.current === admissionVisit;
+      // Recheck after the await: another submission or navigation may have
+      // changed the queue while the status response was in flight.
+      if (backendRunning || !sameVisit || queueBusy()) {
         if (!val && queueAttachments.length === 0) return false;
         const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
         if (currentQ.length >= MAX_QUEUE_SIZE) {
@@ -3699,11 +3681,6 @@ export default function ChatPage() {
         const queueText = usesQwenPawBackend
           ? prepareLoopModeMessage(val)
           : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity(
-          data.session_id ||
-            chatIdRef.current ||
-            (queueSessionId === "new" ? "" : queueSessionId),
-        );
         useMessageQueueStore.getState().enqueue(queueKey, {
           text: queueText,
           attachments:
@@ -3712,13 +3689,27 @@ export default function ChatPage() {
           backendSessionId: enqueueIdentity.sessionId,
           userId: enqueueIdentity.userId,
           channel: enqueueIdentity.channel,
-          requestContext: captureRequestContext(data.context),
+          requestContext,
           bizParams: data.biz_params,
         });
-        pendingFileListRef.current = [];
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        if (sameVisit) {
+          pendingFileListRef.current = [];
+          localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        } else if (
+          enqueueIdentity.sessionId &&
+          backendChatId &&
+          !hasBackgroundQueue(queueKey)
+        ) {
+          // Navigation cleanup ran before this item existed. Start the old
+          // queue with its captured Agent/Chat identity and preserve new input.
+          void startBackgroundQueue(
+            queueKey,
+            enqueueIdentity.sessionId,
+            backendChatId,
+          );
+        }
         // Let the SDK clear precisely the enqueued input/attachment revision.
-        return { proceed: false, clear: true };
+        return { proceed: false, clear: sameVisit };
       }
 
       const prepared = usesQwenPawBackend
@@ -4015,12 +4006,6 @@ export default function ChatPage() {
             <ChatActionGroup
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
-              onToggleHistory={
-                effectiveIsFullMode ? toggleHistoryPanel : undefined
-              }
-              historyOpen={effectiveIsFullMode ? historyPanelOpen : false}
-              isWideMode={isWideMode}
-              onToggleWideMode={toggleWideMode}
             />
             {pluginRightHeader}
           </>
@@ -4483,7 +4468,6 @@ export default function ChatPage() {
     whisperEnabled,
     handleWhisperTranscription,
     isWideMode,
-    toggleWideMode,
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
@@ -4495,9 +4479,6 @@ export default function ChatPage() {
     handleQueuePauseResume,
     handleQueueRetry,
     handleQueueSkip,
-    effectiveIsFullMode,
-    historyPanelOpen,
-    toggleHistoryPanel,
     handleCompactCommand,
     handleNewCommand,
     isMobile,
@@ -4764,33 +4745,6 @@ export default function ChatPage() {
         </Modal>
       </motion.div>
       {/* End of main chat area */}
-
-      {/* Right-side history panel (full mode only) */}
-      {effectiveIsFullMode && historyPanelOpen && (
-        <>
-          {isMobile ? (
-            <ChatSessionDrawer
-              open={historyPanelOpen}
-              onClose={toggleHistoryPanel}
-              embedded={false}
-            />
-          ) : (
-            <>
-              <div
-                className={styles.historyPanelMask}
-                onClick={toggleHistoryPanel}
-              />
-              <div className={styles.historyPanel}>
-                <ChatSessionDrawer
-                  open={historyPanelOpen}
-                  onClose={toggleHistoryPanel}
-                  embedded
-                />
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }

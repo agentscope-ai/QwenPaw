@@ -84,7 +84,7 @@ export default defineConfig(({ command, mode }) => {
           ),
         },
         {
-          find: "@agentscope-ai/design",
+          find: /^@agentscope-ai\/design$/,
           replacement: path.resolve(__dirname, "src/test/design-mock.ts"),
         },
         {

@@ -45,7 +45,7 @@
 
 | 阶段              | 操作                                                                                    | 必须观察的结果                                                                                                                                                                              |
 | ----------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. 初始化         | 打开 `/chat`，确认输入区和欢迎页可用，新建空白会话                                      | 页面不自动选中旧 Chat；点击新建仅打开 `/chat`，不调用 `POST /api/chats`；首发时才创建 Chat UUID；无用户消息时无 `/api/console/chat` 请求                                                        |
+| A. 初始化         | 打开 `/chat`，确认输入区和欢迎页可用，新建空白会话                                      | 页面不自动选中旧 Chat；点击新建仅打开 `/chat`，不调用 `POST /api/chats`；首发时才创建 Chat UUID；无用户消息时无 `/api/console/chat` 请求                                                    |
 | B. 首轮直发       | 输入“记住 `CHAIN-<timestamp>`，调用指定只读工具，最终回答原样返回标记”并普通发送        | 只出现一条用户卡，只发起一个 `POST /api/console/chat`；body 为 `stream:true`，仅包含本轮用户输入，`session_id/user_id/channel` 来自当前 Session 快照，`X-Agent-Id` 为当前 Agent             |
 | C. ID 解析        | 在创建完成及首轮 SSE 进行时观察会话列表和 URL                                           | 后端列表返回 `chatUuid + runtimeSessionId`；URL 仅从 `/chat` 变为 `/chat/<chatUuid>` 一次，历史抽屉中该 Chat 为 active；正在流式生成的消息不闪空、不重挂载，不得请求 `/api/chats/<localId>` |
 | D. SSE 与卡片     | 等待 reasoning/message 增量、工具调用及工具结果                                         | 文本只增长不重复；tool call/output 合并到同一工具卡，可展开查看，不出现 `Unknown type`；工具卡、Loading 和操作按钮只属于当前 `chatUuid`                                                     |
@@ -335,22 +335,22 @@
 
 以下组合不能由单独的“新建成功”“SSE 完成”或 Store 测试替代。每轮记录 Chat UUID、Runtime session_id、创建/直发/reconnect 次数、队列顺序和最终后端状态；测试网络延迟只能延迟真实请求，不替换模型响应。
 
-| ID | 前置与操作 | 必须满足 |
-| --- | --- | --- |
-| SDK-QUE-025 | A 正在 SSE 且有待发送项 → 创建新对话 → B 首发 | B 一条用户消息、一个 Chat、一次直发；输入接受后清空；A 的队列和运行身份不迁移到 B |
-| SDK-QUE-026 | 同上，延迟创建接口响应，快速多次点击发送/Enter | 创建中的同一次首发共用一个创建请求；最终只有一次有效直发，无多余空 Chat；后续真正新建仍可创建另一个 Chat |
-| SDK-QUE-027 | A SSE + 队列 → new → A，返回时后端仍 running | 只重连 A；保持生成状态；完成后 FIFO 自动排空 |
-| SDK-QUE-028 | A SSE → new，等后端 idle 后返回 A，再追加队列 | 载入 idle 历史后清除 A 缓存 loading；无需 Stop/刷新便自动发送，条目仅执行一次 |
-| SDK-QUE-029 | A SSE + 暂停的两项队列 → new → 等 idle → A → 恢复 | 暂停状态及两项保持；恢复后自动按原顺序执行，输入区不残留 Stop |
-| SDK-QUE-030 | A→new 后后台发送队首，响应头未到时返回 A | 前台及时取得锁；保留 sending 直到对账；已接受请求不重发，未知回执可明确重试 |
-| SDK-QUE-031 | 后台队首已收到 2xx，SSE 暂无新数据时返回 A | 不等下一个 chunk 便释放后台订阅和锁；后端运行继续，前台 reconnect 接管，队首不重复 |
-| SDK-QUE-032 | A 队首等待 acceptance 时切 new/B，再普通 Enter | 不继承其他会话的全局 busy；旧任务 finally 不清新任务标记；当前会话 FIFO 不被发送按钮绕过 |
-| SDK-QUE-033 | 空白页 Ctrl/Cmd+Enter 两条，首项创建 UUID | draft→UUID 迁移包含 sending 项；创建与 accepted 间切换不误判失败、不重复发送；第二项自动继续 |
-| SDK-QUE-034 | A 历史慢响应 → B SSE；A 旧 idle 结果随后到达 | 最多清理 A 的缓存状态，不清 B loading、不改 B 路由、不调度 A 到 B |
-| SDK-QUE-035 | 创建接口失败 → 再次发送 | 原输入保留，失败的创建锁释放，重试可成功；已创建且接受的 Chat 不再创建副本 |
-| SDK-QUE-036 | Agent A 创建未完成 → B → A，旧请求后返回 | 旧 Agent epoch 不改列表/路由/全局身份，也不释放新 epoch 的创建请求；各方创建隔离 |
-| SDK-QUE-037 | 两个标签页同一 Chat，owner 切 new/关闭，另一页接管 | ownership 与 send lock 顺序交接；每条一次；分别在 idle/running、响应头前/后执行 |
-| SDK-QUE-038 | 队列有 pending 项时点击发送按钮、程序化提交 | 与 Enter 使用相同 FIFO 门禁；不能中断当前项或越过已有项；失败保持可恢复 |
+| ID          | 前置与操作                                         | 必须满足                                                                                                 |
+| ----------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| SDK-QUE-025 | A 正在 SSE 且有待发送项 → 创建新对话 → B 首发      | B 一条用户消息、一个 Chat、一次直发；输入接受后清空；A 的队列和运行身份不迁移到 B                        |
+| SDK-QUE-026 | 同上，延迟创建接口响应，快速多次点击发送/Enter     | 创建中的同一次首发共用一个创建请求；最终只有一次有效直发，无多余空 Chat；后续真正新建仍可创建另一个 Chat |
+| SDK-QUE-027 | A SSE + 队列 → new → A，返回时后端仍 running       | 只重连 A；保持生成状态；完成后 FIFO 自动排空                                                             |
+| SDK-QUE-028 | A SSE → new，等后端 idle 后返回 A，再追加队列      | 载入 idle 历史后清除 A 缓存 loading；无需 Stop/刷新便自动发送，条目仅执行一次                            |
+| SDK-QUE-029 | A SSE + 暂停的两项队列 → new → 等 idle → A → 恢复  | 暂停状态及两项保持；恢复后自动按原顺序执行，输入区不残留 Stop                                            |
+| SDK-QUE-030 | A→new 后后台发送队首，响应头未到时返回 A           | 前台及时取得锁；保留 sending 直到对账；已接受请求不重发，未知回执可明确重试                              |
+| SDK-QUE-031 | 后台队首已收到 2xx，SSE 暂无新数据时返回 A         | 不等下一个 chunk 便释放后台订阅和锁；后端运行继续，前台 reconnect 接管，队首不重复                       |
+| SDK-QUE-032 | A 队首等待 acceptance 时切 new/B，再普通 Enter     | 不继承其他会话的全局 busy；旧任务 finally 不清新任务标记；当前会话 FIFO 不被发送按钮绕过                 |
+| SDK-QUE-033 | 空白页 Ctrl/Cmd+Enter 两条，首项创建 UUID          | draft→UUID 迁移包含 sending 项；创建与 accepted 间切换不误判失败、不重复发送；第二项自动继续             |
+| SDK-QUE-034 | A 历史慢响应 → B SSE；A 旧 idle 结果随后到达       | 最多清理 A 的缓存状态，不清 B loading、不改 B 路由、不调度 A 到 B                                        |
+| SDK-QUE-035 | 创建接口失败 → 再次发送                            | 原输入保留，失败的创建锁释放，重试可成功；已创建且接受的 Chat 不再创建副本                               |
+| SDK-QUE-036 | Agent A 创建未完成 → B → A，旧请求后返回           | 旧 Agent epoch 不改列表/路由/全局身份，也不释放新 epoch 的创建请求；各方创建隔离                         |
+| SDK-QUE-037 | 两个标签页同一 Chat，owner 切 new/关闭，另一页接管 | ownership 与 send lock 顺序交接；每条一次；分别在 idle/running、响应头前/后执行                          |
+| SDK-QUE-038 | 队列有 pending 项时点击发送按钮、程序化提交        | 与 Enter 使用相同 FIFO 门禁；不能中断当前项或越过已有项；失败保持可恢复                                  |
 
 | SDK-QUE-039 | A₁ 历史未返回 → Agent B → Agent A₂ 已开始新 SSE，A₁ idle 晚到 | 旧 owner 的 getSession 返回 undefined，不发布 ready、不调用 observer、不清 A₂ loading |
 | SDK-QUE-040 | A 完成后的 loop 状态请求挂起 → new/B（或 A→new→A）队列已调度 → 旧请求完成 | 旧 visit 回调在触碰计时器前退出，不能取消/覆盖新 visit 的唤醒 |
@@ -361,3 +361,14 @@
 - `sdkSessionLifecycle.integration.test.tsx` 使用实际安装 SDK 的 Context、controller、session loader 和 CoPaw Session API，验证创建、路由、SSE disconnect、idle hydration；网络 fixture 仅用于可重复的协议测试，不算真实模型 E2E。
 - `messageQueueStore.test.ts` 验证持久化、身份、FIFO、附件、编辑/删除/重排、容量、迁移、暂停/失败和跨页协议；仍需真实浏览器确认调度触发及锁交接。
 - 浏览器必须分别执行“返回时 running”和“返回时 idle”，以及“后台等待 headers”和“后台等待下一段 SSE”；这些是不同分支，不能互相替代。
+
+## 2026-09-09 合并新版侧栏与后端发送检查
+
+合并 `upstream/main@70497170` 后，会话入口统一在左侧栏，旧版右侧历史抽屉已移除；上文历史执行记录仍按当时界面保留。新建/切换回归从侧栏或聊天头部的 New task 入口执行。
+
+| ID          | 组合步骤                                             | 必须满足                                                                |
+| ----------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| SDK-QUE-041 | SDK 已收到 Completed，但后端仍 running，此时点击发送 | 通过后端状态检查将消息入队；后端明确 idle 后只发送一次                  |
+| SDK-QUE-042 | 已有会话的发送状态检查挂起时切换 Chat/Agent          | 使用提交时的身份与附件快照入原队列；新会话输入不清空，不向新 Agent 发送 |
+
+SDK 1.2 的提交上下文负责直发的不可变身份；CoPaw 的队列项负责待发送快照。不能将旧 SDK 的全局 pending submission 或 Runtime ID 回退补丁直接叠加到新版执行链路。

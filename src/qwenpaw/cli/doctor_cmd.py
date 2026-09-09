@@ -27,7 +27,7 @@ from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
 )
-from ..utils.http import trust_env_for_url
+from ..utils.runtime_api import api_client
 from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
@@ -86,8 +86,8 @@ def _same_python_executable(a: str, b: str) -> bool:
 
 
 def _http_get(url: str, **kwargs) -> httpx.Response:
-    kwargs.setdefault("trust_env", trust_env_for_url(url))
-    return httpx.get(url, **kwargs)
+    with api_client(url) as client:
+        return client.get(url, **kwargs)
 
 
 def _check_api_health(

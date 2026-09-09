@@ -5,6 +5,7 @@ import type {
   CreatorEvent,
   CreatorMessage,
   CreatorSessionView,
+  SpecialistRunStatus,
   SendCreatorMessageRequest,
 } from "@/contracts/creator";
 import {
@@ -78,7 +79,9 @@ export interface SubagentStreamTool {
   runId: string;
   tool: string;
   firstEventSeq: number;
-  status: "started" | "succeeded" | "failed";
+  status: "started" | "succeeded" | "failed" | "cancelled";
+  /** Arguments streaming is not tool execution; only tool_started sets true. */
+  executing?: boolean;
   arguments?: Record<string, unknown>;
   receivedBytes?: number;
   providerChunkCount?: number;
@@ -94,6 +97,7 @@ export interface SubagentStreamTool {
 }
 
 export interface SubagentActivity {
+  modelRetry?: RateLimitRetryState | null;
   parentActionId: string;
   runId: string;
   role: string;
@@ -102,6 +106,8 @@ export interface SubagentActivity {
   targetRefs: string[];
   firstEventSeq: number;
   completed: boolean;
+  /** Lifecycle state of this specialist, independent of the main session. */
+  status?: SpecialistRunStatus;
   waitingReview?: boolean;
   terminalKind?: "SUCCESS" | "BLOCKED" | "FAILED" | "STALE" | "CANCELLED";
   summaryText?: string;
@@ -111,10 +117,59 @@ export interface SubagentActivity {
 }
 
 export interface RateLimitRetryState {
+  /** Kept under the legacy store name; reason differentiates real retry causes. */
+  reason?:
+    | "rate_limit"
+    | "transient"
+    | "empty_response"
+    | "invalid_response"
+    | "context_recovery";
+  delaySeconds?: number;
+  createdAt?: string;
   attempt: number;
   maxAttempts: number;
   runId: string;
 }
+
+function retryNotice(event: CreatorEvent): RateLimitRetryState | null {
+  const attempt = Number(event.data.attempt);
+  const maxAttempts = Number(event.data.maxAttempts);
+  const runId = eventString(event.data, "runId");
+  if (
+    !runId ||
+    !Number.isInteger(attempt) ||
+    !Number.isInteger(maxAttempts) ||
+    attempt <= 0 ||
+    maxAttempts < attempt
+  )
+    return null;
+  return {
+    attempt,
+    maxAttempts,
+    runId,
+    reason:
+      event.type === "agent.model.rate_limit_retry" ||
+      event.data.reason === "rate_limit"
+        ? "rate_limit"
+        : event.data.reason === "empty_response" ||
+          event.data.reason === "invalid_response" ||
+          event.data.reason === "context_recovery"
+        ? event.data.reason
+        : "transient",
+    ...(typeof event.data.delaySeconds === "number" &&
+    Number.isFinite(event.data.delaySeconds) &&
+    event.data.delaySeconds >= 0
+      ? { delaySeconds: event.data.delaySeconds }
+      : {}),
+    ...(Number.isFinite(Date.parse(event.at)) ? { createdAt: event.at } : {}),
+  };
+}
+
+export type CreatorConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting";
 
 interface CreatorSessionState {
   projectId: string | null;
@@ -132,6 +187,7 @@ interface CreatorSessionState {
   loading: boolean;
   loadingOlder: boolean;
   connected: boolean;
+  connectionState: CreatorConnectionState;
   stopping: boolean;
   isReplaying: boolean;
   error: string | null;
@@ -238,6 +294,8 @@ function subagentActivityBase(
       ? event.seq
       : existing?.firstEventSeq ?? event.seq,
     completed: runChanged ? false : existing?.completed ?? false,
+    status: runChanged ? undefined : existing?.status,
+    modelRetry: runChanged ? null : existing?.modelRetry,
     waitingReview: runChanged ? undefined : existing?.waitingReview,
     terminalKind: runChanged ? undefined : existing?.terminalKind,
     summaryText: runChanged ? undefined : existing?.summaryText,
@@ -249,9 +307,8 @@ function subagentActivityBase(
 
 function subagentToolStatus(state: unknown): SubagentStreamTool["status"] {
   const normalized = typeof state === "string" ? state.toLowerCase() : "";
-  return normalized.includes("fail") ||
-    normalized.includes("error") ||
-    normalized.includes("cancel")
+  if (normalized.includes("cancel")) return "cancelled";
+  return normalized.includes("fail") || normalized.includes("error")
     ? "failed"
     : "succeeded";
 }
@@ -280,6 +337,8 @@ const ACTIVE_SUBAGENT_LIFECYCLE_EVENTS = new Set([
 function subagentTerminalKind(
   event: CreatorEvent,
 ): SubagentActivity["terminalKind"] | undefined {
+  if (event.type === "subagent.failed" && event.data.cancelled === true)
+    return "CANCELLED";
   const marker = eventString(event.data, "marker");
   if (marker === "SUCCESS" || marker === "BLOCKED" || marker === "FAILED")
     return marker;
@@ -289,6 +348,20 @@ function subagentTerminalKind(
   if (event.type === "subagent.failed") {
     return event.data.cancelled === true ? "CANCELLED" : "FAILED";
   }
+  return undefined;
+}
+
+function subagentLifecycleStatus(
+  type: string,
+): SpecialistRunStatus | undefined {
+  if (type === "subagent.accepted") return "QUEUED";
+  if (type === "subagent.waiting_runtime") return "WAITING_RUNTIME";
+  if (
+    type === "subagent.started" ||
+    type === "subagent.resumed" ||
+    type === "subagent.continuation_started"
+  )
+    return "RUNNING_MODEL";
   return undefined;
 }
 
@@ -358,6 +431,7 @@ function defaultState() {
     loading: false,
     loadingOlder: false,
     connected: false,
+    connectionState: "disconnected" as CreatorConnectionState,
     stopping: false,
     isReplaying: false,
     error: null,
@@ -369,6 +443,7 @@ function defaultState() {
 export const useCreatorSessionStore = create<CreatorSessionState>(
   (set, get) => {
     let lifecycleGeneration = 0;
+    let replayUntilSeq = 0;
     let sessionRefreshGeneration = 0;
     let messageRefreshEpoch = 0;
     let pendingMessageRefresh: { epoch: number; after: number } | null = null;
@@ -561,6 +636,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           set({
             stream: null,
             connected: false,
+            connectionState: "connecting",
             loading: true,
             isReplaying: true,
             error: null,
@@ -569,6 +645,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           set({
             ...defaultState(),
             projectId,
+            connectionState: "connecting",
             loading: true,
             isReplaying: true,
           });
@@ -583,23 +660,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             get().projectId !== projectId
           )
             return;
-          // Sessions in a terminal state skip SSE replay.
-          const TERMINAL_STATUSES = new Set(["IDLE", "CANCELLED", "ERROR"]);
-          const resumeAfter = TERMINAL_STATUSES.has(
-            sessionResponse.session.status,
-          )
-            ? sessionResponse.session.lastEventSeq
-            : initialResumeAfter;
-          console.log(
-            "[bootstrap] session status:",
-            sessionResponse.session.status,
-          );
-          console.log(
-            "[bootstrap] lastEventSeq:",
-            sessionResponse.session.lastEventSeq,
-          );
-          console.log("[bootstrap] initialResumeAfter:", initialResumeAfter);
-          console.log("[bootstrap] final resumeAfter:", resumeAfter);
+          // Mainline IDLE/ERROR does not settle detached specialist work.
+          // Replay from the local cursor to rebuild its independent lifecycle.
+          const resumeAfter = initialResumeAfter;
+          replayUntilSeq = sessionResponse.session.lastEventSeq;
           let conversations = conversationPage.items;
           let activeConversationId =
             preferredConversationId &&
@@ -668,8 +732,15 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           });
           const pendingEvents: CreatorEvent[] = [];
           let flushTimer: number | null = null;
+          const isCurrentStream = () =>
+            bootstrapGeneration === lifecycleGeneration &&
+            get().projectId === projectId;
           const flushEvents = () => {
             flushTimer = null;
+            if (!isCurrentStream()) {
+              pendingEvents.splice(0, pendingEvents.length);
+              return;
+            }
             if (pendingEvents.length === 0) return;
             const batch = pendingEvents.splice(0, pendingEvents.length);
             get().ingestEvents(batch);
@@ -678,6 +749,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             projectId,
             resumeAfter,
             (event) => {
+              if (!isCurrentStream()) return;
               pendingEvents.push(event);
               // Initial SSE replay can carry hundreds of durable events. Fold
               // one animation frame into one Zustand commit so refresh does not
@@ -685,19 +757,19 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               if (flushTimer == null)
                 flushTimer = window.setTimeout(flushEvents, 16);
             },
-            () => set({ connected: false }),
+            () => {
+              if (isCurrentStream())
+                set({ connected: false, connectionState: "reconnecting" });
+            },
+            () => {
+              if (isCurrentStream())
+                set({
+                  connected: true,
+                  connectionState: "connected",
+                  isReplaying: get().lastEventSeq < replayUntilSeq,
+                });
+            },
           );
-          // With no events to replay, defer setting isReplaying: false.
-          if (resumeAfter >= (sessionResponse.session.lastEventSeq ?? 0)) {
-            window.setTimeout(() => {
-              if (
-                bootstrapGeneration === lifecycleGeneration &&
-                get().projectId === projectId
-              ) {
-                set({ isReplaying: false });
-              }
-            }, 100);
-          }
           const stream: CreatorEventStream = {
             close: () => {
               durableStream.close();
@@ -713,13 +785,18 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             stream.close();
             return;
           }
-          set({ stream, connected: true });
+          set({ stream });
         } catch (error) {
           if (
             bootstrapGeneration === lifecycleGeneration &&
             get().projectId === projectId
           )
-            set({ loading: false, error: (error as Error).message });
+            set({
+              loading: false,
+              connected: false,
+              connectionState: "disconnected",
+              error: (error as Error).message,
+            });
           throw error;
         }
       },
@@ -979,6 +1056,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         const { session, stopping } = get();
         const projectId = get().projectId ?? session?.projectId ?? null;
         if (!projectId || stopping) return;
+        const stopGeneration = lifecycleGeneration;
+        const isCurrentStop = () =>
+          stopGeneration === lifecycleGeneration &&
+          (get().projectId ?? get().session?.projectId) === projectId;
         const sessionId = session?.id;
         const previousStatus = session?.status;
         set((state) => ({
@@ -990,6 +1071,9 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         try {
           await interruptCreator(projectId);
         } catch (error) {
+          // A stop belongs to the project lifecycle that requested it. A late
+          // rejection must not clear a new stop or surface in another project.
+          if (!isCurrentStop()) return;
           set((state) => ({
             stopping: false,
             session:
@@ -1001,7 +1085,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           }));
           throw error;
         }
-        set({ stopping: false });
+        if (isCurrentStop()) set({ stopping: false });
       },
 
       ingestEvents: (incoming) => {
@@ -1027,8 +1111,25 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           let session = current.session;
           let rateLimitRetry = current.rateLimitRetry;
           accepted.forEach((event) => {
+            if (event.type === "agent.run.started") rateLimitRetry = null;
+            if (
+              rateLimitRetry &&
+              rateLimitRetry.runId === eventString(event.data, "runId") &&
+              [
+                "agent.message_delta",
+                "agent.tool_progress",
+                "agent.tool_started",
+                "agent.model.retry_recovered",
+                "agent.assistant_message",
+              ].includes(event.type)
+            ) {
+              // A tool-only model answer also resolves its own retry notice.
+              rateLimitRetry = null;
+            }
             const actionId = eventString(event.data, "actionId");
             const subagentDetail =
+              event.type === "subagent.model.retry" ||
+              event.type === "subagent.model.retry_recovered" ||
               event.type === "subagent.message_delta" ||
               event.type === "subagent.message_completed" ||
               event.type === "subagent.tool_progress" ||
@@ -1054,23 +1155,51 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               (subagentDetail || subagentLifecycle || delegateBoundary)
             ) {
               const existingActivity = subagentActivities[parentActionId];
+              if (
+                event.type.startsWith("subagent.model.") &&
+                existingActivity &&
+                (existingActivity.completed ||
+                  existingActivity.runId !== eventString(event.data, "runId"))
+              )
+                return;
               let activity = subagentActivityBase(
                 existingActivity,
                 parentActionId,
                 event,
               );
+              if (event.type === "subagent.model.retry") {
+                activity = {
+                  ...activity,
+                  modelRetry: retryNotice(event) ?? activity.modelRetry,
+                };
+              } else if (
+                activity.modelRetry?.runId ===
+                  eventString(event.data, "runId") &&
+                [
+                  "subagent.message_delta",
+                  "subagent.message_completed",
+                  "subagent.tool_progress",
+                  "subagent.tool_started",
+                  "subagent.model.retry_recovered",
+                ].includes(event.type)
+              ) {
+                activity = { ...activity, modelRetry: null };
+              }
               if (ACTIVE_SUBAGENT_LIFECYCLE_EVENTS.has(event.type)) {
                 activity = {
                   ...activity,
                   completed: false,
+                  status: subagentLifecycleStatus(event.type),
                   waitingReview: undefined,
                   terminalKind: undefined,
                   summaryText: undefined,
                   terminalEventSeq: undefined,
+                  modelRetry: null,
                 };
               }
               const terminalKind = subagentTerminalKind(event);
               if (terminalKind) {
+                activity = { ...activity, modelRetry: null };
                 const summary = subagentSummary(event) ?? activity.summaryText;
                 activity = settleSubagentMessages(
                   activity,
@@ -1080,12 +1209,28 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 activity = {
                   ...activity,
                   completed: true,
+                  status:
+                    terminalKind === "SUCCESS" ? "SUCCEEDED" : terminalKind,
                   waitingReview:
                     event.data.waitingReview === true ||
                     isLegacyReviewPause(terminalKind, summary),
                   terminalKind,
                   summaryText: summary,
                   terminalEventSeq: event.seq,
+                  tools: Object.fromEntries(
+                    Object.entries(activity.tools).map(([key, tool]) => [
+                      key,
+                      tool.status === "started"
+                        ? {
+                            ...tool,
+                            executing: false,
+                            ...(terminalKind === "CANCELLED"
+                              ? { status: "cancelled" as const }
+                              : {}),
+                          }
+                        : tool,
+                    ]),
+                  ),
                 };
               }
               if (
@@ -1101,6 +1246,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 activity = {
                   ...activity,
                   completed: true,
+                  status: "FAILED",
                   terminalKind: "FAILED",
                   summaryText:
                     eventString(event.data, "error") ??
@@ -1114,6 +1260,11 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 event.type === "subagent.message_delta" ||
                 event.type === "subagent.message_completed"
               ) {
+                if (
+                  event.type === "subagent.message_delta" &&
+                  !activity.completed
+                )
+                  activity = { ...activity, status: "RUNNING_MODEL" };
                 const messageId = eventString(event.data, "messageId");
                 const runId =
                   eventString(event.data, "runId") ?? activity.runId;
@@ -1225,9 +1376,17 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                       "tool",
                     firstEventSeq: existingTool?.firstEventSeq ?? event.seq,
                     status:
-                      event.type !== "subagent.tool_completed"
-                        ? "started"
-                        : subagentToolStatus(event.data.state),
+                      event.type === "subagent.tool_completed"
+                        ? subagentToolStatus(event.data.state)
+                        : existingTool?.status ?? "started",
+                    executing:
+                      event.type === "subagent.tool_completed"
+                        ? false
+                        : existingTool && existingTool.status !== "started"
+                        ? false
+                        : event.type === "subagent.tool_started"
+                        ? true
+                        : existingTool?.executing ?? false,
                     arguments: parsedArguments,
                     receivedBytes:
                       typeof event.data.receivedBytes === "number"
@@ -1288,8 +1447,9 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               event.type === "agent.run.cancelled" ||
               event.type === "agent.run.completed"
             ) {
-              rateLimitRetry = null;
               const terminalRunId = eventString(event.data, "runId");
+              if (rateLimitRetry?.runId === terminalRunId)
+                rateLimitRetry = null;
               if (terminalRunId) {
                 const remaining = Object.fromEntries(
                   Object.entries(streamingAssistantMessages).filter(
@@ -1325,20 +1485,36 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 }
               }
             }
-            if (event.type === "agent.model.rate_limit_retry") {
-              const attempt = Number(event.data.attempt);
-              const maxAttempts = Number(event.data.maxAttempts);
-              if (Number.isFinite(attempt) && Number.isFinite(maxAttempts)) {
-                rateLimitRetry = {
-                  attempt,
-                  maxAttempts,
-                  runId: eventString(event.data, "runId") ?? "",
-                };
-              }
+            if (
+              ["agent.model.rate_limit_retry", "agent.model.retry"].includes(
+                event.type,
+              )
+            ) {
+              const notice = retryNotice(event);
+              const previous = [...current.events, ...accepted].filter(
+                (item) => item.seq < event.seq,
+              );
+              const ended = previous.some(
+                (item) =>
+                  [
+                    "agent.run.completed",
+                    "agent.run.failed",
+                    "agent.run.cancelled",
+                  ].includes(item.type) &&
+                  eventString(item.data, "runId") === notice?.runId,
+              );
+              const latestStart = previous
+                .filter((item) => item.type === "agent.run.started")
+                .at(-1);
+              if (
+                notice &&
+                !ended &&
+                (!latestStart ||
+                  eventString(latestStart.data, "runId") === notice.runId)
+              )
+                rateLimitRetry = notice;
             }
             if (event.type === "agent.message_delta") {
-              // The model answered again, so any throttling notice is stale.
-              rateLimitRetry = null;
               const messageId =
                 typeof event.data.messageId === "string"
                   ? event.data.messageId
@@ -1532,22 +1708,8 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   status === "ERROR"
                 ) {
                   rateLimitRetry = null;
-                  Object.entries(subagentActivities).forEach(
-                    ([key, activity]) => {
-                      if (activity.completed) return;
-                      subagentActivities = {
-                        ...subagentActivities,
-                        [key]: {
-                          ...activity,
-                          completed: true,
-                          terminalKind: "CANCELLED" as const,
-                          summaryText:
-                            activity.summaryText ?? i18n.t("store.userAbort"),
-                          terminalEventSeq: event.seq,
-                        },
-                      };
-                    },
-                  );
+                  // Mainline terminal state is not a specialist terminal
+                  // event. Detached runs settle through subagent lifecycle.
                 }
               }
             }
@@ -1555,13 +1717,23 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           const lastEventSeq = accepted.at(-1)!.seq;
           if (session && session.lastEventSeq !== lastEventSeq)
             session = { ...session, lastEventSeq };
-          const events = [...current.events, ...accepted].slice(-500);
+          const combinedEvents = [...current.events, ...accepted];
+          const recentStart = Math.max(0, combinedEvents.length - 500);
+          // A superseded run may have no tool-result message. Preserve its
+          // authoritative end event after high-volume streaming deltas leave
+          // the recent window, including when rebuilding from durable SSE.
+          const events = combinedEvents.filter(
+            (event, index) =>
+              index >= recentStart ||
+              event.type === "agent.run.cancelled" ||
+              event.type === "agent.run.failed",
+          );
           const patch: Partial<CreatorSessionState> = {
             events,
             lastEventSeq,
-            connected: true,
           };
-          if (current.isReplaying) patch.isReplaying = false;
+          if (current.isReplaying && lastEventSeq >= replayUntilSeq)
+            patch.isReplaying = false;
           if (messages !== current.messages) patch.messages = messages;
           if (
             streamingAssistantMessages !== current.streamingAssistantMessages
@@ -1589,7 +1761,11 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         sessionRefreshGeneration += 1;
         get().stream?.close();
         invalidateMessageRefresh();
-        set({ stream: null, connected: false });
+        set({
+          stream: null,
+          connected: false,
+          connectionState: "disconnected",
+        });
       },
 
       reset: () => {

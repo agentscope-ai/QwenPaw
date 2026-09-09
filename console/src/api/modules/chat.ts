@@ -18,6 +18,10 @@ export interface ChatUploadResponse {
   stored_name?: string;
 }
 
+export interface ChatStatusResponse {
+  status: "idle" | "running";
+}
+
 const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
@@ -97,6 +101,21 @@ export const chatApi = {
       `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
       {
         signal: options?.signal,
+      },
+    );
+  },
+
+  getChatStatus: (
+    chatId: string,
+    options?: { signal?: AbortSignal; agentId?: string },
+  ) => {
+    return request<ChatStatusResponse>(
+      `/chats/${encodeURIComponent(chatId)}/status`,
+      {
+        signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
       },
     );
   },

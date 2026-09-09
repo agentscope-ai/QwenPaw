@@ -21,6 +21,7 @@ const {
   mockListProviders,
   mockGetActiveModels,
   mockUploadFile,
+  mockGetChatStatus,
   mockFilePreviewUrl,
   mockGetApiUrl,
   mockSelectedAgent,
@@ -37,6 +38,7 @@ const {
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
+  mockGetChatStatus: vi.fn(),
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
   mockGetApiUrl: vi.fn((p: string) => `http://localhost:3000${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
@@ -141,6 +143,7 @@ vi.mock("@/api/modules/provider", () => ({
 vi.mock("@/api/modules/chat", () => ({
   chatApi: {
     uploadFile: mockUploadFile,
+    getChatStatus: mockGetChatStatus,
     filePreviewUrl: mockFilePreviewUrl,
     stopChat: vi.fn(() => Promise.resolve()),
   },
@@ -559,6 +562,8 @@ vi.mock("./utils", async () => {
 describe("ChatPage coverage", () => {
   beforeEach(() => {
     mockSdkInput.loading = false;
+    mockGetChatStatus.mockReset();
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
     chatExtensions.__resetForTests();
     capturedOptions = null;
     observedSdkSessions = [];
@@ -605,6 +610,117 @@ describe("ChatPage coverage", () => {
   afterEach(() => {
     chatExtensions.__resetForTests();
     vi.clearAllMocks();
+  });
+
+  it("queues attachments when SDK loading is false but backend cleanup is still running", async () => {
+    const chatId = "75590000-0000-4000-8000-000000000001";
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    renderWithProviders(<ChatPage />, { initialEntries: [`/chat/${chatId}`] });
+    await screen.findByTestId("chat-ui");
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        chatId,
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "follow-up during cleanup",
+      fileList: [
+        {
+          uid: "file",
+          name: "notes.txt",
+          type: "text/plain",
+          response: { url: "/files/notes.txt" },
+        },
+      ],
+    });
+    expect(mockSdkInput.loading).toBe(false);
+    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+      agentId: "default",
+    });
+    expect(result).toEqual({ proceed: false, clear: true });
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      chatId,
+      expect.objectContaining({
+        text: "follow-up during cleanup",
+        agentId: "default",
+        backendSessionId: "test-session",
+        userId: "test-user",
+        channel: "console",
+        attachments: [
+          {
+            url: "/files/notes.txt",
+            name: "notes.txt",
+            type: "text/plain",
+            size: undefined,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("queues a late admission into its original Chat and preserves the new route's input", async () => {
+    const source = "75590000-0000-4000-8000-000000000002";
+    const target = "75590000-0000-4000-8000-000000000003";
+    let resolveStatus!: (status: { status: string }) => void;
+    mockGetChatStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    let navigateToTarget!: () => void;
+    function RouteHarness() {
+      const navigate = useNavigate();
+      navigateToTarget = () => navigate(`/chat/${target}`);
+      return <ChatPage />;
+    }
+    renderWithProviders(<RouteHarness />, {
+      initialEntries: [`/chat/${source}`],
+    });
+    await screen.findByTestId("chat-ui");
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        source,
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
+    const admission = capturedOptions.sender.beforeSubmit({
+      query: "source pending input",
+      fileList: [],
+    });
+    await waitFor(() => expect(mockGetChatStatus).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      navigateToTarget();
+    });
+    expect(capturedOptions.session.currentSessionId).toBe(target);
+    const { getDraftStorageKey } = await import("./chatInputDraft");
+    const draftKey = getDraftStorageKey("default");
+    localStorage.setItem(draftKey, "new route draft");
+    let result: unknown;
+    await act(async () => {
+      resolveStatus({ status: "idle" });
+      result = await admission;
+    });
+    expect(result).toEqual({ proceed: false, clear: false });
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      source,
+      expect.objectContaining({
+        text: "source pending input",
+        agentId: "default",
+        backendSessionId: "test-session",
+      }),
+    );
+    expect(
+      mockQueueEnqueue.mock.calls.every(([queue]) => queue === source),
+    ).toBe(true);
+    expect(localStorage.getItem(draftKey)).toBe("new route draft");
+    expect(mockClearSubmittedSenderInput).not.toHaveBeenCalled();
+    localStorage.removeItem(draftKey);
   });
 
   it.each([false, true])(

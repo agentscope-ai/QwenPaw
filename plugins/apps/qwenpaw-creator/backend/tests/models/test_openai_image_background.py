@@ -6,6 +6,7 @@
 Background mode is opt-in via ``background_model``; empty keeps the classic
 synchronous Images API untouched. Both transports share the base URL.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,6 @@ import models.image.openai_provider as openai_provider  # noqa: PLR0402  pylint:
 from models.image.openai_provider import build_reference_image_files
 from models.image.openai_provider import OpenAIImageModel
 from utils.exceptions import ModelError
-
 
 pytestmark = pytest.mark.unit
 
@@ -215,10 +215,12 @@ def test_reference_files_use_the_array_field_for_multiple_images(
 
     multiple = asyncio.run(
         build_reference_image_files(
-            [first.as_uri(), second.as_uri(), first.as_uri(), " "],
+            [first.as_uri(), second.as_uri(), first.as_uri()],
         ),
     )
-    assert [name for name, _ in multiple] == ["image[]", "image[]"]
+    # Distinct Project versions can share transport bytes. Position 3 must
+    # remain position 3 instead of being collapsed by the upload adapter.
+    assert [name for name, _ in multiple] == ["image[]", "image[]", "image[]"]
 
     single = asyncio.run(build_reference_image_files([first.as_uri()]))
     assert [name for name, _ in single] == ["image"]

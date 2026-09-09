@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat";
-import { HostResponseCard } from "./HostBubbles";
+import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 
 describe("host card SDK contract", () => {
@@ -9,6 +9,7 @@ describe("host card SDK contract", () => {
     // registered custom card. React.memo returns an object and is incompatible
     // with that dispatcher even though JSX accepts memoized components.
     expect(typeof HostResponseCard).toBe("function");
+    expect(typeof HostRequestCard).toBe("function");
   });
 
   it("forwards the SDK card function to a stable memoized component", () => {
@@ -26,6 +27,13 @@ describe("host card SDK contract", () => {
       Symbol.for("react.memo"),
     );
     expect(responseElement.props.id).toBe("assistant-message-1");
+    const requestProps = { data: {} };
+    const requestElement = HostRequestCard(requestProps);
+    expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
+    expect(requestElement.type).toHaveProperty(
+      "$$typeof",
+      Symbol.for("react.memo"),
+    );
   });
 
   it.each([

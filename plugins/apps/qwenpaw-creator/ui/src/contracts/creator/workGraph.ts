@@ -9,17 +9,20 @@ export type WorkNodeStatus =
 
 export interface WorkGraphNode {
   id: string;
-  kind: "visual" | "lineup" | "storyboard" | "video" | "compose";
+  kind: "script" | "visual" | "lineup" | "storyboard" | "video" | "compose";
   label: string;
   status: WorkNodeStatus;
   deps: string[];
   lane: string;
   taskId: string | null;
+  timelineId?: string | null;
   progress: number | null;
   error: string | null;
   missing: string[];
   locator: Record<string, string>;
   dispatchable: boolean;
+  promptSyncRequired?: boolean;
+  preparationState?: "waiting" | "running" | "failed" | null;
 }
 
 export interface WorkGraphView {
