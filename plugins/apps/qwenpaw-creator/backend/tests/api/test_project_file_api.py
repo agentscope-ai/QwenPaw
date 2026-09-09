@@ -12,7 +12,7 @@ from api.project_file_routes import router
 from domain.errors import CreatorError
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
-from services.project_files.json_pointer import hash_json_value
+from services.project_files.json_pointer import MISSING, hash_json_value
 from services.project_files.models import Project
 from services.runtime_files import IdempotencyRecordStore, IdempotencyStatus
 from services.runtime_files.models import ReviewBoundary
@@ -605,3 +605,239 @@ def test_project_delete_between_patch_precheck_and_lifecycle_admission_is_404(
     result = run_scenario(app, scenario)
     assert result.status_code == 404
     assert not services.projects.project_root("project-1").exists()
+
+
+def _snapshot_app(tmp_path):
+    """A ``project-1`` with one timeline element and a Runtime Session."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.project_files.models import (
+        ElementLocation,
+        R2VCreation,
+        TimelineElement,
+        TimelineSpan,
+    )
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    element = TimelineElement(
+        element_id="el-1",
+        label="原始",
+        span=TimelineSpan(start_tick=0, duration_tick=4000),
+        location=ElementLocation(),
+        creation=R2VCreation(
+            narrative="猫发现老鼠后追逐",
+            storyboard_prompt="动画分镜：猫发现并追逐老鼠",
+            video_prompt="动画，猫从左向右追逐老鼠",
+        ),
+    )
+    project = Project.new(project_id="project-1", name="Snapshot")
+    main = project.timelines.items["timeline:main"]
+    project.timelines.items["timeline:main"] = main.model_copy(
+        update={"elements_by_id": {element.element_id: element}},
+    )
+    services.projects.create(
+        project,
+        initialize_staged_project=lambda staged_root: (
+            services.sessions.initialize_staged_project(
+                staged_root,
+                "project-1",
+                session_id="session-1",
+                conversation_id="conversation-1",
+                initial_goal="做一条视频",
+                goal_id="goal-1",
+                initial_message_id="message-initial",
+                initial_client_message_id="client-initial",
+            )
+        ),
+    )
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+    app.dependency_overrides[project_file_services] = lambda: services
+    return app, services
+
+
+def _agent_edit(services, label: str):
+    """One agent commit that runs the auto-snapshot pass; returns candidate."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.project_files.auto_snapshot import auto_snapshot_timelines
+
+    base = services.projects.read("project-1")
+    base_data = base.project.model_dump(mode="json")
+    candidate = base.project.model_dump(mode="json")
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"]["el-1"][
+        "label"
+    ] = label
+    auto_snapshot_timelines(base_data, candidate)
+    return base, candidate
+
+
+def test_applying_a_snapshot_steers_the_agent_and_forces_a_fresh_baseline(
+    tmp_path,
+    monkeypatch,
+    run_scenario,
+) -> None:
+    """回滚落地后：agent 收到 inbox 通知，且下一次 agent 写入必须留底。
+
+    两处产品缺口的守护：快照切换对 agent 可感知（steer，不是 quiet），
+    且十分钟去重窗口不再压制回滚后的第一份基线。
+    """
+
+    # pylint: disable=import-outside-toplevel
+    from types import SimpleNamespace
+
+    from services.file_agent_runtime.notifications import (
+        RuntimeEventKind,
+        RuntimeNotificationBus,
+    )
+    from services.project_files import snapshot_restore_hold
+
+    snapshot_restore_hold.clear()
+    app, services = _snapshot_app(tmp_path)
+
+    wakes: list[str] = []
+    bus = RuntimeNotificationBus(services, wake_dispatcher=wakes.append)
+    monkeypatch.setattr(
+        project_file_routes,
+        "get_creator_agent_runtime",
+        lambda: SimpleNamespace(notifications=bus),
+    )
+
+    # Agent 改一次 → 铸出改前的自动快照，窗口随之打开。
+    base, candidate = _agent_edit(services, "agent 改过")
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin="runtime_task",
+    )
+    snapshot_id = "snapshot:timeline:main:1"
+    after_agent = services.projects.read("project-1")
+    assert snapshot_id in after_agent.project.timelines.items
+
+    # 用户在前端应用该快照。真实 applySnapshot 在同一个 PATCH 里先建
+    # "应用前备份"快照，再回滚 live —— 备份不得被误判成回滚目标。
+    frozen = after_agent.project.timelines.items[snapshot_id]
+    restored_elements = {}
+    for snap_id, frozen_element in frozen.elements_by_id.items():
+        original = snap_id[len(f"{snapshot_id}:") :]
+        restored_elements[original] = frozen_element.model_copy(
+            update={"element_id": original},
+        ).model_dump(mode="json")
+    live_now = after_agent.project.timelines.items["timeline:main"]
+    backup_id = "snapshot:timeline:main:2"
+    backup = live_now.model_copy(
+        update={
+            "timeline_id": backup_id,
+            "name": "应用前备份 · 2026-09-05 04:00",
+            "elements_by_id": {
+                f"{backup_id}:{element_id}": item.model_copy(
+                    update={"element_id": f"{backup_id}:{element_id}"},
+                )
+                for element_id, item in live_now.elements_by_id.items()
+            },
+        },
+    ).model_dump(mode="json")
+    order_index = len(after_agent.project.timelines.order)
+
+    async def scenario(client):
+        return await client.patch(
+            PROJECT_URL,
+            headers={"Idempotency-Key": "apply-snapshot"},
+            json={
+                "clientCommandId": "apply-snapshot",
+                "editSessionId": "edit",
+                "baseGeneration": after_agent.generation,
+                "baseEtag": after_agent.etag,
+                "operations": [
+                    {
+                        "op": "add",
+                        "path": f"/timelines/items/{backup_id}",
+                        "value": backup,
+                        "expectedValueHash": hash_json_value(MISSING),
+                    },
+                    {
+                        "op": "add",
+                        "path": f"/timelines/order/{order_index}",
+                        "value": backup_id,
+                        "expectedValueHash": hash_json_value(MISSING),
+                    },
+                    {
+                        "op": "replace",
+                        "path": (
+                            "/timelines/items/timeline:main/elements_by_id"
+                        ),
+                        "value": restored_elements,
+                        "expectedValueHash": hash_json_value(
+                            live_now.model_dump(mode="json")["elements_by_id"],
+                        ),
+                    },
+                ],
+            },
+        )
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200
+    rolled_back = response.json()["project"]["timelines"]["items"][
+        "timeline:main"
+    ]["elements_by_id"]["el-1"]
+    assert rolled_back["label"] == "原始"
+
+    # ① agent 感知：一条 user-role RUNTIME inbox 消息 + 唤醒。
+    steers = [
+        item
+        for item in _messages(services.sessions, "session-1")
+        if item.metadata.get("notificationKind")
+        == RuntimeEventKind.TIMELINE_SNAPSHOT_RESTORED.value
+    ]
+    assert len(steers) == 1
+    assert steers[0].role == "user"
+    text = steers[0].content_parts[0].text
+    assert snapshot_id in text
+    assert backup_id not in text, "备份快照不得被当成回滚目标"
+    assert wakes == ["project-1"]
+
+    # ② 回滚后 agent 的下一次写入留底，尽管仍在十分钟窗口内。
+    # 备份占了 :2，所以强制留下的基线是 :3。
+    _base2, candidate2 = _agent_edit(services, "agent 回滚后改写")
+    assert "snapshot:timeline:main:3" in candidate2["timelines"]["items"]
+    snapshot_restore_hold.clear()
+
+
+def test_only_a_wholesale_element_replace_pays_for_rollback_detection() -> (
+    None
+):
+    """短路守护：只有整体替换 live 元素表的 PATCH 才跑回滚检测。
+
+    检测要与项目内每个快照比对内容，且发生在 lifecycle 排他锁内（实测
+    在 15 快照项目上约 275ms/请求）。前端每次 blur 都发 PATCH，普通字段
+    编辑必须完全不进这条路径。
+    """
+
+    def op(path: str, kind: str = "replace"):
+        return project_file_routes.ProjectPatchOperation(
+            op=kind,
+            path=path,
+            value={},
+            expectedValueHash=hash_json_value({}),
+        )
+
+    replaces = project_file_routes._replaces_live_elements_wholesale
+    # 回滚形状：整体替换 live 元素表。
+    assert replaces([op("/timelines/items/timeline:main/elements_by_id")])
+    # 普通编辑：更深的 pointer。
+    assert not replaces(
+        [op("/timelines/items/timeline:main/elements_by_id/el-1/label")],
+    )
+    # 建快照 / 改时间线属性 / 改无关字段都不触发。
+    assert not replaces(
+        [
+            op("/timelines/items/snapshot:timeline:main:1", "add"),
+            op("/timelines/items/timeline:main/color_grade"),
+            op("/name"),
+        ],
+    )
+    # 冻结快照自己的元素表不算回滚（agent 侧另有 fail-closed 拦截）。
+    assert not replaces(
+        [op("/timelines/items/snapshot:timeline:main:1/elements_by_id")],
+    )

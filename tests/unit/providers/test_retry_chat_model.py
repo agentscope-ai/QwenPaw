@@ -1577,6 +1577,8 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
 
     try:
         inner = _ReasoningRetryMsgStreamModel()
+        thought = ThinkingBlock(thinking="real tool reasoning")
+        assert inner.formatter.set_thinking_omit_ids({thought.id}) is True
         model = RetryChatModel(
             inner,  # type: ignore[arg-type]
             retry_config=RetryConfig(enabled=False),
@@ -1593,7 +1595,7 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
                 name="assistant",
                 role="assistant",
                 content=[
-                    ThinkingBlock(thinking="real tool reasoning"),
+                    thought,
                     ToolCallBlock(id="call_1", name="tool", input="{}"),
                     ToolResultBlock(
                         id="call_1",
@@ -1624,11 +1626,18 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
         ]
         assert [
             message.get("reasoning_content") for message in first_assistants
-        ] == ["real tool reasoning", None]
+        ] == [
+            None,
+            None,
+        ]
         assert [
             message.get("reasoning_content") for message in second_assistants
-        ] == ["real tool reasoning", " "]
+        ] == [
+            "real tool reasoning",
+            " ",
+        ]
         assert inner.formatter._qwenpaw_require_reasoning_content is True
+        assert inner.formatter._qwenpaw_omit_thinking_ids == set()
         assert cache.get(model_key, "needs_reasoning_content") is True
         assert [block.type for block in messages[0].content] == [
             "thinking",

@@ -146,14 +146,34 @@
     }
   }
 
-  /* Wide mode: widen bubble list and sender while keeping spacing */
-  &.wideMode :global {
-    .qwenpaw-bubble-list {
-      max-width: none !important;
-    }
+  /* Wide mode follows the available chat width while keeping the visual
+   * gutter shown by Spark Chat. The percentage responds to side panels too. */
+  &.wideMode {
+    --chat-wide-gutter: clamp(20px, 2%, 32px);
 
-    .qwenpaw-chat-anywhere-sender-wrapper {
-      max-width: none !important;
+    :global {
+      .qwenpaw-bubble-list,
+      .qwenpaw-chat-anywhere-input {
+        box-sizing: border-box;
+        width: 100%;
+        padding-inline: var(--chat-wide-gutter) !important;
+      }
+
+      .qwenpaw-bubble-list,
+      .qwenpaw-chat-anywhere-input-wrapper,
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        max-width: none !important;
+      }
+
+      .qwenpaw-chat-anywhere-input-wrapper,
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        box-sizing: border-box;
+        width: 100%;
+      }
+
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        padding-inline: var(--chat-wide-gutter) !important;
+      }
     }
   }
 
@@ -191,34 +211,6 @@
       gap: 4px;
       padding-inline: 4px;
     }
-  }
-}
-
-/* Right-side history panel */
-.historyPanel {
-  width: 330px;
-  flex-shrink: 0;
-  align-self: stretch;
-  overflow: hidden;
-  position: relative;
-}
-
-@media (max-width: 900px) {
-  .historyPanel {
-    position: fixed;
-    top: 56px;
-    right: 0;
-    bottom: 0;
-    width: min(330px, 85vw);
-    z-index: 1000;
-    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
-    border-radius: 12px 0 0 12px;
-  }
-  .historyPanelMask {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 999;
   }
 }
 
@@ -296,6 +288,16 @@
       max-width: 100%;
       flex-wrap: wrap;
       column-gap: 4px;
+    }
+  }
+
+  /* Preserve the wide-mode gutter through the mobile breakpoint instead
+   * of jumping from the fluid desktop value to the default 8px inset. */
+  .chatMessagesArea.wideMode :global {
+    .qwenpaw-bubble-list,
+    .qwenpaw-chat-anywhere-input,
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      padding-inline: var(--chat-wide-gutter) !important;
     }
   }
 }

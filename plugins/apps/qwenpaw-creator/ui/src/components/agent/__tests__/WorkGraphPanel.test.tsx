@@ -85,21 +85,21 @@ describe("WorkGraphPanel", () => {
   it("renders lanes in order, navigates on click and retries failures", () => {
     render(<WorkGraphPanel projectId="p1" />);
     expect(screen.getByTestId("work-graph-panel")).toBeInTheDocument();
-    expect(screen.getByText(/制作进度 1\/4/)).toBeInTheDocument();
-    expect(screen.getByText(/并行 1/)).toBeInTheDocument();
-    expect(
-      screen.getAllByText(/视觉资产|阵容图|开场/)[0].textContent,
-    ).toContain("视觉资产");
-    expect(screen.getByText(/safety rejected/)).toBeInTheDocument();
-    // The gated video node reports its unmet storyboard dependency.
-    expect(screen.getByText(/等待 1 项依赖/)).toBeInTheDocument();
+    expect(screen.getByText("三人组 阵容图")).toBeInTheDocument();
+    expect(screen.getByText(/50%/)).toBeInTheDocument();
+    expect(screen.getByText("等待前置内容")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("safety rejected");
+    expect(document.body).not.toHaveTextContent("storyboard:elem:one");
+    expect(document.querySelector('[title="safety rejected"]')).toBeNull();
 
     fireEvent.click(screen.getByText(/开场 · 分镜/));
     expect(navigateToLocator).toHaveBeenCalledWith(
       "p1",
       expect.objectContaining({ page: "plan", elementId: "elem:one" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "重新生成阵容图 · 三人组 阵容图" }),
+    );
     expect(useWorkGraphStore.getState().dispatchNode).toHaveBeenCalledWith(
       "p1",
       "lineup:lineup:trio",

@@ -19,7 +19,7 @@ type ModelType =
   | "s2v"
   | "image"
   | "video";
-type ModelStatus = "on" | "off" | "none";
+type ModelStatus = "on" | "off" | "none" | "incomplete";
 
 const READY_COLOR = "#14B8A6";
 const READY_HALO = "#C8F4E9";
@@ -62,6 +62,7 @@ const STATUS_TEXT_KEYS: Record<ModelStatus, string> = {
   on: "modelBadges.configured",
   off: "modelBadges.configuredNotEnabled",
   none: "modelBadges.notConfigured",
+  incomplete: "modelBadges.configurationIncomplete",
 };
 
 /**
@@ -120,9 +121,8 @@ export default function ModelBadges() {
       const verifierReady =
         !!verifier.model_name && !!verifier.api_key && !!verifier.base_url;
       if (!searchReady && !verifierReady) return "none";
-      return config.grounding.enabled && searchReady && verifierReady
-        ? "on"
-        : "off";
+      if (!searchReady || !verifierReady) return "incomplete";
+      return config.grounding.enabled ? "on" : "off";
     }
     const item = config[type] as ModelConfigItem | undefined;
     if (!item) return "none";

@@ -242,8 +242,11 @@ function EventCard({
       ? String(data.roleDisplayName)
       : creatorRoleLabel(String(data.role ?? ""));
     const completed = event.type.endsWith("completed");
+    // A cancelled run (superseded / user stop) is not a production failure.
+    const cancelled = event.type.endsWith("failed") && data.cancelled === true;
     const failed =
-      event.type.endsWith("failed") || event.type.endsWith("stale");
+      !cancelled &&
+      (event.type.endsWith("failed") || event.type.endsWith("stale"));
     return (
       <div
         data-agent-event-card={event.type}
@@ -253,13 +256,16 @@ function EventCard({
           className={
             failed
               ? "text-[var(--color-danger)]"
+              : cancelled
+              ? "text-[var(--color-text-tertiary)]"
               : completed
               ? "text-[var(--color-success)]"
               : "text-[var(--color-accent)]"
           }
         >
-          {completed ? "✓ " : failed ? "× " : "→ "}
+          {completed ? "✓ " : failed ? "× " : cancelled ? "⊘ " : "→ "}
           {label}
+          {cancelled ? ` · ${i18n.t("agentEventFeed.cancelled")}` : ""}
         </b>
         {summary && (
           <p className="mt-0.5 text-[var(--color-text-secondary)]">{summary}</p>

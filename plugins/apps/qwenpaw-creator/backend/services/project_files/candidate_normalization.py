@@ -141,22 +141,6 @@ def normalize_project_candidate(candidate: Any) -> list[str]:
                 element_pointer,
                 receipts,
             )
-            if not isinstance(element, dict):
-                continue
-            creation = element.get("creation")
-            if not isinstance(creation, dict):
-                continue
-            for shot_id, shot in _collection_items(
-                creation.get("shots"),
-            ).items():
-                _strip_identity_echoes(
-                    shot,
-                    {"shotId": shot_id},
-                    f"{element_pointer}/creation/shots/items/"
-                    f"{_escape_pointer_token(shot_id)}",
-                    receipts,
-                )
-
     return receipts
 
 

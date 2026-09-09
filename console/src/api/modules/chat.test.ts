@@ -215,6 +215,29 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  it("getChatStatus uses the lightweight status endpoint", async () => {
+    await chatApi.getChatStatus("chat/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/status",
+      expect.objectContaining({ signal: undefined, headers: undefined }),
+    );
+  });
+
+  it("getChatStatus forwards agent identity and AbortSignal", async () => {
+    const controller = new AbortController();
+    await chatApi.getChatStatus("chat-1", {
+      signal: controller.signal,
+      agentId: "agent-2",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1/status",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(

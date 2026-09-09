@@ -150,6 +150,16 @@ class DashScopeImageModel(BaseImageModel):
             _mask_key(api_key),
             base_url,
         )
+        # qwen-image3 multi-reference identity boards and storyboards routinely
+        # take several minutes on the synchronous multimodal endpoint.  A
+        # 240-second legacy default caused the caller to abandon a possibly
+        # billed render and submit another one.  Other DashScope image families
+        # keep the 480s baseline while qwen-image3 gets a production-safe wait.
+        default_timeout = (
+            900
+            if model_name.strip().casefold().startswith("qwen-image-3")
+            else 480
+        )
         return cls(
             model_name=model_name,
             api_key=api_key,
@@ -169,9 +179,12 @@ class DashScopeImageModel(BaseImageModel):
                 int(
                     os.environ.get(
                         "DASHSCOPE_IMAGE_TIMEOUT",
-                        os.environ.get("IMAGE_TIMEOUT", "480"),
+                        os.environ.get(
+                            "IMAGE_TIMEOUT",
+                            str(default_timeout),
+                        ),
                     )
-                    or 480,
+                    or default_timeout,
                 ),
             ),
             concurrency=_configured_int(
@@ -424,12 +437,13 @@ class DashScopeImageModel(BaseImageModel):
                 )
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
+    # Keep the provider body interface compatible across operation modes.
     async def _build_body(
         self,
         prompt: str,
         aspect_ratio: str,
         clean_reference_urls: list[str],
-        mode: str = "generate",
+        mode: str = "generate",  # pylint: disable=unused-argument
     ) -> dict:
         # Official qwen-image content order: reference image blocks first, then
         # the single text instruction last (see qwen-image / qwen-image-edit
@@ -437,21 +451,16 @@ class DashScopeImageModel(BaseImageModel):
         # with references it becomes an image-editing request on the same
         # multimodal-generation endpoint.
         content: list[dict] = []
-        for raw_url in dict.fromkeys(clean_reference_urls):
+        for raw_url in clean_reference_urls:
             public_url = await self._public_reference_url(raw_url)
             if public_url is None:
-                if mode == "edit":
-                    # An edit was authorized: silently dropping its input
-                    # would bill a text-to-image render of something else.
-                    raise ModelError(
-                        "Image edit reference cannot be read or is not a "
-                        f"decodable image: {raw_url[:120]}",
-                        model_name=self.model_name,
-                    )
-                # A stale or corrupt project reference must not fail the
-                # whole generation. Continue with the remaining references,
-                # or as text-to-image when none are usable.
-                continue
+                # Dropping even a middle input changes every later 图N. A
+                # generate call with references has the same identity
+                # obligation as edit; neither may degrade to text-to-image.
+                raise ModelError(
+                    "Image reference cannot be read or is not a decodable image",
+                    model_name=self.model_name,
+                )
             content.append({"image": public_url})
         content.append({"text": prompt})
 

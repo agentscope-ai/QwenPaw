@@ -21,6 +21,7 @@ import {
   useProjectLaunch,
 } from "./useProjectLaunch";
 import ModelConfigModal from "./ModelConfigModal";
+import VideoTemplatePicker from "./VideoTemplatePicker";
 import { useRecreateStore } from "@/store/recreateStore";
 
 const { TextArea } = Input;
@@ -59,6 +60,8 @@ export default function HeroComposerCard() {
     setResolution,
     aspectRatio,
     setAspectRatio,
+    selectedTemplateId,
+    setSelectedTemplateId,
     attachments,
     addFiles,
     addUrl,
@@ -110,7 +113,7 @@ export default function HeroComposerCard() {
   return (
     <div
       data-onboarding-id="create-project"
-      className="hero-composer-card w-full rounded-[8px] border border-[#EAE9E7] bg-white"
+      className="hero-composer-card w-full rounded-[8px] border border-[#EAE9E7] bg-white dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
     >
       <div className="px-5 pt-4">
         {/* 2px dashed border: Chrome derives the dash length from the width,
@@ -119,7 +122,7 @@ export default function HeroComposerCard() {
           className={`rounded-[8px] border-2 border-dashed transition-colors ${
             dragOver
               ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-              : "border-[#B8B6B6] bg-white"
+              : "border-[#B8B6B6] bg-white dark:border-[var(--color-border-strong)] dark:bg-[var(--color-bg-card)]"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -139,7 +142,7 @@ export default function HeroComposerCard() {
             placeholder={t("home.modelName", {
               count: AUTO_PROJECT_NAME_LENGTH,
             })}
-            className="!rounded-none !border-x-0 !border-t-0 !border-b-[#EAE9E7] !bg-transparent !px-4 !py-3 !text-sm !leading-6 !shadow-none focus:!shadow-none"
+            className="!rounded-none !border-x-0 !border-t-0 !border-b-[#EAE9E7] !bg-transparent !px-4 !py-3 !text-sm !leading-6 !shadow-none focus:!shadow-none dark:!border-b-[var(--color-border)]"
           />
           <TextArea
             value={projectDescription}
@@ -203,7 +206,7 @@ export default function HeroComposerCard() {
                 return (
                   <span
                     key={type}
-                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)]"
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)] dark:bg-white/10"
                   >
                     {meta.icon}
                     {meta.label}
@@ -291,7 +294,7 @@ export default function HeroComposerCard() {
         <div
           role="radiogroup"
           aria-label={t("home.projectScenario")}
-          className="flex items-center rounded-full bg-[rgba(43,27,0,0.04)] p-1"
+          className="flex items-center rounded-full bg-[rgba(43,27,0,0.04)] p-1 dark:bg-white/5"
         >
           {SCENARIO_OPTIONS.map((option) => (
             <button
@@ -302,8 +305,8 @@ export default function HeroComposerCard() {
               onClick={() => handleScenarioChange(option.key)}
               className={`cursor-pointer rounded-full px-3 py-1 text-sm font-medium leading-6 transition-colors ${
                 scenario === option.key
-                  ? "bg-white text-[#332F2E] shadow-sm"
-                  : "text-[#656563] hover:text-[var(--color-text-primary)]"
+                  ? "bg-white text-[#332F2E] shadow-sm dark:bg-[var(--color-bg-elevated)] dark:text-[var(--color-text-primary)]"
+                  : "text-[#656563] hover:text-[var(--color-text-primary)] dark:text-[var(--color-text-secondary)]"
               }`}
             >
               {t(option.labelKey)}
@@ -311,10 +314,15 @@ export default function HeroComposerCard() {
           ))}
         </div>
 
+        <VideoTemplatePicker
+          selectedTemplateId={selectedTemplateId}
+          onTemplateSelect={setSelectedTemplateId}
+        />
+
         {/* Content type is only meaningful for the video_edit scenario. */}
         {isVideoEdit && (
-          <div className="flex items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] py-1 pl-4 pr-2">
-            <span className="text-sm font-medium leading-6 text-[#656563]">
+          <div className="flex items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] py-1 pl-4 pr-2 dark:bg-white/5">
+            <span className="text-sm font-medium leading-6 text-[#656563] dark:text-[var(--color-text-secondary)]">
               {t("home.contentType")}
               <sup className="text-[var(--color-accent)]">*</sup>:
             </span>
@@ -349,7 +357,7 @@ export default function HeroComposerCard() {
               ]}
               popupMatchSelectWidth={false}
               variant="borderless"
-              className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)]"
+              className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)] dark:!bg-white/5"
               classNames={pillSelectClassNames}
             />
             <Select
@@ -366,7 +374,7 @@ export default function HeroComposerCard() {
               ]}
               popupMatchSelectWidth={false}
               variant="borderless"
-              className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)]"
+              className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)] dark:!bg-white/5"
               classNames={pillSelectClassNames}
             />
           </>
@@ -377,7 +385,7 @@ export default function HeroComposerCard() {
             type="button"
             data-onboarding-id="model-config"
             onClick={() => setModelConfigModalOpen(true)}
-            className="flex cursor-pointer items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] px-4 py-1 text-sm font-medium leading-6 text-[#656563] transition-colors hover:bg-[rgba(43,27,0,0.08)] hover:text-[var(--color-text-primary)]"
+            className="flex cursor-pointer items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] px-4 py-1 text-sm font-medium leading-6 text-[#656563] transition-colors hover:bg-[rgba(43,27,0,0.08)] hover:text-[var(--color-text-primary)] dark:bg-white/5 dark:text-[var(--color-text-secondary)] dark:hover:bg-white/10"
           >
             <img src={modelConfigIcon} alt="" width={20} height={20} />
             {t("home.modelConfig")}
@@ -390,8 +398,8 @@ export default function HeroComposerCard() {
               onClick={handleLaunch}
               className={`flex h-8 w-8 items-center justify-center rounded-md transition-all ${
                 canLaunch
-                  ? "cursor-pointer bg-[var(--color-accent)] text-white shadow-[0_6px_16px_-6px_rgba(255,106,0,0.7)] hover:bg-[var(--color-accent-hover)]"
-                  : "cursor-not-allowed bg-[rgba(43,27,0,0.06)] text-[rgba(26,23,22,0.35)]"
+                  ? "cursor-pointer bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] shadow-[0_6px_16px_-6px_rgba(0,0,0,0.4)] hover:opacity-90"
+                  : "cursor-not-allowed bg-[rgba(43,27,0,0.06)] text-[rgba(26,23,22,0.35)] dark:bg-white/10 dark:text-white/30"
               }`}
             >
               {launching ? (

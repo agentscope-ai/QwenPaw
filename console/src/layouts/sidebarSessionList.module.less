@@ -1,4 +1,4 @@
-/* SidebarSessionList — compact session list embedded in simple-mode sidebar */
+/* SidebarSessionList — conversation history in the primary sidebar */
 
 .sessionList {
   --sidebar-header-bg: var(--app-bg);
@@ -31,33 +31,11 @@
   overflow: hidden;
 }
 
-/* Sticky header: new chat + history title + search */
+/* Sticky history header and compact actions */
 .sessionListHeader {
   flex-shrink: 0;
   z-index: 1;
   background: var(--sidebar-header-bg);
-}
-
-/* Search bar area */
-.newChatBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: calc(100% - 16px);
-  margin: 6px 8px 4px;
-  padding: 7px 12px;
-  border: none;
-  border-radius: 8px;
-  background: var(--app-accent);
-  color: var(--app-text-inverse);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-
-  &:hover {
-    opacity: 0.85;
-  }
 }
 
 .searchContainer {
@@ -71,37 +49,7 @@
   border-color: var(--sidebar-input-border);
 }
 
-.createGroupBtn {
-  display: flex;
-  width: 100%;
-  height: 32px;
-  align-items: center;
-  gap: 7px;
-  margin-top: 5px;
-  justify-content: center;
-  padding: 0 10px;
-  border: 1px dashed var(--sidebar-create-border);
-  border-radius: 8px;
-  background: var(--sidebar-create-bg);
-  color: var(--sidebar-create-text);
-  font-size: 12px;
-  font-weight: 550;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--sidebar-create-hover-border);
-    background: var(--sidebar-create-hover-bg);
-    color: var(--sidebar-create-hover-text);
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--app-accent) 38%, transparent);
-    outline-offset: 1px;
-  }
-}
-
 .groupInput {
-  margin-top: 5px;
   border-radius: 6px;
   font-size: 11px;
   background: var(--sidebar-input-bg);
@@ -170,12 +118,19 @@
 
 /* ── Collapsible history header ─────────────────────────────────────────── */
 
+.historyHeaderRow {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
 .historyHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 12px 4px 10px;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px 4px 10px;
   margin: 2px 0;
   border: none;
   background: transparent;
@@ -185,6 +140,37 @@
 
   &:hover {
     color: var(--app-text);
+  }
+}
+
+.historyActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.historyAction {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--app-fill);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline-offset: 1px;
   }
 }
 
@@ -201,41 +187,6 @@
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
-
-/* ── Time group header (Today / Last 7 days / Earlier) ─────────────────── */
-
-.groupHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 10px 2px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  user-select: none;
-  color: var(--sidebar-group-label);
-  transition: color 0.15s;
-
-  &:hover {
-    color: var(--sidebar-group-label-hover);
-  }
-}
-
-.groupHeaderText {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.groupChevron {
-  display: inline-flex;
-  align-items: center;
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
-}
-
 :global(.dark-mode) .sessionList {
   --sidebar-header-bg: var(--app-surface-subtle);
   --sidebar-group-label: rgba(255, 255, 255, 0.42);
@@ -254,4 +205,13 @@
     var(--app-surface-subtle) 96%,
     transparent
   );
+
+  .historyAction {
+    color: rgba(255, 255, 255, 0.68);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.92);
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
 }

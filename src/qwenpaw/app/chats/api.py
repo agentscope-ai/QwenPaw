@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -92,6 +92,12 @@ class ProjectDirectoryUpdate(BaseModel):
     """Controlled Session project directory update."""
 
     project_dir: str
+
+
+class ChatStatusResponse(BaseModel):
+    """Lightweight TaskTracker status for one chat."""
+
+    status: Literal["idle", "running"]
 
 
 class ProjectDirEntryPayload(BaseModel):
@@ -694,6 +700,16 @@ async def clear_chat_project_dirs(
 
 
 # ----- Existing CRUD endpoints -----
+
+
+@router.get("/{chat_id}/status", response_model=ChatStatusResponse)
+async def get_chat_status(
+    chat_id: str,
+    workspace=Depends(get_workspace),
+) -> ChatStatusResponse:
+    """Return agent-scoped run status without reading chat persistence."""
+    status = await workspace.task_tracker.get_status(chat_id)
+    return ChatStatusResponse(status=status)
 
 
 @router.get("/{chat_id}", response_model=ChatHistory)

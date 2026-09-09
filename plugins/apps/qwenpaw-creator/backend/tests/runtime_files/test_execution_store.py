@@ -382,3 +382,45 @@ def test_all_path_identifiers_reject_directory_traversal(
     )
     with pytest.raises(RuntimeFileValidationError):
         store.create_run(candidate)
+
+
+def test_list_never_observes_a_headless_run_directory(tmp_path) -> None:
+    """Concurrent lock-free lists must never hit a run directory whose
+    head record is not yet published (atomic directory publish)."""
+
+    store = _store(tmp_path)
+    errors: list[Exception] = []
+    stop = False
+
+    def lister() -> None:
+        while not stop:
+            try:
+                store.list_specialist_runs(PROJECT_ID)
+            except Exception as exc:  # noqa: BLE001 - the assertion target
+                errors.append(exc)
+                return
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        watcher = pool.submit(lister)
+        for index in range(40):
+            store.create_specialist_run(_run(run_id=f"run-atomic-{index}"))
+        stop = True
+        watcher.result(timeout=10)
+
+    assert not errors
+    assert len(store.list_specialist_runs(PROJECT_ID)) == 40
+
+
+def test_create_replaces_a_headless_crash_leftover(tmp_path) -> None:
+    """A directory without run.json predates the atomic publish and can
+    never become a valid run; creating the same id replaces it."""
+
+    store = _store(tmp_path)
+    leftover = tmp_path / PROJECT_ID / "runtime" / "runs" / RUN_ID
+    leftover.mkdir(parents=True)
+    (leftover / "messages.jsonl").write_text("", encoding="utf-8")
+
+    created = store.create_specialist_run(_run())
+
+    assert created.run_id == RUN_ID
+    assert len(store.list_specialist_runs(PROJECT_ID)) == 1
