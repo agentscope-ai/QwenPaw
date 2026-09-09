@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import uuid
 from copy import deepcopy
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
@@ -35,22 +34,44 @@ from .session_store import BridgeSessionState, BridgeSessionStore
 
 logger = logging.getLogger(__name__)
 
-_NUMBER_LIST_RE = re.compile(r"^\s*\d+(?:\s*[,，、\s]\s*\d+)*\s*$")
+_OPTION_SEPARATORS = {",", "，", "、"}
 
 
 def parse_option_numbers(text: str, count: int) -> Optional[List[int]]:
     """Parse "1" / "1,3" / "1 3" into 0-based indices within ``count``."""
-    if not _NUMBER_LIST_RE.match(text or ""):
-        return None
-    numbers = [int(n) for n in re.findall(r"\d+", text)]
-    if not numbers:
-        return None
-    indices = []
-    for number in numbers:
+    indices: List[int] = []
+    position = 0
+    length = len(text)
+
+    while position < length and text[position].isspace():
+        position += 1
+    while position < length:
+        start = position
+        while position < length and text[position].isdecimal():
+            position += 1
+        if start == position:
+            return None
+
+        number = int(text[start:position])
         if number < 1 or number > count:
             return None
         indices.append(number - 1)
-    return indices
+
+        whitespace_start = position
+        while position < length and text[position].isspace():
+            position += 1
+        if position == length:
+            return indices
+        if text[position] in _OPTION_SEPARATORS:
+            position += 1
+            while position < length and text[position].isspace():
+                position += 1
+            if position == length:
+                return None
+        elif position == whitespace_start:
+            return None
+
+    return indices or None
 
 
 def _extract_user_text(inputs: Any) -> Optional[str]:

@@ -374,6 +374,55 @@ async def test_clarification_free_text_becomes_custom_answer(
 # ---------------------------------------------------------------- datasource
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1", [0]),
+        (" 1, 3 ", [0, 2]),
+        ("1，2、3", [0, 1, 2]),
+        ("1 2\t3", [0, 1, 2]),
+        ("2,2", [1, 1]),
+    ],
+)
+def test_parse_option_numbers_accepts_supported_separators(
+    bridge_middleware,
+    text: str,
+    expected: list[int],
+) -> None:
+    assert bridge_middleware.parse_option_numbers(text, 3) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "   ",
+        ",1",
+        "1,",
+        "1,,2",
+        "1，、2",
+        "one",
+        "1.2",
+        "+1",
+        "-1",
+        "0",
+        "4",
+    ],
+)
+def test_parse_option_numbers_rejects_malformed_or_out_of_range_input(
+    bridge_middleware,
+    text: str,
+) -> None:
+    assert bridge_middleware.parse_option_numbers(text, 3) is None
+
+
+def test_parse_option_numbers_handles_long_input_linearly(
+    bridge_middleware,
+) -> None:
+    text = "1 " * 10_000 + "x"
+    assert bridge_middleware.parse_option_numbers(text, 3) is None
+
+
 @pytest.mark.asyncio
 async def test_datasource_numeric_selection_binds_new_session(
     bridge_middleware,

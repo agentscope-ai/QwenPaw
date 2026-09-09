@@ -74,12 +74,25 @@ def test_engine_gateway_normalizes_paths(path: str, expected: str) -> None:
         "/metrics",
         "/api/v1/../secrets",
         "/api/v1/%2e%2e/secrets",
+        "/api/v1/%252e%252e/secrets",
         "/api/v1/sessions?x=1",
         "/api/v1/sessions#frag",
         "/api/v1/sess\\ions",
+        "/api/v1//sessions",
+        "/api/v1/session name",
+        "/api/v1/session%2520name",
+        "/api/v1/session\x00name",
+        "/api/v1/session%250aname",
     ],
 )
 def test_engine_gateway_rejects_undeclared_or_escaped_paths(path: str) -> None:
+    with pytest.raises(HTTPException) as exc:
+        _gateway_class()._validate_path(path)
+    assert exc.value.status_code == 404
+
+
+def test_engine_gateway_rejects_long_invalid_path() -> None:
+    path = "/api/v1/" + "a" * 100_000 + "%2520x"
     with pytest.raises(HTTPException) as exc:
         _gateway_class()._validate_path(path)
     assert exc.value.status_code == 404

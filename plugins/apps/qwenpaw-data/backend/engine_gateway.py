@@ -38,9 +38,6 @@ _FORWARDED_RESPONSE_HEADERS = {
     "retry-after",
     "x-request-id",
 }
-_ENGINE_PATH_RE = re.compile(
-    r"/(?:health|api/v1(?:/[^/?#\\\x00-\x20]+)*/?)\Z",
-)
 _SSE_PATH_RE = re.compile(r"/api/v1/sessions/[^/]+/chats/[^/]+/events/?\Z")
 
 
@@ -166,11 +163,6 @@ class EngineGateway:
         **kwargs,
     ) -> httpx.Request:
         self._validate_path(path)
-        if not _ENGINE_PATH_RE.fullmatch(path):
-            raise HTTPException(
-                status_code=404,
-                detail="Engine route is not exposed",
-            )
         client = self._require_client()
         token = (
             os.getenv("QWENPAW_DATA_ENGINE_TOKEN", "").strip()
@@ -227,11 +219,20 @@ class EngineGateway:
 
     @staticmethod
     def _validate_path(path: str) -> None:
+        def has_forbidden_character(value: str) -> bool:
+            return any(
+                character.isspace()
+                or ord(character) < 32
+                or 127 <= ord(character) <= 159
+                for character in value
+            )
+
         if (
             not path.startswith("/")
             or "\\" in path
             or "?" in path
             or "#" in path
+            or has_forbidden_character(path)
         ):
             raise HTTPException(
                 status_code=404,
@@ -248,12 +249,21 @@ class EngineGateway:
                 status_code=404,
                 detail="Engine route is not exposed",
             )
-        if "\\" in decoded or "?" in decoded or "#" in decoded:
+        if (
+            "\\" in decoded
+            or "?" in decoded
+            or "#" in decoded
+            or has_forbidden_character(decoded)
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="Engine route is not exposed",
             )
-        if any(segment in {".", ".."} for segment in decoded.split("/")):
+        segments = decoded.split("/")
+        if (
+            any(segment in {".", ".."} for segment in segments)
+            or "" in segments[1:-1]
+        ):
             raise HTTPException(
                 status_code=404,
                 detail="Engine route is not exposed",
