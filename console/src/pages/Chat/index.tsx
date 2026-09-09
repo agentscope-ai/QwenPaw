@@ -1420,29 +1420,22 @@ export default function ChatPage() {
   const [isOwner, setIsOwner] = useState(false);
   const [ownershipResolved, setOwnershipResolved] = useState(false);
   const isOwnerRef = useRef(false);
-  const ownershipWaitedRef = useRef(false);
   isOwnerRef.current = isOwner;
   useEffect(() => {
     setIsOwner(false);
     setOwnershipResolved(false);
-    ownershipWaitedRef.current = false;
     const ctrl = new AbortController();
     void holdOwnershipLock(
       queueSessionId,
       () => {
-        const refreshAfterHandoff = ownershipWaitedRef.current;
         setIsOwner(true);
         setOwnershipResolved(true);
-        if (refreshAfterHandoff) {
-          setRefreshKey((current) => current + 1);
-        }
       },
       ctrl.signal,
     );
     // If the lock callback never fires (e.g. another tab holds it), resolve
     // after a short delay so the non-owner Alert appears without flashing.
     const fallbackTimer = setTimeout(() => {
-      ownershipWaitedRef.current = true;
       setOwnershipResolved(true);
     }, 300);
     return () => {

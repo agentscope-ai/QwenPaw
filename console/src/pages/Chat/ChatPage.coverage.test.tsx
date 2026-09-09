@@ -5,7 +5,7 @@
  * Strategy: render ChatPage with comprehensive mocks, exercise callbacks.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { forwardRef, useImperativeHandle } from "react";
+import { forwardRef, useEffect, useImperativeHandle } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -32,6 +32,8 @@ const {
   mockCopyText,
   mockBeginLoopModeSubmission,
   mockRequiresQwenPawModel,
+  mockHoldOwnershipLock,
+  mockRuntimeMount,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -46,6 +48,8 @@ const {
   mockCopyText: vi.fn().mockResolvedValue(undefined),
   mockBeginLoopModeSubmission: vi.fn((text: string) => text),
   mockRequiresQwenPawModel: vi.fn(() => true),
+  mockHoldOwnershipLock: vi.fn(),
+  mockRuntimeMount: vi.fn(),
 }));
 
 let capturedOptions: any = null;
@@ -82,6 +86,9 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
+    useEffect(() => {
+      mockRuntimeMount();
+    }, []);
     useImperativeHandle(ref, () => ({
       input: { submit: mockRuntimeSubmit },
       messages: { removeAllMessages: vi.fn() },
@@ -293,12 +300,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => {
   return {
     ...actual,
     withSendLock: vi.fn(async (_key: string, fn: () => unknown) => fn()),
-    holdOwnershipLock: vi.fn(
-      (_key: string, cb: () => void, _signal: AbortSignal) => {
-        cb();
-        return Promise.resolve();
-      },
-    ),
+    holdOwnershipLock: mockHoldOwnershipLock,
   };
 });
 
@@ -481,6 +483,12 @@ describe("ChatPage coverage", () => {
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
+    mockRuntimeMount.mockReset();
+    mockHoldOwnershipLock.mockReset();
+    mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
+      cb();
+      return Promise.resolve();
+    });
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "test-session",
       sdkSessionId: "test-session",
@@ -536,6 +544,29 @@ describe("ChatPage coverage", () => {
     stopBackgroundQueue();
     chatExtensions.__resetForTests();
     vi.clearAllMocks();
+  });
+
+  it("does not remount the chat SDK after delayed ownership acquisition", async () => {
+    let acquireOwnership: (() => void) | undefined;
+    mockHoldOwnershipLock.mockImplementation(
+      (_key: string, onAcquired: () => void, signal: AbortSignal) => {
+        acquireOwnership = onAcquired;
+        return new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 350)));
+    await act(async () => acquireOwnership?.());
+
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
   });
 
   it("renders ChatPage and captures options", async () => {
