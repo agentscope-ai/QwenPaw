@@ -16,6 +16,7 @@ from qwenpaw.app.routers.workspace import (
     _conditionally_restore_config_changes,
     _mask_memory_backend_secrets,
     _safe_memory_validation_error,
+    put_agent_language,
     put_agents_running_config,
 )
 from qwenpaw.config import AgentsRunningConfig
@@ -55,6 +56,40 @@ def _config_transaction(
         return agent_config
 
     return AsyncMock(side_effect=update)
+
+
+@pytest.mark.asyncio
+async def test_language_change_schedules_agent_reload(tmp_path):
+    request = MagicMock()
+    workspace = SimpleNamespace(agent_id="bot", workspace_dir=tmp_path)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        language="en",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.load_agent_config",
+            return_value=agent_config,
+        ),
+        patch("qwenpaw.app.routers.workspace.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.workspace.copy_workspace_md_files",
+            return_value=["AGENTS.md"],
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agent_language(request, {"language": "zh"})
+
+    schedule_reload.assert_called_once_with(request, "bot")
+    assert response["language"] == "zh"
 
 
 def test_memory_backend_secrets_are_masked_without_mutating_source():

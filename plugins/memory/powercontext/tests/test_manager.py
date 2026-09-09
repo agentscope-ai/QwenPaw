@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -70,6 +71,29 @@ def test_installation_id_rejects_corrupt_plugin_state(tmp_path):
 
     with pytest.raises(ValueError, match="Invalid PowerContext installation"):
         get_or_create_installation_id(tmp_path)
+
+
+def test_installation_id_is_atomic_across_concurrent_creators(tmp_path):
+    worker_count = 8
+    barrier = threading.Barrier(worker_count)
+
+    def create_id() -> str:
+        barrier.wait()
+        return get_or_create_installation_id(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        installation_ids = list(
+            executor.map(lambda _index: create_id(), range(worker_count)),
+        )
+
+    assert len(set(installation_ids)) == 1
+    installation_id = installation_ids[0]
+    assert len(installation_id) == 32
+    state_dir = tmp_path / "plugin-state" / "memory-powercontext"
+    assert (state_dir / "installation-id").read_text(encoding="utf-8") == (
+        installation_id
+    )
+    assert not list(state_dir.glob(".installation-id-*"))
 
 
 @pytest.mark.asyncio

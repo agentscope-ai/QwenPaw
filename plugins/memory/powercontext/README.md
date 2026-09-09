@@ -29,7 +29,7 @@ a server and scope suitable for the data being stored.
 For a local development server:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 

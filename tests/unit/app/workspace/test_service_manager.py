@@ -111,20 +111,59 @@ def test_memory_reuse_requires_identical_backend_configuration(tmp_path):
             },
         ),
     )
+    config = SimpleNamespace(
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": {
+                    "base_url": "http://new.example",
+                    "scope_id": "agent:one",
+                },
+            },
+        ),
+    )
     workspace = SimpleNamespace(
         agent_id="agent-1",
         workspace_dir=tmp_path,
-        _config=SimpleNamespace(
-            running=SimpleNamespace(
-                memory_manager_backend="remote-memory",
-                memory_backend_configs={
-                    "remote-memory": {
-                        "base_url": "http://new.example",
-                        "scope_id": "agent:one",
-                    },
-                },
+        config=config,
+    )
+
+    assert not _memory_manager_reuse_compatible(workspace, instance)
+
+
+@pytest.mark.parametrize(
+    ("language", "token_estimate_divisor"),
+    [("zh", 4.0), ("en", 3.0)],
+)
+def test_memory_reuse_requires_identical_runtime_context(
+    tmp_path,
+    language,
+    token_estimate_divisor,
+):
+    instance = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=WORKING_DIR,
+            backend_config={},
+            language="en",
+            token_estimate_divisor=4.0,
+        ),
+    )
+    config = SimpleNamespace(
+        language=language,
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={"remote-memory": {}},
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=token_estimate_divisor,
             ),
         ),
+    )
+    workspace = SimpleNamespace(
+        agent_id="agent-1",
+        workspace_dir=tmp_path,
+        config=config,
     )
 
     assert not _memory_manager_reuse_compatible(workspace, instance)

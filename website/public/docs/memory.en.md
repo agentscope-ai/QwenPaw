@@ -34,7 +34,7 @@ For a local server, the default endpoint is `http://127.0.0.1:8000`. Install
 and start it with:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 

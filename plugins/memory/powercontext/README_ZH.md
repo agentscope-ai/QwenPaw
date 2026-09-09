@@ -25,7 +25,7 @@ PowerContext Memory 插件将 QwenPaw 连接到单独部署的
 本地开发服务可通过以下命令启动：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 

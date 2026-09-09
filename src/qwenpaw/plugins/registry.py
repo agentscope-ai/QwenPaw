@@ -1134,14 +1134,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         owned_memory = set(memory_registry.owned_by(plugin_id))
         if not owned_memory:
             return
-        in_use = set(memory_registry.active_agent_ids(plugin_id))
+        selected_agent_ids: set[str] = set()
         if self._workspace_manager is not None:
             workspaces = getattr(
                 self._workspace_manager,
                 "agents",
                 getattr(self._workspace_manager, "workspaces", {}),
             )
-            in_use.update(
+            selected_agent_ids.update(
                 workspace.agent_id
                 for workspace in workspaces.values()
                 if getattr(
@@ -1155,6 +1155,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 )
                 in owned_memory
             )
+        in_use = memory_registry.begin_owner_unload(
+            plugin_id,
+            tuple(selected_agent_ids),
+        )
         if in_use:
             raise RuntimeError(
                 f"Cannot unload plugin '{plugin_id}'; memory backend is "

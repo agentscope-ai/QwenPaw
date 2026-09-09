@@ -52,6 +52,13 @@ _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
 
+# Unknown root fields are normally discarded on save. These non-secret keys
+# remain only long enough for an optional plugin to adopt pre-plugin state.
+# Remove an entry after its documented compatibility window closes.
+LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION = frozenset(
+    {"powercontext_installation_id"},
+)
+
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
     """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
@@ -689,14 +696,11 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     candidate = config.model_copy(deep=True)
     with _config_lock:
         payload = candidate.model_dump(mode="json", by_alias=True)
-        # The plugin adopts this pre-plugin identity on first activation.
-        # Keep it on disk across unrelated saves until that can happen;
-        # it intentionally remains outside the core configuration schema.
         if config_path.is_file():
             existing = _read_config_data(config_path) or {}
-            legacy_key = "powercontext_installation_id"
-            if legacy_key in existing:
-                payload[legacy_key] = existing[legacy_key]
+            for legacy_key in LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION:
+                if legacy_key in existing:
+                    payload[legacy_key] = existing[legacy_key]
         write_json_atomic(
             config_path,
             payload,

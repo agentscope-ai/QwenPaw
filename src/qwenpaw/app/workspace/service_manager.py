@@ -4,6 +4,7 @@
 Provides unified registration, lifecycle management, and dependency handling
 for all workspace services (MemoryManager, ChatManager, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +43,7 @@ class ServiceDescriptor:
     Attributes:
         name: Unique service identifier (e.g., 'memory_manager')
         service_class: Class to instantiate (e.g., MemoryManager)
+        create_service: Optional atomic/custom constructor for the service.
         init_args: Callable that returns init kwargs for the service
         post_init: Optional hook called after creation (for setup logic).
             Hooks that create a service before awaiting must call the supplied
@@ -65,6 +67,7 @@ class ServiceDescriptor:
 
     name: str
     service_class: Optional[Union[type, Callable[["Workspace"], type]]] = None
+    create_service: Optional[Callable[["Workspace"], Any]] = None
     init_args: Optional[Callable[[Workspace], dict]] = None
     post_init: Optional[
         Callable[[Workspace, Any, Callable[[Any], None]], Any]
@@ -384,14 +387,8 @@ class ServiceManager:
 
         logger.debug(f"Creating service '{descriptor.name}'...")
 
-        if not descriptor.service_class:
+        if not descriptor.service_class and descriptor.create_service is None:
             return None
-
-        # service_class may be a callable that resolves to the actual class
-        if not isinstance(descriptor.service_class, type):
-            service_cls = descriptor.service_class(self.workspace)
-        else:
-            service_cls = descriptor.service_class
 
         # Get init args from callable
         init_kwargs = {}
@@ -399,7 +396,14 @@ class ServiceManager:
             init_kwargs = descriptor.init_args(self.workspace)
 
         def create_and_register() -> Any:
-            service = service_cls(**init_kwargs)
+            if descriptor.create_service is not None:
+                service = descriptor.create_service(self.workspace)
+            else:
+                service_class = descriptor.service_class
+                assert service_class is not None
+                if not isinstance(service_class, type):
+                    service_class = service_class(self.workspace)
+                service = service_class(**init_kwargs)
             self.services[descriptor.name] = service
             return service
 

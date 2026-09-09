@@ -99,6 +99,7 @@ class BaseMemoryManager(ABC):
         ] = asyncio.Queue()
         self._auto_memory_worker_task: asyncio.Task | None = None
         self._auto_memory_worker_stopping = False
+        self._memory_backend_owner: str | None = None
         memory_registry.track_instance(self)
 
     @abstractmethod
@@ -814,7 +815,7 @@ class MemoryBackendRegistration:
     metadata: Mapping[str, Any]
 
 
-class MemoryBackendRegistry:
+class MemoryBackendRegistry:  # pylint: disable=protected-access
     """Owner-aware registry used by core and memory plugins."""
 
     def __init__(self) -> None:
@@ -823,38 +824,120 @@ class MemoryBackendRegistry:
             int,
             BaseMemoryManager,
         ] = WeakValueDictionary()
-        # Service constructors run in worker threads, while unload and close
-        # run on the event loop. Instance snapshots must serialize with adds.
-        self._instances_lock = RLock()
+        self._unloading_owners: set[str] = set()
+        self._constructing_agents: dict[str, dict[str, int]] = {}
+        # Construction runs in worker threads, while unload and close run on
+        # the event loop. Short locked reservations close the unload race
+        # without holding this lock while arbitrary plugin code executes.
+        self._lock = RLock()
 
     def track_instance(self, instance: BaseMemoryManager) -> None:
         """Keep plugin ownership while a manager starts, runs, or drains."""
-        with self._instances_lock:
+        with self._lock:
+            matching_owners = {
+                registration.plugin_id
+                for registration in self._registrations.values()
+                if isinstance(instance, registration.factory)
+            }
+            if len(matching_owners) == 1:
+                instance._memory_backend_owner = matching_owners.pop()
             self._instances[id(instance)] = instance
 
     def release_instance(self, instance: BaseMemoryManager) -> None:
         """Release ownership only after the manager has closed cleanly."""
-        with self._instances_lock:
+        with self._lock:
             self._instances.pop(id(instance), None)
 
     def active_agent_ids(self, plugin_id: str) -> list[str]:
         """Return agents with live instances from this plugin's factories."""
-        factories = tuple(
-            registration.factory
-            for registration in self._registrations.values()
-            if registration.plugin_id == plugin_id
-        )
-        if not factories:
-            return []
-        with self._instances_lock:
+        with self._lock:
+            if not any(
+                registration.plugin_id == plugin_id
+                for registration in self._registrations.values()
+            ):
+                return []
             instances = list(self._instances.values())
+            constructing = set(self._constructing_agents.get(plugin_id, {}))
         return sorted(
-            {
+            constructing
+            | {
                 instance.agent_id
                 for instance in instances
-                if isinstance(instance, factories)
+                if getattr(instance, "_memory_backend_owner", None)
+                == plugin_id
             },
         )
+
+    def begin_owner_unload(
+        self,
+        plugin_id: str,
+        selected_agent_ids: tuple[str, ...] = (),
+    ) -> list[str]:
+        """Reserve an owner unload and return agents that prevent it.
+
+        Once reserved, new construction from this owner is rejected until its
+        registrations are removed. The shared lock closes the gap between an
+        unload check and a concurrent backend constructor.
+        """
+        with self._lock:
+            if not any(
+                registration.plugin_id == plugin_id
+                for registration in self._registrations.values()
+            ):
+                return []
+            instances = list(self._instances.values())
+            in_use = set(selected_agent_ids)
+            in_use.update(self._constructing_agents.get(plugin_id, {}))
+            in_use.update(
+                instance.agent_id
+                for instance in instances
+                if getattr(instance, "_memory_backend_owner", None)
+                == plugin_id
+            )
+            if in_use:
+                return sorted(in_use)
+            self._unloading_owners.add(plugin_id)
+            return []
+
+    def cancel_owner_unload(self, plugin_id: str) -> None:
+        """Allow construction again after an aborted unload."""
+        with self._lock:
+            self._unloading_owners.discard(plugin_id)
+
+    def create(
+        self,
+        backend_id: str,
+        context: MemoryBackendContext,
+    ) -> BaseMemoryManager:
+        """Resolve and construct a backend atomically with owner unload."""
+        normalized = self._normalize(backend_id)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                raise MemoryBackendUnavailableError(normalized)
+            plugin_id = registration.plugin_id
+            factory = registration.factory
+            constructing = self._constructing_agents.setdefault(plugin_id, {})
+            constructing[context.agent_id] = (
+                constructing.get(context.agent_id, 0) + 1
+            )
+        try:
+            instance = factory(context=context)
+            instance._memory_backend_owner = plugin_id
+            return instance
+        finally:
+            with self._lock:
+                constructing = self._constructing_agents.get(plugin_id, {})
+                remaining = constructing.get(context.agent_id, 0) - 1
+                if remaining > 0:
+                    constructing[context.agent_id] = remaining
+                else:
+                    constructing.pop(context.agent_id, None)
+                if not constructing:
+                    self._constructing_agents.pop(plugin_id, None)
 
     @staticmethod
     def _normalize(backend_id: str) -> str:
@@ -908,15 +991,21 @@ class MemoryBackendRegistry:
             config_schema=config_schema,
             metadata=dict(metadata or {}),
         )
-        existing = self._registrations.get(normalized)
-        if existing is not None:
-            if existing.plugin_id == plugin_id and existing.factory is factory:
-                return existing
-            raise ValueError(
-                f"Memory backend '{normalized}' is already registered by "
-                f"'{existing.plugin_id}'",
-            )
-        self._registrations[normalized] = registration
+        with self._lock:
+            if plugin_id in self._unloading_owners:
+                raise RuntimeError(f"Plugin '{plugin_id}' is being unloaded")
+            existing = self._registrations.get(normalized)
+            if existing is not None:
+                if (
+                    existing.plugin_id == plugin_id
+                    and existing.factory is factory
+                ):
+                    return existing
+                raise ValueError(
+                    f"Memory backend '{normalized}' is already registered by "
+                    f"'{existing.plugin_id}'",
+                )
+            self._registrations[normalized] = registration
         return registration
 
     def get(self, backend_id: str) -> type[BaseMemoryManager] | None:
@@ -924,8 +1013,14 @@ class MemoryBackendRegistry:
             normalized = self._normalize(backend_id)
         except (AttributeError, ValueError):
             return None
-        registration = self._registrations.get(normalized)
-        return registration.factory if registration else None
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                return None
+            return registration.factory
 
     def get_registration(
         self,
@@ -935,12 +1030,27 @@ class MemoryBackendRegistry:
             normalized = self._normalize(backend_id)
         except (AttributeError, ValueError):
             return None
-        return self._registrations.get(normalized)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is not None
+                and registration.plugin_id in self._unloading_owners
+            ):
+                return None
+            return registration
 
     def list_registered(self) -> list[str]:
-        return list(self._registrations)
+        with self._lock:
+            return [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id not in self._unloading_owners
+            ]
 
     def describe(self) -> list[dict[str, Any]]:
+        with self._lock:
+            registrations = list(self._registrations.values())
+            unloading = set(self._unloading_owners)
         return [
             {
                 "id": item.backend_id,
@@ -953,26 +1063,31 @@ class MemoryBackendRegistry:
                 "available": True,
                 "metadata": dict(item.metadata),
             }
-            for item in self._registrations.values()
+            for item in registrations
+            if item.plugin_id not in unloading
         ]
 
     def unregister_owner(self, plugin_id: str) -> list[str]:
-        removed = [
-            backend_id
-            for backend_id, registration in self._registrations.items()
-            if registration.plugin_id == plugin_id
-        ]
-        for backend_id in removed:
-            del self._registrations[backend_id]
-        return removed
+        with self._lock:
+            removed = [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id == plugin_id
+            ]
+            for backend_id in removed:
+                del self._registrations[backend_id]
+            self._unloading_owners.discard(plugin_id)
+            self._constructing_agents.pop(plugin_id, None)
+            return removed
 
     def owned_by(self, plugin_id: str) -> list[str]:
         """Return backend ids owned by one plugin."""
-        return [
-            backend_id
-            for backend_id, registration in self._registrations.items()
-            if registration.plugin_id == plugin_id
-        ]
+        with self._lock:
+            return [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id == plugin_id
+            ]
 
 
 class MemoryBackendUnavailableError(ValueError):
@@ -1010,3 +1125,11 @@ def get_memory_manager_backend(
     if cls is None:
         raise MemoryBackendUnavailableError(backend)
     return cls
+
+
+def create_memory_manager_backend(
+    backend: str,
+    context: MemoryBackendContext,
+) -> BaseMemoryManager:
+    """Construct a registered backend without racing plugin unload."""
+    return memory_registry.create(backend, context)

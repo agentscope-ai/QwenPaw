@@ -32,7 +32,7 @@ qwenpaw plugin install plugins/memory/powercontext
 本地服务默认地址为 `http://127.0.0.1:8000`。可使用以下命令安装并启动：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 

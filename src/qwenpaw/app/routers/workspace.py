@@ -1308,6 +1308,7 @@ async def put_agent_language(
             ),
             only_if_missing=False,
         )
+        schedule_agent_reload(request, agent_id)
 
     return {
         "language": language,

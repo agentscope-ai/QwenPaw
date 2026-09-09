@@ -428,6 +428,7 @@ class Workspace:
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
             MemoryBackendUnavailableError,
+            create_memory_manager_backend,
             get_memory_manager_backend,
         )
 
@@ -473,7 +474,10 @@ class Workspace:
                 service_class=lambda ws: get_memory_manager_backend(
                     ws._config.running.memory_manager_backend,
                 ),
-                init_args=lambda ws: {"context": _memory_backend_context(ws)},
+                create_service=lambda ws: create_memory_manager_backend(
+                    ws.config.running.memory_manager_backend,
+                    _memory_backend_context(ws),
+                ),
                 start_method="start",
                 stop_method="close",
                 reusable=True,
