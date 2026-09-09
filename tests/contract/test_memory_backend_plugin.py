@@ -126,6 +126,31 @@ def test_owner_unload_cannot_race_backend_construction(tmp_path: Path) -> None:
         memory_registry.unregister_owner(owner)
 
 
+def test_owner_unload_cannot_race_backend_selection() -> None:
+    backend_id = "selected-contract-memory"
+    owner = "selected-contract-plugin"
+    memory_registry.register_backend(
+        plugin_id=owner,
+        backend_id=backend_id,
+        factory=ContractBackend,
+        label="Selected Contract Memory",
+    )
+
+    lease = memory_registry.reserve_selection(backend_id, "agent")
+    try:
+        assert lease.registration.backend_id == backend_id
+        assert memory_registry.begin_owner_unload(owner) == ["agent"]
+        assert memory_registry.get_registration(backend_id) is not None
+    finally:
+        lease.release()
+
+    try:
+        assert memory_registry.begin_owner_unload(owner) == []
+    finally:
+        memory_registry.cancel_owner_unload(owner)
+        memory_registry.unregister_owner(owner)
+
+
 def test_reserved_owner_rejects_new_backend_construction(
     tmp_path: Path,
 ) -> None:

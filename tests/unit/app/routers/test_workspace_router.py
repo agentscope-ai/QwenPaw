@@ -5,6 +5,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -375,6 +376,141 @@ async def test_backend_only_switch_persists_and_schedules_reload(
     assert response.memory_manager_backend == new_backend
     assert agent_config.running.memory_manager_backend == new_backend
     schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_plugin_backend_selection_blocks_unload_until_reload_handoff(
+    tmp_path,
+) -> None:
+    owner = "selection-race-plugin"
+    backend_id = "selection-race-memory"
+    memory_registry.register_backend(
+        plugin_id=owner,
+        backend_id=backend_id,
+        factory=MagicMock,
+        label="Selection Race Memory",
+    )
+    old_running = AgentsRunningConfig(memory_manager_backend="none")
+    new_running = old_running.model_copy(deep=True)
+    new_running.memory_manager_backend = backend_id
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    persist_entered = asyncio.Event()
+    release_persist = asyncio.Event()
+    completion: Any = None
+
+    async def update_config(_agent_id, updater):
+        updater(agent_config)
+        persist_entered.set()
+        await release_persist.wait()
+        return agent_config
+
+    def schedule_reload(_request, _agent_id, *, on_complete=None):
+        nonlocal completion
+        completion = on_complete
+        return True
+
+    task = None
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                side_effect=update_config,
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.schedule_agent_reload",
+                side_effect=schedule_reload,
+            ),
+        ):
+            task = asyncio.create_task(
+                put_agents_running_config(new_running, MagicMock()),
+            )
+            await persist_entered.wait()
+
+            assert memory_registry.begin_owner_unload(owner) == ["bot"]
+            release_persist.set()
+            response = await task
+
+            assert response.memory_manager_backend == backend_id
+            assert memory_registry.begin_owner_unload(owner) == ["bot"]
+            assert completion is not None
+            await completion(True)  # pylint: disable=not-callable
+            assert memory_registry.begin_owner_unload(owner) == []
+    finally:
+        release_persist.set()
+        if task is not None and not task.done():
+            await task
+        memory_registry.cancel_owner_unload(owner)
+        memory_registry.unregister_owner(owner)
+
+
+@pytest.mark.asyncio
+async def test_failed_plugin_backend_reload_rolls_back_selection(tmp_path):
+    owner = "selection-rollback-plugin"
+    backend_id = "selection-rollback-memory"
+    memory_registry.register_backend(
+        plugin_id=owner,
+        backend_id=backend_id,
+        factory=MagicMock,
+        label="Selection Rollback Memory",
+    )
+    old_running = AgentsRunningConfig(memory_manager_backend="none")
+    new_running = old_running.model_copy(deep=True)
+    new_running.memory_manager_backend = backend_id
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    completion: Any = None
+
+    def schedule_reload(_request, _agent_id, *, on_complete=None):
+        nonlocal completion
+        completion = on_complete
+        return True
+
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                _config_transaction(agent_config),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.schedule_agent_reload",
+                side_effect=schedule_reload,
+            ),
+        ):
+            await put_agents_running_config(new_running, MagicMock())
+            assert agent_config.running.memory_manager_backend == backend_id
+            assert completion is not None
+            await completion(False)  # pylint: disable=not-callable
+
+        assert agent_config.running.memory_manager_backend == "none"
+        assert memory_registry.begin_owner_unload(owner) == []
+    finally:
+        memory_registry.cancel_owner_unload(owner)
+        memory_registry.unregister_owner(owner)
 
 
 @pytest.mark.asyncio

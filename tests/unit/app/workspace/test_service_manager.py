@@ -97,6 +97,59 @@ async def test_required_clean_stop_false_result_is_propagated(async_stop):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("async_stop", [True, False])
+async def test_stop_cancellation_is_propagated_after_siblings(async_stop):
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    sibling_stop = AsyncMock()
+
+    if async_stop:
+        cancelled_stop = AsyncMock(side_effect=asyncio.CancelledError)
+    else:
+
+        def cancelled_stop():
+            raise asyncio.CancelledError
+
+    services = {
+        "memory_manager": SimpleNamespace(close=cancelled_stop),
+        "sibling": SimpleNamespace(close=sibling_stop),
+    }
+    for name, service in services.items():
+        descriptor = ServiceDescriptor(
+            name=name,
+            stop_method="close",
+            require_clean_stop=name == "memory_manager",
+        )
+        manager.register(descriptor)
+        manager.services[name] = service
+
+    with pytest.raises(asyncio.CancelledError):
+        await manager.stop_all(final=True)
+
+    sibling_stop.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancellation_does_not_commit_workspace_stopped(workspace):
+    class CancelledMemory:
+        async def close(self):
+            raise asyncio.CancelledError
+
+    _register(
+        workspace,
+        "memory_manager",
+        stop_method="close",
+        require_clean_stop=True,
+    )
+    workspace._service_manager.services["memory_manager"] = CancelledMemory()
+    workspace._started = True
+
+    with pytest.raises(asyncio.CancelledError):
+        await workspace.stop()
+
+    assert workspace._started
+
+
+@pytest.mark.asyncio
 async def test_reused_service_can_be_rejected_by_configuration():
     workspace = SimpleNamespace(agent_id="agent-1", marker="new")
     manager = ServiceManager(workspace)

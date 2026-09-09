@@ -815,6 +815,31 @@ class MemoryBackendRegistration:
     metadata: Mapping[str, Any]
 
 
+class _MemoryBackendSelectionLease:
+    """Keep a selected plugin backend registered until reload handoff."""
+
+    def __init__(
+        self,
+        registry: "MemoryBackendRegistry",
+        registration: MemoryBackendRegistration,
+        agent_id: str,
+    ) -> None:
+        self._registry = registry
+        self.registration = registration
+        self.agent_id = agent_id
+        self._released = False
+
+    def release(self) -> None:
+        """Release this lease exactly once."""
+        if self._released:
+            return
+        self._registry._release_selection(  # pylint: disable=protected-access
+            self.registration.plugin_id,
+            self.agent_id,
+        )
+        self._released = True
+
+
 class MemoryBackendRegistry:  # pylint: disable=protected-access
     """Owner-aware registry used by core and memory plugins."""
 
@@ -826,6 +851,7 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
         ] = WeakValueDictionary()
         self._unloading_owners: set[str] = set()
         self._constructing_agents: dict[str, dict[str, int]] = {}
+        self._selecting_agents: dict[str, dict[str, int]] = {}
         # Construction runs in worker threads, while unload and close run on
         # the event loop. Short locked reservations close the unload race
         # without holding this lock while arbitrary plugin code executes.
@@ -858,8 +884,10 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
                 return []
             instances = list(self._instances.values())
             constructing = set(self._constructing_agents.get(plugin_id, {}))
+            selecting = set(self._selecting_agents.get(plugin_id, {}))
         return sorted(
             constructing
+            | selecting
             | {
                 instance.agent_id
                 for instance in instances
@@ -888,6 +916,7 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
             instances = list(self._instances.values())
             in_use = set(selected_agent_ids)
             in_use.update(self._constructing_agents.get(plugin_id, {}))
+            in_use.update(self._selecting_agents.get(plugin_id, {}))
             in_use.update(
                 instance.agent_id
                 for instance in instances
@@ -903,6 +932,39 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
         """Allow construction again after an aborted unload."""
         with self._lock:
             self._unloading_owners.discard(plugin_id)
+
+    def reserve_selection(
+        self,
+        backend_id: str,
+        agent_id: str,
+    ) -> _MemoryBackendSelectionLease:
+        """Reserve a registered backend through durable reload handoff."""
+        normalized = self._normalize(backend_id)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                raise MemoryBackendUnavailableError(normalized)
+            selecting = self._selecting_agents.setdefault(
+                registration.plugin_id,
+                {},
+            )
+            selecting[agent_id] = selecting.get(agent_id, 0) + 1
+        return _MemoryBackendSelectionLease(self, registration, agent_id)
+
+    def _release_selection(self, plugin_id: str, agent_id: str) -> None:
+        """Release one selection reservation."""
+        with self._lock:
+            selecting = self._selecting_agents.get(plugin_id, {})
+            remaining = selecting.get(agent_id, 0) - 1
+            if remaining > 0:
+                selecting[agent_id] = remaining
+            else:
+                selecting.pop(agent_id, None)
+            if not selecting:
+                self._selecting_agents.pop(plugin_id, None)
 
     def create(
         self,
@@ -1078,6 +1140,7 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
                 del self._registrations[backend_id]
             self._unloading_owners.discard(plugin_id)
             self._constructing_agents.pop(plugin_id, None)
+            self._selecting_agents.pop(plugin_id, None)
             return removed
 
     def owned_by(self, plugin_id: str) -> list[str]:

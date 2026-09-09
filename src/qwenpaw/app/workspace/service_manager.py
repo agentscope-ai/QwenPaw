@@ -510,6 +510,7 @@ class ServiceManager:
 
         priority_groups = self._group_by_priority()
         clean_stop_errors: List[tuple[str, Exception]] = []
+        stop_interrupt: BaseException | None = None
 
         # Stop in reverse priority order
         for priority in sorted(priority_groups.keys(), reverse=True):
@@ -530,12 +531,18 @@ class ServiceManager:
 
             # Log any exceptions that occurred
             for desc, result in zip(descriptors, results):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     logger.warning(
                         f"Error stopping service '{desc.name}': {result}",
                     )
-                    if desc.require_clean_stop:
+                    if not isinstance(result, Exception):
+                        if stop_interrupt is None:
+                            stop_interrupt = result
+                    elif desc.require_clean_stop:
                         clean_stop_errors.append((desc.name, result))
+
+        if stop_interrupt is not None:
+            raise stop_interrupt
 
         if clean_stop_errors:
             details = "; ".join(
