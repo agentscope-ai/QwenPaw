@@ -3,6 +3,7 @@ import {
   handleRerankerFieldsChange,
   isRerankerDetailFieldError,
   rerankerDetailsHaveErrors,
+  RERANKER_ENABLED_PATH,
 } from "./rerankerVisibility";
 
 const rerankerPath = (leaf: string) => [
@@ -43,6 +44,16 @@ describe("isRerankerDetailFieldError", () => {
     expect(isRerankerDetailFieldError({ name: rerankerPath("timeout") })).toBe(
       false,
     );
+  });
+
+  it("keeps the enabled path pinned, since the handler reads it at runtime", () => {
+    // The stub form below looks up fields by name[2], so a wrong path string
+    // here would let the handler silently stop expanding with no test failing.
+    expect(RERANKER_ENABLED_PATH).toEqual([
+      "reme_light_memory_config",
+      "reranker_config",
+      "enabled",
+    ]);
   });
 
   it("ignores fields outside the reranker config", () => {
