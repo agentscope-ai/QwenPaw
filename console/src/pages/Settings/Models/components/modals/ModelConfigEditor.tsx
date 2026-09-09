@@ -115,11 +115,6 @@ export function ModelConfigEditor({
     setDirty(true);
   }, []);
 
-  const handleMaxInputLengthInput = useCallback(() => {
-    setMaxInputLengthDirty(true);
-    setDirty(true);
-  }, []);
-
   const handleSave = async () => {
     const trimmed = text.trim();
     let parsed: Record<string, unknown> = {};
@@ -237,7 +232,6 @@ export function ModelConfigEditor({
             value={maxInputLength}
             placeholder="131072"
             onChange={handleMaxInputLengthChange}
-            onInput={handleMaxInputLengthInput}
           />
           <div
             style={{
