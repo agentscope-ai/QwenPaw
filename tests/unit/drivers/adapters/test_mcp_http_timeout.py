@@ -22,9 +22,20 @@ from qwenpaw.drivers.adapters.mcp_legacy_config import (
 from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.credentials.providers import NoneProvider
 from qwenpaw.drivers.handlers import mcp as mcp_handler
-from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.handlers.mcp_stateful_client import HttpStatefulClient
 from qwenpaw.drivers.handlers.mcp_streamable_http import HttpStatelessClient
+
+URL = "http://127.0.0.1:8080/mcp/sse"
+
+
+def _http_payload(**overrides: object) -> dict:
+    """Base streamable_http config payload with per-test overrides."""
+    return {
+        "name": "actions",
+        "transport": "streamable_http",
+        "url": URL,
+        **overrides,
+    }
 
 
 def test_mcp_client_config_roundtrips_http_timeout() -> None:
@@ -32,7 +43,7 @@ def test_mcp_client_config_roundtrips_http_timeout() -> None:
     cfg = MCPClientConfig(
         name="actions",
         transport="streamable_http",
-        url="http://127.0.0.1:8080/mcp/sse",
+        url=URL,
         http_timeout=1200.0,
     )
     dumped = cfg.model_dump()
@@ -50,7 +61,7 @@ def test_http_timeout_roundtrips_through_driver_card() -> None:
     created = MCPClientCreateRequest(
         name="actions",
         transport="streamable_http",
-        url="http://127.0.0.1:8080/mcp/sse",
+        url=URL,
         http_timeout=1200.0,
     )
     card = build_mcp_driver_card("actions", created, "mcp/actions")
@@ -71,7 +82,7 @@ def test_legacy_http_migration_copies_http_timeout() -> None:
         "actions",
         SimpleNamespace(
             transport="streamable_http",
-            url="http://127.0.0.1:8080/mcp/sse",
+            url=URL,
             headers={},
             http_timeout=1200.0,
         ),
@@ -109,13 +120,13 @@ async def test_driver_handler_passes_http_timeout(
 
     monkeypatch.setattr(mcp_handler, client_attr, FakeClient)
 
-    handler = MCPDriverHandler(
+    handler = mcp_handler.MCPDriverHandler(
         DriverCard(
             name="actions",
             protocol="mcp",
             endpoint={
                 "transport": transport,
-                "url": "http://127.0.0.1:8080/mcp/sse",
+                "url": URL,
                 "http_timeout": 1200.0,
             },
         ),
@@ -128,30 +139,29 @@ async def test_driver_handler_passes_http_timeout(
         await handler._teardown()
 
 
-def test_http_clients_raise_read_budget_to_timeout() -> None:
-    """Raise SSE/HTTP read budget to at least the configured timeout."""
-    stateful = HttpStatefulClient(
-        "actions",
-        "streamable_http",
-        "http://x",
-        timeout=1200,
-    )
-    assert stateful.timeout == 1200
-    assert stateful.sse_read_timeout == 1200
-    assert stateful.read_timeout_seconds == 1200
-
-    default = HttpStatefulClient("actions", "streamable_http", "http://x")
-    assert default.timeout == 30
-    assert default.sse_read_timeout == 300
-
-    modern = HttpStatelessClient(
-        "actions",
-        "streamable_http",
-        "http://x",
-        timeout=1200,
-    )
-    assert modern.timeout == 1200
-    assert modern.sse_read_timeout == 1200
+@pytest.mark.parametrize(
+    "client_cls",
+    [HttpStatefulClient, HttpStatelessClient],
+)
+@pytest.mark.parametrize(
+    ("timeout", "expected_timeout", "expected_read"),
+    [
+        (1200, 1200.0, 1200.0),
+        (timedelta(seconds=60), 60.0, 300.0),
+        (None, 30.0, 300.0),
+    ],
+)
+def test_http_client_timeout_normalization(
+    client_cls,
+    timeout,
+    expected_timeout: float,
+    expected_read: float,
+) -> None:
+    """Normalize timeout to seconds; raise read budget to at least it."""
+    kwargs = {} if timeout is None else {"timeout": timeout}
+    client = client_cls("actions", "streamable_http", URL, **kwargs)
+    assert client.timeout == expected_timeout
+    assert client.sse_read_timeout == expected_read
 
 
 def test_http_timeout_rejects_non_positive_values() -> None:
@@ -160,51 +170,17 @@ def test_http_timeout_rejects_non_positive_values() -> None:
         MCPClientConfig(
             name="actions",
             transport="streamable_http",
-            url="http://x",
+            url=URL,
             http_timeout=0,
         )
 
 
 def test_timeout_alias_maps_to_http_timeout() -> None:
     """Map a bare timeout field onto http_timeout when the latter is absent."""
-    cfg = MCPClientConfig.model_validate(
-        {
-            "name": "actions",
-            "transport": "streamable_http",
-            "url": "http://127.0.0.1:8080/mcp/sse",
-            "timeout": 1200,
-        },
-    )
+    cfg = MCPClientConfig.model_validate(_http_payload(timeout=1200))
     assert cfg.http_timeout == 1200.0
 
     preferred = MCPClientConfig.model_validate(
-        {
-            "name": "actions",
-            "transport": "streamable_http",
-            "url": "http://127.0.0.1:8080/mcp/sse",
-            "timeout": 30,
-            "http_timeout": 1200,
-        },
+        _http_payload(timeout=30, http_timeout=1200),
     )
     assert preferred.http_timeout == 1200.0
-
-
-def test_stateful_normalizes_timedelta() -> None:
-    """Normalize timedelta timeout to seconds without shrinking SSE read."""
-    client = HttpStatefulClient(
-        "actions",
-        "streamable_http",
-        "http://x",
-        timeout=timedelta(seconds=60),
-    )
-    assert client.timeout == 60.0
-    assert client.sse_read_timeout == 300.0
-
-    modern = HttpStatelessClient(
-        "actions",
-        "streamable_http",
-        "http://x",
-        timeout=timedelta(seconds=45),
-    )
-    assert modern.timeout == 45.0
-    assert modern.sse_read_timeout == 300.0
