@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, act } from "@testing-library/react";
 import { useSyncExternalStore, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
@@ -31,6 +32,7 @@ const {
   mockClearSubmittedSenderInput,
   mockBeginLoopModeSubmission,
   mockRequiresQwenPawModel,
+  mockSdkInput,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -46,6 +48,7 @@ const {
   mockClearSubmittedSenderInput: vi.fn(),
   mockBeginLoopModeSubmission: vi.fn((text: string) => text),
   mockRequiresQwenPawModel: vi.fn(() => true),
+  mockSdkInput: { loading: false, setSessionLoading: vi.fn() },
 }));
 
 let capturedOptions: any = null;
@@ -112,7 +115,8 @@ vi.mock("@agentscope-ai/chat", () => ({
   useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
   useChatAnywhereInput: vi.fn((select: any) =>
     select({
-      loading: false,
+      loading: mockSdkInput.loading,
+      setSessionLoading: mockSdkInput.setSessionLoading,
       setLoading: vi.fn(),
       getLoading: vi.fn(() => false),
       setDisabled: vi.fn(),
@@ -554,6 +558,7 @@ vi.mock("./utils", async () => {
 // ---------------------------------------------------------------------------
 describe("ChatPage coverage", () => {
   beforeEach(() => {
+    mockSdkInput.loading = false;
     chatExtensions.__resetForTests();
     capturedOptions = null;
     observedSdkSessions = [];
@@ -601,6 +606,68 @@ describe("ChatPage coverage", () => {
     chatExtensions.__resetForTests();
     vi.clearAllMocks();
   });
+
+  it.each([false, true])(
+    "ignores old loop completion before touching the active queue timer (return to A=%s)",
+    async (returnToA) => {
+      const { fetchActiveLoopMode } = await import("@/stores/loopStore");
+      let finish!: () => void;
+      const late = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      let deferred = false;
+      vi.mocked(fetchActiveLoopMode).mockImplementation((options: any) => {
+        if (!options.signal && !deferred) {
+          deferred = true;
+          return late;
+        }
+        return Promise.resolve();
+      });
+      let navigate!: ReturnType<typeof useNavigate>;
+      function Harness() {
+        navigate = useNavigate();
+        return <ChatPage />;
+      }
+      mockSdkInput.loading = true;
+      const view = renderWithProviders(<Harness />, {
+        initialEntries: ["/chat/a"],
+      });
+      const timers = vi.spyOn(globalThis, "setTimeout");
+      try {
+        await screen.findByTestId("chat-ui");
+        mockSdkInput.loading = false;
+        view.rerender(<Harness />);
+        await waitFor(() => expect(deferred).toBe(true));
+        await act(async () => navigate("/chat/b"));
+        if (returnToA) await act(async () => navigate("/chat/a"));
+        // A fresh completion schedules the current visit's timer.
+        mockSdkInput.loading = true;
+        view.rerender(<Harness />);
+        await act(async () => {});
+        mockSdkInput.loading = false;
+        view.rerender(<Harness />);
+        await act(async () => {});
+        const scheduled = timers.mock.calls.filter(
+          (call) => call[1] === 500,
+        ).length;
+        expect(scheduled).toBeGreaterThan(0);
+        await act(async () => {
+          finish();
+          await late;
+        });
+        expect(
+          timers.mock.calls.filter((call) => call[1] === 500),
+        ).toHaveLength(scheduled);
+      } finally {
+        finish();
+        view.unmount();
+        timers.mockRestore();
+        vi.mocked(fetchActiveLoopMode).mockImplementation(() =>
+          Promise.resolve(),
+        );
+      }
+    },
+  );
 
   it("renders ChatPage and captures options", async () => {
     renderWithProviders(<ChatPage />, {
@@ -1262,6 +1329,7 @@ describe("ChatPage coverage", () => {
   });
 
   it("enqueues an uploaded attachment with empty text on busy Enter", async () => {
+    mockSdkInput.loading = true;
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -1275,12 +1343,6 @@ describe("ChatPage coverage", () => {
     const textarea = document.createElement("textarea");
     document.body.appendChild(textarea);
     vi.mocked(utils.getSenderTextareaFromTarget).mockReturnValueOnce(textarea);
-    const queueStore = (await import("@/stores/messageQueueStore"))
-      .useMessageQueueStore;
-    vi.mocked(queueStore.getState).mockReturnValueOnce({
-      ...queueStore.getState(),
-      currentSendingId: "busy-turn",
-    });
     const event = new KeyboardEvent("keydown", {
       key: "Enter",
       bubbles: true,
@@ -1301,6 +1363,48 @@ describe("ChatPage coverage", () => {
       }),
     );
     textarea.remove();
+  });
+
+  it("does not queue a new Chat's Enter because another Chat has a sending marker", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const queueStore = (await import("@/stores/messageQueueStore"))
+      .useMessageQueueStore;
+    vi.mocked(queueStore.getState).mockReturnValueOnce({
+      ...queueStore.getState(),
+      currentSendingId: "other-chat-pending-acceptance",
+    });
+    const textarea = document.createElement("textarea");
+    textarea.value = "new chat input";
+    document.body.appendChild(textarea);
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => textarea.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(mockQueueEnqueue).not.toHaveBeenCalled();
+    textarea.remove();
+  });
+
+  it("routes send-button submissions into FIFO while this Chat is generating", async () => {
+    mockSdkInput.loading = true;
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() => expect(holdOwnershipLock).toHaveBeenCalled());
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "next turn",
+      fileList: [],
+    });
+    expect(result).toEqual({ proceed: false, clear: true });
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      "test-session",
+      expect.objectContaining({ text: "next turn" }),
+    );
   });
 
   it("queues an attachment-only submission in a non-owner tab", async () => {

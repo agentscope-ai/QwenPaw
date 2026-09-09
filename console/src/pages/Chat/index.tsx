@@ -397,6 +397,7 @@ async function startBackgroundQueue(
         );
         if (!idle) break;
       } catch (error) {
+        if (ctrl.signal.aborted) break;
         const store = useMessageQueueStore.getState();
         if (!["paused", "error"].includes(store.getRunState(queueKey))) {
           store.setItemStatus(
@@ -496,11 +497,9 @@ async function startBackgroundQueue(
           queueAgentId,
           queueKey,
         );
-        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
-        // HTTP connection alive even when the queue loop is aborted (e.g.
-        // foreground takes over). The server finishes generating and
-        // persists the turn so no message is lost and no re-send occurs.
-        const res = await fetch(getApiUrl("/console/chat"), {
+        // Do not abort the POST: receipt may still be unknown when the
+        // foreground takes over. Only the local wait belongs to this scope.
+        const response = fetch(getApiUrl("/console/chat"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -508,6 +507,20 @@ async function startBackgroundQueue(
           },
           body: JSON.stringify(pendingRequest.requestBody),
         });
+        // Headers can arrive after this worker has released its locks.
+        // Close that abandoned subscription without cancelling the backend run.
+        void response.then(
+          (res) => {
+            if (ctrl.signal.aborted) void res.body?.cancel().catch(() => {});
+          },
+          () => {},
+        );
+        const res = await awaitInChatScope(response, ctrl.signal);
+        // Abort may race with the continuation after headers were resolved.
+        if (ctrl.signal.aborted) {
+          void res.body?.cancel().catch(() => {});
+          break;
+        }
 
         if (!res.ok) {
           sessionApi.discardLastUserMessage(
@@ -525,9 +538,21 @@ async function startBackgroundQueue(
         // backend completion; the next iteration checks authoritative status.
         const reader = res.body?.getReader();
         if (reader) {
-          while (!ctrl.signal.aborted) {
-            const r = await reader.read();
-            if (r.done) break;
+          const cancelReader = () => {
+            // Do not await cancellation: even the stream's cancel hook may
+            // remain pending. Releasing local locks must not depend on it.
+            void reader.cancel().catch(() => {});
+          };
+          ctrl.signal.addEventListener("abort", cancelReader, { once: true });
+          try {
+            if (ctrl.signal.aborted) cancelReader();
+            while (!ctrl.signal.aborted) {
+              const r = await awaitInChatScope(reader.read(), ctrl.signal);
+              if (r.done) break;
+            }
+          } finally {
+            ctrl.signal.removeEventListener("abort", cancelReader);
+            reader.releaseLock();
           }
         }
         fetchSucceeded = true;
@@ -539,22 +564,12 @@ async function startBackgroundQueue(
 
       if (ctrl.signal.aborted) {
         if (fetchStarted) {
-          // Server connection was NOT aborted (no signal on fetch), so the
-          // backend will finish generating and persist this turn. Safe to
-          // remove — the foreground SDK will see it in history on reconnect.
+          // The accepted run continues server-side after its SSE subscriber
+          // disconnects; foreground history/reconnect owns the result.
           useMessageQueueStore.getState().remove(queueKey, item.id);
-        } else {
-          // No response headers means receipt is unknown, not that the POST
-          // never arrived. Preserve the item without automatically resending.
-          useMessageQueueStore
-            .getState()
-            .setItemStatus(
-              queueKey,
-              item.id,
-              "failed",
-              i18n.t("chat.queue.sendFailed"),
-            );
         }
+        // Without headers receipt is unknown. Keep `sending` for history
+        // reconciliation; scope cancellation is neither failure nor a retry.
         break;
       }
 
@@ -1181,14 +1196,16 @@ function RuntimeLoadingBridge({
   useEffect(() => {
     setDisabled?.(disabled);
   }, [disabled, setDisabled]);
-  const { loading, setLoading, getLoading } = useChatAnywhereInput(
-    (value) =>
-      ({
-        loading: value.loading,
-        setLoading: value.setLoading,
-        getLoading: value.getLoading,
-      }) as { loading: boolean | string } & RuntimeLoadingBridgeApi,
-  );
+  const { loading, setLoading, getLoading, setSessionLoading } =
+    useChatAnywhereInput(
+      (value) =>
+        ({
+          loading: value.loading,
+          setLoading: value.setLoading,
+          getLoading: value.getLoading,
+          setSessionLoading: value.setSessionLoading,
+        }) as { loading: boolean | string } & RuntimeLoadingBridgeApi,
+    );
 
   useEffect(() => {
     if (!setLoading || !getLoading) {
@@ -1199,6 +1216,7 @@ function RuntimeLoadingBridge({
     bridgeRef.current = {
       setLoading,
       getLoading,
+      setSessionLoading,
     };
 
     return () => {
@@ -1206,7 +1224,7 @@ function RuntimeLoadingBridge({
         bridgeRef.current = null;
       }
     };
-  }, [getLoading, setLoading, bridgeRef]);
+  }, [getLoading, setLoading, setSessionLoading, bridgeRef]);
 
   useEffect(() => {
     onLoadingChange?.(loading ?? false);
@@ -1257,7 +1275,15 @@ export default function ChatPage() {
   const queueSessionId = chatId ?? "new";
   const queueKey = getQueueKey(selectedAgent, queueSessionId);
   const sdkSessionAdapter = useMemo(
-    () => createSdkSessionAdapter(sessionApi.bindToOwner()),
+    () =>
+      createSdkSessionAdapter(sessionApi.bindToOwner(), (id, session) => {
+        // SDK 1.2 only clears hydrated idle state when its own queue is enabled.
+        // CoPaw owns the queue: clear the loaded Chat's cached connection state
+        // before readiness wakes its sender. Never clear another Chat's stream.
+        if (session && !session.generating) {
+          runtimeLoadingBridgeRef.current?.setSessionLoading?.(id, false);
+        }
+      }),
     [selectedAgent],
   );
   const sdkSessionApi = sdkSessionAdapter.api;
@@ -1405,6 +1431,11 @@ export default function ChatPage() {
   queueSessionIdRef.current = queueSessionId;
   const queueKeyRef = useRef(queueKey);
   queueKeyRef.current = queueKey;
+  // A -> new -> A is a new visit even when its queue key is identical. Late
+  // async completions from the first visit must not replace the new timer.
+  const queueVisit = useMemo(() => ({}), [queueKey, selectedAgent]);
+  const queueVisitRef = useRef(queueVisit);
+  queueVisitRef.current = queueVisit;
   const queueExecutionScopeRef = useRef(new AbortController());
   useEffect(() => {
     const controller = new AbortController();
@@ -1630,9 +1661,10 @@ export default function ChatPage() {
                 : i18n.t("chat.queue.sendFailed"),
             );
         }
+      } finally {
+        const store = useMessageQueueStore.getState();
+        if (store.currentSendingId === item.id) store.setCurrentSendingId(null);
       }
-
-      useMessageQueueStore.getState().setCurrentSendingId(null);
       return false;
     },
     [
@@ -1782,8 +1814,18 @@ export default function ChatPage() {
   }, [queueSessionId, queueKey]);
 
   const scheduleNextSend = useCallback(() => {
+    if (
+      queueVisitRef.current !== queueVisit ||
+      queueExecutionScopeRef.current.signal.aborted
+    )
+      return;
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
     autoSendTimerRef.current = setTimeout(() => {
+      if (
+        queueVisitRef.current !== queueVisit ||
+        queueExecutionScopeRef.current.signal.aborted
+      )
+        return;
       autoSendTimerRef.current = null;
       if (!isChatActiveRef.current) return;
       if (chatLoadingRef.current) return;
@@ -1827,7 +1869,7 @@ export default function ChatPage() {
         await executeQueuedItem(fresh[0]);
       });
     }, 500);
-  }, [executeQueuedItem, queueSessionId, queueKey]);
+  }, [executeQueuedItem, queueSessionId, queueKey, queueVisit]);
 
   // Reload queue when switching sessions or on first mount
   const prevQueueSessionIdRef = useRef<string | null>(null);
@@ -2333,9 +2375,8 @@ export default function ChatPage() {
     const itemsJustQueued = messageQueue.length > 0 && !chatLoading;
 
     if (responseJustCompleted) {
-      // The currently-sending item finished. Clear the marker so the next
-      // Enter handler decision and lock acquisition see a clean state.
-      useMessageQueueStore.getState().setCurrentSendingId(null);
+      // Refresh loop mode before scheduling the next item. The execution
+      // that owns the sending marker clears it in its own finally block.
       void syncLoopModeStatus().finally(scheduleNextSend);
     } else if (itemsJustQueued) {
       scheduleNextSend();
@@ -2373,9 +2414,7 @@ export default function ChatPage() {
         return;
       const hasCtrl = e.ctrlKey || e.metaKey;
       const queueBusy =
-        messageQueueRef.current.length > 0 ||
-        autoSendTimerRef.current !== null ||
-        useMessageQueueStore.getState().currentSendingId !== null;
+        messageQueueRef.current.length > 0 || autoSendTimerRef.current !== null;
       if (!hasCtrl && !chatLoadingRef.current && !queueBusy) return;
       if (!hasCtrl && e.altKey) return;
       if (isComposingRef.current || (e as any).isComposing) return;
@@ -3630,11 +3669,15 @@ export default function ChatPage() {
         !sdkSessionAdapter.isReady(chatIdRef.current)
       )
         return false;
-      // Single-tab ownership: non-owner tabs are queue-only. Re-route every
-      // submit (Enter / send button / programmatic) to the shared queue and
-      // abort the actual SDK send. The owner tab will pick the item up via
-      // cross-tab broadcast and send it.
-      if (!isOwnerRef.current) {
+      // Every entry point obeys the same FIFO boundary. The send button and
+      // programmatic submissions must not bypass an existing host queue in
+      // the idle interval between turns, or interrupt an active SDK request.
+      if (
+        !isOwnerRef.current ||
+        chatLoadingRef.current ||
+        messageQueueRef.current.length > 0 ||
+        autoSendTimerRef.current !== null
+      ) {
         const textarea = getActiveSenderTextarea();
         const val = data.query.trim() || textarea?.value.trim() || "";
         const submittedAttachments = getSubmissionAttachments(data);

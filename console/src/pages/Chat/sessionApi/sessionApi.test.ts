@@ -1,14 +1,277 @@
 /**
- * Session API pure transforms (test-only exports). Regression family:
+ * Session API creation lifecycle and pure transforms. Regression family:
+ * owner-epoch concurrent creation, failure retry and late-result isolation,
  * session id resolution (local timestamp ids must never be used as backend
  * UUIDs — 404 loops) and message-to-card conversion (history replay must
  * preserve roles/timestamps/attachments).
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@agentscope-ai/chat", () => ({}));
 
-import { __test__ as T } from "./index";
+import sessionApi, { __test__ as T } from "./index";
+import api, { type ChatHistory, type ChatSpec } from "../../../api";
+import { createSdkSessionAdapter } from "../sdkSessionAdapter";
+
+const sessionWindow = window as Window & { currentSessionId?: string };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function createdChat(id: string): ChatSpec {
+  return {
+    id,
+    name: id,
+    session_id: `runtime-${id}`,
+    user_id: "default",
+    channel: "console",
+    created_at: "2026-09-09T00:00:00Z",
+    updated_at: "2026-09-09T00:00:00Z",
+    meta: {},
+  };
+}
+
+describe("createSession owner-epoch singleflight", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+    sessionApi.resetWindowIdentity();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+    sessionApi.resetWindowIdentity();
+  });
+
+  it("shares concurrent first sends and publishes the created Chat once", async () => {
+    const pending = deferred<ChatSpec>();
+    const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
+    const selected = vi.fn();
+    sessionApi.onSessionCreated = selected;
+    const bound = sessionApi.bindToOwner();
+    const results = Promise.all([
+      sessionApi.createSession({ name: "first" }),
+      bound.createSession({ name: "second" }),
+      sessionApi.createSession({ name: "third" }),
+    ]);
+    pending.resolve(createdChat("chat-one"));
+    const sessions = await results;
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "first" }),
+    );
+    expect(sessions[1]).toBe(sessions[0]);
+    expect(sessions[2]).toBe(sessions[0]);
+    expect(selected).toHaveBeenCalledExactlyOnceWith("chat-one");
+    expect(sessions[0]).toMatchObject({
+      session: { id: "chat-one", sessionId: "runtime-chat-one" },
+      sessions: [{ id: "chat-one" }],
+    });
+  });
+
+  it("creates another Chat after the previous creation has completed", async () => {
+    const create = vi
+      .spyOn(api, "createChat")
+      .mockResolvedValueOnce(createdChat("chat-one"))
+      .mockResolvedValueOnce(createdChat("chat-two"));
+    await sessionApi.createSession({ name: "first" });
+    const next = await sessionApi.createSession({ name: "second" });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(next.session.id).toBe("chat-two");
+    expect(next.sessions.map((session) => session.id)).toEqual([
+      "chat-two",
+      "chat-one",
+    ]);
+  });
+
+  it("rejects all waiters on failure and allows a fresh concurrent retry", async () => {
+    const pending = deferred<ChatSpec>();
+    const failure = new Error("create failed");
+    const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
+    const selected = vi.fn();
+    sessionApi.onSessionCreated = selected;
+    const failed = Promise.allSettled([
+      sessionApi.createSession({ name: "first" }),
+      sessionApi.createSession({ name: "second" }),
+    ]);
+    pending.reject(failure);
+    expect(await failed).toEqual([
+      { status: "rejected", reason: failure },
+      { status: "rejected", reason: failure },
+    ]);
+    expect(selected).not.toHaveBeenCalled();
+    const attemptsBeforeRetry = create.mock.calls.length;
+    const retry = deferred<ChatSpec>();
+    create.mockReturnValue(retry.promise);
+    const retried = Promise.all([
+      sessionApi.createSession({ name: "retry" }),
+      sessionApi.createSession({ name: "retry again" }),
+    ]);
+    retry.resolve(createdChat("retry-chat"));
+    const results = await retried;
+
+    expect(attemptsBeforeRetry).toBe(1);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(results[0]).toBe(results[1]);
+    expect(selected).toHaveBeenCalledExactlyOnceWith("retry-chat");
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "does not let an old A %s clear the new A epoch's pending creation",
+    async (settle) => {
+      const old = deferred<ChatSpec>();
+      const current = deferred<ChatSpec>();
+      const create = vi.spyOn(api, "createChat").mockReturnValue(old.promise);
+      const selected = vi.fn();
+      sessionApi.onSessionCreated = selected;
+      const oldResult = Promise.allSettled([
+        sessionApi.createSession({ name: "old A" }),
+      ]);
+      const oldBound = sessionApi.bindToOwner();
+      sessionApi.setActiveAgent("B");
+      sessionApi.setActiveAgent("A");
+      create.mockReturnValue(current.promise);
+      const newResult = sessionApi.createSession({ name: "new A" });
+      const identityBefore = sessionWindow.currentSessionId;
+      if (settle === "resolve") old.resolve(createdChat("stale-chat"));
+      else old.reject(new Error("old failure"));
+      const [stale] = await oldResult;
+      expect(stale.status).toBe("rejected");
+      if (settle === "resolve" && stale.status === "rejected") {
+        expect(stale.reason).toMatchObject({ name: "AbortError" });
+      }
+      expect(selected).not.toHaveBeenCalled();
+      expect(sessionWindow.currentSessionId).toBe(identityBefore);
+      await expect(oldBound.createSession({})).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      const joined = sessionApi.createSession({ name: "join new A" });
+      current.resolve(createdChat("fresh-chat"));
+      const [result, joinedResult] = await Promise.all([newResult, joined]);
+
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(joinedResult).toBe(result);
+      expect(result.sessions.map((session) => session.id)).toEqual([
+        "fresh-chat",
+      ]);
+      expect(sessionWindow.currentSessionId).toBe("runtime-fresh-chat");
+      expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
+    },
+  );
+
+  it("rejects late old-A success after new-A success without changing identity or list", async () => {
+    const old = deferred<ChatSpec>();
+    const create = vi.spyOn(api, "createChat").mockReturnValue(old.promise);
+    const selected = vi.fn();
+    sessionApi.onSessionCreated = selected;
+    const stale = Promise.allSettled([sessionApi.createSession({})]);
+    sessionApi.setActiveAgent("B");
+    sessionApi.setActiveAgent("A");
+    create.mockResolvedValue(createdChat("fresh-chat"));
+    const fresh = await sessionApi.createSession({});
+    old.resolve(createdChat("stale-chat"));
+    expect(await stale).toEqual([
+      {
+        status: "rejected",
+        reason: expect.objectContaining({ name: "AbortError" }),
+      },
+    ]);
+    expect(sessionWindow.currentSessionId).toBe("runtime-fresh-chat");
+    expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
+    create.mockResolvedValue(createdChat("next-chat"));
+    const next = await sessionApi.createSession({});
+    expect(fresh.session.id).toBe("fresh-chat");
+    expect(next.sessions.map((session) => session.id)).toEqual([
+      "next-chat",
+      "fresh-chat",
+    ]);
+  });
+});
+
+describe("bound session history owner epochs", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+    sessionApi.resetWindowIdentity();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+    sessionApi.resetWindowIdentity();
+  });
+
+  it("suppresses A1's late idle observer after A -> B -> A2 while preserving direct getSession results", async () => {
+    const chatId = "11111111-1111-4111-8111-111111111111";
+    const pending = deferred<ChatHistory>();
+    const history = vi.spyOn(api, "getChat").mockReturnValue(pending.promise);
+    const clearLoading = vi.fn();
+    const oldObserver = vi.fn((_id, session) => {
+      if (session && !session.generating) clearLoading();
+    });
+    const oldBound = sessionApi.bindToOwner();
+    const oldAdapter = createSdkSessionAdapter(oldBound, oldObserver);
+    // Use the real SessionApi and adapter; defer only the backend history.
+    const boundResult = oldAdapter.api.getSession(chatId);
+    const directResult = sessionApi.getSession(chatId);
+    expect(history).toHaveBeenCalledTimes(1);
+
+    sessionApi.setActiveAgent("B");
+    sessionApi.setActiveAgent("A");
+    history.mockResolvedValue({ messages: [], status: "running" });
+    const currentObserver = vi.fn();
+    const currentAdapter = createSdkSessionAdapter(
+      sessionApi.bindToOwner(),
+      currentObserver,
+    );
+    const current = await currentAdapter.api.getSession(chatId);
+    expect(current).toMatchObject({ id: chatId, generating: true });
+    expect(currentAdapter.isReady(chatId)).toBe(true);
+    expect(currentObserver).toHaveBeenCalledExactlyOnceWith(chatId, current);
+
+    pending.resolve({ messages: [], status: "idle" });
+    const [staleBound, staleDirect] = await Promise.all([
+      boundResult,
+      directResult,
+    ]);
+    expect(oldObserver).not.toHaveBeenCalled();
+    expect(clearLoading).not.toHaveBeenCalled();
+    expect(staleBound).toBeUndefined();
+    expect(oldAdapter.isReady(chatId)).toBe(false);
+    expect(staleDirect).toMatchObject({ id: chatId, generating: false });
+    expect(currentAdapter.isReady(chatId)).toBe(true);
+    expect(currentObserver).toHaveBeenCalledTimes(1);
+
+    // The original pre-call guard must also reject newly invoked stale APIs.
+    await expect(oldBound.getSession(chatId)).resolves.toBeUndefined();
+    expect(history).toHaveBeenCalledTimes(2);
+  });
+
+  it("still delivers current-owner idle history to the observer", async () => {
+    const chatId = "22222222-2222-4222-8222-222222222222";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+    });
+    const observer = vi.fn();
+    const adapter = createSdkSessionAdapter(sessionApi.bindToOwner(), observer);
+    const session = await adapter.api.getSession(chatId);
+
+    expect(session).toMatchObject({ id: chatId, generating: false });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(chatId, session);
+    expect(adapter.isReady(chatId)).toBe(true);
+  });
+});
 
 type SessionLike = {
   id: string;

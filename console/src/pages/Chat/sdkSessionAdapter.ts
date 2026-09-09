@@ -5,6 +5,10 @@ import type { IAgentScopeRuntimeWebUISessionAPI } from "@agentscope-ai/chat";
  * Sender/queue guards read this synchronously, including before React commits. */
 export function createSdkSessionAdapter(
   source: IAgentScopeRuntimeWebUISessionAPI,
+  onSessionLoaded?: (
+    id: string,
+    session: Awaited<ReturnType<typeof source.getSession>>,
+  ) => void,
 ) {
   const ready = new Set<string>();
   const pending = new Map<string, symbol>();
@@ -50,6 +54,7 @@ export function createSdkSessionAdapter(
           // leaves the sender and its queue permanently disabled.
           for (const sessionId of sessionIds(id, session)) {
             ready.add(sessionId);
+            onSessionLoaded?.(sessionId, session);
           }
         }
         return session;

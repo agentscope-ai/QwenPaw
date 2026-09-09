@@ -770,6 +770,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    *  at runtime the module claims the selected agent on load, below). */
   private activeOwner: SessionOwnerToken = { agentId: "", generation: 0 };
 
+  /** Share only pending creation within an owner epoch, never a completed Chat. */
+  private sessionCreationRequest: {
+    owner: SessionOwnerToken;
+    promise: Promise<IAgentScopeRuntimeWebUICreateSessionResult>;
+  } | null = null;
+
   /**
    * Claims session ownership for an agent. Advances the generation whenever
    * the agent actually changes so that A -> B -> A creates a fresh epoch.
@@ -785,6 +791,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // promises keep running but their results are rejected by the owner
     // checks at the apply sites.
     this.sessionListRequest = null;
+    this.sessionCreationRequest = null;
     this.resolvePromise = null;
     this.pendingLocalSessionIds.clear();
     this.sessionRequests.clear();
@@ -817,8 +824,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return {
       getSessionList: async () =>
         this.isActiveOwner(owner) ? this.getSessionList() : [],
-      getSession: async (id) =>
-        this.isActiveOwner(owner) ? this.getSession(id) : undefined,
+      getSession: async (id) => {
+        if (!this.isActiveOwner(owner)) return undefined;
+        const session = await this.getSession(id);
+        // Direct callers may inspect late results, but an old SDK/adapter
+        // must not publish them into the current owner's view or observer.
+        return this.isActiveOwner(owner) ? session : undefined;
+      },
       updateSession: async (session) =>
         this.isActiveOwner(owner) ? this.updateSession(session) : [],
       removeSession: async (session) =>
@@ -862,6 +874,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   resetForTests(): void {
     this.activeOwner = { agentId: "", generation: 0 };
     this.sessionListRequest = null;
+    this.sessionCreationRequest = null;
     this.resolvePromise = null;
     this.pendingLocalSessionIds.clear();
     this.sessionRequests.clear();
@@ -1766,6 +1779,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   async createSession(
     session: Partial<IAgentScopeRuntimeWebUISession>,
   ): Promise<IAgentScopeRuntimeWebUICreateSessionResult> {
+    const owner = this.getActiveOwner();
+    if (
+      this.sessionCreationRequest &&
+      this.isActiveOwner(this.sessionCreationRequest.owner)
+    ) {
+      return this.sessionCreationRequest.promise;
+    }
     // Idempotency: reuse an unresolved local session. The explicit SDK result
     // identifies the reused session without mutating the caller's draft or
     // relying on list order.
@@ -1777,29 +1797,44 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return { sessions: [...this.sessionList], session: existing };
     }
 
-    const owner = this.getActiveOwner();
-    const runtimeSessionId = `${Date.now()}-${randomBase36(7)}`;
-    // The SDK can await session creation. Resolve the backend Chat UUID before
-    // rendering the first turn, so streaming never changes its UI identity.
-    const placeholderName = session.name?.slice(0, 10) || "Media Message";
-    const chat = await api.createChat({
-      session_id: runtimeSessionId,
-      user_id: DEFAULT_USER_ID,
-      channel: DEFAULT_CHANNEL,
-      name: placeholderName,
-      meta: { console_placeholder_name: placeholderName },
-    });
-    if (!this.isActiveOwner(owner)) {
-      throw new DOMException("Session owner changed", "AbortError");
+    const entry = {
+      owner,
+      promise:
+        (async (): Promise<IAgentScopeRuntimeWebUICreateSessionResult> => {
+          const runtimeSessionId = `${Date.now()}-${randomBase36(7)}`;
+          // Resolve the backend UUID before the first turn. Only this shared
+          // operation publishes the session and fires the creation callback.
+          const placeholderName = session.name?.slice(0, 10) || "Media Message";
+          const chat = await api.createChat({
+            session_id: runtimeSessionId,
+            user_id: DEFAULT_USER_ID,
+            channel: DEFAULT_CHANNEL,
+            name: placeholderName,
+            meta: { console_placeholder_name: placeholderName },
+          });
+          if (!this.isActiveOwner(owner)) {
+            throw new DOMException("Session owner changed", "AbortError");
+          }
+          const extended = this.createEmptySession(chat.id, owner);
+          extended.realId = chat.id;
+          extended.sessionId = chat.session_id || runtimeSessionId;
+          extended.name = chat.name || DEFAULT_SESSION_NAME;
+          this.updateWindowVariables(extended);
+          this.sessionList.unshift(extended);
+          this.onSessionCreated?.(chat.id);
+          return { sessions: [...this.sessionList], session: extended };
+        })(),
+    };
+    this.sessionCreationRequest = entry;
+    try {
+      return await entry.promise;
+    } finally {
+      // Both success and failure permit another creation. An old epoch must
+      // not clear the request installed by a newer A -> B -> A cycle.
+      if (this.sessionCreationRequest === entry) {
+        this.sessionCreationRequest = null;
+      }
     }
-    const extended = this.createEmptySession(chat.id, owner);
-    extended.realId = chat.id;
-    extended.sessionId = chat.session_id || runtimeSessionId;
-    extended.name = chat.name || DEFAULT_SESSION_NAME;
-    this.updateWindowVariables(extended);
-    this.sessionList.unshift(extended);
-    this.onSessionCreated?.(chat.id);
-    return { sessions: [...this.sessionList], session: extended };
   }
 
   async removeSession(session: Partial<IAgentScopeRuntimeWebUISession>) {

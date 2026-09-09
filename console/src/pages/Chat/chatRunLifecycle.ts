@@ -24,13 +24,24 @@ export function awaitInChatScope<T>(
   signal: AbortSignal,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const onAbort = () =>
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
       reject(new DOMException("Chat changed", "AbortError"));
+    };
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) onAbort();
-    promise.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) onAbort();
+        else resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) onAbort();
+        else reject(error);
+      },
+    );
   });
 }
 
