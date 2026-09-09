@@ -523,7 +523,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
+          files=(
+            QwenPaw-Setup-*.exe
+            QwenPaw-[0-9]*-macOS.zip
+            QwenPaw-Tauri-*-Windows-setup.exe
+            QwenPaw-Tauri-*-macOS.zip
+          )
+          if [ -f qwenpaw-tauri-latest.json ]; then
+            files+=(qwenpaw-tauri-latest.json)
+          fi
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No uploaded Release assets found to verify"
+            exit 1
+          fi
           bash scripts/pack/verify_github_release_assets.sh \
             "${{ github.event.release.tag_name }}" \
             "${files[@]}"
