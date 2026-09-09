@@ -483,6 +483,8 @@ describe("ChatPage coverage", () => {
     mockRuntimeSubmit.mockReset();
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId: "test-session",
       userId: "test-user",
       channel: "console",
     });
@@ -896,8 +898,16 @@ describe("ChatPage coverage", () => {
   // ── cancel callback → calls stopChat ───────────────────────────────────
   it("cancel callback invokes stopChat", async () => {
     const { chatApi } = await import("@/api/modules/chat");
+    const chatId = "90000000-0000-4000-8000-000000000001";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 
@@ -910,8 +920,16 @@ describe("ChatPage coverage", () => {
 
   // ── reconnect callback → calls fetch ───────────────────────────────────
   it("reconnect callback invokes fetch with reconnect body", async () => {
+    const chatId = "90000000-0000-4000-8000-000000000002";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 
@@ -1127,9 +1145,11 @@ describe("ChatPage coverage", () => {
             size: 42,
           },
         ],
-        backendSessionId: "test-session",
-        userId: "test-user",
-        channel: "console",
+        bizParams: expect.objectContaining({
+          session_id: "test-session",
+          user_id: "test-user",
+          channel: "console",
+        }),
       }),
     ]);
     act(() => useMessageQueueStore.getState().clear(chatId));
@@ -1231,6 +1251,7 @@ describe("ChatPage coverage", () => {
     const chatId = "33322222-2222-4222-8222-222222222223";
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "source-session",
+      sdkSessionId: "source-session",
       userId: "source-user",
       channel: "console",
     });
@@ -1247,6 +1268,7 @@ describe("ChatPage coverage", () => {
 
     vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
       sessionId: "target-session",
+      sdkSessionId: "target-session",
       userId: "target-user",
       channel: "console",
     });
@@ -1345,7 +1367,9 @@ describe("ChatPage coverage", () => {
       items: [
         {
           text: "follow-up during cleanup",
-          backendSessionId: "test-session",
+          bizParams: expect.objectContaining({
+            session_id: "test-session",
+          }),
           attachments: [{ url: "/files/race.txt", name: "race.txt" }],
         },
       ],
@@ -2145,8 +2169,16 @@ describe("ChatPage coverage", () => {
 
   // ── Reconnect callback with signal ─────────────────────────────────────
   it("reconnect callback handles abort signal", async () => {
+    const chatId = "90000000-0000-4000-8000-000000000003";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 
