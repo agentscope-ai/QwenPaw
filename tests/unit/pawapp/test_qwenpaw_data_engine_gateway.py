@@ -55,6 +55,7 @@ def test_engine_gateway_allows_declared_routes(path: str) -> None:
     [
         ("api/v1/sessions", "/api/v1/sessions"),
         ("health", "/health"),
+        ("api/v1/%73essions", "/api/v1/sessions"),
         (
             "api/v1/sessions/ses_1/chats/chat_1/events",
             "/api/v1/sessions/ses_1/chats/chat_1/events",
@@ -88,6 +89,27 @@ def test_engine_gateway_normalizes_paths(path: str, expected: str) -> None:
 def test_engine_gateway_rejects_undeclared_or_escaped_paths(path: str) -> None:
     with pytest.raises(HTTPException) as exc:
         _gateway_class()._validate_path(path)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/%252e%252e/secrets",
+        "/api/v1/sessions?redirect=/health",
+    ],
+)
+def test_engine_gateway_rejects_unsafe_path_before_request_build(
+    path: str,
+) -> None:
+    gateway = _gateway_class()(
+        SimpleNamespace(is_external=False, base_url="http://127.0.0.1:9"),
+        "managed-token",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        gateway._build_request("GET", path)
+
     assert exc.value.status_code == 404
 
 

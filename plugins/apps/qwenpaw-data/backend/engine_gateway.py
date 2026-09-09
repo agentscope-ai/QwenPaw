@@ -162,7 +162,7 @@ class EngineGateway:
         path: str,
         **kwargs,
     ) -> httpx.Request:
-        self._validate_path(path)
+        validated_path = self._validate_path(path)
         client = self._require_client()
         token = (
             os.getenv("QWENPAW_DATA_ENGINE_TOKEN", "").strip()
@@ -181,7 +181,7 @@ class EngineGateway:
             ) from exc
         return client.build_request(
             method,
-            f"{base_url}{path}",
+            f"{base_url}{validated_path}",
             headers=headers,
             **kwargs,
         )
@@ -214,11 +214,10 @@ class EngineGateway:
     def _upstream_path(cls, path: str) -> str:
         normalized = path.lstrip("/")
         upstream_path = f"/{normalized}"
-        cls._validate_path(upstream_path)
-        return upstream_path
+        return cls._validate_path(upstream_path)
 
     @staticmethod
-    def _validate_path(path: str) -> None:
+    def _validate_path(path: str) -> str:
         def has_forbidden_character(value: str) -> bool:
             return any(
                 character.isspace()
@@ -287,6 +286,7 @@ class EngineGateway:
                 status_code=404,
                 detail="Engine route is not exposed",
             )
+        return decoded
 
     @staticmethod
     def _error_detail(response: httpx.Response) -> str:
