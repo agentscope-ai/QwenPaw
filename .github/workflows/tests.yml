@@ -238,7 +238,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        # Phase-1 item (plan v1.7, maintainer-approved 9-09): the integration
+        # tier runs Python 3.11 only in the PR gate. Measured over the last 40
+        # runs (tests.yml + full-tests-nightly.yml), the ubuntu 3.11 vs 3.13
+        # integration verdicts diverged exactly once (2026-08-20 nightly), and
+        # that divergence was NOT version-specific: the same case
+        # (test_matrix_mock.py::test_matrix_dm_disabled_drops_message) also
+        # failed on windows 3.11 in the same run — a cross-platform flake.
+        # The other 39 runs agreed across versions, so the second Python
+        # version of the integration tier captured nothing in three months.
+        # Python-version compatibility stays gated by the unit tier here
+        # (3.11 + 3.13, cheap and parallel) and by the nightly full matrix.
+        # Wall clock is unchanged: shards run in parallel and the slowest
+        # (ubuntu 3.11 p1, 25.5 min) still dominates.
+        python-version: ["3.11"]
         os: [ubuntu-latest]
         shard: [p0, p1, p2]
         # Phase-1 simplification (plan v1.6): ubuntu-only matrix (item 1-1) and
