@@ -780,3 +780,101 @@ def test_startup_lock_does_not_quarantine(tmp_path):
             "SELECT content FROM conversation_history",
         ).fetchone() == ("aardvark",)
     assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_startup_fts_check_defers_while_wal_writer_is_active(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    initial = HistoryStore(path)
+    initial.append(session_id="s", entry=_entry("aardvark"))
+    initial.close()
+    original_check = HistoryStore._check_fts
+    attempts = []
+
+    def check(store):
+        # Only the optional probe gets a zero wait, not normal writes/repair.
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 0
+        try:
+            original_check(store)
+        except sqlite3.DatabaseError as exc:
+            attempts.append(exc.sqlite_errorcode & 0xFF)
+            raise
+        attempts.append("ok")
+
+    monkeypatch.setattr(HistoryStore, "_check_fts", check)
+    writer = sqlite3.connect(path)
+    opened = None
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        opened = HistoryStore(path)
+        assert attempts == [sqlite3.SQLITE_BUSY]
+        assert opened.count("s") == 1
+        assert _fts_hits(opened, "aardvark")
+        assert opened.quarantined_to is None
+        assert opened._fts is True
+        assert not opened._conn.in_transaction
+        assert (
+            opened._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        )
+        writer.rollback()
+        opened.append(session_id="s", entry=_entry("zebra"))
+        assert opened.count("s") == 2
+    finally:
+        writer.close()
+        if opened is not None:
+            opened.close()
+    reopened = HistoryStore(path)
+    try:
+        assert attempts == [sqlite3.SQLITE_BUSY, "ok"]
+        assert reopened.count("s") == 2
+    finally:
+        reopened.close()
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+@pytest.mark.parametrize(
+    "code,deferred",
+    [
+        (sqlite3.SQLITE_LOCKED, True),
+        (sqlite3.SQLITE_LOCKED_SHAREDCACHE, True),
+        (sqlite3.SQLITE_BUSY_SNAPSHOT, True),
+        (sqlite3.SQLITE_IOERR, False),
+        (sqlite3.SQLITE_FULL, False),
+    ],
+)
+def test_startup_fts_defers_only_contention(
+    tmp_path,
+    monkeypatch,
+    code,
+    deferred,
+):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()
+
+    def check(store):
+        error = sqlite3.OperationalError("synthetic FTS check error")
+        error.sqlite_errorcode = code
+        raise error
+
+    def repair(store):
+        pytest.fail("Operational errors must not trigger FTS repair")
+
+    monkeypatch.setattr(HistoryStore, "_check_fts", check)
+    monkeypatch.setattr(HistoryStore, "_repair_fts", repair)
+    if deferred:
+        store = HistoryStore(path)
+        try:
+            assert store._fts is True
+            assert not store._conn.in_transaction
+            assert (
+                store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+                == 5000
+            )
+        finally:
+            store.close()
+    else:
+        with pytest.raises(sqlite3.OperationalError, match="synthetic"):
+            HistoryStore(path)
+    assert not list(tmp_path.glob("*.corrupt-*"))

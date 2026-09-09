@@ -135,12 +135,31 @@ class HistoryStore:
         self._init_schema()
         if self._fts:
             try:
-                with self._conn:
-                    self._check_fts()
+                # FTS integrity-check is an INSERT and needs a writer lock.
+                # This optional probe must not stall request construction
+                # behind an ordinary writer; subsequent opens try it again.
+                try:
+                    self._conn.execute("PRAGMA busy_timeout=0")
+                    with self._conn:
+                        self._check_fts()
+                finally:
+                    self._conn.execute(
+                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}",
+                    )
             except sqlite3.DatabaseError as exc:
-                if not self._is_corruption(exc):
+                code = getattr(exc, "sqlite_errorcode", None)
+                if code is not None and (code & 0xFF) in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    logger.debug(
+                        "Deferring history FTS check until a later open: %s",
+                        self._path,
+                    )
+                elif self._is_corruption(exc):
+                    self._repair_fts()
+                else:
                     raise
-                self._repair_fts()
 
     @staticmethod
     def _is_corruption(exc: sqlite3.DatabaseError) -> bool:
