@@ -19,7 +19,7 @@ on:
         type: string
         required: true
       ref:
-        description: "Git ref/SHA to checkout for the packaging scripts"
+        description: "Release target ref/SHA used for product source and version"
         type: string
         required: false
         default: ""
@@ -40,11 +40,22 @@ jobs:
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
       OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     steps:
-      - name: Checkout (for scripts)
+      - name: Checkout release target
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          # Helpers must come from the revision that defined this workflow,
+          # even when the release target predates those helpers.
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bash scripts/pack/download_desktop_artifacts.sh \
+          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
             --attempts 2 \
             --include-updater-metadata
 
@@ -101,10 +112,10 @@ jobs:
             fi
 
             echo "Promoting ${platform} ${versioned_name} -> ${latest_name}"
-            bash scripts/pack/oss_copy_with_readback.sh \
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
               "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
               "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}"
-            bash scripts/pack/oss_copy_with_readback.sh \
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
               "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
               "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json"
           }
@@ -153,7 +164,7 @@ jobs:
             exit 0
           fi
           NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
-          python scripts/pack-tauri/generate_update_manifest.py manifest \
+          python "$RELEASE_INFRA/scripts/pack-tauri/generate_update_manifest.py" manifest \
             --version "$VERSION" \
             --base-url "$OSS_BASE" \
             --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
@@ -161,7 +172,7 @@ jobs:
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
-          bash scripts/pack/oss_copy_with_readback.sh \
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
             qwenpaw-tauri-latest-oss.json \
             "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
 
@@ -190,7 +201,7 @@ jobs:
             if [ -z "${artifact}" ]; then
               return 0
             fi
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "${artifact}" \
               --product desktop \
               --platform "${platform}" \
@@ -212,7 +223,7 @@ jobs:
             "mac-tauri"
 
           # Upload updated desktop/index.json
-          bash scripts/pack/oss_copy_with_readback.sh \
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
             desktop-index.json \
             "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json"
 
@@ -254,7 +265,7 @@ jobs:
           PYTHON
 
           # Upload main index
-          bash scripts/pack/oss_copy_with_readback.sh \
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
             main-index.json \
             "oss://${OSS_BUCKET}/metadata/index.json"
 

@@ -6,6 +6,7 @@
 
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 attempts=2
 include_updater_metadata=false
 
@@ -93,7 +94,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     done
   fi
 
-  if $download_ok && python3 scripts/pack/verify_desktop_artifacts.py \
+  if $download_ok && python3 "$script_dir/verify_desktop_artifacts.py" \
     --require windows \
     --require macos; then
     echo "Desktop artifacts downloaded and verified"
