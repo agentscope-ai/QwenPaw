@@ -188,7 +188,29 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div className={cls} onClick={handleClick} role="button" tabIndex={0}>
+    <div
+      className={cls}
+      data-pinned={pinned}
+      onClick={handleClick}
+      onKeyDown={(event) => {
+        // Rename inputs and the nested actions have their own keyboard
+        // behavior; only activate when the session row itself has focus.
+        if (
+          event.target !== event.currentTarget ||
+          event.repeat ||
+          event.nativeEvent.isComposing
+        ) {
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleClick();
+        }
+      }}
+      role="button"
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled || editing ? -1 : 0}
+    >
       {!editing && (
         <span
           className={styles.statusSlot}
@@ -278,7 +300,10 @@ const SessionItem: React.FC<SessionItemProps> = ({
 
       {!editing && (
         <Dropdown
-          menu={{ items: dropdownItems }}
+          menu={{
+            items: dropdownItems,
+            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+          }}
           trigger={["click"]}
           placement="bottomRight"
           onOpenChange={setDropdownOpen}

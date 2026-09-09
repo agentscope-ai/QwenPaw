@@ -13,6 +13,11 @@ import logging
 from ..base import LifecycleHook
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
+from ...runtime.console_turn_state import (
+    prepare_console_regeneration,
+    repair_invalid_history_images,
+    stamp_console_turn,
+)
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 from .signals import SESSION_SAVE_SUCCEEDED_KEY
@@ -73,6 +78,10 @@ class SessionLoadHook(LifecycleHook):
             )
         except Exception:
             logger.debug("session_load: failed", exc_info=True)
+        if ctx.session_state:
+            prepare_console_regeneration(ctx.session_state, ctx.request)
+            if getattr(ctx.request, "channel", None) == "console":
+                repair_invalid_history_images(ctx.session_state)
         return HookResult()
 
 
@@ -99,6 +108,7 @@ class SessionSaveHook(LifecycleHook):
 
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
+            stamp_console_turn(proxy.data, request, "completed")
             proxy.data["mode_state"] = ctx.mode_state
             await session.save_session_state(
                 session_id=ctx.session_id,

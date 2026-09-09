@@ -2907,7 +2907,18 @@
       "searchConversations": "会話を検索…",
       "noConversations": "会話なし"
     },
-    "conversationHistory": "会話履歴"
+    "conversationHistory": "会話履歴",
+    "history": {
+      "empty": "チャット履歴なし"
+    },
+    "sessionGroup": {
+      "today": "今日",
+      "recent": "過去7日間",
+      "earlier": "それ以前"
+    },
+    "regenerate": "再生成",
+    "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
+    "turnCanceled": "停止済み"
   },
   "security": {
     "parent": "設定",

@@ -3562,7 +3562,18 @@
       "searchConversations": "Search conversations…",
       "noConversations": "No conversations yet"
     },
-    "conversationHistory": "Conversation History"
+    "conversationHistory": "Conversation History",
+    "history": {
+      "empty": "No chat history"
+    },
+    "sessionGroup": {
+      "today": "Today",
+      "recent": "Last 7 days",
+      "earlier": "Earlier"
+    },
+    "regenerate": "Regenerate",
+    "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
+    "turnCanceled": "Canceled"
   },
   "security": {
     "parent": "Settings",

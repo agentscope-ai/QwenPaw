@@ -147,7 +147,7 @@ class Runtime:
             # catching CancelledError, causing the next await to raise
             # CancelledError again.  Wrap ON_ERROR hooks so that
             # cancel_envelope is always yielded — the frontend SDK
-            # needs the {object:response, status:completed} event to
+            # needs a terminal {object:response} event to
             # exit loading state.
             try:
                 await hooks.run(Phase.ON_ERROR, ctx)
@@ -179,9 +179,8 @@ class Runtime:
                 yield ev
             raise
         except BaseException as e:
-            await self._try_save_on_cancel(ctx)
-
             ctx.error = e
+            await self._try_save_on_cancel(ctx)
             logger.error(
                 "runtime: unhandled error session=%s: %s",
                 getattr(ctx, "session_id", ""),
@@ -284,6 +283,26 @@ class Runtime:
             proxy = StateProxy()
             proxy.data = agent.state_dict()
             request = ctx.request
+            from .console_turn_state import REGENERATE_FROM, stamp_console_turn
+
+            # A failed replacement must not destroy the previously saved turn.
+            if (getattr(request, "request_context", None) or {}).get(
+                REGENERATE_FROM,
+            ):
+                return
+            stamp_console_turn(
+                proxy.data,
+                request,
+                (
+                    "canceled"
+                    if isinstance(
+                        ctx.error,
+                        (asyncio.CancelledError, KeyboardInterrupt),
+                    )
+                    else "failed"
+                ),
+                ctx.error,
+            )
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
             await asyncio.shield(

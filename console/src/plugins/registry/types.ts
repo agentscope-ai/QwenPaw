@@ -206,13 +206,13 @@ export type ChatResponseData = Record<string, unknown>;
 
 export type ChatRequestRenderFn = (ctx: {
   data: ChatRequestData;
-  fallback: () => React.ReactElement;
+  fallback: () => React.ReactNode;
 }) => React.ReactNode;
 
 export type ChatResponseRenderFn = (ctx: {
   data: ChatResponseData;
   isLast?: boolean;
-  fallback: () => React.ReactElement;
+  fallback: () => React.ReactNode;
 }) => React.ReactNode;
 
 export type ChatRequestSlotFn = (ctx: {

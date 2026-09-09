@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -153,7 +152,7 @@ describe("ResponseArtifactList", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders a live SSE file after ResponseCard merges its tool result", () => {
+  it("renders a live SSE file by pairing its tool call and result", () => {
     const liveOutput = [
       {
         id: "write-call",
@@ -174,11 +173,7 @@ describe("ResponseArtifactList", () => {
         content: [{ data: { call_id: "write-call", state: "success" } }],
       },
     ];
-    const messages = AgentScopeRuntimeResponseBuilder.mergeToolMessages(
-      liveOutput as never,
-    );
-
-    render(<ResponseArtifactList messages={messages} />);
+    render(<ResponseArtifactList messages={liveOutput} />);
 
     expect(
       screen.getByRole("button", { name: "result.md result.md" }),

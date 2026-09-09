@@ -321,7 +321,7 @@ describe("ChatSearchPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("navigates by session id when the session's realId matches", async () => {
+  it("keeps the backend Chat UUID when a local session alias matches", async () => {
     const user = userEvent.setup();
     sessionStateMocks.sessions = [{ id: "s1", realId: "c1" }];
     chatMocks.listChats.mockResolvedValue(chats(["c1", "Target"]));
@@ -345,8 +345,8 @@ describe("ChatSearchPanel", () => {
       .closest("[class*='searchResultItem']") as HTMLElement;
     await user.click(item);
 
-    expect(sessionStateMocks.setCurrentSessionId).toHaveBeenCalledWith("s1");
-    expect(navigateSpy).toHaveBeenCalledWith("/chat/s1");
+    expect(sessionStateMocks.setCurrentSessionId).not.toHaveBeenCalled();
+    expect(navigateSpy).toHaveBeenCalledWith("/chat/c1");
   });
 
   it("clears the query and results when closed", async () => {
