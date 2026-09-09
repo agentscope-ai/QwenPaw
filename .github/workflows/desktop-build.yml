@@ -284,6 +284,19 @@ jobs:
             shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
           )
 
+          updater_archives=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz)
+          if [ ${#updater_archives[@]} -gt 1 ]; then
+            echo "::error::Expected at most one macOS updater archive, found ${#updater_archives[@]}"
+            exit 1
+          fi
+          if [ ${#updater_archives[@]} -eq 1 ]; then
+            updater_archive="${updater_archives[0]}"
+            (
+              cd "$(dirname "$updater_archive")"
+              shasum -a 256 "$(basename "$updater_archive")" > "$(basename "$updater_archive").sha256"
+            )
+          fi
+
       - name: Upload desktop verify logs (Tauri macOS)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -320,5 +333,6 @@ jobs:
           name: tauri-updater-meta-macos
           path: |
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sha256
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
             dist/tauri-darwin-*-updater.json

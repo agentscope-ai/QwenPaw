@@ -44,6 +44,9 @@ selected=()
 
 cleanup_downloads() {
   local name
+  if [ ${#selected[@]} -eq 0 ]; then
+    return 0
+  fi
   for name in "${selected[@]}"; do
     # Names are accepted only after matching one of the fixed prefixes below.
     rm -rf -- "$name"

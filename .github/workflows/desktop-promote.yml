@@ -101,16 +101,12 @@ jobs:
             fi
 
             echo "Promoting ${platform} ${versioned_name} -> ${latest_name}"
-            ossutil cp \
+            bash scripts/pack/oss_copy_with_readback.sh \
               "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
-              --acl public-read \
-              --force
-            ossutil cp \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}"
+            bash scripts/pack/oss_copy_with_readback.sh \
               "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
-              --acl public-read \
-              --force
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json"
           }
 
           promote_latest \
@@ -165,10 +161,9 @@ jobs:
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
-          ossutil cp qwenpaw-tauri-latest-oss.json \
-            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
 
       - name: Update desktop index
         run: |
@@ -217,10 +212,9 @@ jobs:
             "mac-tauri"
 
           # Upload updated desktop/index.json
-          ossutil cp desktop-index.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            desktop-index.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json"
 
           echo "✓ Desktop index updated"
 
@@ -260,9 +254,8 @@ jobs:
           PYTHON
 
           # Upload main index
-          ossutil cp main-index.json \
-            "oss://${OSS_BUCKET}/metadata/index.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json"
 
           echo "✓ Main index updated"

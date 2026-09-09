@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import sys
 import zipfile
@@ -13,6 +14,7 @@ import zipfile
 ARTIFACT_PATTERNS = {
     "windows": "QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe",
     "macos": "QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip",
+    "macos-updater": ("tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz"),
 }
 
 
@@ -69,6 +71,44 @@ def verify_artifact(artifact: Path, platform: str) -> None:
     print(f"verified {platform} artifact: {artifact} ({artifact.stat().st_size} bytes)")
 
 
+def verify_macos_updater_metadata(artifact: Path) -> None:
+    signature = Path(f"{artifact}.sig")
+    if not signature.is_file():
+        raise ValueError(f"missing macOS updater signature: {signature}")
+    if signature.stat().st_size == 0:
+        raise ValueError(f"empty macOS updater signature: {signature}")
+
+    metadata_files = sorted(artifact.parent.glob("tauri-darwin-*-updater.json"))
+    if len(metadata_files) != 1:
+        raise ValueError(
+            "expected exactly one macOS updater metadata file, "
+            f"found {len(metadata_files)}",
+        )
+
+    metadata_path = metadata_files[0]
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"invalid updater metadata {metadata_path}: {error}"
+        ) from error
+    if not isinstance(metadata, dict):
+        raise ValueError(f"updater metadata {metadata_path} must be a JSON object")
+
+    expected = {
+        "artifact": artifact.name,
+        "signature": signature.name,
+    }
+    for field, expected_value in expected.items():
+        if metadata.get(field) != expected_value:
+            raise ValueError(
+                f"updater metadata {metadata_path} has {field}={metadata.get(field)!r}, "
+                f"expected {expected_value!r}",
+            )
+    if not isinstance(metadata.get("target"), str) or not metadata["target"].strip():
+        raise ValueError(f"updater metadata {metadata_path} has no valid target")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -86,6 +126,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    required_platforms = set(args.require)
+    if (args.root / "tauri-updater-meta-macos").is_dir():
+        required_platforms.add("macos-updater")
+
     failed = False
     found_any = False
     for platform, pattern in ARTIFACT_PATTERNS.items():
@@ -100,13 +144,15 @@ def main() -> int:
             failed = True
             continue
         if not artifacts:
-            if platform in args.require:
+            if platform in required_platforms:
                 print(f"::error::Missing required {platform} artifact", file=sys.stderr)
                 failed = True
             continue
 
         try:
             verify_artifact(artifacts[0], platform)
+            if platform == "macos-updater":
+                verify_macos_updater_metadata(artifacts[0])
         except ValueError as error:
             print(f"::error::{error}", file=sys.stderr)
             failed = True

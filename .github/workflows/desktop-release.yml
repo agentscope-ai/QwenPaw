@@ -425,6 +425,19 @@ jobs:
             shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
           )
 
+          updater_archives=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz)
+          if [ ${#updater_archives[@]} -gt 1 ]; then
+            echo "::error::Expected at most one macOS updater archive, found ${#updater_archives[@]}"
+            exit 1
+          fi
+          if [ ${#updater_archives[@]} -eq 1 ]; then
+            updater_archive="${updater_archives[0]}"
+            (
+              cd "$(dirname "$updater_archive")"
+              shasum -a 256 "$(basename "$updater_archive")" > "$(basename "$updater_archive").sha256"
+            )
+          fi
+
       - name: Upload desktop verify logs (Tauri macOS)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -465,6 +478,7 @@ jobs:
           name: tauri-updater-meta-macos
           path: |
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sha256
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
             dist/tauri-darwin-*-updater.json
 
@@ -503,6 +517,16 @@ jobs:
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify uploaded Release asset sizes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
+          bash scripts/pack/verify_github_release_assets.sh \
+            "${{ github.event.release.tag_name }}" \
+            "${files[@]}"
 
   upload-oss:
     needs: [build-tauri-windows, build-tauri-macos]
@@ -578,28 +602,24 @@ jobs:
             --output win-metadata.json
 
           # Upload file (versioned)
-          ossutil cp "$WIN_EXE" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            "$WIN_EXE" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe"
 
           # Upload file (latest)
-          ossutil cp "$WIN_EXE" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-latest.exe" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            "$WIN_EXE" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-latest.exe"
 
           # Upload metadata (versioned)
-          ossutil cp win-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            win-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json"
 
           # Upload metadata (latest)
-          ossutil cp win-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            win-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json"
 
           echo "✓ Windows artifacts uploaded"
 
@@ -625,28 +645,24 @@ jobs:
             --output mac-metadata.json
 
           # Upload file (versioned)
-          ossutil cp "$MAC_ZIP" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            "$MAC_ZIP" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip"
 
           # Upload file (latest)
-          ossutil cp "$MAC_ZIP" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-latest-macOS.zip" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            "$MAC_ZIP" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-latest-macOS.zip"
 
           # Upload metadata (versioned)
-          ossutil cp mac-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            mac-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json"
 
           # Upload metadata (latest)
-          ossutil cp mac-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            mac-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json"
 
           echo "✓ macOS artifacts uploaded"
 
@@ -678,22 +694,18 @@ jobs:
               --version "${VERSION}" \
               --output "${metadata}"
 
-            ossutil cp "${artifact}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
-              --acl public-read \
-              --force
-            ossutil cp "${artifact}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
-              --acl public-read \
-              --force
-            ossutil cp "${metadata}" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
-              --acl public-read \
-              --force
-            ossutil cp "${metadata}" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
-              --acl public-read \
-              --force
+            bash scripts/pack/oss_copy_with_readback.sh \
+              "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}"
+            bash scripts/pack/oss_copy_with_readback.sh \
+              "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}"
+            bash scripts/pack/oss_copy_with_readback.sh \
+              "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json"
+            bash scripts/pack/oss_copy_with_readback.sh \
+              "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json"
           }
 
           upload_tauri_artifact \
@@ -722,10 +734,9 @@ jobs:
             echo "No macOS .app.tar.gz found, skipping"
             exit 0
           fi
-          ossutil cp "$APP_TAR_GZ" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            "$APP_TAR_GZ" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz"
 
       - name: Link artifacts into updater-meta dirs for manifest generation
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
@@ -765,10 +776,9 @@ jobs:
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
-          ossutil cp qwenpaw-tauri-latest-oss.json \
-            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
 
       - name: Update desktop index
         run: |
@@ -839,10 +849,9 @@ jobs:
             "mac-tauri"
 
           # Upload updated desktop/index.json
-          ossutil cp desktop-index.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            desktop-index.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json"
 
           echo "✓ Desktop index updated"
 
@@ -882,9 +891,8 @@ jobs:
           PYTHON
 
           # Upload main index
-          ossutil cp main-index.json \
-            "oss://${OSS_BUCKET}/metadata/index.json" \
-            --acl public-read \
-            --force
+          bash scripts/pack/oss_copy_with_readback.sh \
+            main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json"
 
           echo "✓ Main index updated"
