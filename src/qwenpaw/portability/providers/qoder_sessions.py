@@ -23,6 +23,7 @@ from ._utils import find_nested_value, parse_datetime
 _HISTORY_PREFIX = "lingma.chat.localHistory."
 _MODE_PREFIX = "chat.chatMode.session."
 _QUEST_SNAPSHOT_KEY = "aicoding.questTaskListSnapshot"
+_QUEST_ARCHIVED_KEY = "aicoding.questArchivedTaskList"
 _CWD_KEYS = (
     "cwd",
     "directory",
@@ -79,6 +80,7 @@ class QoderIndex:
     history: dict[str, _HistoryInfo] = field(default_factory=dict)
     modes: dict[str, str] = field(default_factory=dict)
     quests: dict[str, QoderQuestInfo] = field(default_factory=dict)
+    archived_task_ids: set[str] = field(default_factory=set)
 
 
 def default_qoder_user_data(
@@ -192,11 +194,12 @@ def load_qoder_index(
         with sqlite3.connect(uri, uri=True) as connection:
             rows = connection.execute(
                 "SELECT key, value FROM ItemTable "
-                "WHERE key LIKE ? OR key LIKE ? OR key = ?",
+                "WHERE key LIKE ? OR key LIKE ? OR key IN (?, ?)",
                 (
                     f"{_HISTORY_PREFIX}%",
                     f"{_MODE_PREFIX}%",
                     _QUEST_SNAPSHOT_KEY,
+                    _QUEST_ARCHIVED_KEY,
                 ),
             ).fetchall()
     except (OSError, sqlite3.Error) as exc:
@@ -214,6 +217,12 @@ def load_qoder_index(
                 index.modes[session_id] = mode
         elif key == _QUEST_SNAPSHOT_KEY:
             _add_quest_snapshot(index, value)
+        elif key == _QUEST_ARCHIVED_KEY:
+            task_ids = _json_value(value)
+            if isinstance(task_ids, list):
+                index.archived_task_ids.update(
+                    task_id for task_id in task_ids if isinstance(task_id, str)
+                )
     return index, []
 
 
@@ -448,6 +457,8 @@ def read_qoder_transcript(
         SourceSession(
             source_id=source_id,
             title=_title_from_text(title)[:200],
+            archived=quest is not None
+            and quest.task_id in index.archived_task_ids,
             cwd=cwd,
             created_at=created_at,
             updated_at=updated_at or transcript.modified_at,

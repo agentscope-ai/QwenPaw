@@ -127,6 +127,7 @@ async def import_conversations(
             channel=channel,
             created_at=session.created_at or started_at,
             updated_at=session.updated_at or session.created_at or started_at,
+            archived_at=started_at if session.archived else None,
             meta=meta,
         )
         try:

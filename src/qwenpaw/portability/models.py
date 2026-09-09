@@ -112,6 +112,7 @@ class SourceSession(BaseModel):
     cwd: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    archived: bool = False
     history: list[HarnessHistoryItem] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

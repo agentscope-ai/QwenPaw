@@ -130,6 +130,52 @@ def test_transcript_reader_rejects_oversized_jsonl_line(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("archived", [False, True])
+async def test_qoder_archive_task_ids_are_mapped_to_execution_sessions(
+    tmp_path: Path,
+    archived: bool,
+) -> None:
+    qoder_home = tmp_path / ".qoder"
+    user_data = tmp_path / "user-data"
+    _create_index(user_data, "editor", "execution")
+    with sqlite3.connect(user_data / "globalStorage/state.vscdb") as conn:
+        conn.execute(
+            "INSERT INTO ItemTable VALUES (?, ?)",
+            (
+                "aicoding.questArchivedTaskList",
+                json.dumps(
+                    ["quest-task-1", "missing-task"] if archived else [],
+                ),
+            ),
+        )
+    for source_id in ("editor", "execution"):
+        _write_jsonl(
+            qoder_home / "projects/project/transcript" / f"{source_id}.jsonl",
+            [
+                _message(
+                    source_id,
+                    "user",
+                    "hello",
+                    cwd="/project",
+                    timestamp="2026-08-04T01:00:00Z",
+                ),
+            ],
+        )
+
+    inventory = await QoderMigrationProvider(
+        SimpleNamespace(workspace_dir=tmp_path),
+        qoder_home=qoder_home,
+        qoder_user_data=user_data,
+    ).inventory(limit=10)
+
+    assert {item.source_id: item.archived for item in inventory.sessions} == {
+        "editor": False,
+        "execution": archived,
+    }
+    assert inventory.ignored_session_ids == []
+
+
+@pytest.mark.asyncio
 async def test_provider_filters_internal_agent_tool_only_traces(
     tmp_path: Path,
 ) -> None:

@@ -270,10 +270,14 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         online_threads: list[dict[str, Any]] = []
         if include_sessions and installed:
             try:
-                online_threads = await asyncio.wait_for(
-                    adapter.list_external_threads(limit=limit),
-                    timeout=_DISCOVERY_TIMEOUT_SECONDS,
-                )
+                async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
+                    for archived in (False, True):
+                        online_threads.extend(
+                            await adapter.list_external_threads(
+                                limit=limit,
+                                archived=archived,
+                            ),
+                        )
             except Exception as exc:  # pylint: disable=broad-except
                 warnings.append(
                     "Codex app-server session listing failed; local rollout "
@@ -290,6 +294,16 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
                     ignored_session_ids.append(source_id)
                 continue
             visible_online_threads.append(item)
+        # Both API lists are newest-first by creation time. Merge their
+        # ordering before applying the shared active/archive session limit.
+        visible_online_threads.sort(
+            key=lambda item: (
+                created.timestamp()
+                if (created := parse_datetime(item.get("createdAt")))
+                else 0
+            ),
+            reverse=True,
+        )
         online_threads = visible_online_threads
         ignored_session_ids = sorted(set(ignored_session_ids))
         if ignored_session_ids:
@@ -300,6 +314,18 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
                 "conversations.",
             )
         raw_threads = _merge_threads(online_threads, offline_threads, limit)
+        readable_threads = []
+        for item in raw_threads:
+            if item.get("archived", False) is None:
+                warning = (
+                    f"Skipped Codex thread {item['id']}: conflicting archive "
+                    "states; rescan with Codex available to resolve them."
+                )
+                warnings.append(warning)
+                await report_progress(progress, warning)
+            else:
+                readable_threads.append(item)
+        raw_threads = readable_threads
         if session_ids is not None:
             raw_threads = [
                 item
@@ -600,6 +626,7 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
                     SourceSession(
                         source_id=source_id,
                         title=title[:200],
+                        archived=raw.get("archived", False),
                         cwd=str(raw.get("cwd") or ""),
                         created_at=parse_datetime(
                             raw.get("createdAt") or raw.get("created_at"),
@@ -680,26 +707,27 @@ def _merge_threads(
     offline_by_id = {
         str(item.get("id") or ""): item for item in offline if item.get("id")
     }
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    merged: dict[str, dict[str, Any]] = {}
     for item in online:
         thread_id = str(item.get("id") or item.get("threadId") or "")
-        if not thread_id or thread_id in seen:
+        if not thread_id:
+            continue
+        if thread_id in merged:
+            if merged[thread_id].get("archived") != item.get("archived"):
+                merged[thread_id]["archived"] = None
             continue
         fallback = offline_by_id.get(thread_id, {})
-        combined = {**fallback, **item}
+        combined = {**fallback, **item, "id": thread_id}
         for field in ("cwd", "preview"):
             if not combined.get(field):
                 combined[field] = fallback.get(field, "")
-        merged.append(combined)
-        seen.add(thread_id)
+        merged[thread_id] = combined
     for item in offline:
         thread_id = str(item.get("id") or "")
-        if not thread_id or thread_id in seen:
+        if not thread_id or thread_id in merged:
             continue
-        merged.append({**item, "offlineOnly": True})
-        seen.add(thread_id)
-    return merged[: max(0, limit)]
+        merged[thread_id] = {**item, "offlineOnly": True}
+    return list(merged.values())[: max(0, limit)]
 
 
 def _mcp_server(item: dict[str, Any]) -> SourceMCPServer | None:

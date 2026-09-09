@@ -214,6 +214,27 @@ def test_rollout_index_stops_at_its_safety_limit(
     assert reader.index_truncated is True
 
 
+def test_rollout_archive_state_is_not_inferred_from_segment_timestamps(
+    tmp_path: Path,
+) -> None:
+    for directory, ids in (
+        ("sessions", ("active", "mixed")),
+        ("archived_sessions", ("archived", "mixed")),
+    ):
+        for source_id in ids:
+            _rollout(tmp_path / directory, source_id, {}, "hello")
+
+    reader = CodexRolloutReader(tmp_path)
+    assert {
+        item["id"]: item["archived"] for item in reader.list_threads()
+    } == {
+        "active": False,
+        "archived": True,
+        "mixed": None,
+    }
+    assert reader.list_non_root_thread_ids() == []
+
+
 def test_rollout_reader_excludes_structured_non_root_sessions(
     tmp_path: Path,
 ) -> None:

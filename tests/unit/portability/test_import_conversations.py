@@ -72,6 +72,57 @@ async def _import(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["codex", "qoder"])
+async def test_import_preserves_archive_state_without_overwriting_existing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+    workspace = _workspace(tmp_path)
+    sessions = [
+        _session("active"),
+        _session("archived").model_copy(update={"archived": True}),
+        SourceSession(source_id="empty", archived=True),
+    ]
+    inventory = _inventory(sessions).model_copy(update={"provider_id": source})
+    created_states = []
+    original_create = workspace.chat_manager.create_chat
+
+    async def create_chat(spec):
+        created_states.append(spec.archived)
+        return await original_create(spec)
+
+    monkeypatch.setattr(workspace.chat_manager, "create_chat", create_chat)
+    state = await _import(workspace, inventory, sessions)
+    assert state.imported == ["active", "archived"]
+    assert state.skipped == ["empty"]
+    assert created_states == [False, True]
+    chats = await workspace.chat_manager.list_chats(archived=None)
+    assert {chat.name: chat.model_dump()["archived"] for chat in chats} == {
+        "active": False,
+        "archived": True,
+    }
+    assert len(await workspace.chat_manager.list_chats(archived=True)) == 1
+    assert len(await workspace.chat_manager.list_chats(archived=False)) == 1
+
+    # Local user choices take precedence over a repeated import.
+    for chat in chats:
+        if chat.archived:
+            await workspace.chat_manager.unarchive_chat(chat.id)
+        else:
+            await workspace.chat_manager.archive_chat(chat.id)
+    existing = await workspace.chat_manager.list_chats(archived=None)
+    await _import(
+        workspace,
+        inventory,
+        sessions,
+        {(source, chat.name): chat for chat in existing},
+    )
+    assert await workspace.chat_manager.list_chats(archived=None) == existing
+    assert created_states == [False, True]
+
+
+@pytest.mark.asyncio
 async def test_cancelled_hydration_stops_before_later_sessions_and_retries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -98,6 +98,7 @@ class CodexRolloutRecord:
     non_root_kind: str = ""
     parent_thread_id: str = ""
     lineage_paths: tuple[Path, ...] = ()
+    archived: bool | None = False
 
     def as_thread(self) -> dict[str, Any]:
         """Return app-server-compatible thread metadata."""
@@ -111,6 +112,7 @@ class CodexRolloutRecord:
             "rolloutLineageLength": len(self.paths),
             "source": "codex-rollout-jsonl",
             "parentThreadId": self.parent_thread_id or None,
+            "archived": self.archived,
         }
 
     @property
@@ -290,6 +292,10 @@ class CodexRolloutReader:
                     record = _read_rollout_metadata(path)
                     if record is None:
                         continue
+                    record = replace(
+                        record,
+                        archived=root.name == "archived_sessions",
+                    )
                     existing = self._records.get(record.thread_id)
                     if existing is None:
                         self._records[record.thread_id] = record
@@ -316,6 +322,13 @@ class CodexRolloutReader:
                             or record.parent_thread_id
                         ),
                         lineage_paths=lineage,
+                        # Mixed-directory copies need an online status;
+                        # transcript timestamps do not identify archiving.
+                        archived=(
+                            existing.archived
+                            if existing.archived == record.archived
+                            else None
+                        ),
                     )
                 if self.index_truncated:
                     break

@@ -307,6 +307,7 @@ class CodexAdapter(HarnessAdapter):
         self,
         *,
         limit: int = 500,
+        archived: bool = False,
     ) -> list[dict[str, Any]]:
         """List pre-existing Codex threads through the app-server."""
         remaining = max(0, min(int(limit), 5000))
@@ -314,7 +315,10 @@ class CodexAdapter(HarnessAdapter):
         records: list[dict[str, Any]] = []
         while remaining:
             page_size = min(remaining, 100)
-            params: dict[str, Any] = {"limit": page_size}
+            params: dict[str, Any] = {
+                "limit": page_size,
+                "archived": archived,
+            }
             if cursor:
                 params["cursor"] = cursor
             result = await self._client.request("thread/list", params)
@@ -325,7 +329,7 @@ class CodexAdapter(HarnessAdapter):
             for item in page:
                 if not isinstance(item, dict):
                     continue
-                records.append(dict(item))
+                records.append({**item, "archived": archived})
                 added += 1
                 if len(records) >= limit:
                     return records

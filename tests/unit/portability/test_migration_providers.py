@@ -9,7 +9,10 @@ import pytest
 
 from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.harnesses.codex.rollout_reader import CodexRolloutReader
-from qwenpaw.portability.providers.codex import CodexMigrationProvider
+from qwenpaw.portability.providers.codex import (
+    CodexMigrationProvider,
+    _merge_threads,
+)
 
 
 class _CodexAdapter:
@@ -20,19 +23,20 @@ class _CodexAdapter:
             runtime_path="/usr/local/bin/codex",
         )
 
-    async def list_external_threads(self, *, limit):
-        assert limit == 10
+    async def list_external_threads(self, *, limit, archived=False):
+        assert limit in (1, 10)
         return [
             {
-                "id": "thread-1",
+                "id": "archived-thread" if archived else "thread-1",
+                "archived": archived,
                 "preview": "Existing task",
                 "cwd": "/project",
-                "createdAt": 1_700_000_000,
+                "createdAt": 1_700_000_000 + int(archived),
             },
         ]
 
     async def read_external_thread(self, thread_id):
-        assert thread_id == "thread-1"
+        assert thread_id in {"thread-1", "archived-thread"}
         return [
             HarnessHistoryItem(
                 kind=HarnessHistoryKind.USER,
@@ -100,17 +104,26 @@ def _workspace(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [1, 10])
 async def test_codex_provider_reuses_runtime_and_normalizes_inventory(
     tmp_path: Path,
+    limit: int,
 ) -> None:
     inventory = await CodexMigrationProvider(
         _workspace(tmp_path),
         rollout_reader=CodexRolloutReader(tmp_path / ".codex"),
-    ).inventory(limit=10)
+    ).inventory(limit=limit)
 
     assert inventory.detected is True
     assert inventory.locator == "/usr/local/bin/codex"
-    assert inventory.sessions[0].source_id == "thread-1"
+    assert [
+        (item.source_id, item.archived) for item in inventory.sessions
+    ] == [
+        ("archived-thread", True),
+        ("thread-1", False),
+    ][
+        :limit
+    ]
     assert inventory.sessions[0].history[0].text == "Keep working"
     assert inventory.mcp_servers[0].command == "npx"
     assert inventory.mcp_servers[0].env == {
@@ -118,6 +131,19 @@ async def test_codex_provider_reuses_runtime_and_normalizes_inventory(
     }
     assert inventory.mcp_servers[0].metadata["source_runtime_bound"] is False
     assert any("disabled QwenPaw" in item for item in inventory.warnings)
+
+
+def test_codex_online_archive_state_overrides_offline_copies() -> None:
+    offline = [{"id": "thread-1", "archived": None}]
+    online = [{"threadId": "thread-1", "archived": False}]
+    assert _merge_threads(online, offline, 10)[0]["archived"] is False
+
+    # A move between the two API queries is ambiguous too.
+    online.append({"threadId": "thread-1", "archived": True})
+    merged = _merge_threads(online, offline, 10)
+    assert len(merged) == 1
+    assert merged[0]["id"] == "thread-1"
+    assert merged[0]["archived"] is None
 
 
 @pytest.mark.parametrize(
