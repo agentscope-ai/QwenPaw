@@ -68,6 +68,7 @@ async def test_enrollment_exposes_only_redacted_state(
 
     assert pending.status == "authorization_pending"
     assert authorization_url.path == "/cli/login"
+    assert query["response_type"] == ["code"]
     assert query["code_challenge_method"] == ["S256"]
     assert connected.status == "connected"
     assert connected.node_id == "node-1"

@@ -203,3 +203,37 @@ async def test_node_pairing_ticket_is_bound_to_registered_identity() -> None:
 def test_platform_origin_rejects_insecure_or_ambiguous_url(url: str) -> None:
     with pytest.raises(ValueError):
         PlatformRelayClient(url)
+
+
+@pytest.mark.asyncio
+async def test_platform_error_envelope_is_preserved() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": "INVALID_GRANT",
+                    "message": "authorization code expired",
+                    "retryable": False,
+                },
+                "request_id": "request-1",
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+    ) as http_client:
+        client = PlatformRelayClient(
+            "https://platform.test",
+            client=http_client,
+        )
+        with pytest.raises(RelayPlatformError) as exc_info:
+            await client.exchange_oauth_code(
+                code="authorization-code",
+                redirect_uri="http://127.0.0.1:8088/callback/nonce123",
+                code_verifier="v" * 64,
+            )
+
+    assert exc_info.value.code == "INVALID_GRANT"
+    assert str(exc_info.value) == "authorization code expired"
+    assert exc_info.value.status_code == 400

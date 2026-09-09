@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import uuid
 from dataclasses import replace
 from collections.abc import Awaitable, Callable
 
@@ -65,7 +66,10 @@ class RelayNodeConnectionService:
                 state.key_pair,
             )
             if (
-                ticket.node_id != state.registered_node.node_id
+                not _same_uuid(
+                    ticket.node_id,
+                    state.registered_node.node_id,
+                )
                 or ticket.qwenpaw_id != state.qwenpaw_id
                 or ticket.node_public_key_thumbprint
                 != state.key_pair.thumbprint()
@@ -142,3 +146,11 @@ class RelayNodeSupervisor:
 
 def _reconnect_jitter(delay: float) -> float:
     return random.uniform(delay * 0.8, delay * 1.2)
+
+
+def _same_uuid(left: str, right: str) -> bool:
+    """Compare canonical and compact representations of one UUID."""
+    try:
+        return uuid.UUID(left) == uuid.UUID(right)
+    except ValueError:
+        return False

@@ -13,7 +13,11 @@ from dataclasses import dataclass, replace
 from typing import Callable
 from urllib.parse import urlencode
 
-from .platform_client import PLATFORM_OAUTH_CLIENT_ID, PlatformRelayClient
+from .platform_client import (
+    PLATFORM_OAUTH_CLIENT_ID,
+    PlatformRelayClient,
+    RelayPlatformError,
+)
 from .store import RelayNodeState, RelayNodeStore
 
 
@@ -88,17 +92,21 @@ class RelayEnrollmentService:
             oauth_state = secrets.token_urlsafe(32)
             verifier = secrets.token_urlsafe(64)
             challenge = _pkce_challenge(verifier)
-            redirect_uri = (
-                f"http://127.0.0.1:{callback_port}/callback/{nonce}"
+            redirect_uri = f"http://127.0.0.1:{callback_port}/callback/{nonce}"
+            authorization_query = urlencode(
+                {
+                    "client_id": PLATFORM_OAUTH_CLIENT_ID,
+                    "redirect_uri": redirect_uri,
+                    "response_type": "code",
+                    "state": oauth_state,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "scope": "platform:control",
+                },
             )
-            authorization_url = f"{client.base_url}/cli/login?{urlencode({
-                'client_id': PLATFORM_OAUTH_CLIENT_ID,
-                'redirect_uri': redirect_uri,
-                'state': oauth_state,
-                'code_challenge': challenge,
-                'code_challenge_method': 'S256',
-                'scope': 'platform:control',
-            })}"
+            authorization_url = (
+                f"{client.base_url}/cli/login?{authorization_query}"
+            )
             self._pending = PendingOAuth(
                 nonce=nonce,
                 state=oauth_state,

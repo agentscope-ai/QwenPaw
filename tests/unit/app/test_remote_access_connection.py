@@ -2,6 +2,7 @@
 """Tests for Node Relay connection orchestration."""
 from __future__ import annotations
 
+import uuid
 from dataclasses import replace
 
 import pytest
@@ -83,13 +84,15 @@ async def test_pairing_ticket_rotates_nonce_and_checks_identity(
     monkeypatch.setattr(secret_store, "_cached_master_key", b"k" * 32)
     monkeypatch.setattr(secret_store, "_cached_fernet", None)
     store = RelayNodeStore(tmp_path / "relay-node.json")
+    canonical_node_id = str(uuid.uuid4())
+    compact_node_id = canonical_node_id.replace("-", "")
     state = store.create(
         platform_url="https://platform.test",
         qwenpaw_id="paw-1",
         name="Office Paw",
     )
     registered = RegisteredNode(
-        node_id="node-1",
+        node_id=compact_node_id,
         credential="qprn_v1.node.secret",
         dpop_nonce="old-nonce",
         credential_generation=1,
@@ -104,7 +107,7 @@ async def test_pairing_ticket_rotates_nonce_and_checks_identity(
             assert node.dpop_nonce == "old-nonce"
             return RelayPairingTicket(
                 token="pairing-ticket",
-                node_id="node-1",
+                node_id=canonical_node_id,
                 qwenpaw_id="paw-1",
                 node_public_key_thumbprint=key_pair.thumbprint(),
                 expires_in=120,

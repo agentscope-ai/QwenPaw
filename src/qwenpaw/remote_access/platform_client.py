@@ -2,6 +2,7 @@
 """Client for Platform Relay node enrollment."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlsplit, urlunsplit
@@ -13,6 +14,7 @@ from .identity import RelayKeyPair
 
 PLATFORM_OAUTH_CLIENT_ID = "agentscope-platform-cli"
 RELAY_PROTOCOL_VERSION = 1
+logger = logging.getLogger(__name__)
 
 
 class RelayPlatformError(RuntimeError):
@@ -336,11 +338,20 @@ class PlatformRelayClient:
                 await client.aclose()
         body = _response_object(response)
         if not response.is_success:
+            error = body.get("error")
+            if not isinstance(error, Mapping):
+                error = body
+            logger.warning(
+                "Platform Relay request to %s failed with %s (%s)",
+                path,
+                response.status_code,
+                error.get("code") or "platform_error",
+            )
             raise RelayPlatformError(
-                str(body.get("code") or "platform_error"),
-                str(body.get("message") or "Platform Relay request failed"),
+                str(error.get("code") or "platform_error"),
+                str(error.get("message") or "Platform Relay request failed"),
                 status_code=response.status_code,
-                retryable=body.get("retryable") is True,
+                retryable=error.get("retryable") is True,
             )
         return body
 
