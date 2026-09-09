@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Regression tests for downloaded desktop updater integrity checks."""
 
 from __future__ import annotations
@@ -60,7 +61,9 @@ def _create_valid_artifacts(root: Path) -> dict[str, Path]:
         b"windows installer",
     )
 
-    macos = root / ("QwenPaw-Desktop-Tauri-macOS-1.0.0/QwenPaw-Tauri-1.0.0-macOS.zip")
+    macos = root / (
+        "QwenPaw-Desktop-Tauri-macOS-1.0.0/QwenPaw-Tauri-1.0.0-macOS.zip"
+    )
     macos.parent.mkdir(parents=True)
     with zipfile.ZipFile(macos, "w") as archive:
         archive.writestr("QwenPaw.app/Contents/MacOS/QwenPaw", b"app")

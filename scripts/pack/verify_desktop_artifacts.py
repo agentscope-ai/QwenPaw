@@ -198,8 +198,7 @@ def main() -> int:
     installer_names: dict[str, str] = {}
     for platform, pattern in ARTIFACT_PATTERNS.items():
         artifacts = sorted(args.root.glob(pattern))
-        if artifacts:
-            found_any = True
+        found_any = found_any or bool(artifacts)
         if len(artifacts) > 1:
             print(
                 f"::error::Expected at most one {platform} artifact, found {len(artifacts)}",
