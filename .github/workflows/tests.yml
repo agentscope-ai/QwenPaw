@@ -30,13 +30,10 @@ on:
         required: false
         default: ''
 
-# Coverage data is collected on a single matrix entry per test class
-# (ubuntu-latest + python 3.13 for lower tracer overhead)
-# instead of being re-run from scratch in coverage-report. The data files
-# (.coverage.unit / .coverage.contract / .coverage.integration plus their
-# cobertura xml) are uploaded as short-lived artifacts and consumed by the
-# coverage-report job, which only combines and renders — it does not run
-# pytest itself anymore.
+# Phase-1 simplification (plan v1.6 item 1-4): the PR gate no longer
+# collects coverage. Coverage data, the combined report and the backend
+# unit threshold (pyproject fail_under) all live in full-tests-nightly.yml,
+# which keeps its own Coverage Report job unchanged.
 
 jobs:
   spam-gate:
@@ -98,11 +95,14 @@ jobs:
       matrix:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
-        include:
-          - os: macos-latest
-            python-version: "3.11"
-          - os: windows-latest
-            python-version: "3.11"
+        # Phase-1 simplification (CI simplification plan v1.6, item 1-1):
+        # PR gate runs ubuntu only. Cross-platform compatibility is covered by
+        # the nightly full matrix (full-tests-nightly.yml), which keeps all
+        # four OS entries. Measured: windows unit 25.4 min and windows p1
+        # integration 39.6 min were the two slowest jobs of the whole PR gate
+        # (run 34194545575), while windows p0 (28.1 min) is slower than ubuntu
+        # p1 (25.5 min) — so dropping platforms saves more wall clock than
+        # dropping priorities would.
 
     steps:
       - uses: actions/checkout@v4
@@ -120,26 +120,14 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
-      - name: Set up Node.js (for console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: console/package-lock.json
-
-      - name: Build console frontend
-        shell: bash
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          cd console && npm ci && npm run build
-
-      - name: Copy console build into package
-        shell: bash
-        run: |
-          rm -rf src/qwenpaw/console/*
-          mkdir -p src/qwenpaw/console
-          cp -R console/dist/* src/qwenpaw/console/
+      # Phase-1 simplification (plan v1.6, item 1-2): console frontend build
+      # removed from the three backend tiers. Verified: tests/unit,
+      # tests/contract and tests/integration contain no reference to built
+      # frontend assets; the only web-root probe (test_app_startup.py) asserts
+      # BOTH branches (200-with-HTML or 404-with-fallback-JSON), and the Hub
+      # local-runtime E2E only hits API routes. Behavioral evidence: the
+      # fork-local pr-preview workflow ran all three tiers without any console
+      # build and passed. The E2E tier keeps its own build (_e2e-job.yml).
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -155,20 +143,13 @@ jobs:
 
       - name: Run unit tests
         shell: bash
-        env:
-          COVERAGE_FILE: .coverage.unit
         run: |
-          # Coverage is collected only on the ubuntu/py3.13 entry so the
-          # data file can be uploaded for coverage-report. Other matrix
-          # entries only verify cross-platform compatibility.
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.13" ]; then
-            pytest tests/unit -v \
-              --cov=src/qwenpaw \
-              --cov-report=xml:coverage.unit.xml
-          else
-            pytest tests/unit -v
-          fi
+          # Phase-1 simplification (plan v1.6, item 1-4): coverage tracking
+          # removed from the PR gate. Coverage is collected and threshold-
+          # gated in the nightly full run (full-tests-nightly.yml), per the
+          # 9-09 decision; the implicit fail_under (pyproject.toml) applies
+          # there, so no threshold is lowered by this removal.
+          pytest tests/unit -v
 
       - name: Run Hub Local runtime E2E
         if: matrix.python-version == '3.11'
@@ -178,19 +159,6 @@ jobs:
         run: |
           python -m pip install --no-deps --force-reinstall .
           pytest tests/e2e/test_hub_local_runtime.py -v
-
-      - name: Upload unit coverage data
-        if: |
-          matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.13'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-data-unit
-          path: |
-            .coverage.unit
-            coverage.unit.xml
-          retention-days: 1
-          include-hidden-files: true
 
   contract-tests:
     name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
@@ -204,35 +172,26 @@ jobs:
       matrix:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
-        include:
-          - os: macos-latest
-            python-version: "3.11"
-          - os: windows-latest
-            python-version: "3.11"
+        # Phase-1 simplification (CI simplification plan v1.6, item 1-1):
+        # PR gate runs ubuntu only. Cross-platform compatibility is covered by
+        # the nightly full matrix (full-tests-nightly.yml), which keeps all
+        # four OS entries. Measured: windows unit 25.4 min and windows p1
+        # integration 39.6 min were the two slowest jobs of the whole PR gate
+        # (run 34194545575), while windows p0 (28.1 min) is slower than ubuntu
+        # p1 (25.5 min) — so dropping platforms saves more wall clock than
+        # dropping priorities would.
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js (for console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: console/package-lock.json
-
-      - name: Build console frontend
-        shell: bash
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          cd console && npm ci && npm run build
-
-      - name: Copy console build into package
-        shell: bash
-        run: |
-          rm -rf src/qwenpaw/console/*
-          mkdir -p src/qwenpaw/console
-          cp -R console/dist/* src/qwenpaw/console/
+      # Phase-1 simplification (plan v1.6, item 1-2): console frontend build
+      # removed from the three backend tiers. Verified: tests/unit,
+      # tests/contract and tests/integration contain no reference to built
+      # frontend assets; the only web-root probe (test_app_startup.py) asserts
+      # BOTH branches (200-with-HTML or 404-with-fallback-JSON), and the Hub
+      # local-runtime E2E only hits API routes. Behavioral evidence: the
+      # fork-local pr-preview workflow ran all three tiers without any console
+      # build and passed. The E2E tier keeps its own build (_e2e-job.yml).
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -255,43 +214,26 @@ jobs:
 
       - name: Run contract tests
         shell: bash
-        env:
-          COVERAGE_FILE: .coverage.contract
         run: |
-          # Same conditional-coverage pattern as unit-tests.
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.13" ]; then
-            pytest tests/contract -v \
-              --cov=src/qwenpaw \
-              --cov-report=xml:coverage.contract.xml \
-              --cov-fail-under=0
-          else
-            pytest tests/contract -v
-          fi
-
-      - name: Upload contract coverage data
-        if: |
-          matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.13'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-data-contract
-          path: |
-            .coverage.contract
-            coverage.contract.xml
-          retention-days: 1
-          include-hidden-files: true
+          # Phase-1 simplification (plan v1.6, item 1-4): coverage removed
+          # from the PR gate (it carried an explicit fail-under of 0 here, so
+          # removing it lowers no threshold). Nightly keeps contract coverage.
+          pytest tests/contract -v
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }} - ${{ matrix.shard }}
-    # Wait for the unit tier: when unit tests are red the 13 integration
-    # jobs used to burn ~30 minutes of runners for nothing. Sequencing
-    # them also cuts the per-PR concurrent-job peak (org limit is 60).
-    needs: [approval-gate, unit-tests]
+    # Phase-1 simplification (plan v1.6, item 1-7): run in parallel with the
+    # unit tier instead of waiting for it. The original sequencing avoided
+    # burning integration runners when unit was red; measured over the last
+    # 30 tests.yml runs, unit was red in 0 of the 15 runs that executed it,
+    # so the protection rarely paid off. Fail-closed is preserved: test-summary
+    # still needs unit-tests, so a red unit tier blocks the merge regardless
+    # of integration results. Concurrency peak drops (ubuntu-only matrix),
+    # staying far below the org limit of 60.
+    needs: [approval-gate]
     if: |
       always() &&
-      needs.approval-gate.result == 'success' &&
-      needs.unit-tests.result == 'success'
+      needs.approval-gate.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -299,57 +241,24 @@ jobs:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
         shard: [p0, p1, p2]
-        include:
-          # The fallback shard is the unclassified-test alarm: it only
-          # fails when some integration test lacks a p0/p1/p2 marker.
-          # One platform is enough for the alarm to ring, so it runs on
-          # ubuntu 3.11 only — the other platforms would just duplicate
-          # it and waste concurrency.
-          - os: ubuntu-latest
-            python-version: "3.11"
-            shard: fallback
-          - os: macos-latest
-            python-version: "3.11"
-            shard: p0
-          - os: macos-latest
-            python-version: "3.11"
-            shard: p1
-          - os: macos-latest
-            python-version: "3.11"
-            shard: p2
-          - os: windows-latest
-            python-version: "3.11"
-            shard: p0
-          - os: windows-latest
-            python-version: "3.11"
-            shard: p1
-          - os: windows-latest
-            python-version: "3.11"
-            shard: p2
+        # Phase-1 simplification (plan v1.6): ubuntu-only matrix (item 1-1) and
+        # fallback shard removed (item 1-3). The unclassified-test alarm now
+        # runs inside the ubuntu/py3.11/p0 job (see the "Fail on unclassified
+        # integration tests" step), which already has a full environment, so
+        # no separate fallback job pays environment setup for an 11-second
+        # collect-only check. Cross-platform coverage stays in nightly.
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js (for console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: console/package-lock.json
-
-      - name: Build console frontend
-        shell: bash
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          cd console && npm ci && npm run build
-
-      - name: Copy console build into package
-        shell: bash
-        run: |
-          rm -rf src/qwenpaw/console/*
-          mkdir -p src/qwenpaw/console
-          cp -R console/dist/* src/qwenpaw/console/
+      # Phase-1 simplification (plan v1.6, item 1-2): console frontend build
+      # removed from the three backend tiers. Verified: tests/unit,
+      # tests/contract and tests/integration contain no reference to built
+      # frontend assets; the only web-root probe (test_app_startup.py) asserts
+      # BOTH branches (200-with-HTML or 404-with-fallback-JSON), and the Hub
+      # local-runtime E2E only hits API routes. Behavioral evidence: the
+      # fork-local pr-preview workflow ran all three tiers without any console
+      # build and passed. The E2E tier keeps its own build (_e2e-job.yml).
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -411,14 +320,15 @@ jobs:
           if [ -n "${DISPATCH_MARKER}" ]; then
             EXPR="${DISPATCH_MARKER}"
           else
-            # Split by shard for parallel execution. The fallback shard
-            # catches any integration test that lacks a p0/p1/p2 marker
-            # so it can never be silently skipped.
+            # Split by shard for parallel execution. Unclassified integration
+            # tests (lacking a p0/p1/p2 marker) are caught by the dedicated
+            # "Fail on unclassified integration tests" guard, which runs on
+            # the ubuntu/py3.11/p0 entry, so they can never be silently
+            # skipped.
             case "${{ matrix.shard }}" in
               p0) EXPR="integration and p0" ;;
               p1) EXPR="integration and p1" ;;
               p2) EXPR="integration and p2" ;;
-              fallback) EXPR="integration and not (p0 or p1 or p2)" ;;
             esac
           fi
           echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
@@ -427,7 +337,7 @@ jobs:
       - name: Fail on unclassified integration tests
         if: |
           steps.check-integrated.outputs.has_tests == 'true' &&
-          matrix.shard == 'fallback' &&
+          matrix.shard == 'p0' &&
           matrix.os == 'ubuntu-latest' &&
           matrix.python-version == '3.11'
         shell: bash
@@ -451,235 +361,29 @@ jobs:
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         env:
-          # Subprocess coverage on the ubuntu/py3.11 entry only. conftest.py
-          # treats empty / missing as off, so the other matrix entries do
-          # not pay the tracer overhead. Multi-platform coverage is opt-in
-          # via full-tests-nightly.yml dispatch (coverage_platforms input).
-          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && '1' || '' }}
           # Windows/macOS runners are slower and IO-bound; under xdist
           # parallel the default HTTP timeouts are too tight and
           # intermittently surface as ``httpx.ReadTimeout`` (e.g. the real
           # plugin install on macOS). Lift the floor on non-Linux runners.
           QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os != 'ubuntu-latest' && '120' || '' }}
         run: |
-          if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
-            # Subprocess coverage entry. Parent process must not carry
-            # --cov, hence --no-cov here.  Capture the exit code with
-            # || so bash -e does not abort before the tolerance check.
-            PYTEST_RC=0
-            pytest tests/integration -v --no-cov \
-              -n auto --dist=loadscope --timeout=300 \
-              -m "${{ steps.marker.outputs.expr }}" || PYTEST_RC=$?
-            # exit 5 = no tests collected: expected for the fallback
-            # shard when every integration test carries a priority
-            # marker. Any other nonzero code still fails.
-            if [ "$PYTEST_RC" -ne 0 ] && [ "$PYTEST_RC" -ne 5 ]; then
-              exit "$PYTEST_RC"
-            fi
-            if [ -f .integration_coverage/integration_subproc ]; then
-              cp .integration_coverage/integration_subproc \
-                .coverage.integration.${{ matrix.shard }}
-              # `coverage xml` honours fail_under and exits 2 when below;
-              # tolerate that — the combined value is what matters.
-              coverage xml --data-file=.coverage.integration.${{ matrix.shard }} \
-                -o coverage.integration.${{ matrix.shard }}.xml || [ "$?" -eq 2 ]
-            fi
-          else
-            PYTEST_RC=0
-            pytest tests/integration -v \
-              -n auto --dist=loadscope --timeout=300 \
-              -m "${{ steps.marker.outputs.expr }}" || PYTEST_RC=$?
-            # exit 5 = no tests collected: expected for the
-            # fallback shard when nothing is unclassified.
-            if [ "$PYTEST_RC" -ne 0 ] && [ "$PYTEST_RC" -ne 5 ]; then
-              exit "$PYTEST_RC"
-            fi
+          # Phase-1 simplification (plan v1.6, item 1-4): subprocess coverage
+          # removed from the PR gate; nightly keeps integration coverage via
+          # its own dispatch (coverage_platforms input).
+          PYTEST_RC=0
+          pytest tests/integration -v \
+            -n auto --dist=loadscope --timeout=300 \
+            -m "${{ steps.marker.outputs.expr }}" || PYTEST_RC=$?
+          # exit 5 = no tests collected. With the fallback shard removed
+          # (item 1-3) every shard selects a non-empty priority set, so 5 is
+          # tolerated only as a defensive guard, not an expected path.
+          if [ "$PYTEST_RC" -ne 0 ] && [ "$PYTEST_RC" -ne 5 ]; then
+            exit "$PYTEST_RC"
           fi
-
-      - name: Upload integration coverage data
-        if: |
-          steps.check-integrated.outputs.has_tests == 'true' &&
-          matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.11'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-data-integration-${{ matrix.shard }}
-          path: |
-            .coverage.integration.${{ matrix.shard }}
-            coverage.integration.${{ matrix.shard }}.xml
-          retention-days: 1
-          include-hidden-files: true
-          # The fallback shard produces no data file when every
-          # integration test carries a priority marker; a missing
-          # artifact there is expected, not an error.
-          if-no-files-found: ignore
-
-  coverage-report:
-    name: Coverage Report
-    needs: [approval-gate, unit-tests, contract-tests, integrated-tests]
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: 'pip'
-
-      - name: Install coverage tool
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          # Only the coverage tool is needed for combine / report; no need
-          # to install the full project (the per-tier .coverage data files
-          # arrive via download-artifact below).
-          pip install coverage
-
-      - name: Download coverage data artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-data-*
-          merge-multiple: true
-
-      - name: Inspect downloaded coverage data
-        shell: bash
-        run: |
-          ls -la .coverage* coverage.*.xml 2>&1 | head -30 || true
-
-      - name: Combine all coverage data
-        shell: bash
-        run: |
-          # First, combine the integration shards into one. The fallback
-          # shard only produces a data file when it actually ran tests
-          # (i.e. some integration test lacked a priority marker), so
-          # include whichever shard files exist.
-          SHARDS=$(ls .coverage.integration.* 2>/dev/null || true)
-          if [ -n "$SHARDS" ]; then
-            coverage combine --data-file=.coverage.integration $SHARDS
-            coverage xml --data-file=.coverage.integration \
-              -o coverage.integration.xml || [ "$?" -eq 2 ]
-          fi
-
-          # Then, combine all three tiers: unit, contract, and integration.
-          # Integrated tests are sequenced after the unit tier, so when
-          # unit tests fail the integration data files are absent — combine
-          # whatever exists instead of going red on the missing tier.
-          DATA_FILES=""
-          for f in .coverage.unit .coverage.contract .coverage.integration; do
-            [ -f "$f" ] && DATA_FILES="$DATA_FILES $f"
-          done
-          if [ -n "$DATA_FILES" ]; then
-            coverage combine $DATA_FILES
-          else
-            echo "No coverage data files present (all tiers failed or skipped)"
-          fi
-          # Tolerate fail-under (exit 2): combined number is what matters
-          # and reflected in the summary regardless.
-          coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
-          coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
-          echo "Combined coverage report:"
-          coverage report --skip-covered --fail-under=0
-          coverage json -o coverage.combined.json || [ "$?" -eq 2 ]
-
-      - name: Build coverage summary table
-        id: cov_summary
-        shell: bash
-        run: |
-          # Best-effort number per tier; missing/malformed data => "n/a".
-          set +e
-
-          # Read line-rate from cobertura xml directly to avoid the
-          # coverage source-filter mismatch that would otherwise produce
-          # "No data to report" on the per-tier data files.
-          get_pct() {
-            python3 -c 'import sys, xml.etree.ElementTree as ET; print(round(float(ET.parse(sys.argv[1]).getroot().attrib.get("line-rate", "0")) * 100))' "$1" 2>/dev/null || echo "n/a"
-          }
-          UNIT=$(get_pct coverage.unit.xml)
-          CONTRACT=$(get_pct coverage.contract.xml)
-          INTEGRATION=$(get_pct coverage.integration.xml)
-          COMBINED=$(get_pct coverage.combined.xml)
-          echo "UNIT=${UNIT:-n/a}"
-          echo "CONTRACT=${CONTRACT:-n/a}"
-          echo "INTEGRATION=${INTEGRATION:-n/a}"
-          echo "COMBINED=${COMBINED:-n/a}"
-
-          {
-            echo "## 📊 Coverage report"
-            echo ""
-            echo "| Test category | Coverage |"
-            echo "|---|---|"
-            echo "| Unit        | ${UNIT:-n/a}% |"
-            echo "| Contract    | ${CONTRACT:-n/a}% |"
-            echo "| Integration | ${INTEGRATION:-n/a}% |"
-            echo "| **Combined** | **${COMBINED:-n/a}%** |"
-            echo ""
-            echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
-            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
-            echo "> Coverage is collected only on the ubuntu/py3.13 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
-          } > coverage_summary.md
-
-          cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Sticky coverage PR comment
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('coverage_summary.md', 'utf8');
-            const marker = '<!-- qwenpaw-coverage-summary -->';
-            const finalBody = `${marker}\n${body}`;
-            const comments = await github.paginate(
-              github.rest.issues.listComments,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-              },
-            );
-            const existing = comments.find(
-              (c) => c.body && c.body.includes(marker),
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: finalBody,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: finalBody,
-              });
-            }
-
-      - name: Upload coverage artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-reports
-          path: |
-            coverage.unit.xml
-            coverage.contract.xml
-            coverage.integration.xml
-            coverage.combined.xml
-            htmlcov-combined/
-            htmlcov-integration/
-          retention-days: 7
 
   test-summary:
     name: Test Summary
-    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
+    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
     # Four-state decision:
@@ -696,8 +400,8 @@ jobs:
     #      the moment the author marks the PR ready;
     #   4. code change -> approval plus EVERY test tier must be strictly
     #      `success`; failure/cancelled/skipped are all rejected.
-    # coverage-report is intentionally observed, not enforced: a coverage
-    # tooling outage must not block an otherwise green PR.
+    # Coverage is no longer part of the PR gate (plan v1.6 item 1-4); it is
+    # collected and threshold-gated in the nightly full run.
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -709,7 +413,9 @@ jobs:
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
-          echo "Coverage report: ${{ needs.coverage-report.result }}"
+          # Phase-1 item 1-4: the PR gate no longer runs a coverage-report
+          # job; coverage is collected and threshold-gated in the nightly
+          # full run instead.
 
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "❌ Change detection did not succeed (${{ needs.changes.result }}) — gate closed, refusing untested merge"
