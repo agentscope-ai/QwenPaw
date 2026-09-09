@@ -45,8 +45,10 @@ def _rollout(
     )
 
 
+@pytest.mark.parametrize("modern", [False, True])
 def test_rollout_reader_indexes_and_normalizes_visible_history(
     tmp_path: Path,
+    modern: bool,
 ) -> None:
     thread_id = "019fe9ac-2e78-7a10-a196-27b001cdf1f5"
     project = tmp_path / "project"
@@ -57,6 +59,29 @@ def test_rollout_reader_indexes_and_normalizes_visible_history(
         / f"rollout-2026-08-12T00-00-00-{thread_id}.jsonl"
     )
     rollout.parent.mkdir(parents=True)
+    user: dict[str, object] = {"type": "user_message", "message": "Fix import"}
+    assistant: dict[str, object] = {
+        "type": "agent_message",
+        "message": "Working",
+    }
+    if modern:
+        user = {
+            "type": "item_completed",
+            "item": {
+                "type": "UserMessage",
+                "id": "user-1",
+                "content": [{"type": "text", "text": "Fix import"}],
+            },
+        }
+        assistant = {
+            "type": "item_completed",
+            "item": {
+                "type": "AgentMessage",
+                "id": "message-1",
+                "content": [{"type": "Text", "text": "Working"}],
+                "phase": "final_answer",
+            },
+        }
     rollout.write_text(
         "\n".join(
             [
@@ -71,18 +96,19 @@ def test_rollout_reader_indexes_and_normalizes_visible_history(
                 ),
                 _line(
                     "event_msg",
-                    {"type": "user_message", "message": "Fix import"},
+                    user,
                     "2026-08-12T00:00:01Z",
                 ),
                 _line(
                     "event_msg",
-                    {"type": "agent_message", "message": "Working"},
+                    assistant,
                     "2026-08-12T00:00:02Z",
                 ),
                 _line(
                     "response_item",
                     {
                         "type": "custom_tool_call",
+                        "id": "ctc-1",
                         "call_id": "call-1",
                         "name": "exec",
                         "input": "pytest",
@@ -93,12 +119,35 @@ def test_rollout_reader_indexes_and_normalizes_visible_history(
                     "response_item",
                     {
                         "type": "custom_tool_call_output",
+                        "id": "ctco-1",
                         "call_id": "call-1",
                         "output": "passed",
                     },
                     "2026-08-12T00:00:04Z",
                 ),
             ],
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Resumed rollout segments can repeat the same visible events.
+    (rollout.parent / f"rollout-copy-{thread_id}.jsonl").write_text(
+        rollout.read_text(encoding="utf-8")
+        + "\n".join(
+            _line(
+                "response_item",
+                {
+                    "type": "message",
+                    "role": role,
+                    "content": [{"type": "input_text", "text": text}],
+                },
+                "2026-08-12T00:00:05Z",
+            )
+            for role, text in (
+                ("developer", "Private runtime instructions"),
+                ("user", "Injected environment context"),
+                ("assistant", "Working"),
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -117,7 +166,23 @@ def test_rollout_reader_indexes_and_normalizes_visible_history(
         HarnessHistoryKind.TOOL_CALL,
         HarnessHistoryKind.TOOL_OUTPUT,
     ]
+    assert [item.text for item in history[:2]] == ["Fix import", "Working"]
+    assert history[-2].item_id == history[-1].item_id == "call-1"
     assert history[-1].text == "passed"
+    assert reader.list_non_root_thread_ids() == []
+
+    (reader.codex_home / "session_index.jsonl").write_text(
+        "\n".join(
+            json.dumps({"id": thread_id, "thread_name": title})
+            for title in ("Original title", "Renamed task")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        CodexRolloutReader(reader.codex_home).list_threads()[0]["preview"]
+        == "Renamed task"
+    )
 
 
 def test_oversized_history_remains_visible(

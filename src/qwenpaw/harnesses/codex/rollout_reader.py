@@ -27,6 +27,8 @@ _EVENT_KINDS = {
     "user_message": HarnessHistoryKind.USER,
     "agent_message": HarnessHistoryKind.MESSAGE,
     "agent_reasoning": HarnessHistoryKind.REASONING,
+    "UserMessage": HarnessHistoryKind.USER,
+    "AgentMessage": HarnessHistoryKind.MESSAGE,
 }
 _TOOL_CALL_TYPES = {
     "custom_tool_call",
@@ -101,7 +103,7 @@ class CodexRolloutRecord:
         """Return app-server-compatible thread metadata."""
         return {
             "id": self.thread_id,
-            "preview": self.title or f"Codex {self.thread_id[:8]}",
+            "preview": self.title,
             "cwd": self.cwd,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
@@ -163,12 +165,10 @@ class _RolloutMetadataState:
             )
         elif entry_type == "turn_context":
             self.cwd = str(payload.get("cwd") or self.cwd)
-        elif (
-            not self.title
-            and entry_type == "event_msg"
-            and payload.get("type") == "user_message"
-        ):
-            self.title = _visible_text(payload)[:200]
+        elif not self.title and entry_type == "event_msg":
+            for item in _history_item(entry_type, payload, ""):
+                if item.kind == HarnessHistoryKind.USER:
+                    self.title = item.text[:200]
 
 
 class CodexRolloutReader:
@@ -303,6 +303,7 @@ class CodexRolloutReader:
                     )
                     self._records[record.thread_id] = replace(
                         latest,
+                        title=existing.title or record.title,
                         created_at=min(
                             existing.created_at or record.created_at,
                             record.created_at or existing.created_at,
@@ -318,6 +319,30 @@ class CodexRolloutReader:
                     )
                 if self.index_truncated:
                     break
+            # The append-only index carries user-assigned titles. Read it
+            # once, after joining rollout segments; the last rename wins.
+            try:
+                with (self.codex_home / "session_index.jsonl").open(
+                    "rb",
+                ) as stream:
+                    for _, entry in _jsonl_entries(
+                        stream,
+                        limit=_MAX_INDEX_FILES,
+                        max_line_bytes=_MAX_HEADER_LINE_BYTES,
+                    ):
+                        thread_id = str(entry.get("id") or "")
+                        title = entry.get("thread_name")
+                        if (
+                            thread_id in self._records
+                            and isinstance(title, str)
+                            and title.strip()
+                        ):
+                            self._records[thread_id] = replace(
+                                self._records[thread_id],
+                                title=title.strip()[:200],
+                            )
+            except (OSError, ValueError):
+                pass
         return self._records
 
 
@@ -404,13 +429,19 @@ def _history_item(
     payload: dict[str, Any],
     timestamp: str,
 ) -> list[HarnessHistoryItem]:
+    if entry_type == "event_msg" and payload.get("type") == "item_completed":
+        payload = payload.get("item")
+        if not isinstance(payload, dict):
+            return []
     payload_type = str(payload.get("type") or "")
     item_id = str(
-        payload.get("id")
-        or payload.get("call_id")
+        payload.get("call_id")
+        or payload.get("id")
         or _fallback_item_id(entry_type, payload, timestamp),
     )
     if entry_type == "event_msg":
+        # Text comes from visible events, not response_item messages that
+        # also carry injected instructions and repeated model context.
         kind = _EVENT_KINDS.get(payload_type)
         return _text_item(kind, payload, item_id) if kind is not None else []
     if entry_type != "response_item":

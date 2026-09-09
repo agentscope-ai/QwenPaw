@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -117,3 +118,54 @@ async def test_codex_provider_reuses_runtime_and_normalizes_inventory(
     }
     assert inventory.mcp_servers[0].metadata["source_runtime_bound"] is False
     assert any("disabled QwenPaw" in item for item in inventory.warnings)
+
+
+@pytest.mark.parametrize(
+    "kind,text,readable",
+    [
+        (HarnessHistoryKind.USER, "Recovered question", True),
+        (HarnessHistoryKind.MESSAGE, "Recovered answer", True),
+        (HarnessHistoryKind.MESSAGE, "   ", False),
+        (HarnessHistoryKind.TOOL_CALL, "Only tool activity", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_codex_recovers_dialogue_before_accepting_tool_only_history(
+    tmp_path: Path,
+    kind: HarnessHistoryKind,
+    text: str,
+    readable: bool,
+) -> None:
+    reader = CodexRolloutReader(tmp_path / ".codex")
+    provider = CodexMigrationProvider(_workspace(tmp_path), reader)
+    recovered_history = [HarnessHistoryItem(kind=kind, text=text)]
+    reader.read_thread = Mock(return_value=recovered_history)
+    adapter = SimpleNamespace(
+        read_external_thread=AsyncMock(
+            return_value=[
+                HarnessHistoryItem(kind=HarnessHistoryKind.TOOL_CALL),
+            ],
+        ),
+    )
+
+    progress = AsyncMock()
+    # pylint: disable-next=protected-access
+    sessions, warnings, recovered = await provider._read_sessions(
+        adapter,
+        reader,
+        [{"id": "thread-1"}],
+        installed=True,
+        progress=progress,
+    )
+
+    reader.read_thread.assert_called_once_with("thread-1")
+    assert bool(sessions) is readable
+    assert recovered == int(readable)
+    if readable:
+        assert sessions[0].history == recovered_history
+        assert warnings == []
+        if kind == HarnessHistoryKind.USER:
+            assert sessions[0].title == text
+    else:
+        assert "no readable user or assistant messages" in warnings[0]
+        progress.assert_any_await(warnings[0])

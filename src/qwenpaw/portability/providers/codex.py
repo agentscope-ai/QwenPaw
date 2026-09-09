@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from ...harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from ...harnesses.codex.rollout_reader import (
     CodexRolloutReader,
     codex_non_root_session_kind,
@@ -26,6 +27,7 @@ from .base import (
     SessionReadBudget,
     make_inventory,
     progress_milestone,
+    report_progress,
 )
 from .external_state import (
     codex_memory_status,
@@ -44,6 +46,14 @@ _READ_CONCURRENCY = 2
 
 def _error_detail(exc: BaseException) -> str:
     return str(exc).strip() or type(exc).__name__
+
+
+def _has_dialogue(history: list[HarnessHistoryItem]) -> bool:
+    return any(
+        item.kind in {HarnessHistoryKind.USER, HarnessHistoryKind.MESSAGE}
+        and item.text.strip()
+        for item in history
+    )
 
 
 class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
@@ -539,7 +549,7 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
                     )
                 except Exception as exc:  # pylint: disable=broad-except
                     failure = exc
-            if source_id and (failure is not None or not history):
+            if source_id and not _has_dialogue(history):
                 try:
                     history = await run_sync_io(
                         rollout_reader.read_thread,
@@ -563,11 +573,27 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
                     f"{_error_detail(failure)}",
                     False,
                 )
+            elif not _has_dialogue(history):
+                result = (
+                    None,
+                    f"Skipped Codex thread {source_id}: no readable user "
+                    "or assistant messages were recovered.",
+                    False,
+                )
             else:
                 title = str(
                     raw.get("name")
                     or raw.get("title")
                     or raw.get("preview")
+                    or next(
+                        (
+                            item.text
+                            for item in history
+                            if item.kind == HarnessHistoryKind.USER
+                            and item.text.strip()
+                        ),
+                        "",
+                    )
                     or f"Codex {source_id[:8]}",
                 )
                 result = (
@@ -630,6 +656,7 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
             for session, warning, used_fallback in results:
                 if warning:
                     warnings.append(warning)
+                    await report_progress(progress, warning)
                 if session is not None:
                     reason = budget.add(session)
                     if reason:
@@ -661,8 +688,9 @@ def _merge_threads(
             continue
         fallback = offline_by_id.get(thread_id, {})
         combined = {**fallback, **item}
-        if not combined.get("cwd"):
-            combined["cwd"] = fallback.get("cwd", "")
+        for field in ("cwd", "preview"):
+            if not combined.get(field):
+                combined[field] = fallback.get(field, "")
         merged.append(combined)
         seen.add(thread_id)
     for item in offline:
