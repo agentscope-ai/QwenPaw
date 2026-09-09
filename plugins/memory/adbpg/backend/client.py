@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """REST client owned by the memory-adbpg plugin."""
 
-import json
 import logging
 from dataclasses import dataclass
 
@@ -59,7 +58,7 @@ class ADBPGMemoryClient:
             body["metadata"] = metadata
 
         url = self._url("/v3/memories/add/")
-        self._log_rest_curl("POST", url, body)
+        self._log_rest_request("POST", "add_memory")
         try:
             resp = await self._http_client.post(
                 url,
@@ -68,9 +67,16 @@ class ADBPGMemoryClient:
                 timeout=max(self._rest_timeout, 30.0),
             )
             resp.raise_for_status()
-            logger.debug("REST add_memory result: %s", resp.text[:500])
+            logger.debug(
+                "ADBPG REST request succeeded: operation=add_memory status=%s",
+                resp.status_code,
+            )
         except Exception as e:
-            logger.error("REST add_memory failed: %s", e)
+            logger.error(
+                "ADBPG REST request failed: operation=add_memory "
+                "error_type=%s",
+                type(e).__name__,
+            )
             # The manager records message IDs only after this call succeeds.
             # Swallowing a rejection would mark unsaved messages as persisted
             # and prevent a later submission from retrying them.
@@ -102,7 +108,7 @@ class ADBPGMemoryClient:
 
         url = self._url("/v3/memories/search/")
         req_timeout = timeout or self._rest_timeout
-        self._log_rest_curl("POST", url, body)
+        self._log_rest_request("POST", "search_memory")
         try:
             resp = await self._http_client.post(
                 url,
@@ -120,12 +126,13 @@ class ADBPGMemoryClient:
         except Exception as e:
             error_str = str(e).lower()
             if "timeout" in error_str:
-                logger.warning(
-                    "REST memory search timed out for query: %r",
-                    query,
-                )
+                logger.warning("ADBPG REST memory search timed out")
             else:
-                logger.error("REST search_memory failed: %s", e)
+                logger.error(
+                    "ADBPG REST request failed: operation=search_memory "
+                    "error_type=%s",
+                    type(e).__name__,
+                )
             return []
 
     async def close(self) -> None:
@@ -145,20 +152,11 @@ class ADBPGMemoryClient:
             identity["user_id"] = user_id
         return identity
 
-    def _log_rest_curl(self, method: str, url: str, body: dict) -> None:
-        """Log an equivalent curl command for debugging REST calls."""
-        header_parts = []
-        for key, value in self._rest_headers.items():
-            if key.lower() == "content-type":
-                continue
-            if key.lower() == "authorization":
-                header_parts.append(f"-H '{key}: {value[:12]}***'")
-            else:
-                header_parts.append(f"-H '{key}: {value}'")
+    @staticmethod
+    def _log_rest_request(method: str, operation: str) -> None:
+        """Log non-sensitive metadata for an outgoing REST request."""
         logger.debug(
-            "curl -X %s '%s' -H 'Content-Type: application/json' %s -d '%s'",
+            "ADBPG REST request: method=%s operation=%s",
             method,
-            url,
-            " ".join(header_parts),
-            json.dumps(body, ensure_ascii=False)[:2000],
+            operation,
         )
