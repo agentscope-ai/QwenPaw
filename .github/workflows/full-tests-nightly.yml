@@ -113,10 +113,15 @@ jobs:
           # entries only verify cross-platform compatibility.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
              [ "${{ matrix.python-version }}" = "3.13" ]; then
+            # Phase-1 item 1-4b (plan v1.6): the explicit fail-under of 0 is
+            # removed so the backend unit threshold (pyproject.toml fail_under,
+            # currently 50) applies here too. The PR gate no longer collects
+            # coverage (item 1-4), so without this change the threshold would
+            # drop to zero — which the 9-09 decision forbids. Measured nightly
+            # UNIT coverage 64% (runs 34256897844 / 34147382640), margin 14pp.
             pytest tests/unit -v \
               --cov=src/qwenpaw \
-              --cov-report=xml:coverage.unit.xml \
-              --cov-fail-under=0
+              --cov-report=xml:coverage.unit.xml
           else
             pytest tests/unit -v
           fi
@@ -208,6 +213,13 @@ jobs:
           # Same conditional-coverage pattern as unit-tests.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
              [ "${{ matrix.python-version }}" = "3.13" ]; then
+            # The explicit fail-under of 0 is KEPT for the contract tier:
+            # its single-tier coverage is ~13% (nightly Coverage Report,
+            # runs 34256897844 / 34147382640), far below the pyproject
+            # threshold of 50, which governs the unit tier only. Removing
+            # the 0 here would inherit 50 and turn every nightly red without
+            # raising any real bar. Keeping 0 preserves the status quo —
+            # it lowers nothing.
             pytest tests/contract -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.contract.xml \
