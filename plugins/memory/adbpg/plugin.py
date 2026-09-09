@@ -16,6 +16,13 @@ class ADBPGMemoryPlugin:
                 "description": "AnalyticDB for PostgreSQL memory",
                 "network_access": True,
                 "secret_fields": ["rest_api_key"],
+                "tools": {
+                    "memory_search": {
+                        "policy_name": "ADBPGMemorySearch",
+                        "tool_type": "network",
+                        "target_param": "query",
+                    },
+                },
             },
         )
 

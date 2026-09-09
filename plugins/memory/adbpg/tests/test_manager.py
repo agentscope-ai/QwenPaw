@@ -17,6 +17,10 @@ from plugins.memory.adbpg.backend.config import ADBPGMemoryConfig
 from plugins.memory.adbpg.backend.manager import ADBPGMemoryManager
 from qwenpaw.memory import MemoryBackendContext
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
+from qwenpaw.governance import PolicyGuardedTool
+from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
+from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
+from qwenpaw.runtime.builder import AgentBuilder
 
 
 def _manager(
@@ -107,6 +111,45 @@ async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
 
     assert result is None
     manager.memory_search.assert_not_awaited()
+
+
+def test_local_only_search_keeps_internal_policy(tmp_path):
+    manager = _manager(tmp_path)
+
+    search_tool = PolicyGuardedTool(manager.list_memory_tools()[0])
+    search_tool._qp_raw_params = {"query": "local query"}
+    spec = search_tool._build_tc_spec()
+
+    assert search_tool.name == "memory_search"
+    assert spec.tool_name == "MemorySearch"
+    assert spec.target == ""
+    assert DEFAULT_REGISTRY.get_type(spec.tool_name) == "internal"
+
+
+@pytest.mark.asyncio
+async def test_remote_search_uses_network_policy_in_runtime_toolkit(tmp_path):
+    manager = _manager(tmp_path)
+    manager._client = object()
+
+    toolkit = await AgentBuilder().build_toolkit(
+        SimpleNamespace(),
+        memory_tools=manager.list_memory_tools(),
+    )
+    search_tool = next(
+        tool
+        for tool in toolkit.tool_groups[0].tools
+        if tool.name == "memory_search"
+    )
+    search_tool._qp_raw_params = {"query": "remote query"}
+    spec = search_tool._build_tc_spec()
+
+    assert spec.tool_name == "ADBPGMemorySearch"
+    assert spec.target == "remote query"
+    assert DEFAULT_REGISTRY.get_type(spec.tool_name) == "network"
+    assert (
+        GovernancePolicy(execution_level="strict").evaluate(spec).action
+        is GovernanceAction.ASK
+    )
 
 
 @pytest.mark.asyncio

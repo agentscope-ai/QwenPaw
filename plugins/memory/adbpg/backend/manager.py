@@ -10,6 +10,8 @@ memory storage and retrieval.
 
 import asyncio
 import logging
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +125,28 @@ class ADBPGMemoryManager(BaseMemoryManager):
             "en": ADBPG_MEMORY_GUIDANCE_EN,
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
+
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
+        """Expose remote search under its network governance identity."""
+        if self._client is None:
+            return [self.memory_search]
+
+        @wraps(self.memory_search)
+        async def adbpg_memory_search(
+            query: str,
+            max_results: int = 5,
+            min_score: float = 0.1,
+        ) -> ToolChunk:
+            return await self.memory_search(query, max_results, min_score)
+
+        # Keep the agent-facing name ``memory_search`` while selecting the
+        # plugin-owned network policy whenever a remote call can occur.
+        setattr(
+            adbpg_memory_search,
+            "_qwenpaw_policy_name",
+            "ADBPGMemorySearch",
+        )
+        return [adbpg_memory_search]
 
     def get_auto_memory_interval(self) -> int:
         """Persist ADBPG user messages every turn."""
