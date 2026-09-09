@@ -137,6 +137,54 @@ def test_override_with_model_slot_config(_patch_dependencies):
     assert _patch_dependencies == ["p"]
 
 
+def test_context_size_is_restored_when_missing():
+    """Restore a missing context window from the provider."""
+    model = SimpleNamespace(context_size=None)
+    provider = SimpleNamespace(
+        id="provider",
+        get_context_size=lambda _model_id: 131_072,
+        get_model_info=lambda _model_id: SimpleNamespace(
+            max_input_length_configured=False,
+        ),
+    )
+
+    model_factory._ensure_model_context_size(model, provider, "model")
+
+    assert model.context_size == 131_072
+
+
+def test_implicit_default_context_size_is_replaced():
+    """Replace an implicit AgentScope default with provider metadata."""
+    model = SimpleNamespace(context_size=32_768)
+    provider = SimpleNamespace(
+        id="provider",
+        get_context_size=lambda _model_id: 131_072,
+        get_model_info=lambda _model_id: SimpleNamespace(
+            max_input_length_configured=False,
+        ),
+    )
+
+    model_factory._ensure_model_context_size(model, provider, "model")
+
+    assert model.context_size == 131_072
+
+
+def test_explicit_default_context_size_is_preserved():
+    """Preserve an explicitly configured 32K context window."""
+    model = SimpleNamespace(context_size=32_768)
+    provider = SimpleNamespace(
+        id="provider",
+        get_context_size=lambda _model_id: 131_072,
+        get_model_info=lambda _model_id: SimpleNamespace(
+            max_input_length_configured=True,
+        ),
+    )
+
+    model_factory._ensure_model_context_size(model, provider, "model")
+
+    assert model.context_size == 32_768
+
+
 def test_factory_binds_returned_formatter_to_provider_model():
     """Callers that ignore the formatter return still use the enhanced one."""
     with patch.object(model_factory, "RetryConfig") as retry_cls:
