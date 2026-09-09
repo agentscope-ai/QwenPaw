@@ -136,12 +136,14 @@ import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import { scrollReverseMessageList } from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
+import { isApprovalInCurrentScope } from "./approvalScope";
 
 interface ApprovalMessageData {
   requestId: string;
   sessionId: string;
   rootSessionId?: string;
   agentId: string;
+  ownerAgentId?: string;
   toolName: string;
   toolSource?: string;
   severity: string;
@@ -1218,6 +1220,10 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const selectedAgentRef = useRef(selectedAgent);
+  selectedAgentRef.current = selectedAgent;
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
   const prevSelectedAgentRef = useRef(selectedAgent);
   const pendingAgentSwitchRef = useRef<string | null>(null);
   const agentJustChanged = prevSelectedAgentRef.current !== selectedAgent;
@@ -1746,7 +1752,7 @@ export default function ChatPage() {
     };
   }, [isChatActive]);
 
-  // Consume approvals from Context and filter by current session.
+  // Consume approvals from Context and filter by current agent and session.
   // Uses a serialized key to avoid creating a new Map (and triggering
   // re-renders of the entire Chat tree) when the filtered result is identical.
   const prevApprovalKeyRef = useRef("");
@@ -1755,20 +1761,18 @@ export default function ChatPage() {
     const currentSessionId = chatId
       ? sessionApi.getSessionIdentity(chatId).sessionId || chatId
       : "";
-
-    // When no session ID is available yet, use the first approval's
-    // root_session_id as a hint (handles the race where approval arrives
-    // before the session ID is propagated).
-    let effectiveSessionId = currentSessionId;
-    if (!effectiveSessionId && approvals.length > 0) {
-      effectiveSessionId = approvals[0].root_session_id;
-    }
-
-    const sessionApprovals = effectiveSessionId
-      ? approvals.filter(
-          (approval) => approval.root_session_id === effectiveSessionId,
-        )
-      : approvals;
+    const sessionApprovals = approvals.filter((approval) =>
+      isApprovalInCurrentScope(
+        {
+          agentId: approval.agent_id,
+          ownerAgentId: approval.owner_agent_id,
+          rootSessionId: approval.root_session_id,
+        },
+        selectedAgent,
+        currentSessionId,
+        isAgentSwitchTransition,
+      ),
+    );
 
     // Build a stable key from the filtered request IDs so we can skip
     // the Map rebuild when nothing changed (avoids re-render every 2.5s poll).
@@ -1787,6 +1791,7 @@ export default function ChatPage() {
         sessionId: approval.session_id,
         rootSessionId: approval.root_session_id,
         agentId: approval.agent_id,
+        ownerAgentId: approval.owner_agent_id,
         toolName: approval.tool_name,
         toolSource: approval.tool_source,
         severity: approval.severity,
@@ -1804,7 +1809,7 @@ export default function ChatPage() {
     }
 
     setApprovalRequests(newMap);
-  }, [approvals, chatId]);
+  }, [approvals, chatId, isAgentSwitchTransition, selectedAgent]);
 
   const approvalRenderers = useMemo(() => {
     const renderers = new Map<
@@ -1837,6 +1842,26 @@ export default function ChatPage() {
       if (!request) return;
 
       const rootSessionId = request.rootSessionId || request.sessionId;
+      const currentChatId = chatIdRef.current;
+      const currentRootSessionId = currentChatId
+        ? sessionApi.getSessionIdentity(currentChatId).sessionId ||
+          currentChatId
+        : "";
+      if (
+        !isApprovalInCurrentScope(
+          {
+            agentId: request.agentId,
+            ownerAgentId: request.ownerAgentId,
+            rootSessionId,
+          },
+          selectedAgentRef.current,
+          currentRootSessionId,
+          agentSwitchTransitionRef.current,
+        )
+      ) {
+        console.warn("[Chat] Ignoring stale approval action target");
+        return;
+      }
 
       try {
         const cardElement = document.querySelector(
@@ -1871,7 +1896,7 @@ export default function ChatPage() {
         console.error("Failed to approve:", error);
       }
     },
-    [approvalRequests, chatId, t, message, setApprovals],
+    [approvalRequests, t, message, setApprovals],
   );
 
   const handleDeny = useCallback(
@@ -1881,6 +1906,26 @@ export default function ChatPage() {
 
       // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
       const rootSessionId = request.rootSessionId || request.sessionId;
+      const currentChatId = chatIdRef.current;
+      const currentRootSessionId = currentChatId
+        ? sessionApi.getSessionIdentity(currentChatId).sessionId ||
+          currentChatId
+        : "";
+      if (
+        !isApprovalInCurrentScope(
+          {
+            agentId: request.agentId,
+            ownerAgentId: request.ownerAgentId,
+            rootSessionId,
+          },
+          selectedAgentRef.current,
+          currentRootSessionId,
+          agentSwitchTransitionRef.current,
+        )
+      ) {
+        console.warn("[Chat] Ignoring stale approval action target");
+        return;
+      }
 
       try {
         // Add exit animation class
@@ -1911,7 +1956,7 @@ export default function ChatPage() {
         console.error("Failed to deny:", error);
       }
     },
-    [approvalRequests, chatId, t, message, setApprovals],
+    [approvalRequests, t, message, setApprovals],
   );
 
   // Use custom hooks for better separation of concerns
@@ -1931,13 +1976,9 @@ export default function ChatPage() {
   getLastChatIdRef.current = getLastChatId;
   const removeLastChatIdRef = useRef(removeLastChatId);
   removeLastChatIdRef.current = removeLastChatId;
-  const selectedAgentRef = useRef(selectedAgent);
-  selectedAgentRef.current = selectedAgent;
-
   const lastSessionIdRef = useRef<string | null>(null);
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
   const staleAutoSelectedIdRef = useRef<string | null>(null);
-  const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingSenderClearRef = useRef<string | null>(null);
@@ -3961,7 +4002,9 @@ export default function ChatPage() {
         )}
 
         {/* Render approval cards as overlays */}
-        {Array.from(approvalRequests.values()).map((request) => {
+        {Array.from(
+          chatId && !isAgentSwitchTransition ? approvalRequests.values() : [],
+        ).map((request) => {
           const renderer = approvalRenderers.get(request.sourceType);
           const CustomApprovalCard = renderer?.item.render;
           const defaultApprovalCard = (
