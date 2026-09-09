@@ -63,7 +63,7 @@ def test_llama_server_audio_unsupported_matches() -> None:
     input_audio with HTTP 500."""
     exc = _FakeAPIError(
         'Error code: 500 - {"error":{"code":500,"message":"audio input is '
-        'not supported - hint: if this is unexpected, you may need to '
+        "not supported - hint: if this is unexpected, you may need to "
         'provide the mmproj","type":"server_error"}}',
         status_code=500,
     )
