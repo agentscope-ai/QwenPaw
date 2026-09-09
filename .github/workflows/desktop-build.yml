@@ -151,6 +151,25 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $artifact.FullName).Hash.ToLowerInvariant()
           "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
 
+          $updaterSignatures = @(Get-ChildItem `
+            "dist/QwenPaw-Tauri-*-Windows-setup.exe.sig" `
+            -ErrorAction SilentlyContinue)
+          $updaterMetadata = @(Get-ChildItem `
+            "dist/tauri-windows-*-updater.json" `
+            -ErrorAction SilentlyContinue)
+          if ($updaterSignatures.Count -gt 1 `
+              -or $updaterMetadata.Count -gt 1 `
+              -or $updaterSignatures.Count -ne $updaterMetadata.Count) {
+            throw "Expected one Windows updater signature and metadata file, or neither"
+          }
+          if ($updaterSignatures.Count -eq 1) {
+            foreach ($updaterFile in @($updaterSignatures[0], $updaterMetadata[0])) {
+              $updaterHash = (Get-FileHash -Algorithm SHA256 $updaterFile.FullName).Hash.ToLowerInvariant()
+              "$updaterHash  $($updaterFile.Name)" |
+                Set-Content -Encoding ascii "$($updaterFile.FullName).sha256"
+            }
+          }
+
       - name: Upload desktop verify logs (Tauri Windows)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -187,7 +206,9 @@ jobs:
           name: tauri-updater-meta-windows
           path: |
             dist/QwenPaw-Tauri-*-Windows-setup.exe.sig
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig.sha256
             dist/tauri-windows-x86_64-updater.json
+            dist/tauri-windows-x86_64-updater.json.sha256
 
   build-tauri-macos:
     runs-on: macos-15
@@ -285,16 +306,27 @@ jobs:
           )
 
           updater_archives=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz)
+          updater_signatures=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig)
+          updater_metadata=(dist/tauri-darwin-*-updater.json)
           if [ ${#updater_archives[@]} -gt 1 ]; then
             echo "::error::Expected at most one macOS updater archive, found ${#updater_archives[@]}"
             exit 1
           fi
+          if [ ${#updater_signatures[@]} -ne ${#updater_archives[@]} ] || \
+             [ ${#updater_metadata[@]} -ne ${#updater_archives[@]} ]; then
+            echo "::error::Expected one macOS updater archive, signature and metadata file, or none"
+            exit 1
+          fi
           if [ ${#updater_archives[@]} -eq 1 ]; then
-            updater_archive="${updater_archives[0]}"
-            (
-              cd "$(dirname "$updater_archive")"
-              shasum -a 256 "$(basename "$updater_archive")" > "$(basename "$updater_archive").sha256"
-            )
+            for updater_file in \
+              "${updater_archives[0]}" \
+              "${updater_signatures[0]}" \
+              "${updater_metadata[0]}"; do
+              (
+                cd "$(dirname "$updater_file")"
+                shasum -a 256 "$(basename "$updater_file")" > "$(basename "$updater_file").sha256"
+              )
+            done
           fi
 
       - name: Upload desktop verify logs (Tauri macOS)
@@ -335,4 +367,6 @@ jobs:
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sha256
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
             dist/tauri-darwin-*-updater.json
+            dist/tauri-darwin-*-updater.json.sha256

@@ -14,7 +14,21 @@ import zipfile
 ARTIFACT_PATTERNS = {
     "windows": "QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe",
     "macos": "QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip",
-    "macos-updater": ("tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz"),
+}
+
+UPDATER_SPECS = {
+    "windows-updater": {
+        "directory": "tauri-updater-meta-windows",
+        "artifact_pattern": "QwenPaw-Tauri-*-Windows-setup.exe.sig",
+        "metadata_pattern": "tauri-windows-*-updater.json",
+        "target": "windows-x86_64",
+    },
+    "macos-updater": {
+        "directory": "tauri-updater-meta-macos",
+        "artifact_pattern": "QwenPaw-Tauri-*-macOS.app.tar.gz",
+        "metadata_pattern": "tauri-darwin-*-updater.json",
+        "target": "darwin-aarch64",
+    },
 }
 
 
@@ -45,7 +59,7 @@ def read_expected_sha256(sidecar: Path, artifact: Path) -> str:
     return fields[0].lower()
 
 
-def verify_artifact(artifact: Path, platform: str) -> None:
+def verify_checksum(artifact: Path) -> None:
     sidecar = Path(f"{artifact}.sha256")
     if not sidecar.is_file():
         raise ValueError(f"missing checksum sidecar: {sidecar}")
@@ -56,6 +70,10 @@ def verify_artifact(artifact: Path, platform: str) -> None:
         raise ValueError(
             f"SHA-256 mismatch for {artifact}: expected {expected}, got {actual}",
         )
+
+
+def verify_artifact(artifact: Path, platform: str) -> None:
+    verify_checksum(artifact)
 
     if platform == "macos":
         try:
@@ -71,21 +89,22 @@ def verify_artifact(artifact: Path, platform: str) -> None:
     print(f"verified {platform} artifact: {artifact} ({artifact.stat().st_size} bytes)")
 
 
-def verify_macos_updater_metadata(artifact: Path) -> None:
-    signature = Path(f"{artifact}.sig")
-    if not signature.is_file():
-        raise ValueError(f"missing macOS updater signature: {signature}")
+def find_exactly_one(directory: Path, pattern: str, label: str) -> Path:
+    matches = sorted(directory.glob(pattern))
+    if len(matches) != 1:
+        raise ValueError(f"expected exactly one {label}, found {len(matches)}")
+    return matches[0]
+
+
+def verify_updater_metadata(
+    artifact_name: str,
+    signature: Path,
+    metadata_path: Path,
+    expected_target: str,
+) -> None:
     if signature.stat().st_size == 0:
-        raise ValueError(f"empty macOS updater signature: {signature}")
+        raise ValueError(f"empty updater signature: {signature}")
 
-    metadata_files = sorted(artifact.parent.glob("tauri-darwin-*-updater.json"))
-    if len(metadata_files) != 1:
-        raise ValueError(
-            "expected exactly one macOS updater metadata file, "
-            f"found {len(metadata_files)}",
-        )
-
-    metadata_path = metadata_files[0]
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -96,8 +115,9 @@ def verify_macos_updater_metadata(artifact: Path) -> None:
         raise ValueError(f"updater metadata {metadata_path} must be a JSON object")
 
     expected = {
-        "artifact": artifact.name,
+        "artifact": artifact_name,
         "signature": signature.name,
+        "target": expected_target,
     }
     for field, expected_value in expected.items():
         if metadata.get(field) != expected_value:
@@ -105,8 +125,50 @@ def verify_macos_updater_metadata(artifact: Path) -> None:
                 f"updater metadata {metadata_path} has {field}={metadata.get(field)!r}, "
                 f"expected {expected_value!r}",
             )
-    if not isinstance(metadata.get("target"), str) or not metadata["target"].strip():
-        raise ValueError(f"updater metadata {metadata_path} has no valid target")
+
+
+def verify_updater_artifact(
+    root: Path,
+    platform: str,
+    installer_names: dict[str, str],
+) -> None:
+    spec = UPDATER_SPECS[platform]
+    directory = root / spec["directory"]
+    updater_artifact = find_exactly_one(
+        directory,
+        spec["artifact_pattern"],
+        f"{platform} artifact",
+    )
+    metadata_path = find_exactly_one(
+        directory,
+        spec["metadata_pattern"],
+        f"{platform} metadata file",
+    )
+
+    if platform == "windows-updater":
+        signature = updater_artifact
+        artifact_name = signature.name.removesuffix(".sig")
+        if artifact_name != installer_names.get("windows"):
+            raise ValueError(
+                f"Windows updater signature names {artifact_name!r}, "
+                f"expected {installer_names.get('windows')!r}",
+            )
+    else:
+        artifact_name = updater_artifact.name
+        signature = Path(f"{updater_artifact}.sig")
+        if not signature.is_file():
+            raise ValueError(f"missing macOS updater signature: {signature}")
+        verify_checksum(updater_artifact)
+
+    verify_checksum(signature)
+    verify_checksum(metadata_path)
+    verify_updater_metadata(
+        artifact_name,
+        signature,
+        metadata_path,
+        spec["target"],
+    )
+    print(f"verified {platform} metadata: {metadata_path}")
 
 
 def main() -> int:
@@ -120,18 +182,20 @@ def main() -> int:
     parser.add_argument(
         "--require",
         action="append",
-        choices=tuple(ARTIFACT_PATTERNS),
+        choices=tuple(ARTIFACT_PATTERNS) + tuple(UPDATER_SPECS),
         default=[],
         help="Fail unless exactly one artifact for this platform is present",
     )
     args = parser.parse_args()
 
     required_platforms = set(args.require)
-    if (args.root / "tauri-updater-meta-macos").is_dir():
-        required_platforms.add("macos-updater")
+    for platform, spec in UPDATER_SPECS.items():
+        if (args.root / spec["directory"]).is_dir():
+            required_platforms.add(platform)
 
     failed = False
     found_any = False
+    installer_names: dict[str, str] = {}
     for platform, pattern in ARTIFACT_PATTERNS.items():
         artifacts = sorted(args.root.glob(pattern))
         if artifacts:
@@ -149,11 +213,24 @@ def main() -> int:
                 failed = True
             continue
 
+        installer_names[platform] = artifacts[0].name
         try:
             verify_artifact(artifacts[0], platform)
-            if platform == "macos-updater":
-                verify_macos_updater_metadata(artifacts[0])
         except ValueError as error:
+            print(f"::error::{error}", file=sys.stderr)
+            failed = True
+
+    for platform, spec in UPDATER_SPECS.items():
+        if platform not in required_platforms:
+            continue
+        if not (args.root / spec["directory"]).is_dir():
+            print(f"::error::Missing required {platform} artifact", file=sys.stderr)
+            failed = True
+            continue
+        found_any = True
+        try:
+            verify_updater_artifact(args.root, platform, installer_names)
+        except (OSError, ValueError) as error:
             print(f"::error::{error}", file=sys.stderr)
             failed = True
 
