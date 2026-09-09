@@ -518,11 +518,9 @@ def _element_span_ticks(element: Mapping[str, Any]) -> tuple[int, int] | None:
 def _voiced_spans_v8(
     elements: Mapping[str, Any],
 ) -> list[tuple[int, int]]:
-    """Whole-span voiced intervals of a raw v8 timeline.
+    """Explicit driving-voice intervals of an old timeline.
 
-    Whole spans are a superset of the shot-granular intervals the v9
-    narration gate rejects, so any audio clear of these is guaranteed to
-    load as narration.
+    Retired authoring rows cannot infer R2V sound intent or audio roles.
     """
 
     spans: list[tuple[int, int]] = []
@@ -535,16 +533,6 @@ def _voiced_spans_v8(
         voiced = False
         if creation.get("type") == "s2v":
             voiced = True
-        elif creation.get("type") == "r2v":
-            shots = creation.get("shots")
-            items = shots.get("items") if isinstance(shots, Mapping) else None
-            if isinstance(items, Mapping):
-                voiced = any(
-                    isinstance(shot, Mapping)
-                    and isinstance(shot.get("dialogue"), str)
-                    and shot["dialogue"].strip()
-                    for shot in items.values()
-                )
         if not voiced:
             continue
         ticks = _element_span_ticks(element)
@@ -553,17 +541,24 @@ def _voiced_spans_v8(
     return spans
 
 
-def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
-    """Make the audio mixing ``role`` an explicit stored fact.
+def _stamp_missing_audio_roles(
+    document: dict[str, Any],
+    *,
+    step: str,
+) -> dict[str, Any]:
+    """Stamp ``creation.role`` on audio Elements that lack it.
 
-    v9 requires ``creation.role`` on audio Elements so the
-    narration-overlap gate cannot be bypassed by omitting the field.
-    Pre-role documents are stamped ``"narration"``: the pre-role mixer
-    ducked the footage audio under *every* audio track (TTS narration and
-    uploaded audio alike), and narration is the role that preserves that
-    behaviour exactly — nothing silently becomes a -12dB music bed.
+    Idempotent: elements that already carry a role are left untouched,
+    and a document whose audio elements all have roles comes back
+    unchanged. Shared by the v8->v9 migration and the v9 same-version
+    repair (see :func:`_repair_v9_missing_audio_roles`).
 
-    A migration must never emit a document its own validator rejects:
+    Role-less audio is stamped ``"narration"``: the pre-role mixer
+    ducked the footage audio under *every* audio track (TTS narration
+    and uploaded audio alike), and narration is the role that preserves
+    that behaviour exactly — nothing silently becomes a -12dB music bed.
+
+    This normalization must never emit a document the validator rejects:
     narration overlapping a natively voiced interval is exactly what the
     v9 gate refuses, so audio overlapping a voiced element is stamped
     ``sfx`` instead (mixed verbatim, not gated). That track keeps
@@ -604,16 +599,18 @@ def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
             changed = True
             if overlaps_voiced:
                 logger.warning(
-                    "v8->v9: audio element %s/%s overlaps a natively "
+                    "%s: audio element %s/%s overlaps a natively "
                     "voiced element; stamped role=sfx so the narration "
                     "gate keeps the project loadable",
+                    step,
                     timeline_id,
                     element_id,
                 )
             else:
                 logger.info(
-                    "v8->v9: audio element %s/%s stamped role=narration "
+                    "%s: audio element %s/%s stamped role=narration "
                     "(pre-role mixing behaviour)",
+                    step,
                     timeline_id,
                     element_id,
                 )
@@ -623,11 +620,59 @@ def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
             items[timeline_id] = updated_timeline
     timelines["items"] = items
     migrated["timelines"] = timelines
+    return migrated
+
+
+def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
+    """Stamp audio ``creation.role`` and introduce the narrative blueprint.
+
+    v9 requires ``creation.role`` on audio Elements so the
+    narration-overlap gate cannot be bypassed by omitting the field.
+    Pre-role documents are stamped by :func:`_stamp_missing_audio_roles`
+    (narration by default, sfx when the span overlaps a natively voiced
+    interval) so the migration never emits a document its own validator
+    rejects.
+
+    v9 also adds per-Timeline display fields
+    (``title`` / ``synopsis`` / ``planned_duration_seconds``).
+    Legacy projects are presented as a single narrative node
+    (single-video generation / edit); no script artifact is backfilled —
+    the blueprint maps existing information (creative_brief, element
+    intents, shot tables, edit_plan) read-only instead.
+    """
+
+    migrated = _stamp_missing_audio_roles(dict(document), step="v8->v9")
+    timelines = dict(migrated.get("timelines") or {})
+    items = dict(timelines.get("items") or {})
+    for timeline_id, timeline in list(items.items()):
+        if not isinstance(timeline, Mapping):
+            continue
+        updated_timeline = dict(timeline)
+        updated_timeline.setdefault("title", "")
+        updated_timeline.setdefault("synopsis", "")
+        updated_timeline.setdefault("planned_duration_seconds", None)
+        items[timeline_id] = updated_timeline
+    timelines["items"] = items
+    migrated["timelines"] = timelines
     migrated["schema_version"] = 9
     return migrated
 
 
 PROJECT_MIGRATIONS[8] = _migrate_v8_to_v9
+
+
+def _repair_v9_missing_audio_roles(document: dict[str, Any]) -> dict[str, Any]:
+    """Same-version repair: stamp audio roles on pre-merge v9 documents.
+
+    One v9 lineage (pr-150's original v9) added the narrative fields but
+    not ``creation.role``, so its exports already say ``schema_version=9``
+    and the v8->v9 migration — which would stamp roles — never runs for
+    them. Loading such a document must not fail validation, so the same
+    stamping is applied here as an idempotent repair. Documents whose
+    audio elements already carry roles pass through byte-identical.
+    """
+
+    return _stamp_missing_audio_roles(document, step="v9-repair")
 
 
 def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -683,7 +728,11 @@ def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
             )
         document = candidate
         version = next_version
-    return document
+    # Same-version repair: documents already stamped with the current
+    # schema_version may still predate a required field when two schema
+    # lineages merged under one number. Repairs are idempotent and leave
+    # already-conforming documents untouched.
+    return _repair_v9_missing_audio_roles(document)
 
 
 __all__ = [

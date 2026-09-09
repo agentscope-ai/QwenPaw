@@ -59,6 +59,7 @@ export function hubHealth(overrides: Partial<HubHealth> = {}): HubHealth {
     runtime_state: "running",
     runtime_desired_state: "running",
     runtime_start_policy: "owner_allowed",
+    runtime_last_error: null,
     provisioner_statuses: {
       local: { available: true, security_level: "isolated-local" },
     },

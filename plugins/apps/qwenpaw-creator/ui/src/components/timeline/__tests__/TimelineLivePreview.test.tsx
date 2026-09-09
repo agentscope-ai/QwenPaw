@@ -121,7 +121,10 @@ describe("TimelineLivePreview", () => {
   });
 
   it("stacks ready media and compose-grade copy overlays by z_index at the playhead", () => {
-    const { container } = renderPreview(cloneProject(), 7000);
+    const project = cloneProject();
+    // Pet-OS bubble (with animal emoji) only renders when content_type is "pets"
+    project.settings.content_type = "pets";
+    const { container } = renderPreview(project, 7000);
 
     const nodes = [
       ...container.querySelectorAll(

@@ -113,6 +113,62 @@ def test_filter_chain_emits_xfade_and_acrossfade_with_running_offsets():
     assert "[vout]" in chain
 
 
+def test_filter_chain_edge_fades_hard_cut_joins_only():
+    # a →(cut)→ b →(xfade)→ c: the cut sides get the 40ms edge fades the
+    # plain-concat path applies, xfade sides and outer edges stay clean.
+    chain = build_transition_filter_chain(
+        [
+            TransitionClip(duration_seconds=12.0, has_audio=True),
+            TransitionClip(duration_seconds=12.0, has_audio=True),
+            TransitionClip(duration_seconds=12.0, has_audio=True),
+        ],
+        [
+            TransitionJoin(kind="cut", blend_seconds=0.0),
+            TransitionJoin(kind="crossfade", blend_seconds=0.5),
+        ],
+        canvas_size=(1280, 720),
+    )
+    # Clip 0: fade-out into the cut only (no fade-in at film start).
+    assert "[0:a]" in chain
+    assert (
+        "afade=t=in"
+        not in chain.split("[ai0]", maxsplit=1)[0].split("[0:a]")[1]
+    )
+    assert (
+        "afade=t=out:st=11.960:d=0.040" in chain.split("[ai0]", maxsplit=1)[0]
+    )
+    # Clip 1: fade-in out of the cut; trailing side is an xfade → no
+    # fade-out (acrossfade owns that ramp).
+    clip1_audio = chain.split("[ai1]", maxsplit=1)[0].split("[1:a]")[1]
+    assert "afade=t=in:d=0.040" in clip1_audio
+    assert "afade=t=out" not in clip1_audio
+    # Clip 2: both sides are xfade/film-end → untouched.
+    clip2_audio = chain.split("[ai2]", maxsplit=1)[0].split("[2:a]")[1]
+    assert "afade" not in clip2_audio
+    # The cut join still concats; the xfade join still acrossfades.
+    assert "concat=n=2:v=0:a=1" in chain
+    assert chain.count("acrossfade=d=") == 1
+
+
+def test_filter_chain_micro_clip_skips_edge_fade():
+    chain = build_transition_filter_chain(
+        [
+            TransitionClip(duration_seconds=0.2, has_audio=True),
+            TransitionClip(duration_seconds=5.0, has_audio=True),
+        ],
+        [TransitionJoin(kind="cut", blend_seconds=0.0)],
+        canvas_size=(1280, 720),
+    )
+    # The 0.2s micro-clip passes through unfaded (ramps would eat it);
+    # its long neighbour still fades in out of the cut.
+    clip0_audio = chain.split("[ai0]", maxsplit=1)[0].split("[0:a]")[1]
+    assert "afade" not in clip0_audio
+    assert (
+        "afade=t=in:d=0.040"
+        in chain.split("[ai1]", maxsplit=1)[0].split("[1:a]")[1]
+    )
+
+
 def test_filter_chain_rejects_blend_longer_than_adjacent_clip():
     with pytest.raises(ValueError, match="must be shorter"):
         build_transition_filter_chain(

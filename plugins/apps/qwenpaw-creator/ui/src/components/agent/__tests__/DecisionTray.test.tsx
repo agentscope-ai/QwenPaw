@@ -72,11 +72,19 @@ describe("DecisionTray", () => {
     render(<DecisionTray projectId="p1" />);
 
     // Blocking item focused first: only the confirmation card is expanded.
-    expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
+    expect(screen.getByText(/生成画面/)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "文本审阅 · 1 处" }),
+      screen.getByRole("button", { name: "创作修改 · 1 处" }),
     ).toHaveAttribute("title", expect.stringContaining("下一条"));
     expect(screen.queryByText(/旧文案/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "折叠决策托盘" }));
+    expect(document.querySelector("[data-decision-tray]")).toHaveAttribute(
+      "data-decision-tray-urgent",
+      "true",
+    );
+    expect(screen.getByText(/生产确认 1 项阻塞执行中/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开决策托盘" }));
 
     fireEvent.click(screen.getByRole("button", { name: "下一条决策" }));
     expect(screen.getByText(/旧文案/)).toBeInTheDocument();
@@ -88,21 +96,21 @@ describe("DecisionTray", () => {
     seed({
       reviews: [
         textReview("review-1", "/description"),
-        textReview("review-2", "/story/scenes/1"),
+        textReview("review-2", "/title"),
       ],
     });
     render(<DecisionTray projectId="p1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /列表/ }));
-    expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
+    expect(screen.getByText(/生成画面/)).toBeInTheDocument();
     expect(screen.getAllByText(/旧文案/)).toHaveLength(2);
     expect(screen.getByRole("button", { name: /堆叠/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^审阅 2$/ }));
-    expect(screen.queryByText("生成开场分镜图")).not.toBeInTheDocument();
+    expect(screen.queryByText(/生成画面/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/旧文案/)).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: /^全部 3$/ }));
-    expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
+    expect(screen.getByText(/生成画面/)).toBeInTheDocument();
   });
 });

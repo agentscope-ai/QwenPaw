@@ -288,6 +288,15 @@ def _enable_reasoning_content_fallback(
                 "_qwenpaw_require_reasoning_content",
                 True,
             )
+            # Exact replay and request-time thinking omission are mutually
+            # exclusive. Clear any fold learned before this provider exposed
+            # its stricter tool-call protocol, so the retry is reformatted
+            # from the still-intact AgentScope message content.
+            set_omit_ids = getattr(formatter, "set_thinking_omit_ids", None)
+            if callable(set_omit_ids):
+                set_omit_ids(set())
+            else:
+                setattr(formatter, "_qwenpaw_omit_thinking_ids", set())
             return True
 
         for attr in ("_inner", "_model"):
@@ -852,8 +861,9 @@ class RetryChatModel(ChatModelBase):
                     cache.learn(key, "needs_reasoning_content", True)
                     logger.warning(
                         "Thinking-mode model requires reasoning_content "
-                        "on every assistant message. Injecting empty "
-                        "values and retrying (learned for future calls).",
+                        "on every assistant message. Replaying available "
+                        "reasoning and filling missing values before retrying "
+                        "(learned for future calls).",
                     )
                     self._ensure_provider_available()
                     result = await self._inner(*args, **kwargs)
@@ -1007,8 +1017,9 @@ class RetryChatModel(ChatModelBase):
                     )
                     logger.warning(
                         "Thinking-mode stream requires reasoning_content "
-                        "on every assistant message. Injecting empty "
-                        "values and retrying (learned for future calls).",
+                        "on every assistant message. Replaying available "
+                        "reasoning and filling missing values before retrying "
+                        "(learned for future calls).",
                     )
                     continue
 

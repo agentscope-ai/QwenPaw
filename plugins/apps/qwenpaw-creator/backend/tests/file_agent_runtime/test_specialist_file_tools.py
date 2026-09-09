@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from domain.enums import SpecialistRole
+from domain.errors import PermissionDeniedError
 from services.project_files.facade import CreatorFileServices
 from services.specialist_tools import FileSpecialistToolRegistry
 
@@ -24,7 +25,9 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
             admitted_target_refs=["asset:hero"],
         ),
     )
-    r2v = _names(
+    # Direct retired-role manifests are durable checkpoint compatibility only;
+    # subagents.py rejects every new delegation to this role.
+    legacy_r2v = _names(
         registry.manifest_for(
             SpecialistRole.R2V_GENERATION_DIRECTOR,
             admitted_target_refs=["element:r2v-1"],
@@ -43,8 +46,8 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
         ),
     )
 
-    assert "image_generation" in visual
-    assert {"image_generation", "r2v_generation"} <= r2v
+    assert "image_generation" not in visual
+    assert {"image_generation", "r2v_generation"} <= legacy_r2v
     # The editing director is a pure orchestration role: composition/export
     # is triggered directly by the user via HTTP endpoints.
     assert "ai_edit" not in editing
@@ -59,7 +62,9 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
     assert "image_generation" not in editing
 
 
-def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
+def test_visual_role_cannot_bypass_work_graph_with_image_generation(
+    tmp_path,
+) -> None:
     registry = FileSpecialistToolRegistry(
         CreatorFileServices.create(tmp_path.resolve()),
     )
@@ -67,40 +72,12 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
         SpecialistRole.VISUAL_DEVELOPMENT,
         admitted_target_refs=["project:assets"],
     )
-    tool = next(
-        item
-        for item in manifest
-        if item["function"]["name"] == "image_generation"
-    )["function"]
-    target = tool["parameters"]["properties"]["targetRef"]
-    image_arguments = tool["parameters"]["properties"]["arguments"]
-    spec = registry.spec_for(
-        SpecialistRole.VISUAL_DEVELOPMENT,
-        "image_generation",
-    )
-
-    assert spec is not None
-    assert "enum" not in target
-    # Cast lineups joined the Project-assets scope alongside entities.
-    assert target["pattern"] == r"^(asset|lineup):.+$"
-    assert "不能直接使用 project:assets" in target["description"]
-    assert image_arguments["properties"]["variantId"]["minLength"] == 1
-    assert "多个" in image_arguments["properties"]["variantId"]["description"]
-    assert spec.admits_target_ref(
-        role=SpecialistRole.VISUAL_DEVELOPMENT,
-        target_ref="asset:char-cat",
-        admitted_target_refs=["project:assets"],
-    )
-    assert not spec.admits_target_ref(
-        role=SpecialistRole.VISUAL_DEVELOPMENT,
-        target_ref="project:assets",
-        admitted_target_refs=["project:assets"],
-    )
-    assert not spec.admits_target_ref(
-        role=SpecialistRole.VISUAL_DEVELOPMENT,
-        target_ref="timeline:char-cat",
-        admitted_target_refs=["project:assets"],
-    )
+    assert "image_generation" not in _names(manifest)
+    with pytest.raises(PermissionDeniedError, match="无权调用"):
+        registry.spec_for(
+            SpecialistRole.VISUAL_DEVELOPMENT,
+            "image_generation",
+        )
 
 
 @pytest.mark.parametrize(
@@ -126,8 +103,8 @@ def test_image_manifest_uses_official_model_reference_limit(
     manifest = FileSpecialistToolRegistry(
         CreatorFileServices.create(tmp_path.resolve()),
     ).manifest_for(
-        SpecialistRole.VISUAL_DEVELOPMENT,
-        admitted_target_refs=["asset:hero"],
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+        admitted_target_refs=["element:hero"],
     )
     image_tool = next(
         item

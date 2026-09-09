@@ -1,8 +1,10 @@
 import type {
   ProjectDocument,
+  RefSearchItem,
   SpecialistRunStatus,
   TaskStatus,
   TaskView,
+  WorkGraphNode,
 } from "@/contracts/creator";
 import i18n from "@/i18n";
 
@@ -54,15 +56,38 @@ export function creatorStatusLabel(
   return key ? i18n.t(key) : i18n.t("presentation.processing");
 }
 
+const CREATOR_REF_PATTERN =
+  /visual-variant:[\w.:-]+@[\w.:-]+|(?:visual-entity|artifact-version|asset-version|cast-lineup|lineup|element|timeline|asset|source|artifact|file|project):[\w.-]+(?::[\w.-]+)*/gu;
+
+/** Names are public metadata; ids and file-system paths are not name fallbacks. */
+function publicName(value: unknown, ref: string): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const name = value.trim();
+  const id = ref.slice(ref.indexOf(":") + 1);
+  if (
+    name === ref ||
+    name === id ||
+    /^(?:\/|~\/|[A-Za-z]:\\|(?:file|https?):\/\/|(?:[\w.-]+[\\/])+[\w.-]+$)/u.test(
+      name,
+    ) ||
+    /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/iu.test(name) ||
+    /^(?:\{\s*"|\[\s*\{)/u.test(name) ||
+    /^(?:visual-variant|visual-entity|artifact-version|asset-version|cast-lineup|element|timeline|asset|source|artifact|file|project):/u.test(
+      name,
+    )
+  )
+    return null;
+  return name;
+}
+
 function elementName(
   project: ProjectDocument | null | undefined,
   elementId: string,
 ): string | null {
   if (!project) return null;
-  for (const timeline of Object.values(project.timelines.items)) {
+  for (const timeline of Object.values(project.timelines?.items ?? {})) {
     const element = timeline.elements_by_id[elementId];
-    if (element)
-      return element.label || i18n.t("presentation.targets.timelineContent");
+    if (element) return publicName(element.label, `element:${elementId}`);
   }
   return null;
 }
@@ -81,43 +106,93 @@ export function creatorTargetLabel(
       elementName(project, ref.slice("element:".length)) ??
       i18n.t("presentation.targets.timelineContent")
     );
-  if (ref.startsWith("timeline:"))
-    return i18n.t("presentation.targets.mainTimeline");
+  if (ref.startsWith("timeline:")) {
+    const timeline =
+      project?.timelines?.items?.[ref.slice("timeline:".length)] ??
+      project?.timelines?.items?.[ref];
+    return (
+      publicName(timeline?.title, ref) ??
+      publicName(timeline?.name, ref) ??
+      i18n.t("presentation.targets.mainTimeline")
+    );
+  }
   if (ref.startsWith("source:")) {
     const sourceId = ref.slice("source:".length);
     return (
-      project?.sources.sources.items[sourceId]?.display_name ||
-      i18n.t("presentation.targets.currentSource")
+      publicName(
+        project?.sources?.sources?.items?.[sourceId]?.display_name,
+        ref,
+      ) ?? i18n.t("presentation.targets.currentSource")
     );
   }
   if (ref.startsWith("asset:")) {
     const logicalAssetId = ref.slice("asset:".length);
     const entity = project?.visual?.entities?.items?.[logicalAssetId];
-    if (entity?.name) return entity.name;
+    const entityName = publicName(entity?.name, ref);
+    if (entityName) return entityName;
     return (
-      Object.values(project?.assets.source_versions_by_id ?? {}).find(
-        (version) => version.logical_asset_id === logicalAssetId,
-      )?.name || i18n.t("presentation.targets.currentSource")
+      publicName(
+        Object.values(project?.assets?.source_versions_by_id ?? {}).find(
+          (version) => version.logical_asset_id === logicalAssetId,
+        )?.name,
+        ref,
+      ) ?? i18n.t("presentation.targets.currentSource")
     );
   }
   if (ref.startsWith("visual-entity:")) {
     const entityId = ref.slice("visual-entity:".length);
     return (
-      project?.visual?.entities?.items?.[entityId]?.name ||
+      publicName(project?.visual?.entities?.items?.[entityId]?.name, ref) ??
       i18n.t("presentation.targets.visualSetting")
+    );
+  }
+  if (ref.startsWith("visual-variant:")) {
+    const identity = ref.slice("visual-variant:".length);
+    const separator = identity.lastIndexOf("@");
+    const entity =
+      separator > 0
+        ? project?.visual?.entities?.items?.[identity.slice(0, separator)]
+        : undefined;
+    const name = publicName(entity?.name, ref);
+    if (!name) return i18n.t("presentation.targets.visualSetting");
+    const variant = entity?.variants?.items?.[identity.slice(separator + 1)];
+    if (!variant || (entity?.variants?.order?.length ?? 0) <= 1) return name;
+    const description = publicName(variant.requirements, ref)
+      ?.split(/[。！？\n]/u, 1)[0]
+      ?.trim();
+    return description
+      ? `${name} · ${
+          description.length > 24 ? `${description.slice(0, 24)}…` : description
+        }`
+      : name;
+  }
+  if (ref.startsWith("cast-lineup:") || ref.startsWith("lineup:")) {
+    return (
+      publicName(
+        project?.visual?.cast_lineups?.items?.[ref.slice(ref.indexOf(":") + 1)]
+          ?.name,
+        ref,
+      ) ?? i18n.t("presentation.targets.visualSetting")
     );
   }
   if (ref.startsWith("asset-version:")) {
     return (
-      project?.assets.source_versions_by_id[ref.slice("asset-version:".length)]
-        ?.name || i18n.t("presentation.targets.sourceVersion")
+      publicName(
+        project?.assets?.source_versions_by_id?.[
+          ref.slice("asset-version:".length)
+        ]?.name,
+        ref,
+      ) ?? i18n.t("presentation.targets.sourceVersion")
     );
   }
   if (ref.startsWith("artifact-version:")) {
     return (
-      project?.assets.artifact_versions_by_id[
-        ref.slice("artifact-version:".length)
-      ]?.name || i18n.t("presentation.targets.genResult")
+      publicName(
+        project?.assets?.artifact_versions_by_id?.[
+          ref.slice("artifact-version:".length)
+        ]?.name,
+        ref,
+      ) ?? i18n.t("presentation.targets.genResult")
     );
   }
   if (ref.startsWith("file:")) return i18n.t("presentation.targets.sourceFile");
@@ -126,14 +201,191 @@ export function creatorTargetLabel(
   return i18n.t("presentation.targets.currentProject");
 }
 
-export function creatorToolLabel(name: string): string {
+/** One label policy for chips, search rows, accessible labels and tool targets. */
+export function creatorReferenceLabel(
+  item: Pick<RefSearchItem, "ref" | "name">,
+  project?: ProjectDocument | null,
+): string {
+  const currentLabel = creatorTargetLabel(item.ref, project);
+  if (project && currentLabel !== creatorTargetLabel(item.ref))
+    return currentLabel;
+  return publicName(item.name, item.ref) ?? currentLabel;
+}
+
+/** Display public names without making internal reference tokens into links. */
+export function humanizeCreatorRefs(
+  text: string,
+  project?: ProjectDocument | null,
+): string {
+  // The model can mention a raw object id in prose or a Markdown table, without
+  // the canonical reference prefix. Resolve only exact ids in this project.
+  const knownIds = new Map<string, string>();
+  for (const [id] of Object.entries(project?.visual?.entities?.items ?? {}))
+    knownIds.set(id, creatorTargetLabel(`visual-entity:${id}`, project));
+  for (const timeline of Object.values(project?.timelines?.items ?? {}))
+    for (const [id] of Object.entries(timeline.elements_by_id ?? {}))
+      knownIds.set(id, creatorTargetLabel(`element:${id}`, project));
+  let fenced = false;
+  const namedText = text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/u.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      if (
+        fenced ||
+        /^\s*(?:\*\*)?(?:台词|对白|字幕|旁白|片名|标题|Dialogue|Caption|Narration|Title)(?:\*\*)?\s*[：:]/u.test(
+          line,
+        )
+      )
+        return line;
+      return line.replace(
+        /https?:\/\/[^\s)]+|《[^》]*》|“[^”]*”|`[^`\n]+`|[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)*/gu,
+        (token) => {
+          if (token.startsWith("`"))
+            return knownIds.get(token.slice(1, -1)) ?? token;
+          // Ordinary word ids are ambiguous with authored language.
+          return /[:_-]/u.test(token) ? knownIds.get(token) ?? token : token;
+        },
+      );
+    })
+    .join("\n");
+  const inlineReferences = namedText.replace(
+    /`([^`\n]+)`/gu,
+    (code, token: string) => {
+      if (project) {
+        const element = elementName(project, token);
+        if (element) return element;
+        if (project.timelines?.items?.[token])
+          return creatorTargetLabel(`timeline:${token}`, project);
+      }
+      if (
+        /^(?:visual-variant|visual-entity|artifact-version|asset-version|cast-lineup|lineup|element|timeline|asset|source|artifact|file|project):[^\s]+$/u.test(
+          token,
+        )
+      )
+        return creatorTargetLabel(token, project);
+      if (/^seg:\d+(?:\.\d+)?-\d+(?:\.\d+)?$/u.test(token))
+        return creatorTargetLabel(`element:${token}`, project);
+      return code;
+    },
+  );
+  const plainReferences = inlineReferences
+    .replace(
+      /\[[^\]\n]*\]\(((?:visual-variant|visual-entity|artifact-version|asset-version|cast-lineup|lineup|element|timeline|asset|source|artifact|file|project):[^\s)]+)\)/gu,
+      (_match, ref: string) => creatorTargetLabel(ref, project),
+    )
+    .replace(/file:[^\s`"'<>，。！？,;)\]]+/gu, (ref) =>
+      creatorTargetLabel(ref, project),
+    );
+  return plainReferences
+    .replace(CREATOR_REF_PATTERN, (ref) => creatorTargetLabel(ref, project))
+    .replace(/\bseg:\d+(?:\.\d+)?-\d+(?:\.\d+)?\b/gu, (id) =>
+      creatorTargetLabel(`element:${id}`, project),
+    );
+}
+
+/** Work graph labels are backend fallbacks, not guaranteed public names. */
+export function creatorWorkNodeLabel(
+  node: Pick<WorkGraphNode, "id" | "label" | "locator"> & {
+    kind: string;
+    timelineId?: string | null;
+  },
+  project?: ProjectDocument | null,
+): string {
+  const kindKeys: Record<string, string> = {
+    visual: "workGraph.laneVisual",
+    lineup: "workGraph.laneLineup",
+    script: "blueprint.scriptTitle",
+    storyboard: "presentation.outputs.storyboard",
+    video: "presentation.taskKinds.r2v_generation",
+    compose: "workGraph.laneCompose",
+  };
+  const kindLabel = i18n.t(kindKeys[node.kind] ?? "agentActivity.currentStage");
+  const locator = node.locator ?? {};
+  const timelineId = node.timelineId ?? locator.timelineId;
+  const ref = locator.elementId
+    ? `element:${locator.elementId}`
+    : locator.assetId
+    ? `visual-entity:${locator.assetId}`
+    : node.kind === "lineup" && node.id.startsWith("lineup:")
+    ? `cast-lineup:${node.id.slice("lineup:".length)}`
+    : timelineId
+    ? `timeline:${timelineId}`
+    : (node.kind === "compose" || node.kind === "script") &&
+      node.id.startsWith(`${node.kind}:`)
+    ? `timeline:${node.id.slice(node.kind.length + 1)}`
+    : "";
+  if (ref && project) {
+    const objectLabel = creatorTargetLabel(ref, project);
+    if (objectLabel !== creatorTargetLabel(ref))
+      return `${objectLabel} · ${kindLabel}`;
+  }
+  const internalIds = [
+    node.id,
+    ref.slice(ref.indexOf(":") + 1),
+    timelineId,
+    locator.elementId,
+    locator.assetId,
+  ].filter(Boolean);
+  const label = publicName(node.label, ref || node.id);
+  if (
+    label &&
+    !internalIds.some((id) => label.includes(id)) &&
+    !/(?:\b(?:seg|timeline|element|lineup|visual|compose|script):|\b[a-f\d]{8}-[a-f\d-]{27,}\b)/iu.test(
+      label,
+    )
+  )
+    return label;
+  return kindLabel;
+}
+
+// Only built-in guide names have a public title. External names can contain
+// implementation details; never turn arbitrary tool arguments into UI copy.
+const SKILL_GUIDE_KEYS = new Map([
+  ["visual-asset-design", "visualDesign"],
+  ["professional-media-prompts", "mediaPrompts"],
+]);
+
+function skillGuideKey(
+  arguments_?: Record<string, unknown>,
+): string | undefined {
+  return typeof arguments_?.skill === "string"
+    ? SKILL_GUIDE_KEYS.get(arguments_.skill)
+    : undefined;
+}
+
+export function creatorToolLabel(
+  name: string,
+  arguments_?: Record<string, unknown>,
+): string {
+  const guide = name === "view_skill" ? skillGuideKey(arguments_) : undefined;
+  if (guide) return i18n.t(`presentation.skillGuides.${guide}`);
   const labels: Record<string, string> = {
     read_project: i18n.t("presentation.tools.read_project"),
     read_project_file: i18n.t("presentation.tools.read_project_file"),
     jq_project: i18n.t("presentation.tools.jq_project"),
+    patch_project: i18n.t("presentation.tools.jq_project"),
+    request_workgraph_execution: i18n.t(
+      "presentation.tools.request_workgraph_execution",
+    ),
     elements_at: i18n.t("presentation.tools.elements_at"),
     delegate_to_agent: i18n.t("presentation.tools.delegate_to_agent"),
     analyze_source_media: i18n.t("presentation.tools.analyze_source_media"),
+    read_source_video: i18n.t("presentation.tools.read_source_video", {
+      defaultValue: i18n.t("presentation.tools.analyze_source_media"),
+    }),
+    observe_source_clip: i18n.t("presentation.tools.observe_source_clip", {
+      defaultValue: i18n.t("presentation.tools.analyze_source_media"),
+    }),
+    check_observation_tasks: i18n.t(
+      "presentation.tools.check_observation_tasks",
+      { defaultValue: i18n.t("presentation.tools.analyze_source_media") },
+    ),
+    review_scene: i18n.t("presentation.tools.review_scene", {
+      defaultValue: i18n.t("presentation.tools.complete_current_change"),
+    }),
     source_intelligence: i18n.t("presentation.tools.source_intelligence"),
     ai_edit: i18n.t("presentation.tools.ai_edit"),
     r2v_generation: i18n.t("presentation.tools.r2v_generation"),
@@ -167,6 +419,10 @@ export function creatorToolLabel(name: string): string {
     read_document: i18n.t("presentation.tools.read_document"),
     query_source_memory: i18n.t("presentation.tools.query_source_memory"),
     design_motion_overlays: i18n.t("presentation.tools.design_motion_overlays"),
+    view_skill: i18n.t("presentation.tools.view_skill"),
+    ground_image_objects: i18n.t("presentation.tools.ground_image_objects"),
+    browser_use: i18n.t("presentation.tools.browser_use"),
+    computer_use: i18n.t("presentation.tools.computer_use"),
   };
   return labels[name] ?? i18n.t("presentation.unknownTool");
 }
@@ -199,9 +455,16 @@ const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
   read_project: "presentation.toolRunning.read_project",
   read_project_file: "presentation.toolRunning.read_project_file",
   jq_project: "presentation.toolRunning.jq_project",
+  patch_project: "presentation.toolRunning.jq_project",
+  request_workgraph_execution:
+    "presentation.toolRunning.request_workgraph_execution",
   elements_at: "presentation.toolRunning.elements_at",
   ground_prompt_context: "presentation.toolRunning.ground_prompt_context",
   analyze_source_media: "presentation.toolRunning.analyze_source_media",
+  read_source_video: "presentation.toolRunning.read_source_video",
+  observe_source_clip: "presentation.toolRunning.observe_source_clip",
+  check_observation_tasks: "presentation.toolRunning.check_observation_tasks",
+  review_scene: "presentation.toolRunning.review_scene",
   source_intelligence: "presentation.toolRunning.source_intelligence",
   transcribe_source_audio: "presentation.toolRunning.transcribe_source_audio",
   commit_source_intelligence:
@@ -226,9 +489,18 @@ const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
   yield_until_runtime_event:
     "presentation.toolRunning.yield_until_runtime_event",
   complete_current_change: "presentation.toolRunning.complete_current_change",
+  view_skill: "presentation.toolRunning.view_skill",
+  ground_image_objects: "presentation.toolRunning.ground_image_objects",
+  browser_use: "presentation.toolRunning.browser_use",
+  computer_use: "presentation.toolRunning.computer_use",
 };
 
-export function getToolRunningLabel(name: string): string | null {
+export function getToolRunningLabel(
+  name: string,
+  arguments_?: Record<string, unknown>,
+): string | null {
+  const guide = name === "view_skill" ? skillGuideKey(arguments_) : undefined;
+  if (guide) return i18n.t(`presentation.skillGuidesRunning.${guide}`);
   const key = TOOL_RUNNING_LABEL_KEYS[name];
   return key ? i18n.t(key) : null;
 }
@@ -240,23 +512,9 @@ export function getRoleRunningLabel(name: string): string | null {
   return i18n.t("presentation.roleRunningSuffix", { role: roleLabel });
 }
 
-export function getEstimatedDuration(toolName: string): string | null {
-  const durations: Record<string, string> = {
-    image_generation: i18n.t(
-      "presentation.estimatedDurations.image_generation",
-    ),
-    r2v_generation: i18n.t("presentation.estimatedDurations.r2v_generation"),
-    analyze_source_media: i18n.t(
-      "presentation.estimatedDurations.analyze_source_media",
-    ),
-    ai_edit: i18n.t("presentation.estimatedDurations.ai_edit"),
-    finalize_video: i18n.t("presentation.estimatedDurations.finalize_video"),
-    plan: i18n.t("presentation.estimatedDurations.plan"),
-    grep_search: i18n.t("presentation.estimatedDurations.grep_search"),
-    glob_search: i18n.t("presentation.estimatedDurations.glob_search"),
-    ast_search: i18n.t("presentation.estimatedDurations.ast_search"),
-  };
-  return durations[toolName] ?? null;
+/** @deprecated There is no backend duration estimate; use actual elapsed time. */
+export function getEstimatedDuration(_toolName: string): null {
+  return null;
 }
 
 export function creatorEventLabel(type: string): string {

@@ -9,6 +9,7 @@ type HostWindow = Window & {
 
 export class CreatorHttpError extends Error {
   readonly status: number;
+  readonly userMessage: string;
   readonly code: string;
   readonly retryable: boolean;
   readonly details: Record<string, unknown>;
@@ -22,6 +23,7 @@ export class CreatorHttpError extends Error {
       error.errorId ? `${message} （错误编号：${error.errorId}）` : message,
     );
     this.name = "CreatorHttpError";
+    this.userMessage = message;
     this.status = status;
     this.code = error.code || `HTTP_${status}`;
     this.retryable = error.retryable ?? false;
