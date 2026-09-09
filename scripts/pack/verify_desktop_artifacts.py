@@ -90,6 +90,8 @@ def main() -> int:
     found_any = False
     for platform, pattern in ARTIFACT_PATTERNS.items():
         artifacts = sorted(args.root.glob(pattern))
+        if artifacts:
+            found_any = True
         if len(artifacts) > 1:
             print(
                 f"::error::Expected at most one {platform} artifact, found {len(artifacts)}",
@@ -103,7 +105,6 @@ def main() -> int:
                 failed = True
             continue
 
-        found_any = True
         try:
             verify_artifact(artifacts[0], platform)
         except ValueError as error:

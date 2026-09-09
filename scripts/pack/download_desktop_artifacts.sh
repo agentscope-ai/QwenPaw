@@ -12,6 +12,10 @@ include_updater_metadata=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --attempts)
+      if [ $# -lt 2 ]; then
+        echo "--attempts requires a value (1 or 2)" >&2
+        exit 2
+      fi
       attempts="$2"
       shift 2
       ;;
