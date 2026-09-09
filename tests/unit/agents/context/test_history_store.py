@@ -499,3 +499,284 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         assert store.count("s") == 1
     finally:
         store.close()
+
+
+@pytest.mark.parametrize("legacy_rebuild", [False, True])
+def test_purge_recall_rows_preserves_search_exclusion(store, legacy_rebuild):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    store.append(
+        session_id="s",
+        entry=_entry("expired", created_at="2020-01-01"),
+    )
+    for name in ("recall_history", "recall_history_python"):
+        store.append(
+            session_id="s",
+            entry=_entry("recall output", name=name, created_at="2020-01-01"),
+        )
+    recent = store.append(
+        session_id="s",
+        entry=_entry("zebra", created_at="2099-01-01"),
+    )
+    if legacy_rebuild:
+        with store._conn:
+            store._conn.execute(
+                "INSERT INTO conversation_history_fts"
+                "(conversation_history_fts) VALUES('rebuild')",
+            )
+    assert store.purge(before="2026-01-01", dry_run=True) == 3
+    assert store.count("s") == 4
+    assert store.purge(before="2026-01-01") == 3
+    assert store.count("s") == 1
+    assert _fts_hits(store, "zebra") == [recent]
+    assert _fts_hits(store, "recall") == []
+    with store._conn:
+        store._check_fts()
+
+
+def _fts_hits(store, term):
+    return [
+        row[0]
+        for row in store._conn.execute(
+            "SELECT rowid FROM conversation_history_fts "
+            "WHERE conversation_history_fts MATCH ?",
+            (term,),
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "old_name,new_name",
+    [
+        (None, "recall_history"),
+        ("recall_history", None),
+        ("recall_history_python", "recall_history"),
+    ],
+)
+def test_update_moves_into_and_out_of_search(store, old_name, new_name):
+    seq = store.append(session_id="s", entry=_entry("aardvark", name=old_name))
+    store.update_entry(
+        seq,
+        content="zebra",
+        name=new_name,
+        headline=None,
+        blocks=None,
+    )
+    assert _fts_hits(store, "aardvark") == []
+    assert _fts_hits(store, "zebra") == ([seq] if new_name is None else [])
+    assert store.count("s") == 1
+
+
+def test_reconcile_unindexed_recall_duplicate(store):
+    for session in ("canonical", "source"):
+        store.append(
+            session_id=session,
+            dedup_key="same",
+            entry=_entry("recall output", name="recall_history"),
+        )
+    assert store.reconcile_session_rows(
+        {"source"},
+        "canonical",
+        {"same"},
+    ) == (0, 1, 0)
+    assert store.count("canonical") == 1
+    assert store.count("source") == 0
+
+
+def _damage_fts(store):
+    with store._conn:
+        store._conn.execute(
+            "UPDATE conversation_history_fts_data SET block=x'00' WHERE id>10",
+        )
+
+
+@pytest.mark.parametrize("reopen", [False, True, "fts_only"])
+def test_fts_repair_preserves_history_and_exclusions(
+    tmp_path,
+    reopen,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    try:
+        if not store._fts:
+            pytest.skip("SQLite build lacks FTS5")
+        store.append(
+            session_id="s",
+            entry=_entry("expired", created_at="2020-01-01"),
+        )
+        recent = store.append(
+            session_id="s",
+            entry=_entry("zebra", created_at="2099-01-01"),
+        )
+        store.append(
+            session_id="s",
+            entry=_entry(
+                "aardvark",
+                name="recall_history",
+                created_at="2099-01-01",
+            ),
+        )
+        if reopen:
+            _damage_fts(store)
+            store.close()
+            if reopen == "fts_only":
+                # Emulate builds/damage where quick_check misses FTS damage.
+                original_connect = sqlite3.connect
+
+                class QuickCheckPasses(sqlite3.Connection):
+                    def execute(self, sql, *args, **kwargs):
+                        if sql == "PRAGMA quick_check":
+                            sql = "SELECT 'ok'"
+                        return super().execute(sql, *args, **kwargs)
+
+                def connect(*args, **kwargs):
+                    return original_connect(
+                        *args,
+                        factory=QuickCheckPasses,
+                        **kwargs,
+                    )
+
+                monkeypatch.setattr(sqlite3, "connect", connect)
+            store = HistoryStore(path)
+            assert store.count("s") == 3
+            assert store.quarantined_to is None
+        else:
+            # Simulate a missing index with intact external content. FTS
+            # delete will fail even though the internal integrity check passes.
+            with store._conn:
+                store._conn.execute(
+                    "INSERT INTO conversation_history_fts"
+                    "(conversation_history_fts) VALUES('delete-all')",
+                )
+            assert store.purge(before="2026-01-01", dry_run=True) == 1
+            assert _fts_hits(store, "zebra") == []
+        assert store.purge(before="2026-01-01") == 1
+        assert store.count("s") == 2
+        assert _fts_hits(store, "zebra") == [recent]
+        assert _fts_hits(store, "aardvark") == []
+        assert _fts_hits(store, "expired") == []
+        with store._conn:
+            store._check_fts()
+        assert not list(tmp_path.glob("*.corrupt-*"))
+    finally:
+        store.close()
+
+
+def test_failed_repair_rolls_back_purge(store, monkeypatch):
+    for word in ("aardvark", "zebra"):
+        store.append(
+            session_id="s",
+            entry=_entry(word, created_at="2020-01-01"),
+        )
+    original = store._delete_fts_row
+    calls = []
+
+    def delete(row):
+        calls.append(row["seq"])
+        if len(calls) == 2:
+            error = sqlite3.DatabaseError("database disk image is malformed")
+            error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+            raise error
+        original(row)
+
+    def rebuild():
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    monkeypatch.setattr(store, "_rebuild_fts", rebuild)
+    with pytest.raises(RuntimeError, match="history preserved"):
+        store.purge(before="2026-01-01")
+    assert store.count("s") == 2
+    assert len(_fts_hits(store, "aardvark")) == 1
+    assert len(_fts_hits(store, "zebra")) == 1
+    assert not store._conn.in_transaction
+
+
+def test_purge_operational_error_does_not_repair(store, monkeypatch):
+    store.append(session_id="s", entry=_entry(created_at="2020-01-01"))
+
+    def delete(row):
+        raise sqlite3.OperationalError("database is locked")
+
+    def repair():
+        pytest.fail("Must not rebuild for an operational error")
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    monkeypatch.setattr(store, "_repair_fts", repair)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        store.purge(before="2026-01-01")
+    assert store.count("s") == 1
+
+
+def test_purge_retries_only_once(store, monkeypatch):
+    store.append(session_id="s", entry=_entry(created_at="2020-01-01"))
+    calls = []
+
+    def delete(row):
+        calls.append(row["seq"])
+        error = sqlite3.DatabaseError("database disk image is malformed")
+        error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+        raise error
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    with pytest.raises(sqlite3.DatabaseError):
+        store.purge(before="2026-01-01")
+    assert len(calls) == 2
+    assert store.count("s") == 1
+
+
+def test_startup_failed_fts_repair_preserves_file(tmp_path, monkeypatch):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("aardvark"))
+    _damage_fts(store)
+    store.close()
+
+    def rebuild(self):
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(HistoryStore, "_rebuild_fts", rebuild)
+    with pytest.raises(RuntimeError, match="history preserved"):
+        HistoryStore(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchone() == ("aardvark",)
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_initial_fts_backfill_excludes_recall(tmp_path):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("zebra"))
+    store.append(
+        session_id="s",
+        entry=_entry("aardvark", name="recall_history"),
+    )
+    with store._conn:
+        store._conn.execute("DROP TABLE conversation_history_fts")
+    store.close()
+    store = HistoryStore(path)
+    try:
+        assert store.count("s") == 2
+        assert len(_fts_hits(store, "zebra")) == 1
+        assert _fts_hits(store, "aardvark") == []
+    finally:
+        store.close()
+
+
+def test_startup_lock_does_not_quarantine(tmp_path):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("aardvark"))
+    store.close()
+    with sqlite3.connect(path) as conn:
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            HistoryStore(path)
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchone() == ("aardvark",)
+    assert not list(tmp_path.glob("*.corrupt-*"))
