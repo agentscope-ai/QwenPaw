@@ -70,6 +70,7 @@ class MCPDriverHandler(DriverHandler):
         endpoint = self._card.endpoint
         transport = str(endpoint.get("transport") or "stdio")
         credentials = await self._resolve_credentials()
+        connect_kwargs: dict[str, float] = {}
 
         if transport == "stdio":
             managed_env = await run_sync_io(load_envs)
@@ -102,6 +103,7 @@ class MCPDriverHandler(DriverHandler):
                 if http_timeout is not None
                 else {}
             )
+            connect_kwargs = extra
             self._client = client_cls(
                 name=self._card.name,
                 transport=transport,
@@ -111,7 +113,7 @@ class MCPDriverHandler(DriverHandler):
             )
 
         try:
-            await self._client.connect()
+            await self._client.connect(**connect_kwargs)
         except asyncio.CancelledError:
             await self._client.close(ignore_errors=True)
             self._client = None

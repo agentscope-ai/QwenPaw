@@ -90,6 +90,28 @@ def test_legacy_http_migration_copies_http_timeout() -> None:
     assert card.endpoint["http_timeout"] == 1200.0
 
 
+def _patch_fake_client(monkeypatch, client_attr: str) -> list[object]:
+    """Stub the HTTP client class and capture constructor/connect timeouts."""
+    instances: list[object] = []
+
+    class FakeClient:
+        """Capture constructor kwargs and connect timeout."""
+
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+            self.connect_timeout: float | None = None
+            instances.append(self)
+
+        async def connect(self, timeout: float = 30.0) -> None:
+            self.connect_timeout = timeout
+
+        async def close(self, ignore_errors: bool = True) -> None:
+            del ignore_errors
+
+    monkeypatch.setattr(mcp_handler, client_attr, FakeClient)
+    return instances
+
+
 @pytest.mark.parametrize(
     ("transport", "client_attr"),
     [
@@ -103,23 +125,7 @@ async def test_driver_handler_passes_http_timeout(
     monkeypatch,
 ) -> None:
     """Pass configured http_timeout through as the HTTP client timeout."""
-    instances: list[object] = []
-
-    class FakeClient:
-        """Capture constructor kwargs for the driver handler."""
-
-        def __init__(self, **kwargs) -> None:
-            self.kwargs = kwargs
-            instances.append(self)
-
-        async def connect(self) -> None:
-            return None
-
-        async def close(self, ignore_errors: bool = True) -> None:
-            del ignore_errors
-
-    monkeypatch.setattr(mcp_handler, client_attr, FakeClient)
-
+    instances = _patch_fake_client(monkeypatch, client_attr)
     handler = mcp_handler.MCPDriverHandler(
         DriverCard(
             name="actions",
@@ -135,6 +141,37 @@ async def test_driver_handler_passes_http_timeout(
     try:
         await handler._setup()
         assert instances[0].kwargs["timeout"] == 1200.0
+        assert instances[0].connect_timeout == 1200.0
+    finally:
+        await handler._teardown()
+
+
+@pytest.mark.parametrize(
+    ("transport", "client_attr"),
+    [
+        ("streamable_http", "HttpAutoClient"),
+        ("sse", "HttpStatefulClient"),
+    ],
+)
+async def test_driver_handler_keeps_default_connect_timeout(
+    transport: str,
+    client_attr: str,
+    monkeypatch,
+) -> None:
+    """Leave constructor timeout and connect budget at defaults when unset."""
+    instances = _patch_fake_client(monkeypatch, client_attr)
+    handler = mcp_handler.MCPDriverHandler(
+        DriverCard(
+            name="actions",
+            protocol="mcp",
+            endpoint={"transport": transport, "url": URL},
+        ),
+        NoneProvider(),
+    )
+    try:
+        await handler._setup()
+        assert "timeout" not in instances[0].kwargs
+        assert instances[0].connect_timeout == 30.0
     finally:
         await handler._teardown()
 
