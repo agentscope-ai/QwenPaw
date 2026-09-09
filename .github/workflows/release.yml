@@ -48,6 +48,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: write
   issues: write
   # Needed by the freeze-main job below, which posts commit statuses

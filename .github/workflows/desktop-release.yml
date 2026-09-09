@@ -22,6 +22,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -272,6 +273,17 @@ jobs:
             Stop-Process -Force -ErrorAction SilentlyContinue
           exit 0
 
+      - name: Generate desktop artifact checksum (Tauri Windows)
+        shell: pwsh
+        run: |
+          $artifacts = @(Get-ChildItem "dist/QwenPaw-Tauri-*-Windows-setup.exe")
+          if ($artifacts.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($artifacts.Count)"
+          }
+          $artifact = $artifacts[0]
+          $hash = (Get-FileHash -Algorithm SHA256 $artifact.FullName).Hash.ToLowerInvariant()
+          "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
+
       - name: Upload desktop verify logs (Tauri Windows)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -297,7 +309,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-Windows-setup.exe
+          path: |
+            dist/QwenPaw-Tauri-*-Windows-setup.exe
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sha256
 
       - name: Upload Tauri Windows updater metadata
         if: >-
@@ -397,6 +411,20 @@ jobs:
           fi
           rm -rf dist/verify-tauri
 
+      - name: Generate desktop artifact checksum (Tauri macOS)
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/QwenPaw-Tauri-*-macOS.zip)
+          if [ ${#artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one macOS ZIP, found ${#artifacts[@]}"
+            exit 1
+          fi
+          artifact="${artifacts[0]}"
+          (
+            cd "$(dirname "$artifact")"
+            shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+          )
+
       - name: Upload desktop verify logs (Tauri macOS)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -422,7 +450,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-macOS.zip
+          path: |
+            dist/QwenPaw-Tauri-*-macOS.zip
+            dist/QwenPaw-Tauri-*-macOS.zip.sha256
 
       - name: Upload Tauri macOS updater metadata
         if: >-
@@ -443,10 +473,16 @@ jobs:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout (for verification script)
+        uses: actions/checkout@v4
+
+      - name: Download and verify desktop installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/pack/download_desktop_artifacts.sh --attempts 2
 
       - name: Move artifacts to root for upload
         run: |
@@ -497,8 +533,13 @@ jobs:
         id: version
         uses: ./.github/actions/get-version
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download and verify desktop artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/pack/download_desktop_artifacts.sh \
+            --attempts 2 \
+            --include-updater-metadata
 
       - name: Install ossutil
         run: |

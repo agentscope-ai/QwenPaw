@@ -31,6 +31,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -38,10 +39,18 @@ jobs:
   upload-release:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout (for verification script)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Download and verify desktop installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/pack/download_desktop_artifacts.sh --attempts 2
 
       - name: Attach desktop installers to the draft release
         env:
@@ -83,8 +92,13 @@ jobs:
         id: version
         uses: ./.github/actions/get-version
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download and verify desktop artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/pack/download_desktop_artifacts.sh \
+            --attempts 2 \
+            --include-updater-metadata
 
       - name: Install ossutil
         run: |

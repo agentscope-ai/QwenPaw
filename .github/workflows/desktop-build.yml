@@ -140,6 +140,17 @@ jobs:
             Stop-Process -Force -ErrorAction SilentlyContinue
           exit 0
 
+      - name: Generate desktop artifact checksum (Tauri Windows)
+        shell: pwsh
+        run: |
+          $artifacts = @(Get-ChildItem "dist/QwenPaw-Tauri-*-Windows-setup.exe")
+          if ($artifacts.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($artifacts.Count)"
+          }
+          $artifact = $artifacts[0]
+          $hash = (Get-FileHash -Algorithm SHA256 $artifact.FullName).Hash.ToLowerInvariant()
+          "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
+
       - name: Upload desktop verify logs (Tauri Windows)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -165,7 +176,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-Windows-setup.exe
+          path: |
+            dist/QwenPaw-Tauri-*-Windows-setup.exe
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sha256
 
       - name: Upload Tauri Windows updater metadata
         if: hashFiles('dist/QwenPaw-Tauri-*-Windows-setup.exe.sig') != ''
@@ -257,6 +270,20 @@ jobs:
           fi
           rm -rf dist/verify-tauri
 
+      - name: Generate desktop artifact checksum (Tauri macOS)
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/QwenPaw-Tauri-*-macOS.zip)
+          if [ ${#artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one macOS ZIP, found ${#artifacts[@]}"
+            exit 1
+          fi
+          artifact="${artifacts[0]}"
+          (
+            cd "$(dirname "$artifact")"
+            shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+          )
+
       - name: Upload desktop verify logs (Tauri macOS)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -282,7 +309,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-macOS.zip
+          path: |
+            dist/QwenPaw-Tauri-*-macOS.zip
+            dist/QwenPaw-Tauri-*-macOS.zip.sha256
 
       - name: Upload Tauri macOS updater metadata
         if: hashFiles('dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig') != ''
