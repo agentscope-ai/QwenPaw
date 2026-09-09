@@ -13,8 +13,16 @@ import { renderWithProviders } from "@/test/common_setup";
 
 // Mock XMarkdown and MermaidCodeBlock to avoid heavy deps
 vi.mock("@ant-design/x-markdown", () => ({
-  XMarkdown: ({ content }: { content: string }) => (
-    <div data-testid="x-markdown">{content}</div>
+  XMarkdown: ({
+    content,
+    style,
+  }: {
+    content: string;
+    style?: React.CSSProperties;
+  }) => (
+    <div data-testid="x-markdown" style={style}>
+      {content}
+    </div>
   ),
 }));
 
@@ -49,7 +57,28 @@ describe("MarkdownCopy", () => {
 
   it("renders markdown content in preview mode by default", () => {
     renderWithProviders(<MarkdownCopy content="# Hello World" />);
-    expect(screen.getByTestId("x-markdown")).toBeInTheDocument();
+    expect(screen.getByTestId("x-markdown")).toHaveStyle({
+      backgroundColor: "var(--app-surface)",
+      color: "var(--app-text)",
+    });
+  });
+
+  it("allows custom markdown viewer styles to override the theme defaults", () => {
+    renderWithProviders(
+      <MarkdownCopy
+        content="# Hello World"
+        markdownViewerProps={{
+          style: {
+            backgroundColor: "transparent",
+            color: "inherit",
+          },
+        }}
+      />,
+    );
+
+    const markdown = screen.getByTestId("x-markdown");
+    expect(markdown.style.backgroundColor).toBe("transparent");
+    expect(markdown.style.color).toBe("inherit");
   });
 
   it("shows switch control when showControls is true", () => {

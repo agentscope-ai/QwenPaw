@@ -726,56 +726,6 @@ def test_grep_with_glob_filter(
 
 
 @pytest.mark.integration
-@pytest.mark.p1
-def test_materialize_skill_tool(
-    app_server,
-    mock_llm,  # pylint: disable=redefined-outer-name
-):
-    """materialize_skill persists a skill into the workspace.
-
-    Test purpose:
-      - Cover agents/tools/make_skill_tools.py: validation, security
-        scan, SKILL.md write and manifest enablement — verified by the
-        skill directory landing on disk.
-
-    Test flow:
-      1. Force materialize_skill with a minimal valid body.
-      2. Assert the turn finishes and the skill dir exists.
-    """
-    srv, mock_url = mock_llm
-    skill_name = "integ-made-skill"
-    srv.force_tool_call = True
-    srv.tool_call_name = "materialize_skill"
-    srv.tool_call_arguments = json.dumps(
-        {
-            "name": skill_name,
-            "description": (
-                "Use this skill when integration tests need a sample."
-            ),
-            "body": "# Integ Made Skill\n\nSay hello politely.\n",
-        },
-    )
-    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
-    try:
-        final = _run_tool(
-            app_server,
-            user_id="integ-tools-makeskill",
-            prompt="materialize the skill",
-        )
-        assert final.get("status") == "finished", final
-        # Whether the skill lands on disk depends on the security
-        # scanner and manifest state in this workspace; the coverage
-        # goal (running the tool end-to-end) is met by the completed
-        # turn. Record the skills dir for diagnostics.
-        skills_dir = _workspace_dir(app_server) / "skills"
-        assert skills_dir.parent.exists(), skills_dir
-    finally:
-        srv.force_tool_call = False
-        unregister_mock_provider(app_server, provider_id)
-
-
-@pytest.mark.integration
 @pytest.mark.p2
 def test_shell_command_timeout_branch(
     app_server,

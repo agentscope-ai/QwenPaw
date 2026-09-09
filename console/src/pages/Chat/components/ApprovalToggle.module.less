@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--ant-color-bg-elevated);
+  background: var(--app-surface-raised);
 }
 
 .sheetHeader {
@@ -19,7 +19,7 @@
   gap: 12px;
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 14px;
     font-weight: 650;
   }
@@ -33,7 +33,7 @@
   flex: 0 0 44px;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -41,8 +41,8 @@
 
   &:hover,
   &:active {
-    color: var(--ant-color-text);
-    background: var(--ant-color-fill-tertiary);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
   }
 }
 
@@ -65,7 +65,7 @@
   grid-template-columns: 34px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 10px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   text-align: left;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -74,19 +74,19 @@
 
   &:hover,
   &:active {
-    background: var(--ant-color-fill-quaternary);
+    background: var(--app-fill-faint);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--ant-color-primary-border);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: -2px;
   }
 }
 
 .optionSelected {
-  color: var(--ant-color-primary);
-  border-color: var(--ant-color-primary-border);
-  background: var(--ant-color-primary-bg);
+  color: var(--app-accent);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
 }
 
 .optionIcon {
@@ -95,9 +95,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   border-radius: 9px;
-  background: var(--ant-color-fill-tertiary);
+  background: var(--app-fill-subtle);
 }
 
 .optionCopy {
@@ -113,14 +113,14 @@
   }
 
   strong {
-    color: var(--ant-color-text);
+    color: var(--app-text);
     font-size: 13px;
     font-weight: 650;
     white-space: nowrap;
   }
 
   small {
-    color: var(--ant-color-text-tertiary);
+    color: var(--app-text-tertiary);
     font-size: 11px;
     line-height: 1.35;
   }
@@ -130,6 +130,6 @@
   padding: 0 7px;
   border: 1px solid;
   border-radius: 6px;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
   font: inherit;
 }

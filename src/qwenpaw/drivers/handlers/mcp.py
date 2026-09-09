@@ -15,6 +15,8 @@ from ..capabilities import (
     DriverInvocation,
     DriverInvocationResult,
     format_capability_id,
+    mcp_tool_is_enabled,
+    mcp_tool_whitelist,
     parse_capability_id,
 )
 from ..constants import (
@@ -44,6 +46,8 @@ from ..errors import (
 )
 from ..handler import DriverHandler
 from ..policy import PolicyContext
+from ...envs import load_envs
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 _CAPABILITY_CACHE_TTL_SECONDS = 10.0
@@ -68,14 +72,16 @@ class MCPDriverHandler(DriverHandler):
         credentials = await self._resolve_credentials()
 
         if transport == "stdio":
+            managed_env = await run_sync_io(load_envs)
+            card_env = resolve_binding(
+                endpoint.get("env") or {},
+                credentials,
+            )
             self._client = StdIOStatefulClient(
                 name=self._card.name,
                 command=str(endpoint.get("command") or ""),
                 args=list(endpoint.get("args") or []),
-                env=resolve_binding(
-                    endpoint.get("env") or {},
-                    credentials,
-                ),
+                env={**managed_env, **card_env},
                 cwd=endpoint.get("cwd") or None,
             )
         else:
@@ -115,6 +121,26 @@ class MCPDriverHandler(DriverHandler):
             await self._client.close()
             self._client = None
 
+    def sync_runtime_metadata(self, card: DriverCard) -> None:
+        """Refresh card metadata and drop stale capability cache on config."""
+        if card.config != self._card.config:
+            self._capability_cache = None
+        super().sync_runtime_metadata(card)
+
+    def _card_tool_whitelist(
+        self,
+        *,
+        warn: bool = False,
+    ) -> frozenset[str] | None:
+        raw = self._card.config.get("tools")
+        if warn and raw is not None and not isinstance(raw, list):
+            logger.warning(
+                "MCP driver '%s' config.tools is %s; treating as open",
+                self.name,
+                type(raw).__name__,
+            )
+        return mcp_tool_whitelist(raw)
+
     async def _execute(
         self,
         credential: ResolvedCredential,
@@ -150,18 +176,20 @@ class MCPDriverHandler(DriverHandler):
                 return list(cached)
 
         tools = await self.list_tools()
+        whitelist = self._card_tool_whitelist(warn=True)
         capabilities = [
             _mcp_tool_to_capability(
                 self.name,
                 tool,
                 display_name=str(self._card.config.get("display_name") or ""),
+                whitelist=whitelist,
             )
             for tool in tools
         ]
         self._capability_cache = (now, capabilities)
         return list(capabilities)
 
-    async def invoke_capability(
+    async def invoke_capability(  # pylint: disable=too-many-return-statements
         self,
         invocation: DriverInvocation,
     ) -> DriverInvocationResult:
@@ -194,6 +222,20 @@ class MCPDriverHandler(DriverHandler):
                 message=(
                     f"Unsupported MCP capability: {invocation.capability_id}"
                 ),
+            )
+        whitelist = self._card_tool_whitelist()
+        if not mcp_tool_is_enabled(whitelist, tool_name):
+            return DriverInvocationResult(
+                ok=False,
+                error_type="tool_disabled",
+                message=(
+                    f"MCP tool '{tool_name}' is disabled for driver "
+                    f"'{self.name}'"
+                ),
+                metadata={
+                    "driver_name": self.name,
+                    "tool_name": tool_name,
+                },
             )
         subjects = _subjects_from_context(invocation.request_context)
         subject = subjects[0]
@@ -336,6 +378,7 @@ def _mcp_tool_to_capability(
     tool: Any,
     *,
     display_name: str = "",
+    whitelist: frozenset[str] | None = None,
 ) -> DriverCapability:
     raw_tool = getattr(tool, "_tool", tool)
     name = str(getattr(raw_tool, "name", getattr(tool, "name", tool)))
@@ -396,6 +439,7 @@ def _mcp_tool_to_capability(
             "driver_key": driver_name,
             "display_name": display_name or driver_name,
         },
+        enabled=mcp_tool_is_enabled(whitelist, name),
     )
 
 

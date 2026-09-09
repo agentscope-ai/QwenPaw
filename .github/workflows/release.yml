@@ -13,6 +13,19 @@
 #   4. If anything fails, nothing is published and the draft is left untouched
 #      (zero external trace; just fix and re-run).
 #
+# Merge freeze: from the moment this workflow starts until it ends (success,
+# failure, cancellation or a re-run of failed jobs), a red "Release Window"
+# commit status is posted on every open PR targeting the default branch.
+# With "Release Window" listed among the required status checks of the branch
+# ruleset, no PR can be merged into the default branch while a release is in
+# flight. UNFREEZING deliberately does NOT happen in this workflow:
+# release-window-watchdog.yml is the sole unfreezer — it waits until NO
+# release run is queued/in-progress (which also covers concurrent releases
+# with different tags, and "Re-run failed jobs" windows that never re-run
+# freeze-main), then deletes the lock marker and re-stamps every PR green.
+# The label description records this run's id so the watchdog can verify the
+# recorded run completed before unlocking.
+#
 # dry_run=true stubs the three production-external publishes (PyPI / Docker /
 # OSS) so fork CI can exercise the gating + draft flip without touching prod.
 # Draft-asset upload, the draft→published flip and the duty issue still run for
@@ -37,14 +50,178 @@ on:
 permissions:
   contents: write
   issues: write
+  # Needed by the freeze-main job below, which posts commit statuses
+  # ("Release Window") on the head commit of every open PR targeting the
+  # default branch while a release is in flight.
+  statuses: write
 
 concurrency:
   group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # ── Merge freeze: block PR merges into the default branch while releasing ──
+  # Posts a red "Release Window" commit status on the head commit of every
+  # open non-draft PR targeting the default branch, and creates the
+  # "release-window-active" label as a lock marker. When a repository ruleset
+  # lists "Release Window" among its required status checks, no PR can be
+  # merged: existing PRs carry the red status, and PRs opened later carry no
+  # status at all, which a required check treats as "not reported" (blocked).
+  # Unfreezing is the sole responsibility of release-window-watchdog.yml,
+  # which waits until no release run remains in flight (see header comment).
+  # Commit statuses are repository-local, so this also runs on dry_run
+  # (forks only affect forks).
+  freeze-main:
+    runs-on: ubuntu-latest
+    # GitHub-hosted jobs default to a 6-hour timeout. If `gh api` hangs instead
+    # of failing (half-dead network, stalled TLS), this job would sit there with
+    # the lock marker raised and every PR stamped red — freezing the default
+    # branch for 6 hours, and the watchdog would correctly refuse to unlock
+    # (the recorded release run is still "in progress"). Timing out turns that
+    # into a job failure, which skips resolve and closes the release: the
+    # fail-closed property is unchanged, the blast radius is not.
+    # Freezing ~285 PRs takes well under a minute in practice.
+    timeout-minutes: 10
+    steps:
+      - name: Freeze merges into the default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          default="$(gh api "repos/$REPO" --jq '.default_branch')"
+          echo "Freezing merges into '$default' for release run $RUN_URL"
+
+          api_post_status() {
+            # api_post_status <sha> <state> <description> <target_url>
+            # A failed red stamp here fails the whole release, so retry on
+            # primary/secondary rate limits (HTTP 403/429) with exponential
+            # backoff; any other error fails immediately.
+            local sha="$1" state="$2" desc="$3" url="$4"
+            local attempt=1 delay=2 err
+            while true; do
+              err="$(gh api --method POST "repos/$REPO/statuses/$sha" \
+                -f state="$state" \
+                -f context="Release Window" \
+                -f description="$desc" \
+                -f target_url="$url" 2>&1 >/dev/null)" && return 0
+              case "$err" in
+                *"HTTP 403"*|*"HTTP 429"*|*"rate limit"*|*"abuse"*) rate_limited=1 ;;
+                *) rate_limited=0 ;;
+              esac
+              if [ "$rate_limited" = "1" ]; then
+                if [ "$attempt" -ge 4 ]; then
+                  echo "::error::Giving up on status for $sha after $attempt attempts: $err"
+                  return 1
+                fi
+                echo "Rate-limited writing status for $sha; retry $attempt in ${delay}s."
+                sleep "$delay"
+                delay=$((delay * 2))
+                attempt=$((attempt + 1))
+              else
+                echo "::error::Failed writing status for $sha: $err"
+                return 1
+              fi
+            done
+          }
+
+          fetch_pr_list() {
+            # fetch_pr_list <base-branch>
+            # Prints "<pr> <head-sha>" per line for every open NON-DRAFT PR
+            # targeting <base-branch>; prints nothing when there are none.
+            #
+            # This MUST be a command substitution at the call site, never a
+            # process substitution (`< <(...)`) feeding the loop directly: a
+            # process substitution runs in its own process whose exit status
+            # is invisible to `set -e` and `pipefail`, so a failed list fetch
+            # would run the loop zero times, leave failures=0, and let this job
+            # report SUCCESS while not a single PR got frozen — a silent hole
+            # in the release window (fail-open). Command substitution propagates
+            # the failure, so the job dies and resolve is blocked (fail-closed).
+            #
+            # Retries ANY failure, not just rate limits — deliberately wider
+            # than api_post_status below. Listing is fatal by design, so even a
+            # transient 404 or a stalled TLS handshake deserves a retry: a
+            # single blip must not abort a whole release. Observed for real
+            # during review — the first `--paginate` call returned HTTP 404 and
+            # the same command then succeeded three times in a row.
+            local base="$1" attempt=1 delay=2 rc out
+            while true; do
+              rc=0
+              out="$(gh api --paginate "repos/$REPO/pulls?state=open&base=$base&per_page=100" \
+                --jq '.[] | select(.draft != true) | "\(.number) \(.head.sha)"' 2>/dev/null)" || rc=$?
+              if [ "$rc" -eq 0 ]; then
+                # Emit nothing for an empty result: a stray blank line would
+                # give the caller's `while read` one iteration with empty pr/sha.
+                if [ -n "$out" ]; then
+                  printf '%s\n' "$out"
+                fi
+                return 0
+              fi
+              if [ "$attempt" -ge 4 ]; then
+                echo "::error::Giving up listing open PRs after $attempt attempts (gh api exit $rc on pulls?state=open&base=$base). Freezing nothing is not an option — aborting." >&2
+                return 1
+              fi
+              echo "Listing open PRs failed (gh api exit $rc); retry $attempt in ${delay}s." >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+          }
+
+          # Lock marker: lets the sentinel and the watchdog tell "frozen" from
+          # "not frozen" with a single cheap request. Idempotent. The
+          # description records THIS run's id so the watchdog can verify the
+          # recorded run completed before unlocking (guards against a new
+          # release starting during watchdog cleanup).
+          label_desc="Release in flight — merges into the default branch are frozen (run ${{ github.run_id }})"
+          if gh api "repos/$REPO/labels/release-window-active" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$REPO/labels/release-window-active" \
+              -f description="$label_desc" >/dev/null
+          else
+            gh api --method POST "repos/$REPO/labels" \
+              -f name="release-window-active" \
+              -f color="B60205" \
+              -f description="$label_desc" >/dev/null
+          fi
+          echo "Lock marker present."
+
+          # Page through ALL open non-draft PRs targeting the default branch
+          # (never a fixed limit: a PR missed by the freeze would silently keep
+          # a merge hole open for the whole release window). Drafts cannot be
+          # merged by GitHub in the first place.
+          #
+          # Command substitution, NOT process substitution — see fetch_pr_list.
+          # If listing fails, this job fails and the release is blocked.
+          pr_list="$(fetch_pr_list "$default")"
+          frozen=0
+          failures=0
+          if [ -n "$pr_list" ]; then
+            while read -r pr sha; do
+              if api_post_status "$sha" "failure" "Release in progress — merges frozen" "$RUN_URL"; then
+                echo "Froze PR #$pr ($sha)"
+                frozen=$((frozen + 1))
+              else
+                failures=$((failures + 1))
+              fi
+              sleep 0.25
+            done <<< "$pr_list"
+          else
+            echo "No open non-draft PRs target '$default' — nothing to freeze."
+          fi
+          if [ "$failures" -gt 0 ]; then
+            echo "::error::$failures PR(s) could not be frozen — aborting the release (fail closed)."
+            exit 1
+          fi
+          echo "Freeze applied: $frozen PR(s) stamped red."
+
   # ── Resolve the draft, pin the commit, fail fast on missing secrets ─────────
+  # Fail-closed: resolve waits on freeze-main. If the merge freeze cannot be
+  # applied, the release must not proceed — releasing without the freeze would
+  # silently re-open exactly the window this workflow exists to close.
   resolve:
+    needs: [freeze-main]
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.pick.outputs.tag }}
@@ -575,3 +752,14 @@ jobs:
       ref: ${{ needs.resolve.outputs.sha }}
       dry_run: ${{ inputs.dry_run }}
     secrets: inherit
+
+  # ── Merge unfreeze is NOT done here ─────────────────────────────────────────
+  # release-window-watchdog.yml is the sole unfreezer: it deletes the lock
+  # marker and re-stamps every open PR green only once NO release run is
+  # queued/in-progress anywhere in the repo. This removes the race surface of
+  # having two unfreezers, and correctly covers concurrent releases (different
+  # tags) and "Re-run failed jobs" windows (freeze-main is not re-run there,
+  # but the re-run keeps the run queued/in_progress). The label's description
+  # records this run's id, which the watchdog verifies completed. Residual
+  # cost: merges are re-opened minutes after release completion rather than
+  # seconds — an accepted trade-off at the release-end boundary.

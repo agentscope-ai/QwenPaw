@@ -169,12 +169,9 @@ def program_defect_hints(
     index = objective_facts.get("video_index") or {}
     if isinstance(index, Mapping):
         cut_count = index.get("cut_count")
-        planned = index.get("planned_shot_count")
         if cut_count is not None:
             actual_shots = int(cut_count) + 1
             hint = f"程序检测到 {cut_count} 个切点（约 {actual_shots} 个镜头）"
-            if planned:
-                hint += f"，计划 {planned} 个镜头"
             lines.append(f"- uq_shot_count 证据：{hint}。")
         freezes = index.get("freeze_segments") or []
         if freezes:

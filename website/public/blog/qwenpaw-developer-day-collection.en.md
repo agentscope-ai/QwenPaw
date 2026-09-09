@@ -1,15 +1,31 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-08-18
+date: 2026-09-03
 author: QwenPaw Team
 tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated August 18, 2026
+Last updated September 3, 2026
 
 ---
+
+**09-03 QwenPaw Community Meetup: QwenPaw Hub Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643433333230363031335f323034353035363233375f30
+
+**09-01 QwenPaw Community Meetup: Agent Mail Feature Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643432393639363238385f323034353035363233375f30
+
+**08-25 QwenPaw Community Meetup: Checkpoint Feature Deep Dive and Demo**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431393733353733385f323034353035363233375f30
+
+**08-20 QwenPaw Community Meetup: QwenPaw Cross-Harness Agent Integration Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431333735393339335f323034353035363233375f30
 
 **08-18 QwenPaw Community Meetup: QwenPaw's New Long-Term Memory Deep Dive**
 

@@ -13,6 +13,9 @@
  * This adapter wraps each ChatV2 card so it can be used in ChatV1.
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// ChatV1 does not publish the callback props used by tool renderers.
+
 import React from "react";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
 import type { BuiltinCardComponent } from "../cards";
@@ -137,6 +140,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     id: toolId,
     name: toolName,
     serverLabel: (callData.server_label as string) || undefined,
+    rawInput: rawArgs,
     params,
     inputProgress,
     result: result ?? undefined,

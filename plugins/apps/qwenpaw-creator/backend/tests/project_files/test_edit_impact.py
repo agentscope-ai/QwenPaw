@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+
 from services.project_files.edit_impact import (
     apply_frontend_edit_impacts,
     summarize_committed_edit_impact,

@@ -1,0 +1,337 @@
+# Release-window watchdog: the SOLE unfreezer of the release merge freeze,
+# plus the one-time backfill tool.
+#
+# Architecture: release.yml's freeze-main job freezes merges into the default
+# branch while a release is in flight — it posts a red "Release Window" commit
+# status on every open non-draft PR and creates the "release-window-active"
+# lock-marker label, whose description records the release run id. Unfreezing
+# deliberately does NOT happen in release.yml; it happens ONLY here:
+#
+#   * scheduled mode (every 5 minutes): if the lock marker is present but no
+#     release run is queued/in-progress (checked twice, and the run id recorded
+#     in the label is verified to be completed), the release is over — delete
+#     the marker FIRST (so the sentinel stamps any concurrent new push green,
+#     closing the red-remnant race), then sweep every open non-draft PR back to
+#     green.
+#   * manual backfill mode (workflow_dispatch with backfill=true): stamp a
+#     green "Release Window" status on every open non-draft PR targeting the
+#     default branch. Run this ONCE right after "Release Window" is added to
+#     the branch ruleset's required status checks, so existing PRs are not left
+#     without the now-required stamp. New PRs are stamped by
+#     release-window-sentinel.yml; PRs whose head changes are re-stamped there
+#     too, so the backfill is a one-time migration. The backfill refuses to run
+#     while a freeze is active; if a leaked label cannot be removed by this
+#     watchdog, delete the label manually first, then backfill.
+#
+# Why the watchdog is the sole unfreezer:
+#   * concurrent releases (different tags) share ONE repository-level lock; a
+#     per-run unfreeze job in release.yml would let release A's ending unlock
+#     release B's still-active freeze. Here the freeze persists until no
+#     release run remains at all.
+#   * "Re-run failed jobs" does not re-run freeze-main (it already succeeded),
+#     so a per-run unfreeze would leave the re-run window unprotected. Here the
+#     re-run keeps its run status queued/in_progress, so the freeze persists
+#     until the re-run truly finishes.
+#   * A single unfreeze exit removes the "two unfreezers" race surface entirely.
+#
+# Known residual risks — ALL fail closed (they can only delay a merge, never
+# allow one during a release window):
+#   * GitHub cron may be delayed (typically <= 15 minutes; no upper bound is
+#     guaranteed under load), so the unfreeze may lag release completion by
+#     that much. Manual label deletion + backfill is the human fallback.
+#   * A seconds-scale TOCTOU remains between the final in-flight check and the
+#     label deletion (a brand-new release starting in exactly that window); it
+#     cannot be fully eliminated within GitHub Actions primitives.
+#   * If this job dies between deleting the label and finishing the sweep, the
+#     remaining red statuses persist until a manual backfill (the next patrol
+#     sees no label and exits).
+#
+# Cost model (GITHUB_TOKEN is capped at ~1,000 requests/hour/repo, shared by
+# every workflow in the repo): the scheduled path does exactly 1 request when
+# idle (read the lock-marker label). While a legitimate release is in flight it
+# spends a handful of checks and exits. The expensive full sweep only runs
+# after the release is confirmed over.
+#
+# Note on PRs opened mid-release: a required status check with no reported
+# status blocks merging on its own, so they need no red stamp to be blocked;
+# they get their red stamp from the sentinel anyway and their green stamp from
+# this watchdog at the end.
+
+name: Release Window Watchdog
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: >-
+          One-time migration: stamp a green "Release Window" status on every
+          open non-draft PR targeting the default branch. Run once after the
+          ruleset starts requiring "Release Window".
+        required: false
+        type: boolean
+        default: false
+
+# Never let two watchdog runs act at the same time (a scheduled run overlapping
+# a manual one could double-sweep or interleave label checks).
+concurrency:
+  group: release-window-watchdog
+  cancel-in-progress: false
+
+permissions:
+  statuses: write
+  actions: read
+  contents: read
+  # Deleting the lock-marker label requires the label (issues) scope — the same
+  # permission set under which release.yml creates/deletes labels successfully.
+  issues: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    # A hung patrol must not occupy the concurrency group above forever — that
+    # would stop every later patrol from healing a leaked freeze. Being killed
+    # mid-sweep is exactly the "runner killed mid-sweep" residual risk already
+    # documented in the header: by then the lock marker is gone, so remaining
+    # red statuses keep blocking merges (fail-closed) and a manual backfill
+    # heals them. Sweeping ~285 PRs at 0.25s intervals plus retries fits well
+    # inside 15 minutes.
+    timeout-minutes: 15
+    steps:
+      - name: Heal a leaked release freeze / backfill stamps
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BACKFILL: ${{ inputs.backfill }}
+          WATCHDOG_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          api_post_status() {
+            # api_post_status <sha> <state> <description> <target_url>
+            # Retries on primary/secondary rate limits (HTTP 403/429) with
+            # exponential backoff; any other error fails immediately.
+            local sha="$1" state="$2" desc="$3" url="$4"
+            local attempt=1 delay=2 err
+            while true; do
+              err="$(gh api --method POST "repos/$REPO/statuses/$sha" \
+                -f state="$state" \
+                -f context="Release Window" \
+                -f description="$desc" \
+                -f target_url="$url" 2>&1 >/dev/null)" && return 0
+              case "$err" in
+                *"HTTP 403"*|*"HTTP 429"*|*"rate limit"*|*"abuse"*) rate_limited=1 ;;
+                *) rate_limited=0 ;;
+              esac
+              if [ "$rate_limited" = "1" ]; then
+                if [ "$attempt" -ge 4 ]; then
+                  echo "::error::Giving up on status for $sha after $attempt attempts: $err"
+                  return 1
+                fi
+                echo "Rate-limited writing status for $sha; retry $attempt in ${delay}s."
+                sleep "$delay"
+                delay=$((delay * 2))
+                attempt=$((attempt + 1))
+              else
+                echo "::error::Failed writing status for $sha: $err"
+                return 1
+              fi
+            done
+          }
+
+          fetch_pr_list() {
+            # fetch_pr_list <base-branch>
+            # Prints "<pr> <head-sha>" per line for every open NON-DRAFT PR
+            # targeting <base-branch>; prints nothing when there are none.
+            #
+            # This MUST be a command substitution at the call site, never a
+            # process substitution (`< <(...)`) feeding the loop directly: a
+            # process substitution runs in its own process whose exit status is
+            # invisible to `set -e` and `pipefail`, so a failed list fetch would
+            # run the loop zero times and this job would still print "all open
+            # PRs re-stamped green" — reporting peace while having done nothing.
+            # Here the failure propagates, the run goes red, and the next patrol
+            # retries (or an operator sees the red run and intervenes).
+            #
+            # Retries ANY failure (not just rate limits) with exponential
+            # backoff and gives up after 4 attempts. Listing is fatal here, so
+            # even a transient 404 deserves a retry — observed for real during
+            # review: the first `--paginate` call returned HTTP 404 and the same
+            # command then succeeded three times in a row.
+            local base="$1" attempt=1 delay=2 rc out
+            while true; do
+              rc=0
+              out="$(gh api --paginate "repos/$REPO/pulls?state=open&base=$base&per_page=100" \
+                --jq '.[] | select(.draft != true) | "\(.number) \(.head.sha)"' 2>/dev/null)" || rc=$?
+              if [ "$rc" -eq 0 ]; then
+                # Emit nothing for an empty result: a stray blank line would
+                # give the caller's `while read` one iteration with empty pr/sha.
+                if [ -n "$out" ]; then
+                  printf '%s\n' "$out"
+                fi
+                return 0
+              fi
+              if [ "$attempt" -ge 4 ]; then
+                echo "::error::Giving up listing open PRs after $attempt attempts (gh api exit $rc on pulls?state=open&base=$base)." >&2
+                return 1
+              fi
+              echo "Listing open PRs failed (gh api exit $rc); retry $attempt in ${delay}s." >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+              attempt=$((attempt + 1))
+            done
+          }
+
+          default="$(gh api "repos/$REPO" --jq '.default_branch')"
+
+          # ── Mode 1: one-time backfill (manual dispatch only) ───────────────
+          if [ "${BACKFILL:-false}" = "true" ]; then
+            # Guard: backfill stamps GREEN. Refuse while a freeze is active,
+            # or a manual backfill could paint red (frozen) PRs green and
+            # punch a hole through an in-flight release window.
+            if gh api "repos/$REPO/labels/release-window-active" >/dev/null 2>&1; then
+              echo "::error::Backfill refused: a release freeze is active (release-window-active label present). Wait for the release to finish."
+              exit 1
+            fi
+            echo "Backfill mode: stamping green 'Release Window' on every open non-draft PR."
+            # Command substitution, NOT process substitution — see fetch_pr_list.
+            pr_list="$(fetch_pr_list "$default")"
+            stamped=0
+            failures=0
+            if [ -n "$pr_list" ]; then
+              while read -r pr sha; do
+                current="$(gh api "repos/$REPO/commits/$sha/status" \
+                  --jq '.statuses | map(select(.context == "Release Window")) | (first.state // "absent")' </dev/null)"
+                if [ "$current" = "success" ]; then
+                  echo "PR #$pr ($sha): already green"
+                  continue
+                fi
+                if api_post_status "$sha" "success" "No release in flight — merges allowed" "$WATCHDOG_URL"; then
+                  echo "PR #$pr ($sha): $current -> green"
+                  stamped=$((stamped + 1))
+                else
+                  failures=$((failures + 1))
+                fi
+                sleep 0.25
+              done <<< "$pr_list"
+            else
+              echo "No open non-draft PRs target '$default' — nothing to backfill."
+            fi
+            if [ "$failures" -gt 0 ]; then
+              echo "::error::$failures PR(s) could not be stamped; re-run the backfill to heal them."
+              exit 1
+            fi
+            echo "Backfill done: $stamped PR(s) stamped green."
+            exit 0
+          fi
+
+          # ── Mode 2: scheduled reconcile — the sole unfreezer ───────────────
+          # 1. Is the lock-marker label even present? If not, nothing is frozen
+          #    and we exit (1 request while idle).
+          if ! label_json="$(gh api "repos/$REPO/labels/release-window-active" 2>/dev/null)"; then
+            echo "No release-window-active label — nothing frozen. Exiting."
+            exit 0
+          fi
+          echo "Lock marker present; checking whether a release is still in flight."
+
+          # Locate the release workflow by path (robust against the file being
+          # renamed; a stale hard-coded name would silently disable us). If it
+          # cannot be found, refuse to unfreeze — fail closed.
+          wf_ids="$(gh api --paginate "repos/$REPO/actions/workflows" \
+            --jq '.workflows[] | select(.path | endswith("/release.yml")) | .id | tostring')"
+          wf_id="$(printf '%s\n' "$wf_ids" | awk 'NR==1')"
+          if [ -z "$wf_id" ]; then
+            echo "::error::Cannot locate the release workflow — refusing to unfreeze (fail closed)."
+            exit 1
+          fi
+
+          release_in_flight() {
+            # Server-side status filters: immune to pagination ordering and to
+            # re-runs (a re-run keeps its run id and created_at, so a
+            # created-desc listing could bury it; status filtering cannot).
+            local n
+            n="$(gh api "repos/$REPO/actions/workflows/$wf_id/runs?status=in_progress&per_page=1" --jq '.total_count')"
+            [ "$n" -gt 0 ] && return 0
+            n="$(gh api "repos/$REPO/actions/workflows/$wf_id/runs?status=queued&per_page=1" --jq '.total_count')"
+            [ "$n" -gt 0 ] && return 0
+            return 1
+          }
+
+          # 2. First in-flight check: a legitimate release keeps its freeze.
+          if release_in_flight; then
+            echo "Release run in flight — freeze is legitimate. Exiting."
+            exit 0
+          fi
+
+          # 3. Re-read the label: if it vanished, or now records a different
+          #    release run, a new freeze took over between our checks — back off.
+          label_json="$(gh api "repos/$REPO/labels/release-window-active" 2>/dev/null)" || {
+            echo "Lock marker disappeared while checking — nothing to do. Exiting."
+            exit 0
+          }
+          label_desc="$(printf '%s' "$label_json" | jq -r '.description // ""')"
+          recorded_run="$(printf '%s' "$label_desc" | grep -oE 'run [0-9]+' | grep -oE '[0-9]+' | awk 'NR==1' || true)"
+          if [ -n "$recorded_run" ]; then
+            run_status="$(gh api "repos/$REPO/actions/runs/$recorded_run" --jq '.status' 2>/dev/null || echo unknown)"
+            if [ "$run_status" != "completed" ]; then
+              echo "Recorded release run $recorded_run is '$run_status' — a release is starting or in flight; not unfreezing."
+              exit 0
+            fi
+          fi
+
+          # 4. Second in-flight check right before mutating state — compresses
+          #    the "watchdog vs brand-new release" TOCTOU window to seconds.
+          if release_in_flight; then
+            echo "Release run appeared during checks — aborting unfreeze. Exiting."
+            exit 0
+          fi
+
+          echo "Release over (no run queued/in-progress; recorded run completed). Unfreezing."
+
+          # 5. Delete the lock marker FIRST: from this instant the sentinel
+          #    stamps every new push green, which closes the race where a
+          #    late red stamp outlives the sweep. Errors are NOT swallowed:
+          #    404 means already gone (continue), anything else aborts and
+          #    the next patrol retries.
+          if err="$(gh api --method DELETE "repos/$REPO/labels/release-window-active" 2>&1 >/dev/null)"; then
+            echo "Lock marker removed."
+          elif [[ "$err" == *"HTTP 404"* ]]; then
+            echo "Lock marker already gone."
+          else
+            echo "::error::Could not delete the lock marker — will retry next patrol: $err"
+            exit 1
+          fi
+
+          # 6. Now fetch the PR list and sweep everything back to green. Any
+          #    sha pushed after step 5 is stamped green by the sentinel;
+          #    sweeping its predecessor sha here is harmless.
+          #
+          # Command substitution, NOT process substitution — see fetch_pr_list.
+          # The label is already gone at this point, so a failed fetch leaves
+          # the red statuses behind (fail-closed: PRs stay blocked, never
+          # wrongly merged). It must NOT be allowed to pass silently as
+          # "everything re-stamped green" — that is what would leave the
+          # remnant undiscovered until someone gets stuck.
+          pr_list="$(fetch_pr_list "$default")"
+          swept=0
+          failures=0
+          if [ -n "$pr_list" ]; then
+            while read -r pr sha; do
+              if api_post_status "$sha" "success" "Release window closed — merges allowed" "$WATCHDOG_URL"; then
+                echo "Unfroze PR #$pr ($sha)"
+                swept=$((swept + 1))
+              else
+                failures=$((failures + 1))
+              fi
+              sleep 0.25
+            done <<< "$pr_list"
+          else
+            echo "PR list is empty: no open non-draft PRs target '$default' — nothing to sweep."
+          fi
+
+          if [ "$failures" -gt 0 ]; then
+            echo "::error::$failures PR(s) could not be re-stamped green; the label is already gone, so run the manual backfill to heal them."
+            exit 1
+          fi
+          echo "Release window closed; $swept open PR(s) re-stamped green."

@@ -346,24 +346,39 @@ This skill is used for…
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
-### Create from current session via /make-skill (Beta)
+### Create from current session via /make-skill
 
-When you've just walked through a workflow in chat: tried tools, hit
-errors, found a working approach.
-Turn that session into a skill:
+Use `/make-skill <focus>` after a conversation has produced reusable guidance,
+a template, or a working procedure. Make the focus specific enough to identify
+what should be retained from the conversation:
 
 ```
-/make-skill cooking
+/make-skill weekly sales report workflow
 ```
 
-You'll see a short plan card with the proposed skill name and step
-outline. Approve, refine, or cancel in natural language. After approval
-the agent writes the skill based on the conversation and saves it to
-your workspace, **enabled by default**.
+The agent first proposes a plan with the skill's name, purpose, steps, files,
+and a few creation options. Approve, refine, or cancel it in natural language.
+The focus tells the agent which part of the conversation matters; the agent
+suggests a suitable skill name and content.
 
-`<focus>` becomes the skill name; internal spaces collapse to `-`
-(e.g. `view image debug` → `view-image-debug`). Other characters
-(Chinese, case, digits) are kept as-is.
+For a workflow, the plan also shows whether **Batch** is enabled. Batch lets a
+skill run a predictable series of tool actions in one go, which is useful for
+fixed, repeatable work. Leave it disabled when the agent needs to adapt each
+step based on what it finds. If you're unsure, keep the agent's recommendation.
+
+The plan also offers three testing levels. **No test** is fastest and still
+keeps the normal safety checks. **Smoke test** tries the new Skill once on a
+small end-to-end task. **Eval** compares the same representative task without
+and with the new Skill, giving stronger evidence that the Skill actually helps,
+but taking more time. Testing and Batch are separate choices.
+
+Review the proposed files and options before approving. For example, reply
+`change the name`, `disable Batch`, `use Eval`, or `approve`. After a
+change, review the revised plan before approving it.
+
+After approval, the agent creates and checks the skill, runs the selected test
+when requested, and saves it to your workspace, **enabled by default**. If a
+skill with the same name already exists, choose a different name.
 
 `/make-skill` is itself a built-in skill — make sure it's enabled in
 your workspace via `/skills` before invoking.
@@ -435,6 +450,9 @@ packaged built-in -- Auto Update --> Skill Pool -- Auto Sync --> workspaces
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
+- **Preload / on demand:** Skills load on demand by default. In **Workspace →
+  Skills → Edit**, preload trusted core or frequently used Skills; their full
+  content is added to the system prompt as a structured, delimited Skill block.
 - **Delete:** Delete a workspace skill. If the skill is currently enabled, it
   is automatically disabled first.
 - **Sync to Skill Pool:** Publish a workspace skill to the shared pool for

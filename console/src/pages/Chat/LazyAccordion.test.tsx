@@ -95,4 +95,42 @@ describe("LazyAccordion", () => {
 
     expect(screen.getByRole("button", { name: "Nested tool" })).toBeVisible();
   });
+
+  it("keeps the clicked header anchored when opening shifts its position", () => {
+    const rect = (top: number) =>
+      ({
+        top,
+        bottom: top + 20,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: 20,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const getBoundingClientRect = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockReturnValueOnce(rect(100))
+      .mockReturnValue(rect(160));
+
+    render(
+      <div
+        className="chat-anywhere-message-list-bubble-scroll"
+        data-testid="message-scroller"
+      >
+        <LazyAccordion
+          title="Anchored steps"
+          renderChildren={() => <div>expanded content</div>}
+        />
+      </div>,
+    );
+    const scroller = screen.getByTestId("message-scroller");
+    scroller.scrollTop = 40;
+
+    fireEvent.click(screen.getByRole("button", { name: "Anchored steps" }));
+
+    expect(scroller.scrollTop).toBe(100);
+    getBoundingClientRect.mockRestore();
+  });
 });

@@ -5,8 +5,8 @@
   flex-direction: column;
   gap: 0;
   border-radius: var(--border-radius, 12px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
@@ -34,8 +34,8 @@
   }
 
   &:hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -53,9 +53,9 @@
   padding: 1px 8px;
   border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: #8e8c99;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
+  border: 1px solid var(--app-border-subtle);
   white-space: nowrap;
 }
 
@@ -71,7 +71,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -82,14 +82,14 @@
 
 .descriptionText {
   border-radius: 4px;
-  background: rgba(43, 18, 0, 0.02);
+  background: var(--app-fill-faint);
   box-sizing: border-box;
-  border: 1px solid #f3f1f0;
+  border: 1px solid var(--app-border-subtle);
   padding: 4px 8px;
   line-height: 20px;
   margin: 0;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -108,7 +108,7 @@
   padding-top: 10px;
   font-size: 12px;
   line-height: 18px;
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .statItem {
@@ -123,7 +123,7 @@
 
 .statValue {
   font-weight: 500;
-  color: rgba(20, 20, 19, 0.7);
+  color: var(--app-text-secondary);
 }
 
 .cardFooter {
@@ -138,8 +138,8 @@
   box-sizing: border-box;
   gap: 8px;
   padding: 10px 16px;
-  background: #fff;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--app-surface-raised);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .installButton {
@@ -158,43 +158,5 @@
     padding: 0;
     background: transparent;
     border-top: none;
-  }
-}
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .skillCard {
-    &:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-  }
-
-  .sourceBadge {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .skillTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .descriptionText {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .statsRow {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .statValue {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .cardFooter {
-    background: #2a2a2a;
-    border-top-color: rgba(255, 255, 255, 0.08);
   }
 }

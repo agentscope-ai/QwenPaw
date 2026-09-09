@@ -16,7 +16,16 @@ const CREATOR_EVENT_TYPES = [
   "message.completed",
   "command.autosave_admitted",
   "command.queued",
+  "creation.checkpoint_required",
+  "creation.checkpoint_decided",
   "agent.message_delta",
+  "agent.model.rate_limit_retry",
+  "agent.model.retry",
+  "agent.model.retry_recovered",
+  "agent.mainline.resumed",
+  "agent.prompt_contract.resumed",
+  "agent.yolo.resumed",
+  "agent.tool_arguments_checked",
   "agent.tool_progress",
   "assistant.output_rejected",
   "agent.plan",
@@ -35,6 +44,7 @@ const CREATOR_EVENT_TYPES = [
   "subagent.accepted",
   "subagent.started",
   "subagent.waiting_runtime",
+  "subagent.resumed",
   "subagent.completed",
   "subagent.blocked",
   "subagent.failed",
@@ -42,8 +52,11 @@ const CREATOR_EVENT_TYPES = [
   "subagent.continuation_started",
   "subagent.continuation_completed",
   "subagent.message_delta",
+  "subagent.model.retry",
+  "subagent.model.retry_recovered",
   "subagent.message_completed",
   "subagent.tool_progress",
+  "subagent.tool_arguments_checked",
   "subagent.tool_started",
   "subagent.tool_completed",
   "task.registered",
@@ -64,6 +77,7 @@ const CREATOR_EVENT_TYPES = [
   "transaction.started",
   "transaction.progress",
   "execution.authorization_required",
+  "execution.authorization_decided",
   "transaction.completion_check_failed",
   "change_request.completed",
   "transaction.review_available",
@@ -85,6 +99,7 @@ export function openCreatorEvents(
   after: number,
   onEvent: (event: CreatorEvent) => void,
   onError?: () => void,
+  onOpen?: () => void,
 ): CreatorEventStream {
   const path = `/projects/${encodeURIComponent(
     projectId,
@@ -92,7 +107,9 @@ export function openCreatorEvents(
   const source = new EventSource(creatorAuthenticatedUrl(path), {
     withCredentials: true,
   });
+  let closed = false;
   const consume = (message: MessageEvent<string>) => {
+    if (closed) return;
     try {
       const event = JSON.parse(message.data) as CreatorEvent;
       if (typeof event.seq === "number" && event.eventId) onEvent(event);
@@ -104,6 +121,16 @@ export function openCreatorEvents(
   CREATOR_EVENT_TYPES.forEach((type) =>
     source.addEventListener(type, consume as EventListener),
   );
-  source.onerror = () => onError?.();
-  return { close: () => source.close() };
+  source.onopen = () => {
+    if (!closed) onOpen?.();
+  };
+  source.onerror = () => {
+    if (!closed) onError?.();
+  };
+  return {
+    close: () => {
+      closed = true;
+      source.close();
+    },
+  };
 }

@@ -14,10 +14,8 @@ from services.media_files.image_execution import FileImageExecutionService
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ElementLocation,
-    EntityCollection,
     Project,
     R2VCreation,
-    Shot,
     TimelineElement,
     TimelineSpan,
 )
@@ -40,13 +38,6 @@ class _GoodProvider:
 def _services(tmp_path, monkeypatch) -> CreatorFileServices:
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
     services = CreatorFileServices.create(tmp_path.resolve())
-    shot = Shot(
-        shot_id=f"{ELEMENT_ID}-shot",
-        description="主角走向舞台中央",
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=4,
-    )
     project = Project.new(project_id=PROJECT_ID, name="Media Review Mode")
     project.timelines.items["timeline:main"].elements_by_id[
         ELEMENT_ID
@@ -58,10 +49,6 @@ def _services(tmp_path, monkeypatch) -> CreatorFileServices:
         creation=R2VCreation(
             narrative="主角走向舞台中央",
             storyboard_prompt="动画分镜：主角走向舞台中央",
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
         ),
     )
     services.projects.create(

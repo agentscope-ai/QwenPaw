@@ -4,8 +4,8 @@
   flex-direction: column;
   gap: 2px;
   padding: 8px 12px;
-  background: #fff;
-  border: 1px solid rgba(26, 23, 22, 0.06);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
   box-sizing: border-box;
   width: 100%;
@@ -21,17 +21,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(43, 18, 0, 0.04);
-  border: 1px solid rgba(26, 23, 22, 0.08);
+  background: var(--app-fill-subtle);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  color: #f07e26;
+  color: var(--app-accent);
   cursor: default;
   margin-bottom: 12px;
   transition: all 0.2s ease;
 
   &:hover {
-    background: rgba(43, 18, 0, 0.08);
-    border-color: rgba(240, 126, 38, 0.3);
+    background: var(--app-fill-strong);
+    border-color: var(--app-accent-border);
   }
 }
 
@@ -50,7 +50,7 @@
   gap: 4px;
   font-size: 12px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--app-text-tertiary);
   white-space: nowrap;
   user-select: none;
 
@@ -62,7 +62,7 @@
 .agentCountBadge {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 .managementLink {
@@ -71,7 +71,7 @@
   gap: 2px;
   font-size: 12px;
   font-weight: 500;
-  color: #f07e26;
+  color: var(--app-accent);
   background: none;
   border: none;
   padding: 0;
@@ -80,7 +80,7 @@
   flex-shrink: 0;
 
   &:hover {
-    color: #d96c18;
+    color: var(--app-accent-active);
   }
 }
 
@@ -118,7 +118,7 @@
     }
 
     .ant-select-arrow {
-      color: rgba(26, 23, 22, 0.35);
+      color: var(--app-text-quaternary);
       right: 8px;
 
       .ant-select-suffix {
@@ -142,11 +142,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--app-text);
 
   svg {
     flex-shrink: 0;
-    color: #f07e26;
+    color: var(--app-accent);
     opacity: 0.85;
   }
 
@@ -165,14 +165,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px 6px;
-  border-bottom: 1px solid rgba(26, 23, 22, 0.06);
+  border-bottom: 1px solid var(--app-border-subtle);
   margin-bottom: 2px;
 }
 
 .dropdownHeaderTitle {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--app-text-tertiary);
 }
 
 // ─── Dropdown ─────────────────────────────────────────────────────────────────
@@ -182,10 +182,8 @@
   min-width: 242px !important;
   left: 15px !important;
   top: 140px !important;
-  border: 1px solid rgba(26, 23, 22, 0.06) !important;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  border: 1px solid var(--app-border-subtle) !important;
+  box-shadow: var(--app-shadow-md) !important;
   :global {
     .qwenpaw-select-item {
       padding: 0 !important;
@@ -194,17 +192,21 @@
       transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
-        background: rgba(43, 18, 0, 0.06) !important;
+        background: var(--app-fill) !important;
       }
 
       &.qwenpaw-select-item-option-selected {
-        background: rgba(43, 18, 0, 0.06) !important;
+        background: var(--app-fill) !important;
 
         .agentOptionIcon {
-          background: linear-gradient(135deg, #f07e26 0%, #f5a05a 100%);
+          background: linear-gradient(
+            135deg,
+            var(--app-accent) 0%,
+            var(--app-accent-hover) 100%
+          );
           border-color: transparent;
-          color: #ffffff;
-          box-shadow: 0 2px 8px rgba(240, 126, 38, 0.4);
+          color: var(--app-text-inverse);
+          box-shadow: 0 2px 8px var(--app-accent-ring);
         }
       }
     }
@@ -216,17 +218,21 @@
       transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
       &:hover {
-        background: rgba(43, 18, 0, 0.06) !important;
+        background: var(--app-fill) !important;
       }
 
       &.ant-select-item-option-selected {
-        background: rgba(43, 18, 0, 0.06) !important;
+        background: var(--app-fill) !important;
 
         .agentOptionIcon {
-          background: linear-gradient(135deg, #f07e26 0%, #f5a05a 100%);
+          background: linear-gradient(
+            135deg,
+            var(--app-accent) 0%,
+            var(--app-accent-hover) 100%
+          );
           border-color: transparent;
-          color: #ffffff;
-          box-shadow: 0 2px 8px rgba(240, 126, 38, 0.4);
+          color: var(--app-text-inverse);
+          box-shadow: 0 2px 8px var(--app-accent-ring);
         }
       }
     }
@@ -239,7 +245,7 @@
     .qwenpaw-select-item-group {
       min-height: 24px;
       padding: 5px 14px 2px !important;
-      color: rgba(26, 26, 46, 0.42) !important;
+      color: var(--app-text-tertiary) !important;
       font-size: 10px;
       font-weight: 650;
       letter-spacing: 0.06em;
@@ -274,8 +280,8 @@
     transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 
   &:focus-visible {
-    background: rgba(240, 126, 38, 0.06);
-    box-shadow: inset 0 0 0 1px rgba(240, 126, 38, 0.32);
+    background: var(--app-accent-faint);
+    box-shadow: inset 0 0 0 1px var(--app-accent-border);
   }
 }
 
@@ -285,8 +291,8 @@
 
 .agentOptionPressing {
   z-index: 1;
-  background: rgba(240, 126, 38, 0.055);
-  box-shadow: 0 7px 18px rgba(72, 42, 20, 0.12);
+  background: var(--app-accent-faint);
+  box-shadow: 0 7px 18px var(--app-shadow-md);
   animation: pinHoldWiggle 0.14s ease-in-out infinite alternate;
 }
 
@@ -316,7 +322,7 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  color: rgba(26, 26, 46, 0.48);
+  color: var(--app-text-secondary);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -328,9 +334,9 @@
 
   &:hover:not(:disabled),
   &:focus-visible:not(:disabled) {
-    color: #f07e26;
-    background: rgba(240, 126, 38, 0.08);
-    border-color: rgba(240, 126, 38, 0.18);
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
+    border-color: var(--app-accent-border);
     outline: none;
   }
 
@@ -351,7 +357,7 @@
 }
 
 .disabledAgentSection {
-  border-top: 1px solid rgba(26, 23, 22, 0.08);
+  border-top: 1px solid var(--app-border);
   padding: 4px 6px 6px;
 }
 
@@ -362,7 +368,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  color: rgba(26, 26, 46, 0.58);
+  color: var(--app-text-secondary);
   background: transparent;
   border: none;
   border-radius: 7px;
@@ -372,8 +378,8 @@
 
   &:hover,
   &:focus-visible {
-    color: rgba(26, 26, 46, 0.82);
-    background: rgba(43, 18, 0, 0.04);
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
     outline: none;
   }
 
@@ -398,7 +404,7 @@
 
   &:hover,
   &:focus-within {
-    background: rgba(43, 18, 0, 0.04);
+    background: var(--app-fill-subtle);
   }
 }
 
@@ -409,17 +415,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fff8f2 0%, #fff0e5 100%);
-  border: 1px solid rgba(240, 126, 38, 0.15);
+  background: var(--app-accent-faint);
+  border: 1px solid var(--app-accent-soft);
   border-radius: 8px;
-  color: #f07e26;
+  color: var(--app-accent);
   transition: all 0.2s ease;
 
   .agentOption:hover & {
-    background: linear-gradient(135deg, #ffe9d4 0%, #fff0e5 100%);
-    border-color: rgba(240, 126, 38, 0.3);
-    color: #f07e26;
-    box-shadow: 0 2px 6px rgba(240, 126, 38, 0.15);
+    background: var(--app-accent-soft);
+    border-color: var(--app-accent-border);
+    color: var(--app-accent);
+    box-shadow: 0 2px 6px var(--app-accent-soft);
   }
 }
 
@@ -438,7 +444,7 @@
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--app-text);
   line-height: 1.4;
 
   .agentOptionNameText {
@@ -451,13 +457,13 @@
 
 .pinnedIndicator {
   flex: 0 0 auto;
-  color: #f07e26;
-  filter: drop-shadow(0 1px 2px rgba(240, 126, 38, 0.18));
+  color: var(--app-accent);
+  filter: drop-shadow(0 1px 2px var(--app-accent-border));
 }
 
 .activeIndicator {
   flex-shrink: 0;
-  color: #f07e26;
+  color: var(--app-accent);
   animation: fadeIn 0.3s ease;
 }
 
@@ -474,7 +480,7 @@
 
 .agentOptionDescription {
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--app-text-tertiary);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -484,11 +490,11 @@
 .agentOptionId {
   font-size: 10px;
   font-family: "SF Mono", "Consolas", "Monaco", monospace;
-  color: rgba(240, 126, 38, 0.45);
+  color: var(--app-accent-text);
   letter-spacing: 0.3px;
   margin-left: 52px;
   padding-top: 3px;
-  border-top: 1px solid rgba(240, 126, 38, 0.08);
+  border-top: 1px solid var(--app-accent-soft);
 }
 
 @keyframes pinHoldWiggle {
@@ -529,198 +535,6 @@
   .agentOptionPinFeedback {
     animation: none;
     transform: none;
-  }
-}
-
-// ─── Dark mode overrides ───────────────────────────────────────────────────────
-:global(.dark-mode) {
-  .agentSelectorWrapper {
-    background: #1e1e1e;
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .agentSelectorCollapsed {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
-    color: #f07e26;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(240, 126, 38, 0.4);
-    }
-  }
-
-  .agentSelectorLabel {
-    color: rgba(255, 255, 255, 0.55);
-
-    svg {
-      opacity: 0.7;
-    }
-  }
-
-  .agentCountBadge {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .dropdownHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .dropdownHeaderTitle {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .agentSelectorDropdown {
-    :global {
-      .ant-select-item-group,
-      .qwenpaw-select-item-group {
-        color: rgba(255, 255, 255, 0.4) !important;
-      }
-    }
-  }
-
-  .agentSelector {
-    :global {
-      .ant-select-selector {
-        border: none !important;
-        background: transparent !important;
-
-        &:hover {
-          border: none !important;
-          background: transparent !important;
-        }
-
-        &:focus {
-          border: none !important;
-          background: transparent !important;
-          box-shadow: none !important;
-        }
-      }
-
-      .ant-select-arrow {
-        color: rgba(255, 255, 255, 0.45);
-      }
-
-      .ant-select-focused .ant-select-selector {
-        border: none !important;
-        background: transparent !important;
-        box-shadow: none !important;
-      }
-    }
-  }
-
-  .selectedAgentLabel {
-    color: rgba(255, 255, 255, 0.9);
-
-    svg {
-      color: #f5a05a;
-      opacity: 0.9;
-    }
-  }
-
-  .managementLink {
-    color: #f5a05a;
-
-    &:hover {
-      color: #f07e26;
-    }
-  }
-
-  .agentSelectorDropdown {
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.4),
-      0 2px 8px rgba(0, 0, 0, 0.2) !important;
-
-    :global {
-      .ant-select-item {
-        &:hover {
-          background: rgba(255, 255, 255, 0.08) !important;
-        }
-
-        &.ant-select-item-option-selected {
-          background: rgba(255, 255, 255, 0.08) !important;
-
-          .agentOptionIcon {
-            background: linear-gradient(135deg, #f07e26 0%, #f5a05a 100%);
-            border-color: transparent;
-            color: #ffffff;
-            box-shadow: 0 2px 8px rgba(240, 126, 38, 0.5);
-          }
-        }
-      }
-    }
-  }
-
-  .agentOptionIcon {
-    background: linear-gradient(
-      135deg,
-      rgba(240, 126, 38, 0.15) 0%,
-      rgba(240, 126, 38, 0.08) 100%
-    );
-    border-color: rgba(245, 160, 90, 0.2);
-    color: #f5a05a;
-  }
-
-  .agentOption:hover .agentOptionIcon {
-    background: linear-gradient(
-      135deg,
-      rgba(240, 126, 38, 0.3) 0%,
-      rgba(240, 126, 38, 0.15) 100%
-    );
-    border-color: rgba(245, 160, 90, 0.4);
-    color: #f5b87a;
-    box-shadow: 0 2px 8px rgba(240, 126, 38, 0.3);
-  }
-
-  .agentOptionName {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .agentOption:focus-visible,
-  .agentOptionPressing {
-    background: rgba(240, 126, 38, 0.12);
-  }
-
-  .agentOptionDescription {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .agentOptionId {
-    color: rgba(245, 160, 90, 0.5);
-    border-top-color: rgba(245, 160, 90, 0.12);
-  }
-
-  .agentToggleButton {
-    color: rgba(255, 255, 255, 0.48);
-
-    &:hover:not(:disabled),
-    &:focus-visible:not(:disabled) {
-      color: #f5a05a;
-      background: rgba(240, 126, 38, 0.14);
-      border-color: rgba(245, 160, 90, 0.22);
-    }
-  }
-
-  .disabledAgentSection {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .disabledAgentHeader {
-    color: rgba(255, 255, 255, 0.5);
-
-    &:hover,
-    &:focus-visible {
-      color: rgba(255, 255, 255, 0.82);
-      background: rgba(255, 255, 255, 0.05);
-    }
-  }
-
-  .disabledAgentRow {
-    &:hover,
-    &:focus-within {
-      background: rgba(255, 255, 255, 0.05);
-    }
   }
 }
 

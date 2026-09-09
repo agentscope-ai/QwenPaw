@@ -1,12 +1,10 @@
 .contextMenu {
   position: fixed;
   z-index: 10000;
-  background: #ffffff;
-  border: 1px solid #e8ecf1;
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  box-shadow:
-    0 6px 24px rgba(0, 0, 0, 0.1),
-    0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-md);
   padding: 4px 0;
   min-width: 160px;
   animation: contextMenuFadeIn 0.12s ease-out;
@@ -28,24 +26,25 @@
   align-items: center;
   gap: 8px;
   padding: 7px 14px;
+  color: var(--app-text);
   cursor: pointer;
   transition: background 0.15s ease;
   user-select: none;
 
   &:hover {
-    background: #f5f5f5;
+    background: var(--app-fill-subtle);
   }
 
   &.danger {
-    color: #ff4d4f;
+    color: var(--app-error-text);
 
     &:hover {
-      background: #fff2f0;
+      background: var(--app-error-bg);
     }
   }
 
   &.disabled {
-    color: #bbb;
+    color: var(--app-text-quaternary);
     cursor: not-allowed;
 
     &:hover {
@@ -72,45 +71,6 @@
 
 .divider {
   height: 1px;
-  background: #f0f0f0;
+  background: var(--app-border-subtle);
   margin: 4px 0;
-}
-
-/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .contextMenu {
-    background: #2a2a2a;
-    border-color: #3a3a3a;
-    box-shadow:
-      0 6px 24px rgba(0, 0, 0, 0.35),
-      0 2px 8px rgba(0, 0, 0, 0.2);
-  }
-
-  .menuItem {
-    color: rgba(255, 255, 255, 0.85);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &.danger {
-      color: #ff6b6b;
-
-      &:hover {
-        background: rgba(255, 77, 79, 0.1);
-      }
-    }
-
-    &.disabled {
-      color: #555;
-
-      &:hover {
-        background: transparent;
-      }
-    }
-  }
-
-  .divider {
-    background: #3a3a3a;
-  }
 }
