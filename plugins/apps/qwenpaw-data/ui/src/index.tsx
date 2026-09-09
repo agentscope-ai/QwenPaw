@@ -1,8 +1,15 @@
 import { createRoot } from "react-dom/client";
 
+import type { PawSdkFactory } from "../../../../../console/src/plugins/pawapp-sdk/types";
+
 import { App } from "./App";
-import { requireQwenPawDataSdk } from "./sdk";
 import styles from "./styles.css?inline";
+
+type PawHostWindow = Window & {
+  QwenPaw?: {
+    paw?: PawSdkFactory;
+  };
+};
 
 function installStyles(): () => void {
   const element = document.createElement("style");
@@ -13,7 +20,13 @@ function installStyles(): () => void {
 }
 
 try {
-  const paw = requireQwenPawDataSdk();
+  const factory = (window as PawHostWindow).QwenPaw?.paw;
+  if (!factory) {
+    throw new Error(
+      "This QwenPaw-Data build requires the app-scoped PawApp SDK",
+    );
+  }
+  const paw = factory.forApp("qwenpaw-data");
   paw.ui.registerPage({
     path: "/apps/qwenpaw-data",
     label: "QwenPaw-Data",
