@@ -2,20 +2,22 @@
 # pylint: disable=protected-access
 import json
 import logging
-from types import SimpleNamespace
 import threading
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import (
-    CommandHandler,
+    _MAX_REME_METADATA_CHARS,
     _MAX_REME_OUTPUT_CHARS,
     _REME_CHAT_SAFE_ACTIONS,
+    CommandHandler,
 )
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.middlewares import auto_memory_turn_state
+from qwenpaw.runtime.envelope import Envelope
 
 
 class _ActionMemoryManager:
@@ -314,10 +316,12 @@ async def test_reme_auto_dream_uses_cli_style_quoted_hint() -> None:
             metadata={"changed": 2},
         ),
     )
+    authorizer = AsyncMock(return_value=True)
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
     )
 
     msg = await handler.handle_command(
@@ -329,6 +333,10 @@ async def test_reme_auto_dream_uses_cli_style_quoted_hint() -> None:
     memory_manager.run_action_mock.assert_awaited_once_with(
         "auto_dream",
         hint="consolidate recent topics",
+    )
+    authorizer.assert_awaited_once_with(
+        "auto_dream",
+        {"hint": "consolidate recent topics"},
     )
     assert "ReMe `auto_dream` Complete" in msg.get_text_content()
     assert msg.metadata == {"changed": 2}
@@ -386,16 +394,38 @@ async def test_reme_runs_generation_actions(
         action,
         response=SimpleNamespace(success=True, answer="done", metadata={}),
     )
+    authorizer = AsyncMock(return_value=True)
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
     )
 
     msg = await handler.handle_command(command)
 
     memory_manager.run_action_mock.assert_awaited_once_with(action, **kwargs)
+    authorizer.assert_awaited_once_with(action, kwargs)
     assert f"ReMe `{action}` Complete" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_generation_action_requires_approval() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("daily_paper")
+    authorizer = AsyncMock(return_value=False)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
+    )
+
+    msg = await handler.handle_command("/reme daily_paper force=true")
+
+    assert "Not Approved" in msg.get_text_content()
+    authorizer.assert_awaited_once_with("daily_paper", {"force": True})
+    memory_manager.run_action_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -871,8 +901,20 @@ async def test_reme_serializes_large_structured_values_off_event_loop(
     msg = await handler.handle_command("/reme search show_metadata=true")
 
     assert len(msg.get_text_content()) == _MAX_REME_OUTPUT_CHARS
+    assert msg.metadata["qwenpaw_truncated"] is True
+    assert (
+        len(json.dumps(msg.metadata, ensure_ascii=False))
+        <= _MAX_REME_METADATA_CHARS
+    )
     assert serialization_threads
     assert event_loop_thread not in serialization_threads
+
+    envelope = Envelope(session_id="session-1")
+    events = [event async for event in envelope.from_msg(msg)]
+    assert (
+        max(len(event.model_dump_json()) for event in events)
+        < _MAX_REME_OUTPUT_CHARS + _MAX_REME_METADATA_CHARS + 5000
+    )
 
 
 def test_reme_output_truncation_accounts_for_suffix() -> None:

@@ -280,8 +280,9 @@ Both generators can also be run manually from a conversation:
 
 Manual execution does not require `daily_paper_cron_enabled` or
 `auto_fin_cron_enabled`; those switches control scheduling only. These commands
-wait for the generation action to finish. Run `/reme help` to see the precise
-parameters exposed by the currently installed plugins.
+require approval, then wait for the generation action to finish. Run
+`/reme help` to see the precise chat-allowed parameters exposed by the
+currently installed plugins.
 
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 

@@ -6,33 +6,35 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
-from pathlib import Path
 import shlex
-from typing import Any, TYPE_CHECKING
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from agentscope.message import HintBlock, Msg, TextBlock
 from reme.config import parse_action, parse_kwargs
 
+from ..config.config import get_model_max_input_length, load_agent_config
+from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
+from ..exceptions import SystemCommandException
+from ..loop.gates.runner import clear_pending_gate_state
+from ..utils.io_utils import run_sync_io
 from .context.scroll.continuation_summary import (
     ContinuationSummary,
     redact_secrets,
 )
+from .memory.action_provider import MemoryActionProvider, MemoryActionSpec
 from .middlewares import (
     discard_auto_memory_turns,
     manual_compact_memory_by_handler,
     reset_auto_memory_turn_state,
 )
-from .memory.action_provider import MemoryActionProvider, MemoryActionSpec
 from .utils.context_stats import format_history_str
-from ..config.config import load_agent_config, get_model_max_input_length
-from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
-from ..exceptions import SystemCommandException
-from ..loop.gates.runner import clear_pending_gate_state
-from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
     from agentscope.state import AgentState
+
     from .memory import BaseMemoryManager
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
 _FORCE_TRIGGER_RATIO = 1e-6
 _MAX_COMPACT_HINT_CHARS = 2000
 _MAX_REME_OUTPUT_CHARS = 20000
+_MAX_REME_METADATA_CHARS = 8000
 _REME_TRUNCATION_SUFFIX = "\n\n… ReMe output truncated by QwenPaw."
 # ``enable_serve`` describes ReMe's backend/API surface; it is not a chat
 # authorization decision.  Keep the slash-command surface deliberately narrow
@@ -86,6 +89,17 @@ _REME_CHAT_SAFE_ACTIONS = frozenset(
         "auto_fin",
     },
 )
+# These actions remain available from chat, but unlike read-only inspection
+# they can consume external/LLM resources and persist results.  The runtime
+# adapter therefore requires an explicit approval before dispatching them.
+_REME_APPROVAL_REQUIRED_ACTIONS = frozenset(
+    {"auto_dream", "daily_paper", "auto_fin"},
+)
+
+ReMeActionAuthorizer = Callable[
+    [str, dict[str, Any]],
+    Awaitable[bool],
+]
 
 
 def _fmt_tokens(n: int) -> str:
@@ -157,6 +171,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         scroll_state: dict | None = None,
         session_id: str | None = None,
         prompt_context: Any = None,
+        reme_action_authorizer: ReMeActionAuthorizer | None = None,
     ):
         """Initialize command handler.
 
@@ -200,6 +215,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._scroll_state = scroll_state
         self._session_id = session_id
         self._prompt_context = prompt_context
+        self._reme_action_authorizer = reme_action_authorizer
         # Set by a standalone scroll ``/compact`` to the manager's refreshed
         # checkpoint, so the adapter can persist it back to the session.
         self._updated_scroll_state: dict | None = None
@@ -963,6 +979,27 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- `show_metadata` must be a boolean value",
             )
 
+        if action in _REME_APPROVAL_REQUIRED_ACTIONS:
+            authorizer = self._reme_action_authorizer
+            if authorizer is None:
+                return await self._make_reme_system_msg(
+                    f"**ReMe `{action}` Not Approved**\n\n"
+                    "- This action requires explicit user approval",
+                )
+            try:
+                approved = await authorizer(action, dict(kwargs))
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "ReMe action authorization failed: %s",
+                    action,
+                )
+                approved = False
+            if not approved:
+                return await self._make_reme_system_msg(
+                    f"**ReMe `{action}` Not Approved**\n\n"
+                    "- The approval was denied or timed out",
+                )
+
         try:
             response = await action_provider.run_action(action, **kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -1121,7 +1158,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
     ) -> tuple[str, dict]:
         """Serialize and bound an action result in a worker thread."""
         answer = cls._stringify_reme_value(getattr(response, "answer", ""))
-        metadata = dict(getattr(response, "metadata", None) or {})
+        metadata = cls._bound_reme_metadata(
+            dict(getattr(response, "metadata", None) or {}),
+        )
         if not getattr(response, "success", False):
             body = (
                 f"**ReMe `{action}` Failed**\n\n"
@@ -1143,6 +1182,50 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "total should not be compared directly with process RSS."
             )
         return cls._bound_reme_output(body), metadata
+
+    @classmethod
+    def _bound_reme_metadata(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return JSON-safe metadata with a bounded transport footprint."""
+        if not metadata:
+            return {}
+        try:
+            rendered = json.dumps(
+                metadata,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+            normalized = json.loads(rendered)
+        except (TypeError, ValueError, RecursionError):
+            rendered = repr(metadata)
+            normalized = None
+
+        if (
+            normalized is not None
+            and len(rendered) <= _MAX_REME_METADATA_CHARS
+        ):
+            return normalized
+
+        marker: dict[str, Any] = {
+            "qwenpaw_truncated": True,
+            "preview": "",
+        }
+        overhead = len(
+            json.dumps(marker, ensure_ascii=False, separators=(",", ":")),
+        )
+        marker["preview"] = rendered[
+            : max(0, _MAX_REME_METADATA_CHARS - overhead)
+        ]
+        # Escaping can make the JSON representation longer than the source
+        # preview. Tighten it until the serialized metadata fits the cap.
+        while (
+            len(
+                json.dumps(marker, ensure_ascii=False, separators=(",", ":")),
+            )
+            > _MAX_REME_METADATA_CHARS
+        ):
+            marker["preview"] = marker["preview"][:-256]
+        return marker
 
     async def _make_reme_system_msg(
         self,
@@ -1515,8 +1598,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
     ) -> Msg:
         """Process /proactive command for proactive message feature."""
         args = args.strip().lower()
-        from .memory import enable_proactive_for_session
         from ..app.agent_context import get_current_agent_id
+        from .memory import enable_proactive_for_session
 
         # Get current agent ID and language
         active_agent_id = get_current_agent_id()

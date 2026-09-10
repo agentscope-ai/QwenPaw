@@ -1128,11 +1128,12 @@ groups from the current conversation (default `1`), `memory_hint` optionally
 guides extraction, and QwenPaw supplies the messages and session ID. Add
 `show_metadata=true` to another action to include its metadata in the visible
 response. The complete visible response is truncated at 20,000 characters to
-protect the chat context; complete structured metadata remains attached to the
-message even when its visible rendering is truncated.
+protect the chat context. Structured metadata is attached to the message up to
+8,000 serialized characters; larger metadata is replaced by a bounded preview.
 
 Generation actions such as `daily_paper` and `auto_fin` use the same command
-surface. They run immediately and the command waits for the action result;
+surface. They require approval before running, then the command waits for the
+action result;
 unlike `auto_memory`, they are not submitted to the conversation Auto-Memory
 queue. Their `*_cron_enabled` settings control scheduled runs only and do not
 gate manual `/reme` execution. Use `/reme help` for the exact live parameters

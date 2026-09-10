@@ -251,8 +251,8 @@ Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，�
 ```
 
 手动执行不要求开启 `daily_paper_cron_enabled` 或 `auto_fin_cron_enabled`；这两个
-开关只控制定时调度。命令会等待生成 action 执行完成。当前安装插件实际开放的
-参数以 `/reme help` 为准。
+开关只控制定时调度。命令需要审批，之后会等待生成 action 执行完成。当前安装
+插件实际开放且允许从聊天调用的参数以 `/reme help` 为准。
 
 ### 4. Auto-Dream 把每日记录整理成长期经验
 
