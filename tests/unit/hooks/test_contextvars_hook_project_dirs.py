@@ -39,8 +39,9 @@ class TestEntryPathStrings:
         assert cvh._entry_path_strings([("/a", "label"), ()]) == ["/a"]
 
     def test_path_objects_stringified(self):
-        result = cvh._entry_path_strings([Path("/a/b")])
-        assert result == ["/a/b"]
+        entry = Path("/a/b")
+
+        assert cvh._entry_path_strings([entry]) == [str(entry)]
 
     def test_blank_entries_dropped(self):
         assert cvh._entry_path_strings(["  ", "", 42, None]) == []

@@ -38,7 +38,21 @@ def _load_real_response_class():
     try:
         module = importlib.import_module(_LARK_MODULE)
         return module.P2CardActionTriggerResponse
-    except ImportError:  # SDK genuinely absent -> skip those tests
+    except (ImportError, AttributeError):
+        # The SDK is unusable on this interpreter, which happens two ways:
+        #
+        # * ImportError -- ``lark_oapi`` is absent, or its vendored
+        #   ``ws/pb/google`` namespace shim calls ``pkg_resources`` and
+        #   that module is gone entirely (setuptools without the legacy
+        #   pkg_resources extra).
+        # * AttributeError -- ``pkg_resources`` is importable but
+        #   setuptools >= 81 removed ``declare_namespace``, so the shim
+        #   raises while ``lark_oapi.ws`` loads.  Observed on the macOS
+        #   runner (system Python + setuptools 84.0.0), where it aborted
+        #   collection for the whole suite rather than skipping.
+        #
+        # Both mean "no real SDK here", so fall back to None and let the
+        # fixture skip instead of taking down collection.
         return None
     finally:
         # Put the stub back so the rest of the suite sees no change.

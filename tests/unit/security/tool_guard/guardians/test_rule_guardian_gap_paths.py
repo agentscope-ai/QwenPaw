@@ -196,10 +196,27 @@ class TestIsOutsideWorkspaceProjectRoots:
 
 
 class TestExtractRmTargetsEdgeCases:
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason=(
+            "_extract_rm_targets calls shlex.split(posix=False) on Windows,"
+            " which deliberately keeps the quote characters; POSIX quoting"
+            " semantics do not apply there. Same exclusion as the"
+            " Unix-style rm cases in test_rule_guardian.py."
+        ),
+    )
     def test_quoted_target_extracted(self, workspace):
         result = rg._extract_rm_targets('rm "my file.txt"')
         assert result == ["my file.txt"]
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason=(
+            "shlex.split(posix=False) on Windows keeps quotes, so the"
+            " quoted separator stays inside a quoted token rather than"
+            " being handled by the POSIX splitter."
+        ),
+    )
     def test_separator_inside_quotes_not_split(self, workspace):
         result = rg._extract_rm_targets('rm "a;b"')
         assert result == ["a;b"]

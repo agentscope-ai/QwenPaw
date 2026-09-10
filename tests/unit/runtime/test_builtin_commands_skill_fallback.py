@@ -101,18 +101,21 @@ class TestExtractBlockText:
 
 class TestBuildSkillInjection:
     def test_structure_contains_all_fields(self):
+        skill_dir = Path("/ws/skills/deploy")
         result = _build_skill_injection(
             "/deploy go",
             "Deploy Skill",
             "Deploys things",
-            Path("/ws/skills/deploy"),
+            skill_dir,
             "skill body content",
         )
         assert result.startswith("/deploy go")
         assert "<skill>" in result
         assert "<name>Deploy Skill</name>" in result
         assert "<description>Deploys things</description>" in result
-        assert "<dir>/ws/skills/deploy</dir>" in result
+        # The dir is interpolated straight from the Path, so build the
+        # expectation from the same object (Windows renders backslashes).
+        assert f"<dir>{skill_dir}</dir>" in result
         assert "skill body content" in result
 
     def test_empty_original_text_still_has_block(self):

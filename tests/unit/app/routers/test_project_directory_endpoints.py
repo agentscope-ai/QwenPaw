@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -322,7 +323,16 @@ class TestUploadZip:
         assert "Zip slip" in response.json()["detail"]
 
     def test_absolute_member_returns_400(self, client):
-        data = _zip_bytes({"/etc/passwd": "evil"})
+        # The guard is ``Path(member).is_absolute()``, and on Windows a
+        # leading slash is *not* absolute (no drive), so "/etc/passwd"
+        # there falls through to the zip-slip check instead.  Use a
+        # drive-qualified member on Windows so this test exercises the
+        # absolute-path branch on every runner rather than silently
+        # turning into a duplicate of the zip-slip test above.
+        member = (
+            "C:/Windows/evil.txt" if sys.platform == "win32" else "/etc/passwd"
+        )
+        data = _zip_bytes({member: "evil"})
         response = client.post(
             "/api/workspace/project-directory/upload-zip?name=abs",
             files={"file": ("proj.zip", data, "application/zip")},

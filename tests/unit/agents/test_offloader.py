@@ -355,9 +355,33 @@ class TestOffloadToolResult:
 
 
 def _age_file(path: Path, days: float) -> None:
-    """Backdate both mtime and ctime so the retention check matches."""
+    """Backdate the file timestamps the retention check reads."""
     stamp = time.time() - days * 86400
     os.utime(path, (stamp, stamp))
+
+
+@pytest.fixture(name="posix_clock", autouse=True)
+def _posix_clock(monkeypatch):
+    """Pin ``sys.platform`` so retention reads mtime on every OS.
+
+    ``cleanup_expired`` picks its timestamp by platform:
+
+        ts = st.st_ctime if sys.platform == "win32" else
+             getattr(st, "st_birthtime", st.st_mtime)
+
+    On Windows ``st_ctime`` is the *creation* time, and ``os.utime`` cannot
+    write it -- there is no portable way to age a file's creation stamp.
+    So on a real Windows runner every file looks brand new, the retention
+    window never trips, and the deletion tests would assert 0 deleted
+    while the logic they target is fine.
+
+    Pinning the platform makes these tests exercise the mtime branch
+    identically on all three CI runners.  Nothing is lost: the win32
+    branch has its own dedicated test below
+    (``test_windows_platform_uses_ctime``), which patches the platform the
+    other way round.
+    """
+    monkeypatch.setattr(sys, "platform", "linux")
 
 
 class TestCleanupExpired:
