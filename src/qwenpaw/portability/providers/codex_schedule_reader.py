@@ -11,7 +11,7 @@ import sqlite3
 import stat
 import tempfile
 import tomllib
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
@@ -496,7 +496,8 @@ def _copy_bounded_regular_file(
     maximum_bytes: int,
 ) -> None:
     """Copy one source file without following a replaced symlink."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    binary = getattr(os, "O_BINARY", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | binary
     source_fd = os.open(source, flags)
     try:
         info = os.fstat(source_fd)
@@ -509,7 +510,7 @@ def _copy_bounded_regular_file(
             )
         target_fd = os.open(
             target,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | binary,
             0o600,
         )
         try:
@@ -656,7 +657,9 @@ def _read_sqlite_target(
         if immutable:
             query += "&immutable=1"
         uri = f"{database.resolve(strict=True).as_uri()}{query}"
-        with sqlite3.connect(uri, uri=True, timeout=2.0) as connection:
+        with closing(
+            sqlite3.connect(uri, uri=True, timeout=2.0),
+        ) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA query_only = ON")
             columns = _table_columns(connection, "automations")

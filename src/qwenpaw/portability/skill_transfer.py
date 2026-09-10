@@ -129,7 +129,8 @@ def read_bounded_tree(  # pylint: disable=too-many-branches
                         raise ValueError("source contains a non-regular entry")
                     continue
 
-                before = item.stat(follow_symlinks=False)
+                # DirEntry.stat() has no file identity on Windows.
+                before = path.lstat()
                 files += 1
                 total += before.st_size
                 if files > MAX_SKILL_FILES or total > MAX_SKILL_BYTES:

@@ -165,13 +165,25 @@ async def test_qoder_mini_home_matches_golden_inventory(
     qoder_home = _copy_fixture(tmp_path, "qoder-mini")
     user_data = _copy_fixture(tmp_path, "qoder-user-data-mini")
     ledger = qoder_home / "plugins" / "installed_plugins_v2.json"
-    ledger.write_text(
-        ledger.read_text(encoding="utf-8").replace(
-            "__QODER_HOME__",
-            str(qoder_home),
-        ),
-        encoding="utf-8",
-    )
+    installed = json.loads(ledger.read_text(encoding="utf-8"))
+    for entries in installed["plugins"].values():
+        for entry in entries:
+            entry["installPath"] = entry["installPath"].replace(
+                "__QODER_HOME__",
+                str(qoder_home),
+            )
+    ledger.write_text(json.dumps(installed), encoding="utf-8")
+
+    cwd = str(tmp_path / "qoder-project")
+    for path in (qoder_home / "projects").glob("*/transcript/*.jsonl"):
+        records = [
+            dict(json.loads(line), cwd=cwd)
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        path.write_text(
+            "\n".join(json.dumps(record) for record in records) + "\n",
+            encoding="utf-8",
+        )
 
     inventory = await QoderMigrationProvider(
         SimpleNamespace(workspace_dir=tmp_path / "workspace"),
@@ -179,6 +191,7 @@ async def test_qoder_mini_home_matches_golden_inventory(
         qoder_user_data=user_data,
     ).inventory(limit=20)
 
-    assert _inventory_contract(inventory) == _golden_json(
-        "qoder-mini-inventory.json",
-    )
+    expected = _golden_json("qoder-mini-inventory.json")
+    for item in expected["sessions"] + expected["memory"]:
+        item["cwd"] = cwd
+    assert _inventory_contract(inventory) == expected

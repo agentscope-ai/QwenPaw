@@ -99,6 +99,7 @@ def test_tree_rejects_symbolic_link_escape(tmp_path: Path) -> None:
     assert inventory_fingerprint(inventory) == fingerprint
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires Unix FIFO")
 def test_tree_rejects_non_regular_entry(tmp_path: Path) -> None:
     root = tmp_path / "skill"
     root.mkdir()

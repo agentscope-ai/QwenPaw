@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.portability import skill_transfer
 from qwenpaw.portability.compatibility import (
     AssetZone,
     CompatibilityStore,
@@ -28,6 +31,37 @@ def _skill(tmp_path: Path, name: str = "demo") -> SimpleNamespace:
         description="demo",
         directory=root,
     )
+
+
+def test_skill_tree_reads_without_direntry_file_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _skill(tmp_path).directory
+    path = root / "SKILL.md"
+    info = path.lstat()
+    # Windows DirEntry.stat() omits the identity supplied by lstat/fstat.
+    entry = SimpleNamespace(
+        path=str(path),
+        is_symlink=lambda: False,
+        is_dir=lambda **_kwargs: False,
+        is_file=lambda **_kwargs: True,
+        stat=lambda **_kwargs: SimpleNamespace(
+            st_dev=0,
+            st_ino=0,
+            st_size=info.st_size,
+            st_mtime_ns=info.st_mtime_ns,
+            st_ctime_ns=info.st_ctime_ns,
+            st_mode=info.st_mode,
+        ),
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "scandir", lambda _path: nullcontext([entry]))
+        entries = list(skill_transfer.read_bounded_skill_tree(root))
+
+    assert len(entries) == 1
+    assert entries[0].relative == Path("SKILL.md")
+    assert entries[0].data == path.read_bytes()
 
 
 def test_repair_workflow_requires_current_passing_test(
@@ -110,8 +144,9 @@ def test_manifest_and_summary_are_owner_only_and_secret_free(
     assert secret not in path.read_text(encoding="utf-8")
     assert all("metadata" not in item.snapshot for item in manifest.assets)
     assert "unsafe_bindings" not in manifest.assets[0].snapshot
-    assert path.stat().st_mode & 0o077 == 0
-    assert summary.stat().st_mode & 0o077 == 0
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o077 == 0
+        assert summary.stat().st_mode & 0o077 == 0
     assert load_manifest(path) == manifest
 
 

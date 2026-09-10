@@ -39,13 +39,13 @@ def test_codex_location_uses_each_users_home(tmp_path: Path) -> None:
         ),
         (
             "linux",
-            {"XDG_CONFIG_HOME": "/opt/user-config"},
-            Path("/opt/user-config/Qoder/User"),
+            {"XDG_CONFIG_HOME": "user-config"},
+            Path("user-config/Qoder/User"),
         ),
         (
             "win32",
-            {"APPDATA": "/windows/AppData/Roaming"},
-            Path("/windows/AppData/Roaming/Qoder/User"),
+            {"APPDATA": "AppData/Roaming"},
+            Path("AppData/Roaming/Qoder/User"),
         ),
     ],
 )
@@ -60,9 +60,9 @@ def test_qoder_editor_location_is_platform_specific(
         "qoder",
         user_home=home,
         platform_name=platform_name,
-        environ=environment,
+        environ={key: str(home / value) for key, value in environment.items()},
     )
-    expected = relative if relative.is_absolute() else home / relative
+    expected = home / relative
 
     assert location.data_home == str((home / ".qoder").resolve())
     assert location.user_data_home == str(expected.resolve())

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -161,6 +162,7 @@ cwd = "/toml/project"
 
 def test_live_wal_is_read_from_private_snapshot_without_source_writes(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     home = tmp_path / ".codex"
     database = home / "sqlite" / "codex-dev.db"
@@ -191,7 +193,9 @@ def test_live_wal_is_read_from_private_snapshot_without_source_writes(
         }
 
         immutable_uri = f"{database.resolve().as_uri()}?mode=ro&immutable=1"
-        with sqlite3.connect(immutable_uri, uri=True) as stale_connection:
+        with closing(
+            sqlite3.connect(immutable_uri, uri=True),
+        ) as stale_connection:
             assert (
                 stale_connection.execute(
                     "SELECT COUNT(*) FROM automations",
@@ -199,6 +203,15 @@ def test_live_wal_is_read_from_private_snapshot_without_source_writes(
                 == 0
             )
 
+        readers = []
+        connect = sqlite3.connect
+
+        def track_connection(*args, **kwargs):
+            reader = connect(*args, **kwargs)
+            readers.append(reader)
+            return reader
+
+        monkeypatch.setattr(sqlite3, "connect", track_connection)
         (
             tasks,
             warnings,
@@ -214,8 +227,27 @@ def test_live_wal_is_read_from_private_snapshot_without_source_writes(
         assert {
             path.name: path.read_bytes() for path in (database, wal, shm)
         } == source_before
+        assert readers
+        for reader in readers:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                reader.execute("SELECT 1")
     finally:
         connection.close()
+
+
+def test_snapshot_copy_preserves_binary_bytes(tmp_path: Path) -> None:
+    source = tmp_path / "source.db"
+    target = tmp_path / "snapshot.db"
+    data = bytes(range(256)) + b"\r\n\n\x1a"
+    source.write_bytes(data)
+
+    codex_schedule_reader._copy_bounded_regular_file(
+        source,
+        target,
+        len(data),
+    )
+
+    assert source.read_bytes() == target.read_bytes() == data
 
 
 def test_symlinked_wal_is_rejected_without_following_it(

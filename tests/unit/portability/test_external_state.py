@@ -39,7 +39,7 @@ def test_codex_plugin_uses_marketplace_source_not_installed_cache(
     (codex_home / "config.toml").write_text(
         '[plugins."demo@local"]\nenabled = true\n'
         '[marketplaces.local]\nsource_type = "directory"\n'
-        f'source = "{marketplace}"\n',
+        f"source = {json.dumps(str(marketplace))}\n",
         encoding="utf-8",
     )
     cache = codex_home / "plugins/cache/local/demo/cache-id/.codex-plugin"
