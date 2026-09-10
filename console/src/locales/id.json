@@ -696,7 +696,9 @@
     "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen"
+      "subagentShort": "Subagen",
+      "loadMore": "Muat lebih banyak · {{count}} tersisa",
+      "collapseList": "Ciutkan daftar"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"

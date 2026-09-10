@@ -709,7 +709,9 @@
     "newTask": "Tác vụ mới",
     "groups": {
       "cronShort": "Định kỳ",
-      "subagentShort": "Tác tử con"
+      "subagentShort": "Tác tử con",
+      "loadMore": "Tải thêm · còn {{count}} mục",
+      "collapseList": "Thu gọn danh sách"
     },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"

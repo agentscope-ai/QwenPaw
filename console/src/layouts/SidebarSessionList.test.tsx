@@ -116,7 +116,26 @@ vi.mock("../components/SessionItem", () => ({
 }));
 
 vi.mock("../components/SessionGroupHeader", () => ({
-  default: () => <div data-testid="group-header" />,
+  default: ({
+    group,
+    count,
+    collapsed,
+    onToggle,
+  }: {
+    group: { id: string; name: string };
+    count: number;
+    collapsed: boolean;
+    onToggle: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid={`group-header-${group.id}`}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+    >
+      {group.name} {count}
+    </button>
+  ),
 }));
 
 vi.mock("../components/SessionDateHeader", () => ({
@@ -233,6 +252,7 @@ function mockData(
     collapsedGroups: new Set<string>(),
     toggleGroup: vi.fn(),
     expandGroup: vi.fn(),
+    initializeCollapsedGroups: vi.fn(),
   });
 }
 
@@ -271,6 +291,80 @@ describe("SidebarSessionList", () => {
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("initializes older groups as collapsed", async () => {
+    const initializeCollapsedGroups = vi.fn();
+    mockData([sessionA, { ...sessionB, groupId: "work" }]);
+    mockCollapsedGroups.mockReturnValue({
+      collapsedGroups: new Set<string>(),
+      toggleGroup: vi.fn(),
+      expandGroup: vi.fn(),
+      initializeCollapsedGroups,
+    });
+    mockChatGroups.mockReturnValue({
+      groups: [
+        {
+          id: "default",
+          name: "Uncategorized",
+          order: 0,
+          kind: "default",
+          pinned: false,
+        },
+        {
+          id: "work",
+          name: "Work",
+          order: 1,
+          kind: "custom",
+          pinned: false,
+        },
+        {
+          id: "older",
+          name: "Older",
+          order: 2,
+          kind: "custom",
+          pinned: false,
+        },
+      ],
+      createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
+      renameGroup: vi.fn(),
+      pinGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+    });
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => expect(initializeCollapsedGroups).toHaveBeenCalled());
+    expect(initializeCollapsedGroups).toHaveBeenCalledWith(new Set(["older"]));
+  });
+
+  it("loads ten more conversations within a group", async () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
+    });
+    expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Collapse list" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse list" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+    });
   });
 
   it("routes session clicks through the injected callback", async () => {

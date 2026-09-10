@@ -3009,7 +3009,9 @@
     "newTask": "Nova tarefa",
     "groups": {
       "cronShort": "Agendado",
-      "subagentShort": "Subagente"
+      "subagentShort": "Subagente",
+      "loadMore": "Carregar mais · {{count}} restantes",
+      "collapseList": "Recolher lista"
     },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"

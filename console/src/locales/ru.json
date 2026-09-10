@@ -2780,7 +2780,9 @@
     "newTask": "Новая задача",
     "groups": {
       "cronShort": "Расписание",
-      "subagentShort": "Субагент"
+      "subagentShort": "Субагент",
+      "loadMore": "Загрузить ещё · осталось {{count}}",
+      "collapseList": "Свернуть список"
     },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"
