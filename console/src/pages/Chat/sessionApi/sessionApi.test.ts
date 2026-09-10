@@ -12,6 +12,8 @@ vi.mock("@agentscope-ai/chat", () => ({}));
 import sessionApi, { __test__ as T } from "./index";
 import api, { type ChatHistory, type ChatSpec } from "../../../api";
 import { createSdkSessionAdapter } from "../sdkSessionAdapter";
+import { groupChatsByDate } from "../../../utils/chatGroups";
+import type { ExtendedSession } from "../../../stores/sessionListStore";
 
 const sessionWindow = window as Window & { currentSessionId?: string };
 
@@ -92,6 +94,24 @@ describe("createSession owner-epoch singleflight", () => {
       "chat-two",
       "chat-one",
     ]);
+  });
+
+  it("publishes a newly created Chat in Today before any list refresh", async () => {
+    const now = new Date().toISOString();
+    const chat = {
+      ...createdChat("chat-today"),
+      created_at: now,
+      updated_at: now,
+    };
+    vi.spyOn(api, "createChat").mockResolvedValue(chat);
+    const result = await sessionApi.createSession({ name: "first message" });
+
+    const groups = groupChatsByDate(result.sessions as ExtendedSession[]);
+    expect(groups.map((group) => group.key)).toEqual(["today"]);
+    expect(result.session).toMatchObject({
+      createdAt: chat.created_at,
+      updatedAt: chat.updated_at,
+    });
   });
 
   it("rejects all waiters on failure and allows a fresh concurrent retry", async () => {

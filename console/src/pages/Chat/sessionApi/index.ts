@@ -1815,10 +1815,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           if (!this.isActiveOwner(owner)) {
             throw new DOMException("Session owner changed", "AbortError");
           }
-          const extended = this.createEmptySession(chat.id, owner);
-          extended.realId = chat.id;
-          extended.sessionId = chat.session_id || runtimeSessionId;
-          extended.name = chat.name || DEFAULT_SESSION_NAME;
+          // Publish the same metadata as a list refresh on the first render;
+          // missing timestamps would briefly place a new Chat in Earlier.
+          const extended = {
+            ...this.createEmptySession(chat.id, owner),
+            ...chatSpecToSession(chat),
+            realId: chat.id,
+            sessionId: chat.session_id || runtimeSessionId,
+          };
           this.updateWindowVariables(extended);
           this.sessionList.unshift(extended);
           this.onSessionCreated?.(chat.id);
