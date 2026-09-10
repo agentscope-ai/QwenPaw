@@ -39,5 +39,9 @@ CONNECTION_CONFIG_FIELDS = frozenset(
         "chat_model",
         "api_key_prefix",
         "api_key_prefixes",
+        "max_inline_media_bytes",
+        "max_image_bytes",
+        "max_video_bytes",
+        "max_audio_bytes",
     },
 )

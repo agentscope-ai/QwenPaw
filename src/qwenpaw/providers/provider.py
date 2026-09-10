@@ -503,6 +503,38 @@ class ProviderInfo(BaseModel):
         description="Additional metadata for the provider "
         "(e.g., api_key_url, api_key_hint).",
     )
+    max_inline_media_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Default maximum size in bytes for local media inlined into "
+            "model requests. 0 disables capping."
+        ),
+    )
+    max_image_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional image-specific inline media cap. Falls back to "
+            "max_inline_media_bytes when unset."
+        ),
+    )
+    max_video_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional video-specific inline media cap. Falls back to "
+            "max_inline_media_bytes when unset."
+        ),
+    )
+    max_audio_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional audio-specific inline media cap. Falls back to "
+            "max_inline_media_bytes when unset."
+        ),
+    )
 
     @model_validator(mode="after")
     def _normalize_model_sources(self) -> "ProviderInfo":
@@ -638,6 +670,23 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             ),
         )
 
+    def _update_media_cap_config(self, config: Dict) -> None:
+        """Update provider-level inline media cap settings."""
+        for cap_field in (
+            "max_inline_media_bytes",
+            "max_image_bytes",
+            "max_video_bytes",
+            "max_audio_bytes",
+        ):
+            if cap_field not in config:
+                continue
+            value = config[cap_field]
+            if value is None:
+                if cap_field != "max_inline_media_bytes":
+                    setattr(self, cap_field, None)
+            else:
+                setattr(self, cap_field, int(value))
+
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
         if "name" in config and config["name"] is not None:
@@ -679,6 +728,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             self.custom_headers = {
                 str(k): str(v) for k, v in config["custom_headers"].items()
             }
+        self._update_media_cap_config(config)
         if "auth_mode" in config and config["auth_mode"] in (
             "api_key",
             "auth_token",

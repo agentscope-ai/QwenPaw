@@ -20,7 +20,24 @@ from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.providers.gemini_provider import GeminiProvider
 from qwenpaw.providers.capping_formatter import (
+    ANTHROPIC_AUDIO_BYTES,
+    ANTHROPIC_IMAGE_BYTES,
+    ANTHROPIC_VIDEO_BYTES,
+    DASHSCOPE_MEDIA_BYTES,
+    GEMINI_MEDIA_BYTES,
+    LOCAL_MEDIA_BYTES,
+    MIMO_MEDIA_BYTES,
+    OPENAI_AUDIO_BYTES,
+    OPENAI_IMAGE_BYTES,
+    OPENAI_VIDEO_BYTES,
+    OPENROUTER_AUDIO_BYTES,
+    OPENROUTER_IMAGE_BYTES,
+    OPENROUTER_VIDEO_BYTES,
+    VOLCENGINE_AUDIO_BYTES,
+    VOLCENGINE_IMAGE_BYTES,
+    VOLCENGINE_VIDEO_BYTES,
     _CappingAnthropicFormatter,
+    _CappingDashScopeFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
@@ -3882,6 +3899,136 @@ def test_provider_group_metadata(isolated_secret_dir) -> None:
         assert p.provider_group == "mimo"
 
 
+@pytest.mark.parametrize(
+    "provider_id,expected_caps",
+    [
+        (
+            "openai",
+            (
+                OPENAI_IMAGE_BYTES,
+                OPENAI_IMAGE_BYTES,
+                OPENAI_VIDEO_BYTES,
+                OPENAI_AUDIO_BYTES,
+            ),
+        ),
+        (
+            "openai-response",
+            (
+                OPENAI_IMAGE_BYTES,
+                OPENAI_IMAGE_BYTES,
+                OPENAI_VIDEO_BYTES,
+                OPENAI_AUDIO_BYTES,
+            ),
+        ),
+        (
+            "anthropic",
+            (
+                ANTHROPIC_AUDIO_BYTES,
+                ANTHROPIC_IMAGE_BYTES,
+                ANTHROPIC_VIDEO_BYTES,
+                ANTHROPIC_AUDIO_BYTES,
+            ),
+        ),
+        (
+            "gemini",
+            (
+                GEMINI_MEDIA_BYTES,
+                GEMINI_MEDIA_BYTES,
+                GEMINI_MEDIA_BYTES,
+                GEMINI_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "dashscope",
+            (
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "modelscope",
+            (
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+                DASHSCOPE_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "openrouter",
+            (
+                OPENROUTER_VIDEO_BYTES,
+                OPENROUTER_IMAGE_BYTES,
+                OPENROUTER_VIDEO_BYTES,
+                OPENROUTER_AUDIO_BYTES,
+            ),
+        ),
+        (
+            "ollama",
+            (
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "lmstudio",
+            (
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+                LOCAL_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "volcengine-cn",
+            (
+                VOLCENGINE_VIDEO_BYTES,
+                VOLCENGINE_IMAGE_BYTES,
+                VOLCENGINE_VIDEO_BYTES,
+                VOLCENGINE_AUDIO_BYTES,
+            ),
+        ),
+        (
+            "mimo",
+            (
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+            ),
+        ),
+        (
+            "mimo-tokenplan",
+            (
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+                MIMO_MEDIA_BYTES,
+            ),
+        ),
+    ],
+)
+def test_builtin_provider_media_cap_defaults(
+    isolated_secret_dir,
+    provider_id,
+    expected_caps,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider(provider_id)
+
+    assert provider is not None
+    assert (
+        provider.max_inline_media_bytes,
+        provider.max_image_bytes,
+        provider.max_video_bytes,
+        provider.max_audio_bytes,
+    ) == expected_caps
+
+
 async def test_provider_group_in_get_info(isolated_secret_dir) -> None:
     """get_info() should include provider_group fields."""
     manager = ProviderManager()
@@ -3936,11 +4083,69 @@ def test_dashscope_max_inline_media_bytes_loaded_from_json(
     assert model.formatter.max_bytes == 4096
 
 
+def test_dashscope_media_kind_caps_loaded_from_json(
+    isolated_secret_dir,
+) -> None:
+    """Persisted per-media caps should reach the runtime formatter."""
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    builtin_path.mkdir(parents=True, exist_ok=True)
+
+    dashscope_json = {
+        "id": "dashscope",
+        "name": "DashScope",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key": "sk-test",
+        "chat_model": "DashScopeChatModel",
+        "models": [{"id": "qwen3-max", "name": "Qwen3 Max"}],
+        "max_inline_media_bytes": 8192,
+        "max_image_bytes": 1024,
+        "max_video_bytes": 2048,
+        "max_audio_bytes": 4096,
+    }
+    (builtin_path / "dashscope.json").write_text(
+        json.dumps(dashscope_json, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+
+    provider = manager.get_provider("dashscope")
+    assert provider is not None
+    assert provider.max_image_bytes == 1024
+    assert provider.max_video_bytes == 2048
+    assert provider.max_audio_bytes == 4096
+
+    model = provider.get_chat_model_instance("qwen3-max")
+    assert isinstance(model.formatter, _CappingDashScopeFormatter)
+    assert model.formatter.max_bytes == 8192
+    assert model.formatter.max_image_bytes == 1024
+    assert model.formatter.max_video_bytes == 2048
+    assert model.formatter.max_audio_bytes == 4096
+
+
+def test_provider_update_config_accepts_media_kind_caps() -> None:
+    provider = OpenAIProvider(id="openai", name="OpenAI")
+
+    provider.update_config(
+        {
+            "max_inline_media_bytes": 8192,
+            "max_image_bytes": 1024,
+            "max_video_bytes": 2048,
+            "max_audio_bytes": 4096,
+        },
+    )
+
+    assert provider.max_inline_media_bytes == 8192
+    assert provider.max_image_bytes == 1024
+    assert provider.max_video_bytes == 2048
+    assert provider.max_audio_bytes == 4096
+
+
 def test_dashscope_max_inline_media_bytes_defaults_when_absent(
     isolated_secret_dir,
 ) -> None:
     """An existing dashscope.json without the new key must fall back to the
-    built-in default (2 MB) -- i.e. upgrading must not silently cap at 0."""
+    built-in DashScope default -- i.e. upgrading must not silently cap at 0."""
     builtin_path = isolated_secret_dir / "providers" / "builtin"
     builtin_path.mkdir(parents=True, exist_ok=True)
 
@@ -3961,10 +4166,10 @@ def test_dashscope_max_inline_media_bytes_defaults_when_absent(
     manager = ProviderManager()
     provider = manager.get_provider("dashscope")
     assert provider is not None
-    assert provider.max_inline_media_bytes == 2 * 1024 * 1024
+    assert provider.max_inline_media_bytes == DASHSCOPE_MEDIA_BYTES
     assert (
         provider.get_chat_model_instance("qwen3-max").formatter.max_bytes
-        == 2 * 1024 * 1024
+        == DASHSCOPE_MEDIA_BYTES
     )
 
 
@@ -3977,20 +4182,28 @@ def test_dashscope_max_inline_media_bytes_defaults_when_absent(
 # ``_init_from_storage`` via the generic ``hasattr`` branch.
 # ---------------------------------------------------------------------------
 
-# (provider_id, chat_model, model_id, capping_formatter_cls)
+# (provider_id, chat_model, model_id, capping_formatter_cls, default_cap)
 _CAPPING_PROVIDER_CASES = [
-    ("openai", "OpenAIChatModel", "gpt-4o", _CappingOpenAIFormatter),
+    (
+        "openai",
+        "OpenAIChatModel",
+        "gpt-4o",
+        _CappingOpenAIFormatter,
+        OPENAI_IMAGE_BYTES,
+    ),
     (
         "anthropic",
         "AnthropicChatModel",
         "claude-3-5-sonnet",
         _CappingAnthropicFormatter,
+        ANTHROPIC_AUDIO_BYTES,
     ),
     (
         "gemini",
         "GeminiChatModel",
         "gemini-2.0-flash",
         _CappingGeminiFormatter,
+        GEMINI_MEDIA_BYTES,
     ),
 ]
 
@@ -4028,7 +4241,7 @@ def _write_builtin_provider_json(
 
 
 @pytest.mark.parametrize(
-    "provider_id,chat_model,model_id,formatter_cls",
+    "provider_id,chat_model,model_id,formatter_cls,default_cap",
     _CAPPING_PROVIDER_CASES,
 )
 def test_max_inline_media_bytes_loaded_from_json(
@@ -4037,6 +4250,7 @@ def test_max_inline_media_bytes_loaded_from_json(
     chat_model,
     model_id,
     formatter_cls,
+    default_cap,
 ) -> None:
     """A user-set ``max_inline_media_bytes`` in <id>.json must be loaded by
     ``_init_from_storage`` and reach the runtime capping formatter."""
@@ -4060,7 +4274,7 @@ def test_max_inline_media_bytes_loaded_from_json(
 
 
 @pytest.mark.parametrize(
-    "provider_id,chat_model,model_id,formatter_cls",
+    "provider_id,chat_model,model_id,formatter_cls,default_cap",
     _CAPPING_PROVIDER_CASES,
 )
 def test_max_inline_media_bytes_defaults_when_absent(
@@ -4069,9 +4283,9 @@ def test_max_inline_media_bytes_defaults_when_absent(
     chat_model,
     model_id,
     formatter_cls,
+    default_cap,
 ) -> None:
-    """A legacy <id>.json without the key falls back to the 2 MB default
-    (upgrading must not silently cap at 0)."""
+    """A legacy <id>.json without the key falls back to provider default."""
     _write_builtin_provider_json(
         isolated_secret_dir,
         provider_id,
@@ -4083,11 +4297,11 @@ def test_max_inline_media_bytes_defaults_when_absent(
     manager = ProviderManager()
     provider = manager.get_provider(provider_id)
     assert provider is not None
-    assert provider.max_inline_media_bytes == 2 * 1024 * 1024
+    assert provider.max_inline_media_bytes == default_cap
 
     model = provider.get_chat_model_instance(model_id)
     assert isinstance(model.formatter, formatter_cls)
-    assert model.formatter.max_bytes == 2 * 1024 * 1024
+    assert model.formatter.max_bytes == default_cap
 
 
 async def test_github_models_provider_uses_new_endpoint_and_prefixes(

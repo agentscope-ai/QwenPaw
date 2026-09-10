@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 """LM Studio Provider implementation."""
 
+from pydantic import Field
+
+from qwenpaw.providers.capping_formatter import LOCAL_MEDIA_BYTES
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
 
 
 class LMStudioProvider(OpenAIProvider):
     """Provider implementation for LM Studio local LLM hosting platform."""
+
+    max_inline_media_bytes: int = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_image_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
 
     async def check_model_connection(
         self,

@@ -6,14 +6,23 @@ from typing import Any
 
 from agentscope.model import ChatModelBase
 from openai import AsyncOpenAI
+from pydantic import Field
 
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.capping_formatter import (
+    LOCAL_MEDIA_BYTES,
+    _CappingOpenAIFormatter,
+)
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
 
 
 class OllamaProvider(OpenAIProvider):
     """Provider implementation for Ollama local LLM hosting platform."""
+
+    max_inline_media_bytes: int = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_image_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=LOCAL_MEDIA_BYTES, ge=0)
 
     @staticmethod
     def _normalize_base_url(base_url: str) -> str:
@@ -109,6 +118,9 @@ class OllamaProvider(OpenAIProvider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

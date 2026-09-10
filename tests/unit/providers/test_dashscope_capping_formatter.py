@@ -19,8 +19,8 @@ import base64
 
 from qwenpaw.providers.dashscope_provider import (
     _CappingDashScopeFormatter,
-    MAX_INLINE_MEDIA_BYTES,
 )
+from qwenpaw.providers.capping_formatter import DASHSCOPE_MEDIA_BYTES
 
 
 def _base64_source(size: int, media_type: str):
@@ -44,7 +44,7 @@ def test_remote_url_is_not_inlined() -> None:
 
 
 def test_oversized_video_is_replaced_with_text_placeholder() -> None:
-    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 1, "video/mp4")
+    source = _base64_source(DASHSCOPE_MEDIA_BYTES + 1, "video/mp4")
     out = _CappingDashScopeFormatter()._format_video_source(
         source,
     )
@@ -99,7 +99,7 @@ def test_custom_threshold_is_honored() -> None:
 
 
 def test_zero_threshold_disables_capping() -> None:
-    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 1, "video/mp4")
+    source = _base64_source(DASHSCOPE_MEDIA_BYTES + 1, "video/mp4")
     # max_bytes=0 means disabled -> never capped, defer to base formatter.
     assert (
         _CappingDashScopeFormatter(max_bytes=0)._maybe_cap(source, "video")

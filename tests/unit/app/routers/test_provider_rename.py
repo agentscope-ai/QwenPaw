@@ -76,3 +76,44 @@ async def test_configure_provider_ignores_blank_name():
 
     assert manager.last_config is not None
     assert "name" not in manager.last_config
+
+
+async def test_configure_provider_only_forwards_submitted_media_caps():
+    manager = FakeManager(is_custom=False)
+    body = ProviderConfigRequest(api_key="sk-test")
+
+    await configure_provider(
+        background_tasks=BackgroundTasks(),
+        manager=manager,
+        provider_id="openai",
+        body=body,
+    )
+
+    assert manager.last_config is not None
+    assert "max_inline_media_bytes" not in manager.last_config
+    assert "max_image_bytes" not in manager.last_config
+    assert "max_video_bytes" not in manager.last_config
+    assert "max_audio_bytes" not in manager.last_config
+
+
+async def test_configure_provider_forwards_explicit_media_caps():
+    manager = FakeManager(is_custom=False)
+    body = ProviderConfigRequest(
+        max_inline_media_bytes=8192,
+        max_image_bytes=1024,
+        max_video_bytes=None,
+        max_audio_bytes=4096,
+    )
+
+    await configure_provider(
+        background_tasks=BackgroundTasks(),
+        manager=manager,
+        provider_id="openai",
+        body=body,
+    )
+
+    assert manager.last_config is not None
+    assert manager.last_config["max_inline_media_bytes"] == 8192
+    assert manager.last_config["max_image_bytes"] == 1024
+    assert manager.last_config["max_video_bytes"] is None
+    assert manager.last_config["max_audio_bytes"] == 4096
