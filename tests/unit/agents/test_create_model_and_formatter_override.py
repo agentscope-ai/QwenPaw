@@ -365,7 +365,7 @@ def test_global_model_switch_during_construction_keeps_context(
                 ]
             ],
         )
-        for provider_id in {"dashscope", next_provider_id}
+        for provider_id in ("dashscope", next_provider_id)
     }
     manager = object.__new__(ProviderManager)
     manager.active_model = ModelSlotConfig(
