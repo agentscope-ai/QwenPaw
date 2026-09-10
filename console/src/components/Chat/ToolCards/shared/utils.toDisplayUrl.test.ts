@@ -1,14 +1,22 @@
 // Regression coverage for the toDisplayUrl() twin living in the tool-card
 // shared utils.
 //
-// Why this file exists: the console has TWO functions named toDisplayUrl.
+// Why this file exists: the console has TWO functions named toDisplayUrl with
+// identical bodies (they differ only in a comment and in accepting
+// `string | undefined` vs `string`):
 //   1. src/pages/Chat/utils.ts:185               — covered by pages/Chat/utils.test.ts
-//   2. src/components/Chat/ToolCards/shared/utils.ts:16 — THIS one, zero coverage
+//   2. src/components/Chat/ToolCards/shared/utils.ts:16 — THIS one, never executed
 // PR #7069 added the data-URL branch to (1) together with its own regression
-// tests, but (2) was left untested: there is no utils.test.ts next to it, and
-// the only consumer test (cards/RunToolBatchCard.test.tsx) replaces the whole
-// module via vi.mock("../shared/utils", ...), stubbing toDisplayUrl to the
-// identity function — so the real implementation never executes there.
+// tests, but (2) was left unexercised:
+//   - the sibling utils.test.ts next to it does exist, yet it covers
+//     shortFileName / formatMemorySearch / getMediaInfo / extractUrlFromText /
+//     formatAgentList and never mentions toDisplayUrl;
+//   - all three consumer tests that reference this module
+//     (cards/GrepSearchCard.test.tsx, cards/RunToolBatchCard.test.tsx,
+//     cards/SendFileCard.test.tsx) replace it wholesale via
+//     vi.mock("../shared/utils", ...), and RunToolBatchCard additionally stubs
+//     toDisplayUrl as the identity function — so the real implementation never
+//     runs in any of them.
 //
 // Scope note: this is DEFECT-PREVENTION coverage, not a claim that any open
 // bug is being blocked. Both twins already carry the data: branch today
