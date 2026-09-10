@@ -938,6 +938,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             category=category,
             help_text=help_text,
             metadata=metadata or {},
+            owner_id=self.plugin_id,
         )
 
         def _register_to_workspaces():
@@ -1205,15 +1206,41 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
             return None
 
+    def _register_spec_with_workspace(
+        self,
+        spec,
+        workspace,
+        *,
+        validate_only: bool = False,
+    ) -> None:
+        registry = workspace.plugins.slash_command_registry
+        try:
+            if validate_only:
+                registry.validate(spec)
+            else:
+                registry.register(spec)
+        except ValueError:
+            logger.error(
+                "Plugin '%s' failed to register slash command '/%s' "
+                "in workspace '%s'",
+                self.plugin_id,
+                spec.name,
+                getattr(workspace, "agent_id", "?"),
+                exc_info=True,
+            )
+            raise
+
     def _register_spec_to_all_workspaces(self, spec):
         """Register a CommandSpec to all existing workspaces."""
-        for ws in self._get_all_workspaces():
-            try:
-                ws.plugins.slash_command_registry.register(spec)
-            except ValueError as exc:
-                logger.debug(
-                    f"Slash cmd already registered: {exc}",
-                )
+        workspaces = self._get_all_workspaces()
+        for workspace in workspaces:
+            self._register_spec_with_workspace(
+                spec,
+                workspace,
+                validate_only=True,
+            )
+        for workspace in workspaces:
+            self._register_spec_with_workspace(spec, workspace)
 
     def _register_spec_to_workspace(
         self,
@@ -1221,15 +1248,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         workspace_info: dict,
     ):
         """Register a CommandSpec to a specific workspace."""
-        ws = self._get_workspace_from_info(workspace_info)
-        if ws is None:
-            return
-        try:
-            ws.plugins.slash_command_registry.register(spec)
-        except ValueError as exc:
-            logger.debug(
-                f"Slash cmd already registered: {exc}",
-            )
+        workspace = self._get_workspace_from_info(workspace_info)
+        if workspace is not None:
+            self._register_spec_with_workspace(spec, workspace)
 
     def _register_mode_cls_to_all_workspaces(self, mode_cls: Type) -> None:
         """Instantiate and register *mode_cls* on every workspace."""
