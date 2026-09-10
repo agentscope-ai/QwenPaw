@@ -16,14 +16,14 @@ The stronger model is called only a few times per task, while the cheaper model 
 
 By default Advisor Mode reuses the two model slots an agent already has:
 
-| Role    | Default model slot                          |
-| ------- | ------------------------------------------- |
+| Role    | Default model slot                             |
+| ------- | ---------------------------------------------- |
 | Advisor | the agent's **primary model** (`active_model`) |
-| Worker  | the **sub-agent model** (`subagent_model`)  |
+| Worker  | the **sub-agent model** (`subagent_model`)     |
 
 When no sub-agent model is configured the worker keeps running on the primary model. Advisor Mode still plans and intervenes, it just does not save tokens.
 
-Either role can be pinned to another model: when you pick **Advisor** in the Loop mode menu of the chat input, an **Advisor models** panel opens next to the mode pill with an *Advisor model* and a *Worker model* pick, prefilled with the defaults above. In an Advisor conversation the model pill in the chat header shows the pair (advisor → worker) instead of a single model and reopens the same panel. The choice is saved for the agent (`advisor_mode.advisor_model` / `advisor_mode.worker_model` in `agent.json`, also accepted by `POST /api/advisor-mode`) and does not touch the primary or sub-agent slots. Pick the default entry again to go back to them. The **Advisor and worker models** card of the Advisor loop template and `/advisor status` show the models in effect.
+Either role can be pinned to another model: when you pick **Advisor** in the Loop mode menu of the chat input, an **Advisor models** panel opens next to the mode pill with an _Advisor model_ and a _Worker model_ pick, prefilled with the defaults above. In an Advisor conversation the model pill in the chat header shows the pair (advisor → worker) instead of a single model and reopens the same panel. The choice is saved for the agent (`advisor_mode.advisor_model` / `advisor_mode.worker_model` in `agent.json`, also accepted by `POST /api/advisor-mode`) and does not touch the primary or sub-agent slots. Pick the default entry again to go back to them. The **Advisor and worker models** card of the Advisor loop template and `/advisor status` show the models in effect.
 
 The advisor's own calls have a separate thinking level, `advisor_mode.advisor_thinking` (**Advisor thinking** on the same card): `off` by default, so the plan arrives quickly even with a thinking model. `inherit` follows the agent and model defaults, `low` / `medium` / `high` set a level for the advisor only. Turn it up when plan quality matters more than latency.
 
