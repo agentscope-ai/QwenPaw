@@ -57,6 +57,31 @@ def test_store_isolates_sessions(bridge_session_store, tmp_path) -> None:
     assert store.get("dingtalk:bob").active is False
 
 
+def test_failed_write_keeps_cache_and_disk_at_prior_state(
+    bridge_session_store,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    store.update("console:alice", active=True)
+    path_type = type(store.path)
+    original_replace = path_type.replace
+
+    def fail_temp_replace(path, target):
+        if path == store.path.with_suffix(".tmp"):
+            raise OSError("simulated replacement failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(path_type, "replace", fail_temp_replace)
+
+    result = store.update("console:alice", active=False)
+
+    assert result.active is True
+    assert store.get("console:alice").active is True
+    reloaded = _store(bridge_session_store, tmp_path)
+    assert reloaded.get("console:alice").active is True
+
+
 # ---------------------------------------------------------------- commands
 
 
@@ -154,3 +179,30 @@ async def test_datasource_command_requires_data_mode(
     command = bridge_commands.make_datasource_command(store, Client())
     reply = await command(_ctx(), "")
     assert "/data on" in _text(reply)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [(400, "稍后重试"), (500, "不可用")],
+)
+async def test_datasource_command_handles_normalized_http_errors(
+    bridge_commands,
+    bridge_session_store,
+    bridge,
+    tmp_path,
+    status_code: int,
+    expected: str,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    store.update("console:alice", active=True)
+
+    class Client:
+        async def list_datasources(self):
+            raise bridge.EngineResponseError(status_code, "secret response")
+
+    command = bridge_commands.make_datasource_command(store, Client())
+    reply = await command(_ctx(), "")
+
+    assert expected in _text(reply)
+    assert "secret" not in _text(reply)

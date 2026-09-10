@@ -23,7 +23,11 @@ from agentscope.event import (
 from agentscope.message import Msg, TextBlock
 from agentscope.middleware import MiddlewareBase
 
-from .engine_client import EngineClient, EngineUnavailableError
+from .engine_client import (
+    EngineClient,
+    EngineResponseError,
+    EngineUnavailableError,
+)
 from .events import (
     TurnResult,
     emit_artifacts,
@@ -35,6 +39,9 @@ from .session_store import BridgeSessionState, BridgeSessionStore
 logger = logging.getLogger(__name__)
 
 _OPTION_SEPARATORS = {",", "，", "、"}
+_ENGINE_UNAVAILABLE_MESSAGE = "⚠️ 分析引擎当前不可用，请稍后重试；可回复 /data off 退出数据分析模式。"
+_STALE_SESSION_MESSAGE = "分析会话已失效并已重置，请重新发送刚才的问题。"
+_ENGINE_REQUEST_ERROR_MESSAGE = "分析请求未能完成，请稍后重试。"
 
 
 def parse_option_numbers(text: str, count: int) -> Optional[List[int]]:
@@ -150,25 +157,42 @@ class DataBridgeMiddleware(MiddlewareBase):
 
         result = TurnResult()
         chat_id = ""
+        operation = ""
         try:
-            if state.pending_clarification:
-                pending = state.pending_clarification
-                chat_id = str(pending.get("chat_id") or "")
-                await self._client.answer_clarification(
-                    state.engine_session_id,
-                    chat_id,
-                    clarification_id=str(
-                        pending.get("clarification_id") or "",
-                    ),
-                    answers=self._build_clarification_answers(pending, text),
-                )
-                self._store.update(
+            pending = state.pending_clarification
+            if pending is not None and not (
+                isinstance(pending, dict) and pending
+            ):
+                state = self._store.update(
                     self._session_key,
                     pending_clarification=None,
                 )
-                after_seq = int(pending.get("last_seq", -1))
+                pending = None
+
+            if pending is not None:
+                chat_id = str(pending.get("chat_id") or "")
+                after_seq = self._sequence_number(pending.get("last_seq"))
+                if pending.get("answered") is not True:
+                    operation = "answer"
+                    await self._client.answer_clarification(
+                        state.engine_session_id,
+                        chat_id,
+                        clarification_id=str(
+                            pending.get("clarification_id") or "",
+                        ),
+                        answers=self._build_clarification_answers(
+                            pending,
+                            text,
+                        ),
+                    )
+                    pending = {**pending, "answered": True}
+                    self._store.update(
+                        self._session_key,
+                        pending_clarification=pending,
+                    )
             else:
                 if not state.engine_session_id:
+                    operation = "create_session"
                     session = await self._client.create_session(
                         title=text[:64],
                         datasource_id=state.datasource_id,
@@ -177,6 +201,7 @@ class DataBridgeMiddleware(MiddlewareBase):
                         self._session_key,
                         engine_session_id=str(session.get("id") or ""),
                     )
+                operation = "create_chat"
                 chat = await self._client.create_chat(
                     state.engine_session_id,
                     text,
@@ -185,6 +210,7 @@ class DataBridgeMiddleware(MiddlewareBase):
                 chat_id = str(chat.get("id") or "")
                 after_seq = -1
 
+            operation = "stream"
             frames = self._client.stream_events(
                 state.engine_session_id,
                 chat_id,
@@ -219,6 +245,12 @@ class DataBridgeMiddleware(MiddlewareBase):
                 self._record_turn(agent, inputs, result.answer)
                 return
 
+            if pending is not None:
+                self._store.update(
+                    self._session_key,
+                    pending_clarification=None,
+                )
+
             session_id = state.engine_session_id
             async for event in emit_artifacts(
                 result.artifacts,
@@ -248,6 +280,33 @@ class DataBridgeMiddleware(MiddlewareBase):
 
             self._record_turn(agent, inputs, result.answer)
 
+        except EngineResponseError as exc:
+            if exc.status_code == 404 and operation in {
+                "create_chat",
+                "answer",
+                "stream",
+            }:
+                self._store.update(
+                    self._session_key,
+                    engine_session_id="",
+                    pending_clarification=None,
+                )
+                message = _STALE_SESSION_MESSAGE
+            elif 500 <= exc.status_code < 600:
+                message = _ENGINE_UNAVAILABLE_MESSAGE
+            else:
+                message = _ENGINE_REQUEST_ERROR_MESSAGE
+            logger.warning(
+                "bridge: engine HTTP failure (session=%s, status=%s)",
+                self._session_key,
+                exc.status_code,
+            )
+            async for event in self._text_block(
+                reply_id,
+                "bridge-error",
+                message,
+            ):
+                yield event
         except EngineUnavailableError:
             logger.warning(
                 "bridge: engine unavailable (session=%s)",
@@ -257,7 +316,7 @@ class DataBridgeMiddleware(MiddlewareBase):
             async for event in self._text_block(
                 reply_id,
                 "bridge-error",
-                "⚠️ 分析引擎当前不可用，请稍后重试；" + "可回复 /data off 退出数据分析模式。",
+                _ENGINE_UNAVAILABLE_MESSAGE,
             ):
                 yield event
 
@@ -291,6 +350,19 @@ class DataBridgeMiddleware(MiddlewareBase):
                 title=f"[{name}]",
                 datasource_id=datasource_id,
             )
+        except EngineResponseError as exc:
+            self._last_answer = ""
+            if 500 <= exc.status_code < 600:
+                message = "⚠️ 分析引擎当前不可用，数据源未切换。"
+            else:
+                message = "数据源未能切换，请稍后重试。"
+            async for event in self._text_block(
+                reply_id,
+                "bridge-error",
+                message,
+            ):
+                yield event
+            return
         except EngineUnavailableError:
             self._last_answer = ""
             async for event in self._text_block(
@@ -317,21 +389,51 @@ class DataBridgeMiddleware(MiddlewareBase):
             yield event
 
     @staticmethod
+    def _sequence_number(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return -1
+
+    @staticmethod
     def _build_clarification_answers(
         pending: Dict[str, Any],
         text: str,
     ) -> List[Dict[str, Any]]:
+        raw_questions = pending.get("questions")
+        if not isinstance(raw_questions, list):
+            return []
+
         answers: List[Dict[str, Any]] = []
-        for question in pending.get("questions") or []:
-            options = question.get("options") or []
+        for raw_question in raw_questions:
+            question = raw_question if isinstance(raw_question, dict) else {}
+            question_text = question.get("question")
+            if not isinstance(question_text, str):
+                question_text = ""
+            raw_options = question.get("options")
+            options = raw_options if isinstance(raw_options, list) else []
             indices = parse_option_numbers(text, len(options))
+            selected: List[str] = []
             if indices is not None:
-                selected = [options[i]["label"] for i in indices]
+                for index in indices:
+                    option = options[index]
+                    label = (
+                        option.get("label")
+                        if isinstance(option, dict)
+                        else None
+                    )
+                    if not isinstance(label, str):
+                        selected = []
+                        indices = None
+                        break
+                    selected.append(label)
+
+            if indices is not None:
                 if not question.get("multi_select") and len(selected) > 1:
                     selected = selected[:1]
                 answers.append(
                     {
-                        "question": question.get("question", ""),
+                        "question": question_text,
                         "selected_options": selected,
                         "custom_text": None,
                     },
@@ -339,7 +441,7 @@ class DataBridgeMiddleware(MiddlewareBase):
             else:
                 answers.append(
                     {
-                        "question": question.get("question", ""),
+                        "question": question_text,
                         "selected_options": [],
                         "custom_text": text,
                     },

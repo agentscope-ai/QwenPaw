@@ -60,21 +60,24 @@ class BridgeSessionStore:
 
     def set(self, session_key: str, state: BridgeSessionState) -> None:
         with self._lock:
-            data = self._load()
+            data = dict(self._load())
             data[session_key] = asdict(state)
             self._save(data)
 
     def update(self, session_key: str, **changes: Any) -> BridgeSessionState:
         with self._lock:
-            data = self._load()
+            data = dict(self._load())
             state = BridgeSessionState.from_dict(
                 data.get(session_key) or {},
             )
             for key, value in changes.items():
                 setattr(state, key, value)
             data[session_key] = asdict(state)
-            self._save(data)
-        return state
+            if self._save(data):
+                return state
+            return BridgeSessionState.from_dict(
+                self._load().get(session_key) or {},
+            )
 
     def _load(self) -> Dict[str, Dict[str, Any]]:
         if self._cache is not None:
@@ -92,8 +95,7 @@ class BridgeSessionStore:
             self._cache = {}
         return self._cache
 
-    def _save(self, data: Dict[str, Dict[str, Any]]) -> None:
-        self._cache = data
+    def _save(self, data: Dict[str, Dict[str, Any]]) -> bool:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
@@ -108,3 +110,6 @@ class BridgeSessionStore:
                 self.path,
                 exc_info=True,
             )
+            return False
+        self._cache = data
+        return True

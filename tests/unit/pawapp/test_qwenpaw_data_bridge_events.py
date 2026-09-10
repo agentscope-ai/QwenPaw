@@ -15,6 +15,7 @@ from agentscope.event import (
     TextBlockEndEvent,
     TextBlockStartEvent,
     ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
     ThinkingBlockStartEvent,
 )
 
@@ -125,6 +126,8 @@ async def test_reasoning_then_answer(bridge_events) -> None:
         ThinkingBlockDeltaEvent,
         TextBlockStartEvent,
         TextBlockDeltaEvent,
+        ThinkingBlockEndEvent,
+        TextBlockEndEvent,
     ]
     assert result.answer == "answer"
 
@@ -227,11 +230,74 @@ async def test_clarification_pauses_turn(bridge_events) -> None:
     assert result.clarification.clarification_id == "call_123"
     assert result.clarification.questions[0]["options"][0]["label"] == "Q1"
     assert result.last_seq == 7
+    assert isinstance(events[2], TextBlockEndEvent)
+    assert events[2].block_id == "m1"
+    assert isinstance(events[3], TextBlockStartEvent)
+    assert events[3].block_id == "clarify-call_123"
     question_text = "".join(
         e.delta for e in events if isinstance(e, TextBlockDeltaEvent)
     )
     assert "分析哪个季度?" in question_text
     assert "1) Q1" in question_text
+
+
+@pytest.mark.asyncio
+async def test_error_only_stream_is_failed(bridge_events) -> None:
+    _, result = await _run(
+        bridge_events,
+        [
+            {
+                "object": "error",
+                "message": "runtime failed",
+                "sequence_number": 1,
+            },
+        ],
+    )
+
+    assert result.status == "failed"
+    assert result.failure_message == "runtime failed"
+
+
+@pytest.mark.asyncio
+async def test_terminal_response_refines_error_status(bridge_events) -> None:
+    _, result = await _run(
+        bridge_events,
+        [
+            {
+                "object": "error",
+                "message": "recoverable stream error",
+                "sequence_number": 1,
+            },
+            _response("completed", 2),
+        ],
+    )
+
+    assert result.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_stream_eof_closes_open_text_and_thinking_blocks(
+    bridge_events,
+) -> None:
+    events, result = await _run(
+        bridge_events,
+        [
+            _msg_start("r1", "reasoning", 1),
+            _delta("r1", "thinking", 2),
+            _msg_start("m1", "message", 3),
+            _delta("m1", "answer", 4),
+        ],
+    )
+
+    assert [type(event) for event in events] == [
+        ThinkingBlockStartEvent,
+        ThinkingBlockDeltaEvent,
+        TextBlockStartEvent,
+        TextBlockDeltaEvent,
+        ThinkingBlockEndEvent,
+        TextBlockEndEvent,
+    ]
+    assert result.status == "completed"
 
 
 @pytest.mark.asyncio

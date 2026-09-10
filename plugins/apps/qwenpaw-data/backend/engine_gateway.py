@@ -29,7 +29,6 @@ _FORWARDED_REQUEST_HEADERS = {
     "content-type",
     "last-event-id",
     "x-request-id",
-    "x-user-id",
 }
 _FORWARDED_RESPONSE_HEADERS = {
     "content-disposition",
@@ -50,9 +49,8 @@ class EngineGateway:
         self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
-        # SSE streams stay open across long turns: no read timeout.
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(None, connect=5.0),
+            timeout=httpx.Timeout(120.0, connect=5.0),
             follow_redirects=False,
         )
 
@@ -104,6 +102,7 @@ class EngineGateway:
             path,
             params=list(request.query_params.multi_items()),
             headers=self._request_headers(request),
+            timeout=httpx.Timeout(120.0, connect=5.0, read=None),
         )
         client = self._require_client()
         try:

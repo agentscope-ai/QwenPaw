@@ -54,6 +54,11 @@ def bridge_events():
 
 
 @pytest.fixture(scope="session")
+def bridge_engine_client():
+    return load_bridge_module("engine_client")
+
+
+@pytest.fixture(scope="session")
 def bridge_middleware():
     return load_bridge_module("middleware")
 

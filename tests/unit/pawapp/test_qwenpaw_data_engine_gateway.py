@@ -6,8 +6,9 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GATEWAY_FILE = (
@@ -146,6 +147,82 @@ def test_sse_path_detection() -> None:
     assert not module._SSE_PATH_RE.search("/api/v1/sessions/s1/chats/c1/steer")
 
 
+@pytest.mark.asyncio
+async def test_only_sse_requests_disable_read_timeout(monkeypatch) -> None:
+    gateway = _gateway_class()(
+        SimpleNamespace(is_external=False, base_url="http://engine.invalid"),
+        "managed-token",
+    )
+    await gateway.start()
+    client = gateway._client
+    assert client is not None
+    sent: list[tuple[httpx.Request, dict]] = []
+
+    async def send(request: httpx.Request, **options) -> httpx.Response:
+        sent.append((request, options))
+        return httpx.Response(200, request=request, content=b"")
+
+    monkeypatch.setattr(client, "send", send)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+        },
+    )
+    try:
+        await gateway._request("GET", "/health")
+        await gateway._stream(
+            "/api/v1/sessions/s1/chats/c1/events",
+            request,
+        )
+    finally:
+        await gateway.stop()
+
+    ordinary_request, ordinary_options = sent[0]
+    sse_request, sse_options = sent[1]
+    assert ordinary_request.extensions["timeout"] == {
+        "connect": 5.0,
+        "read": 120.0,
+        "write": 120.0,
+        "pool": 120.0,
+    }
+    assert ordinary_options == {}
+    assert sse_request.extensions["timeout"] == {
+        "connect": 5.0,
+        "read": None,
+        "write": 120.0,
+        "pool": 120.0,
+    }
+    assert sse_options == {"stream": True}
+
+
+def test_engine_gateway_filters_untrusted_user_header() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [
+                (b"accept", b"text/event-stream"),
+                (b"last-event-id", b"17"),
+                (b"x-request-id", b"request-1"),
+                (b"x-user-id", b"spoofed-user"),
+                (b"authorization", b"Bearer caller-token"),
+            ],
+            "query_string": b"",
+        },
+    )
+
+    assert _gateway_class()._request_headers(request) == {
+        "accept": "text/event-stream",
+        "last-event-id": "17",
+        "x-request-id": "request-1",
+    }
+
+
 def test_managed_token_used_for_managed_service(monkeypatch) -> None:
     monkeypatch.delenv("QWENPAW_DATA_ENGINE_TOKEN", raising=False)
     gateway_cls = _gateway_class()
@@ -153,8 +230,6 @@ def test_managed_token_used_for_managed_service(monkeypatch) -> None:
         SimpleNamespace(is_external=False, base_url="http://127.0.0.1:9"),
         "managed-token",
     )
-    import httpx
-
     gateway._client = httpx.AsyncClient()
     request = gateway._build_request("GET", "/api/v1/sessions")
     assert request.headers["Authorization"] == "Bearer managed-token"
@@ -167,8 +242,6 @@ def test_external_token_read_from_env(monkeypatch) -> None:
         SimpleNamespace(is_external=True, base_url="http://engine.example"),
         "managed-token",
     )
-    import httpx
-
     gateway._client = httpx.AsyncClient()
     request = gateway._build_request("GET", "/api/v1/sessions")
     assert request.headers["Authorization"] == "Bearer external-token"
@@ -185,8 +258,6 @@ def test_unready_service_maps_to_503() -> None:
             raise RuntimeError("not started")
 
     gateway = gateway_cls(_NotReady(), "managed-token")
-    import httpx
-
     gateway._client = httpx.AsyncClient()
     with pytest.raises(HTTPException) as exc:
         gateway._build_request("GET", "/api/v1/sessions")

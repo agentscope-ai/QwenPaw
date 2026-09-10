@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import stat
 import sys
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -144,10 +145,17 @@ def provision_engine_mcp(
     workspace.mkdir(parents=True, exist_ok=True)
     mcp_path = workspace / ".mcp"
 
-    entries: list[dict] = []
-    if mcp_path.is_file():
+    flags = os.O_RDWR | os.O_CREAT
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(mcp_path, flags, 0o600)
+    with os.fdopen(fd, "r+", encoding="utf-8") as mcp_file:
+        if not stat.S_ISREG(os.fstat(mcp_file.fileno()).st_mode):
+            raise OSError(f"MCP target is not a regular file: {mcp_path}")
+        os.fchmod(mcp_file.fileno(), 0o600)
+
+        entries: list[dict] = []
         try:
-            existing = json.loads(mcp_path.read_text(encoding="utf-8"))
+            existing = json.load(mcp_file)
         except (OSError, ValueError):
             existing = []
         if isinstance(existing, list):
@@ -158,24 +166,26 @@ def provision_engine_mcp(
                 and item.get("name") != DATABRIDGE_MCP_NAME
             ]
 
-    headers: dict[str, str] = {}
-    if cm_token:
-        headers["Authorization"] = f"Bearer {cm_token}"
-    entries.insert(
-        0,
-        {
-            "name": DATABRIDGE_MCP_NAME,
-            "is_stateful": False,
-            "mcp_config": {
-                "type": "http_mcp",
-                "url": f"{cm_url.rstrip('/')}/mcp/v1/cm",
-                "headers": headers,
-                "timeout": 2400.0,
+        headers: dict[str, str] = {}
+        if cm_token:
+            headers["Authorization"] = f"Bearer {cm_token}"
+        entries.insert(
+            0,
+            {
+                "name": DATABRIDGE_MCP_NAME,
+                "is_stateful": False,
+                "mcp_config": {
+                    "type": "http_mcp",
+                    "url": f"{cm_url.rstrip('/')}/mcp/v1/cm",
+                    "headers": headers,
+                    "timeout": 2400.0,
+                },
+                "enable_tools": None,
+                "disable_tools": None,
+                "execution_timeout": 2400.0,
             },
-            "enable_tools": None,
-            "disable_tools": None,
-            "execution_timeout": 2400.0,
-        },
-    )
-    mcp_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        )
+        mcp_file.seek(0)
+        json.dump(entries, mcp_file, indent=2)
+        mcp_file.truncate()
     return mcp_path

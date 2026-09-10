@@ -192,6 +192,13 @@ async def _engine_before_start() -> None:
         os.environ["QWENPAW_DATA_CLIENT_API_TOKEN"] = cm_token
         provision_engine_mcp(ENGINE_HOME, cm_url, cm_token)
     config = load_config()
+    for name in (
+        "QWENPAW_DATA_MODEL_PROVIDER",
+        "QWENPAW_DATA_MODEL_NAME",
+        "QWENPAW_DATA_MODEL_API_KEY",
+        "QWENPAW_DATA_MODEL_BASE_URL",
+    ):
+        os.environ.pop(name, None)
     if config.llm.model and config.llm.api_key:
         os.environ["QWENPAW_DATA_MODEL_PROVIDER"] = (
             config.llm.provider or "openai"
@@ -457,8 +464,13 @@ async def _start_gateway() -> None:
 
 @app.hook("shutdown", priority=120)
 async def _stop_gateway() -> None:
-    await _gateway.stop()
-    await _engine_gateway.stop()
+    try:
+        await _gateway.stop()
+    finally:
+        try:
+            await _engine_gateway.stop()
+        finally:
+            await _bridge_client.aclose()
 
 
 _known_source_dependencies: dict[str, str] = {}

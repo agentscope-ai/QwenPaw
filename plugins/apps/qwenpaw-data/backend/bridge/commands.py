@@ -12,7 +12,7 @@ from typing import Any, Callable, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from .engine_client import EngineClient, EngineUnavailableError
+from .engine_client import EngineClient, EngineClientError, EngineResponseError
 from .session_store import BridgeSessionStore
 
 logger = logging.getLogger(__name__)
@@ -85,8 +85,14 @@ def make_datasource_command(
             return _reply("请先执行 /data on 开启数据分析模式。")
         try:
             items = await client.list_datasources()
-        except EngineUnavailableError:
-            return _reply("⚠️ 分析引擎当前不可用，无法获取数据源列表。")
+        except EngineClientError as exc:
+            if isinstance(exc, EngineResponseError) and not (
+                500 <= exc.status_code < 600
+            ):
+                message = "无法获取数据源列表，请稍后重试。"
+            else:
+                message = "⚠️ 分析引擎当前不可用，无法获取数据源列表。"
+            return _reply(message)
         options = [
             {
                 "id": str(item.get("id") or ""),

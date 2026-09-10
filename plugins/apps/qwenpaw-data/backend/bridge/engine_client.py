@@ -9,15 +9,47 @@ from __future__ import annotations
 
 import json
 import logging
+from http import HTTPStatus
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
+_MAX_ERROR_DETAIL_LENGTH = 160
 
-class EngineUnavailableError(RuntimeError):
+
+class EngineClientError(RuntimeError):
+    """Base class for normalized engine client failures."""
+
+
+class EngineUnavailableError(EngineClientError):
     """The engine sidecar is not reachable or not ready."""
+
+
+class EngineResponseError(EngineClientError):
+    """The engine returned an unsuccessful HTTP response."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.detail = detail[:_MAX_ERROR_DETAIL_LENGTH]
+        super().__init__(
+            f"engine request failed with HTTP {status_code}: {self.detail}",
+        )
+
+
+def _parse_sse_data(data_lines: List[str]) -> Optional[Dict[str, Any]]:
+    """Consume one buffered SSE data payload, if it is valid JSON."""
+    if not data_lines:
+        return None
+    raw = "\n".join(data_lines)
+    data_lines.clear()
+    try:
+        frame = json.loads(raw)
+    except ValueError:
+        logger.warning("bridge: dropping unparseable SSE frame")
+        return None
+    return frame if isinstance(frame, dict) else None
 
 
 class EngineClient:
@@ -59,6 +91,16 @@ class EngineClient:
             headers["Authorization"] = f"Bearer {token}"
         return base_url.rstrip("/"), headers
 
+    @staticmethod
+    def _check_response(response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        try:
+            detail = HTTPStatus(response.status_code).phrase
+        except ValueError:
+            detail = "Unexpected HTTP response"
+        raise EngineResponseError(response.status_code, detail)
+
     async def _request(
         self,
         method: str,
@@ -73,9 +115,9 @@ class EngineClient:
                 headers=headers,
                 **kwargs,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except httpx.TransportError as exc:
             raise EngineUnavailableError(str(exc)) from exc
-        response.raise_for_status()
+        self._check_response(response)
         if "application/json" in response.headers.get("content-type", ""):
             return response.json()
         return response.content
@@ -84,7 +126,7 @@ class EngineClient:
         try:
             await self._request("GET", "/health")
             return True
-        except (EngineUnavailableError, httpx.HTTPStatusError):
+        except EngineClientError:
             return False
 
     async def create_session(
@@ -158,9 +200,9 @@ class EngineClient:
                 params={"path": path},
                 headers=headers,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except httpx.TransportError as exc:
             raise EngineUnavailableError(str(exc)) from exc
-        response.raise_for_status()
+        self._check_response(response)
         return response.content
 
     async def stream_events(
@@ -181,23 +223,18 @@ class EngineClient:
                 headers=headers,
                 timeout=httpx.Timeout(30.0, read=None),
             ) as response:
-                response.raise_for_status()
+                self._check_response(response)
                 data_lines: List[str] = []
                 async for line in response.aiter_lines():
                     if line.startswith("data:"):
                         data_lines.append(line[5:].lstrip())
                         continue
-                    if line == "" and data_lines:
-                        raw = "\n".join(data_lines)
-                        data_lines = []
-                        try:
-                            frame = json.loads(raw)
-                        except ValueError:
-                            logger.warning(
-                                "bridge: dropping unparseable SSE frame",
-                            )
-                            continue
-                        if isinstance(frame, dict):
+                    if line == "":
+                        frame = _parse_sse_data(data_lines)
+                        if frame is not None:
                             yield frame
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                frame = _parse_sse_data(data_lines)
+                if frame is not None:
+                    yield frame
+        except httpx.TransportError as exc:
             raise EngineUnavailableError(str(exc)) from exc

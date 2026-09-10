@@ -11,6 +11,13 @@ import pytest
 
 from agentscope.event import TextBlockDeltaEvent
 from agentscope.message import Msg, TextBlock
+from agentscope.state import AgentState
+
+from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.hooks.session.session_hook import SessionSaveHook
+from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.runtime.hooks import HookContext, HookRegistry
+from qwenpaw.runtime.phases import Phase
 
 
 def _user_msg(text: str) -> Msg:
@@ -188,6 +195,74 @@ async def test_takeover_streams_engine_answer(
 
 
 @pytest.mark.asyncio
+async def test_takeover_turn_survives_session_save_hook_and_reload(
+    bridge_middleware,
+    bridge_session_store,
+    tmp_path,
+) -> None:
+    session_id = "console:alice"
+    user_id = "alice"
+    store = _store(bridge_session_store, tmp_path)
+    store.update(session_id, active=True)
+    agent = _agent()
+    agent.state = AgentState(session_id=session_id)
+    agent.state_dict = lambda: {
+        "state": agent.state.model_dump(mode="json"),
+    }
+
+    await _drain(
+        _mw(
+            bridge_middleware,
+            FakeEngine(list(_ANSWER_FRAMES)),
+            store,
+            key=session_id,
+        ).on_reply(
+            agent,
+            {"inputs": _user_msg("分析3月GAAP")},
+            _forbidden_next,
+        ),
+    )
+
+    session_dir = tmp_path / "sessions"
+    session = SafeJSONSession(save_dir=str(session_dir))
+    hooks = HookRegistry()
+    hooks.register(SessionSaveHook())
+    ctx = HookContext(
+        request=SimpleNamespace(
+            user_id=user_id,
+            channel="console",
+            request_context={},
+        ),
+        session_id=session_id,
+        agent_id="assistant",
+        root_session_id=session_id,
+        root_agent_id="assistant",
+        workspace_dir=tmp_path,
+        workspace=SimpleNamespace(session=session),
+        app_services=None,
+        agent=agent,
+    )
+    await hooks.run(Phase.POST_RESPONSE, ctx)
+
+    restored = StateProxy()
+    await SafeJSONSession(save_dir=str(session_dir)).load_session_state(
+        session_id=session_id,
+        user_id=user_id,
+        channel="console",
+        allow_not_exist=False,
+        agent=restored,
+    )
+    restored_state = AgentState.model_validate(restored.data["state"])
+    assert [
+        (message.role, message.get_text_content())
+        for message in restored_state.context
+    ] == [
+        ("user", "分析3月GAAP"),
+        ("assistant", "done"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_non_msg_inputs_fall_through(
     bridge_middleware,
     bridge_session_store,
@@ -234,6 +309,122 @@ async def test_engine_down_yields_error_text(
     )
     assert "不可用" in text
     assert "/data off" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["create_chat", "answer", "stream"])
+async def test_stale_session_404_clears_persisted_state(
+    bridge_middleware,
+    bridge_session_store,
+    bridge,
+    tmp_path,
+    failure_point: str,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    pending = None
+    if failure_point == "answer":
+        pending = {
+            "chat_id": "chat_old",
+            "clarification_id": "call_old",
+            "questions": [],
+            "last_seq": 4,
+        }
+    store.update(
+        "console:alice",
+        active=True,
+        engine_session_id="ses_stale",
+        pending_clarification=pending,
+    )
+
+    class StaleEngine(FakeEngine):
+        async def create_chat(self, *args: Any, **kwargs: Any):
+            if failure_point == "create_chat":
+                raise bridge.EngineResponseError(404, "secret missing detail")
+            return await super().create_chat(*args, **kwargs)
+
+        async def answer_clarification(
+            self,
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            if failure_point == "answer":
+                raise bridge.EngineResponseError(404, "secret missing detail")
+            await super().answer_clarification(*args, **kwargs)
+
+        async def stream_events(
+            self,
+            session_id: str,
+            chat_id: str,
+            *,
+            after_sequence_number: int = -1,
+        ) -> AsyncIterator[Dict[str, Any]]:
+            if failure_point == "stream":
+                raise bridge.EngineResponseError(404, "secret missing detail")
+            async for frame in super().stream_events(
+                session_id,
+                chat_id,
+                after_sequence_number=after_sequence_number,
+            ):
+                yield frame
+
+    events = await _drain(
+        _mw(bridge_middleware, StaleEngine(), store).on_reply(
+            _agent(),
+            {"inputs": _user_msg("retry me")},
+            _forbidden_next,
+        ),
+    )
+
+    state = store.get("console:alice")
+    assert state.engine_session_id == ""
+    assert state.pending_clarification is None
+    text = "".join(
+        event.delta
+        for event in events
+        if isinstance(event, TextBlockDeltaEvent)
+    )
+    assert "已失效" in text
+    assert "重新发送" in text
+    assert "secret" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [(400, "未能完成"), (500, "不可用")],
+)
+async def test_http_failures_use_fixed_safe_messages(
+    bridge_middleware,
+    bridge_session_store,
+    bridge,
+    tmp_path,
+    status_code: int,
+    expected: str,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    store.update("console:alice", active=True)
+
+    class ErrorEngine(FakeEngine):
+        async def create_session(self, **kwargs: Any) -> Dict[str, Any]:
+            raise bridge.EngineResponseError(
+                status_code,
+                "secret response body",
+            )
+
+    events = await _drain(
+        _mw(bridge_middleware, ErrorEngine(), store).on_reply(
+            _agent(),
+            {"inputs": _user_msg("hi")},
+            _forbidden_next,
+        ),
+    )
+    text = "".join(
+        event.delta
+        for event in events
+        if isinstance(event, TextBlockDeltaEvent)
+    )
+    assert expected in text
+    assert "secret" not in text
 
 
 # ------------------------------------------------------- clarification
@@ -369,6 +560,133 @@ async def test_clarification_free_text_becomes_custom_answer(
             "custom_text": "全年整体",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_malformed_persisted_clarification_falls_back_to_custom_text(
+    bridge_middleware,
+    bridge_session_store,
+    tmp_path,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    store.update(
+        "console:alice",
+        active=True,
+        engine_session_id="ses_1",
+        pending_clarification={
+            "chat_id": "chat_1",
+            "clarification_id": "call_9",
+            "last_seq": "not-a-number",
+            "questions": [
+                "not-a-question",
+                {"question": 42, "options": "not-options"},
+                {
+                    "question": "Pick one",
+                    "options": [{"description": "missing label"}],
+                },
+                {
+                    "question": "Another",
+                    "options": [{"label": 7}],
+                },
+            ],
+        },
+    )
+    client = FakeEngine(list(_ANSWER_FRAMES))
+
+    await _drain(
+        _mw(bridge_middleware, client, store).on_reply(
+            _agent(),
+            {"inputs": _user_msg("1")},
+            _forbidden_next,
+        ),
+    )
+
+    answer_call = next(
+        call for call in client.calls if call[0] == "answer_clarification"
+    )
+    assert answer_call[2]["answers"] == [
+        {"question": "", "selected_options": [], "custom_text": "1"},
+        {"question": "", "selected_options": [], "custom_text": "1"},
+        {"question": "Pick one", "selected_options": [], "custom_text": "1"},
+        {"question": "Another", "selected_options": [], "custom_text": "1"},
+    ]
+    assert client.stream_kwargs[-1]["after_sequence_number"] == -1
+
+
+@pytest.mark.asyncio
+async def test_answered_clarification_resumes_after_stream_failure(
+    bridge_middleware,
+    bridge_session_store,
+    bridge,
+    tmp_path,
+) -> None:
+    store = _store(bridge_session_store, tmp_path)
+    store.update(
+        "console:alice",
+        active=True,
+        engine_session_id="ses_1",
+        pending_clarification={
+            "chat_id": "chat_1",
+            "clarification_id": "call_9",
+            "last_seq": 5,
+            "questions": [
+                {
+                    "question": "哪个季度?",
+                    "multi_select": False,
+                    "options": [{"label": "Q1"}, {"label": "Q2"}],
+                },
+            ],
+        },
+    )
+
+    class FlakyStreamEngine(FakeEngine):
+        def __init__(self) -> None:
+            super().__init__(list(_ANSWER_FRAMES))
+            self.stream_attempts = 0
+
+        async def stream_events(
+            self,
+            session_id: str,
+            chat_id: str,
+            *,
+            after_sequence_number: int = -1,
+        ) -> AsyncIterator[Dict[str, Any]]:
+            self.stream_attempts += 1
+            if self.stream_attempts == 1:
+                raise bridge.EngineUnavailableError("disconnected")
+            async for frame in super().stream_events(
+                session_id,
+                chat_id,
+                after_sequence_number=after_sequence_number,
+            ):
+                yield frame
+
+    client = FlakyStreamEngine()
+    middleware = _mw(bridge_middleware, client, store)
+
+    await _drain(
+        middleware.on_reply(
+            _agent(),
+            {"inputs": _user_msg("1")},
+            _forbidden_next,
+        ),
+    )
+    pending = store.get("console:alice").pending_clarification
+    assert pending is not None and pending["answered"] is True
+
+    await _drain(
+        middleware.on_reply(
+            _agent(),
+            {"inputs": _user_msg("重试")},
+            _forbidden_next,
+        ),
+    )
+
+    assert [call[0] for call in client.calls].count(
+        "answer_clarification",
+    ) == 1
+    assert not any(call[0] == "create_chat" for call in client.calls)
+    assert store.get("console:alice").pending_clarification is None
 
 
 # ---------------------------------------------------------------- datasource

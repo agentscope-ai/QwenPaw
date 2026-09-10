@@ -39,6 +39,7 @@ from agentscope.event import (
     TextBlockEndEvent,
     TextBlockStartEvent,
     ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
     ThinkingBlockStartEvent,
 )
 
@@ -185,6 +186,26 @@ def artifact_media_type(name: str) -> str:
     )
 
 
+def _end_block(block_id: str, kind: str, *, reply_id: str) -> Any:
+    if kind == "reasoning":
+        return ThinkingBlockEndEvent(reply_id=reply_id, block_id=block_id)
+    return TextBlockEndEvent(reply_id=reply_id, block_id=block_id)
+
+
+def _close_blocks(
+    open_blocks: Dict[str, str],
+    *,
+    reply_id: str,
+) -> List[Any]:
+    """Close and remove every currently open text or reasoning block."""
+    events = [
+        _end_block(block_id, kind, reply_id=reply_id)
+        for block_id, kind in open_blocks.items()
+    ]
+    open_blocks.clear()
+    return events
+
+
 # pylint: disable=too-many-branches,too-many-statements
 async def translate_frames(  # noqa: C901, PLR0912
     frames: AsyncIterator[Dict[str, Any]],
@@ -201,7 +222,7 @@ async def translate_frames(  # noqa: C901, PLR0912
     """
     # msg_id → "message" | "reasoning"; populated by message_start frames
     whitelist: Dict[str, str] = {}
-    started_blocks: set[str] = set()
+    open_blocks: Dict[str, str] = {}
 
     async for frame in frames:
         seq = frame.get("sequence_number")
@@ -212,14 +233,27 @@ async def translate_frames(  # noqa: C901, PLR0912
         if obj == "message":
             status = frame.get("status")
             mtype = frame.get("type")
+            msg_id = frame.get("id") or ""
             if status == "in_progress" and mtype in ("message", "reasoning"):
-                msg_id = frame.get("id") or ""
                 if msg_id:
                     whitelist[msg_id] = mtype
+            elif status == "completed" and mtype in (
+                "message",
+                "reasoning",
+            ):
+                whitelist.pop(msg_id, None)
+                kind = open_blocks.pop(msg_id, None)
+                if kind is not None:
+                    yield _end_block(msg_id, kind, reply_id=reply_id)
             elif status == "completed" and mtype == "plugin_call":
                 clarification = parse_clarification(frame)
                 if clarification is not None:
                     result.clarification = clarification
+                    for event in _close_blocks(
+                        open_blocks,
+                        reply_id=reply_id,
+                    ):
+                        yield event
                     block_id = f"clarify-{clarification.clarification_id}"
                     text = render_clarification_text(clarification)
                     yield TextBlockStartEvent(
@@ -250,8 +284,8 @@ async def translate_frames(  # noqa: C901, PLR0912
                 if not text:
                     continue
                 if mtype == "reasoning":
-                    if msg_id not in started_blocks:
-                        started_blocks.add(msg_id)
+                    if msg_id not in open_blocks:
+                        open_blocks[msg_id] = mtype
                         yield ThinkingBlockStartEvent(
                             reply_id=reply_id,
                             block_id=msg_id,
@@ -262,8 +296,8 @@ async def translate_frames(  # noqa: C901, PLR0912
                         delta=text,
                     )
                 else:
-                    if msg_id not in started_blocks:
-                        started_blocks.add(msg_id)
+                    if msg_id not in open_blocks:
+                        open_blocks[msg_id] = mtype
                         yield TextBlockStartEvent(
                             reply_id=reply_id,
                             block_id=msg_id,
@@ -279,11 +313,16 @@ async def translate_frames(  # noqa: C901, PLR0912
                 # stream never produced deltas for this msg_id (e.g.
                 # non-streamed replay), otherwise just close the block.
                 if mtype == "reasoning":
+                    whitelist.pop(msg_id, None)
+                    kind = open_blocks.pop(msg_id, None)
+                    if kind is not None:
+                        yield _end_block(msg_id, kind, reply_id=reply_id)
                     continue
-                if msg_id not in started_blocks:
+                if msg_id not in open_blocks:
                     if not text:
+                        whitelist.pop(msg_id, None)
                         continue
-                    started_blocks.add(msg_id)
+                    open_blocks[msg_id] = mtype
                     yield TextBlockStartEvent(
                         reply_id=reply_id,
                         block_id=msg_id,
@@ -294,10 +333,9 @@ async def translate_frames(  # noqa: C901, PLR0912
                         block_id=msg_id,
                         delta=text,
                     )
-                yield TextBlockEndEvent(
-                    reply_id=reply_id,
-                    block_id=msg_id,
-                )
+                whitelist.pop(msg_id, None)
+                kind = open_blocks.pop(msg_id)
+                yield _end_block(msg_id, kind, reply_id=reply_id)
 
         elif obj == "artifact.registered":
             artifact = frame.get("artifact")
@@ -316,6 +354,7 @@ async def translate_frames(  # noqa: C901, PLR0912
                     result.followups = [str(q) for q in questions if q]
 
         elif obj == "error":
+            result.status = "failed"
             result.failure_message = str(frame.get("message") or "")
 
         elif obj == "response":
@@ -328,8 +367,12 @@ async def translate_frames(  # noqa: C901, PLR0912
                         result.failure_message = str(
                             error.get("message") or "",
                         )
+                for event in _close_blocks(open_blocks, reply_id=reply_id):
+                    yield event
                 return
 
+    for event in _close_blocks(open_blocks, reply_id=reply_id):
+        yield event
     if not result.status:
         result.status = "completed"
 

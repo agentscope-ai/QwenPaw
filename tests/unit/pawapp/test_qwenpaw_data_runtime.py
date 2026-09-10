@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import stat
 import sys
 from pathlib import Path
+
+import pytest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -143,6 +146,56 @@ def test_provision_engine_mcp_without_token_sends_no_auth_header(
     path = runtime.provision_engine_mcp(tmp_path, "http://cm.local", "")
     entries = json.loads(path.read_text(encoding="utf-8"))
     assert entries[0]["mcp_config"]["headers"] == {}
+
+
+def test_provision_engine_mcp_creates_file_with_private_mode(
+    tmp_path: Path,
+) -> None:
+    runtime = _load_runtime_module()
+
+    path = runtime.provision_engine_mcp(
+        tmp_path,
+        "http://cm.local",
+        "test-token",
+    )
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_provision_engine_mcp_corrects_existing_file_mode(
+    tmp_path: Path,
+) -> None:
+    runtime = _load_runtime_module()
+    path = tmp_path / "host" / "workspace" / ".mcp"
+    path.parent.mkdir(parents=True)
+    path.write_text("[]", encoding="utf-8")
+    path.chmod(0o644)
+
+    runtime.provision_engine_mcp(tmp_path, "http://cm.local", "test-token")
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_provision_engine_mcp_rejects_symlink_target(
+    tmp_path: Path,
+) -> None:
+    runtime = _load_runtime_module()
+    if not getattr(runtime.os, "O_NOFOLLOW", 0):
+        pytest.skip("O_NOFOLLOW is unavailable")
+    workspace = tmp_path / "host" / "workspace"
+    workspace.mkdir(parents=True)
+    target = tmp_path / "target.json"
+    target.write_text("unchanged", encoding="utf-8")
+    (workspace / ".mcp").symlink_to(target)
+
+    with pytest.raises(OSError):
+        runtime.provision_engine_mcp(
+            tmp_path,
+            "http://cm.local",
+            "test-token",
+        )
+
+    assert target.read_text(encoding="utf-8") == "unchanged"
 
 
 def test_provision_engine_mcp_upserts_and_preserves_user_entries(
