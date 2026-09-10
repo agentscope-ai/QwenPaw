@@ -318,6 +318,21 @@ jobs:
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Create console dist placeholder
+        shell: bash
+        run: |
+          # The SPA catch-all route is registered only when the console
+          # static directory exists (src/qwenpaw/app/_app.py resolves it and
+          # gates `if os.path.isdir(...)`). Production wheels always ship it,
+          # so API routing tests expect the "with build" behaviour: GET on a
+          # missing /api resource is answered 404 by the catch-all. Without
+          # any console build the catch-all is absent and the same request
+          # matches DELETE /{plugin_id} with a wrong method -> 405.
+          # An EMPTY directory reproduces the production routing without
+          # paying a frontend build: no index.html means the web root still
+          # takes the fallback branch and /assets stays unmounted.
+          mkdir -p console/dist
+
       - name: Determine pytest marker expression
         id: marker
         if: steps.check-integrated.outputs.has_tests == 'true'
