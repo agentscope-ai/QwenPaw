@@ -9,6 +9,7 @@ import platform
 import re
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Mapping
 from typing import Any
 
@@ -54,12 +55,27 @@ def get_os_name() -> str:
 
 def get_architecture() -> str:
     """Return the CPU architecture as x64/arm64 when recognized."""
-    machine = platform.machine().lower()
+    machine = platform.machine().strip().lower()
+    if not machine and get_os_name() == "windows":
+        # ``platform.machine()`` depends on PROCESSOR_ARCHITECTURE on
+        # Windows. Minimal process environments may omit it even though
+        # Python still knows its target platform.
+        machine = (
+            (
+                os.environ.get("PROCESSOR_ARCHITEW6432")
+                or os.environ.get("PROCESSOR_ARCHITECTURE")
+                or sysconfig.get_platform()
+            )
+            .strip()
+            .lower()
+        )
     mapping = {
         "x86_64": "x64",
         "amd64": "x64",
+        "win-amd64": "x64",
         "arm64": "arm64",
         "aarch64": "arm64",
+        "win-arm64": "arm64",
     }
     return mapping.get(machine, machine)
 
