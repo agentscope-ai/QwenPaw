@@ -13,6 +13,7 @@ import logging
 from ..base import LifecycleHook
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
+from ...runtime.context_injection import remove_runtime_context_from_state
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 from .signals import SESSION_SAVE_SUCCEEDED_KEY
@@ -60,6 +61,14 @@ class SessionLoadHook(LifecycleHook):
                 agent=proxy,
             )
             if proxy.data:
+                removed = remove_runtime_context_from_state(proxy.data)
+                if removed:
+                    logger.info(
+                        "session_load: removed %d persisted runtime "
+                        "context message(s) (session=%s)",
+                        removed,
+                        ctx.session_id,
+                    )
                 ctx.session_state = proxy.data
                 mode_state = proxy.data.get("mode_state")
                 if isinstance(mode_state, dict):

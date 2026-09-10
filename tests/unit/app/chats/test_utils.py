@@ -20,6 +20,7 @@ from qwenpaw.app.chats.utils import (
 from qwenpaw.app.chats.title_generator import _clean_title
 from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
+    RUNTIME_CONTEXT_MESSAGE_TAG,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
@@ -260,6 +261,32 @@ def test_msg_to_message_omits_synthetic_user_stubs():
             metadata={QWENPAW_MESSAGE_TAG_KEY: tag},
         )
         assert not agentscope_msg_to_message(stub), tag
+
+
+def test_msg_to_message_omits_runtime_context_current_and_legacy_forms():
+    current = Msg(
+        name="system",
+        role="user",
+        content=[{"type": "text", "text": "tagged dynamic page context"}],
+        metadata={
+            QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG,
+        },
+    )
+    legacy = Msg(
+        name="system",
+        role="user",
+        content=[{"type": "text", "text": "v2.1.0 dynamic page context"}],
+    )
+    real_user = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "real question"}],
+    )
+
+    rendered = agentscope_msg_to_message([current, legacy, real_user])
+
+    assert len(rendered) == 1
+    assert rendered[0].content[0].text == "real question"
 
 
 def test_msg_to_message_omits_visual_compression_placeholders():

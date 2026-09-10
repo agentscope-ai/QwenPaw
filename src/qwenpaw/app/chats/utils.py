@@ -25,6 +25,7 @@ from qwenpaw.schemas import (
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
+from qwenpaw.runtime.context_injection import is_runtime_context_message
 
 from ...config import load_config
 from ...constant import (
@@ -99,6 +100,8 @@ def _is_synthetic_user_message(msg: Msg) -> bool:
     user cards made the original instruction appear rewritten after a
     session switch.
     """
+    if is_runtime_context_message(msg, include_legacy=True):
+        return True
     if msg.role != "user":
         return False
     if msg.name in _VISUAL_PLACEHOLDER_NAMES:
