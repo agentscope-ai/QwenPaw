@@ -41,6 +41,7 @@ function loadCollapsed(): CollapsedState {
 function saveCollapsed(groups: Set<string>): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...groups]));
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // Collapse state can remain memory-only.
   }

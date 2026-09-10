@@ -41,5 +41,6 @@ describe("useCollapsedChatGroups", () => {
     act(() => result.current.initializeCollapsedGroups(new Set(["older"])));
 
     expect(result.current.collapsedGroups.has("older")).toBe(true);
+    expect(localStorage.getItem("qwenpaw_collapsed_chat_groups_v3")).toBeNull();
   });
 });

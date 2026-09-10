@@ -492,6 +492,31 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
+  const activeSessionPage = useMemo(() => {
+    if (!currentSessionId || !groups) return null;
+    const activeGroup = groups.find(({ sessions }) =>
+      sessions.some(
+        (session) =>
+          session.id === currentSessionId ||
+          session.realId === currentSessionId,
+      ),
+    );
+    if (!activeGroup) return null;
+    const orderedSessions = groupChatsByDate(activeGroup.sessions).flatMap(
+      (dateGroup) => dateGroup.sessions,
+    );
+    const sessionIndex = orderedSessions.findIndex(
+      (session) =>
+        session.id === currentSessionId || session.realId === currentSessionId,
+    );
+    if (sessionIndex < 0) return null;
+    return {
+      groupId: activeGroup.group.id,
+      requiredCount:
+        Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE,
+    };
+  }, [currentSessionId, groups]);
+
   const defaultCollapsedGroupIds = useMemo(() => {
     if (!groups) return new Set<string>();
 
@@ -509,6 +534,9 @@ export default function SidebarSessionList({
       recentGroupIds.add(groupId);
       if (recentGroupIds.size === 2) break;
     }
+    if (activeSessionPage) {
+      recentGroupIds.add(activeSessionPage.groupId);
+    }
 
     // If there are no conversations yet, keep the first two user groups
     // discoverable while leaving fixed system groups collapsed.
@@ -523,48 +551,51 @@ export default function SidebarSessionList({
 
     return new Set(
       groups
-        .filter(({ group }) => !recentGroupIds.has(group.id))
+        .filter(
+          ({ group }) =>
+            !recentGroupIds.has(group.id) &&
+            (group.kind === "cron" ||
+              group.kind === "subagents" ||
+              !group.pinned),
+        )
         .map(({ group }) => group.id),
     );
-  }, [groups, sortedSessions]);
+  }, [activeSessionPage, groups, sortedSessions]);
 
   useEffect(() => {
     if (loading) return;
     initializeCollapsedGroups(defaultCollapsedGroupIds);
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
-  const loadMoreGroup = useCallback((groupId: string, collapse = false) => {
-    setVisibleSessionCounts((previous) => ({
-      ...previous,
-      [groupId]: collapse
-        ? GROUP_PAGE_SIZE
-        : (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
-    }));
-  }, []);
+  const loadMoreGroup = useCallback(
+    (groupId: string, collapse = false) => {
+      setVisibleSessionCounts((previous) => ({
+        ...previous,
+        [groupId]: collapse
+          ? Math.max(
+              GROUP_PAGE_SIZE,
+              activeSessionPage?.groupId === groupId
+                ? activeSessionPage.requiredCount
+                : 0,
+            )
+          : (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
+      }));
+    },
+    [activeSessionPage],
+  );
 
   useEffect(() => {
-    if (!currentSessionId || !groups) return;
-    const activeGroup = groups.find(({ sessions }) =>
-      sessions.some(
-        (session) =>
-          session.id === currentSessionId ||
-          session.realId === currentSessionId,
-      ),
-    );
-    if (!activeGroup) return;
-    const sessionIndex = activeGroup.sessions.findIndex(
-      (session) =>
-        session.id === currentSessionId || session.realId === currentSessionId,
-    );
-    if (sessionIndex < 0) return;
-    const requiredCount =
-      Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE;
+    if (!activeSessionPage) return;
     setVisibleSessionCounts((previous) => {
-      const currentCount = previous[activeGroup.group.id] ?? GROUP_PAGE_SIZE;
-      if (currentCount >= requiredCount) return previous;
-      return { ...previous, [activeGroup.group.id]: requiredCount };
+      const currentCount =
+        previous[activeSessionPage.groupId] ?? GROUP_PAGE_SIZE;
+      if (currentCount >= activeSessionPage.requiredCount) return previous;
+      return {
+        ...previous,
+        [activeSessionPage.groupId]: activeSessionPage.requiredCount,
+      };
     });
-  }, [currentSessionId, groups]);
+  }, [activeSessionPage]);
 
   useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
@@ -622,7 +653,16 @@ export default function SidebarSessionList({
             remaining: group.sessions.length - visibleCount,
             collapse: false,
           });
-        } else if (visibleCount > GROUP_PAGE_SIZE) {
+        } else if (
+          visibleCount > GROUP_PAGE_SIZE &&
+          visibleCount >
+            Math.min(
+              activeSessionPage?.groupId === group.group.id
+                ? activeSessionPage.requiredCount
+                : GROUP_PAGE_SIZE,
+              group.sessions.length,
+            )
+        ) {
           rows.push({
             kind: "loadMore",
             groupId: group.group.id,
@@ -640,6 +680,7 @@ export default function SidebarSessionList({
     searchQuery,
     filteredSessions,
     visibleSessionCounts,
+    activeSessionPage,
     t,
   ]);
 
