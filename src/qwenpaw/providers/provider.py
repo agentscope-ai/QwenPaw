@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qwenpaw.exceptions import ProviderError
 
+from . import error_sanitizer
 from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
 if TYPE_CHECKING:
@@ -539,23 +540,17 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def sanitize_connection_message(message: str) -> str:
-        """Remove likely credential values from provider error text."""
-        credential_patterns = (
-            r"(?i)(api[_ -]?key|x-api-key|access[_ -]?token|token)"
-            r"(\s*[=:]\s*)[^,;\s]+",
-            r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?)[^,;\s]+",
-        )
-        message = re.sub(
-            credential_patterns[0],
-            r"\1\2[redacted]",
-            message,
-        )
-        message = re.sub(
-            credential_patterns[1],
-            r"\1[redacted]",
-            message,
-        )
-        return message
+        """Clean provider error text for persistence and display.
+
+        Provider-facing entry point; the non-JSON gateway handling
+        lives in :mod:`qwenpaw.providers.error_sanitizer`.
+        """
+        return error_sanitizer.sanitize_connection_message(message)
+
+    @staticmethod
+    def truncate_connection_message(message: str) -> str:
+        """Cap error text that is persisted or rendered for the user."""
+        return error_sanitizer.truncate_connection_message(message)
 
     @classmethod
     def connection_error_message(cls, exc: Exception) -> str:

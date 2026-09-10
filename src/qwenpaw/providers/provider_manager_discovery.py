@@ -404,8 +404,14 @@ class ProviderManagerDiscoveryMixin(
                 last_synced_at=synced_at,
             )
         except Exception as exc:
-            error = Provider.sanitize_connection_message(
-                str(exc) or exc.__class__.__name__,
+            # Classification looks for challenge markers, keywords and
+            # status codes anywhere in the text, so it works on the raw
+            # message. Cleanup and the persisted length cap are separate
+            # concerns and must not feed back into classification.
+            raw_message = str(exc) or exc.__class__.__name__
+            error_kind = classify_discovery_error(exc, raw_message)
+            error = Provider.truncate_connection_message(
+                Provider.sanitize_connection_message(raw_message),
             )
             logger.warning("Model discovery failed; using static fallback")
             if save:
@@ -433,7 +439,7 @@ class ProviderManagerDiscoveryMixin(
                 last_synced_at=provider.models_last_synced_at,
                 used_static_fallback=True,
                 error=error,
-                error_kind=classify_discovery_error(exc, error),
+                error_kind=error_kind,
             )
         finally:
             if save:

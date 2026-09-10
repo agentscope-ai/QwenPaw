@@ -4,16 +4,19 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
+from .error_sanitizer import is_challenge_page
+from .error_utils import extract_status_code
 from .provider import ModelInfo, Provider
+from .provider_model_availability import extract_http_status
 
 DiscoveryErrorKind = Literal[
     "authentication",
     "authorization",
+    "blocked",
     "timeout",
     "network",
     "invalid_response",
@@ -127,19 +130,36 @@ def apply_discovery_metadata(
             configured.max_output_length_updated_at = discovered_at
 
 
+# Provider error text is remote-controlled and can be arbitrarily large,
+# so the keyword scan runs over a bounded prefix.
+_DISCOVERY_TEXT_SCAN_LIMIT = 8_192
+
+
 def classify_discovery_error(
     exc: Exception,
     message: str,
 ) -> DiscoveryErrorKind:
-    """Map a discovery failure to a stable public category."""
-    normalized = message.lower()
-    status_match = re.search(
-        r"\bstatus\s*[=:]\s*(\d{3})\b",
-        normalized,
-    )
-    status = int(status_match.group(1)) if status_match else None
+    """Map a discovery failure to a stable public category.
+
+    Expects the *raw* provider message, not a cleaned one: cleanup
+    rewrites a challenge body into a fixed line, which would hide the
+    markers this looks for.
+    """
+    normalized = message[:_DISCOVERY_TEXT_SCAN_LIMIT].lower()
     if isinstance(exc, TimeoutError):
         return "timeout"
+    # A bot-challenge page answers with 403, so it has to be recognized
+    # before the status mapping, which would read it as a bad credential.
+    if is_challenge_page(message):
+        return "blocked"
+    # For a non-JSON body the OpenAI SDK puts the raw body in the message
+    # with no status prefix at all, so read the status off the exception
+    # first and fall back to the text for the "status=NNN" form that
+    # providers format themselves. The caller already holds the raw text,
+    # so hand it over rather than making the SDK render it again.
+    status = extract_status_code(exc, message)
+    if status is None:
+        status = extract_http_status(message)
     status_kinds: dict[int, DiscoveryErrorKind] = {
         401: "authentication",
         403: "authorization",
