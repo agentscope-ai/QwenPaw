@@ -2,6 +2,7 @@
 """Tests for ``create_model_and_formatter`` model override support."""
 
 # pylint: disable=protected-access,redefined-outer-name
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import threading
 from types import SimpleNamespace
@@ -26,6 +27,9 @@ from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
 from qwenpaw.providers.dashscope_provider import DashScopeProvider
+from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.retry_chat_model import RetryChatModel
+from qwenpaw.token_usage import TokenRecordingModelWrapper
 
 
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
@@ -335,6 +339,136 @@ def test_no_override_uses_active_model():
         )
 
     assert model.identifier == "default-provider/default-model"
+
+
+@pytest.mark.parametrize("next_provider_id", ["dashscope", "other-dashscope"])
+def test_global_model_switch_during_construction_keeps_context(
+    monkeypatch,
+    next_provider_id,
+):
+    """Keep model identity and context from the same global selection."""
+    providers = {
+        provider_id: DashScopeProvider(
+            id=provider_id,
+            name=provider_id,
+            api_key="test-key",
+            models=[
+                provider_module.ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    max_input_length=context_size,
+                    max_input_length_configured=True,
+                )
+                for model_id, context_size in [
+                    ("model-a", 32_768),
+                    ("model-b", 131_072),
+                ]
+            ],
+        )
+        for provider_id in {"dashscope", next_provider_id}
+    }
+    manager = object.__new__(ProviderManager)
+    manager.active_model = ModelSlotConfig(
+        provider_id="dashscope",
+        model="model-a",
+    )
+    monkeypatch.setattr(manager, "get_provider", providers.get)
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    monkeypatch.setattr(model_factory, "ProviderManager", ProviderManager)
+    monkeypatch.setattr(model_factory, "RetryChatModel", RetryChatModel)
+    monkeypatch.setattr(
+        model_factory,
+        "TokenRecordingModelWrapper",
+        TokenRecordingModelWrapper,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        _REAL_INSTALL_MODEL_FORMATTER,
+    )
+    config = SimpleNamespace(
+        active_model=None,
+        running=config_module.AgentsRunningConfig(),
+    )
+    constructed = threading.Event()
+    resume = threading.Event()
+    build_model = DashScopeProvider.get_chat_model_instance
+
+    def pause_after_construction(provider, model_id):
+        model = build_model(provider, model_id)
+        if model_id == "model-a":
+            constructed.set()
+            assert resume.wait(timeout=10), "Model switch did not finish"
+        return model
+
+    monkeypatch.setattr(
+        DashScopeProvider,
+        "get_chat_model_instance",
+        pause_after_construction,
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(
+            model_factory.create_model_and_formatter,
+            agent_id="agent-1",
+            agent_config=config,
+        )
+        try:
+            assert constructed.wait(timeout=10), "Model was not constructed"
+            manager.active_model = ModelSlotConfig(
+                provider_id=next_provider_id,
+                model="model-b",
+            )
+        finally:
+            resume.set()
+        actual, _ = pending.result(timeout=10)
+
+    assert actual.model == "model-a"
+    assert actual.context_size == 32_768
+    assert actual.model_key == "dashscope:model-a"
+    assert actual._inner.context_size == 32_768
+    assert actual._inner._model.context_size == 32_768
+
+    next_model, _ = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+    )
+    assert next_model.model_key == f"{next_provider_id}:model-b"
+    assert next_model.context_size == 131_072
+
+
+@pytest.mark.parametrize(
+    "global_slot",
+    [None, ("", "model-a"), ("dashscope", ""), ("dashscope", "model-a")],
+)
+def test_global_model_configuration_errors(monkeypatch, global_slot):
+    """Report missing global models or providers before construction."""
+    global_model = (
+        ModelSlotConfig(provider_id=global_slot[0], model=global_slot[1])
+        if global_slot is not None
+        else None
+    )
+    manager = SimpleNamespace(
+        get_active_model=lambda: global_model,
+        get_provider=lambda _provider_id: None,
+    )
+    monkeypatch.setattr(
+        model_factory.ProviderManager,
+        "get_instance",
+        lambda: manager,
+    )
+    expected = (
+        "Active provider 'dashscope' not found"
+        if global_slot == ("dashscope", "model-a")
+        else "No active model configured"
+    )
+    config = _patched_load_agent_config("agent-1")
+    config.active_model = None
+
+    with pytest.raises(model_factory.ProviderError, match=expected):
+        model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+            agent_config=config,
+        )
 
 
 async def test_async_factory_builds_model_in_worker_thread(monkeypatch):

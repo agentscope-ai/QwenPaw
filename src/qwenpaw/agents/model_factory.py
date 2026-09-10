@@ -2164,9 +2164,13 @@ def create_model_and_formatter(
         selected_model_id = model_slot.model
     else:
         # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
-        if not global_model:
+        manager = ProviderManager.get_instance()
+        global_model = manager.get_active_model()
+        if (
+            global_model is None
+            or not global_model.provider_id
+            or not global_model.model
+        ):
             raise ProviderError(
                 message=(
                     "No active model configured. "
@@ -2174,11 +2178,16 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
-        provider = ProviderManager.get_instance().get_provider(
-            global_model.provider_id,
-        )
+        provider = manager.get_provider(global_model.provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=(
+                    f"Active provider '{global_model.provider_id}' not found."
+                ),
+            )
         provider_id = _resolved_provider_id(provider, global_model.provider_id)
         selected_model_id = global_model.model
+        model = provider.get_chat_model_instance(selected_model_id)
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
     _ensure_model_context_size(model, provider, selected_model_id)
