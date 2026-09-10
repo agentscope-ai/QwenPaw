@@ -4,18 +4,22 @@ import { IconButton } from "@agentscope-ai/design";
 import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
-import { Files } from "lucide-react";
+import { ArrowDownToLine, Files, LockKeyhole } from "lucide-react";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import styles from "./ChatActionGroup.module.less";
 
 interface ChatActionGroupProps {
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
+  scrollLocked?: boolean;
+  onToggleAutoScroll?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   onToggleWorkspace,
   workspaceOpen = false,
+  scrollLocked = false,
+  onToggleAutoScroll,
 }) => {
   const { t } = useTranslation();
 
@@ -60,6 +64,50 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
               ...(workspaceOpen ? { color: "var(--app-accent)" } : {}),
             }}
             onClick={onToggleWorkspace}
+          />
+        </Tooltip>
+      )}
+      {onToggleAutoScroll && (
+        <Tooltip
+          title={
+            scrollLocked
+              ? t("chat.followScrollTooltip")
+              : t("chat.lockScrollTooltip")
+          }
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            aria-label={
+              scrollLocked
+                ? t("chat.followScrollTooltip")
+                : t("chat.lockScrollTooltip")
+            }
+            aria-pressed={scrollLocked}
+            icon={
+              scrollLocked ? (
+                <LockKeyhole
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              ) : (
+                <ArrowDownToLine
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              )
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(scrollLocked
+                ? { color: "var(--color-primary, #ff9d4d)" }
+                : {}),
+            }}
+            onClick={onToggleAutoScroll}
           />
         </Tooltip>
       )}

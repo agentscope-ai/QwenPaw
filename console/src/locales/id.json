@@ -709,6 +709,8 @@
       "stepsFailed": "Gagal · {{count}} langkah",
       "stepsCompleted": "Selesai {{count}} langkah"
     },
+    "lockScrollTooltip": "Kunci gulir otomatis",
+    "followScrollTooltip": "Ikuti pesan terbaru",
     "statusIdle": "Idle",
     "statusInProgress": "Sedang berjalan",
     "disclaimer": "Bekerja untuk Anda, berkembang bersama Anda",

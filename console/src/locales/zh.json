@@ -3237,6 +3237,8 @@
       "stepsFailed": "执行失败 · {{count}} 个步骤",
       "stepsCompleted": "已完成 {{count}} 个步骤"
     },
+    "lockScrollTooltip": "锁定滚动",
+    "followScrollTooltip": "跟随最新消息",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
     "statusUnseenResult": "有新结果",

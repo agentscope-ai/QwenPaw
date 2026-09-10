@@ -2758,6 +2758,8 @@
       "stepsFailed": "実行失敗 · {{count}} ステップ",
       "stepsCompleted": "{{count}} ステップ完了"
     },
+    "lockScrollTooltip": "自動スクロールをロック",
+    "followScrollTooltip": "最新メッセージに追従",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",

@@ -2773,6 +2773,8 @@
       "stepsFailed": "Ошибка · шагов: {{count}}",
       "stepsCompleted": "Выполнено шагов: {{count}}"
     },
+    "lockScrollTooltip": "Заблокировать автопрокрутку",
+    "followScrollTooltip": "Следовать за новым сообщением",
     "statusIdle": "Ожидание",
     "statusInProgress": "Выполняется",
     "disclaimer": "Работает для вас, растёт вместе с вами",
