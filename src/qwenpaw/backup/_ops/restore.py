@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -235,7 +236,13 @@ def _stage_secrets(zf: zipfile.ZipFile, staged_dirs: list[Path]) -> None:
             bak_path,
         )
     cleanup_stale_restore_artifacts(SECRET_DIR)
-    extract_to_tmp(zf, PREFIX_SECRETS, SECRET_DIR, zip_slip_base=SECRET_DIR)
+    extract_to_tmp(
+        zf,
+        PREFIX_SECRETS,
+        SECRET_DIR,
+        zip_slip_base=SECRET_DIR,
+        dir_mode=0o700,
+    )
     staged_dirs.append(SECRET_DIR)
 
 
@@ -426,6 +433,41 @@ def _stage_all(
     return staged_dirs, staged_config_tmp, dst_map, new_aids
 
 
+def _harden_secret_dir(secret_dir: Path) -> None:
+    """Recursively re-apply restrictive permissions after restore.
+
+    Directories are set to ``0o700`` and files to ``0o600`` so that
+    nested subdirectories (e.g. ``providers/``) are not left
+    world-traversable after a restore replaces ``SECRET_DIR``.
+    """
+    failed = False
+    try:
+        os.chmod(secret_dir, 0o700)
+    except OSError:
+        failed = True
+    try:
+        for child in secret_dir.rglob("*"):
+            try:
+                if child.is_dir():
+                    os.chmod(child, 0o700)
+                elif child.is_file():
+                    os.chmod(child, 0o600)
+            except OSError:
+                failed = True
+    except OSError:
+        failed = True
+    if failed:
+        logger.warning(
+            "Permission hardening incomplete under %s",
+            secret_dir,
+        )
+    else:
+        logger.info(
+            "Hardened permissions: %s (dirs 0o700, files 0o600)",
+            secret_dir,
+        )
+
+
 def _commit_and_finalize(
     staged_dirs: list[Path],
     staged_config_tmp: Path | None,
@@ -457,6 +499,7 @@ def _commit_and_finalize(
         raise
 
     if SECRET_DIR in committed:
+        _harden_secret_dir(SECRET_DIR)
         reload_master_key_from_disk()
 
     for aid, dst in dst_map.items():
