@@ -265,6 +265,40 @@ async function* eventsForApp(
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body for stream");
 
+  let readerFinalizePromise: Promise<void> | undefined;
+  const finalizeReaderOnce = () => {
+    if (!readerFinalizePromise) {
+      readerFinalizePromise = (async () => {
+        try {
+          await reader.cancel();
+        } catch {
+          // Best-effort cleanup; preserve the stream's original outcome.
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // The lock may already have been released by the stream runtime.
+          }
+        }
+      })();
+    }
+    return readerFinalizePromise;
+  };
+  const aborted = Symbol("aborted");
+  let notifyAbort!: () => void;
+  const abortPromise = new Promise<typeof aborted>((resolve) => {
+    notifyAbort = () => resolve(aborted);
+  });
+  const handleAbort = () => {
+    notifyAbort();
+    void finalizeReaderOnce();
+  };
+  if (opts.signal?.aborted) {
+    handleAbort();
+  } else {
+    opts.signal?.addEventListener("abort", handleAbort, { once: true });
+  }
+
   const decoder = new TextDecoder();
   let buffer = "";
   let eventName = "message";
@@ -309,7 +343,9 @@ async function* eventsForApp(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await Promise.race([reader.read(), abortPromise]);
+      if (result === aborted) break;
+      const { done, value } = result;
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -329,7 +365,8 @@ async function* eventsForApp(
     const event = flush();
     if (event) yield event;
   } finally {
-    await reader.cancel().catch(() => undefined);
+    opts.signal?.removeEventListener("abort", handleAbort);
+    void finalizeReaderOnce();
   }
 }
 
