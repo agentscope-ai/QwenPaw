@@ -1016,7 +1016,11 @@ qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 
 ### /approval - Tool Execution Approval Commands
 
-Manage tool guard approval requests. When `approval_level` is set to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a pending-approval flow. Use these commands to approve, deny, list, or cancel requests.
+Manage tool guard and command approval requests. When `approval_level` is set
+to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a
+pending-approval flow. Side-effecting `/reme` generation commands also use
+this flow with exact-requester identity isolation. Use these commands to
+approve, deny, list, or cancel requests visible to the current caller.
 
 **Usage:**
 
@@ -1024,7 +1028,7 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /approval approve [request_id]           # Approve specific request or queue head
 /approval deny [request_id] [reason]     # Deny with optional reason
 /approval list                           # List pending approvals (current session)
-/approval list --all                     # List all pending approvals (all sessions)
+/approval list --all                     # List visible approvals across sessions
 /approval cancel <request_id>            # Cancel a specific request
 ```
 
@@ -1037,7 +1041,11 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /deny <request_id> <reason>              # Same as /approval deny <request_id> <reason>
 ```
 
-> `/approval list` shows pending approvals for the current session (including child sessions). Use `--all` or `-a` to see all sessions for this agent.
+> `/approval list` shows caller-visible approvals for the current session
+> (including permitted child sessions). Use `--all` or `-a` to search the
+> current Agent's other sessions. Exact-requester approvals remain visible and
+> resolvable only to their originating Agent, user, channel, session, and root
+> session; the authenticated Console is an explicit administrator.
 
 ---
 
@@ -1133,11 +1141,14 @@ protect the chat context. Structured metadata is attached to the message up to
 
 Generation actions such as `daily_paper` and `auto_fin` use the same command
 surface. They require approval before running, then the command waits for the
-action result;
-unlike `auto_memory`, they are not submitted to the conversation Auto-Memory
-queue. Their `*_cron_enabled` settings control scheduled runs only and do not
-gate manual `/reme` execution. Use `/reme help` for the exact live parameters
-supported by the installed ReMe plugins.
+action result. Each approval is bound to the originating Agent, user, channel,
+session, and root session. Another chat participant or session cannot list,
+approve, deny, or cancel it; the authenticated Console remains an explicit
+administrator. Canceling the originating request also removes its pending
+approval. Unlike `auto_memory`, these actions are not submitted to the
+conversation Auto-Memory queue. Their `*_cron_enabled` settings control
+scheduled runs only and do not gate manual `/reme` execution. Use `/reme help`
+for the exact live parameters supported by the installed ReMe plugins.
 
 The former `/dream`, `/memorize`, and `/reme_status` commands have been
 removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.

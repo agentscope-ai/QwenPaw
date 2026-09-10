@@ -1015,7 +1015,10 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 
 ### `/approval` - 工具执行审批命令
 
-管理工具审批请求。当 `approval_level` 设为 `STRICT` 或 `SMART` 时，存在 CRITICAL 或 HIGH 级别发现的工具调用会进入待审批队列，使用这些命令进行批准、拒绝、列表查看或取消操作。
+管理工具和命令审批请求。当 `approval_level` 设为 `STRICT` 或 `SMART` 时，存在
+CRITICAL 或 HIGH 级别发现的工具调用会进入待审批队列。具有副作用的 `/reme`
+生成命令也使用此流程，并启用精确请求者身份隔离。使用这些命令可以批准、拒绝、
+查看或取消当前调用者有权处理的请求。
 
 **用法：**
 
@@ -1023,7 +1026,7 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 /approval approve [request_id]           # 批准指定请求或队首请求
 /approval deny [request_id] [reason]     # 拒绝并附理由
 /approval list                           # 列出当前会话的待审批项
-/approval list --all                     # 列出所有会话的待审批项
+/approval list --all                     # 跨会话列出当前调用者可见的待审批项
 /approval cancel <request_id>            # 取消指定请求
 ```
 
@@ -1036,7 +1039,9 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 /deny <request_id> <reason>              # 等同于 /approval deny <request_id> <reason>
 ```
 
-> `/approval list` 显示当前会话（含子会话）的待审批项。使用 `--all` 或 `-a` 查看该 Agent 所有会话的待审批项。
+> `/approval list` 显示当前会话中调用者可见的待审批项（包含允许处理的子会话）。
+> 使用 `--all` 或 `-a` 搜索当前 Agent 的其他会话。精确请求者审批仅对发起请求的
+> Agent、用户、频道、会话和根会话可见且可处理；经过身份验证的控制台是显式管理员。
 
 ---
 
@@ -1125,9 +1130,12 @@ CLI 的解析规则，因此数字、布尔值、列表和对象会保留对应�
 8,000 个序列化字符的结构化元数据；超出时改为附加有界预览。
 
 `daily_paper`、`auto_fin` 等生成类 action 也使用同一个命令入口。它们在执行前
-需要审批，命令会等待 action 返回结果；与 `auto_memory` 不同，它们不会提交到对话记忆队列。
-对应的 `*_cron_enabled` 配置只控制定时运行，不限制手动执行 `/reme`。当前安装的
-ReMe 插件具体支持哪些参数，以 `/reme help` 显示的运行时 action 目录为准。
+需要审批，命令会等待 action 返回结果。每项审批都会绑定发起请求的 Agent、用户、
+频道、会话和根会话；其他聊天参与者或会话无法查看、批准、拒绝或取消，经过身份验证的
+控制台则作为显式管理员。取消原始请求也会删除对应的待审批项。与 `auto_memory`
+不同，这些 action 不会提交到对话记忆队列。对应的 `*_cron_enabled` 配置只控制
+定时运行，不限制手动执行 `/reme`。当前安装的 ReMe 插件具体支持哪些参数，以
+`/reme help` 显示的运行时 action 目录为准。
 
 原 `/dream`、`/memorize` 和 `/reme_status` 命令已移除，请分别使用
 `/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。

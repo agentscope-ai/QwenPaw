@@ -282,7 +282,9 @@ Manual execution does not require `daily_paper_cron_enabled` or
 `auto_fin_cron_enabled`; those switches control scheduling only. These commands
 require approval, then wait for the generation action to finish. Run
 `/reme help` to see the precise chat-allowed parameters exposed by the
-currently installed plugins.
+currently installed plugins. Chat approval is restricted to the originating
+user, channel, and session; the authenticated Console can approve as an
+administrator.
 
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 

@@ -242,7 +242,8 @@ Enabling it returns the current idle threshold together with the safety warning 
 ```
 
 You normally do not need this: Auto-Dream runs on a daily schedule by default.
-Manual runs require approval before the action starts.
+Manual runs require approval from the originating chat identity before the
+action starts; the authenticated Console can approve as an administrator.
 Run `/reme help` to see all currently available chat-allowed actions.
 
 ### Settings relevant to this page

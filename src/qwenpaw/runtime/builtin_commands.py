@@ -10,6 +10,7 @@ and delegates to the original handler.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -291,7 +292,11 @@ async def _request_reme_action_approval(
     """Use the shared approval pipeline for side-effecting ReMe actions."""
     import json
 
-    from ..app.approvals import get_approval_service
+    from ..app.approvals import (
+        ApprovalActor,
+        ApprovalIdentityPolicy,
+        get_approval_service,
+    )
     from ..app.approvals.models import ApprovalRequestSummary
     from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
     from ..security.tool_guard.approval import ApprovalDecision
@@ -362,11 +367,34 @@ async def _request_reme_action_approval(
             "channel_meta": channel_meta,
             "_channel_instance": channel_instance,
         },
+        # These commands originate outside the governed tool loop. Bind the
+        # decision to the exact caller so another session on the same Agent
+        # cannot authorize its model/network use or persistent writes.
+        identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
     )
-    decision = await service.wait_for_approval(
-        pending.request_id,
-        TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+    actor = ApprovalActor(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        user_id=user_id,
+        channel=channel_name,
+        agent_id=agent_id,
     )
+    try:
+        decision = await service.wait_for_approval(
+            pending.request_id,
+            TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        )
+    except asyncio.CancelledError:
+        # A disconnected/cancelled command can no longer consume a decision;
+        # remove its pending prompt instead of leaving a stale approval behind.
+        await asyncio.shield(
+            service.resolve_request(
+                pending.request_id,
+                ApprovalDecision.DENIED,
+                actor=actor,
+            ),
+        )
+        raise
     return decision == ApprovalDecision.APPROVED
 
 
