@@ -178,6 +178,13 @@ class Runtime:
             ):
                 yield ev
             raise
+        except GeneratorExit:
+            # Closing an async response stream is normal generator control
+            # flow.  It must not run error hooks or emit an error envelope;
+            # persist any interrupted turn before the ``finally`` block
+            # performs lifecycle cleanup.
+            await self._try_save_on_cancel(ctx)
+            raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
 
