@@ -19,7 +19,7 @@ from .models import ImportSelection, MigrationPlan, ProviderInventory
 from .planner import build_migration_plan, tool_asset_fingerprints
 from .providers import create_migration_provider
 from .providers.base import ProgressReporter, report_progress as _report
-from .selection import select_inventory
+from .selection import select_inventory, validate_plan_selection
 from .transaction_journal import ImportTransactionJournal
 
 logger = logging.getLogger(__name__)
@@ -139,8 +139,10 @@ class ImportPlanningMixin:
                 raise ValueError(
                     "该迁移计划属于另一个智能体，不能在这里执行。",
                 )
-            if parent.state != "applied":
-                raise ValueError("只能重试已完成迁移中的失败工具。")
+            # The job manager validates failed-asset eligibility. A ready
+            # plan can also belong to an interrupted or failed attempt.
+            if parent.state not in {"ready", "applied"}:
+                raise ValueError("该迁移计划仍在执行或状态无效，不能重试。")
             await _report(progress, "正在重新读取来源并准备失败工具重试…")
             inventory = await self._inventory(
                 parent.source,
@@ -149,6 +151,7 @@ class ImportPlanningMixin:
             )
             plan = await build_migration_plan(self._workspace, inventory)
             await self._write_plan(plan)
+            validate_plan_selection(plan, selection)
             inventory = select_inventory(inventory, selection)
             memory_payloads, file_payloads = await io_utils.run_sync_io(
                 _prepare_memory_payloads,
@@ -195,6 +198,7 @@ class ImportPlanningMixin:
                 raise ValueError(
                     f"该迁移计划当前状态为 {plan.state!r}，不能重复执行。",
                 )
+            validate_plan_selection(plan, selection)
             include_sessions = selection is None or selection.sessions
             session_ids = (
                 {

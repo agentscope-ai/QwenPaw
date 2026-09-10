@@ -5,7 +5,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import ImportSelection, ProviderInventory
+from .models import ImportSelection, MigrationPlan, ProviderInventory
+
+PLAN_SELECTION_FIELDS = {
+    "memory": "memory",
+    "scheduled_task": "cron",
+    "skill": "skills",
+    "mcp": "mcp",
+    "plugin": "plugins",
+}
 
 _FIELDS = {
     "memory": "memory_projects",
@@ -14,6 +22,26 @@ _FIELDS = {
     "mcp": "mcp_servers",
     "plugins": "plugins",
 }
+
+
+def validate_plan_selection(
+    plan: MigrationPlan,
+    selection: ImportSelection | None,
+) -> None:
+    """Reject blocked preview assets even when a client selects them."""
+    chosen = (
+        {field: set(getattr(selection, field)) for field in _FIELDS}
+        if selection is not None
+        else None
+    )
+    for action in plan.actions:
+        field = PLAN_SELECTION_FIELDS.get(action.asset_type)
+        if (
+            action.blocked_reason
+            and field
+            and (chosen is None or action.source_id in chosen[field])
+        ):
+            raise ValueError(f"{action.name}: {action.blocked_reason}")
 
 
 def _selected(values: list[Any], ids: set[str], label: str) -> list[Any]:
@@ -73,4 +101,9 @@ def select_inventory(
     return inventory.model_copy(update=updates, deep=True)
 
 
-__all__ = ["bound_mcp_plugin", "select_inventory"]
+__all__ = [
+    "PLAN_SELECTION_FIELDS",
+    "bound_mcp_plugin",
+    "select_inventory",
+    "validate_plan_selection",
+]

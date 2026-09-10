@@ -25,18 +25,15 @@ from .models import (
     ImportSelection,
     MigrationPlan,
 )
+from .selection import (
+    PLAN_SELECTION_FIELDS as _TYPE_FIELDS,
+    validate_plan_selection,
+)
 
 _SUPPORTED_SOURCES = {"codex", "qoder"}
 _TERMINAL = {"completed", "completed_with_issues", "failed", "interrupted"}
 _CANCEL_GRACE_SECONDS = 3
 _MAX_TERMINAL_JOBS = 16
-_TYPE_FIELDS = {
-    "memory": "memory",
-    "scheduled_task": "cron",
-    "skill": "skills",
-    "mcp": "mcp",
-    "plugin": "plugins",
-}
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +60,21 @@ class ImportRun(BaseModel):
     seq: int = 0
     providers: list[ImportProviderSnapshot] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
+
+
+def _fail_unfinished_assets(
+    provider: ImportProviderSnapshot,
+    message: str,
+) -> None:
+    """Finish attempted assets without changing committed or blocked ones."""
+    for asset in provider.assets:
+        if not asset.blocked_reason and asset.state in {
+            ImportAssetState.PENDING,
+            ImportAssetState.REPAIRING,
+            ImportAssetState.READY,
+        }:
+            asset.state = ImportAssetState.FAILED
+            asset.message = message
 
 
 @dataclass
@@ -156,6 +168,8 @@ class PortabilityImportJobManager:
         }
         if set(selections) != ready:
             raise ValueError("selection must cover every detected source")
+        for source, selection in selections.items():
+            validate_plan_selection(live.plans[source], selection)
         if not any(
             selection.sessions
             or any(
@@ -320,7 +334,8 @@ class PortabilityImportJobManager:
                 live.snapshot.state = "failed"
                 self._log(live, cancel_error)
                 for provider in live.snapshot.providers:
-                    if provider.state == "running":
+                    if provider.state in {"pending", "running"}:
+                        _fail_unfinished_assets(provider, cancel_error)
                         provider.state = "failed"
                         provider.error = cancel_error
                 await self._emit(live, persist=True)
@@ -352,7 +367,11 @@ class PortabilityImportJobManager:
                     live.snapshot.state = "failed"
                     self._log(live, redact_sensitive_text(exc, limit=500))
                     for provider in live.snapshot.providers:
-                        if provider.state == "running":
+                        if provider.state in {"pending", "running"}:
+                            _fail_unfinished_assets(
+                                provider,
+                                redact_sensitive_text(exc, limit=500),
+                            )
                             provider.state = "failed"
                             provider.error = redact_sensitive_text(
                                 exc,
@@ -373,6 +392,8 @@ class PortabilityImportJobManager:
             return
         live.snapshot.state = "interrupted"
         for provider in live.snapshot.providers:
+            if provider.state in {"pending", "running"}:
+                _fail_unfinished_assets(provider, "导入已取消。")
             if provider.state not in {"completed", "failed"}:
                 provider.state = "failed"
                 provider.error = "导入已取消。"
@@ -394,17 +415,14 @@ class PortabilityImportJobManager:
         if snapshot.state in {"scanning", "running", "cancelling"}:
             snapshot.state = "interrupted"
             for provider in snapshot.providers:
+                if provider.state in {"pending", "running"}:
+                    _fail_unfinished_assets(
+                        provider,
+                        "导入因服务重启中断，请重试。",
+                    )
                 if provider.state not in {"completed", "failed"}:
                     provider.state = "failed"
                     provider.error = "导入因服务重启中断，请重试。"
-                for asset in provider.assets:
-                    if asset.state in {
-                        ImportAssetState.PENDING,
-                        ImportAssetState.REPAIRING,
-                        ImportAssetState.READY,
-                    }:
-                        asset.state = ImportAssetState.FAILED
-                        asset.message = "导入因服务重启中断，请重试。"
             await self._persist(workspace, snapshot)
         live = _LiveJob(workspace=workspace, snapshot=snapshot)
         self._prepare_progress(live)
@@ -503,7 +521,7 @@ class PortabilityImportJobManager:
                 provider.selection = self._default_selection(plan)
                 provider.assets = self._selected_assets(
                     plan,
-                    self._all_selection(plan),
+                    self._all_selection(plan, include_blocked=True),
                 )
                 self._prepare_progress(live)
                 provider.state = "ready"
@@ -566,26 +584,10 @@ class PortabilityImportJobManager:
                     )
                     live.plans[provider.source] = plan
                     provider.plan_id = plan.plan_id
-                retry_keys = (
-                    self._tool_ids(retry_selection)
-                    if retry_selection is not None
-                    else None
+                _fail_unfinished_assets(
+                    provider,
+                    "未收到资产导入结果，请重试。",
                 )
-                for asset in provider.assets:
-                    key = f"{asset.asset_type}:{asset.source_id}"
-                    if (
-                        retry_keys is None or key in retry_keys
-                    ) and asset.state in {
-                        ImportAssetState.PENDING,
-                        ImportAssetState.REPAIRING,
-                        ImportAssetState.READY,
-                    }:
-                        if asset.state not in {
-                            ImportAssetState.SUCCEEDED,
-                            ImportAssetState.FAILED,
-                        }:
-                            asset.state = ImportAssetState.FAILED
-                            asset.message = "未收到资产导入结果，请重试。"
                 if retry_from is None:
                     provider.sessions_processed = provider.sessions_total
                     provider.sessions_imported = len(imported_sessions)
@@ -593,23 +595,7 @@ class PortabilityImportJobManager:
             except Exception as exc:  # pylint: disable=broad-except
                 provider.error = redact_sensitive_text(exc, limit=500)
                 provider.state = "failed"
-                retry_keys = (
-                    self._tool_ids(retry_selection)
-                    if retry_selection is not None
-                    else None
-                )
-                for asset in provider.assets:
-                    if (retry_keys is None) or (
-                        retry_keys is not None
-                        and f"{asset.asset_type}:{asset.source_id}"
-                        in retry_keys
-                    ):
-                        if asset.state not in {
-                            ImportAssetState.SUCCEEDED,
-                            ImportAssetState.FAILED,
-                        }:
-                            asset.state = ImportAssetState.FAILED
-                            asset.message = "请手动修改相关配置后重试。"
+                _fail_unfinished_assets(provider, provider.error)
             await self._emit(live, persist=True)
         if live.cancel_requested and not any(
             item.state == "failed"
@@ -743,7 +729,11 @@ class PortabilityImportJobManager:
         return selection
 
     @staticmethod
-    def _all_selection(plan: MigrationPlan) -> ImportSelection:
+    def _all_selection(
+        plan: MigrationPlan,
+        *,
+        include_blocked: bool = False,
+    ) -> ImportSelection:
         values: dict[str, Any] = {
             "sessions": any(
                 item.asset_type == "session" for item in plan.actions
@@ -751,7 +741,9 @@ class PortabilityImportJobManager:
         }
         for action in plan.actions:
             selection_field = _TYPE_FIELDS.get(action.asset_type)
-            if selection_field:
+            if selection_field and (
+                include_blocked or not action.blocked_reason
+            ):
                 values.setdefault(selection_field, []).append(action.source_id)
         return ImportSelection(**values)
 
@@ -776,6 +768,7 @@ class PortabilityImportJobManager:
                 source_id=action.source_id,
                 name=action.name,
                 requires_sessions=action.requires_sessions,
+                blocked_reason=action.blocked_reason,
             )
             for action in plan.actions
             if (
@@ -810,6 +803,7 @@ class PortabilityImportJobManager:
             f"{item.asset_type}:{item.source_id}"
             for item in provider.assets
             if item.state is ImportAssetState.FAILED
+            and not item.blocked_reason
         }
         requested = cls._tool_ids(selection)
         if not requested <= failed:

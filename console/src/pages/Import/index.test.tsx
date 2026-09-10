@@ -217,6 +217,91 @@ describe("ImportPage", () => {
     );
   });
 
+  it.each(["toolsSetup", "groups.skill"])(
+    "excludes blocked assets from %s selection without blocking conversations",
+    (toggle) => {
+      vi.mocked(useImportJob).mockReturnValue(
+        state({
+          job: {
+            job_id: "job",
+            agent_id: "agent",
+            state: "awaiting_selection",
+            seq: 2,
+            logs: [],
+            providers: [
+              {
+                source: "codex",
+                state: "ready",
+                plan_id: "plan",
+                sessions_total: 1,
+                sessions_processed: 0,
+                sessions_imported: 0,
+                selection: { sessions: true, skills: [], plugins: [] },
+                assets: [
+                  {
+                    asset_type: "skill",
+                    source_id: "good",
+                    name: "Good Skill",
+                    state: "pending",
+                  },
+                  {
+                    asset_type: "skill",
+                    source_id: "bad",
+                    name: "Bad Skill",
+                    state: "pending",
+                    blocked_reason: "Skill exceeds size limit",
+                  },
+                  {
+                    asset_type: "plugin",
+                    source_id: "bad-plugin",
+                    name: "Bad Plugin",
+                    state: "pending",
+                    blocked_reason: "Cannot read plugin",
+                  },
+                ],
+                error: "",
+              },
+            ],
+          },
+        }) as never,
+      );
+      renderPage();
+      expect(screen.getByText("Skill exceeds size limit")).toBeVisible();
+      expect(
+        screen.getByRole("checkbox", { name: "Bad Skill" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("checkbox", { name: "Bad Plugin" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("checkbox", {
+          name: /portabilityImport.groups.plugin/,
+        }),
+      ).toBeDisabled();
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: new RegExp(`portabilityImport.${toggle}`),
+        }),
+      );
+      expect(
+        screen.getByRole("checkbox", { name: "Good Skill" }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("checkbox", { name: "Bad Skill" }),
+      ).not.toBeChecked();
+      fireEvent.click(
+        screen.getByRole("button", { name: "portabilityImport.start" }),
+      );
+      expect(actions.start).toHaveBeenCalledWith({
+        codex: expect.objectContaining({
+          sessions: true,
+          skills: ["good"],
+          plugins: [],
+        }),
+      });
+    },
+  );
+
   it("keeps a cancelling import visible", async () => {
     vi.mocked(actions.cancel).mockResolvedValue({ state: "cancelling" });
     vi.mocked(useImportJob).mockReturnValue(

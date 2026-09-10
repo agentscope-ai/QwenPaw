@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,7 @@ from qwenpaw.portability.models import (
     ProviderInventory,
     SourceMemoryFile,
     SourceMemoryProject,
+    SourcePlugin,
     SourceSkill,
 )
 from qwenpaw.portability.planner import inventory_fingerprint
@@ -131,3 +133,61 @@ def test_memory_relative_path_must_stay_in_declared_scope(
 
     with pytest.raises(ValueError, match="relative path escapes"):
         inventory_fingerprint(inventory)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["skills", "plugins", "memory"])
+@pytest.mark.parametrize("failure", ["oversized", "unreadable"])
+async def test_preview_isolates_expected_asset_errors_but_apply_stays_strict(
+    tmp_path: Path,
+    monkeypatch,
+    kind: str,
+    failure: str,
+) -> None:
+    root = tmp_path / "asset"
+    root.mkdir()
+    source = root / "content.md"
+    source.write_bytes(b"12345")
+    inventory = _skill_inventory(root)
+    if kind == "plugins":
+        inventory.skills = []
+        inventory.plugins = [
+            SourcePlugin(
+                source_id="asset",
+                name="Plugin",
+                marketplace="test",
+                install_source=str(root),
+            ),
+        ]
+    elif kind == "memory":
+        inventory.skills = []
+        inventory.memory_projects = [
+            SourceMemoryProject(
+                source_id="asset",
+                project_key="project",
+                files=[
+                    SourceMemoryFile(
+                        source_path=source,
+                        relative_path=Path("content.md"),
+                    ),
+                ],
+            ),
+        ]
+    if failure == "oversized":
+        monkeypatch.setattr(planner, "_MAX_FINGERPRINT_BYTES", 4)
+    else:
+
+        def unreadable(*_args, **_kwargs):
+            raise PermissionError("cannot read source")
+
+        monkeypatch.setattr(planner, "read_regular_file", unreadable)
+
+    plan = await planner.build_migration_plan(
+        SimpleNamespace(agent_id="agent"),
+        inventory,
+    )
+    assert len(plan.actions) == 1
+    assert plan.actions[0].blocked_reason
+    assert not plan.asset_fingerprints
+    with pytest.raises((ValueError, OSError)):
+        planner.tool_asset_fingerprints(inventory)

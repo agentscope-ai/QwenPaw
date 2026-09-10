@@ -31,6 +31,7 @@ export interface ImportAssetResult {
   enabled: boolean | null;
   message: string;
   requires_sessions: boolean;
+  blocked_reason?: string;
 }
 
 export interface ImportProviderSnapshot {

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,7 @@ from qwenpaw.drivers.adapters.mcp_legacy_config import (
 )
 from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.portability.importer import ProviderImportService
+from qwenpaw.portability.import_jobs import PortabilityImportJobManager
 from qwenpaw.portability.import_support import (
     _create_memory_project as create_memory_project,
     _prepare_memory_payloads,
@@ -31,6 +33,7 @@ from qwenpaw.portability.compatibility import (
     load_manifest,
 )
 from qwenpaw.portability.models import (
+    ImportAssetState,
     ImportSelection,
     ProviderInventory,
     SourceMarketplace,
@@ -41,6 +44,12 @@ from qwenpaw.portability.models import (
     SourceSession,
     SourceSkill,
     SourceScheduledTask,
+)
+from qwenpaw.portability import planner
+from qwenpaw.portability.selection import select_inventory
+from qwenpaw.portability.transaction_journal import (
+    ImportTransactionJournal,
+    recover_import_transactions,
 )
 from qwenpaw.plugins.marketplace_registry import ExternalMarketplaceRegistry
 
@@ -163,6 +172,174 @@ def _all_selection(plan) -> ImportSelection:
         if item.asset_type in fields:
             values[fields[item.asset_type]].append(item.source_id)
     return ImportSelection(sessions=True, **values)
+
+
+def _source_skills(tmp_path: Path, *names: str) -> list[SourceSkill]:
+    skills = []
+    for name in names:
+        root = tmp_path / name
+        root.mkdir()
+        (root / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: test\n---\n\nInstructions.\n",
+            encoding="utf-8",
+        )
+        skills.append(SourceSkill(source_id=name, name=name, directory=root))
+    return skills
+
+
+@pytest.mark.asyncio
+async def test_recovered_plan_retries_only_unfinished_assets(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = _workspace(tmp_path)
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=_source_skills(tmp_path, "done", "existing", "unfinished"),
+    )
+    _bind_inventory(monkeypatch, inventory)
+    manager = PortabilityImportJobManager()
+    job = await manager.create(workspace, ["codex"])
+    live = await manager._live(workspace, job.job_id)
+    await live.task
+    provider = live.snapshot.providers[0]
+    plan = live.plans["codex"]
+
+    # Persist a real interrupted transaction with two already-written assets.
+    targets = {}
+    for skill, state in zip(
+        inventory.skills,
+        (ImportAssetState.SUCCEEDED, ImportAssetState.EXISTING),
+    ):
+        target = workspace.workspace_dir / "skills" / skill.name
+        shutil.copytree(skill.directory, target)
+        targets[target / "SKILL.md"] = (target / "SKILL.md").read_bytes()
+        provider.assets[len(targets) - 1].state = state
+    provider.assets[-1].state = ImportAssetState.REPAIRING
+    provider.state = "running"
+    live.snapshot.state = "running"
+    await manager._persist(workspace, live.snapshot)
+    service = ProviderImportService(workspace)
+    plan.state = "applying"
+    await service._write_plan(plan)
+    await ImportTransactionJournal(
+        workspace.workspace_dir,
+        plan.plan_id,
+    ).begin()
+
+    assert await recover_import_transactions([workspace.workspace_dir]) == [
+        plan.plan_id,
+    ]
+    assert (await service._read_plan(plan.plan_id)).state == "ready"
+    restored = PortabilityImportJobManager()
+    snapshot = await restored.snapshot(workspace, job.job_id)
+    assert snapshot.state == "interrupted"
+    assert [asset.state for asset in snapshot.providers[0].assets] == [
+        ImportAssetState.SUCCEEDED,
+        ImportAssetState.EXISTING,
+        ImportAssetState.FAILED,
+    ]
+    for name in ("done", "existing"):
+        with pytest.raises(ValueError, match="previously failed"):
+            await restored.retry(
+                workspace,
+                job.job_id,
+                {"codex": ImportSelection(sessions=False, skills=[name])},
+            )
+    selection = ImportSelection(sessions=False, skills=["unfinished"])
+    _mock_adaptation(
+        monkeypatch,
+        workspace,
+        select_inventory(inventory, selection),
+        zone="migrate",
+    )
+    retry = await restored.retry(
+        workspace,
+        job.job_id,
+        {"codex": selection},
+    )
+    retried = await restored._live(workspace, retry.job_id)
+    await retried.task
+    assert retried.snapshot.state == "completed"
+    assert [asset.state for asset in retried.snapshot.providers[0].assets] == [
+        ImportAssetState.SUCCEEDED,
+        ImportAssetState.EXISTING,
+        ImportAssetState.SUCCEEDED,
+    ]
+    assert (workspace.workspace_dir / "skills/unfinished/SKILL.md").is_file()
+    assert all(path.read_bytes() == data for path, data in targets.items())
+
+
+@pytest.mark.asyncio
+async def test_blocked_skill_does_not_prevent_other_imports_or_retries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = _workspace(tmp_path)
+    inventory = ProviderInventory(
+        provider_id="codex",
+        provider_name="Codex",
+        detected=True,
+        skills=_source_skills(tmp_path, "good", "oversized"),
+        sessions=[
+            SourceSession(
+                source_id="thread-1",
+                history=[
+                    HarnessHistoryItem(
+                        kind=HarnessHistoryKind.USER,
+                        text="Keep this conversation",
+                    ),
+                ],
+            ),
+        ],
+    )
+    (inventory.skills[1].directory / "large.bin").write_bytes(b"x" * 1025)
+    monkeypatch.setattr(planner, "_MAX_FINGERPRINT_BYTES", 1024)
+    _bind_inventory(monkeypatch, inventory)
+    manager = PortabilityImportJobManager()
+    job = await manager.create(workspace, ["codex"])
+    live = await manager._live(workspace, job.job_id)
+    await live.task
+    assert live.snapshot.state == "awaiting_selection"
+    provider = live.snapshot.providers[0]
+    assert provider.selection.sessions
+    assert provider.selection.skills == ["good"]
+    assert "fingerprint byte limit" in provider.assets[1].blocked_reason
+    service = ProviderImportService(workspace)
+    blocked = ImportSelection(sessions=False, skills=["oversized"])
+    with pytest.raises(ValueError, match="fingerprint byte limit"):
+        await manager.start(workspace, job.job_id, {"codex": blocked})
+    with pytest.raises(ValueError, match="fingerprint byte limit"):
+        await service.apply_selection(provider.plan_id, blocked)
+    assert live.snapshot.state == "awaiting_selection"
+    assert not (workspace.workspace_dir / "skills").exists()
+
+    _mock_adaptation(
+        monkeypatch,
+        workspace,
+        select_inventory(inventory, provider.selection),
+        zone="migrate",
+    )
+    await manager.start(
+        workspace,
+        job.job_id,
+        {"codex": provider.selection},
+    )
+    await live.task
+    assert live.snapshot.state == "completed"
+    assert provider.sessions_imported == 1
+    assert provider.assets[0].state is ImportAssetState.SUCCEEDED
+    assert not (workspace.workspace_dir / "skills/oversized").exists()
+    target = workspace.workspace_dir / "skills/good/SKILL.md"
+    original = target.read_bytes()
+    # Fresh retry planning must also tolerate an unrelated blocked asset.
+    await service.retry_selection(
+        provider.plan_id,
+        ImportSelection(sessions=False, skills=["good"]),
+    )
+    assert target.read_bytes() == original
 
 
 async def _import_from(

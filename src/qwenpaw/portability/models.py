@@ -175,6 +175,7 @@ class ImportAssetResult(BaseModel):
     enabled: bool | None = None
     message: str = ""
     requires_sessions: bool = False
+    blocked_reason: str = ""
 
 
 class MigrationAssetPlan(BaseModel):
@@ -184,6 +185,7 @@ class MigrationAssetPlan(BaseModel):
     source_id: str
     name: str
     requires_sessions: bool = False
+    blocked_reason: str = ""
 
 
 class MigrationPlan(BaseModel):

@@ -14,12 +14,13 @@ from typing import Any
 from uuid import uuid4
 
 from ..utils.io_utils import run_sync_io
+from .compatibility_safety import redact_sensitive_text
 from .models import (
     MigrationAssetPlan,
     MigrationPlan,
     ProviderInventory,
 )
-from .selection import bound_mcp_plugin
+from .selection import PLAN_SELECTION_FIELDS, bound_mcp_plugin
 from .skill_transfer import read_regular_file
 
 _MAX_FINGERPRINT_ENTRIES = 6_000
@@ -363,8 +364,9 @@ def tool_asset_fingerprints(
     inventory: ProviderInventory,
     *,
     file_payloads: dict[Path, bytes] | None = None,
+    errors: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Fingerprint selected tools without mutable conversation history."""
+    """Fingerprint tools strictly, or collect per-asset errors for preview."""
     updates = {field: [] for _kind, field in _TOOL_FIELDS} | {
         "sessions": [],
         "ignored_session_ids": [],
@@ -406,10 +408,16 @@ def tool_asset_fingerprints(
                     ),
                 },
             )
-            result[f"{kind}:{item.source_id}"] = inventory_fingerprint(
-                scoped,
-                file_payloads=file_payloads if kind == "memory" else None,
-            )
+            key = f"{kind}:{item.source_id}"
+            try:
+                result[key] = inventory_fingerprint(
+                    scoped,
+                    file_payloads=file_payloads if kind == "memory" else None,
+                )
+            except (ValueError, OSError) as exc:
+                if errors is None:
+                    raise
+                errors[key] = redact_sensitive_text(exc, limit=500)
     return result
 
 
@@ -428,6 +436,8 @@ def _build_migration_plan(
     inventory: ProviderInventory,
 ) -> MigrationPlan:
     """Build a selectable plan without changing runtime assets."""
+    errors: dict[str, str] = {}
+    fingerprints = tool_asset_fingerprints(inventory, errors=errors)
     actions = []
     for collection, asset_type in _PLAN_TYPES:
         for item in getattr(inventory, collection):
@@ -437,6 +447,11 @@ def _build_migration_plan(
                 MigrationAssetPlan(
                     asset_type=asset_type,
                     source_id=item.source_id,
+                    blocked_reason=errors.get(
+                        f"{PLAN_SELECTION_FIELDS.get(asset_type)}:"
+                        f"{item.source_id}",
+                        "",
+                    ),
                     name=(
                         getattr(item, "project_key", "")
                         or getattr(item, "title", "")
@@ -456,7 +471,7 @@ def _build_migration_plan(
         source=inventory.provider_id,
         agent_id=agent_id,
         created_at=datetime.now(timezone.utc),
-        asset_fingerprints=tool_asset_fingerprints(inventory),
+        asset_fingerprints=fingerprints,
         actions=actions,
     )
 

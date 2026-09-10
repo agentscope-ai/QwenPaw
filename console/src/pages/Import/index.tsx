@@ -30,6 +30,7 @@ import styles from "./index.module.less";
 
 const GROUPS = ["memory", "cron", "skill", "mcp", "plugin"] as const;
 const ASSET_PAGE_SIZE = 100;
+const isSelectable = (asset: ImportAssetResult) => !asset.blocked_reason;
 const FIELDS = {
   memory: "memory",
   cron: "cron",
@@ -258,7 +259,7 @@ export default function ImportPage() {
     () =>
       job?.providers.flatMap((provider) =>
         provider.assets
-          .filter((asset) => asset.state === "failed")
+          .filter((asset) => asset.state === "failed" && isSelectable(asset))
           .map((asset) => ({ provider, asset })),
       ) ?? [],
     [job],
@@ -353,6 +354,7 @@ export default function ImportPage() {
     asset: ImportAssetResult,
     checked: boolean,
   ) => {
+    if (!isSelectable(asset)) return;
     const field = FIELDS[asset.asset_type];
     updateSelection(provider.source, (selection) => {
       const values = new Set(selection[field] ?? []);
@@ -369,7 +371,7 @@ export default function ImportPage() {
   ) => {
     const field = FIELDS[type];
     const ids = provider.assets
-      .filter((asset) => asset.asset_type === type)
+      .filter((asset) => asset.asset_type === type && isSelectable(asset))
       .map((asset) => asset.source_id);
     updateSelection(provider.source, (selection) => ({
       ...selection,
@@ -385,7 +387,9 @@ export default function ImportPage() {
           FIELDS[type],
           checked
             ? provider.assets
-                .filter((asset) => asset.asset_type === type)
+                .filter(
+                  (asset) => asset.asset_type === type && isSelectable(asset),
+                )
                 .map((asset) => asset.source_id)
             : [],
         ]),
@@ -539,6 +543,7 @@ export default function ImportPage() {
                     </div>
                     {provider.assets.length > 0 &&
                       (() => {
+                        const selectable = provider.assets.filter(isSelectable);
                         const selectedIds = new Set(
                           GROUPS.flatMap((type) =>
                             (
@@ -548,7 +553,7 @@ export default function ImportPage() {
                             ).map((id) => `${type}:${id}`),
                           ),
                         );
-                        const selected = provider.assets.filter((asset) =>
+                        const selected = selectable.filter((asset) =>
                           selectedIds.has(
                             `${asset.asset_type}:${asset.source_id}`,
                           ),
@@ -556,9 +561,13 @@ export default function ImportPage() {
                         return (
                           <div className={styles.row}>
                             <Checkbox
-                              checked={selected === provider.assets.length}
+                              disabled={!selectable.length}
+                              checked={Boolean(
+                                selectable.length &&
+                                  selected === selectable.length,
+                              )}
                               indeterminate={Boolean(
-                                selected && selected < provider.assets.length,
+                                selected && selected < selectable.length,
                               )}
                               onChange={(event) =>
                                 toggleTools(provider, event.target.checked)
@@ -586,6 +595,10 @@ export default function ImportPage() {
                         const selected = new Set(
                           currentSelections[provider.source]?.[field] ?? [],
                         );
+                        const selectable = assets.filter(isSelectable);
+                        const selectedCount = selectable.filter((asset) =>
+                          selected.has(asset.source_id),
+                        ).length;
                         const pageKey = `select:${provider.source}:${type}`;
                         const page = assetPage(pageKey);
                         const pageAssets = assets.slice(
@@ -597,10 +610,14 @@ export default function ImportPage() {
                             key: type,
                             label: (
                               <Checkbox
-                                checked={selected.size === assets.length}
+                                disabled={!selectable.length}
+                                checked={Boolean(
+                                  selectable.length &&
+                                    selectedCount === selectable.length,
+                                )}
                                 indeterminate={Boolean(
-                                  selected.size &&
-                                    selected.size < assets.length,
+                                  selectedCount &&
+                                    selectedCount < selectable.length,
                                 )}
                                 onClick={(event) => event.stopPropagation()}
                                 onChange={(event) =>
@@ -632,7 +649,11 @@ export default function ImportPage() {
                                       }
                                     >
                                       <Checkbox
-                                        checked={selected.has(asset.source_id)}
+                                        disabled={!isSelectable(asset)}
+                                        checked={
+                                          isSelectable(asset) &&
+                                          selected.has(asset.source_id)
+                                        }
                                         onChange={(event) =>
                                           toggleAsset(
                                             provider,
@@ -644,6 +665,9 @@ export default function ImportPage() {
                                         {asset.name}
                                       </Checkbox>
                                     </Tooltip>
+                                    {asset.blocked_reason && (
+                                      <span>{asset.blocked_reason}</span>
+                                    )}
                                   </div>
                                 ))}
                                 {assets.length > ASSET_PAGE_SIZE && (
@@ -730,7 +754,7 @@ export default function ImportPage() {
                     >
                       <span>{asset.name}</span>
                       <AssetStatus asset={asset} />
-                      {asset.state === "failed" && (
+                      {asset.state === "failed" && isSelectable(asset) && (
                         <Checkbox
                           aria-label={asset.name}
                           checked={selectedRetryKeySet.has(

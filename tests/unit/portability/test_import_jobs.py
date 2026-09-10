@@ -197,6 +197,65 @@ async def test_restored_running_job_marks_unfinished_assets_retryable(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("provider_state", ["ready", "pending", "running"])
+async def test_cancel_marks_only_attempted_unfinished_assets_failed(
+    tmp_path: Path,
+    provider_state: str,
+) -> None:
+    workspace = _workspace(tmp_path)
+    manager = PortabilityImportJobManager()
+    provider = ImportProviderSnapshot(
+        source="codex",
+        state=provider_state,
+        assets=[
+            ImportAssetResult(
+                asset_type="skill",
+                source_id=state.value,
+                name=state.value,
+                state=state,
+            )
+            for state in ImportAssetState
+        ],
+    )
+    provider.assets.append(
+        ImportAssetResult(
+            asset_type="skill",
+            source_id="blocked",
+            name="blocked",
+            blocked_reason="cannot read source",
+        ),
+    )
+    live = _LiveJob(
+        workspace=workspace,
+        snapshot=ImportRun(
+            job_id="import-" + "a" * 32,
+            agent_id=workspace.agent_id,
+            state="cancelling",
+            providers=[provider],
+        ),
+    )
+    await manager._mark_interrupted(live)
+    for asset, original in zip(provider.assets, ImportAssetState):
+        assert asset.state == (
+            ImportAssetState.FAILED
+            if provider_state != "ready"
+            and original
+            in {
+                ImportAssetState.PENDING,
+                ImportAssetState.REPAIRING,
+                ImportAssetState.READY,
+            }
+            else original
+        )
+    assert provider.assets[-1].state is ImportAssetState.PENDING
+    with pytest.raises(ValueError, match="previously failed"):
+        manager._validate_retry_selection(
+            provider,
+            ImportSelection(sessions=False, skills=["blocked"]),
+        )
+
+
+@pytest.mark.asyncio
 async def test_scan_is_concurrent_and_persisted(tmp_path: Path) -> None:
     services = _FakeServices()
     workspace = _workspace(tmp_path)
