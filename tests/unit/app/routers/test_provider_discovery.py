@@ -311,3 +311,35 @@ async def test_connection_preserves_protocol_override(
     provider.model_copy.assert_called_once_with(
         update={"chat_model": chat_model},
     )
+
+
+async def test_connection_preserves_header_overrides() -> None:
+    """Connection tests must use unsaved header configuration."""
+    provider = MagicMock()
+    provider.model_copy.return_value = provider
+    provider.check_connection = AsyncMock(return_value=(True, ""))
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    generate_kwargs = {
+        "extra_headers": {
+            "X-Legacy-Token": "legacy-token",
+        },
+    }
+    custom_headers = {"X-Custom-Token": "custom-token"}
+
+    result = await provider_connection_endpoint(
+        manager=manager,
+        provider_id="custom-provider",
+        body=TestProviderRequest(
+            generate_kwargs=generate_kwargs,
+            custom_headers=custom_headers,
+        ),
+    )
+
+    assert result.success is True
+    provider.model_copy.assert_called_once_with(
+        update={
+            "generate_kwargs": generate_kwargs,
+            "custom_headers": custom_headers,
+        },
+    )

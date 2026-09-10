@@ -29,6 +29,39 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
     )
 
 
+def test_client_merges_generate_extra_headers(monkeypatch) -> None:
+    provider = _make_provider()
+    custom_headers = {
+        "X-Custom": "custom",
+        "X-Shared": "custom",
+    }
+    extra_headers = {
+        "X-Extra": "extra",
+        "X-Shared": "extra",
+    }
+    provider.custom_headers = custom_headers
+    provider.generate_kwargs = {"extra_headers": extra_headers}
+    captured: dict = {}
+    fake_client = SimpleNamespace()
+
+    def create_client(**kwargs):
+        captured.update(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(openai_provider_module, "AsyncOpenAI", create_client)
+
+    result = provider._client(timeout=2.5)
+
+    assert result is fake_client
+    assert captured["default_headers"] == {
+        "X-Custom": "custom",
+        "X-Extra": "extra",
+        "X-Shared": "extra",
+    }
+    assert provider.custom_headers == custom_headers
+    assert provider.generate_kwargs == {"extra_headers": extra_headers}
+
+
 async def test_check_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     calls: list[float | None] = []

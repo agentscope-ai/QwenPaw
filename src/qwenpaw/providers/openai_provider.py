@@ -154,7 +154,11 @@ class OpenAIProvider(Provider):
     )
 
     def _build_default_headers(self) -> dict:
-        return dict(self.custom_headers) if self.custom_headers else {}
+        headers = dict(self.custom_headers) if self.custom_headers else {}
+        extra_headers = self.generate_kwargs.get("extra_headers")
+        if extra_headers:
+            headers.update(extra_headers)
+        return headers
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
         kwargs: dict = {
