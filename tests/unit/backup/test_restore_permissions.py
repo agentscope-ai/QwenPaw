@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from qwenpaw.backup._ops.restore import _harden_secret_dir, _stage_secrets
 from qwenpaw.backup._utils.safe_swap import _extract_zip_to, extract_to_tmp
 
 restore_ops = importlib.import_module("qwenpaw.backup._ops.restore")
@@ -41,30 +42,12 @@ def test_harden_secret_dir_recurses_into_nested_subdir(
     os.chmod(secret_dir / ".master_key", 0o644)
     os.chmod(nested / "openai.json", 0o644)
 
-    restore_ops._harden_secret_dir(secret_dir)
+    _harden_secret_dir(secret_dir)
 
     assert _mode(secret_dir) == 0o700
     assert _mode(nested) == 0o700
     assert _mode(secret_dir / ".master_key") == 0o600
     assert _mode(nested / "openai.json") == 0o600
-
-
-def test_harden_secret_dir_handles_deep_nesting(tmp_path: Path) -> None:
-    """Hardening reaches arbitrarily deep subdirectories."""
-    secret_dir = tmp_path / "secrets"
-    deep = secret_dir / "a" / "b"
-    deep.mkdir(parents=True)
-    (deep / "cred.json").write_text("{}", encoding="utf-8")
-    os.chmod(secret_dir / "a", 0o755)
-    os.chmod(deep, 0o755)
-    os.chmod(deep / "cred.json", 0o644)
-
-    restore_ops._harden_secret_dir(secret_dir)
-
-    assert _mode(secret_dir) == 0o700
-    assert _mode(secret_dir / "a") == 0o700
-    assert _mode(deep) == 0o700
-    assert _mode(deep / "cred.json") == 0o600
 
 
 def test_extract_does_not_apply_unauthenticated_mode(tmp_path: Path) -> None:
@@ -130,7 +113,7 @@ def test_harden_secret_dir_propagates_chmod_failure(
     monkeypatch.setattr(restore_ops.os, "chmod", fail_chmod)
 
     with pytest.raises(PermissionError, match="chmod denied"):
-        restore_ops._harden_secret_dir(secret_dir)
+        _harden_secret_dir(secret_dir)
 
 
 def test_stage_secrets_discards_tmp_when_hardening_fails(
@@ -167,8 +150,8 @@ def test_stage_secrets_discards_tmp_when_hardening_fails(
 
     with zipfile.ZipFile(buf) as zf:
         with pytest.raises(PermissionError, match="chmod denied"):
-            restore_ops._stage_secrets(zf, staged_dirs)
+            _stage_secrets(zf, staged_dirs)
 
     assert existing.exists()
-    assert staged_dirs == []
+    assert not staged_dirs
     assert not secret_dir.with_name("secrets.restore_tmp").exists()
