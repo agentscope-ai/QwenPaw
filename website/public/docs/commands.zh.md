@@ -1090,7 +1090,7 @@ qwenpaw daemon version --agent-id abc123
 
 ## ReMe 记忆命令
 
-通过统一的 `/reme` 入口调用当前 ReMe Light 后端对用户开放的 action：
+通过统一的 `/reme` 入口调用 QwenPaw 明确允许在聊天中使用的 ReMe action：
 
 ```text
 /reme help
@@ -1101,16 +1101,22 @@ qwenpaw daemon version --agent-id abc123
 /reme auto_memory count=2 memory_hint="记录技术决策"
 /reme daily_paper topics="智能体,记忆" force=true
 /reme auto_fin topics="黄金,机器人" window_hours=12
-/reme reindex scope=all
 ```
+
+聊天 allowlist 包含 `status`、`search`、`proactive`、`auto_memory`、
+`auto_dream`、`daily_paper` 和 `auto_fin`。action 在后端可用并不代表它能从
+聊天调用。`read`、`read_image`、`write`、`edit`、`delete`、`move`、
+`list`、`stat`、`daily_write`、`daily_list`、`frontmatter_*`、`node_search`
+等原始 vault action 不对聊天开放；`reindex`、`undo_reindex`、
+`daily_reindex` 等全局维护 action 必须通过经过身份验证的控制台或维护 API 执行。
 
 命令格式为 `/reme <action> key=value`。包含空格的值使用双引号；JSON 列表和
 对象使用单引号包住，避免其中的双引号被命令行解析移除，例如
 `tags='["架构","记忆"]'` 或 `filter='{"kind":"decision"}'`。参数值沿用 ReMe
 CLI 的解析规则，因此数字、布尔值、列表和对象会保留对应类型。
-`/reme help` 会读取运行时 action 目录，展示当前 ReMe 版本实际接受的参数，
-并用 `*` 标出必填项。action 是否可用及参数校验均以正在运行的后端为准，
-QwenPaw 不再维护一套容易失同步的硬编码命令列表。
+`/reme help` 会将运行时 backend action 目录与 QwenPaw 的聊天 allowlist 取交集，
+展示当前 ReMe 版本实际接受的参数，并用 `*` 标出必填项。参数校验仍以正在运行的
+后端为准，但新增 backend job 不会自动扩大聊天权限。
 
 `auto_memory` 由 QwenPaw 托管：`count` 选择当前会话最近的助手回复组（默认
 为 `1`），`memory_hint` 可选地指导记忆提取，消息内容与会话 ID 由 QwenPaw

@@ -12,6 +12,7 @@ from agentscope.message import HintBlock, Msg, TextBlock
 from qwenpaw.agents.command_handler import (
     CommandHandler,
     _MAX_REME_OUTPUT_CHARS,
+    _REME_CHAT_SAFE_ACTIONS,
 )
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.middlewares import auto_memory_turn_state
@@ -417,6 +418,85 @@ async def test_reme_help_lists_live_actions_and_adapter_arguments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reme_help_lists_only_explicitly_chat_safe_actions() -> None:
+    agent = _make_agent()
+    unsafe_actions = {
+        "node_search",
+        "daily_list",
+        "list",
+        "stat",
+        "read",
+        "read_image",
+        "frontmatter_read",
+        "write",
+        "daily_write",
+        "edit",
+        "delete",
+        "move",
+        "frontmatter_delete",
+        "frontmatter_update",
+        "reindex",
+        "undo_reindex",
+        "daily_reindex",
+    }
+    memory_manager = _ActionMemoryManager(
+        *_REME_CHAT_SAFE_ACTIONS,
+        *unsafe_actions,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme help")
+    text = msg.get_text_content()
+
+    for action in _REME_CHAT_SAFE_ACTIONS:
+        assert f"/reme {action}" in text
+    for action in unsafe_actions:
+        assert f"- `/reme {action}`" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action",
+    [
+        "node_search",
+        "daily_list",
+        "list",
+        "stat",
+        "read",
+        "read_image",
+        "frontmatter_read",
+        "write",
+        "daily_write",
+        "edit",
+        "delete",
+        "move",
+        "frontmatter_delete",
+        "frontmatter_update",
+        "reindex",
+        "undo_reindex",
+        "daily_reindex",
+    ],
+)
+async def test_reme_blocks_actions_outside_chat_allowlist(action: str) -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("search", action)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command(f"/reme {action}")
+
+    assert "Unknown ReMe Action" in msg.get_text_content()
+    memory_manager.run_action_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_reme_help_sorts_arguments_and_bounds_output() -> None:
     agent = _make_agent()
     memory_manager = _ActionMemoryManager("search")
@@ -691,6 +771,108 @@ async def test_reme_bounds_the_complete_visible_response() -> None:
     assert len(text) == _MAX_REME_OUTPUT_CHARS
     assert text.endswith("ReMe output truncated by QwenPaw.")
     assert msg.metadata == {"source": "memory"}
+
+
+@pytest.mark.asyncio
+async def test_reme_bounds_caller_and_backend_controlled_errors() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("search")
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    unknown = await handler.handle_command(
+        "/reme " + "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    malformed = await handler.handle_command(
+        "/reme search " + "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    memory_manager.run_action_mock.side_effect = ValueError(
+        "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    failed = await handler.handle_command("/reme search")
+
+    for msg in (unknown, malformed, failed):
+        text = msg.get_text_content()
+        assert len(text) == _MAX_REME_OUTPUT_CHARS
+        assert text.endswith("ReMe output truncated by QwenPaw.")
+
+
+@pytest.mark.asyncio
+async def test_reme_bounds_catalog_and_auto_memory_errors() -> None:
+    agent = _make_agent()
+    catalog_manager = _ActionMemoryManager("search")
+    catalog_manager.list_actions = AsyncMock(
+        side_effect=ValueError("x" * (_MAX_REME_OUTPUT_CHARS + 100)),
+    )
+    catalog_handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=catalog_manager,
+    )
+
+    catalog_error = await catalog_handler.handle_command("/reme help")
+
+    agent.state.context = [
+        _msg("user", "remember this"),
+        _msg("assistant", "noted", msg_id="r1"),
+    ]
+    auto_manager = _ActionMemoryManager("auto_memory")
+    auto_manager.submit_auto_memory.side_effect = ValueError(
+        "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    auto_handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=auto_manager,
+    )
+    auto_error = await auto_handler.handle_command("/reme auto_memory")
+
+    for msg in (catalog_error, auto_error):
+        text = msg.get_text_content()
+        assert len(text) == _MAX_REME_OUTPUT_CHARS
+        assert text.endswith("ReMe output truncated by QwenPaw.")
+
+
+@pytest.mark.asyncio
+async def test_reme_serializes_large_structured_values_off_event_loop(
+    monkeypatch,
+) -> None:
+    event_loop_thread = threading.get_ident()
+    serialization_threads = []
+    stringify = CommandHandler._stringify_reme_value
+
+    def tracked_stringify(value):
+        serialization_threads.append(threading.get_ident())
+        return stringify(value)
+
+    monkeypatch.setattr(
+        CommandHandler,
+        "_stringify_reme_value",
+        staticmethod(tracked_stringify),
+    )
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "search",
+        response=SimpleNamespace(
+            success=True,
+            answer={"items": [{"value": "x" * 10000} for _ in range(100)]},
+            metadata={"graph": [{"node": "y" * 10000} for _ in range(100)]},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme search show_metadata=true")
+
+    assert len(msg.get_text_content()) == _MAX_REME_OUTPUT_CHARS
+    assert serialization_threads
+    assert event_loop_thread not in serialization_threads
 
 
 def test_reme_output_truncation_accounts_for_suffix() -> None:

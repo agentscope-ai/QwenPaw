@@ -1091,8 +1091,8 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ## ReMe Memory Commands
 
-Use the single `/reme` entry point for user-callable actions exposed by the
-active ReMe Light backend:
+Use the single `/reme` entry point for QwenPaw's explicitly chat-safe ReMe
+actions:
 
 ```text
 /reme help
@@ -1103,18 +1103,25 @@ active ReMe Light backend:
 /reme auto_memory count=2 memory_hint="record technical decisions"
 /reme daily_paper topics="agents,memory" force=true
 /reme auto_fin topics="gold,robotics" window_hours=12
-/reme reindex scope=all
 ```
+
+The chat allowlist is `status`, `search`, `proactive`, `auto_memory`,
+`auto_dream`, `daily_paper`, and `auto_fin`. Backend availability alone does
+not make an action callable from chat. Raw vault actions such as `read`,
+`read_image`, `write`, `edit`, `delete`, `move`, `list`, `stat`,
+`daily_write`, `daily_list`, `frontmatter_*`, and `node_search` are excluded.
+Global maintenance actions such as `reindex`, `undo_reindex`, and
+`daily_reindex` must instead use the authenticated Console or maintenance API.
 
 The syntax is `/reme <action> key=value`. Wrap values containing spaces in
 double quotes. Wrap JSON lists and objects in single quotes so their inner
 double quotes are preserved, for example `tags='["a","b"]'` or
 `filter='{"kind":"decision"}'`. Values use ReMe's CLI parsing, so numbers,
-booleans, lists, and objects keep their native types. `/reme help` reads the
-live action catalog, shows the arguments accepted by this ReMe version, and
-marks required arguments with `*`. Action availability and validation therefore
-stay aligned with the running backend instead of a hard-coded QwenPaw command
-list.
+booleans, lists, and objects keep their native types. `/reme help` intersects
+the live backend catalog with QwenPaw's chat allowlist, shows the parameters
+accepted by this ReMe version, and marks required arguments with `*`.
+Validation therefore stays aligned with the running backend without allowing a
+new backend job to expand chat permissions automatically.
 
 `auto_memory` is QwenPaw-managed: `count` selects recent assistant reply
 groups from the current conversation (default `1`), `memory_hint` optionally

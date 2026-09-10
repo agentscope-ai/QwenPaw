@@ -68,6 +68,24 @@ _FORCE_TRIGGER_RATIO = 1e-6
 _MAX_COMPACT_HINT_CHARS = 2000
 _MAX_REME_OUTPUT_CHARS = 20000
 _REME_TRUNCATION_SUFFIX = "\n\n… ReMe output truncated by QwenPaw."
+# ``enable_serve`` describes ReMe's backend/API surface; it is not a chat
+# authorization decision.  Keep the slash-command surface deliberately narrow
+# so raw vault operations and global maintenance actions cannot bypass normal
+# tool approvals.
+# Chat-safe actions are intentionally named here rather than inferred from job
+# schemas.  High-level memory workflows may update their own managed data, but
+# callers cannot choose arbitrary vault paths or trigger global index changes.
+_REME_CHAT_SAFE_ACTIONS = frozenset(
+    {
+        "status",
+        "search",
+        "proactive",
+        "auto_memory",
+        "auto_dream",
+        "daily_paper",
+        "auto_fin",
+    },
+)
 
 
 def _fmt_tokens(n: int) -> str:
@@ -861,15 +879,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
         messages: list[Msg],
         args: str = "",
     ) -> Msg:
-        """Run ``/reme <action> key=value`` against the live ReMe catalog.
+        """Run a chat-safe ``/reme <action> key=value`` command.
 
-        Most actions pass through to :class:`MemoryActionProvider`. The
-        ``auto_memory`` action is the one host-managed exception: QwenPaw
+        The backend catalog is intersected with an explicit chat allowlist;
+        ReMe's ``enable_serve`` flag alone does not grant chat authorization.
+        Allowed actions normally pass through to :class:`MemoryActionProvider`.
+        The ``auto_memory`` action is the one host-managed exception: QwenPaw
         selects reply groups from the current conversation and submits them
         through the shared auto-memory queue.
         """
         if not self._has_memory_manager():
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Memory Manager Disabled**\n\n"
                 "- Cannot run ReMe commands\n"
                 "- Set `memory_manager_backend` to `remelight` and restart "
@@ -878,7 +898,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         action_provider = self.memory_manager
         if not isinstance(action_provider, MemoryActionProvider):
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**ReMe Unavailable**\n\n"
                 "- This memory backend does not expose callable actions",
             )
@@ -886,7 +906,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             tokens = shlex.split(args)
         except ValueError as exc:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**Invalid ReMe Command**\n\n- Error: {exc}",
             )
 
@@ -894,34 +914,39 @@ class CommandHandler(ConversationCommandHandlerMixin):
             actions = await action_provider.list_actions()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Could not list ReMe actions: %s", exc)
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**ReMe Unavailable**\n\n- Error: {exc}",
             )
 
+        actions = {
+            name: spec
+            for name, spec in actions.items()
+            if name in _REME_CHAT_SAFE_ACTIONS
+        }
         if not actions:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**ReMe Unavailable**\n\n"
                 "- ReMe is not started or this memory backend does not "
                 "support ReMe commands",
             )
 
         if not tokens or tokens[0].lower() == "help":
-            return await self._make_system_msg(
-                self._bound_reme_output(self._format_reme_help(actions)),
+            return await self._make_reme_system_msg(
+                self._format_reme_help(actions),
             )
 
         try:
             action = parse_action(tokens[0])
             kwargs = parse_kwargs(*tokens[1:])
         except (TypeError, ValueError) as exc:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Invalid ReMe Command**\n\n"
                 f"- Error: {exc}\n"
                 "- Usage: `/reme <action> key=value`",
             )
 
         if action not in actions:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**Unknown ReMe Action: `{action}`**\n\n"
                 "- Run `/reme help` to list available actions",
             )
@@ -933,7 +958,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # removed before the remaining arguments are validated by ReMe.
         show_metadata = kwargs.pop("show_metadata", False)
         if not isinstance(show_metadata, bool):
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Invalid ReMe Command**\n\n"
                 "- `show_metadata` must be a boolean value",
             )
@@ -942,42 +967,24 @@ class CommandHandler(ConversationCommandHandlerMixin):
             response = await action_provider.run_action(action, **kwargs)
         except Exception as exc:  # noqa: BLE001
             logger.exception("ReMe action failed: %s", action)
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**ReMe `{action}` Failed**\n\n- Error: {exc}",
             )
 
         if response is None:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**ReMe `{action}` Unavailable**\n\n"
                 "- ReMe stopped before the action could run",
             )
 
-        answer = self._stringify_reme_value(getattr(response, "answer", ""))
-        metadata = dict(getattr(response, "metadata", None) or {})
-        if not getattr(response, "success", False):
-            return await self._make_system_msg(
-                self._bound_reme_output(
-                    f"**ReMe `{action}` Failed**\n\n"
-                    f"{answer or 'Unknown ReMe error'}",
-                ),
-                metadata=metadata,
-            )
-
-        body = f"**ReMe `{action}` Complete**"
-        if answer:
-            body += f"\n\n{answer}"
-        if show_metadata and metadata:
-            body += "\n\n**Metadata**\n\n" + self._stringify_reme_value(
-                metadata,
-            )
-        if action == "status":
-            body += (
-                "\n\n⚠️ ReMe estimates storage components independently; "
-                "shared objects may be counted more than once, so their "
-                "total should not be compared directly with process RSS."
-            )
+        body, metadata = await run_sync_io(
+            self._render_reme_action_response,
+            action,
+            response,
+            show_metadata=show_metadata,
+        )
         return await self._make_system_msg(
-            self._bound_reme_output(body),
+            body,
             metadata=metadata,
         )
 
@@ -990,14 +997,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Select recent replies for host-managed ``auto_memory``."""
         unknown = sorted(set(kwargs).difference({"count", "memory_hint"}))
         if unknown:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Invalid ReMe `auto_memory` Command**\n\n"
                 "- Unknown argument(s): " + ", ".join(unknown),
             )
 
         count = kwargs.get("count", 1)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Invalid Count**\n\n"
                 "- `count` must be a positive integer\n"
                 "- Example: `/reme auto_memory count=2`",
@@ -1005,14 +1012,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         memory_hint = kwargs.get("memory_hint", "")
         if not isinstance(memory_hint, str):
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**Invalid Memory Hint**\n\n"
                 "- `memory_hint` must be a string",
             )
 
         reply_ids = self._latest_reply_ids(messages, count=count)
         if not reply_ids:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**No Reply Messages Found**\n\n"
                 "- No assistant replies are available to memorize",
             )
@@ -1022,7 +1029,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             reply_ids=reply_ids,
         )
         if not memory_messages:
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 "**No Messages Found**\n\n"
                 "- Could not build a message range for the selected replies",
             )
@@ -1038,11 +1045,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("manual auto-memory failed: %s", exc)
-            return await self._make_system_msg(
+            return await self._make_reme_system_msg(
                 f"**ReMe `auto_memory` Failed**\n\n- Error: {exc}",
             )
 
-        return await self._make_system_msg(
+        return await self._make_reme_system_msg(
             "**ReMe `auto_memory` Started**\n\n"
             f"- Reply groups: {len(reply_ids)}\n"
             f"- Messages submitted: {len(memory_messages)}",
@@ -1050,7 +1057,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     @staticmethod
     def _format_reme_help(actions: dict[str, MemoryActionSpec]) -> str:
-        """Render the live ReMe action catalog as slash-command help."""
+        """Render the filtered live ReMe catalog as slash-command help."""
         lines = [
             "**ReMe Commands**",
             "",
@@ -1103,6 +1110,48 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         except (TypeError, ValueError):
             return str(value)
+
+    @classmethod
+    def _render_reme_action_response(
+        cls,
+        action: str,
+        response: Any,
+        *,
+        show_metadata: bool,
+    ) -> tuple[str, dict]:
+        """Serialize and bound an action result in a worker thread."""
+        answer = cls._stringify_reme_value(getattr(response, "answer", ""))
+        metadata = dict(getattr(response, "metadata", None) or {})
+        if not getattr(response, "success", False):
+            body = (
+                f"**ReMe `{action}` Failed**\n\n"
+                f"{answer or 'Unknown ReMe error'}"
+            )
+            return cls._bound_reme_output(body), metadata
+
+        body = f"**ReMe `{action}` Complete**"
+        if answer:
+            body += f"\n\n{answer}"
+        if show_metadata and metadata:
+            body += "\n\n**Metadata**\n\n" + cls._stringify_reme_value(
+                metadata,
+            )
+        if action == "status":
+            body += (
+                "\n\n⚠️ ReMe estimates storage components independently; "
+                "shared objects may be counted more than once, so their "
+                "total should not be compared directly with process RSS."
+            )
+        return cls._bound_reme_output(body), metadata
+
+    async def _make_reme_system_msg(
+        self,
+        value: Any,
+        metadata: dict | None = None,
+    ) -> Msg:
+        """Create one uniformly bounded ReMe response off the event loop."""
+        rendered = await run_sync_io(self._bound_reme_output, value)
+        return await self._make_system_msg(rendered, metadata=metadata)
 
     @classmethod
     def _bound_reme_output(cls, value: Any) -> str:
