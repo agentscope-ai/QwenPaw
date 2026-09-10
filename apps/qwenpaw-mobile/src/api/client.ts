@@ -37,6 +37,7 @@ import type {
   LoopStatus,
   ModelSlotOverride,
   PendingApproval,
+  PlatformRelayStatus,
   ProviderInfo,
   RunningConfig,
   UploadResult,
@@ -149,6 +150,28 @@ export class QwenPawClient {
 
   async getHubOverview(): Promise<HubOverview> {
     return this.request<HubOverview>("/hub/admin/overview");
+  }
+
+  async getPlatformRelayStatus(): Promise<PlatformRelayStatus> {
+    return this.request<PlatformRelayStatus>("/remote-access/platform");
+  }
+
+  async authorizePlatformRelay(
+    accessToken: string,
+    platformUrl: string,
+    name: string,
+  ): Promise<PlatformRelayStatus> {
+    return this.request<PlatformRelayStatus>(
+      "/remote-access/platform/authorize-session",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          access_token: accessToken,
+          platform_url: platformUrl,
+          name,
+        }),
+      },
+    );
   }
 
   async restartOwnHubRuntime(): Promise<HubRuntime> {

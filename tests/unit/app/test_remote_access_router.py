@@ -103,6 +103,58 @@ async def test_pairing_endpoint_rejects_unregistered_node(
 
 
 @pytest.mark.asyncio
+async def test_session_authorization_passes_token_without_echoing_it(
+    monkeypatch,
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    class Enrollment:
+        async def connect_with_access_token(
+            self,
+            **kwargs,
+        ) -> RelayEnrollmentStatus:
+            calls.append(kwargs)
+            return RelayEnrollmentStatus(
+                status="connected",
+                platform_url="https://platform.test",
+                qwenpaw_id="paw-1",
+                node_id="node-1",
+            )
+
+    class Supervisor:
+        def start(self) -> None:
+            calls.append({"supervisor": "started"})
+
+    monkeypatch.setattr(remote_access, "_service", Enrollment())
+    monkeypatch.setattr(remote_access, "_supervisor", Supervisor())
+    app = FastAPI()
+    app.include_router(remote_access.router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/remote-access/platform/authorize-session",
+            json={
+                "access_token": "mobile-session-token",
+                "platform_url": "https://platform.test",
+                "name": "Hub Paw",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "mobile-session-token" not in response.text
+    assert calls == [
+        {
+            "platform_url": "https://platform.test",
+            "name": "Hub Paw",
+            "access_token": "mobile-session-token",
+        },
+        {"supervisor": "started"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_oauth_callback_registers_node_and_returns_to_console(
     monkeypatch,
 ) -> None:

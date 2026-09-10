@@ -73,3 +73,29 @@ async def test_enrollment_exposes_only_redacted_state(
     assert connected.status == "connected"
     assert connected.node_id == "node-1"
     assert not hasattr(connected, "credential")
+
+
+async def test_enrollment_accepts_session_token_without_persisting_it(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from qwenpaw.security import secret_store
+
+    monkeypatch.setattr(secret_store, "_cached_master_key", b"k" * 32)
+    monkeypatch.setattr(secret_store, "_cached_fernet", None)
+    store_path = tmp_path / "relay.json"
+    service = RelayEnrollmentService(
+        RelayNodeStore(store_path),
+        client_factory=_FakeClient,
+    )
+
+    connected = await service.connect_with_access_token(
+        platform_url="https://platform.test",
+        name="Hub Paw",
+        access_token="mobile-session-token",
+    )
+
+    assert connected.status == "connected"
+    assert connected.name == "Hub Paw"
+    assert connected.node_id == "node-1"
+    assert "mobile-session-token" not in store_path.read_text()

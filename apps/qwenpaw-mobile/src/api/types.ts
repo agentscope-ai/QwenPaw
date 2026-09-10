@@ -10,6 +10,16 @@ export interface Connection {
   serverMode?: "hub";
 }
 
+export interface PlatformRelayStatus {
+  status: "not_connected" | "authorization_pending" | "connected";
+  platform_url?: string | null;
+  qwenpaw_id?: string | null;
+  name?: string | null;
+  node_id?: string | null;
+  transport_status?: string | null;
+  transport_error?: string | null;
+}
+
 export type HubRuntimeState =
   | "created"
   | "starting"

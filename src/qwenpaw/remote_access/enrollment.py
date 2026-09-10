@@ -168,6 +168,50 @@ class RelayEnrollmentService:
                     pass
             return self._public_status(node_state)
 
+    async def connect_with_access_token(
+        self,
+        *,
+        platform_url: str,
+        name: str,
+        access_token: str,
+    ) -> RelayEnrollmentStatus:
+        """Register this Node with an existing Platform session token."""
+        async with self._lock:
+            current = await asyncio.to_thread(self._store.load)
+            client = self._client_factory(platform_url)
+            if current is None:
+                node_state = self._store.create(
+                    platform_url=client.base_url,
+                    qwenpaw_id=str(uuid.uuid4()),
+                    name=name,
+                )
+            else:
+                node_state = replace(
+                    current,
+                    platform_url=client.base_url,
+                    name=name,
+                    registered_node=None,
+                )
+            enrollment = await client.create_oauth_enrollment(
+                access_token=access_token,
+                qwenpaw_id=node_state.qwenpaw_id,
+                name=node_state.name,
+                key_pair=node_state.key_pair,
+            )
+            registered = await client.register_node(
+                qwenpaw_id=node_state.qwenpaw_id,
+                name=node_state.name,
+                enrollment=enrollment,
+                key_pair=node_state.key_pair,
+            )
+            node_state = replace(
+                node_state,
+                registered_node=registered,
+            )
+            await asyncio.to_thread(self._store.save, node_state)
+            self._pending = None
+            return self._public_status(node_state)
+
     def _active_pending(self) -> PendingOAuth | None:
         pending = self._pending
         if pending is not None and pending.expires_at <= time.monotonic():

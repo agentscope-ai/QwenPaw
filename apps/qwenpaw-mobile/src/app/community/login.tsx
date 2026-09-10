@@ -23,16 +23,23 @@ export default function CommunityLoginScreen() {
     returnTo?: string;
     view?: string;
   }>();
+  const isRelayLogin = returnTo === "relay";
 
   const submit = async (account: string, password: string) => {
     await loginAgentScopePlatform(account, password);
     if (returnTo === "compose") router.replace("/community/compose");
+    else if (returnTo === "relay") {
+      router.replace({ pathname: "/(tabs)/me", params: { connectRelay: "1" } });
+    }
     else router.back();
   };
 
   const submitGitHub = async () => {
     await loginAgentScopePlatformWithGitHub();
     if (returnTo === "compose") router.replace("/community/compose");
+    else if (returnTo === "relay") {
+      router.replace({ pathname: "/(tabs)/me", params: { connectRelay: "1" } });
+    }
     else router.back();
   };
 
@@ -62,14 +69,18 @@ export default function CommunityLoginScreen() {
           <View style={styles.brandIcon}>
             <LogIn color={colors.white} size={27} />
           </View>
-          <Text style={styles.title}>连接 AgentScope 社区</Text>
+          <Text style={styles.title}>
+            {isRelayLogin ? "连接 AgentScope Platform" : "连接 AgentScope 社区"}
+          </Text>
           <Text style={styles.copy}>
-            登录后可在 App 内同步点赞、评论和发布。社区登录状态与 QwenPaw 配对彼此独立。
+            {isRelayLogin
+              ? "登录后会将当前 Hub QwenPaw 绑定到同一个 Platform 账号，并开启安全远程访问。"
+              : "登录后可在 App 内同步点赞、评论和发布。社区登录状态与 QwenPaw 配对彼此独立。"}
           </Text>
           <View style={styles.form}>
             <PlatformAuthForm
               initialMode={view === "register" ? "register" : "login"}
-              loginLabel="登录社区"
+              loginLabel={isRelayLogin ? "登录并继续" : "登录社区"}
               onGitHubLogin={submitGitHub}
               onPasswordLogin={submit}
             />

@@ -8,7 +8,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from ...constant import EnvVarLoader, SECRET_DIR
 from ...remote_access import (
@@ -48,6 +48,12 @@ class RelayAuthorizationRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
+class RelaySessionAuthorizationRequest(RelayAuthorizationRequest):
+    """Authorize Relay with a short-lived Platform access token."""
+
+    access_token: SecretStr = Field(min_length=1)
+
+
 @router.get("/platform", summary="Get Platform Relay connection state")
 async def platform_relay_status() -> dict:
     """Return only non-secret Relay connection metadata."""
@@ -83,6 +89,28 @@ async def authorize_platform(
     return asdict(status)
 
 
+@router.post(
+    "/platform/authorize-session",
+    summary="Authorize this QwenPaw with a Platform app session",
+)
+async def authorize_platform_session(
+    body: RelaySessionAuthorizationRequest,
+) -> dict:
+    """Register with the caller's Platform token without storing it."""
+    try:
+        status = await _service.connect_with_access_token(
+            platform_url=body.platform_url,
+            name=body.name.strip(),
+            access_token=body.access_token.get_secret_value(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RelayPlatformError as exc:
+        raise _platform_http_error(exc) from exc
+    _supervisor.start()
+    return asdict(status)
+
+
 @callback_router.get("/callback/{nonce}", response_class=HTMLResponse)
 async def complete_platform_authorization(
     nonce: str,
@@ -107,7 +135,7 @@ async def complete_platform_authorization(
         "<style>body{font:16px system-ui;margin:48px;line-height:1.6}"
         "h1{color:#ff6a00}</style>"
         "<h1>QwenPaw 已连接</h1>"
-        "<p>可以关闭此页面并返回 QwenPaw。</p>"
+        "<p>可以关闭此页面并返回 QwenPaw。</p>",
     )
 
 

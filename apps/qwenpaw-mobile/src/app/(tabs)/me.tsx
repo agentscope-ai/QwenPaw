@@ -1,10 +1,11 @@
 import { MobileAlert } from "@/components/MobileAlert";
 import Constants from "expo-constants";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   Bot,
   Bell,
   Cloud,
+  CloudCog,
   Info,
   LogOut,
   LogIn,
@@ -16,12 +17,25 @@ import {
   SunMoon,
   Trash2,
 } from "lucide-react-native";
-import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { IosHeader } from "../../components/IosHeader";
 import { IosGroup, IosRow } from "../../components/IosList";
+import { QwenPawClient } from "../../api/client";
+import {
+  getPlatformAccessToken,
+  PLATFORM_BASE_URL,
+} from "../../api/platform";
+import type { PlatformRelayStatus } from "../../api/types";
 import { AgentAvatar } from "../../features/agents/AgentAvatar";
 import { workspaceName } from "../../features/workspaces/WorkspaceSwitcher";
 import { resolveAgentAppearance } from "../../storage/agentAppearance";
@@ -39,6 +53,7 @@ import { useAppTheme } from "../../theme/ThemeProvider";
 import { colors, radius, spacing } from "../../theme/tokens";
 
 export default function MeScreen() {
+  const { connectRelay } = useLocalSearchParams<{ connectRelay?: string }>();
   const connection = useAppStore((state) => state.connection);
   const connections = useAppStore((state) => state.connections);
   const agents = useAppStore((state) => state.agents);
@@ -50,6 +65,12 @@ export default function MeScreen() {
   const { preference } = useAppTheme();
   const [platformSession, setPlatformSession] =
     useState<PlatformSession | null>(null);
+  const [relayStatus, setRelayStatus] =
+    useState<PlatformRelayStatus | null>(null);
+  const [relayLoading, setRelayLoading] = useState(false);
+  const [relayError, setRelayError] = useState<string | null>(null);
+  const handledRelayReturn = useRef(false);
+  const relayRequestId = useRef(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const activeAgent = agents.find((agent) => agent.id === connection?.agentId);
   const activeAppearance = resolveAgentAppearance(
@@ -61,8 +82,119 @@ export default function MeScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadPlatformSession().then(setPlatformSession);
-    }, []),
+      if (!connection || connection.serverMode !== "hub") {
+        relayRequestId.current += 1;
+        setRelayStatus(null);
+        setRelayError(null);
+        return;
+      }
+      const requestId = relayRequestId.current + 1;
+      relayRequestId.current = requestId;
+      let active = true;
+      setRelayLoading(true);
+      new QwenPawClient(connection)
+        .getPlatformRelayStatus()
+        .then((status) => {
+          if (!active || relayRequestId.current !== requestId) return;
+          setRelayStatus(status);
+          setRelayError(null);
+        })
+        .catch((error) => {
+          if (!active || relayRequestId.current !== requestId) return;
+          setRelayStatus(null);
+          setRelayError(
+            error instanceof Error ? error.message : "无法读取连接状态",
+          );
+        })
+        .finally(() => {
+          if (active && relayRequestId.current === requestId) {
+            setRelayLoading(false);
+          }
+        });
+      return () => {
+        active = false;
+      };
+    }, [connection]),
   );
+
+  const authorizeRelay = useCallback(async () => {
+    if (!connection) return;
+    const session = await loadPlatformSession();
+    setPlatformSession(session);
+    if (!session) {
+      router.push({
+        pathname: "/community/login",
+        params: { returnTo: "relay" },
+      });
+      return;
+    }
+    const requestId = relayRequestId.current + 1;
+    relayRequestId.current = requestId;
+    setRelayLoading(true);
+    setRelayError(null);
+    try {
+      const accessToken = await getPlatformAccessToken();
+      if (!accessToken) {
+        setPlatformSession(null);
+        router.push({
+          pathname: "/community/login",
+          params: { returnTo: "relay" },
+        });
+        return;
+      }
+      const status = await new QwenPawClient(connection).authorizePlatformRelay(
+        accessToken,
+        PLATFORM_BASE_URL,
+        connection.serverMode === "hub"
+          ? `${connection.username || "Hub"} 的 QwenPaw`
+          : workspaceName(connection),
+      );
+      if (relayRequestId.current !== requestId) return;
+      setRelayStatus(status);
+      MobileAlert.alert(
+        "Platform 远程访问已开启",
+        "这只 QwenPaw 已绑定当前 Platform 账号，可以生成安全中转配对码。",
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "请稍后重试。";
+      if (relayRequestId.current !== requestId) return;
+      setRelayError(message);
+      MobileAlert.alert("连接 Platform 失败", message);
+    } finally {
+      if (relayRequestId.current === requestId) setRelayLoading(false);
+    }
+  }, [connection]);
+
+  useEffect(() => {
+    if (
+      connectRelay !== "1" ||
+      handledRelayReturn.current ||
+      !platformSession ||
+      !connection
+    ) {
+      return;
+    }
+    handledRelayReturn.current = true;
+    router.setParams({ connectRelay: undefined });
+    void authorizeRelay();
+  }, [authorizeRelay, connectRelay, connection, platformSession]);
+
+  const confirmRelayAuthorization = () => {
+    if (relayLoading) return;
+    if (relayStatus?.status !== "connected") {
+      void authorizeRelay();
+      return;
+    }
+    MobileAlert.alert(
+      "Platform 远程访问",
+      "这只 QwenPaw 已绑定 Platform。重新授权会更新为当前登录的 Platform 账号。",
+      [
+        { text: "取消", style: "cancel" },
+        { text: "重新授权", onPress: () => void authorizeRelay() },
+      ],
+    );
+  };
 
   const confirmDisconnect = (target = connection) => {
     if (!target) return;
@@ -298,6 +430,40 @@ export default function MeScreen() {
             />
           )}
         </IosGroup>
+
+        {connection?.serverMode === "hub" ? (
+          <IosGroup title="Platform 远程访问">
+            <IosRow
+              accessory={
+                relayLoading ? (
+                  <ActivityIndicator color={colors.accent} size="small" />
+                ) : undefined
+              }
+              icon={CloudCog}
+              label={
+                relayStatus?.status === "connected"
+                  ? "已连接 Platform"
+                  : "连接 Platform"
+              }
+              onPress={confirmRelayAuthorization}
+              subtitle={
+                relayError ||
+                (relayStatus?.status === "connected"
+                  ? "可通过 Platform 安全访问这只 QwenPaw"
+                  : platformSession
+                    ? "使用当前 Platform 账号开启远程访问"
+                    : "登录 Platform 后开启远程访问")
+              }
+              trailing={
+                relayLoading
+                  ? undefined
+                  : relayStatus?.status === "connected"
+                    ? "已开启"
+                    : "未开启"
+              }
+            />
+          </IosGroup>
+        ) : null}
 
         <IosGroup title="设备">
           <IosRow
