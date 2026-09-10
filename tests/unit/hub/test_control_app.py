@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 import httpx
@@ -271,6 +271,48 @@ def test_public_version_does_not_create_runtime(
     assert response.status_code == 200
     assert response.json() == {"version": __version__}
     assert hub_client.app.state.runtime_service.registry.list() == []
+
+
+def test_mobile_pairing_issues_one_time_hub_token(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    client, token = admin_client
+    unauthorized = client.post(
+        "/api/auth/pairing",
+        json={"base_url": "https://hub.example.test/"},
+    )
+    assert unauthorized.status_code == 401
+
+    created = client.post(
+        "/api/auth/pairing",
+        headers=_headers(token),
+        json={"base_url": "https://hub.example.test/"},
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    query = parse_qs(urlsplit(payload["pairing_uri"]).query)
+    assert query["base_url"] == ["https://hub.example.test"]
+    assert payload["qrcode_img"]
+
+    ticket = query["ticket"][0]
+    redeemed = client.post(
+        "/api/auth/pairing/redeem",
+        json={"ticket": ticket},
+    )
+    assert redeemed.status_code == 200
+    assert redeemed.json()["mode"] == "hub"
+    verified = client.get(
+        "/api/auth/verify",
+        headers=_headers(redeemed.json()["token"]),
+    )
+    assert verified.status_code == 200
+    assert verified.json()["username"] == "owner"
+
+    repeated = client.post(
+        "/api/auth/pairing/redeem",
+        json={"ticket": ticket},
+    )
+    assert repeated.status_code == 401
 
 
 @pytest.mark.asyncio

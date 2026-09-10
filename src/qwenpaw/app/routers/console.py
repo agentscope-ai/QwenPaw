@@ -32,6 +32,14 @@ from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
+from ..mobile_push import (
+    MobilePushSubscriptionRequest,
+    MobilePushSubscriptionResponse,
+    get_mobile_push,
+    register_mobile_push,
+    notify_chat_run_settled,
+    unregister_mobile_push,
+)
 from ..utils import check_upload_size
 
 
@@ -61,6 +69,67 @@ _bg_lock = asyncio.Lock()
 class MarkInboxReadRequest(BaseModel):
     event_ids: list[str] = []
     all: bool = False
+
+
+class MobilePushDeleteResponse(BaseModel):
+    """Deletion result for one mobile push subscription."""
+
+    removed: bool
+
+
+@router.post(
+    "/mobile-push/subscriptions",
+    response_model=MobilePushSubscriptionResponse,
+)
+async def upsert_mobile_push_subscription(
+    request: Request,
+    payload: MobilePushSubscriptionRequest,
+) -> MobilePushSubscriptionResponse:
+    """Register this mobile installation for the selected agent."""
+    workspace = await get_agent_for_request(request)
+    if payload.agent_id != workspace.agent_id:
+        raise HTTPException(status_code=400, detail="Agent mismatch")
+    try:
+        return await register_mobile_push(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/mobile-push/subscriptions/current",
+    response_model=MobilePushSubscriptionResponse | None,
+)
+async def get_current_mobile_push_subscription(
+    request: Request,
+    installation_id: str = Query(min_length=8, max_length=128),
+    workspace_key: str = Query(min_length=16, max_length=128),
+) -> MobilePushSubscriptionResponse | None:
+    """Return the current installation's notification preferences."""
+    workspace = await get_agent_for_request(request)
+    return await get_mobile_push(
+        installation_id,
+        workspace_key,
+        workspace.agent_id,
+    )
+
+
+@router.delete(
+    "/mobile-push/subscriptions/current",
+    response_model=MobilePushDeleteResponse,
+)
+async def delete_current_mobile_push_subscription(
+    request: Request,
+    installation_id: str = Query(min_length=8, max_length=128),
+    workspace_key: str = Query(min_length=16, max_length=128),
+) -> MobilePushDeleteResponse:
+    """Stop push delivery for this installation and workspace."""
+    workspace = await get_agent_for_request(request)
+    removed = await unregister_mobile_push(
+        installation_id,
+        workspace_key,
+        workspace.agent_id,
+    )
+    return MobilePushDeleteResponse(removed=removed)
 
 
 MAX_DEBUG_LOG_LINES = 1000
@@ -427,6 +496,9 @@ async def post_console_chat(
             console_channel.stream_one,
             owner=workspace,
             on_finished=workspace.chat_manager.mark_chat_finished,
+            on_settled=lambda chat_id, _finished_at, outcome: (
+                notify_chat_run_settled(workspace, chat_id, outcome)
+            ),
         )
         if not is_new_run:
             await tracker.detach_subscriber(chat.id, queue)
@@ -448,7 +520,6 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
-
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
         # finally (detach_subscriber) on client abort / generator teardown.

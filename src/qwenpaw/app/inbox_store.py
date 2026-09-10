@@ -9,6 +9,7 @@ from typing import Any
 
 from ..constant import WORKING_DIR
 from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
+from .mobile_push import schedule_inbox_mobile_notification
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ async def append_event(
         events.insert(0, event)
         del events[_MAX_EVENTS:]
         await run_sync_io(_save_events, events)
+    schedule_inbox_mobile_notification(event)
     return event
 
 

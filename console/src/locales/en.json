@@ -37,6 +37,31 @@
     "yes": "Yes",
     "no": "No"
   },
+  "mobilePairing": {
+    "menu": "Pair mobile",
+    "title": "Pair QwenPaw Mobile",
+    "subtitle": "Choose the fastest connection available for this QwenPaw.",
+    "direct": "Local network",
+    "relay": "Secure relay",
+    "qrAlt": "One-time QwenPaw Mobile pairing QR code",
+    "newCode": "Create a new code",
+    "enableRelay": "Enable secure relay",
+    "enableRelayHint": "Authorize this QwenPaw with your Platform account once. Mobile access will renew automatically.",
+    "authorize": "Authorize with Platform",
+    "waitingApproval": "Waiting for Platform approval",
+    "waitingApprovalHint": "After approval, this QwenPaw connects automatically and creates a pairing code.",
+    "openPlatform": "Open Platform",
+    "expires": "Expires in {{seconds}}s",
+    "directHint": "Your phone connects directly on the same local network. Platform is not required.",
+    "relayHint": "No public port is opened. QwenPaw and Mobile connect outbound through AgentScope Platform.",
+    "errors": {
+      "request": "Could not complete the request.",
+      "direct": "Could not create a local pairing code.",
+      "relay": "Could not create a secure relay pairing code.",
+      "status": "Could not read secure relay status.",
+      "authorize": "Could not start Platform authorization."
+    }
+  },
   "desktop": {
     "closeWindow": {
       "title": "Close Window",

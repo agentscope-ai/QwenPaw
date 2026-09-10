@@ -20,6 +20,7 @@ from typing import (
     Awaitable,
     Callable,
     Optional,
+    Literal,
 )
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,7 @@ class TaskTracker:
             pass
         return True
 
+    # pylint: disable=too-many-branches,too-many-statements
     async def attach_or_start(
         self,
         run_key: str,
@@ -257,6 +259,11 @@ class TaskTracker:
         stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
+        on_settled: Callable[
+            [str, datetime, Literal["completed", "failed", "cancelled"]],
+            Awaitable[Any],
+        ]
+        | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -284,6 +291,11 @@ class TaskTracker:
 
             async def _producer() -> None:
                 start_time = datetime.now(timezone.utc)
+                outcome: Literal[
+                    "completed",
+                    "failed",
+                    "cancelled",
+                ] = "completed"
 
                 try:
                     tracker = tracker_ref()
@@ -302,8 +314,10 @@ class TaskTracker:
                             for q in run.queues:
                                 q.put_nowait(sse)
                 except asyncio.CancelledError:
+                    outcome = "cancelled"
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
+                    outcome = "failed"
                     logger.exception("run error run_key=%s", run_key)
                     err_sse = (
                         "data: "
@@ -323,6 +337,14 @@ class TaskTracker:
                         except Exception:  # pylint: disable=broad-except
                             logger.exception(
                                 "run completion callback failed run_key=%s",
+                                run_key,
+                            )
+                    if on_settled is not None:
+                        try:
+                            await on_settled(run_key, finish_time, outcome)
+                        except Exception:  # pylint: disable=broad-except
+                            logger.exception(
+                                "run settled callback failed run_key=%s",
                                 run_key,
                             )
                     tracker = tracker_ref()

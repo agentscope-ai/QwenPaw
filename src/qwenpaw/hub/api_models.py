@@ -33,6 +33,18 @@ class CredentialsBody(BaseModel):
     password: str = Field(min_length=8, max_length=1024)
 
 
+class HubPairingCreateBody(BaseModel):
+    """Public Hub origin reachable by the mobile device."""
+
+    base_url: str = Field(min_length=8, max_length=2048)
+
+
+class HubPairingRedeemBody(BaseModel):
+    """One-time Hub pairing ticket scanned by a mobile device."""
+
+    ticket: str = Field(min_length=32, max_length=256)
+
+
 class AdminUserCreateBody(CredentialsBody):
     """Administrator request for a managed account."""
 

@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 import uvicorn
@@ -30,6 +31,8 @@ from fastapi.responses import (
 from starlette.concurrency import run_in_threadpool
 
 from ..__version__ import __version__
+from ..app.channels.qrcode_auth_handler import generate_qrcode_image
+from ..app.pairing import PairingTicketStore
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
@@ -40,6 +43,8 @@ from .api_models import (
     CredentialBody,
     CredentialsBody,
     DockerImagePullBody,
+    HubPairingCreateBody,
+    HubPairingRedeemBody,
     HubSettingsBody,
     PasswordChangeBody,
     RuntimeCreateBody,
@@ -167,6 +172,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         if isinstance(docker_provisioner, DockerRuntimeProvisioner)
         else None
     )
+    mobile_pairing_tickets = PairingTicketStore()
 
     async def runtime_payload(record: Any) -> dict[str, Any]:
         owner = await run_in_threadpool(
@@ -521,6 +527,60 @@ def create_hub_app(  # pylint: disable=too-many-statements
             "token": token,
             "username": user.username,
             "user": user.to_dict(),
+        }
+
+    @app.post("/api/auth/pairing")
+    async def create_mobile_pairing(
+        body: HubPairingCreateBody,
+        user: HubUser = Depends(require_user),
+    ) -> dict[str, object]:
+        base_url = _normalize_hub_pairing_base_url(body.base_url)
+        ticket, expires_at = mobile_pairing_tickets.create(user.user_id)
+        pairing_query = urlencode(
+            {
+                "v": "1",
+                "base_url": base_url,
+                "ticket": ticket,
+            },
+        )
+        pairing_uri = f"qwenpaw://pair?{pairing_query}"
+        await record_audit(
+            user,
+            "auth.mobile_pairing_create",
+            "user",
+            user.user_id,
+        )
+        return {
+            "pairing_uri": pairing_uri,
+            "qrcode_img": generate_qrcode_image(pairing_uri),
+            "expires_at": expires_at,
+        }
+
+    @app.post("/api/auth/pairing/redeem")
+    async def redeem_mobile_pairing(
+        body: HubPairingRedeemBody,
+    ) -> dict[str, object]:
+        user_id = mobile_pairing_tickets.redeem(body.ticket)
+        user = (
+            await run_in_threadpool(hub_auth.get_user, user_id)
+            if user_id is not None
+            else None
+        )
+        if user is None or user.disabled:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired pairing code",
+            )
+        await record_audit(
+            user,
+            "auth.mobile_pairing_redeem",
+            "user",
+            user.user_id,
+        )
+        return {
+            "token": hub_auth.create_token(user),
+            "username": user.username,
+            "mode": "hub",
         }
 
     @app.get("/api/auth/verify")
@@ -1537,6 +1597,23 @@ def _page_payload(
         "total": total,
         "pages": max(1, (total + page_size - 1) // page_size),
     }
+
+
+def _normalize_hub_pairing_base_url(value: str) -> str:
+    """Validate the public Hub origin embedded in a mobile pairing code."""
+    parsed = urlsplit(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address must use HTTP or HTTPS",
+        )
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing address contains unsupported components",
+        )
+    path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def run_hub_app(

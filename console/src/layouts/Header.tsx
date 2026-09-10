@@ -9,10 +9,13 @@ import {
   PlayCircleOutlined,
   ReadOutlined,
 } from "@ant-design/icons";
+import { Smartphone } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher, {
   LANGUAGE_LIST,
 } from "../components/LanguageSwitcher/index";
+import { MobilePairingModal } from "../components/MobilePairingModal";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useTheme } from "../contexts/ThemeContext";
 import { Slot } from "../plugins/registry/Slot";
@@ -32,6 +35,7 @@ const { Header: AntHeader } = Layout;
 export default function Header({ showBrand = false }: { showBrand?: boolean }) {
   const { t, i18n } = useTranslation();
   const { setThemeMode } = useTheme();
+  const [pairingOpen, setPairingOpen] = useState(false);
 
   const handleNavClick = (url: string) => {
     openExternalLink(url);
@@ -75,6 +79,13 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
 
   const mobileMenuItems: MenuProps["items"] = [
     {
+      key: "pair-mobile",
+      icon: <Smartphone size={16} />,
+      label: t("mobilePairing.menu"),
+      onClick: () => setPairingOpen(true),
+    },
+    { type: "divider" },
+    {
       key: "language",
       label: t("sidebar.settings.language"),
       children: LANGUAGE_LIST.map(({ key, label }) => ({
@@ -113,46 +124,60 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
   ];
 
   return (
-    <AntHeader className={styles.header}>
-      <div className={styles.headerPluginLeft}>
-        {showBrand && <AppBrand />}
-        <Slot name="header.left" kind="fill" />
-      </div>
-      <Space size="middle">
-        <Slot name="header.right" kind="fill" />
-        {resourcesMenuItems.length > 0 && (
-          <Dropdown menu={{ items: resourcesMenuItems }}>
-            <Button type="text" className={styles.hideOnMobile}>
-              {t("header.resources")} <DownOutlined />
+    <>
+      <AntHeader className={styles.header}>
+        <div className={styles.headerPluginLeft}>
+          {showBrand && <AppBrand />}
+          <Slot name="header.left" kind="fill" />
+        </div>
+        <Space size="middle">
+          <Slot name="header.right" kind="fill" />
+          {resourcesMenuItems.length > 0 && (
+            <Dropdown menu={{ items: resourcesMenuItems }}>
+              <Button type="text" className={styles.hideOnMobile}>
+                {t("header.resources")} <DownOutlined />
+              </Button>
+            </Dropdown>
+          )}
+          <Tooltip title={t("header.github")}>
+            <Button
+              type="text"
+              icon={<GithubOutlined />}
+              onClick={() => handleNavClick(GITHUB_URL)}
+              className={styles.hideOnMobile}
+            >
+              {t("header.github")}
             </Button>
+          </Tooltip>
+          <Tooltip title={t("mobilePairing.menu")}>
+            <Button
+              type="text"
+              icon={<Smartphone size={16} />}
+              onClick={() => setPairingOpen(true)}
+              className={styles.hideOnMobile}
+            />
+          </Tooltip>
+          <div className={styles.headerDivider} />
+          <span className={styles.hideOnMobile}>
+            <LanguageSwitcher />
+          </span>
+          <span className={styles.hideOnMobile}>
+            <ThemeToggleButton />
+          </span>
+          <Dropdown menu={{ items: mobileMenuItems }} placement="bottomRight">
+            <Button
+              type="text"
+              icon={<InfoCircleOutlined />}
+              className={styles.showOnMobile}
+              title={t("header.resources")}
+            />
           </Dropdown>
-        )}
-        <Tooltip title={t("header.github")}>
-          <Button
-            type="text"
-            icon={<GithubOutlined />}
-            onClick={() => handleNavClick(GITHUB_URL)}
-            className={styles.hideOnMobile}
-          >
-            {t("header.github")}
-          </Button>
-        </Tooltip>
-        <div className={styles.headerDivider} />
-        <span className={styles.hideOnMobile}>
-          <LanguageSwitcher />
-        </span>
-        <span className={styles.hideOnMobile}>
-          <ThemeToggleButton />
-        </span>
-        <Dropdown menu={{ items: mobileMenuItems }} placement="bottomRight">
-          <Button
-            type="text"
-            icon={<InfoCircleOutlined />}
-            className={styles.showOnMobile}
-            title={t("header.resources")}
-          />
-        </Dropdown>
-      </Space>
-    </AntHeader>
+        </Space>
+      </AntHeader>
+      <MobilePairingModal
+        open={pairingOpen}
+        onClose={() => setPairingOpen(false)}
+      />
+    </>
   );
 }
