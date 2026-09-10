@@ -4,18 +4,22 @@ import { IconButton } from "@agentscope-ai/design";
 import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
-import { Files } from "lucide-react";
+import { Eye, EyeOff, Files } from "lucide-react";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import styles from "./ChatActionGroup.module.less";
 
 interface ChatActionGroupProps {
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
+  showToolCalls?: boolean;
+  onToggleToolCalls?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   onToggleWorkspace,
   workspaceOpen = false,
+  showToolCalls = true,
+  onToggleToolCalls,
 }) => {
   const { t } = useTranslation();
 
@@ -60,6 +64,48 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
               ...(workspaceOpen ? { color: "var(--app-accent)" } : {}),
             }}
             onClick={onToggleWorkspace}
+          />
+        </Tooltip>
+      )}
+      {onToggleToolCalls && (
+        <Tooltip
+          title={t(
+            showToolCalls
+              ? "chat.hideToolCallsTooltip"
+              : "chat.showToolCallsTooltip",
+          )}
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            aria-label={t(
+              showToolCalls
+                ? "chat.hideToolCallsTooltip"
+                : "chat.showToolCallsTooltip",
+            )}
+            aria-pressed={showToolCalls}
+            icon={
+              showToolCalls ? (
+                <Eye
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              ) : (
+                <EyeOff
+                  size={16}
+                  strokeWidth={2}
+                  style={{ width: 16, height: 16 }}
+                />
+              )
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(showToolCalls ? undefined : { color: "var(--app-accent)" }),
+            }}
+            onClick={onToggleToolCalls}
           />
         </Tooltip>
       )}

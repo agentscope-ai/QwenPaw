@@ -2767,6 +2767,8 @@
     },
     "modelSelectTooltip": "Выбор модели",
     "chatHistoryTooltip": "История чатов",
+    "hideToolCallsTooltip": "Скрыть вызовы инструментов",
+    "showToolCallsTooltip": "Показать вызовы инструментов",
     "messageDisplay": {
       "stepsRunning": "Выполняется… · шагов: {{count}}",
       "stepsCanceled": "Отменено · шагов: {{count}}",

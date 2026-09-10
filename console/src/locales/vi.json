@@ -716,6 +716,8 @@
     },
     "modelSelectTooltip": "Chọn mô hình",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
+    "hideToolCallsTooltip": "Ẩn lệnh gọi công cụ",
+    "showToolCallsTooltip": "Hiện lệnh gọi công cụ",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
       "stepsCanceled": "Đã hủy · {{count}} bước",

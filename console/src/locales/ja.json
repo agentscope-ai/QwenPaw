@@ -2752,6 +2752,8 @@
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",
+    "hideToolCallsTooltip": "ツール呼び出しを非表示",
+    "showToolCallsTooltip": "ツール呼び出しを表示",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",

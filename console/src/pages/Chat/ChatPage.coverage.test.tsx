@@ -228,7 +228,15 @@ vi.mock("./ModelSelector", () => ({
 }));
 
 vi.mock("./components/ChatActionGroup", () => ({
-  default: () => <div data-testid="action-group" />,
+  default: (props: any) => (
+    <div data-testid="action-group">
+      <button
+        data-testid="toggle-tool-calls"
+        data-show-tool-calls={String(props.showToolCalls)}
+        onClick={props.onToggleToolCalls}
+      />
+    </div>
+  ),
 }));
 
 vi.mock("./components/ChatHeaderTitle", () => ({
@@ -494,6 +502,7 @@ describe("ChatPage coverage", () => {
   beforeEach(() => {
     stopBackgroundQueue();
     chatExtensions.__resetForTests();
+    localStorage.clear();
     capturedOptions = null;
     mockCopyText.mockClear();
     mockGetChatStatus.mockReset();
@@ -1914,6 +1923,35 @@ describe("ChatPage coverage", () => {
 
     expect(capturedOptions?.customToolRenderConfig).toBeTruthy();
     expect(typeof capturedOptions.customToolRenderConfig).toBe("object");
+  });
+
+  it("disables tool call rendering from the chat action toggle", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    expect(screen.getByTestId("toggle-tool-calls")).toHaveAttribute(
+      "data-show-tool-calls",
+      "true",
+    );
+
+    await act(async () => {
+      screen
+        .getByTestId("toggle-tool-calls")
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(screen.getByTestId("toggle-tool-calls")).toHaveAttribute(
+      "data-show-tool-calls",
+      "false",
+    );
+    expect(
+      capturedOptions.customToolRenderConfig.any_tool_name({
+        data: { content: [] },
+      }),
+    ).toBeNull();
+    expect(localStorage.getItem("qwenpaw_show_tool_calls")).toBe("false");
   });
 
   // ── cards config ───────────────────────────────────────────────────────

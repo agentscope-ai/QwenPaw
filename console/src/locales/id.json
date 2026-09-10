@@ -703,6 +703,8 @@
     },
     "modelSelectTooltip": "Pilih model",
     "chatHistoryTooltip": "Riwayat chat",
+    "hideToolCallsTooltip": "Sembunyikan panggilan alat",
+    "showToolCallsTooltip": "Tampilkan panggilan alat",
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",
       "stepsCanceled": "Dibatalkan · {{count}} langkah",

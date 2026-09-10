@@ -3374,6 +3374,8 @@
     "modelSelectTooltip": "Select model",
     "newTask": "New task",
     "chatHistoryTooltip": "Chat history",
+    "hideToolCallsTooltip": "Hide tool calls",
+    "showToolCallsTooltip": "Show tool calls",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",

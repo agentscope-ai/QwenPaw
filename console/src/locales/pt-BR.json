@@ -3003,6 +3003,8 @@
     },
     "modelSelectTooltip": "Selecionar Modelo",
     "chatHistoryTooltip": "Chat history",
+    "hideToolCallsTooltip": "Hide tool calls",
+    "showToolCallsTooltip": "Show tool calls",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",

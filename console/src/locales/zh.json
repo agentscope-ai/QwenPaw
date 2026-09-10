@@ -3231,6 +3231,8 @@
     "modelSelectTooltip": "模型选择",
     "newTask": "新建任务",
     "chatHistoryTooltip": "聊天历史",
+    "hideToolCallsTooltip": "隐藏工具调用",
+    "showToolCallsTooltip": "显示工具调用",
     "messageDisplay": {
       "stepsRunning": "正在执行中… · {{count}} 个步骤",
       "stepsCanceled": "已取消 · {{count}} 个步骤",
