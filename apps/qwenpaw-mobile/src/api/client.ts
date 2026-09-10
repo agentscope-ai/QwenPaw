@@ -845,11 +845,21 @@ function consumeChatBytes(
 async function responseError(response: Response): Promise<Error> {
   let message = `${response.status} ${response.statusText}`;
   try {
-    const body = (await response.json()) as {
-      detail?: string;
-      message?: string;
-    };
-    message = body.detail || body.message || message;
+    const body = (await response.json()) as Record<string, unknown>;
+    const detail = body.detail;
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (detail && typeof detail === "object") {
+      const structured = detail as Record<string, unknown>;
+      const code = typeof structured.code === "string" ? structured.code : "";
+      if (code === "ASP.BIZ.QWENPAW_RELAY_NODE_QUOTA_EXCEEDED") {
+        message = "当前 Platform 账号已达到可绑定的 QwenPaw 数量上限，请先移除不再使用的连接。";
+      } else if (typeof structured.message === "string") {
+        message = structured.message;
+      }
+    } else if (typeof body.message === "string") {
+      message = body.message;
+    }
   } catch {
     // Keep the HTTP status when the response is not JSON.
   }
