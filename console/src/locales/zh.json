@@ -2049,6 +2049,7 @@
     "discoveryOriginCatalog": "官方目录",
     "discoveryOriginBoth": "API + 目录",
     "availabilityAvailable": "可用",
+    "availabilityBlocked": "被拦截",
     "availabilityPermissionDenied": "无权限",
     "availabilityNotFound": "未找到",
     "availabilityIncompatible": "不兼容对话接口",

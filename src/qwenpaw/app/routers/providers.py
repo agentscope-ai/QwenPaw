@@ -63,6 +63,7 @@ ActiveModelReadScope = Literal["effective", "global", "agent"]
 ActiveModelWriteScope = Literal["global", "agent"]
 ModelAvailabilityStatus = Literal[
     "available",
+    "blocked",
     "permission_denied",
     "model_not_found",
     "incompatible_api",

@@ -2544,6 +2544,7 @@
     "discoveryOriginCatalog": "Katalog resmi",
     "discoveryOriginBoth": "API + katalog",
     "availabilityAvailable": "Tersedia",
+    "availabilityBlocked": "Diblokir",
     "availabilityPermissionDenied": "Tidak ada izin",
     "availabilityNotFound": "Tidak ditemukan",
     "availabilityIncompatible": "Tidak kompatibel dengan chat",

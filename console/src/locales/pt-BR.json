@@ -1893,6 +1893,7 @@
     "discoveryOriginCatalog": "Catálogo oficial",
     "discoveryOriginBoth": "API + catálogo",
     "availabilityAvailable": "Disponível",
+    "availabilityBlocked": "Bloqueado",
     "availabilityPermissionDenied": "Sem permissão",
     "availabilityNotFound": "Não encontrado",
     "availabilityIncompatible": "Incompatível com chat",

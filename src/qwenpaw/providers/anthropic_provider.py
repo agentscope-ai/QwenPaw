@@ -33,6 +33,7 @@ from qwenpaw.providers.provider import (
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .error_utils import bounded_error_text
 
 logger = logging.getLogger(__name__)
 
@@ -191,10 +192,10 @@ class AnthropicProvider(Provider):
             # Fall back to a lightweight messages probe instead.
             if e.status_code in (404, 405):
                 return await self._check_connection_via_messages(client)
-            return False, f"Anthropic API error: {e}"
+            return False, f"Anthropic API error: {await bounded_error_text(e)}"
         except anthropic.APIError as e:
             # Network / auth errors from models.list – report directly
-            return False, f"Anthropic API error: {e}"
+            return False, f"Anthropic API error: {await bounded_error_text(e)}"
         except Exception:
             return (
                 False,
@@ -281,12 +282,14 @@ class AnthropicProvider(Provider):
             return ModelConnectionResult(success=True)
         except anthropic.APIError as exc:
             status = getattr(exc, "status_code", None)
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Model '{model_id}' is not reachable or usable: "
-                    f"{self.connection_error_message(exc)}"
+                    f"{detail}"
                 ),
+                raw_message=raw_detail,
                 http_status=status if isinstance(status, int) else None,
                 error_kind=(
                     "permission_denied"
@@ -297,12 +300,14 @@ class AnthropicProvider(Provider):
                 ),
             )
         except Exception as exc:
+            raw_detail, detail = await self.connection_error_texts_async(exc)
             return ModelConnectionResult(
                 success=False,
                 message=(
                     f"Unknown exception when connecting to model "
-                    f"'{model_id}': {self.connection_error_message(exc)}"
+                    f"'{model_id}': {detail}"
                 ),
+                raw_message=raw_detail,
             )
         finally:
             await self._close_client(client)
