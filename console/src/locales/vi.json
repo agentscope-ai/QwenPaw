@@ -1888,7 +1888,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout phải lớn hơn tổng thời gian tạm dừng và jitter",
     "contextManagementTitle": "Quản lý ngữ cảnh",
     "memoryManagerBackend": "Backend quản lý bộ nhớ dài hạn",
-    "memoryManagerBackendTooltip": "Chọn remelight (tệp cục bộ), adbpg (cơ sở dữ liệu đám mây), PowerContext (dịch vụ bộ nhớ từ xa), hoặc none (tắt bộ nhớ).",
+    "memoryManagerBackendTooltip": "Chọn remelight (tệp cục bộ), adbpg (cơ sở dữ liệu đám mây), PowerContext (dịch vụ bộ nhớ từ xa), OpenViking (dịch vụ bộ nhớ từ xa), hoặc none (tắt bộ nhớ).",
     "memoryManagerBackendRestartWarning": "Đổi backend quản lý bộ nhớ dài hạn yêu cầu khởi động lại QwenPaw.",
     "powercontextMemoryTitle": "Bộ nhớ PowerContext",
     "powercontextConfig": {
@@ -1901,6 +1901,17 @@
       "timeout": "Thời gian chờ yêu cầu",
       "maxContextBytes": "Ngữ cảnh được chèn tối đa (byte)",
       "maxContextBytesTooltip": "Giới hạn tổng lượng kết quả tìm kiếm PowerContext được thêm vào một lượt mô hình."
+    },
+    "openvikingMemoryTitle": "Bộ nhớ dài hạn OpenViking",
+    "openvikingConfig": {
+      "title": "Cấu hình bộ nhớ OpenViking",
+      "baseUrl": "Điểm cuối máy chủ",
+      "apiKey": "Khóa API tenant",
+      "requestTimeout": "Thời gian chờ yêu cầu",
+      "tokenBudget": "Ngân sách token truy xuất tự động",
+      "commitPolicy": "Chính sách lưu",
+      "commitAuto": "Tự động (chính sách máy chủ)",
+      "commitEveryTurn": "Mỗi lượt hoàn thành"
     },
     "maxIters": "Số vòng lặp tối đa",
     "maxItersTooltip": "Số vòng lặp suy luận-hành động tối đa của ReAct agent",

@@ -3,6 +3,7 @@ import { LightContextCard } from "../pages/Agent/Config/components/LightContextC
 import { ReMeLightMemoryCard } from "../pages/Agent/Config/components/ReMeLightMemoryCard";
 import { ADBPGConfigCard } from "../pages/Agent/Config/components/ADBPGConfigCard";
 import { PowerContextConfigCard } from "../pages/Agent/Config/components/PowerContextConfigCard";
+import { OpenVikingConfigCard } from "../pages/Agent/Config/components/OpenVikingConfigCard";
 
 interface BackendMapping<T> {
   configField: string;
@@ -44,6 +45,12 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
     component: PowerContextConfigCard,
     label: "PowerContext",
     tabKey: "powercontextMemory",
+  },
+  openviking: {
+    configField: "openviking_memory_config",
+    component: OpenVikingConfigCard,
+    label: "OpenViking",
+    tabKey: "openvikingMemory",
   },
 };
 

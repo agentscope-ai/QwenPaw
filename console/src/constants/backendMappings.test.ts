@@ -18,6 +18,9 @@ vi.mock("../pages/Agent/Config/components/ReMeLightMemoryCard", () => ({
 vi.mock("../pages/Agent/Config/components/ADBPGConfigCard", () => ({
   ADBPGConfigCard: () => null,
 }));
+vi.mock("../pages/Agent/Config/components/OpenVikingConfigCard", () => ({
+  OpenVikingConfigCard: () => null,
+}));
 
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
@@ -49,6 +52,17 @@ describe("MEMORY_MANAGER_BACKEND_MAPPINGS", () => {
   it("has expected keys", () => {
     expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("remelight");
     expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("adbpg");
+    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain(
+      "openviking",
+    );
+  });
+
+  it("maps OpenViking to its nested configuration field", () => {
+    expect(MEMORY_MANAGER_BACKEND_MAPPINGS.openviking).toMatchObject({
+      configField: "openviking_memory_config",
+      label: "OpenViking",
+      tabKey: "openvikingMemory",
+    });
   });
 
   it("each mapping has configField, label, and tabKey", () => {

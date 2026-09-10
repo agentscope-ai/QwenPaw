@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import asyncio
 import logging
 from pathlib import Path
@@ -54,12 +55,19 @@ def _memory_manager_reuse_compatible(
     from ...agents.memory.powercontext_memory_manager import (
         PowerContextMemoryManager,
     )
+    from ...agents.memory.openviking_memory_manager import (
+        OpenVikingMemoryManager,
+    )
 
-    if not isinstance(instance, PowerContextMemoryManager):
+    if isinstance(instance, PowerContextMemoryManager):
+        config_field = "powercontext_memory_config"
+    elif isinstance(instance, OpenVikingMemoryManager):
+        config_field = "openviking_memory_config"
+    else:
         return True
     old_config = getattr(instance, "_config", None)
     new_running = getattr(getattr(workspace, "_config", None), "running", None)
-    new_config = getattr(new_running, "powercontext_memory_config", None)
+    new_config = getattr(new_running, config_field, None)
     if old_config is None or new_config is None:
         return old_config is new_config
     try:

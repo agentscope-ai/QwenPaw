@@ -2568,7 +2568,7 @@
     "llmAcquireTimeoutGtPauseJitter": "槽位获取超时必须大于限流暂停时长与抖动范围之和",
     "contextManagementTitle": "上下文管理",
     "memoryManagerBackend": "长期记忆管理后端",
-    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）、adbpg（云端数据库）、PowerContext（远程记忆服务）或 none（关闭记忆）",
+    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）、adbpg（云端数据库）、PowerContext（远程记忆服务）、OpenViking（远程记忆服务）或 none（关闭记忆）",
     "memoryManagerBackendRestartWarning": "切换长期记忆管理后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
@@ -3178,6 +3178,17 @@
       "restApiKey": "REST API Key",
       "memoryIsolation": "记忆隔离（按 Agent）",
       "searchTimeout": "搜索超时"
+    },
+    "openvikingMemoryTitle": "OpenViking 长期记忆",
+    "openvikingConfig": {
+      "title": "OpenViking 记忆配置",
+      "baseUrl": "服务端地址",
+      "apiKey": "租户 API Key",
+      "requestTimeout": "请求超时",
+      "tokenBudget": "自动召回 Token 预算",
+      "commitPolicy": "提交策略",
+      "commitAuto": "使用 OpenViking 自动提交",
+      "commitEveryTurn": "每个完整对话轮次提交"
     }
   },
   "tools": {

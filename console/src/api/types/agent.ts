@@ -116,6 +116,15 @@ export interface PowerContextMemoryConfig {
   };
 }
 
+export interface OpenVikingMemoryConfig {
+  base_url: string;
+  api_key: string;
+  request_timeout: number;
+  retrieval_token_budget: number;
+  auto_memory_search_config: AutoMemorySearchConfig;
+  commit_policy: "auto" | "every_turn";
+}
+
 export interface DoomLoopStageConfig {
   after: number;
   action: string;
@@ -207,6 +216,7 @@ export interface AgentsRunningConfig {
   memory_manager_backend: string;
   adbpg_memory_config?: ADBPGMemoryConfig | null;
   powercontext_memory_config?: PowerContextMemoryConfig | null;
+  openviking_memory_config?: OpenVikingMemoryConfig | null;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

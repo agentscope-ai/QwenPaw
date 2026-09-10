@@ -16,6 +16,9 @@ from .adbpg_memory_manager import (
     ADBPGMemoryManager,
 )  # registers "adbpg" backend
 from .powercontext_memory_manager import PowerContextMemoryManager
+from .openviking_memory_manager import (
+    OpenVikingMemoryManager,
+)  # registers "openviking" backend
 from .dummy import (
     NoopMemoryManager,
 )  # registers "none" backend
@@ -48,6 +51,7 @@ __all__ = [
     "ReMeLightMemoryManager",
     "ADBPGMemoryManager",
     "PowerContextMemoryManager",
+    "OpenVikingMemoryManager",
     "NoopMemoryManager",
     # proactive symbols resolved lazily at runtime via __getattr__
     "ProactiveConfig",

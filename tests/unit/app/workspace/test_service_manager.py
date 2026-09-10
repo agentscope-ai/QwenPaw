@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Cancellation-safe workspace service lifecycle tests."""
+
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
@@ -16,7 +17,13 @@ from qwenpaw.app.workspace.service_manager import (
 )
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
-from qwenpaw.config.config import PowerContextMemoryConfig
+from qwenpaw.config.config import (
+    OpenVikingMemoryConfig,
+    PowerContextMemoryConfig,
+)
+from qwenpaw.agents.memory.openviking_memory_manager import (
+    OpenVikingMemoryManager,
+)
 from qwenpaw.agents.memory.powercontext_memory_manager import (
     PowerContextMemoryManager,
 )
@@ -112,6 +119,26 @@ def test_powercontext_reuse_requires_identical_configuration():
             running=SimpleNamespace(
                 powercontext_memory_config=config.model_copy(
                     update={"base_url": "http://new.example"},
+                ),
+            ),
+        ),
+    )
+
+    assert not _memory_manager_reuse_compatible(workspace, instance)
+
+
+def test_openviking_reuse_requires_identical_configuration():
+    config = OpenVikingMemoryConfig(
+        base_url="http://old.example",
+        api_key="old-key",
+    )
+    instance = object.__new__(OpenVikingMemoryManager)
+    instance._config = config
+    workspace = SimpleNamespace(
+        _config=SimpleNamespace(
+            running=SimpleNamespace(
+                openviking_memory_config=config.model_copy(
+                    update={"api_key": "new-key"},
                 ),
             ),
         ),

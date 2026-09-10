@@ -8,6 +8,7 @@ from qwenpaw.config.config import (
     ADBPGMemoryConfig,
     EmbeddingModelConfig,
     PowerContextMemoryConfig,
+    OpenVikingMemoryConfig,
     ReMeLightMemoryConfig,
 )
 
@@ -78,6 +79,32 @@ def test_powercontext_memory_accepts_timeout_and_budget_boundaries(
 def test_powercontext_memory_rejects_invalid_explicit_scope(scope_id):
     with pytest.raises(ValidationError):
         PowerContextMemoryConfig(scope_id=scope_id)
+
+
+def test_openviking_safe_defaults():
+    cfg = OpenVikingMemoryConfig()
+
+    assert cfg.base_url == "http://127.0.0.1:1933"
+    assert cfg.api_key == ""
+    assert cfg.request_timeout == 10.0
+    assert cfg.retrieval_token_budget == 2048
+    assert cfg.auto_memory_search_config.enabled is True
+    assert cfg.auto_memory_search_config.max_results == 3
+    assert cfg.commit_policy == "auto"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("request_timeout", 0),
+        ("retrieval_token_budget", 63),
+        ("retrieval_token_budget", 32001),
+        ("commit_policy", "sometimes"),
+    ],
+)
+def test_openviking_rejects_unsafe_limits(field, value):
+    with pytest.raises(ValidationError):
+        OpenVikingMemoryConfig.model_validate({field: value})
 
 
 def test_reme_light_job_notifications_default_to_enabled():
