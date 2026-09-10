@@ -42,7 +42,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import stat
 import threading
 import time
 import zipfile
@@ -51,7 +50,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
-from .constants import PREFIX_SECRETS
 from ._mount_swap import (
     SwapPreparation,
     prepare_destination_for_swap,
@@ -60,13 +58,6 @@ from ._mount_swap import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _chmod_best_effort(path: Path, mode: int) -> None:
-    try:
-        os.chmod(path, mode)
-    except OSError:
-        pass
 
 
 _RESTORE_TMP_SUFFIX = ".restore_tmp"
@@ -331,14 +322,6 @@ def _extract_zip_to(
         target.parent.mkdir(parents=True, exist_ok=True)
         with zf.open(info) as src, open(target, "wb") as out:
             shutil.copyfileobj(src, out)
-        archived_mode = stat.S_IMODE((info.external_attr >> 16) & 0xFFFF)
-        # Strip setuid/setgid/sticky bits: restoring them from an
-        # untrusted archive would be a privilege-escalation risk.
-        archived_mode &= 0o777
-        if archived_mode:
-            _chmod_best_effort(target, archived_mode)
-        elif prefix == PREFIX_SECRETS:
-            _chmod_best_effort(target, 0o600)
 
 
 def _swap_directories(dst: Path, tmp_dst: Path, old_dst: Path) -> None:
@@ -501,8 +484,8 @@ def extract_to_tmp(
 
     *zip_slip_base* defaults to *dst* and is used for the Zip Slip guard.
 
-    *dir_mode*, when set, is applied to the staging directory after creation
-    so that the permissions survive the rename into *dst* during commit.
+    *dir_mode*, when set, is used when creating the staging directory so it
+    is never exposed with process-default permissions.
     """
     if zip_slip_base is None:
         zip_slip_base = dst
@@ -512,9 +495,10 @@ def extract_to_tmp(
         tmp_dst = dst.with_name(dst.name + _RESTORE_TMP_SUFFIX)
         if tmp_dst.exists():
             shutil.rmtree(tmp_dst)
-        tmp_dst.mkdir(parents=True, exist_ok=True)
-        if dir_mode is not None:
-            _chmod_best_effort(tmp_dst, dir_mode)
+        if dir_mode is None:
+            tmp_dst.mkdir(parents=True, exist_ok=True)
+        else:
+            tmp_dst.mkdir(mode=dir_mode, parents=True, exist_ok=True)
 
         _extract_zip_to(zf, prefix, tmp_dst, base_resolved)
         return tmp_dst
