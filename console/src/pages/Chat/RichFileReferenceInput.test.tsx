@@ -9,6 +9,7 @@ import {
 } from "../Coding/lastEditorCopy";
 import { useState } from "react";
 import "../../i18n";
+import { scrollRectIntoViewWithin } from "./RichFileReferenceInput";
 
 function ControlledRichInput() {
   const [value, setValue] = useState("");
@@ -24,6 +25,43 @@ function ControlledRichInput() {
 
 describe("RichFileReferenceInput", () => {
   afterEach(() => clearLastEditorCopy());
+
+  it("scrolls the rich composer viewport to keep the caret line visible", () => {
+    const container = document.createElement("div");
+    Object.defineProperty(container, "scrollTop", {
+      value: 0,
+      writable: true,
+    });
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      bottom: 220,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 120,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    scrollRectIntoViewWithin(
+      container,
+      {
+        top: 236,
+        bottom: 256,
+        left: 0,
+        right: 20,
+        width: 20,
+        height: 20,
+        x: 0,
+        y: 236,
+        toJSON: () => ({}),
+      },
+      8,
+    );
+
+    expect(container.scrollTop).toBe(44);
+  });
 
   it("shows only atomic chips while preserving the raw submitted value", async () => {
     const raw = "/work/app.ts:7-9\n```typescript\nconst ready = true;\n```";
