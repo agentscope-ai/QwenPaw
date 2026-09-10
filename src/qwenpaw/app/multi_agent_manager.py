@@ -636,6 +636,16 @@ class MultiAgentManager:
                     old_instance = self.agents[agent_id]
                     self.agents[agent_id] = new_instance
                     candidate_committed = True
+
+            # Fire workspace_created hooks so plugins re-register slash
+            # commands / modes / tools into the reloaded instance —
+            # same contract as the lazy-load path in get_agent().
+            await self._fire_workspace_created_hooks(
+                {
+                    "agent_id": agent_id,
+                    "workspace_dir": str(agent_ref.workspace_dir),
+                },
+            )
         except BaseException as error:
             if candidate_committed:
                 raise
