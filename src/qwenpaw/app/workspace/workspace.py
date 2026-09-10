@@ -10,13 +10,22 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Iterable, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    Optional,
+)
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
+from ...constant import WORKING_DIR
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -37,7 +46,55 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...utils.logging import sanitize_log_value
 
+if TYPE_CHECKING:
+    from ...memory import MemoryBackendContext
+
 logger = logging.getLogger(__name__)
+
+
+def _memory_backend_context(ws: "Workspace") -> "MemoryBackendContext":
+    """Snapshot all construction settings used by core and plugin backends."""
+    from ...memory import MemoryBackendContext
+
+    config = ws.config
+    running = config.running
+    backend_id = running.memory_manager_backend.strip().lower()
+    backend_configs = getattr(running, "memory_backend_configs", {})
+    raw_config = dict(backend_configs.get(backend_id, {}) or {})
+    try:
+        estimate_divisor = float(
+            running.light_context_config.token_count_estimate_divisor,
+        )
+    except (AttributeError, TypeError, ValueError):
+        estimate_divisor = 4.0
+    return MemoryBackendContext(
+        agent_id=ws.agent_id,
+        working_dir=ws.workspace_dir,
+        host_working_dir=WORKING_DIR,
+        backend_config=raw_config,
+        language=getattr(config, "language", "zh") or "zh",
+        token_estimate_divisor=(
+            estimate_divisor if estimate_divisor > 0 else 4.0
+        ),
+    )
+
+
+def _memory_manager_reuse_compatible(
+    workspace: "Workspace",
+    instance: Any,
+) -> bool:
+    """Keep a memory service only when its construction context is unchanged.
+
+    Reused services do not receive ``start()`` on workspace reload.  Remote
+    backends therefore must be recreated when their endpoint, credentials,
+    scope, timeout, or search settings change; otherwise the old HTTP client
+    would continue serving the new workspace configuration. Language and
+    token estimates are also frozen in the plugin's construction context.
+    """
+    old_context = getattr(instance, "context", None)
+    if old_context is None:
+        return False
+    return old_context == _memory_backend_context(workspace)
 
 
 class Workspace:
@@ -375,6 +432,8 @@ class Workspace:
         """
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
+            MemoryBackendUnavailableError,
+            create_memory_manager_backend,
             get_memory_manager_backend,
         )
 
@@ -420,19 +479,24 @@ class Workspace:
                 service_class=lambda ws: get_memory_manager_backend(
                     ws._config.running.memory_manager_backend,
                 ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
+                create_service=lambda ws: create_memory_manager_backend(
+                    ws.config.running.memory_manager_backend,
+                    _memory_backend_context(ws),
+                ),
                 start_method="start",
                 stop_method="close",
                 reusable=True,
+                reuse_compatibility=_memory_manager_reuse_compatible,
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 # reme depends on `agentscope.token`, which agentscope no
                 # longer ships; let the workspace boot without
                 # memory_manager when its import fails.
                 optional=True,
+                # A configured-but-unregistered plugin is a configuration
+                # error, not an optional ReMe dependency failure.
+                fatal_exceptions=(MemoryBackendUnavailableError,),
             ),
         )
 

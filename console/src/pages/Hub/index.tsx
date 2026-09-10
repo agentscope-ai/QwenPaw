@@ -2265,8 +2265,8 @@ function ResourceMeter({
       <Progress
         percent={value}
         showInfo={false}
-        strokeColor="#ff7a1a"
-        trailColor="rgba(120, 90, 68, 0.1)"
+        strokeColor="var(--app-accent)"
+        trailColor="var(--app-fill-subtle)"
         size="small"
       />
     </div>

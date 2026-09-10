@@ -23,6 +23,7 @@ import styles from "./index.module.less";
 import { MemoryMaintenanceContext } from "./memoryMaintenanceContext";
 import { useReMeRuntimeStatus } from "./useReMeRuntimeStatus";
 import { getEmbeddingConfigFingerprint } from "./components/embeddingUtils";
+import { useMemoryBackends } from "@/plugins/memoryBackends";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
@@ -64,6 +65,7 @@ function AgentConfigPage() {
     Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
+  const memoryBackends = useMemoryBackends();
   const { selectedAgent } = useAgentStore();
   const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
     useReMeRuntimeStatus(memoryBackend === "remelight");
@@ -207,14 +209,24 @@ function AgentConfigPage() {
       });
     }
 
+    const memoryExtension = memoryBackends.find(
+      (backend) => backend.id === memoryBackend,
+    );
     const memoryMapping = MEMORY_MANAGER_BACKEND_MAPPINGS[memoryBackend];
-    if (memoryMapping) {
-      const MemoryComponent = memoryMapping.component;
+    const MemoryComponent =
+      memoryMapping?.component || memoryExtension?.ConfigComponent;
+    if (MemoryComponent) {
+      const tabKey =
+        memoryMapping?.tabKey ||
+        memoryExtension?.tabKey ||
+        `${memoryBackend}Memory`;
       baseTabs.push({
-        key: memoryMapping.tabKey,
+        key: tabKey,
         label: (
           <span className={styles.tabLabel}>
-            {t(`agentConfig.${memoryMapping.tabKey}Title`)}
+            {memoryMapping
+              ? t(`agentConfig.${memoryMapping.tabKey}Title`)
+              : memoryExtension?.label || memoryBackend}
           </span>
         ),
         children: (
@@ -273,6 +285,7 @@ function AgentConfigPage() {
     maxInputLength,
     contextBackend,
     memoryBackend,
+    memoryBackends,
     approvalLevel,
     setApprovalLevel,
     saving,

@@ -12,6 +12,12 @@ from uuid import uuid4
 import pytest
 
 from api import project_routes
+from api.example_routes import (
+    _extract_example_archive,
+    _sanitize_zip_entry,
+)
+from api.project_routes import _extract_archive_sanitized
+from domain.errors import StorageIntegrityError
 from services.media_files import r2v_execution
 from services.runtime_files import ProjectRuntimeSessionStore
 
@@ -240,3 +246,53 @@ def test_import_enforces_upload_and_extraction_limits(
     # Failed imports never leave temp files behind.
     imports_root = api_runtime_root / "imports"
     assert not imports_root.exists() or not list(imports_root.iterdir())
+
+
+def test_sanitize_zip_entry_replaces_windows_reserved_chars():
+    assert _sanitize_zip_entry("source:cat_cam_1") == "source_cat_cam_1"
+    assert _sanitize_zip_entry("a<b>c") == "a_b_c"
+    assert _sanitize_zip_entry("path/to/file:name") == "path/to/file_name"
+    assert _sanitize_zip_entry("normal/path") == "normal/path"
+
+
+def test_extract_example_archive_rejects_path_traversal(tmp_path):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("project-1/project.json", "{}")
+        archive.writestr("../../../etc/passwd", "boom")
+    archive_path = tmp_path / "test.zip"
+    archive_path.write_bytes(payload.getvalue())
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+
+    with pytest.raises(StorageIntegrityError, match="escapes extraction root"):
+        _extract_example_archive(archive_path, extract_dir)
+
+
+def test_extract_archive_sanitized_rejects_path_traversal(tmp_path):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("project-1/project.json", "{}")
+        archive.writestr("../../../etc/passwd", "boom")
+    archive_path = tmp_path / "test.zip"
+    archive_path.write_bytes(payload.getvalue())
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+
+    with pytest.raises(StorageIntegrityError, match="escapes extraction root"):
+        _extract_archive_sanitized(archive_path, extract_dir)
+
+
+def test_validator_accepts_windows_reserved_chars(app, api_runtime_root):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("project-1/project.json", "{}")
+        archive.writestr(
+            "project-1/assets/source:cat_cam_1/file.txt",
+            "data",
+        )
+    archive_path = api_runtime_root / "test.zip"
+    api_runtime_root.mkdir(parents=True, exist_ok=True)
+    archive_path.write_bytes(payload.getvalue())
+
+    project_routes._validate_import_archive(archive_path)

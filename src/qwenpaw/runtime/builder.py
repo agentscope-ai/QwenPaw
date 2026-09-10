@@ -140,6 +140,7 @@ class AgentBuilder:
         """
         from agentscope.tool import Toolkit
 
+        effective_skills = list(effective_skills or ())
         local_ws = self._get_local_workspace(ctx) if ctx else None
         if local_ws is not None:
             tools: list[Any] = await local_ws.list_tools(
@@ -147,7 +148,7 @@ class AgentBuilder:
                 agent_id=agent_id,
                 request_context=request_context,
                 active_modes=active_modes or (),
-                active_skills=effective_skills or (),
+                active_skills=effective_skills,
                 enabled_features=enabled_features or (),
             )
         else:
@@ -183,7 +184,43 @@ class AgentBuilder:
             workspace_dir,
             tools,
         )
-        return Toolkit(tools=tools, skills_or_loaders=skills)
+        if ctx is None:
+            return Toolkit(tools=tools, skills_or_loaders=skills)
+
+        from ..agents.skill_system import (
+            get_workspace_skills_dir,
+            select_preload_skills,
+        )
+        from ..constant import WORKING_DIR
+
+        skills_workspace = Path(workspace_dir or WORKING_DIR).resolve(
+            strict=False,
+        )
+        preload_skill_names = await run_sync_io(
+            select_preload_skills,
+            skills_workspace,
+            effective_skills,
+        )
+        workspace_skills_dir = get_workspace_skills_dir(skills_workspace)
+        preload_dirs = {
+            (workspace_skills_dir / name).resolve(strict=False)
+            for name in preload_skill_names
+        }
+        preloaded_skills: dict[str, Any] = {}
+        viewer_skills: list[Any] = []
+        for skill in skills:
+            if Path(skill.dir).resolve(strict=False) in preload_dirs:
+                preloaded_skills[skill.name] = skill
+            else:
+                viewer_skills.append(skill)
+
+        viewer_skills = [
+            skill
+            for skill in viewer_skills
+            if skill.name not in preloaded_skills
+        ]
+        ctx.extras["preloaded_skills"] = list(preloaded_skills.values())
+        return Toolkit(tools=tools, skills_or_loaders=viewer_skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -568,6 +605,8 @@ class AgentBuilder:
         if hb is not None:
             heartbeat_enabled = getattr(hb, "enabled", False)
 
+        ctx_extras = getattr(ctx, "extras", {}) or {}
+        preloaded_skills = ctx_extras.pop("preloaded_skills", ())
         prompt_ctx = SimpleNamespace(
             workspace_dir=workspace_dir,
             agent_id=getattr(ctx, "agent_id", None),
@@ -577,6 +616,7 @@ class AgentBuilder:
                 "env_context": self._build_env_context(ctx, agent_config),
                 "agent_config": agent_config,
                 "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
+                "preloaded_skills": preloaded_skills,
             },
         )
 
@@ -885,6 +925,7 @@ class AgentBuilder:
             else None
         )
         return build_env_context(
+            agent_id=getattr(agent_config, "id", None),
             session_id=getattr(ctx, "session_id", ""),
             user_id=(getattr(request, "user_id", None) if request else None),
             user_name=None,

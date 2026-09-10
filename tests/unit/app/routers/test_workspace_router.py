@@ -1,20 +1,33 @@
 # -*- coding: utf-8 -*-
 """Focused unit tests for workspace running-config update ordering."""
 
+# pylint: disable=protected-access
+
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from qwenpaw.app.routers.workspace import (
     _ConfigRollbackConflict,
     _conditionally_restore_config_changes,
+    _mask_memory_backend_secrets,
+    _safe_memory_validation_error,
+    put_agent_language,
     put_agents_running_config,
 )
 from qwenpaw.config import AgentsRunningConfig
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.memory import memory_registry
+
+
+class _RemoteMemoryConfig(BaseModel):
+    endpoint: str = ""
+    token: str = ""
 
 
 def _embedding_update_configs():
@@ -44,6 +57,241 @@ def _config_transaction(
         return agent_config
 
     return AsyncMock(side_effect=update)
+
+
+@pytest.mark.asyncio
+async def test_language_change_schedules_agent_reload(tmp_path):
+    request = MagicMock()
+    workspace = SimpleNamespace(agent_id="bot", workspace_dir=tmp_path)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        language="en",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.load_agent_config",
+            return_value=agent_config,
+        ),
+        patch("qwenpaw.app.routers.workspace.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.workspace.copy_workspace_md_files",
+            return_value=["AGENTS.md"],
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.schedule_agent_reload",
+        ) as schedule_reload,
+    ):
+        response = await put_agent_language(request, {"language": "zh"})
+
+    schedule_reload.assert_called_once_with(request, "bot")
+    assert response["language"] == "zh"
+
+
+def test_memory_backend_secrets_are_masked_without_mutating_source():
+    memory_registry.register_backend(
+        plugin_id="test-secret-mask",
+        backend_id="remote-memory",
+        factory=MagicMock,
+        label="Remote Memory",
+        metadata={"secret_fields": ["token"]},
+    )
+    try:
+        running = AgentsRunningConfig(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": {
+                    "endpoint": "https://memory.example",
+                    "token": "top-secret",
+                },
+            },
+        )
+
+        masked = _mask_memory_backend_secrets(running)
+
+        assert masked.memory_backend_configs["remote-memory"]["token"] == "***"
+        assert (
+            running.memory_backend_configs["remote-memory"]["token"]
+            == "top-secret"
+        )
+    finally:
+        memory_registry.unregister_owner("test-secret-mask")
+
+
+def test_memory_validation_errors_do_not_echo_secrets():
+    detail = _safe_memory_validation_error(
+        ValueError("invalid credential top-secret"),
+        {"token": "top-secret"},
+        ["token"],
+    )
+
+    assert detail == "invalid credential ***"
+
+
+def test_memory_validation_errors_redact_structured_secret_values():
+    detail = _safe_memory_validation_error(
+        ValueError(
+            "invalid token input_value={'credential': 'top-secret'}",
+        ),
+        {"token": {"credential": "top-secret"}},
+        ["token"],
+    )
+
+    assert "top-secret" not in detail
+    assert "credential" not in detail
+
+
+def test_unavailable_memory_backend_config_is_not_exposed():
+    running = AgentsRunningConfig(
+        memory_backend_configs={
+            "missing-plugin": {
+                "endpoint": "https://memory.example",
+                "unknown_secret": "top-secret",
+            },
+        },
+    )
+
+    masked = _mask_memory_backend_secrets(running)
+
+    assert "missing-plugin" not in masked.memory_backend_configs
+    assert (
+        running.memory_backend_configs["missing-plugin"]["unknown_secret"]
+        == "top-secret"
+    )
+
+
+@pytest.mark.asyncio
+async def test_save_preserves_unavailable_backend_config_server_side(tmp_path):
+    old_running = AgentsRunningConfig(
+        memory_backend_configs={
+            "missing-plugin": {"unknown_secret": "top-secret"},
+        },
+    )
+    submitted = old_running.model_copy(deep=True)
+    submitted.memory_backend_configs["missing-plugin"] = {}
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(submitted, MagicMock())
+
+    persisted = agent_config.running.memory_backend_configs["missing-plugin"]
+    assert persisted == {"unknown_secret": "top-secret"}
+    assert "missing-plugin" not in response.memory_backend_configs
+
+
+@pytest.mark.asyncio
+async def test_save_does_not_create_config_for_core_memory_backend(tmp_path):
+    submitted = AgentsRunningConfig(memory_manager_backend="remelight")
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=AgentsRunningConfig(memory_manager_backend="remelight"),
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(submitted, MagicMock())
+
+    assert "remelight" not in agent_config.running.memory_backend_configs
+    assert "remelight" not in response.memory_backend_configs
+
+
+@pytest.mark.asyncio
+async def test_save_preserves_masked_secret_and_returns_only_mask(tmp_path):
+    memory_registry.register_backend(
+        plugin_id="test-secret-save",
+        backend_id="remote-memory",
+        factory=MagicMock,
+        label="Remote Memory",
+        config_schema=_RemoteMemoryConfig,
+        metadata={"secret_fields": ["token"]},
+    )
+    old_running = AgentsRunningConfig(
+        memory_manager_backend="remote-memory",
+        memory_backend_configs={
+            "remote-memory": {
+                "endpoint": "https://old.example",
+                "token": "top-secret",
+            },
+        },
+    )
+    submitted = old_running.model_copy(deep=True)
+    submitted.memory_backend_configs["remote-memory"] = {
+        "endpoint": "https://new.example",
+        "token": "***",
+    }
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                _config_transaction(agent_config),
+            ),
+            patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+        ):
+            response = await put_agents_running_config(submitted, MagicMock())
+
+        persisted = agent_config.running.memory_backend_configs[
+            "remote-memory"
+        ]
+        assert persisted["endpoint"] == "https://new.example"
+        assert persisted["token"] == "top-secret"
+        assert (
+            response.memory_backend_configs["remote-memory"]["token"] == "***"
+        )
+    finally:
+        memory_registry.unregister_owner("test-secret-save")
 
 
 @pytest.mark.asyncio
@@ -128,6 +376,141 @@ async def test_backend_only_switch_persists_and_schedules_reload(
     assert response.memory_manager_backend == new_backend
     assert agent_config.running.memory_manager_backend == new_backend
     schedule_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_plugin_backend_selection_blocks_unload_until_reload_handoff(
+    tmp_path,
+) -> None:
+    owner = "selection-race-plugin"
+    backend_id = "selection-race-memory"
+    memory_registry.register_backend(
+        plugin_id=owner,
+        backend_id=backend_id,
+        factory=MagicMock,
+        label="Selection Race Memory",
+    )
+    old_running = AgentsRunningConfig(memory_manager_backend="none")
+    new_running = old_running.model_copy(deep=True)
+    new_running.memory_manager_backend = backend_id
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    persist_entered = asyncio.Event()
+    release_persist = asyncio.Event()
+    completion: Any = None
+
+    async def update_config(_agent_id, updater):
+        updater(agent_config)
+        persist_entered.set()
+        await release_persist.wait()
+        return agent_config
+
+    def schedule_reload(_request, _agent_id, *, on_complete=None):
+        nonlocal completion
+        completion = on_complete
+        return True
+
+    task = None
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                side_effect=update_config,
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.schedule_agent_reload",
+                side_effect=schedule_reload,
+            ),
+        ):
+            task = asyncio.create_task(
+                put_agents_running_config(new_running, MagicMock()),
+            )
+            await persist_entered.wait()
+
+            assert memory_registry.begin_owner_unload(owner) == ["bot"]
+            release_persist.set()
+            response = await task
+
+            assert response.memory_manager_backend == backend_id
+            assert memory_registry.begin_owner_unload(owner) == ["bot"]
+            assert completion is not None
+            await completion(True)  # pylint: disable=not-callable
+            assert memory_registry.begin_owner_unload(owner) == []
+    finally:
+        release_persist.set()
+        if task is not None and not task.done():
+            await task
+        memory_registry.cancel_owner_unload(owner)
+        memory_registry.unregister_owner(owner)
+
+
+@pytest.mark.asyncio
+async def test_failed_plugin_backend_reload_rolls_back_selection(tmp_path):
+    owner = "selection-rollback-plugin"
+    backend_id = "selection-rollback-memory"
+    memory_registry.register_backend(
+        plugin_id=owner,
+        backend_id=backend_id,
+        factory=MagicMock,
+        label="Selection Rollback Memory",
+    )
+    old_running = AgentsRunningConfig(memory_manager_backend="none")
+    new_running = old_running.model_copy(deep=True)
+    new_running.memory_manager_backend = backend_id
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=old_running,
+    )
+    workspace = SimpleNamespace(
+        agent_id="bot",
+        memory_manager=SimpleNamespace(),
+        workspace_dir=tmp_path,
+    )
+    completion: Any = None
+
+    def schedule_reload(_request, _agent_id, *, on_complete=None):
+        nonlocal completion
+        completion = on_complete
+        return True
+
+    try:
+        with (
+            patch(
+                "qwenpaw.app.routers.workspace.get_agent_for_request",
+                AsyncMock(return_value=workspace),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.update_agent_config_async",
+                _config_transaction(agent_config),
+            ),
+            patch(
+                "qwenpaw.app.routers.workspace.schedule_agent_reload",
+                side_effect=schedule_reload,
+            ),
+        ):
+            await put_agents_running_config(new_running, MagicMock())
+            assert agent_config.running.memory_manager_backend == backend_id
+            assert completion is not None
+            await completion(False)  # pylint: disable=not-callable
+
+        assert agent_config.running.memory_manager_backend == "none"
+        assert memory_registry.begin_owner_unload(owner) == []
+    finally:
+        memory_registry.cancel_owner_unload(owner)
+        memory_registry.unregister_owner(owner)
 
 
 @pytest.mark.asyncio
@@ -244,7 +627,7 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
         )
 
     assert events == ["save", "apply"]
-    assert response is new_running
+    assert response == new_running
     assert response.reme_light_memory_config.needs_reindex is True
     previous = (
         response.reme_light_memory_config.pending_reindex_embedding_config

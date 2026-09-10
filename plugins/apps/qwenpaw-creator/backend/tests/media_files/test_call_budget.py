@@ -85,6 +85,29 @@ def test_count_covers_billable_kinds_and_fuse_trips(tmp_path, monkeypatch):
     ensure_media_call_budget(services, PROJECT_ID)
 
 
+def test_s2v_entry_point_shares_the_wallet_fuse(tmp_path, monkeypatch):
+    """The scheduler auto-dispatches s2v with no per-call authorization, so
+    the digital-human entry point must trip the same fuse as r2v/image."""
+    from services.media_files.r2v_execution import execute_file_s2v_command
+
+    services = _services(tmp_path, monkeypatch)
+    _seed_task(services, 1, TaskKind.R2V_GENERATION, TaskStatus.SUCCEEDED)
+    monkeypatch.setattr(
+        "services.media_files.call_budget.get_media_call_budget",
+        lambda: 1,
+    )
+    with pytest.raises(MediaCallBudgetExhausted):
+        asyncio.run(
+            execute_file_s2v_command(
+                services,
+                project_id=PROJECT_ID,
+                target_ref="element:elem:s2v",
+                arguments={},
+                idempotency_key="s2v-fuse-probe",
+            ),
+        )
+
+
 def test_scheduler_pauses_dispatch_when_the_fuse_is_spent(
     tmp_path,
     monkeypatch,

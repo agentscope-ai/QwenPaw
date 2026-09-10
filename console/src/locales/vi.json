@@ -212,7 +212,8 @@
     "debug": "Gỡ lỗi",
     "plugins": "Plugin",
     "backups": "Sao lưu",
-    "pluginManager": "Quản lý Plugin"
+    "pluginManager": "Quản lý Plugin",
+    "moreSettings": "Cài đặt khác"
   },
   "os": {
     "console": "Bảng điều khiển",
@@ -304,12 +305,83 @@
     "settings": {
       "language": "Ngôn ngữ",
       "theme": "Giao diện",
-      "mode": "Chế độ",
       "desktopMode": "Chế độ Màn hình nền"
     },
-    "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ",
+    "quickMenu": {
+      "settings": "Cài đặt",
+      "appearance": "Giao diện",
+      "about": "Giới thiệu QwenPaw"
+    },
+    "collapse": "Thu gọn thanh bên",
+    "expand": "Mở rộng thanh bên",
+    "more": "Thêm",
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
+  },
+  "settingsCenter": {
+    "backToApp": "Quay lại ứng dụng",
+    "searchPlaceholder": "Tìm kiếm cài đặt",
+    "noResults": "Không có cài đặt phù hợp",
+    "groups": {
+      "application": "Cài đặt ứng dụng",
+      "agentConfiguration": "Cấu hình tác tử",
+      "global": "Cài đặt toàn cục",
+      "extensions": "Tiện ích mở rộng"
+    },
+    "pages": { "general": "Chung", "navigation": "Thanh bên" },
+    "descriptions": {
+      "general": "Ngôn ngữ, giao diện và hành vi ứng dụng",
+      "navigation": "Khả năng hiển thị của thanh bên",
+      "agents": "Hồ sơ QwenPaw, Codex và Qoder",
+      "models": "Nhà cung cấp, thông tin xác thực và danh mục mô hình",
+      "skillPool": "Kỹ năng và tiện ích mở rộng có thể tái sử dụng",
+      "channels": "Kết nối IM và các kênh nhắn tin",
+      "skills": "Quản lý kỹ năng của tác tử",
+      "tools": "Cấu hình các công cụ khả dụng",
+      "mcp": "Cấu hình dịch vụ MCP",
+      "acp": "Cấu hình tác tử ACP",
+      "agentConfig": "Cấu hình hành vi chạy của tác tử",
+      "voice": "Nhập liệu bằng giọng nói và phiên âm",
+      "heartbeat": "Trạng thái sẵn sàng và kích hoạt định kỳ của tác tử",
+      "environments": "Biến môi trường chạy và khóa bí mật",
+      "security": "Chính sách thực thi và quy tắc bảo vệ",
+      "offloadPolicy": "Chính sách thực thi trong nền",
+      "tokenUsage": "Thống kê và xu hướng sử dụng",
+      "backups": "Xuất, khôi phục và di chuyển dữ liệu",
+      "debug": "Nhật ký và chẩn đoán",
+      "extension": "Cài đặt do tiện ích mở rộng cung cấp"
+    },
+    "appearanceAndLanguage": "Giao diện và ngôn ngữ",
+    "desktopApplication": "Ứng dụng máy tính",
+    "languageHint": "Thay đổi ngôn ngữ giao diện trên thiết bị này.",
+    "themeHint": "Dùng giao diện sáng, tối hoặc theo hệ thống.",
+    "contentWidth": "Độ rộng tin nhắn",
+    "contentWidthHint": "Dùng chiều rộng tiêu chuẩn hoặc mở rộng cuộc trò chuyện theo không gian khả dụng.",
+    "contentWidthStandard": "Tiêu chuẩn",
+    "contentWidthWide": "Rộng",
+    "chatDisplay": "Hiển thị tin nhắn",
+    "thinkingDisplay": "Hiển thị quá trình suy nghĩ",
+    "thinkingDisplayHint": "Hiển thị suy luận của mô hình trong cuộc trò chuyện mà không thay đổi hành vi của mô hình.",
+    "toolDisplay": "Hiển thị công cụ",
+    "toolDisplayHint": "Chọn nội dung hiển thị sau khi mở thẻ công cụ.",
+    "toolDisplayCurrent": "Chế độ thẻ",
+    "toolDisplayRaw": "Tham số thô",
+    "assistantDisplay": "Thu gọn tin nhắn của trợ lý",
+    "assistantDisplayHint": "Điều chỉnh cách thu gọn văn bản trung gian, phần suy luận và công cụ.",
+    "displayExpanded": "Mở rộng tất cả",
+    "displayProcessCollapsed": "Thu gọn quá trình",
+    "displayResultCollapsed": "Thu gọn kết quả",
+    "closeBehaviorHint": "Chọn hành động khi đóng cửa sổ ứng dụng.",
+    "desktopModeHint": "Mở không gian làm việc nhiều cửa sổ.",
+    "open": "Mở",
+    "fixedEntries": "Mục cố định",
+    "selectAll": "Chọn tất cả",
+    "invertSelection": "Đảo lựa chọn",
+    "sidebarGroups": {
+      "agentConfiguration": "Cấu hình tác tử",
+      "global": "Cài đặt toàn cục",
+      "plugins": "Tính năng plugin"
+    },
+    "alwaysVisible": "Luôn hiển thị"
   },
   "theme": {
     "dark": "Tối",
@@ -698,6 +770,7 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "newTask": "Tác vụ mới",
     "groups": {
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con"
@@ -706,8 +779,6 @@
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
     "modelSelectTooltip": "Chọn mô hình",
-    "newChatTooltip": "Cuộc trò chuyện mới",
-    "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
@@ -715,10 +786,6 @@
       "stepsFailed": "Thất bại · {{count}} bước",
       "stepsCompleted": "Đã hoàn thành {{count}} bước"
     },
-    "allChats": "Tất cả cuộc trò chuyện",
-    "createNewChat": "Tạo cuộc trò chuyện mới",
-    "pinDrawer": "Ghim",
-    "unpinDrawer": "Bỏ ghim",
     "statusIdle": "Rảnh",
     "statusInProgress": "Đang xử lý",
     "disclaimer": "Làm việc cho bạn, lớn lên cùng bạn",
@@ -813,19 +880,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Tìm kiếm…",
-      "noResults": "Không có kết quả",
-      "noConversations": "Không có hội thoại",
-      "loadingConversations": "Đang tải…"
+      "noConversations": "Không có hội thoại"
     },
-    "conversationHistory": "Lịch sử hội thoại",
-    "history": {
-      "empty": "Không có lịch sử trò chuyện"
-    },
-    "sessionGroup": {
-      "today": "Hôm nay",
-      "recent": "7 ngày qua",
-      "earlier": "Trước đó"
-    }
+    "conversationHistory": "Lịch sử hội thoại"
   },
   "debug": {
     "title": "Gỡ lỗi",
@@ -1375,7 +1432,52 @@
     "loading": "Đang tải…",
     "retry": "Thử lại",
     "of": "trong",
-    "selected": "đã chọn"
+    "selected": "đã chọn",
+    "variable": "biến",
+    "variables": "biến",
+    "showValue": "Hiện giá trị",
+    "hideValue": "Ẩn giá trị",
+    "searchPlaceholder": "Tìm biến",
+    "liveSettings": "Cài đặt thời gian thực",
+    "noLiveVariables": "Không có cài đặt cập nhật tức thời phù hợp với bộ lọc.",
+    "customSettings": "Biến tùy chỉnh",
+    "noCustomVariables": "Chưa có biến tùy chỉnh.",
+    "editVariable": "Sửa biến",
+    "applyNow": "Áp dụng ngay",
+    "applyHint": "Tiến trình QwenPaw hiện tại được cập nhật ngay. MCP đang chạy cần được tải lại.",
+    "applied": "Đã áp dụng biến môi trường",
+    "appliedWithFailures": "Đã lưu nhưng {{count}} tiến trình MCP không thể tải lại",
+    "resetVariable": "Đặt lại biến",
+    "resetSuccess": "Đã khôi phục giá trị hệ thống hoặc mặc định",
+    "readonlySettings": "Cài đặt chỉ đọc",
+    "noReadonlyVariables": "Không có cài đặt chỉ đọc phù hợp với bộ lọc.",
+    "impactTitle": "Ảnh hưởng tới tiến trình",
+    "explicitConsumers": "{{count}} tiến trình MCP sử dụng biến này trực tiếp",
+    "implicitConsumers": "{{count}} tiến trình stdio MCP có thể kế thừa biến này",
+    "restartMode": "MCP đang chạy",
+    "restartAffected": "Tải lại MCP bị ảnh hưởng",
+    "restartNone": "Không tải lại",
+    "restartAllStdio": "Tải lại toàn bộ MCP stdio",
+    "readonlyReason": {
+      "startup": "Được xác định khi QwenPaw khởi động",
+      "agent_owned": "Do cấu hình của từng Agent quản lý",
+      "initial_default": "Chỉ là giá trị khởi tạo cấu hình Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Được đọc từ tiến trình QwenPaw hiện tại khi bắt đầu mỗi thao tác.",
+      "hot_process": "Có thể đọc bằng os.getenv() và được các tiến trình con mới kế thừa.",
+      "startup_only": "Chỉ để tham khảo; không thể sửa khi QwenPaw đang chạy.",
+      "internal": "Do QwenPaw quản lý nội bộ."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Thời gian chờ tối đa cho nội dung stream đầu tiên; đặt 0 để tắt giám sát.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Thời gian chờ tối đa giữa các phần stream; đặt 0 để tắt giám sát."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Hệ thống",
+      "default": "Mặc định"
+    }
   },
   "tools": {
     "title": "Công cụ tích hợp",
@@ -1596,6 +1698,7 @@
     }
   },
   "pluginManager": {
+    "typeMemory": "Bộ nhớ",
     "title": "Quản lý Plugin",
     "description": "Cài đặt, quản lý và gỡ cài plugin mà không cần khởi động lại dịch vụ.",
     "installed": "Plugin đã cài đặt",
@@ -1615,12 +1718,21 @@
     "installing": "Đang cài đặt...",
     "installSuccess": "Cài đặt plugin thành công",
     "installFailed": "Cài đặt plugin thất bại",
+    "update": "Cập nhật",
+    "updateAll": "Cập nhật tất cả",
+    "updateSuccess": "Cập nhật plugin thành công",
+    "updateAllSuccess": "Đã cập nhật tất cả plugin",
+    "updateAllResult": "Đã cập nhật {{succeeded}} plugin; {{failed}} thất bại: {{names}}",
+    "updateFailed": "Cập nhật plugin thất bại",
+    "checkingUpdates": "Đang kiểm tra bản cập nhật plugin...",
     "uninstall": "Gỡ cài đặt",
     "uninstallConfirm": "Gỡ cài đặt plugin \"{{name}}\"?",
     "uninstallSuccess": "Gỡ cài đặt thành công",
     "uninstallFailed": "Gỡ cài đặt thất bại",
     "enabled": "Đã bật",
     "disabled": "Đã tắt",
+    "catalogVersion": "Phiên bản",
+    "catalogCurrentVersion": "Phiên bản hiện tại",
     "version": "Phiên bản",
     "author": "Tác giả",
     "noMatchingPlugins": "Không có plugin nào khớp với bộ lọc hiện tại",
@@ -1841,8 +1953,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout phải lớn hơn tổng thời gian tạm dừng và jitter",
     "contextManagementTitle": "Quản lý ngữ cảnh",
     "memoryManagerBackend": "Backend quản lý bộ nhớ dài hạn",
-    "memoryManagerBackendTooltip": "Chọn remelight (file cục bộ) hoặc adbpg (cơ sở dữ liệu đám mây).",
-    "memoryManagerBackendRestartWarning": "Đổi backend quản lý bộ nhớ dài hạn yêu cầu khởi động lại QwenPaw.",
+    "memoryManagerBackendTooltip": "Chọn backend quản lý bộ nhớ. Backend plugin sẽ xuất hiện tại đây sau khi plugin được cài đặt.",
+    "memoryManagerBackendRestartWarning": "Lưu thay đổi backend sẽ tải lại Agent này để áp dụng backend bộ nhớ mới.",
     "maxIters": "Số vòng lặp tối đa",
     "maxItersTooltip": "Số vòng lặp suy luận-hành động tối đa của ReAct agent",
     "maxItersPlaceholder": "Nhập số vòng lặp",
@@ -2472,6 +2584,8 @@
   "skills": {
     "title": "Kỹ năng",
     "description": "Quản lý kỹ năng và khả năng của agent.",
+    "preload": "Tải trước",
+    "preloadHint": "Khi bật, agent sẽ tải trước kỹ năng này và không cần tìm rồi tải lại trong cuộc trò chuyện.",
     "qwenpawManaged": "Do QwenPaw quản lý",
     "qwenpawManagedHint": "Có thể chỉnh sửa và được truyền vào agent bên thứ ba được hỗ trợ khi chạy.",
     "providerManaged": "Kỹ năng của tác nhân bên thứ ba",

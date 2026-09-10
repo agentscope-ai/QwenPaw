@@ -1,11 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
+import {
+  Drawer,
+  Form,
+  Input,
+  Button,
+  Select,
+  Switch,
+} from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillDetail } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
+import { SkillConfigEditor } from "../../../../components/SkillConfigEditor";
 import { api } from "../../../../api";
 import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
@@ -58,6 +66,7 @@ export interface SkillDrawerFormValues {
   content: string;
   enabled?: boolean;
   channels?: string[];
+  preload?: boolean;
   tags?: string[];
   source?: string;
   config?: Record<string, unknown>;
@@ -129,6 +138,7 @@ export function SkillDrawer({
         name: editingSkill.name,
         content: editingSkill.content,
         channels,
+        preload: editingSkill.preload ?? false,
         tags: editingSkill.tags || [],
         source: editingSkill.source,
       });
@@ -324,6 +334,16 @@ export function SkillDrawer({
           </Form.Item>
 
           <Form.Item
+            name="preload"
+            label={t("skills.preload")}
+            valuePropName="checked"
+            initialValue={false}
+            tooltip={t("skills.preloadHint")}
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
             name="tags"
             label={t("skillPool.tags")}
             rules={[
@@ -357,14 +377,13 @@ export function SkillDrawer({
             validateStatus={configError ? "error" : undefined}
             help={configError || undefined}
           >
-            <Input.TextArea
-              rows={4}
+            <SkillConfigEditor
               value={configText}
-              onChange={(e) => {
-                setConfigText(e.target.value);
+              onChange={(value) => {
+                setConfigText(value);
                 setConfigError("");
               }}
-              placeholder={t("skills.configPlaceholder")}
+              requirements={editing ? editingSkill?.requirements : undefined}
             />
           </Form.Item>
 

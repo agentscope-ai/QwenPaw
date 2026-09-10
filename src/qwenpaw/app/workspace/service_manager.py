@@ -4,6 +4,7 @@
 Provides unified registration, lifecycle management, and dependency handling
 for all workspace services (MemoryManager, ChatManager, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +43,7 @@ class ServiceDescriptor:
     Attributes:
         name: Unique service identifier (e.g., 'memory_manager')
         service_class: Class to instantiate (e.g., MemoryManager)
+        create_service: Optional atomic/custom constructor for the service.
         init_args: Callable that returns init kwargs for the service
         post_init: Optional hook called after creation (for setup logic).
             Hooks that create a service before awaiting must call the supplied
@@ -56,6 +58,8 @@ class ServiceDescriptor:
         concurrent_init: Whether this can be initialized concurrently
         optional: If True, a failure during start logs but does not abort
             the workspace; the service is simply absent.
+        fatal_exceptions: Exceptions that must still abort startup for an
+            optional service.
         require_clean_stop: If True, a stop failure is propagated after the
             manager has attempted to stop every service.  Use for services
             whose live worker would conflict with a replacement workspace.
@@ -63,6 +67,7 @@ class ServiceDescriptor:
 
     name: str
     service_class: Optional[Union[type, Callable[["Workspace"], type]]] = None
+    create_service: Optional[Callable[["Workspace"], Any]] = None
     init_args: Optional[Callable[[Workspace], dict]] = None
     post_init: Optional[
         Callable[[Workspace, Any, Callable[[Any], None]], Any]
@@ -76,10 +81,14 @@ class ServiceDescriptor:
             Callable[[Workspace, Any], Awaitable[Any]],
         ]
     ] = None
+    reuse_compatibility: Optional[Callable[["Workspace", Any], bool]] = None
     dependencies: List[str] = field(default_factory=list)
     priority: int = 100
     concurrent_init: bool = True
     optional: bool = False
+    fatal_exceptions: tuple[type[BaseException], ...] = field(
+        default_factory=tuple,
+    )
     require_clean_stop: bool = False
 
 
@@ -292,7 +301,10 @@ class ServiceManager:
                 )
 
         except Exception as e:
-            if descriptor.optional:
+            if descriptor.optional and not isinstance(
+                e,
+                descriptor.fatal_exceptions,
+            ):
                 try:
                     await self._stop_service(
                         descriptor,
@@ -336,7 +348,14 @@ class ServiceManager:
         keep their existing reuse semantics.
         """
         instance = self.services.get(descriptor.name)
-        if instance is None or descriptor.service_class is None:
+        if instance is None:
+            return True
+        if (
+            descriptor.reuse_compatibility is not None
+            and not descriptor.reuse_compatibility(self.workspace, instance)
+        ):
+            return False
+        if descriptor.service_class is None:
             return True
         if isinstance(descriptor.service_class, type):
             expected_class = descriptor.service_class
@@ -368,14 +387,8 @@ class ServiceManager:
 
         logger.debug(f"Creating service '{descriptor.name}'...")
 
-        if not descriptor.service_class:
+        if not descriptor.service_class and descriptor.create_service is None:
             return None
-
-        # service_class may be a callable that resolves to the actual class
-        if not isinstance(descriptor.service_class, type):
-            service_cls = descriptor.service_class(self.workspace)
-        else:
-            service_cls = descriptor.service_class
 
         # Get init args from callable
         init_kwargs = {}
@@ -383,7 +396,14 @@ class ServiceManager:
             init_kwargs = descriptor.init_args(self.workspace)
 
         def create_and_register() -> Any:
-            service = service_cls(**init_kwargs)
+            if descriptor.create_service is not None:
+                service = descriptor.create_service(self.workspace)
+            else:
+                service_class = descriptor.service_class
+                assert service_class is not None
+                if not isinstance(service_class, type):
+                    service_class = service_class(self.workspace)
+                service = service_class(**init_kwargs)
             self.services[descriptor.name] = service
             return service
 
@@ -490,6 +510,7 @@ class ServiceManager:
 
         priority_groups = self._group_by_priority()
         clean_stop_errors: List[tuple[str, Exception]] = []
+        stop_interrupt: BaseException | None = None
 
         # Stop in reverse priority order
         for priority in sorted(priority_groups.keys(), reverse=True):
@@ -510,12 +531,18 @@ class ServiceManager:
 
             # Log any exceptions that occurred
             for desc, result in zip(descriptors, results):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     logger.warning(
                         f"Error stopping service '{desc.name}': {result}",
                     )
-                    if desc.require_clean_stop:
+                    if not isinstance(result, Exception):
+                        if stop_interrupt is None:
+                            stop_interrupt = result
+                    elif desc.require_clean_stop:
                         clean_stop_errors.append((desc.name, result))
+
+        if stop_interrupt is not None:
+            raise stop_interrupt
 
         if clean_stop_errors:
             details = "; ".join(
@@ -577,9 +604,13 @@ class ServiceManager:
                 stop_fn = getattr(service, descriptor.stop_method, None)
                 if stop_fn:
                     if asyncio.iscoroutinefunction(stop_fn):
-                        await stop_fn()
+                        stop_result = await stop_fn()
                     else:
-                        await run_sync_io(stop_fn)
+                        stop_result = await run_sync_io(stop_fn)
+                    if stop_result is False:
+                        raise RuntimeError(
+                            f"Service '{name}' reported an incomplete stop",
+                        )
                     logger.debug(
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",

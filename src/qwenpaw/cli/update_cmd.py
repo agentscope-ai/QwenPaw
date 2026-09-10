@@ -21,6 +21,7 @@ from packaging.version import InvalidVersion, Version
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..config.utils import read_last_api
+from ..utils.runtime_api import api_client
 from .process_utils import (
     _base_url,
     _candidate_hosts,
@@ -211,14 +212,13 @@ def _detect_installation() -> InstallInfo:
 def _probe_service(base_url: str) -> RunningServiceInfo:
     """Probe a possible running QwenPaw HTTP service."""
     try:
-        resp = httpx.get(
-            f"{base_url.rstrip('/')}/api/version",
-            timeout=2.0,
-            headers={"Accept": "application/json"},
-            trust_env=False,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
+        with api_client(base_url, timeout=2.0, trust_env=False) as client:
+            resp = client.get(
+                f"{base_url.rstrip('/')}/api/version",
+                headers={"Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
     except (httpx.HTTPError, ValueError):
         return RunningServiceInfo(is_running=False)
 

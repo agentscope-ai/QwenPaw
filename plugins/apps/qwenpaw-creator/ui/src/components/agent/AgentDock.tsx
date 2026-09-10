@@ -7,23 +7,27 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { Button, Tooltip, message } from "antd";
-import { ArrowUpOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, MenuFoldOutlined } from "@ant-design/icons";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  CircleCheck,
-  Clock3,
+  ChevronDown,
   Eraser,
   Info,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
   Square,
   Undo2,
-  XCircle,
 } from "lucide-react";
 import {
   getArtifactVersionMediaUrl,
@@ -54,21 +58,21 @@ import WorkGraphPanel from "@/components/agent/WorkGraphPanel";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import SourceCacheGate from "@/components/creator/SourceCacheGate";
 import { useSourceCache } from "@/lib/sourceCache";
 import {
-  creatorEventLabel,
   creatorRoleLabel,
   creatorStatusLabel,
   creatorTargetLabel,
+  creatorReferenceLabel,
   creatorToolLabel,
-  getEstimatedDuration,
   taskKindLabel,
 } from "@/lib/creatorPresentation";
 import {
+  publicAssistantText,
   actionAwareConversationContent,
-  actionEnvelopeFromStreamText,
   conversationContent,
   creatorActionEnvelope,
   deduplicateReviewFeedbackMessages,
@@ -78,8 +82,13 @@ import {
   type CreatorActionEnvelope,
   type ToolCallPresentation,
 } from "@/lib/creatorMessagePresentation";
-import { deriveAgentLiveStatus } from "@/lib/agentLiveStatus";
-import AgentEventFeed from "./AgentEventFeed";
+import {
+  deriveAgentLiveStatus,
+  toolActivityPhase,
+} from "@/lib/agentLiveStatus";
+import AgentProgressOverview from "./AgentProgressOverview";
+import AgentWaitHint from "./AgentWaitHint";
+import AgentActivityIndicator from "./AgentActivityIndicator";
 import DecisionTray from "./DecisionTray";
 import MentionInput, { type MentionInputHandle } from "./MentionInput";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
@@ -94,7 +103,7 @@ interface DockSize {
 
 const DOCK_MIN_WIDTH = 240;
 const DOCK_MIN_HEIGHT = 420;
-const DOCK_DEFAULT_SIZE: DockSize = { width: 440, height: 620 };
+const DOCK_DEFAULT_SIZE: DockSize = { width: 340, height: 620 };
 const DOCK_SIZE_STORAGE_KEY = "agentDock.size.v1";
 // The workspace keeps at least this many pixels no matter how wide the dock
 // is dragged; below that width its container queries switch to the drawer
@@ -121,23 +130,29 @@ const STOPPABLE_SESSION_STATUSES = [
   "INTERRUPT_REQUESTED",
 ];
 
-function dockMaxSize(): DockSize {
+function dockMaxSize(sidebar = false): DockSize {
   if (typeof window === "undefined") return { width: 960, height: 1200 };
   return {
-    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - WORKSPACE_MIN_WIDTH),
+    width: Math.max(
+      DOCK_MIN_WIDTH,
+      Math.min(
+        window.innerWidth - WORKSPACE_MIN_WIDTH,
+        sidebar ? Math.min(560, window.innerWidth * 0.38) : Infinity,
+      ),
+    ),
     height: Math.max(DOCK_MIN_HEIGHT, window.innerHeight - 40),
   };
 }
 
-function clampDockSize(size: DockSize): DockSize {
-  const maximum = dockMaxSize();
+function clampDockSize(size: DockSize, sidebar = false): DockSize {
+  const maximum = dockMaxSize(sidebar);
   return {
     width: Math.min(Math.max(size.width, DOCK_MIN_WIDTH), maximum.width),
     height: Math.min(Math.max(size.height, DOCK_MIN_HEIGHT), maximum.height),
   };
 }
 
-function loadDockSize(): DockSize {
+function loadDockSize(sidebar = false): DockSize {
   if (typeof window === "undefined") return DOCK_DEFAULT_SIZE;
   try {
     const raw = window.localStorage.getItem(DOCK_SIZE_STORAGE_KEY);
@@ -147,7 +162,10 @@ function loadDockSize(): DockSize {
         typeof parsed.width === "number" &&
         typeof parsed.height === "number"
       ) {
-        return clampDockSize({ width: parsed.width, height: parsed.height });
+        return clampDockSize(
+          { width: parsed.width, height: parsed.height },
+          sidebar,
+        );
       }
     }
   } catch {
@@ -268,12 +286,12 @@ const SUBAGENT_MARKDOWN_COMPONENTS: Components = {
     </ol>
   ),
   pre: ({ children }) => (
-    <pre className="my-1.5 max-w-full overflow-x-auto rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)]">
+    <pre className="my-1.5 max-w-full overflow-x-auto rounded-md bg-[var(--color-bg-secondary)] p-2 text-[11px] leading-4 text-[var(--color-text-secondary)]">
       {children}
     </pre>
   ),
   table: ({ children }) => (
-    <table className="my-1.5 w-full border-collapse text-left text-[10px] leading-4">
+    <table className="my-1.5 w-full border-collapse text-left text-[11px] leading-4">
       {children}
     </table>
   ),
@@ -348,7 +366,7 @@ function MessageParts({
         return (
           <span
             key={index}
-            className="mt-1 block rounded bg-[var(--color-bg-secondary)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)]"
+            className="mt-1 block rounded bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]"
           >
             {part.type === "audio"
               ? t("agent.audioAttachment")
@@ -368,19 +386,6 @@ function MessageParts({
   );
 }
 
-function useLiveDisclosure(active: boolean) {
-  const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
-  const [expanded, setExpanded] = useState(false);
-  const wasActive = useRef(active);
-  useEffect(() => {
-    if (!allowExpand) return;
-    if (active && !wasActive.current) setExpanded(true);
-    if (!active && wasActive.current) setExpanded(false);
-    wasActive.current = active;
-  }, [active, allowExpand]);
-  return { expanded, setExpanded };
-}
-
 function ThinkingDisclosure({
   children,
   active,
@@ -389,128 +394,19 @@ function ThinkingDisclosure({
   active: boolean;
 }) {
   const { t } = useTranslation();
-  const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
-  const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
-  const { expanded, setExpanded } = useLiveDisclosure(active);
-  if (!children) return null;
+  if (!children || !active) return null;
+  // Thinking is intentionally status-only, including when legacy detail settings are enabled.
   return (
-    <div
-      data-agent-thinking
-      data-expanded={expanded ? "true" : "false"}
-      className="border-l-2 border-[var(--color-border-strong)] pl-2 text-[10px]"
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex items-center gap-1.5 ${
-            active
-              ? "text-[var(--color-text-secondary)]"
-              : "text-[var(--color-text-tertiary)]"
-          }`}
-        >
-          {isReplaying ? (
-            <CircleCheck className="h-3 w-3 opacity-50" />
-          ) : active ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <CircleCheck className="h-3 w-3" />
-          )}
-          {isReplaying
-            ? t("agent.thinkingDone")
-            : active
-            ? t("agent.thinking")
-            : t("agent.thinkingDone")}
-        </span>
-        {allowExpand && (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
-          >
-            {expanded ? t("agent.collapse") : t("agent.details")}
-          </button>
-        )}
-      </div>
-      {expanded && (
-        <pre
-          data-agent-thinking-output
-          tabIndex={0}
-          className="mt-1 max-h-56 touch-pan-y overflow-y-auto overscroll-contain whitespace-pre-wrap break-words font-sans text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]"
-        >
-          {children}
-        </pre>
-      )}
+    <div data-agent-thinking className="agent-activity-row">
+      <AgentActivityIndicator phase="running" />
+      <span>{t("agentActivity.thinking")}</span>
     </div>
   );
 }
 
-function extractErrorMessage(error: string): string {
-  if (!error) return "";
-  try {
-    const parsed = JSON.parse(error);
-    const type = parsed.error?.type || "";
-    const message = parsed.error?.message || parsed.message || error;
-    const errorMap: Record<string, string> = {
-      AgentProjectBaseRequired: i18n.t("agent.errorProjectBase"),
-    };
-    if (errorMap[type]) return errorMap[type];
-    return message;
-  } catch {
-    return error;
-  }
-}
-
-function simplifyErrorMessage(text: string): string {
-  if (!text) return "";
-  const errorMap: Record<string, string> = {
-    AgentProjectBaseRequired: i18n.t("agent.projectExpired"),
-    "R2V ArtifactSlot 归属冲突": i18n.t("agent.r2vSlotConflict"),
-    "exceeded 16 model turns": i18n.t("agent.agentTimeout"),
-    "retryable: false": i18n.t("agent.notRetryable"),
-  };
-  for (const [key, value] of Object.entries(errorMap)) {
-    if (text.includes(key)) return value;
-  }
-  const firstLine = text.split("\n")[0].trim();
-  const firstSentence = firstLine.split("。")[0].split(". ")[0];
-  return firstSentence || i18n.t("agent.executionFailed");
-}
-
-function actionReason(envelope: CreatorActionEnvelope): string {
-  const arguments_ = envelope.payload?.arguments;
-  if (
-    !arguments_ ||
-    typeof arguments_ !== "object" ||
-    Array.isArray(arguments_)
-  )
-    return "";
-  const reason = (arguments_ as Record<string, unknown>).reason;
-  return typeof reason === "string" ? reason.trim() : "";
-}
-
-function waitingActionTitle(reason: string): string {
-  if (!reason) return i18n.t("agent.waitingProcessing");
-  return i18n.t("agent.waitingInProgress", { subject: reason });
-}
-
-function actionTitle(envelope: CreatorActionEnvelope, active: boolean): string {
-  if (envelope.action === "tool_call") {
-    const label = creatorToolLabel(envelope.tool || "");
-    return active
-      ? i18n.t("agent.toolCallActive", { tool: label })
-      : i18n.t("agent.toolCallDone", { tool: label });
-  }
-  if (envelope.action === "yield_until_runtime_event") {
-    return waitingActionTitle(actionReason(envelope));
-  }
-  if (envelope.action === "complete_current_change")
-    return active
-      ? i18n.t("agent.checkingChanges")
-      : i18n.t("agent.checkingDone");
-  if (envelope.action === "plan")
-    return active ? i18n.t("agent.planning") : i18n.t("agent.planGenerated");
-  if (envelope.action === "final")
-    return active ? i18n.t("agent.finalizing") : i18n.t("agent.replyGenerated");
-  return active ? i18n.t("agent.processing") : i18n.t("agent.completed");
+function simplifyErrorMessage(_text: string): string {
+  // Provider/runtime errors may contain prompts, local paths and protocol data.
+  return i18n.t("agentActivity.failureHint");
 }
 
 function ActionDisclosure({
@@ -521,135 +417,82 @@ function ActionDisclosure({
   active: boolean;
 }) {
   const { t } = useTranslation();
-  const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
-  const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
-  const { expanded, setExpanded } = useLiveDisclosure(active);
-  const payload = envelope.payload
-    ? JSON.stringify(envelope.payload, null, 2)
-    : envelope.rawPayload;
-  const waiting = envelope.action === "yield_until_runtime_event" && !active;
+  const session = useCreatorSessionStore((state) => state.session);
+  const waiting =
+    envelope.action === "yield_until_runtime_event" &&
+    session?.status === "WAITING_RUNTIME";
+  if (!active && !waiting) return null;
   return (
-    <div
-      data-agent-action={envelope.action}
-      data-streaming-action={active ? "true" : undefined}
-      data-expanded={expanded ? "true" : "false"}
-      className="border-l-2 border-[var(--color-accent)]/25 pl-2 text-[10px]"
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex items-center gap-1.5 ${
-            active || waiting
-              ? "text-[var(--color-text-secondary)]"
-              : "text-[var(--color-success)]"
-          }`}
-        >
-          {isReplaying ? (
-            <CircleCheck className="h-3 w-3 opacity-50" />
-          ) : active ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : waiting ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <CircleCheck className="h-3 w-3" />
-          )}
-          {actionTitle(envelope, active)}
-        </span>
-        {allowExpand && (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
-          >
-            {expanded ? t("agent.collapse") : t("agent.details")}
-          </button>
-        )}
-      </div>
-      {expanded && (
-        <pre
-          data-agent-action-output
-          tabIndex={0}
-          className="mt-1 max-h-56 touch-pan-y overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]"
-        >
-          {payload}
-        </pre>
-      )}
+    <div data-agent-action={envelope.action} className="agent-activity-row">
+      <AgentActivityIndicator phase="waiting" />
+      <span>
+        {waiting ? t("agentActivity.background") : t("agentActivity.preparing")}
+      </span>
     </div>
   );
 }
 
 function ConversationMessage({ item }: { item: CreatorMessage }) {
-  const { t } = useTranslation();
-  if (isReviewFeedbackMessage(item)) {
-    return <ReviewFeedbackCard item={item} />;
-  }
+  const project = useProjectSnapshotStore((state) => state.project);
+  const waitingForRuntime = useCreatorSessionStore(
+    (state) => state.session?.status === "WAITING_RUNTIME",
+  );
+  if (isReviewFeedbackMessage(item)) return <ReviewFeedbackCard item={item} />;
+  if (item.role === "tool") return null;
   const envelope =
     item.role === "assistant" ? creatorActionEnvelope(item) : null;
+  const streaming = item.metadata?.streaming === true;
+  const parts =
+    item.role === "assistant"
+      ? actionAwareConversationContent(item, envelope, project)
+      : conversationContent(item, project);
   const content =
     item.role === "assistant"
-      ? actionAwareConversationContent(item, envelope)
-      : conversationContent(item);
+      ? parts
+          .map((part) =>
+            part.type === "text"
+              ? {
+                  ...part,
+                  text: publicAssistantText(part.text, { streaming, project }),
+                }
+              : part,
+          )
+          .filter((part) => part.type !== "text" || part.text)
+      : parts;
   const thinking =
     typeof item.metadata?.providerThinking === "string"
       ? item.metadata.providerThinking
       : "";
-  const streaming = item.metadata?.streaming === true;
-  if (content.length === 0 && !thinking && !envelope) return null;
-  if (item.role === "user") {
+  const showThinking = !content.length && streaming && Boolean(thinking);
+  const showAction =
+    !content.length &&
+    !thinking &&
+    envelope &&
+    !(envelope.syntax === "native" && envelope.action === "tool_call") &&
+    (streaming ||
+      (envelope.action === "yield_until_runtime_event" && waitingForRuntime));
+  // A persisted tool envelope or hidden thinking has no conversation body.
+  // Do not leave an empty sibling between otherwise consecutive tool rows.
+  if (!content.length && !showThinking && !showAction) return null;
+  if (item.role === "user")
     return (
-      <div
-        data-agent-message
-        className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] leading-[1.5] text-white"
-      >
+      <div data-agent-message className="agent-user-message">
         <MessageParts parts={content} />
       </div>
     );
-  }
-  if (item.role === "tool") {
-    return (
-      <div
-        data-agent-message
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1.5 text-[10px] text-[var(--color-text-secondary)]"
-      >
-        <MessageParts parts={content} />
-      </div>
-    );
-  }
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname === "localhost"
-  ) {
-    console.log("[ConversationMessage]", {
-      streaming,
-      thinking: !!thinking,
-      thinkingLen: thinking.length,
-      contentLen: content.length,
-      completed: item.metadata?.completed,
-    });
-  }
   return (
     <div
       data-agent-message
-      className="space-y-1.5 text-[11px] leading-5 text-[var(--color-text-secondary)]"
+      data-streaming={streaming && content.length > 0}
+      className="agent-assistant-message"
     >
-      {streaming && !thinking && (
-        <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-secondary)]">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span>{t("agent.processing")}</span>
-        </div>
-      )}
-      {thinking && (
+      {showThinking && (
         <ThinkingDisclosure active={streaming}>{thinking}</ThinkingDisclosure>
       )}
-      {content.length > 0 && !streaming && (
-        <MessageParts parts={content} richText />
+      {content.length > 0 && <MessageParts parts={content} richText />}
+      {showAction && (
+        <ActionDisclosure envelope={envelope} active={streaming} />
       )}
-      {envelope &&
-        !(envelope.syntax === "native" && envelope.action === "tool_call") &&
-        (streaming ||
-          envelope.action === "yield_until_runtime_event" ||
-          envelope.action === "complete_current_change") && (
-          <ActionDisclosure envelope={envelope} active={streaming} />
-        )}
     </div>
   );
 }
@@ -684,7 +527,12 @@ function ReviewFeedbackCard({ item }: { item: CreatorMessage }) {
         .filter((target): target is Record<string, unknown> => target !== null)
     : [];
   const targetLabels = targets
-    .map((target) => target.label ?? target.target_ref ?? target.targetRef)
+    .map((target) =>
+      creatorReferenceLabel({
+        ref: String(target.target_ref ?? target.targetRef ?? ""),
+        name: String(target.label ?? ""),
+      }),
+    )
     .filter((value): value is string => typeof value === "string" && !!value);
 
   return (
@@ -712,7 +560,7 @@ function ReviewFeedbackCard({ item }: { item: CreatorMessage }) {
         </div>
       </div>
       {targetLabels.length > 0 && (
-        <div className="mt-2 truncate text-[10px] text-[var(--color-text-tertiary)]">
+        <div className="mt-2 truncate text-[11px] text-[var(--color-text-tertiary)]">
           {t("agent.targets")}
           {targetLabels.join("、")}
         </div>
@@ -734,670 +582,282 @@ interface ConversationTurn {
   responses: CreatorMessage[];
 }
 
-type SpecialistOutcome = "SUCCESS" | "BLOCKED" | "FAILED";
-
-function roleDisplayName(
-  activity: SubagentActivity | undefined,
-  args: Record<string, unknown> | undefined,
-): string {
-  const raw =
-    activity?.role || (typeof args?.role === "string" ? args.role : "");
-  if (raw) {
-    const label = creatorRoleLabel(raw);
-    if (label !== i18n.t("presentation.specialistProduction")) return label;
-  }
-  const displayName =
-    activity?.roleDisplayName ||
-    (typeof args?.roleDisplayName === "string" ? args.roleDisplayName : "");
-  return displayName || i18n.t("presentation.specialistProduction");
-}
-
-function delegationText(
-  activity: SubagentActivity | undefined,
-  args: Record<string, unknown> | undefined,
-): string {
-  if (activity?.delegationText) return activity.delegationText;
-  for (const key of ["task", "delegationText", "instruction"]) {
-    const value = args?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function delegationTargets(
-  activity: SubagentActivity | undefined,
-  args: Record<string, unknown> | undefined,
-): string[] {
-  if (activity?.targetRefs.length) return activity.targetRefs;
-  for (const key of ["target_refs", "targetRefs"]) {
-    const value = args?.[key];
-    if (Array.isArray(value))
-      return value.filter(
-        (item): item is string => typeof item === "string" && Boolean(item),
-      );
-  }
-  return [];
-}
-
-function subagentMessageText(item: SubagentStreamMessage): string {
-  if (item.completedText !== undefined) return item.completedText;
-  return Object.entries(item.deltas)
-    .sort(([left], [right]) => Number(left) - Number(right))
-    .map(([, delta]) => delta)
-    .join("");
-}
-
-function withoutSpecialistOutcomeMarker(text: string): string {
-  return text.replace(/^\s*\[(?:SUCCESS|BLOCKED|FAILED)\]\s*/u, "");
-}
-
 function orderedDeltas(deltas: Record<number, string>): string {
   return Object.entries(deltas)
-    .sort(([left], [right]) => Number(left) - Number(right))
-    .map(([, delta]) => delta)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([, value]) => value)
     .join("");
 }
-
-function subagentThinkingText(item: SubagentStreamMessage): string {
-  return item.completedThinking ?? orderedDeltas(item.thinkingDeltas);
+function subagentMessageText(item: SubagentStreamMessage): string {
+  return item.completedText ?? orderedDeltas(item.deltas);
 }
 
-function specialistOutcomeMeta(outcome: SpecialistOutcome): {
-  label: string;
-  tone: string;
-} {
-  const tones: Record<SpecialistOutcome, string> = {
-    SUCCESS: "bg-[var(--color-success-soft)] text-[var(--color-success)]",
-    BLOCKED: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-    FAILED: "bg-[var(--color-danger-soft)] text-[var(--color-danger)]",
-  };
-  const labels: Record<SpecialistOutcome, string> = {
-    SUCCESS: i18n.t("agent.completed"),
-    BLOCKED: i18n.t("agent.blocked"),
-    FAILED: i18n.t("agent.failed"),
-  };
-  return { label: labels[outcome], tone: tones[outcome] };
-}
-
-function subagentTerminalMeta(
-  kind: NonNullable<SubagentActivity["terminalKind"]>,
-): { label: string; tone: string } {
-  switch (kind) {
-    case "SUCCESS":
-      return specialistOutcomeMeta("SUCCESS");
-    case "BLOCKED":
-      return specialistOutcomeMeta("BLOCKED");
-    case "FAILED":
-      return specialistOutcomeMeta("FAILED");
-    case "STALE":
-      return {
-        label: i18n.t("agent.stale"),
-        tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-      };
-    case "CANCELLED":
-      return {
-        label: i18n.t("agent.cancelled"),
-        tone: "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]",
-      };
-  }
-}
-
-const SUBAGENT_RUNNING_META_TONE =
-  "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
-
-function SubagentMessageBubble({
-  item,
-  materializedTool,
-}: {
-  item: SubagentStreamMessage;
-  materializedTool: boolean;
-}) {
-  const { t } = useTranslation();
-  const body = subagentMessageText(item);
-  const thinking = subagentThinkingText(item);
-  const envelope = actionEnvelopeFromStreamText(body);
-  const visibleBody = envelope?.narration ?? body;
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname === "localhost"
-  ) {
-    console.log("[SubagentMessageBubble]", {
-      completed: item.completed,
-      thinking: !!thinking,
-      thinkingLen: thinking.length,
-      bodyLen: body.length,
-      visibleBodyLen: visibleBody.length,
-      messageId: item.messageId,
-    });
-  }
-  if (!body && !thinking && item.completed) return null;
+function SubagentMessageBubble({ item }: { item: SubagentStreamMessage }) {
+  const project = useProjectSnapshotStore((state) => state.project);
+  const text = publicAssistantText(subagentMessageText(item), {
+    streaming: !item.completed,
+    project,
+  });
+  if (!text) return null;
   return (
     <div
       data-subagent-message={item.messageId}
-      className="text-[11px] leading-5 text-[var(--color-text-secondary)]"
+      data-streaming={!item.completed}
+      className="agent-specialist-response"
     >
-      {!item.completed && (
-        <div className="mb-1 flex items-center gap-1.5">
-          <span className="flex items-center gap-1 text-[9px] text-[var(--color-text-tertiary)]">
-            <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-warning)]" />
-            {t("agent.realtimeOutput")}
-          </span>
-        </div>
-      )}
-      {thinking && (
-        <ThinkingDisclosure active={!item.completed}>
-          {thinking}
-        </ThinkingDisclosure>
-      )}
-      {visibleBody && item.completed && (
-        <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-[11px] leading-5 text-[var(--color-text-secondary)]">
-          {visibleBody}
-        </pre>
-      )}
-      {envelope && !materializedTool && (
-        <ActionDisclosure envelope={envelope} active={!item.completed} />
-      )}
+      <MarkdownContent compact>{text}</MarkdownContent>
     </div>
   );
 }
 
-function formatToolArgumentBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+function statusCopy(status: string): string {
+  return i18n.t(
+    `agentActivity.${
+      (
+        {
+          started: "running",
+          succeeded: "done",
+          failed: "failed",
+          cancelled: "cancelled",
+          waiting_review: "waiting_review",
+          unknown: "unknown",
+        } as Record<string, string>
+      )[status] || "waiting"
+    }`,
+  );
 }
 
-function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
-  const { t } = useTranslation();
-  const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
-  const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
-  const session = useCreatorSessionStore((state) => state.session);
-  const isProjectDone =
-    session?.status === "IDLE" ||
-    session?.status === "CANCELLED" ||
-    session?.status === "ERROR";
-  const isProjectFailed =
-    session?.status === "CANCELLED" || session?.status === "ERROR";
-  const resolvedStatus =
-    isProjectDone && item.status === "started"
-      ? isProjectFailed
-        ? "failed"
-        : "succeeded"
-      : item.status;
-  const active = resolvedStatus === "started";
-  const { expanded, setExpanded } = useLiveDisclosure(active);
-  const renderedArguments = item.arguments
-    ? JSON.stringify(item.arguments, null, 2)
-    : "";
-  const hasArgs = Boolean(renderedArguments);
-  const hasResult = item.result !== undefined && item.result !== null;
-  const hasOutputEvents = item.outputEvents.length > 0;
-  const hasDetails = hasArgs || hasResult || hasOutputEvents;
-  const tone =
-    resolvedStatus === "succeeded"
-      ? "text-[var(--color-success)]"
-      : resolvedStatus === "failed"
-      ? "text-[var(--color-danger)]"
-      : "text-[var(--color-text-tertiary)]";
-  const displayLabel = creatorToolLabel(item.tool);
+function NestedSubagentToolCard({
+  item,
+  completed,
+  waiting,
+}: {
+  item: SubagentStreamTool;
+  completed: boolean;
+  waiting: boolean;
+}) {
+  const status =
+    completed && item.status === "started" ? "unknown" : item.status;
+  const preparing = status === "started" && item.executing !== true;
   return (
     <div
       data-subagent-tool={item.toolCallId}
-      data-expanded={expanded ? "true" : "false"}
-      className="border-l-2 border-[var(--color-accent)]/25 pl-2 text-[10px]"
+      data-status={status}
+      className="agent-activity-row"
     >
-      <div className="flex items-center gap-2">
-        <span className={`flex items-center gap-1.5 ${tone}`}>
-          {isReplaying ? (
-            <CircleCheck className="h-3 w-3 opacity-50" />
-          ) : resolvedStatus === "started" ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : resolvedStatus === "succeeded" ? (
-            <CircleCheck className="h-3 w-3" />
-          ) : (
-            <XCircle className="h-3 w-3" />
-          )}
-          <span>
-            {displayLabel}
-            {isReplaying
-              ? ""
-              : active
-              ? t("agent.processing")
-              : resolvedStatus === "succeeded"
-              ? t("agent.completed")
-              : t("agent.failed")}
-          </span>
-          {active && item.receivedBytes !== undefined && (
-            <span className="text-[9px] text-[var(--color-text-tertiary)]">
-              {i18n.t("lib.arguments")}
-              {formatToolArgumentBytes(item.receivedBytes)}
-            </span>
-          )}
-        </span>
-        {hasDetails && allowExpand && (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
-          >
-            {expanded ? t("agent.collapse") : t("agent.details")}
-          </button>
-        )}
-      </div>
-      {expanded && (
-        <div className="mt-1 min-h-0 space-y-1">
-          {hasArgs && (
-            <pre
-              data-subagent-tool-arguments
-              tabIndex={0}
-              className="max-h-52 touch-pan-y overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]"
-            >
-              {renderedArguments}
-            </pre>
-          )}
-          {hasOutputEvents && (
-            <pre
-              data-subagent-tool-stream
-              tabIndex={0}
-              className="max-h-52 touch-pan-y overflow-auto overscroll-contain whitespace-pre-wrap rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]"
-            >
-              {item.outputEvents
-                .map((event) =>
-                  JSON.stringify({ type: event.type, ...event.data }),
-                )
-                .join("\n")}
-            </pre>
-          )}
-          {hasResult && (
-            <pre
-              tabIndex={0}
-              className="max-h-52 touch-pan-y overflow-auto overscroll-contain rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]"
-            >
-              {JSON.stringify(item.result, null, 2)}
-            </pre>
-          )}
-        </div>
-      )}
+      <AgentActivityIndicator
+        phase={
+          waiting && status === "started"
+            ? "waiting"
+            : toolActivityPhase({ status, executing: item.executing })
+        }
+      />
+      <span className="min-w-0 flex-1">
+        {creatorToolLabel(item.tool, item.arguments)}
+      </span>
+      <span className="agent-activity-caption">
+        {waiting && status === "started"
+          ? i18n.t("agentActivity.waiting")
+          : preparing
+          ? i18n.t("agentActivity.preparing")
+          : statusCopy(status)}
+      </span>
     </div>
   );
 }
 
 function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
-  const { t } = useTranslation();
-  const tools = Object.values(activity.tools);
   const items = [
     ...Object.values(activity.messages).map((item) => ({
       kind: "message" as const,
       order: item.firstEventSeq,
       item,
     })),
-    ...tools.map((item) => ({
+    ...Object.values(activity.tools).map((item) => ({
       kind: "tool" as const,
       order: item.firstEventSeq,
       item,
     })),
-  ].sort((left, right) => left.order - right.order);
-  const terminal = activity.terminalKind
-    ? subagentTerminalMeta(activity.terminalKind)
-    : null;
-  const activityStatus = activity.waitingReview
-    ? {
-        label: t("agent.waitingReview"),
-        tone: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
-      }
-    : terminal ?? {
-        label: t("agent.processing"),
-        tone: SUBAGENT_RUNNING_META_TONE,
-      };
+  ].sort((a, b) => a.order - b.order);
   return (
     <div
       data-subagent-activity={activity.parentActionId}
-      className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-2.5 py-2"
+      data-subagent-output
+      className="agent-specialist-history"
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px]">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <b className="truncate text-[var(--color-accent)]">
-            {activity.role
-              ? creatorRoleLabel(activity.role)
-              : roleDisplayName(activity, undefined)}
-          </b>
-          <span
-            className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold ${activityStatus.tone}`}
-          >
-            {activityStatus.label}
-          </span>
-        </div>
-        {activity.runId && (
-          <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-tertiary)]">
-            {t("agent.runId", { id: activity.runId.slice(0, 8) })}
-          </span>
-        )}
-      </div>
-      <div
-        data-subagent-output
-        tabIndex={0}
-        className="max-h-[min(24rem,50vh)] min-h-0 touch-pan-y space-y-1.5 overflow-y-auto overscroll-contain pr-1 outline-none [scrollbar-gutter:stable]"
-      >
-        {items.length > 0 ? (
-          items.map((entry) =>
-            entry.kind === "message" ? (
-              <SubagentMessageBubble
-                key={`message:${entry.item.runId}:${entry.item.messageId}`}
-                item={entry.item}
-                materializedTool={Boolean(
-                  actionEnvelopeFromStreamText(subagentMessageText(entry.item))
-                    ?.tool &&
-                    tools.some(
-                      (tool) =>
-                        tool.tool ===
-                          actionEnvelopeFromStreamText(
-                            subagentMessageText(entry.item),
-                          )?.tool &&
-                        tool.firstEventSeq >= entry.item.firstEventSeq,
-                    ),
-                )}
-              />
-            ) : (
-              <NestedSubagentToolCard
-                key={`tool:${entry.item.runId}:${entry.item.toolCallId}`}
-                item={entry.item}
-              />
-            ),
-          )
-        ) : activity.summaryText ? (
-          <div className="text-[11px] leading-5 text-[var(--color-text-secondary)]">
-            <MarkdownContent compact>
-              {simplifyErrorMessage(activity.summaryText)}
-            </MarkdownContent>
-          </div>
+      {items.map((entry) =>
+        entry.kind === "message" ? (
+          <SubagentMessageBubble
+            key={`m:${entry.item.runId}:${entry.item.messageId}`}
+            item={entry.item}
+          />
         ) : (
-          <p
-            className={`${
-              activity.completed ? "" : "animate-pulse"
-            } text-[10px] text-[var(--color-text-tertiary)]`}
-          >
-            {activity.completed ? t("agent.done") : t("agent.waitingOutput")}
-          </p>
-        )}
-      </div>
+          <NestedSubagentToolCard
+            key={`t:${entry.item.runId}:${entry.item.toolCallId}`}
+            item={entry.item}
+            completed={activity.completed}
+            waiting={
+              activity.waitingReview ||
+              [
+                "QUEUED",
+                "QUEUED_CAPACITY",
+                "WAITING_RUNTIME",
+                "WAITING_AUTHORIZATION",
+              ].includes(activity.status ?? "")
+            }
+          />
+        ),
+      )}
     </div>
   );
 }
 
 function ToolCallCard({ data }: { data: ToolCallPresentation }) {
   const { t } = useTranslation();
-  const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
-  const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const session = useCreatorSessionStore((state) => state.session);
-  const isProjectDone =
-    session?.status === "IDLE" ||
-    session?.status === "CANCELLED" ||
-    session?.status === "ERROR";
-  const isProjectFailed =
-    session?.status === "CANCELLED" || session?.status === "ERROR";
   const activity = useCreatorSessionStore(
     (state) => state.subagentActivities[data.actionId],
   );
-  const status = String(data.status ?? "");
-  const tool = String(data.tool ?? "");
-  const args = data.arguments;
-  const rawArgs = data.argumentsText;
-  const result = data.result;
-  const delegated = tool === "delegate_to_agent" || Boolean(activity);
-  const task = delegated ? delegationText(activity, args) : "";
-  const targets = delegated ? delegationTargets(activity, args) : [];
-  const role = delegated ? roleDisplayName(activity, args) : "";
-  const rawDelegateResult =
-    delegated && result !== undefined && result !== null
-      ? typeof result === "string"
-        ? result
-        : JSON.stringify(result, null, 2)
-      : "";
-
-  const fileTools = [
-    "read_file",
-    "write_file",
-    "edit_file",
-    "append_file",
-    "read_project",
-    "read_project_file",
-    "jq_project",
-    "grep_search",
-    "glob_search",
-    "ast_search",
-  ];
-  const isFileTool = fileTools.includes(tool);
-
-  const hasArgs =
-    !delegated &&
-    !isFileTool &&
-    Boolean((args && Object.keys(args).length > 0) || rawArgs);
-  const hasResult =
-    !delegated && !isFileTool && result !== undefined && result !== null;
-  const hasDetails = delegated || hasArgs || hasResult;
-
-  const effectiveStatus =
-    delegated && activity
-      ? activity.completed
-        ? activity.waitingReview
-          ? "waiting_review"
-          : activity.terminalKind === "FAILED" ||
-            activity.terminalKind === "BLOCKED"
-          ? "failed"
-          : activity.terminalKind === "CANCELLED" ||
-            activity.terminalKind === "STALE"
-          ? "cancelled"
-          : "succeeded"
-        : "started"
-      : status;
-  // When the project reached a terminal state, force "started" tools terminal too.
-  const resolvedStatus =
-    isProjectDone && effectiveStatus === "started"
-      ? isProjectFailed
-        ? "failed"
-        : "succeeded"
-      : effectiveStatus;
-  const active = resolvedStatus === "started";
-  const { expanded, setExpanded } = useLiveDisclosure(active);
-  const tone =
-    resolvedStatus === "succeeded"
-      ? "text-[var(--color-success)]"
-      : resolvedStatus === "failed"
-      ? "text-[var(--color-danger)]"
-      : resolvedStatus === "cancelled"
-      ? "text-[var(--color-text-tertiary)]"
-      : resolvedStatus === "waiting_review"
-      ? "text-[var(--color-accent)]"
-      : "text-[var(--color-text-secondary)]";
-
-  let displayLabel: string;
-  let subLabel: string | null = null;
-  if (delegated) {
-    const activeTool = activity
-      ? Object.values(activity.tools).find((t) => t.status === "started")
-      : null;
-    if (activeTool) {
-      subLabel = creatorToolLabel(activeTool.tool);
-    }
-    displayLabel = role || t("presentation.specialistProduction");
-  } else {
-    displayLabel = creatorToolLabel(tool);
-  }
-
-  const estimatedDuration = active ? getEstimatedDuration(tool) : null;
-  const rawStatusMessage = delegated
-    ? activity?.summaryText || ""
-    : data.error || "";
-  const statusMessage =
-    resolvedStatus === "waiting_review"
-      ? withoutSpecialistOutcomeMarker(rawStatusMessage)
-      : simplifyErrorMessage(rawStatusMessage);
-
+  const project = useProjectSnapshotStore((state) => state.project);
+  const [expanded, setExpanded] = useState(false);
+  const delegated = data.tool === "delegate_to_agent" || Boolean(activity);
+  const role = creatorRoleLabel(
+    activity?.role || String(data.arguments?.role || ""),
+  );
+  const targets = activity?.targetRefs || [];
+  // Main-session IDLE never proves a detached task succeeded. Missing terminal
+  // events remain unconfirmed, instead of manufacturing a green check.
+  const status = activity
+    ? activity.waitingReview
+      ? "waiting_review"
+      : !activity.completed
+      ? "started"
+      : activity.terminalKind === "SUCCESS" || activity.status === "SUCCEEDED"
+      ? "succeeded"
+      : ["FAILED", "BLOCKED", "STALE"].includes(
+          activity.terminalKind ?? activity.status ?? "",
+        )
+      ? "failed"
+      : "cancelled"
+    : data.status === "started" &&
+      session &&
+      ["IDLE", "ERROR", "CANCELLED"].includes(session.status)
+    ? "unknown"
+    : data.status;
+  const activeTool =
+    activity &&
+    !activity.waitingReview &&
+    ![
+      "QUEUED",
+      "QUEUED_CAPACITY",
+      "WAITING_RUNTIME",
+      "WAITING_AUTHORIZATION",
+    ].includes(activity.status ?? "") &&
+    Object.values(activity.tools)
+      .filter((tool) => tool.status === "started" && tool.executing === true)
+      .sort((a, b) => b.firstEventSeq - a.firstEventSeq)[0];
+  const phaseCopy =
+    data.waitingAuthorization && status === "started"
+      ? t("agentActivity.confirmation")
+      : activity?.status === "WAITING_RUNTIME"
+      ? t("agentActivity.background")
+      : activity?.status === "WAITING_AUTHORIZATION"
+      ? t("agentActivity.confirmation")
+      : activity?.status === "QUEUED" || activity?.status === "QUEUED_CAPACITY"
+      ? t("agentActivity.queued")
+      : !activity && data.executing !== true
+      ? t("agentActivity.preparing")
+      : statusCopy(status);
+  const latestMessage =
+    activity &&
+    Object.values(activity.messages).sort(
+      (a, b) => b.firstEventSeq - a.firstEventSeq,
+    )[0];
+  const preview = latestMessage
+    ? publicAssistantText(subagentMessageText(latestMessage), {
+        streaming: !latestMessage.completed,
+        project,
+      })
+    : "";
   return (
     <div
       data-agent-tool={data.actionId}
       data-expanded={expanded ? "true" : "false"}
-      className="text-[10px]"
+      data-status={status}
+      className={delegated ? "agent-specialist-card" : "agent-tool-row"}
     >
-      <div className="flex items-center gap-2">
-        <span className={`flex items-center gap-1.5 ${tone}`}>
-          {isReplaying ? (
-            <CircleCheck className="h-3.5 w-3.5 opacity-50" />
-          ) : resolvedStatus === "started" ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : resolvedStatus === "succeeded" ? (
-            <CircleCheck className="h-3.5 w-3.5" />
-          ) : resolvedStatus === "waiting_review" ? (
-            <Clock3 className="h-3.5 w-3.5" />
-          ) : resolvedStatus === "cancelled" ? (
-            <XCircle className="h-3.5 w-3.5 opacity-50" />
-          ) : (
-            <XCircle className="h-3.5 w-3.5" />
-          )}
-          <span>
-            {displayLabel}
-            {isReplaying
-              ? ""
-              : active
-              ? t("agent.processing")
-              : resolvedStatus === "succeeded"
-              ? t("agent.completed")
-              : resolvedStatus === "cancelled"
-              ? t("agent.cancelled")
-              : resolvedStatus === "waiting_review"
-              ? ` · ${t("agent.waitingReview")}`
-              : t("agent.failed")}
-          </span>
-          {subLabel && active && (
-            <span className="text-[10px] text-[var(--color-text-tertiary)]">
-              · {subLabel}
-            </span>
-          )}
-          {estimatedDuration && (
-            <span className="text-[10px] text-[var(--color-text-tertiary)]">
-              {estimatedDuration}
-            </span>
-          )}
-          {active && data.receivedBytes !== undefined && (
-            <span className="text-[10px] text-[var(--color-text-tertiary)]">
-              {i18n.t("lib.arguments")}
-              {formatToolArgumentBytes(data.receivedBytes)}
-            </span>
-          )}
+      <div className="agent-activity-row">
+        <AgentActivityIndicator
+          phase={
+            data.productionOutcome ||
+            (data.waitingAuthorization && status === "started")
+              ? "attention"
+              : toolActivityPhase(
+                  { status, executing: data.executing },
+                  activity,
+                )
+          }
+        />
+        <span className="min-w-0 flex-1 font-medium">
+          {delegated ? role : creatorToolLabel(data.tool, data.arguments)}
         </span>
-        {hasDetails && allowExpand && (
+        <span className="agent-activity-caption">
+          {data.productionOutcome
+            ? t(`agentActivity.productionOutcome.${data.productionOutcome}`)
+            : status === "cancelled" && data.superseded
+            ? t("agentActivity.continued")
+            : status === "started"
+            ? phaseCopy
+            : statusCopy(status)}
+        </span>
+        {activity && (
           <button
-            onClick={() => setExpanded((e) => !e)}
-            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
+            type="button"
+            className="agent-detail-toggle"
+            aria-label={t(
+              expanded
+                ? "agentActivity.hideProgress"
+                : "agentActivity.viewProgress",
+            )}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? t("agent.collapse") : t("agent.details")}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${
+                expanded ? "rotate-180" : ""
+              }`}
+            />
           </button>
         )}
       </div>
-      {resolvedStatus === "failed" && statusMessage && (
-        <div className="mt-1 rounded-md bg-[var(--color-danger-soft)] px-2 py-1.5 text-[10px] text-[var(--color-danger)]">
-          {statusMessage}
-        </div>
-      )}
-      {resolvedStatus === "waiting_review" && statusMessage && (
-        <div
-          data-agent-waiting-review
-          className="mt-1 rounded-md border border-[var(--color-accent)]/25 bg-[var(--color-accent-soft)] px-2 py-1.5 text-[10px] leading-4 text-[var(--color-text-secondary)]"
-        >
-          {statusMessage}
-        </div>
-      )}
-      {expanded && (
-        <div className="mt-1 space-y-1">
-          {delegated && (task || targets.length > 0) && (
-            <div
-              data-subagent-input
-              className="max-h-32 overflow-y-auto rounded-md bg-[var(--color-bg-secondary)] px-2 py-1.5 text-[10px] leading-4 text-[var(--color-text-secondary)]"
-            >
-              {task && (
-                <p className="whitespace-pre-wrap break-words">{task}</p>
-              )}
-              {targets.length > 0 && (
-                <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                  {t("agent.targetsLabel")}
-                  {targets.map((ref) => creatorTargetLabel(ref)).join("、")}
-                </p>
-              )}
-            </div>
-          )}
-          {delegated && activity && (
-            <SubagentActivityBubble activity={activity} />
-          )}
-          {delegated && !activity && rawDelegateResult && (
-            <div className="text-[10px] leading-4 text-[var(--color-text-secondary)]">
-              <pre className="whitespace-pre-wrap break-words font-sans">
-                {rawDelegateResult}
-              </pre>
-            </div>
-          )}
-          {delegated && !args && rawArgs && (
-            <pre className="overflow-x-auto rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)]">
-              {rawArgs}
-            </pre>
-          )}
-          {hasArgs && (
-            <pre className="overflow-x-auto rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)]">
-              {args ? JSON.stringify(args, null, 2) : rawArgs}
-            </pre>
-          )}
-          {hasResult && (
-            <pre className="max-h-56 touch-pan-y overflow-auto overscroll-contain rounded-md bg-[var(--color-bg-secondary)] p-2 text-[10px] leading-4 text-[var(--color-text-secondary)] [scrollbar-gutter:stable]">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface PlanPresentation {
-  summary: string;
-  steps: string[];
-  scope?: unknown;
-}
-
-function withoutDuplicateStepNumber(step: string): string {
-  return step.replace(/^\s*(?:\d+[.\u3001、):：）]|[\(（]\d+[\)）])\s*/u, "");
-}
-
-function planPresentation(message: CreatorMessage): PlanPresentation | null {
-  const envelope = creatorActionEnvelope(message);
-  if (envelope?.action !== "plan" || !envelope.payload) return null;
-  const data = envelope.payload;
-  return {
-    summary: typeof data.summary === "string" ? data.summary : "",
-    steps: Array.isArray(data.steps) ? data.steps.map(String) : [],
-    scope: data.scope,
-  };
-}
-
-function PlanCard({ data }: { data: PlanPresentation }) {
-  const { t } = useTranslation();
-  return (
-    <div className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-3 text-[11px] leading-5 text-[var(--color-text-primary)]">
-      <b className="block text-[var(--color-accent)]">
-        {t("agent.executionPlan", { summary: data.summary })}
-      </b>
-      {data.steps.length > 0 && (
-        <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[var(--color-text-secondary)]">
-          {data.steps.map((step, index) => (
-            <li key={index}>{withoutDuplicateStepNumber(step)}</li>
+      {delegated && targets.length > 0 && (
+        <div className="agent-targets">
+          {targets.map((ref) => (
+            <span key={ref}>{creatorTargetLabel(ref, project)}</span>
           ))}
-        </ol>
+        </div>
       )}
-      {Boolean(data.scope) && (
-        <p className="mt-1 text-[var(--color-text-tertiary)]">
-          {t("agent.scope")}
-          {(Array.isArray(data.scope) ? data.scope : [data.scope])
-            .map((ref) => creatorTargetLabel(String(ref)))
-            .join("、")}
+      {activeTool && status === "started" && (
+        <p className="agent-specialist-subtitle">
+          {creatorToolLabel(activeTool.tool, activeTool.arguments)}
         </p>
       )}
+      {!expanded && preview && (
+        <div data-subagent-public-preview className="agent-specialist-preview">
+          <MarkdownContent compact>{preview}</MarkdownContent>
+        </div>
+      )}
+      {status === "failed" && (
+        <p className="agent-activity-notice">
+          {t("agentActivity.failureHint")}
+        </p>
+      )}
+      {status === "waiting_review" && (
+        <p data-agent-waiting-review className="agent-activity-notice">
+          {t("agentActivity.reviewHint")}
+        </p>
+      )}
+      {expanded && activity && <SubagentActivityBubble activity={activity} />}
     </div>
   );
 }
@@ -1405,7 +865,7 @@ function PlanCard({ data }: { data: PlanPresentation }) {
 function refTypeLabel(type: RefSearchItem["type"]): string {
   const labels: Record<RefSearchItem["type"], string> = {
     timeline: i18n.t("agent.mainTimeline"),
-    element: i18n.t("agent.elementType"),
+    element: i18n.t("agentActivity.reference"),
     asset: i18n.t("common.content"),
     artifact: i18n.t("agent.artifactType"),
     visual: i18n.t("common.setting"),
@@ -1414,16 +874,7 @@ function refTypeLabel(type: RefSearchItem["type"]): string {
 }
 
 function fallbackRefName(ref: string): string {
-  const value = ref.split(/[:/]/).filter(Boolean).at(-1) || ref;
-  return value.length > 20 ? `${value.slice(0, 20)}…` : value;
-}
-
-function eventSummary(data: Record<string, unknown>): string {
-  for (const key of ["summary", "message", "text", "delta", "outcome"]) {
-    const value = data[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
+  return creatorTargetLabel(ref);
 }
 
 function projectRefItems(
@@ -1432,20 +883,23 @@ function projectRefItems(
   limit = 6,
 ): RefSearchItem[] {
   if (!project) return [];
-  const timeline = selectPrimaryTimeline(project);
+  const timeline = selectPrimaryTimeline(
+    project,
+    useTimelineStore.getState().activeTimelineId,
+  );
   const needle = query.trim().toLocaleLowerCase();
   const items: RefSearchItem[] = [];
   if (timeline) {
     items.push({
       ref: `timeline:${timeline.timeline_id}`,
-      name: i18n.t("agent.mainTimeline"),
+      name: creatorTargetLabel(`timeline:${timeline.timeline_id}`, project),
       type: "timeline",
       uiLocator: { page: "plan" },
     });
     Object.values(timeline.elements_by_id).forEach((element) =>
       items.push({
         ref: `element:${element.element_id}`,
-        name: element.label || element.element_id,
+        name: creatorTargetLabel(`element:${element.element_id}`, project),
         type: "element",
         uiLocator: { page: "element", elementId: element.element_id },
       }),
@@ -1457,7 +911,7 @@ function projectRefItems(
   Object.values(project.visual.entities.items).forEach((entity) =>
     items.push({
       ref: `visual-entity:${entity.entity_id}`,
-      name: entity.name || entity.entity_id,
+      name: creatorTargetLabel(`visual-entity:${entity.entity_id}`, project),
       type: "visual",
       thumbnailUrl:
         entity.variants.order.length === 1
@@ -1522,13 +976,12 @@ function projectRefItems(
 function WorkspacePanel() {
   const { t } = useTranslation();
   const session = useCreatorSessionStore((state) => state.session);
-  const status = useCreatorSessionStore((state) => state.agentStatusBar);
-  const events = useCreatorSessionStore((state) => state.events);
   const runs = useCreatorTaskViewStore((state) => state.runs);
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
   const workGraph = useWorkGraphStore((state) => state.graph);
   const project = useProjectSnapshotStore((state) => state.project);
-  const timeline = selectPrimaryTimeline(project);
+  const activeTimelineId = useTimelineStore((s) => s.activeTimelineId);
+  const timeline = selectPrimaryTimeline(project, activeTimelineId);
   const sourceCount = project
     ? Object.keys(project.assets.source_versions_by_id).length
     : 0;
@@ -1539,38 +992,19 @@ function WorkspacePanel() {
   const elementCount = timeline
     ? Object.keys(timeline.elements_by_id).length
     : 0;
-  const recentWrites = events
-    .filter(
-      (event) =>
-        event.type.startsWith("workspace.") ||
-        event.type.startsWith("review.") ||
-        event.type.startsWith("task."),
-    )
-    .slice(-5)
-    .reverse();
 
   return (
-    <div className="space-y-2.5 text-[10px] leading-4">
+    <div className="space-y-2.5 text-[11px] leading-4">
       <div>
         <p className="font-semibold text-[var(--color-text-secondary)]">
           {t("agent.currentTask")}
         </p>
         <p className="text-[var(--color-text-tertiary)]">
-          {t("agent.phase")}{" "}
-          <b className="text-[var(--color-text-primary)]">
-            {status?.progress.label || "—"}
-          </b>
-          {" · "}
           {t("agent.statusLabel")}{" "}
           <b className="text-[var(--color-text-primary)]">
             {creatorStatusLabel(session?.status)}
           </b>
         </p>
-        {status?.progress.latestMilestone && (
-          <p className="line-clamp-2 text-[var(--color-text-secondary)]">
-            {t("agent.goal", { goal: status.progress.latestMilestone })}
-          </p>
-        )}
       </div>
 
       <div>
@@ -1584,10 +1018,10 @@ function WorkspacePanel() {
             </span>
           ) : (
             <>
-              <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
+              <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
                 {t("agent.sourceMaterials", { count: sourceCount })}
               </span>
-              <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
+              <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
                 {t("agent.artifacts", { count: artifactCount })}
               </span>
             </>
@@ -1621,12 +1055,12 @@ function WorkspacePanel() {
                   className="flex items-center gap-1.5 text-[var(--color-text-tertiary)]"
                 >
                   <span className="min-w-0 flex-1 truncate text-[var(--color-text-secondary)]">
-                    {run.displayName} ·{" "}
+                    {creatorRoleLabel(run.role)} ·{" "}
                     {run.targetRefs
                       .map((ref) => creatorTargetLabel(ref, project))
                       .join("、") || t("agent.currentProject")}
                   </span>
-                  <span className="shrink-0 text-[9px]">
+                  <span className="shrink-0 text-[11px]">
                     {creatorStatusLabel(run.status)}
                   </span>
                 </li>
@@ -1650,34 +1084,24 @@ function WorkspacePanel() {
           </div>
         )
       )}
-
-      {recentWrites.length > 0 && (
-        <div>
-          <p className="font-semibold text-[var(--color-text-secondary)]">
-            {t("agent.recentWrites")}
-          </p>
-          <ul className="mt-0.5 space-y-0.5">
-            {recentWrites.map((event) => (
-              <li
-                key={event.eventId}
-                className="truncate text-[var(--color-text-tertiary)]"
-              >
-                <span className="text-[var(--color-text-secondary)]">
-                  {creatorEventLabel(event.type)}
-                </span>
-                {eventSummary(event.data)
-                  ? ` → ${eventSummary(event.data)}`
-                  : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }
 
-export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
+export default function AgentDock({
+  sidebar = false,
+  anchor = "right",
+  headerSlot,
+  feedSlot,
+}: {
+  sidebar?: boolean;
+  /** Which screen edge the sidebar dock is attached to. */
+  anchor?: "left" | "right";
+  /** Replaces the brand/title block in the dock header. */
+  headerSlot?: ReactNode;
+  /** Rendered instead of the conversation feed (composer stays). */
+  feedSlot?: ReactNode;
+}) {
   const { t } = useTranslation();
   const { id: projectId = "" } = useParams();
   const open = useAgentDockUiStore((state) => state.open);
@@ -1718,6 +1142,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const stopping = useCreatorSessionStore((state) => state.stopping);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const stopAllAgents = useCreatorSessionStore((state) => state.stopAllAgents);
+  const connectionState = useCreatorSessionStore(
+    (state) => state.connectionState,
+  );
   const rateLimitRetry = useCreatorSessionStore(
     (state) => state.rateLimitRetry,
   );
@@ -1732,6 +1159,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     useFileProjectReviewStore((state) =>
       state.projectId === projectId ? state.reviews : null,
     ) ?? [];
+  const pendingFileReviewCount = fileReviews.reduce(
+    (total, review) =>
+      total + (review.status === "PENDING" ? reviewPendingUnits(review) : 0),
+    0,
+  );
   const selectedRef = useCreatorInteractionStore((state) => state.selectedRef);
   const editingField = useCreatorInteractionStore(
     (state) => state.editingField,
@@ -1752,7 +1184,8 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   // the full originals cached locally, so gate sending until they land.
   const sourceCache = useSourceCache(projectId, builtinExample);
   const originalsGate = builtinExample && sourceCache.originalsMissing;
-  const timeline = selectPrimaryTimeline(project);
+  const dockActiveTimelineId = useTimelineStore((s) => s.activeTimelineId);
+  const timeline = selectPrimaryTimeline(project, dockActiveTimelineId);
 
   const streaming = Boolean(
     session &&
@@ -1764,6 +1197,10 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     Boolean(session && STOPPABLE_SESSION_STATUSES.includes(session.status));
   const showWorkspace = tab === "activity";
 
+  const currentProject = useRef(projectId);
+  currentProject.current = projectId;
+  const submissionVersion = useRef(0);
+  const projectLifecycleVersion = useRef(0);
   const [removedContextRefs, setRemovedContextRefs] = useState<string[]>([]);
   const [canSend, setCanSend] = useState(false);
   const [rateLimitResuming, setRateLimitResuming] = useState(false);
@@ -1771,6 +1208,12 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionOptions, setMentionOptions] = useState<RefSearchItem[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  useEffect(() => {
+    setRemovedContextRefs([]);
+    setRateLimitResuming(false);
+    submissionVersion.current += 1;
+    projectLifecycleVersion.current += 1;
+  }, [projectId]);
   const [showJump, setShowJump] = useState(false);
   const inputRef = useRef<MentionInputHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1875,24 +1318,28 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         agentStatusBar,
         stopping,
         hasQueuedInput: queued.some((item) => item.state !== "failed"),
+        messages,
         isReplaying,
         subagentActivities,
         toolCalls,
         tasks,
         project,
         rateLimitRetry,
+        pendingReviewCount: pendingFileReviewCount,
       }),
     [
       session,
       agentStatusBar,
       stopping,
       queued,
+      messages,
       isReplaying,
       subagentActivities,
       toolCalls,
       tasks,
       project,
       rateLimitRetry,
+      pendingFileReviewCount,
       t,
     ],
   );
@@ -1903,12 +1350,22 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const resumeAfterRateLimit = async () => {
     if (rateLimitResuming) return;
     setRateLimitResuming(true);
+    const resumeProject = projectId;
+    const resumeVersion = projectLifecycleVersion.current;
     try {
       await sendMessage({ message: t("agent.rateLimitResumeMessage") });
     } catch (error) {
-      message.error((error as Error).message);
+      if (
+        currentProject.current === resumeProject &&
+        projectLifecycleVersion.current === resumeVersion
+      )
+        message.error(t("agentActivity.failureHint"));
     } finally {
-      setRateLimitResuming(false);
+      if (
+        currentProject.current === resumeProject &&
+        projectLifecycleVersion.current === resumeVersion
+      )
+        setRateLimitResuming(false);
     }
   };
 
@@ -1920,7 +1377,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         !removedContextRefs.includes(item.ref) &&
         !chips.some((candidate) => candidate.ref === item.ref)
       )
-        chips.push(item);
+        chips.push({ ...item, name: creatorReferenceLabel(item, project) });
     };
     if (selectedRef) {
       let item: RefSearchItem | null = null;
@@ -1930,14 +1387,14 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         if (element)
           item = {
             ref: selectedRef,
-            name: element.label || elementId,
+            name: creatorTargetLabel(selectedRef, project),
             type: "element",
             uiLocator: { page: "element", elementId },
           };
       } else if (selectedRef.startsWith("timeline:")) {
         item = {
           ref: selectedRef,
-          name: i18n.t("agent.mainTimeline"),
+          name: creatorTargetLabel(selectedRef, project),
           type: "timeline",
           uiLocator: { page: "plan" },
         };
@@ -1986,10 +1443,6 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const pendingAuthorizationCount = authorizations.filter(
     (item) => item.status === "PENDING",
   ).length;
-  const pendingFileReviewCount = fileReviews.reduce(
-    (total, review) => total + reviewPendingUnits(review),
-    0,
-  );
   const backendBadgeCount =
     agentStatusBar?.badges
       .filter(
@@ -2026,9 +1479,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   }, [fileReviews, pendingFileReviewCount, setOpen]);
 
   useEffect(() => {
-    const stored = loadDockSize();
+    const stored = loadDockSize(sidebar);
     setSize(stored.width, stored.height);
-  }, [setSize]);
+  }, [setSize, sidebar]);
 
   useEffect(() => {
     try {
@@ -2043,12 +1496,12 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
   useEffect(() => {
     const onResize = () => {
-      const clamped = clampDockSize({ width, height });
+      const clamped = clampDockSize({ width, height }, sidebar);
       setSize(clamped.width, clamped.height);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [height, setSize, width]);
+  }, [height, setSize, width, sidebar]);
 
   useEffect(() => {
     if (!open) return;
@@ -2070,10 +1523,19 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   }, [mentionQuery, open, setOpen]);
 
   useEffect(() => {
-    if (open && scrollRef.current && stickBottom.current) {
+    if (open && feedSlot == null && scrollRef.current && stickBottom.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [open, orderedMessages, queued, toolCalls]);
+  }, [open, feedSlot, orderedMessages, queued, toolCalls, subagentActivities]);
+
+  // Apply a pending draft before inserting any selection pill: callers like
+  // the blueprint "request changes" action set both, and the draft must land
+  // while the input is still empty.
+  useEffect(() => {
+    if (!open || !draft || inputRef.current?.getContent().text) return;
+    inputRef.current?.setText(draft);
+    setCanSend(Boolean(draft.trim()));
+  }, [draft, open]);
 
   useEffect(() => {
     if (!open || !selectionAttachment) return;
@@ -2085,12 +1547,6 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
     return () => window.clearTimeout(timer);
   }, [open, selectionAttachment, setSelectionAttachment]);
-
-  useEffect(() => {
-    if (!open || !draft || inputRef.current?.getContent().text) return;
-    inputRef.current?.setText(draft);
-    setCanSend(Boolean(draft.trim()));
-  }, [draft, open]);
 
   useEffect(() => {
     if (mentionQuery === null || !projectId) {
@@ -2124,16 +1580,22 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       const onMove = (moveEvent: PointerEvent) => {
         const start = resizeRef.current;
         if (!start) return;
-        const next = clampDockSize({
-          width:
-            axis === "y"
-              ? start.startW
-              : start.startW + (start.startX - moveEvent.clientX),
-          height:
-            axis === "x"
-              ? start.startH
-              : start.startH + (start.startY - moveEvent.clientY),
-        });
+        const next = clampDockSize(
+          {
+            width:
+              axis === "y"
+                ? start.startW
+                : start.startW +
+                  (anchor === "left"
+                    ? moveEvent.clientX - start.startX
+                    : start.startX - moveEvent.clientX),
+            height:
+              axis === "x"
+                ? start.startH
+                : start.startH + (start.startY - moveEvent.clientY),
+          },
+          sidebar,
+        );
         setSize(next.width, next.height);
       };
       const onUp = () => {
@@ -2237,6 +1699,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   };
 
   const removeChip = (chip: RefSearchItem) => {
+    setRemovedContextRefs((refs) => [...new Set([...refs, chip.ref])]);
     if (extraRefs.some((item) => item.ref === chip.ref)) {
       useCreatorInteractionStore
         .getState()
@@ -2271,6 +1734,8 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         ...content.refs.map((item) => item.ref),
       ]),
     ];
+    const version = ++submissionVersion.current;
+    const submittedProject = projectId;
     const submittedExtraRefs = extraRefs;
     // Manual project.json edits accumulated since the previous message ride
     // along as context so the agent can re-evaluate dependent plan pieces.
@@ -2282,7 +1747,10 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         message: text,
         context: {
           panel: interactionPanel,
-          selected: selectedRef ? { ref: selectedRef } : undefined,
+          selected:
+            selectedRef && allRefs.includes(selectedRef)
+              ? { ref: selectedRef }
+              : undefined,
           editingField,
           selection: content.selections[0]
             ? {
@@ -2313,27 +1781,36 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           .markFlushed(projectId, userEdits.lastEntryAt);
       }
     } catch (error) {
+      if (
+        currentProject.current !== submittedProject ||
+        submissionVersion.current !== version
+      )
+        return;
       if (!inputRef.current?.getContent().text.trim()) {
         inputRef.current?.setText(text);
         setCanSend(true);
         setDraft(text);
         useCreatorInteractionStore.getState().setExtraRefs(submittedExtraRefs);
       }
-      message.error((error as Error).message);
+      message.error(t("agentActivity.failureHint"));
     }
   };
 
   return (
     <>
-      {!open && (
+      {!open && (!sidebar || decisionCount > 0) && (
         <button
           type="button"
           onClick={() => setOpen(true)}
           data-agent-dock-handle
           data-state={liveStatus.state}
-          className={`fixed right-0 top-20 z-40 flex ${
+          className={`fixed top-20 z-40 flex ${
+            anchor === "left"
+              ? "left-0 rounded-r-xl border-l-0"
+              : "right-0 rounded-l-xl border-r-0"
+          } ${
             decisionCount > 0 ? "h-[96px]" : "h-[76px]"
-          } w-7 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
+          } w-7 flex-col items-center justify-center border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
           aria-label={t("agent.assistant")}
           title={
             decisionCount > 0
@@ -2341,10 +1818,14 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               : t("agent.expandPanel")
           }
         >
-          <PanelRightOpen className="h-3.5 w-3.5 shrink-0" />
+          {anchor === "left" ? (
+            <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <PanelRightOpen className="h-3.5 w-3.5 shrink-0" />
+          )}
           {decisionCount > 0 && (
             <span
-              className={`mt-1.5 text-[9px] font-semibold leading-none tracking-[3px] [writing-mode:vertical-rl] ${
+              className={`mt-1.5 text-[11px] font-semibold leading-none tracking-[3px] [writing-mode:vertical-rl] ${
                 hasUrgentDecision
                   ? "text-[var(--color-warning)]"
                   : "text-[var(--color-text-secondary)]"
@@ -2355,7 +1836,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           )}
           {decisionCount > 0 && (
             <span
-              className={`absolute -left-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white ${
+              className={`absolute -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[11px] font-bold text-white ${
+                anchor === "left" ? "-right-2" : "-left-2"
+              } ${
                 hasUrgentDecision
                   ? "animate-pulse bg-[var(--color-warning)]"
                   : "bg-[var(--color-danger)]"
@@ -2367,12 +1850,20 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           {hasUrgentDecision && (
             <span
               data-agent-dock-handle-toast
-              className="agent-dock-handle-toast pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-full bg-[var(--color-warning)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg"
+              className={`agent-dock-handle-toast pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-[var(--color-warning)] px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg ${
+                anchor === "left" ? "left-full ml-3" : "right-full mr-3"
+              }`}
             >
               {t("agent.productionConfirmPending", {
                 count: pendingAuthorizationCount,
               })}
-              <span className="absolute left-full top-1/2 -translate-y-1/2 border-[5px] border-transparent border-l-[var(--color-warning)]" />
+              <span
+                className={`absolute top-1/2 -translate-y-1/2 border-[5px] border-transparent ${
+                  anchor === "left"
+                    ? "right-full border-r-[var(--color-warning)]"
+                    : "left-full border-l-[var(--color-warning)]"
+                }`}
+              />
             </span>
           )}
         </button>
@@ -2386,7 +1877,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           style={sidebar ? { width, flexShrink: 0 } : panelStyle}
           className={
             sidebar
-              ? "relative flex min-h-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
+              ? `relative flex min-h-0 flex-1 flex-col overflow-hidden ${
+                  anchor === "left" ? "border-r" : "border-l"
+                } border-[var(--color-border)] bg-[var(--color-bg-card)]`
               : "agent-dock-enter fixed bottom-5 right-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 shadow-2xl backdrop-blur-xl"
           }
         >
@@ -2402,7 +1895,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               onPointerDown={beginResize("x")}
               className={
                 sidebar
-                  ? "group absolute inset-y-0 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20"
+                  ? `group absolute inset-y-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20 ${
+                      anchor === "left" ? "right-0" : "left-0"
+                    }`
                   : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
               }
               title={t("agent.dragWidth")}
@@ -2423,55 +1918,69 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
             )}
           </>
 
-          <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-[18px]">
-            <div className="flex min-w-0 items-center gap-2">
-              {/* Transparent brand glyph, swapped per theme. */}
-              <img
-                src={logoGlyphOrange}
-                alt=""
-                className="h-5 w-5 shrink-0 object-contain dark:hidden"
-              />
-              <img
-                src={logoGlyphWhite}
-                alt=""
-                className="hidden h-5 w-5 shrink-0 object-contain dark:block"
-              />
-              <div className="min-w-0">
-                <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
-                  {t("agent.assistant")}
-                </b>
-                {contextChips.length > 0 && (
-                  <span className="block truncate text-[10px] text-[var(--color-text-tertiary)]">
-                    {t("agent.relatedRefs", { count: contextChips.length })}
-                  </span>
-                )}
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-[12px]">
+            {headerSlot ?? (
+              <div className="flex min-w-0 items-center gap-2">
+                {/* Transparent brand glyph, swapped per theme. */}
+                <img
+                  src={logoGlyphOrange}
+                  alt=""
+                  className="h-5 w-5 shrink-0 object-contain dark:hidden"
+                />
+                <img
+                  src={logoGlyphWhite}
+                  alt=""
+                  className="hidden h-5 w-5 shrink-0 object-contain dark:block"
+                />
+                <div className="min-w-0">
+                  <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
+                    {t("agent.assistant")}
+                  </b>
+                  {contextChips.length > 0 && (
+                    <span className="block truncate text-[11px] text-[var(--color-text-tertiary)]">
+                      {t("agent.relatedRefs", { count: contextChips.length })}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex shrink-0 items-center gap-1.5">
+              {!sidebar && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    <Info
+                      className={`h-3.5 w-3.5 ${
+                        showWorkspace ? "text-[var(--color-accent)]" : ""
+                      }`}
+                    />
+                  }
+                  onClick={toggleWorkspace}
+                  title={t("agent.workspaceFacts")}
+                  aria-label={t("agent.workspaceFacts")}
+                />
+              )}
               <Button
                 type="text"
                 size="small"
                 icon={
-                  <Info
-                    className={`h-3.5 w-3.5 ${
-                      showWorkspace ? "text-[var(--color-accent)]" : ""
-                    }`}
-                  />
+                  sidebar ? (
+                    <MenuFoldOutlined className="text-sm" />
+                  ) : anchor === "left" ? (
+                    <PanelLeftClose className="h-3.5 w-3.5" />
+                  ) : (
+                    <PanelRightClose className="h-3.5 w-3.5" />
+                  )
                 }
-                onClick={toggleWorkspace}
-                title={t("agent.workspaceFacts")}
-                aria-label={t("agent.workspaceFacts")}
-              />
-              <Button
-                type="text"
-                size="small"
-                icon={<PanelRightClose className="h-3.5 w-3.5" />}
                 onClick={() => setOpen(false)}
                 title={t("agent.collapsePanel")}
                 aria-label={t("agent.collapsePanel")}
               />
             </div>
           </div>
+
+          <AgentProgressOverview projectId={projectId} />
 
           {showWorkspace && (
             <div className="max-h-56 overflow-y-auto border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40 px-4 py-3">
@@ -2480,21 +1989,31 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           )}
 
           <>
-            <div className="relative flex min-h-0 flex-1 flex-col">
+            {feedSlot != null && (
+              <div
+                data-agent-feed-slot
+                className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                {feedSlot}
+              </div>
+            )}
+            <div
+              className={`relative min-h-0 flex-1 flex-col ${
+                feedSlot != null ? "hidden" : "flex"
+              }`}
+            >
               <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3"
-                aria-live="polite"
+                className="agent-conversation-feed min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4"
               >
-                {(runs.length > 0 || tasks.length > 0) && <AgentEventFeed />}
                 {hasMoreMessages && (
                   <div ref={topSentinelRef} data-agent-history-sentinel>
                     <button
                       type="button"
                       disabled={loadingOlder}
                       onClick={loadOlder}
-                      className="flex w-full items-center justify-center gap-1 text-center text-[10px] text-[var(--color-text-tertiary)]"
+                      className="flex w-full items-center justify-center gap-1 text-center text-[11px] text-[var(--color-text-tertiary)]"
                     >
                       {loadingOlder && (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -2514,19 +2033,22 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     {t("agent.emptyHint2")}
                   </p>
                 ) : (
-                  conversationFlow.orphanMessages.map((item) => (
-                    <Fragment key={item.messageId}>
-                      <ConversationMessage item={item} />
-                      {planPresentation(item) && (
-                        <PlanCard data={planPresentation(item)!} />
-                      )}
-                      {(toolCallsByMessage.get(item.messageId) ?? []).map(
-                        (call) => (
-                          <ToolCallCard key={call.actionId} data={call} />
-                        ),
-                      )}
-                    </Fragment>
-                  ))
+                  <div data-agent-response-flow className="agent-response-flow">
+                    {conversationFlow.orphanMessages.map((item) => (
+                      <Fragment key={item.messageId}>
+                        <ConversationMessage item={item} />
+                        {(toolCallsByMessage.get(item.messageId) ?? []).map(
+                          (call) => (
+                            <ToolCallCard key={call.actionId} data={call} />
+                          ),
+                        )}
+                      </Fragment>
+                    ))}
+                    {conversationFlow.turns.length === 0 &&
+                      unanchoredToolCalls.map((call) => (
+                        <ToolCallCard key={call.actionId} data={call} />
+                      ))}
+                  </div>
                 )}
                 {conversationFlow.turns.map((turn, turnIndex) => {
                   const latest =
@@ -2535,16 +2057,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     <div
                       key={turn.user.messageId}
                       data-agent-turn
-                      className="space-y-2"
+                      className="space-y-4"
                     >
                       <ConversationMessage item={turn.user} />
-                      <div data-agent-response-flow className="space-y-2">
+                      <div
+                        data-agent-response-flow
+                        className="agent-response-flow"
+                      >
                         {turn.responses.map((item) => (
                           <Fragment key={item.messageId}>
                             <ConversationMessage item={item} />
-                            {planPresentation(item) && (
-                              <PlanCard data={planPresentation(item)!} />
-                            )}
                             {(toolCallsByMessage.get(item.messageId) ?? []).map(
                               (call) => (
                                 <ToolCallCard key={call.actionId} data={call} />
@@ -2560,18 +2082,14 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     </div>
                   );
                 })}
-                {conversationFlow.turns.length === 0 &&
-                  unanchoredToolCalls.map((call) => (
-                    <ToolCallCard key={call.actionId} data={call} />
-                  ))}
                 {queued.map((item) => (
                   <div key={item.clientMessageId} className="space-y-2">
-                    <div className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] leading-[1.5] text-white">
+                    <div className="ml-auto w-fit agent-user-message">
                       {item.text}
                     </div>
                     {item.state === "failed" && (
-                      <p className="text-right text-[10px] text-[var(--color-danger)]">
-                        {simplifyErrorMessage(item.error || "")}
+                      <p className="text-right text-[11px] text-[var(--color-danger)]">
+                        {t("agentActivity.sendFailed")}
                       </p>
                     )}
                   </div>
@@ -2600,7 +2118,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                         </Button>
                       </div>
                     ) : (
-                      session.error.message
+                      t("agentActivity.failureHint")
                     )}
                   </div>
                 )}
@@ -2622,57 +2140,92 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
             <div
               data-agent-composer
-              className="relative border-t border-[var(--color-border)] p-3"
+              className="relative shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3"
             >
               <div
                 data-agent-live-status
-                data-state={liveStatus.state}
-                className="mb-2 flex items-center gap-2 text-[10px] leading-4"
+                data-state={
+                  connectionState === "reconnecting"
+                    ? "reconnecting"
+                    : liveStatus.state
+                }
+                className="mb-2 flex items-start gap-2 text-xs leading-5"
+                role="status"
               >
-                <span
-                  className="agent-live-dot"
-                  data-state={liveStatus.state}
+                <AgentActivityIndicator
+                  phase={
+                    connectionState === "reconnecting"
+                      ? "waiting"
+                      : liveStatus.indicatorPhase
+                  }
                 />
                 <span
-                  className={`min-w-0 flex-1 truncate ${
+                  className={`min-w-0 flex-1 break-words ${
                     liveStatus.state === "working"
-                      ? "agent-live-shimmer font-medium"
+                      ? "font-medium text-[var(--color-text-secondary)]"
                       : liveStatus.state === "stopping"
                       ? "font-medium text-[var(--color-danger)]"
                       : "text-[var(--color-text-tertiary)]"
                   }`}
                 >
-                  {liveStatus.label}
+                  {connectionState === "reconnecting"
+                    ? t("agentActivity.reconnecting")
+                    : liveStatus.label}
                 </span>
-                {liveStatus.progressPercent != null && (
-                  <span
-                    data-agent-live-progress
-                    className="flex shrink-0 items-center gap-1.5"
-                  >
-                    <span className="h-1 w-16 overflow-hidden rounded-full bg-[var(--color-bg-secondary)]">
-                      <span
-                        className="block h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500"
-                        style={{ width: `${liveStatus.progressPercent}%` }}
-                      />
+                {connectionState !== "reconnecting" &&
+                  liveStatus.progressPercent != null && (
+                    <span
+                      data-agent-live-progress
+                      className="flex shrink-0 items-center gap-1.5"
+                    >
+                      <span className="h-1 w-16 overflow-hidden rounded-full bg-[var(--color-bg-secondary)]">
+                        <span
+                          className="block h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500"
+                          style={{ width: `${liveStatus.progressPercent}%` }}
+                        />
+                      </span>
+                      <span className="tabular-nums text-[11px] text-[var(--color-text-secondary)]">
+                        {liveStatus.progressPercent}%
+                      </span>
                     </span>
-                    <span className="tabular-nums text-[10px] text-[var(--color-text-secondary)]">
-                      {liveStatus.progressPercent}%
-                    </span>
-                  </span>
-                )}
+                  )}
               </div>
+              <AgentWaitHint
+                projectId={projectId}
+                active={liveStatus.state === "working"}
+                retrying={!isReplaying && !stopping && Boolean(rateLimitRetry)}
+                retry={isReplaying || stopping ? null : rateLimitRetry}
+                others={(isReplaying || stopping
+                  ? []
+                  : Object.values(subagentActivities)
+                ).flatMap((activity) =>
+                  !activity.completed && activity.modelRetry
+                    ? [
+                        {
+                          ...activity.modelRetry,
+                          label:
+                            activity.roleDisplayName ||
+                            creatorRoleLabel(activity.role),
+                        },
+                      ]
+                    : [],
+                )}
+              />
               {pendingEditCount > 0 && (
                 <div
                   data-agent-edit-buffer
                   title={t("timeline.editBufferTooltip")}
-                  className="mb-2 flex items-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 px-2 py-1 text-[10px] text-[var(--color-text-secondary)]"
+                  className="mb-2 flex items-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 px-2 py-1 text-[11px] text-[var(--color-text-secondary)]"
                 >
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)]" />
                   {t("timeline.pendingEditCount", { count: pendingEditCount })}
                 </div>
               )}
               {visibleChips.length > 0 && (
-                <div className="mb-2 flex flex-wrap items-center gap-1">
+                <div
+                  data-agent-reference-chips
+                  className="mb-2 flex max-h-24 flex-wrap items-center gap-1 overflow-y-auto"
+                >
                   {visibleChips.map((chip) => {
                     const manual = extraRefs.some(
                       (item) => item.ref === chip.ref,
@@ -2680,7 +2233,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     const chipNode = (
                       <span
                         key={chip.ref}
-                        className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] ${
+                        className={`flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-1 text-[11px] ${
                           manual
                             ? "border border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
                             : "bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)]"
@@ -2693,7 +2246,14 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                             : t("agent.autoContext")
                         }
                       >
-                        @{chip.name}
+                        {chip.thumbnailUrl && (
+                          <img
+                            src={chip.thumbnailUrl}
+                            alt=""
+                            className="h-5 w-5 shrink-0 rounded object-cover"
+                          />
+                        )}
+                        <span className="min-w-0 truncate">{chip.name}</span>
                         <button
                           type="button"
                           onClick={() => removeChip(chip)}
@@ -2723,7 +2283,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   <button
                     type="button"
                     onClick={clearContext}
-                    className="flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
+                    className="flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
                     title={t("agent.clearAll")}
                   >
                     <Eraser className="h-3 w-3" />
@@ -2763,7 +2323,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                       )}
                       {refTypeLabel(item.type) &&
                         refTypeLabel(item.type) !== item.name && (
-                          <span className="rounded bg-[var(--color-bg-secondary)] px-1 text-[10px] text-[var(--color-text-tertiary)]">
+                          <span className="rounded bg-[var(--color-bg-secondary)] px-1 text-[11px] text-[var(--color-text-tertiary)]">
                             {refTypeLabel(item.type)}
                           </span>
                         )}
@@ -2802,13 +2362,22 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     aria-label={t("agent.stopAllAgents")}
                     icon={<Square className="h-3 w-3 fill-current" />}
                     disabled={stopping}
-                    onClick={() =>
+                    onClick={() => {
+                      const stopProject = projectId;
+                      const stopVersion = submissionVersion.current;
+                      const isCurrent = () =>
+                        currentProject.current === stopProject &&
+                        submissionVersion.current === stopVersion;
                       void stopAllAgents()
-                        .then(() => message.success(t("agent.stopAllSuccess")))
-                        .catch((error) =>
-                          message.error((error as Error).message),
-                        )
-                    }
+                        .then(() => {
+                          if (isCurrent())
+                            message.success(t("agent.stopAllSuccess"));
+                        })
+                        .catch(() => {
+                          if (isCurrent())
+                            message.error(t("agentActivity.failureHint"));
+                        });
+                    }}
                     className="agent-dock-stop-glow !flex !h-8 !w-8 !items-center !justify-center !p-0"
                     title={
                       session?.status === "INTERRUPT_REQUESTED"

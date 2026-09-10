@@ -42,20 +42,15 @@ from ..constant import (
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
     HEARTBEAT_MAX_TIMEOUT_SECONDS,
-    LLM_ACQUIRE_TIMEOUT,
-    LLM_BACKOFF_BASE,
-    LLM_BACKOFF_CAP,
-    LLM_MAX_CONCURRENT,
-    LLM_MAX_RETRIES,
-    LLM_MAX_QPM,
-    LLM_RATE_LIMIT_JITTER,
-    LLM_RATE_LIMIT_PAUSE,
+    EnvVarLoader,
     WORKING_DIR,
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+AUTO_FIN_MAX_WINDOW_HOURS = 168
 
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
@@ -829,28 +824,6 @@ class RerankerConfig(BaseModel):
     )
 
 
-class ADBPGMemoryConfig(BaseModel):
-    """ADBPG (AnalyticDB for PostgreSQL) REST memory configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    rest_base_url: str = ""
-    rest_api_key: str = ""
-
-    # Behavior
-    memory_isolation: bool = Field(
-        default=True,
-        description="Per-agent memory isolation (True) or shared (False)",
-    )
-    search_timeout: float = 10.0
-    auto_memory_search_config: AutoMemorySearchConfig = Field(
-        default_factory=lambda: AutoMemorySearchConfig(
-            enabled=True,
-            max_results=3,
-        ),
-    )
-
-
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -904,6 +877,10 @@ class ReMeLightMemoryConfig(BaseModel):
         default=True,
         description="Whether to push Daily Paper results to the inbox",
     )
+    auto_fin_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Auto Fin results to the inbox",
+    )
 
     auto_memory_interval: int | None = Field(
         default=5,
@@ -953,6 +930,35 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Topics to prioritize when selecting Daily Paper papers",
     )
 
+    auto_fin_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Auto Fin job",
+    )
+
+    auto_fin_cron: str = Field(
+        default="0 18 * * *",
+        description=(
+            "Cron expression for Auto Fin generation "
+            "(use auto_fin_cron_enabled to enable/disable)"
+        ),
+    )
+
+    auto_fin_topics: str = Field(
+        default="gold,robotics,semiconductors",
+        description="Comma-separated topics used to filter CLS news",
+    )
+
+    auto_fin_window_hours: float = Field(
+        default=24,
+        ge=1,
+        le=AUTO_FIN_MAX_WINDOW_HOURS,
+        allow_inf_nan=False,
+        description=(
+            "Rolling number of hours of CLS news to analyze; "
+            f"must be between 1 and {AUTO_FIN_MAX_WINDOW_HOURS}"
+        ),
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -986,7 +992,7 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to expose the memory_search tool to the agent",
     )
 
-    @field_validator("dream_cron", "daily_paper_cron")
+    @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod
     def validate_service_cron(cls, value: str) -> str:
         """Reject expressions that the runtime scheduler cannot install."""
@@ -1000,6 +1006,16 @@ class ReMeLightMemoryConfig(BaseModel):
             raise ValueError(f"Invalid cron expression: {value!r}") from exc
         return value
 
+    @model_validator(mode="after")
+    def validate_enabled_auto_fin_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a schedule whenever the Auto Fin job is enabled."""
+        if self.auto_fin_cron_enabled and not self.auto_fin_cron.strip():
+            raise ValueError(
+                "auto_fin_cron must not be empty when "
+                "auto_fin_cron_enabled is true",
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def migrate_shared_inbox_switch(cls, values: Any) -> Any:
@@ -1012,6 +1028,7 @@ class ReMeLightMemoryConfig(BaseModel):
             "auto_memory_inbox_push_enabled",
             "auto_dream_inbox_push_enabled",
             "daily_paper_inbox_push_enabled",
+            "auto_fin_inbox_push_enabled",
         ):
             migrated.setdefault(field_name, legacy_value)
         return migrated
@@ -1702,24 +1719,41 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_retry_enabled: bool = Field(
-        default=LLM_MAX_RETRIES > 0,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=0,
+        )
+        > 0,
         description="Whether to auto-retry transient LLM API errors",
     )
 
     llm_max_retries: int = Field(
-        default=max(LLM_MAX_RETRIES, 1),
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=1,
+        ),
         ge=1,
         description="Maximum retry attempts for transient LLM API errors",
     )
 
     llm_backoff_base: float = Field(
-        default=LLM_BACKOFF_BASE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_BASE",
+            1.0,
+            min_value=0.1,
+        ),
         ge=0.1,
         description="Base delay in seconds for exponential LLM retry backoff",
     )
 
     llm_backoff_cap: float = Field(
-        default=LLM_BACKOFF_CAP,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_CAP",
+            10.0,
+            min_value=0.5,
+        ),
         ge=0.5,
         description=(
             "Maximum delay cap in seconds for LLM retry backoff; "
@@ -1728,7 +1762,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_concurrent: int = Field(
-        default=LLM_MAX_CONCURRENT,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_CONCURRENT",
+            10,
+            min_value=1,
+        ),
         ge=1,
         description=(
             "Maximum number of concurrent in-flight LLM calls. "
@@ -1737,7 +1775,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_qpm: int = Field(
-        default=LLM_MAX_QPM,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_QPM",
+            600,
+            min_value=0,
+        ),
         ge=0,
         description=(
             "Maximum queries per minute (60-second sliding window). "
@@ -1747,7 +1789,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_pause: float = Field(
-        default=LLM_RATE_LIMIT_PAUSE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_PAUSE",
+            5.0,
+            min_value=1.0,
+        ),
         ge=1.0,
         description=(
             "Default pause duration (seconds) applied globally when a 429 "
@@ -1756,7 +1802,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_jitter: float = Field(
-        default=LLM_RATE_LIMIT_JITTER,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_JITTER",
+            1.0,
+            min_value=0.0,
+        ),
         ge=0.0,
         description=(
             "Random jitter range (seconds) added on top of the pause so "
@@ -1765,7 +1815,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_acquire_timeout: float = Field(
-        default=LLM_ACQUIRE_TIMEOUT,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_ACQUIRE_TIMEOUT",
+            300.0,
+            min_value=10.0,
+        ),
         ge=10.0,
         description=(
             "Maximum time (seconds) a caller waits to acquire a rate-limiter "
@@ -1839,10 +1893,12 @@ class AgentsRunningConfig(BaseModel):
 
     memory_manager_backend: str = Field(default="remelight")
 
-    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
-        default=None,
-        description="ADBPG memory configuration (used when "
-        "memory_manager_backend='adbpg')",
+    memory_backend_configs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Opaque per-agent configuration owned and validated by memory "
+            "backend plugins"
+        ),
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
@@ -1862,6 +1918,34 @@ class AgentsRunningConfig(BaseModel):
             "the value is written back to the agent profile."
         ),
     )
+
+    @field_validator("memory_manager_backend")
+    @classmethod
+    def normalize_memory_backend_id(cls, value: str) -> str:
+        """Persist backend identifiers in the registry's canonical form."""
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("memory_manager_backend must not be empty")
+        return normalized
+
+    @field_validator("memory_backend_configs")
+    @classmethod
+    def normalize_memory_backend_config_ids(
+        cls,
+        value: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Canonicalize opaque config keys and reject ambiguous duplicates."""
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for backend_id, config in value.items():
+            key = backend_id.strip().lower()
+            if not key:
+                raise ValueError("memory backend config id must not be empty")
+            if key in normalized:
+                raise ValueError(
+                    f"duplicate memory backend config id: {backend_id}",
+                )
+            normalized[key] = config
+        return normalized
 
 
 class AgentsLLMRoutingConfig(BaseModel):
@@ -2384,6 +2468,13 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    http_timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description="HTTP MCP connect/write/pool timeout in seconds; "
+        "raises the read (sse_read_timeout) budget to at least this value. "
+        "None keeps the client default (30s / 300s).",
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -2408,6 +2499,9 @@ class MCPClientConfig(BaseModel):
 
         if "type" in payload and "transport" not in payload:
             payload["transport"] = payload["type"]
+
+        if "timeout" in payload and "http_timeout" not in payload:
+            payload["http_timeout"] = payload["timeout"]
 
         if (
             "transport" not in payload

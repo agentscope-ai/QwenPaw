@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from qwenpaw.app.chats.api import get_chat, list_chats
+from qwenpaw.app.chats.api import get_chat, get_chat_status, list_chats
 from qwenpaw.app.chats.models import ChatSpec
 
 
@@ -69,3 +69,30 @@ async def test_get_chat_hides_app_owned_dialogue_when_caller_opts_out():
         )
 
     assert raised.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_chat_status_uses_tracker_without_loading_chat_persistence():
+    tracker = SimpleNamespace(get_status=AsyncMock(return_value="running"))
+    workspace = SimpleNamespace(task_tracker=tracker)
+
+    result = await get_chat_status(
+        chat_id="chat-1",
+        workspace=workspace,
+    )
+
+    assert result.status == "running"
+    tracker.get_status.assert_awaited_once_with("chat-1")
+
+
+@pytest.mark.asyncio
+async def test_get_chat_status_treats_unknown_run_key_as_idle():
+    tracker = SimpleNamespace(get_status=AsyncMock(return_value="idle"))
+
+    result = await get_chat_status(
+        chat_id="missing",
+        workspace=SimpleNamespace(task_tracker=tracker),
+    )
+
+    assert result.status == "idle"
+    tracker.get_status.assert_awaited_once_with("missing")

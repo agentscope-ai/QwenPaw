@@ -94,15 +94,3 @@ def test_get_memory_manager_backend_unknown() -> None:
         assert backend is not None
     except (ValueError, KeyError):
         pass  # unknown backend may be rejected
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_get_memory_manager_backend_reme() -> None:
-    """get_memory_manager_backend resolves the reme backend."""
-    from qwenpaw.agents.memory.base_memory_manager import (
-        get_memory_manager_backend,
-    )
-
-    backend = get_memory_manager_backend("reme")
-    assert backend is not None

@@ -146,14 +146,34 @@
     }
   }
 
-  /* Wide mode: widen bubble list and sender while keeping spacing */
-  &.wideMode :global {
-    .qwenpaw-bubble-list {
-      max-width: none !important;
-    }
+  /* Wide mode follows the available chat width while keeping the visual
+   * gutter shown by Spark Chat. The percentage responds to side panels too. */
+  &.wideMode {
+    --chat-wide-gutter: clamp(20px, 2%, 32px);
 
-    .qwenpaw-chat-anywhere-sender-wrapper {
-      max-width: none !important;
+    :global {
+      .qwenpaw-bubble-list,
+      .qwenpaw-chat-anywhere-input {
+        box-sizing: border-box;
+        width: 100%;
+        padding-inline: var(--chat-wide-gutter) !important;
+      }
+
+      .qwenpaw-bubble-list,
+      .qwenpaw-chat-anywhere-input-wrapper,
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        max-width: none !important;
+      }
+
+      .qwenpaw-chat-anywhere-input-wrapper,
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        box-sizing: border-box;
+        width: 100%;
+      }
+
+      .qwenpaw-chat-anywhere-sender-wrapper {
+        padding-inline: var(--chat-wide-gutter) !important;
+      }
     }
   }
 
@@ -167,32 +187,17 @@
   }
 
   &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--app-scrollbar-thumb);
     border-radius: 4px;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.3);
-    }
-  }
-
-  /* Dark mode scrollbar */
-  :global(.dark-mode) & {
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.3);
-      }
+      background: var(--app-scrollbar-thumb-hover);
     }
   }
 
   /* Firefox scrollbar */
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-
-  :global(.dark-mode) & {
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-  }
+  scrollbar-color: var(--app-scrollbar-thumb) transparent;
 }
 
 .headerSpacer {
@@ -206,34 +211,6 @@
       gap: 4px;
       padding-inline: 4px;
     }
-  }
-}
-
-/* Right-side history panel */
-.historyPanel {
-  width: 330px;
-  flex-shrink: 0;
-  align-self: stretch;
-  overflow: hidden;
-  position: relative;
-}
-
-@media (max-width: 900px) {
-  .historyPanel {
-    position: fixed;
-    top: 56px;
-    right: 0;
-    bottom: 0;
-    width: min(330px, 85vw);
-    z-index: 1000;
-    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
-    border-radius: 12px 0 0 12px;
-  }
-  .historyPanelMask {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 999;
   }
 }
 
@@ -311,6 +288,16 @@
       max-width: 100%;
       flex-wrap: wrap;
       column-gap: 4px;
+    }
+  }
+
+  /* Preserve the wide-mode gutter through the mobile breakpoint instead
+   * of jumping from the fluid desktop value to the default 8px inset. */
+  .chatMessagesArea.wideMode :global {
+    .qwenpaw-bubble-list,
+    .qwenpaw-chat-anywhere-input,
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      padding-inline: var(--chat-wide-gutter) !important;
     }
   }
 }
@@ -453,11 +440,11 @@
   &:hover,
   &:active,
   &[aria-expanded="true"] {
-    background: var(--ant-color-fill-tertiary) !important;
+    background: var(--app-fill-subtle) !important;
   }
 
   &:focus-visible {
-    outline: 2px solid var(--ant-color-primary-border);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: 1px;
   }
 
@@ -466,15 +453,15 @@
   }
 
   &[data-state="starting"] {
-    color: var(--ant-color-primary) !important;
+    color: var(--app-accent) !important;
   }
 
   &[data-state="running"] {
-    color: var(--ant-color-success) !important;
+    color: var(--app-success) !important;
   }
 
   &[data-state="awaiting_user"] {
-    color: var(--ant-color-warning) !important;
+    color: var(--app-warning) !important;
   }
 }
 
@@ -495,7 +482,7 @@
 .suggestionCommand {
   flex: 0 0 88px;
   min-width: 0;
-  color: #ff7f16;
+  color: var(--app-accent);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -510,7 +497,7 @@
 .suggestionDescription {
   flex: 1;
   min-width: 0;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-secondary);
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -530,22 +517,12 @@
   }
 }
 
-:global(.dark-mode) {
-  .suggestionCommand {
-    color: #ff7f16;
-  }
-
-  .suggestionDescription {
-    color: rgba(255, 255, 255, 0.65);
-  }
-}
-
 /* Prompt star icon - use theme color */
 :global {
   .chat-anywhere-prompt-icon,
   [class*="prompt-icon"],
   [class*="PromptIcon"] {
-    color: #ff7f16 !important;
+    color: var(--app-accent) !important;
   }
 }
 
@@ -651,15 +628,15 @@
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  background: rgba(250, 173, 20, 0.08);
-  border-top: 1px solid rgba(250, 173, 20, 0.2);
+  background: var(--app-warning-bg);
+  border-top: 1px solid var(--app-warning-border);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 
 .rateLimitText {
   font-size: 13px;
-  color: #d48806;
+  color: var(--app-warning-text);
   flex: 1;
   min-width: 120px;
 }
@@ -669,15 +646,4 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-:global(.dark-mode) {
-  .rateLimitBanner {
-    background: rgba(250, 173, 20, 0.06);
-    border-top-color: rgba(250, 173, 20, 0.15);
-  }
-
-  .rateLimitText {
-    color: #ffc53d;
-  }
 }

@@ -11,7 +11,6 @@ Cases:
 - MEM-003 P1  test_memory_card_ui_renders
 - MEM-004 P1  test_workspace_memory_md_visible
 - MEM-005 P2  test_memory_search_recall_seeded         (xfail, requires_llm)
-- MEM-006 P2  test_memory_backend_select_switches_tabs
 - MEM-007 P2  test_auto_memory_search_toggle_and_max_results
 """
 from __future__ import annotations
@@ -320,77 +319,6 @@ class TestDreamCronPersistence:
             )
         finally:
             memory_page.api_put_running_config(api_context, original_cfg)
-
-        log_test_result(test_name, True, 0)
-        logger.info(f"Test {test_name} passed")
-
-
-# ============================================================================
-# MEM-006 P2 — memory backend Select drives dynamic memory tabs (no save)
-# ============================================================================
-
-@pytest.mark.integration
-@pytest.mark.p2
-@pytest.mark.memory
-class TestMemoryBackendSelect:
-    """MEM-006: backend Select options + dynamic tab swap (client-side).
-
-    Intentionally never clicks Save: switching the backend is
-    restart-gated on the server, so the case only asserts the
-    client-side linkage (Select value -> which memory tab renders).
-    """
-
-    @pytest.mark.test_id("MEM-006")
-    def test_memory_backend_select_switches_tabs(
-        self,
-        memory_page: MemoryPage,
-        request: pytest.FixtureRequest,
-    ) -> None:
-        test_name = request.node.name
-        page = memory_page.page
-
-        log_test_step("1. Open /agent-config on the ReAct Agent tab")
-        memory_page.open_agent_config()
-        memory_page.click_react_tab()
-        backend_select = page.locator(
-            memory_page.BACKEND_SELECT_TRIGGER
-        ).first
-        expect(backend_select).to_be_visible(timeout=memory_page.timeout)
-
-        log_test_step("2. Baseline: remelight backend => Long-term Memory tab")
-        expect(
-            page.locator(memory_page.REME_MEMORY_TAB).first
-        ).to_be_visible(timeout=memory_page.timeout)
-
-        log_test_step("3. Open the Select; options include adbpg + none")
-        backend_select.click()
-        options = page.locator(memory_page.BACKEND_OPTION)
-        options.first.wait_for(state="visible", timeout=memory_page.timeout)
-        option_texts = " | ".join(
-            o.inner_text() for o in options.all()
-        )
-        assert "adbpg" in option_texts, f"options: {option_texts}"
-        assert "none" in option_texts, f"options: {option_texts}"
-
-        log_test_step("4. Pick adbpg => adbpgMemory tab replaces remelight")
-        options.filter(has_text="adbpg").first.click()
-        page.wait_for_timeout(800)
-        expect(
-            page.locator(memory_page.ADBPG_MEMORY_TAB).first
-        ).to_be_visible(timeout=memory_page.timeout)
-        expect(
-            page.locator(memory_page.REME_MEMORY_TAB).first
-        ).not_to_be_visible(timeout=5000)
-
-        log_test_step("5. Pick remelight back => Long-term Memory tab returns")
-        backend_select.click()
-        page.locator(memory_page.BACKEND_OPTION).filter(
-            has_text="remelight"
-        ).first.click()
-        page.wait_for_timeout(800)
-        expect(
-            page.locator(memory_page.REME_MEMORY_TAB).first
-        ).to_be_visible(timeout=memory_page.timeout)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

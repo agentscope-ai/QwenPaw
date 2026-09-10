@@ -1359,12 +1359,28 @@ class PluginLoader:
         plugin_id: str,
         delete_files: bool = False,
     ) -> None:
+        """Unload a plugin and release a failed unload reservation."""
+        from qwenpaw.memory import memory_registry
+
+        try:
+            await self._unload_plugin_reserved(plugin_id, delete_files)
+        except BaseException:
+            memory_registry.cancel_owner_unload(plugin_id)
+            raise
+
+    async def _unload_plugin_reserved(
+        self,
+        plugin_id: str,
+        delete_files: bool = False,
+    ) -> None:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
             raise KeyError(
                 f"Plugin '{plugin_id}' is not loaded",
             )
+
+        self.registry.assert_memory_backends_not_in_use(plugin_id)
 
         # Execute shutdown hooks registered by this plugin
         shutdown_hooks = [

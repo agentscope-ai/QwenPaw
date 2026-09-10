@@ -14,10 +14,8 @@ from services.media_files.motion_engine import VendorLib
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ElementLocation,
-    EntityCollection,
     Project,
     R2VCreation,
-    Shot,
     TimelineElement,
     TimelineSpan,
 )
@@ -28,7 +26,6 @@ def make_r2v_element(
     element_id: str,
     *,
     label: str = "猫追老鼠",
-    description: str = "猫追逐老鼠",
     narrative: str = "猫发现老鼠后追逐",
     storyboard_prompt: str = "动画分镜：猫发现并追逐老鼠",
     video_prompt: str | None = None,
@@ -37,13 +34,6 @@ def make_r2v_element(
 ) -> TimelineElement:
     """One timeline element carrying a single-shot R2V creation."""
 
-    shot = Shot(
-        shot_id=f"{element_id}-shot",
-        description=description,
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=duration_tick / 1_000,
-    )
     extra = {} if video_prompt is None else {"video_prompt": video_prompt}
     return TimelineElement(
         element_id=element_id,
@@ -53,10 +43,6 @@ def make_r2v_element(
         creation=R2VCreation(
             narrative=narrative,
             storyboard_prompt=storyboard_prompt,
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
             **extra,
         ),
     )

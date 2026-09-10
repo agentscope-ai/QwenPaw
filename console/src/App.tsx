@@ -57,6 +57,7 @@ import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -144,7 +145,7 @@ function AuthGuard({
   return <>{children}</>;
 }
 
-function RuntimeAvailabilityGuard({
+export function RuntimeAvailabilityGuard({
   children,
   enabled,
 }: {
@@ -180,8 +181,24 @@ function RuntimeAvailabilityGuard({
     };
   }, [enabled, retryKey]);
 
+  useEffect(() => {
+    if (
+      !enabled ||
+      !health?.runtime_available ||
+      !["created", "starting", "stopped"].includes(health.runtime_state || "")
+    ) {
+      return;
+    }
+    const timeoutId = window.setTimeout(
+      () => setRetryKey((current) => current + 1),
+      1000,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled, health]);
+
   const restartRuntime = async () => {
     setRestarting(true);
+    setHealth(null);
     setErrorMessage("");
     try {
       await hubApi.restartOwnRuntime();
@@ -203,7 +220,17 @@ function RuntimeAvailabilityGuard({
   }, [enabled, health]);
 
   if (!enabled) return <>{children}</>;
-  if (!health && !errorMessage) return null;
+  if (!health && !errorMessage) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
   if (health?.runtime_desired_state === "stopped") {
     const ownerCanStart = health.runtime_start_policy === "owner_allowed";
     return (
@@ -233,7 +260,38 @@ function RuntimeAvailabilityGuard({
       />
     );
   }
-  if (health?.runtime_available) return <>{children}</>;
+  if (health?.runtime_available && health.runtime_state === "failed") {
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        errorMessage={health.runtime_last_error || errorMessage}
+        onRetry={restartRuntime}
+        retryLabel={
+          restarting
+            ? t("account.runtimeRestarting")
+            : t("account.runtimeRestart")
+        }
+        retryDisabled={restarting}
+      />
+    );
+  }
+  if (health?.runtime_available && health.runtime_state === "running") {
+    return <>{children}</>;
+  }
+
+  if (health?.runtime_available) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
 
   if (health) return null;
 

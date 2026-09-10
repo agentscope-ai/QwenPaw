@@ -21,7 +21,11 @@ from ...constant import (
     DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
 )
 from ...runtime.tool_registry import tool_descriptor
-from ...utils.http import trust_env_for_url
+from ...utils.runtime_api import (
+    api_client,
+    async_api_client,
+    read_runtime_api,
+)
 from ...utils.timeout import (
     parse_positive_timeout_seconds as _parse_positive_timeout_seconds,
 )
@@ -40,13 +44,14 @@ def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
 
     Priority:
     1. Explicit ``base_url`` argument
-    2. Last recorded API host/port from config
-    3. Built-in localhost fallback
+    2. Hub-managed runtime endpoint
+    3. Last recorded API host/port from config
+    4. Built-in localhost fallback
     """
     if base_url:
         return base_url.rstrip("/")
 
-    last_api = read_last_api()
+    last_api = read_runtime_api() or read_last_api()
     if last_api:
         host, port = last_api
         return f"http://{host}:{port}"
@@ -86,10 +91,9 @@ def create_agent_api_client(
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
     normalized = _normalize_api_base_url(base_url)
-    return httpx.Client(
+    return api_client(
         base_url=normalized,
         timeout=default_timeout,
-        trust_env=trust_env_for_url(normalized),
     )
 
 
@@ -340,10 +344,9 @@ async def collect_final_agent_chat_response_async(
     """
     normalized = _normalize_api_base_url(base_url)
     response_data: Optional[Dict[str, Any]] = None
-    async with httpx.AsyncClient(
+    async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
-        trust_env=trust_env_for_url(normalized),
     ) as client:
         async with client.stream(
             "POST",
@@ -373,10 +376,9 @@ async def stop_agent_chat_async(
     explicit Stop endpoint instead of only closing the collection stream.
     """
     normalized = _normalize_api_base_url(base_url)
-    async with httpx.AsyncClient(
+    async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
-        trust_env=trust_env_for_url(normalized),
     ) as client:
         response = await client.post(
             "/console/chat/stop",
@@ -1501,9 +1503,9 @@ async def _call_fork_api(
         "channel": channel,
     }
     try:
-        async with httpx.AsyncClient(
+        async with async_api_client(
+            base_url=url,
             timeout=30.0,
-            trust_env=trust_env_for_url(url),
         ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()

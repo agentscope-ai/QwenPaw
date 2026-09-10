@@ -366,12 +366,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
-    if browser_config.experimental:
-        from ..browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
-
-        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 
@@ -396,10 +390,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # ---- Plugin System (phase 1: channel plugins) ----
-            # Load channel-type plugins *before* agents start so that
-            # ChannelManager discovers them via get_channel_registry()
-            # on first creation — no reload needed afterwards.
+            # ---- Plugin System (phase 1: startup-critical plugins) ----
+            # Channel and memory plugins must register before agents start.
             logger.debug("Initializing plugin system...")
 
             from ..config.utils import get_plugins_dir
@@ -424,12 +416,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load channel plugins before agents start
+            # Phase 1: load startup-critical plugins before agents start
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
-                types=["channel"],
+                types=["channel", "memory"],
             )
-            logger.debug("Phase 1: channel plugins loaded")
+            logger.debug("Phase 1: channel and memory plugins loaded")
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""

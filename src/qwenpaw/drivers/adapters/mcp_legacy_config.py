@@ -263,6 +263,9 @@ def legacy_mcp_client_to_driver(
             "url": str(getattr(config, "url", "") or ""),
             "headers": header_binding,
         }
+        http_timeout = getattr(config, "http_timeout", None)
+        if http_timeout is not None:
+            endpoint["http_timeout"] = float(http_timeout)
 
     credential = _build_legacy_credential(
         client_key,

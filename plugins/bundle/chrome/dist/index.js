@@ -864,7 +864,7 @@ function fe({
 }
 function Ee() {
   var H;
-  const t = v(), n = j(), [r, l] = e.useState(null), [i, h] = e.useState(null), [p, g] = e.useState(null), [E, I] = e.useState(!0), [M, L] = e.useState(!1), [D, k] = e.useState(null), [W, G] = e.useState(!1), [A, V] = e.useState(() => xe()), x = e.useCallback(
+  const t = v(), n = j(), [r, l] = e.useState(null), [i, h] = e.useState(null), [p, g] = e.useState(null), [E, I] = e.useState(!0), [M, L] = e.useState(!1), [D, k] = e.useState(null), [W, G] = e.useState(!1), [A, q] = e.useState(() => xe()), x = e.useCallback(
     async (a) => {
       a != null && a.silent || I(!0), k(null);
       try {
@@ -887,7 +887,7 @@ function Ee() {
   }, [x]);
   const b = e.useCallback(
     async (a) => {
-      if (r != null && r.extension_dir && r.installed && !(a != null && a.refresh))
+      if (r != null && r.extension_dir && r.installed && !r.extension_update_required && !(a != null && a.refresh))
         return r;
       L(!0), k(null);
       try {
@@ -923,7 +923,7 @@ function Ee() {
       }
     },
     [n]
-  ), q = e.useCallback(async () => {
+  ), V = e.useCallback(async () => {
     const a = await b({ refresh: !0 });
     a != null && a.extension_dir && await w(a.extension_dir);
   }, [w, b]), P = e.useCallback(
@@ -945,8 +945,14 @@ function Ee() {
     linux: ["shortcutLinuxStep1", "shortcutLinuxStep2"]
   };
   e.useEffect(() => {
-    E || W || r != null && r.extension_dir || (G(!0), b({ silent: !0 }));
-  }, [E, b, W, r == null ? void 0 : r.extension_dir]);
+    E || W || r != null && r.extension_dir && !r.extension_update_required || (G(!0), b({ silent: !0 }));
+  }, [
+    E,
+    b,
+    W,
+    r == null ? void 0 : r.extension_dir,
+    r == null ? void 0 : r.extension_update_required
+  ]);
   const m = !!(r != null && r.installed && (i != null && i.connected)), C = !!(r != null && r.native_host_repair_required && !(i != null && i.connected)), B = !!(r != null && r.installed && !C && !(i != null && i.connected));
   return e.useEffect(() => {
     if (!m) {
@@ -1074,7 +1080,7 @@ function Ee() {
       "button",
       {
         key: a,
-        onClick: () => V(a),
+        onClick: () => q(a),
         style: {
           ...t.osTab,
           ...A === a ? t.osTabActive : null
@@ -1088,7 +1094,7 @@ function Ee() {
         icon: "copy",
         label: o(n, "qwenpawExtensionPath"),
         loading: M,
-        onClick: () => void q(),
+        onClick: () => void V(),
         tone: "blue",
         iconOnly: !0
       }
