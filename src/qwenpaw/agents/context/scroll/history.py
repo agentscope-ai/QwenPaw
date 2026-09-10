@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import sys
 import threading
@@ -121,15 +122,16 @@ class HistoryStore:
         if results != ["ok"]:
             # Some SQLite builds also report FTS damage here. Repair that
             # derived index before considering whole-database quarantine.
-            if results and all(
-                r == "malformed inverted index for FTS5 table "
-                "main.conversation_history_fts"
-                for r in results
-            ):
+            if self._is_fts_only_corruption(results):
                 self._repair_fts()
                 results = [
                     r[0] for r in self._conn.execute("PRAGMA quick_check")
                 ]
+            if self._is_fts_only_corruption(results):
+                raise RuntimeError(
+                    "History FTS corruption remains after repair; "
+                    f"history preserved: {self._path}: {results}",
+                )
             if results != ["ok"]:
                 raise sqlite3.DatabaseError(f"quick_check failed: {results}")
         self._init_schema()
@@ -160,6 +162,22 @@ class HistoryStore:
                     self._repair_fts()
                 else:
                     raise
+
+    @staticmethod
+    def _is_fts_only_corruption(results: Sequence[str]) -> bool:
+        # SQLite versions describe FTS damage differently. Match the error
+        # category and exact index name, not a single diagnostic spelling.
+        # Mixed results or corruption in another table must not be treated
+        # as repairable damage to this derived index alone.
+        pattern = (
+            r"(?:malformed inverted index for FTS5 table "
+            r"(?:main\.)?conversation_history_fts|"
+            r"fts5: corruption\b.* from table "
+            r'"(?:main\.)?conversation_history_fts")'
+        )
+        return bool(results) and all(
+            re.fullmatch(pattern, result) is not None for result in results
+        )
 
     @staticmethod
     def _is_corruption(exc: sqlite3.DatabaseError) -> bool:

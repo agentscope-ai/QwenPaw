@@ -878,3 +878,120 @@ def test_startup_fts_defers_only_contention(
         with pytest.raises(sqlite3.OperationalError, match="synthetic"):
             HistoryStore(path)
     assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+_FTS_QUICK_CHECK_DIAGNOSTICS = [
+    "malformed inverted index for FTS5 table main.conversation_history_fts",
+    "fts5: corruption found reading blob 137438953473 "
+    'from table "conversation_history_fts"',
+]
+
+
+@pytest.mark.parametrize("diagnostic", _FTS_QUICK_CHECK_DIAGNOSTICS)
+@pytest.mark.parametrize("repair_fails", [False, True])
+def test_quick_check_fts_diagnostic_preserves_source(
+    tmp_path,
+    monkeypatch,
+    diagnostic,
+    repair_fails,
+):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("zebra"))
+    _damage_fts(store)
+    store.close()
+    original_connect = sqlite3.connect
+    original_rebuild = HistoryStore._rebuild_fts
+    checks = []
+    rebuilds = []
+
+    class DiagnosticConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA quick_check":
+                checks.append(sql)
+                if len(checks) == 1:
+                    return super().execute("SELECT ?", (diagnostic,))
+            return super().execute(sql, *args, **kwargs)
+
+    def connect(*args, **kwargs):
+        return original_connect(*args, factory=DiagnosticConnection, **kwargs)
+
+    def rebuild(history):
+        rebuilds.append(history.path)
+        if repair_fails:
+            raise sqlite3.OperationalError("disk full")
+        original_rebuild(history)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    monkeypatch.setattr(HistoryStore, "_rebuild_fts", rebuild)
+    if repair_fails:
+        with pytest.raises(RuntimeError, match="history preserved"):
+            HistoryStore(path)
+    else:
+        reopened = HistoryStore(path)
+        try:
+            assert reopened.quarantined_to is None
+            assert reopened.count("s") == 1
+            assert len(_fts_hits(reopened, "zebra")) == 1
+            assert len(checks) == 2
+        finally:
+            reopened.close()
+    assert rebuilds == [path]
+    conn = original_connect(path)
+    try:
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchall() == [("zebra",)]
+    finally:
+        conn.close()
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [],
+        ["ok"],
+        [_FTS_QUICK_CHECK_DIAGNOSTICS[1], "invalid page number 99"],
+        ['fts5: corruption found reading blob 123 from table "other_fts"'],
+        [
+            "fts5: corruption found reading blob 123 "
+            'from table "conversation_history_fts_other"',
+        ],
+    ],
+)
+def test_quick_check_does_not_misclassify_other_corruption(results):
+    assert not HistoryStore._is_fts_only_corruption(results)
+
+
+def test_quick_check_persistent_fts_damage_is_not_quarantined(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()
+    original_connect = sqlite3.connect
+    checks = []
+
+    class PersistentDiagnosticConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA quick_check":
+                checks.append(sql)
+                return super().execute(
+                    "SELECT ?",
+                    (_FTS_QUICK_CHECK_DIAGNOSTICS[1],),
+                )
+            return super().execute(sql, *args, **kwargs)
+
+    def connect(*args, **kwargs):
+        return original_connect(
+            *args,
+            factory=PersistentDiagnosticConnection,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    with pytest.raises(RuntimeError, match="history preserved"):
+        HistoryStore(path)
+    assert len(checks) == 2
+    assert not list(tmp_path.glob("*.corrupt-*"))
