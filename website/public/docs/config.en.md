@@ -470,8 +470,34 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `history_max_length`       | int    | `10000`         | Maximum output length (characters) for `/history` command               |
 | `context_manager_backend`  | string | `"light"`       | Context manager backend type                                            |
 | `memory_manager_backend`   | string | `"remelight"`   | Memory manager backend type                                             |
+| `memory_backend_configs`   | object | `{}`            | Per-Agent configuration maps owned by installed memory backend plugins  |
 | `light_context_config`     | object | _(see below)_   | Light context manager configuration                                     |
 | `reme_light_memory_config` | object | _(see below)_   | ReMeLight memory manager configuration                                  |
+
+**Plugin Memory Backend Configuration (`memory_backend_configs` object):**
+
+Each key is a normalized memory backend ID and each value is that plugin's
+configuration object. For example:
+
+```json
+{
+  "memory_manager_backend": "example-memory",
+  "memory_backend_configs": {
+    "example-memory": {
+      "endpoint": "https://memory.example.com",
+      "api_key": "secret"
+    }
+  }
+}
+```
+
+QwenPaw keeps these settings per Agent. When the corresponding plugin is
+installed, its Pydantic schema validates and normalizes the object before it is
+saved. Fields declared by the plugin as secrets are returned as `"***"` by the
+running-config API, and submitting that mask preserves the existing value.
+Selecting an unregistered backend is rejected instead of falling back to a
+different memory store. See [Long-Term Memory](./memory) for the bundled ADBPG
+and PowerContext plugin configurations.
 
 **Light Context Configuration (`light_context_config` object):**
 

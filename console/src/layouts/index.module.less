@@ -904,8 +904,8 @@
   flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
   justify-content: center;
+  gap: 8px;
 }
 
 .collapsedNavScroll {
@@ -917,6 +917,8 @@
   align-items: center;
   gap: 4px;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y pinch-zoom;
   scrollbar-width: none;
   -ms-overflow-style: none;
 
@@ -928,6 +930,7 @@
 .collapsedNavItem {
   width: 40px;
   height: 40px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -966,23 +969,31 @@
       .collapseToggleContainer {
         width: calc(100% + 12px);
         margin: 0 -6px;
+        gap: 8px;
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        border-top: 1px solid var(--app-border-subtle);
       }
     }
   }
 
   .collapsedNav {
-    gap: 2px;
-    padding: 2px 0;
+    gap: 8px;
+    padding: 4px 0 8px;
   }
 
   .collapsedNavScroll {
-    gap: 2px;
+    gap: 8px;
   }
 
   .collapsedNavItem {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 8px;
+  }
+
+  .collapseToggle {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .collapseToggleContainer {

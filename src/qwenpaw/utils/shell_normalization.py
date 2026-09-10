@@ -2,6 +2,20 @@
 """Normalization shared by shell security checks and execution."""
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+
+def shell_execution_path(inherited_path: str | None) -> str:
+    """Prepend the running Python's bin directory for shell commands."""
+    python_bin = str(Path(sys.executable).parent)
+    return (
+        python_bin + os.pathsep + inherited_path
+        if inherited_path
+        else python_bin
+    )
+
 
 def normalize_posix_line_continuations(command: str) -> str:
     r"""Remove POSIX ``\\`` + newline continuations from *command*.

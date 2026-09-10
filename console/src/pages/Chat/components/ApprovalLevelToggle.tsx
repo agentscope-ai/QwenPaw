@@ -77,7 +77,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
     // 2. localId (timestamp-random) -> real UUID (session resolved)
     if (prevSessionId !== sessionId) {
       const isLocalId = (id: string) =>
-        id === "new" || /^\d{13}-[a-z0-9]{7}$/.test(id);
+        id.startsWith("new:") || /^\d{13}-[a-z0-9]{7}$/.test(id);
       const isRealId = (id: string) => id.length === 36 && id.includes("-");
 
       // Migrate if transitioning from local/temp to real

@@ -2,6 +2,7 @@ import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { compareVersions } from "@/layouts/constants";
 import {
   findMatchingInstalledPlugin,
+  normalizeMarketPluginId,
   type InstalledPluginIdentity,
 } from "./marketPluginIdentity";
 
@@ -10,9 +11,10 @@ export type MarketAppState = "available" | "installed" | "update";
 /**
  * Return the installed version for a market entry when its IDs match.
  *
- * Community entries are namespaced by owner. An unscoped installed ID is only
- * accepted when its author agrees with the market owner or developer, because
- * two owners may publish apps with the same repository name.
+ * PawApp manifests currently store an unscoped app ID, while market entries
+ * use the namespaced ``@owner/name`` form. App entries therefore use the
+ * unscoped app ID as the stable local identity; regular plugin entries keep
+ * the stricter owner-aware matching in ``marketPluginIdentity``.
  */
 export function getInstalledMarketAppVersion(
   entry: MarketPluginEntry,
@@ -26,12 +28,17 @@ export function getInstalledMarketAppVersion(
 
   const normalizedId = entry.id.startsWith("@") ? entry.id.slice(1) : entry.id;
   const exactIds = [entry.id, normalizedId];
-  if (
-    (channel === "official" || channel === "app") &&
-    installedPluginList.length === 0
-  ) {
-    // Keep compatibility for callers that only have a legacy version map.
-    exactIds.push(normalizedId.split("/").pop() ?? normalizedId);
+  if (channel === "official" || channel === "app") {
+    // PawApp IDs are unscoped locally (e.g. ``agent-kanban``), and the market
+    // owner/author labels are not guaranteed to use the same naming scheme.
+    const localAppId = normalizedId.split("/").pop() ?? normalizedId;
+    const localApp = installedPluginList.find(
+      (plugin) =>
+        normalizeMarketPluginId(plugin.id) ===
+        normalizeMarketPluginId(localAppId),
+    );
+    if (localApp?.version !== undefined) return localApp.version;
+    exactIds.push(localAppId);
   }
 
   for (const id of exactIds) {

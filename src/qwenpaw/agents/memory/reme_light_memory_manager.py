@@ -30,6 +30,7 @@ from .base_memory_manager import (
     AUTO_MEMORY_WORKER_CLOSE_TIMEOUT_SECONDS,
     AutoMemorySearchOptions,
     BaseMemoryManager,
+    MemoryBackendContext,
     memory_registry,
 )
 from .embedding_model import EmbeddingTestResult
@@ -208,7 +209,7 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
     )
 
 
-@memory_registry.register("remelight")
+@memory_registry.register("remelight", label="ReMe Light")
 # pylint: disable-next=too-many-public-methods
 class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     """Memory manager backed by ReMe.
@@ -218,8 +219,20 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     ReMe jobs.
     """
 
-    def __init__(self, working_dir: str, agent_id: str):
-        super().__init__(working_dir=working_dir, agent_id=agent_id)
+    def __init__(
+        self,
+        working_dir: str | None = None,
+        agent_id: str | None = None,
+        *,
+        context: MemoryBackendContext | None = None,
+    ):
+        super().__init__(
+            working_dir=working_dir,
+            agent_id=agent_id,
+            context=context,
+        )
+        working_dir = self.working_dir
+        agent_id = self.agent_id
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
         self._lifecycle_writer_lock = asyncio.Lock()

@@ -4,6 +4,7 @@
 # pylint: disable=redefined-outer-name,unused-import
 # pylint: disable=protected-access,unused-argument
 import asyncio
+import base64
 import inspect
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -26,6 +27,7 @@ from nio.responses import (
     WhoamiResponse,
 )
 
+from qwenpaw import schemas
 from qwenpaw.schemas import (
     AgentRequest,
     ContentType,
@@ -1311,6 +1313,49 @@ class TestMatrixChannelSendContentParts:
 class TestMatrixChannelSendMedia:
     """Test send_media method."""
 
+    @pytest.mark.parametrize(
+        ("byte_count", "filename"),
+        [(8, "report.pdf"), (64 * 1024, None)],
+    )
+    async def test_data_url_event_reuses_upload_metadata(
+        self,
+        matrix_channel,
+        mock_async_client,
+        byte_count,
+        filename,
+    ):
+        """The room event contains metadata, never the encoded payload."""
+        data = b"a" * byte_count
+        encoded = base64.b64encode(data).decode("ascii")
+        matrix_channel._client = mock_async_client
+        matrix_channel._prepare_room_send = AsyncMock()
+        mock_async_client.upload.return_value = (
+            UploadResponse(content_uri="mxc://example.org/media"),
+            None,
+        )
+        part = schemas.FileContent(
+            file_url=f"data:application/pdf;base64,{encoded}",
+            filename=filename,
+        )
+
+        await matrix_channel.send_media("!room:example.com", part)
+
+        upload = mock_async_client.upload.call_args
+        assert upload.args[0].getvalue() == data
+        expected_name = filename or "file.pdf"
+        assert upload.kwargs == {
+            "content_type": "application/pdf",
+            "filename": expected_name,
+            "filesize": byte_count,
+        }
+        content = mock_async_client.room_send.call_args.args[2]
+        assert content == {
+            "msgtype": "m.file",
+            "body": expected_name,
+            "url": "mxc://example.org/media",
+            "info": {"mimetype": "application/pdf", "size": byte_count},
+        }
+
     async def test_send_media_when_client_not_initialized(
         self,
         matrix_channel,
@@ -1366,6 +1411,13 @@ class TestMatrixChannelSendMedia:
 
         mock_async_client.upload.assert_called_once()
         mock_async_client.room_send.assert_called_once()
+        content = mock_async_client.room_send.call_args.args[2]
+        assert content["body"] == test_file.name
+        assert content["info"] == {
+            "mimetype": "image/png",
+            "size": len(b"fake image data"),
+        }
+        assert test_file.read_bytes() == b"fake image data"
 
     async def test_send_media_http_url(
         self,

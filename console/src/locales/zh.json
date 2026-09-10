@@ -2568,8 +2568,8 @@
     "llmAcquireTimeoutGtPauseJitter": "槽位获取超时必须大于限流暂停时长与抖动范围之和",
     "contextManagementTitle": "上下文管理",
     "memoryManagerBackend": "长期记忆管理后端",
-    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）、adbpg（云端数据库）、PowerContext（远程记忆服务）或 none（关闭记忆）",
-    "memoryManagerBackendRestartWarning": "切换长期记忆管理后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
+    "memoryManagerBackendTooltip": "记忆管理器的后端类型；安装对应插件后，插件后端会出现在此处。",
+    "memoryManagerBackendRestartWarning": "保存后会重新加载当前 Agent，使新的记忆后端生效。",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
     "maxItersPlaceholder": "请输入最大迭代次数",
@@ -3157,28 +3157,7 @@
     "contextStrategy": "上下文策略",
     "contextStrategyTooltip": "智能体如何管理长上下文。Scroll（推荐）将驱逐的对话轮次持久化到历史库并按需召回；Native 使用就地压缩。更改后需重启 QwenPaw 生效。",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
-    "backendRestartWarning": "切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
-    "adbpgMemoryTitle": "ADBPG 长期记忆",
-    "powercontextMemoryTitle": "PowerContext 记忆",
-    "powercontextConfig": {
-      "title": "PowerContext 记忆配置",
-      "baseUrl": "服务地址",
-      "token": "Bearer Token",
-      "scopeId": "记忆作用域",
-      "scopeIdPlaceholder": "留空以使用当前安装中唯一的 Agent 作用域",
-      "scopeIdInvalid": "记忆作用域不能只包含空白字符。",
-      "timeout": "请求超时",
-      "maxContextBytes": "最大注入上下文（字节）",
-      "maxContextBytesTooltip": "限制单轮模型调用中注入的 PowerContext 检索结果总量。"
-    },
-    "adbpgConfig": {
-      "title": "ADBPG 记忆配置",
-      "restBaseUrl": "REST Base URL",
-      "restApiKey": "REST API Key",
-      "memoryIsolation": "记忆隔离（按 Agent）",
-      "searchTimeout": "搜索超时"
-    }
+    "contextStrategyNative": "Native"
   },
   "tools": {
     "title": "内置工具",
@@ -4281,6 +4260,7 @@
     "statusLoaded": "运行中",
     "statusUnloaded": "未加载",
     "type": "类型",
+    "typeMemory": "记忆",
     "version": "版本",
     "author": "作者",
     "unknown": "未知",

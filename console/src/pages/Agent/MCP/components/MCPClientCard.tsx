@@ -24,6 +24,7 @@ interface MCPClientUpdate {
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  http_timeout?: number;
 }
 
 interface MCPClientCardProps {
