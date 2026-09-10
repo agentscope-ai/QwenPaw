@@ -43,8 +43,22 @@ describe("RichFileReferenceInput", () => {
 
     const editor = screen.getByRole("textbox");
     expect(editor).toHaveAttribute("contenteditable", "true");
+    expect(editor.closest("[dir='auto']")).not.toBeNull();
     expect(editor).not.toHaveTextContent("/work/app.ts");
     expect(container.querySelector("textarea")).toHaveValue(raw);
+  });
+
+  it("keeps mixed Arabic and English text under plaintext BiDi", async () => {
+    const mixed = "مرحبا Hello 123";
+    render(
+      <RichFileReferenceInputProvider onOpenReference={vi.fn()}>
+        <RichFileReferenceInput value={mixed} onChange={vi.fn()} />
+      </RichFileReferenceInputProvider>,
+    );
+
+    const editor = await screen.findByRole("textbox");
+    expect(editor.closest("[dir='auto']")).toHaveAttribute("dir", "auto");
+    expect(editor).toHaveTextContent(mixed);
   });
 
   it("clears the visible editor when the sender value is cleared", async () => {

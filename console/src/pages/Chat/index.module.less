@@ -622,6 +622,27 @@
 }
 /* End #6583 */
 
+/* Fix #2120: BiDi for mixed RTL/LTR in chat input and rendered messages.
+ * dir="auto" is set on the sender TextArea (BidiSenderInput) and on host
+ * message wrappers; unicode-bidi: plaintext lets inline opposite-direction
+ * runs reorder correctly. Keep code/pre always LTR-isolated. */
+.chatMessagesArea :global {
+  .qwenpaw-sender textarea,
+  [class*="sender-input"] textarea,
+  [class*="bubble"] [class*="markdown"] {
+    unicode-bidi: plaintext;
+  }
+
+  [class*="bubble"] [class*="markdown"] pre,
+  [class*="bubble"] [class*="markdown"] code,
+  [class*="bubble"] .qwenpaw-code-block,
+  [class*="bubble"] [class*="code-block"] {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+}
+/* End #2120 */
+
 /* ---- Rate-limit guidance banner ---- */
 .rateLimitBanner {
   display: flex;
