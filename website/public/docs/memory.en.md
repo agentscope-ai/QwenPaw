@@ -513,11 +513,12 @@ Undo restores the previous Embedding configuration that matches the existing vec
 
 QwenPaw's memory system uses a pluggable backend architecture. ReMeLight remains
 the built-in default; ADBPG and PowerContext are independently installable
-plugins. A configured plugin backend must be installed and registered before
-its Agent starts. If it is missing or fails to load, QwenPaw reports the backend
-as unavailable instead of silently switching to ReMeLight. Select a backend via
-`memory_manager_backend`; plugin-owned per-Agent settings are stored under
-`memory_backend_configs.<backend_id>`.
+plugins. If the selected plugin is missing or fails to load when an Agent
+starts, the runtime temporarily uses ReMeLight while preserving the configured
+backend and its plugin settings. The fallback is recorded in the logs. Reload
+the Agent after the plugin becomes available to restore the configured backend.
+Select a backend via `memory_manager_backend`; plugin-owned per-Agent settings
+are stored under `memory_backend_configs.<backend_id>`.
 
 ### ADBPG (AnalyticDB for PostgreSQL)
 

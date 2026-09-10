@@ -481,10 +481,10 @@ POST /api/agents/{agentId}/memory/reindex/undo
 ## 其他 Memory Backend
 
 QwenPaw 的记忆系统采用可插拔的 Backend 架构。ReMeLight 仍是内置默认后端；ADBPG 和
-PowerContext 已拆分为可独立安装的插件。Agent 启动前，对应插件必须已经安装并完成注册；
-若插件缺失或加载失败，QwenPaw 会明确报告 backend 不可用，不会静默切换到 ReMeLight。
-通过 `memory_manager_backend` 选择后端，插件拥有的每 Agent 配置统一保存在
-`memory_backend_configs.<backend_id>`。
+PowerContext 已拆分为可独立安装的插件。若 Agent 启动时所选插件缺失或加载失败，运行时会
+暂时使用 ReMeLight，并保留原 backend 选择和插件配置；日志会记录此次兜底。插件恢复后，
+重新加载 Agent 即可恢复原 backend。通过 `memory_manager_backend` 选择后端，插件拥有的每
+Agent 配置统一保存在 `memory_backend_configs.<backend_id>`。
 
 ### ADBPG（AnalyticDB for PostgreSQL）
 

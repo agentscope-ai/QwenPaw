@@ -51,14 +51,48 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MEMORY_BACKEND_FALLBACK = "remelight"
 
-def _memory_backend_context(ws: "Workspace") -> "MemoryBackendContext":
+
+def _configured_memory_backend_id(ws: "Workspace") -> str:
+    """Return the canonical backend selected in persisted Agent config."""
+    return ws.config.running.memory_manager_backend.strip().lower()
+
+
+def _effective_memory_backend_id(ws: "Workspace") -> str:
+    """Resolve the runtime backend without rewriting the configured choice."""
+    from ...memory import (
+        MemoryBackendUnavailableError,
+        get_memory_manager_backend,
+    )
+
+    configured = _configured_memory_backend_id(ws)
+    try:
+        get_memory_manager_backend(configured)
+    except MemoryBackendUnavailableError:
+        if configured == _MEMORY_BACKEND_FALLBACK:
+            raise
+        logger.warning(
+            "Configured memory backend '%s' is unavailable for agent '%s'; "
+            "using '%s' until the configured backend is available",
+            sanitize_log_value(configured),
+            sanitize_log_value(ws.agent_id),
+            _MEMORY_BACKEND_FALLBACK,
+        )
+        return _MEMORY_BACKEND_FALLBACK
+    return configured
+
+
+def _memory_backend_context(
+    ws: "Workspace",
+    backend_id: str | None = None,
+) -> "MemoryBackendContext":
     """Snapshot all construction settings used by core and plugin backends."""
     from ...memory import MemoryBackendContext
 
     config = ws.config
     running = config.running
-    backend_id = running.memory_manager_backend.strip().lower()
+    backend_id = backend_id or _configured_memory_backend_id(ws)
     backend_configs = getattr(running, "memory_backend_configs", {})
     raw_config = dict(backend_configs.get(backend_id, {}) or {})
     try:
@@ -94,7 +128,10 @@ def _memory_manager_reuse_compatible(
     old_context = getattr(instance, "context", None)
     if old_context is None:
         return False
-    return old_context == _memory_backend_context(workspace)
+    return old_context == _memory_backend_context(
+        workspace,
+        _effective_memory_backend_id(workspace),
+    )
 
 
 class Workspace:
@@ -434,6 +471,25 @@ class Workspace:
 
         sm = self._service_manager
 
+        def _memory_manager_class(ws: "Workspace") -> type:
+            return get_memory_manager_backend(_effective_memory_backend_id(ws))
+
+        def _create_memory_manager(ws: "Workspace") -> Any:
+            configured = _configured_memory_backend_id(ws)
+            try:
+                return create_memory_manager_backend(
+                    configured,
+                    _memory_backend_context(ws, configured),
+                )
+            except MemoryBackendUnavailableError:
+                if configured == _MEMORY_BACKEND_FALLBACK:
+                    raise
+                fallback = _effective_memory_backend_id(ws)
+                return create_memory_manager_backend(
+                    fallback,
+                    _memory_backend_context(ws, fallback),
+                )
+
         # Priority 5: LocalWorkspace (tool routing)
         def _init_local_workspace(
             ws: "Workspace",
@@ -471,13 +527,8 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=lambda ws: get_memory_manager_backend(
-                    ws._config.running.memory_manager_backend,
-                ),
-                create_service=lambda ws: create_memory_manager_backend(
-                    ws.config.running.memory_manager_backend,
-                    _memory_backend_context(ws),
-                ),
+                service_class=_memory_manager_class,
+                create_service=_create_memory_manager,
                 start_method="start",
                 stop_method="close",
                 reusable=True,
@@ -489,8 +540,8 @@ class Workspace:
                 # longer ships; let the workspace boot without
                 # memory_manager when its import fails.
                 optional=True,
-                # A configured-but-unregistered plugin is a configuration
-                # error, not an optional ReMe dependency failure.
+                # The configured backend falls back before construction. A
+                # missing core fallback remains a fatal installation error.
                 fatal_exceptions=(MemoryBackendUnavailableError,),
             ),
         )

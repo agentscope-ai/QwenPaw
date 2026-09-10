@@ -20,6 +20,9 @@ from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.memory.reme_light_memory_manager import (
+    ReMeLightMemoryManager,
+)
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
 from qwenpaw.memory import MemoryBackendContext, memory_registry
 
@@ -118,6 +121,49 @@ def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
     descriptor = workspace._service_manager.descriptors["memory_manager"]
     assert descriptor.reusable is True
     assert descriptor.require_clean_stop is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_falls_back_to_remelight_for_unregistered_backend(
+    monkeypatch,
+    tmp_path,
+    caplog,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        language="zh",
+        running=SimpleNamespace(
+            memory_manager_backend="missing-memory-plugin",
+            memory_backend_configs={
+                "missing-memory-plugin": {"token": "keep-me"},
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        ReMeLightMemoryManager,
+        "_initialize_reme",
+        lambda _self: None,
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert isinstance(workspace.memory_manager, ReMeLightMemoryManager)
+    assert workspace.memory_manager.context.backend_config == {}
+    assert (
+        workspace.config.running.memory_manager_backend
+        == "missing-memory-plugin"
+    )
+    assert workspace.config.running.memory_backend_configs == {
+        "missing-memory-plugin": {"token": "keep-me"},
+    }
+    assert "using 'remelight'" in caplog.text
 
 
 @pytest.mark.asyncio
