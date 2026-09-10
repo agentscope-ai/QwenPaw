@@ -21,7 +21,6 @@ from qwenpaw.agents.skill_system.store import (
     _create_files_from_tree,
     _directory_tree,
     _extract_emoji_from_metadata,
-    _extract_requirements,
     _read_json_unlocked,
     _safe_child_path,
     classify_pool_skill_source,
@@ -33,6 +32,7 @@ from qwenpaw.agents.skill_system.store import (
     import_skill_dir,
     normalize_pool_manifest_payload,
     normalize_skill_dir_name,
+    parse_skill_requirements,
     read_pool_skill_automation,
     read_skill_frontmatter_from_dir,
     render_skill_md,
@@ -239,21 +239,72 @@ class TestMetadataExtraction:
                 "qwenpaw": {"requires": {"bins": ["git"], "env": ["KEY"]}},
             },
         }
-        req = _extract_requirements(post)
+        req, errors = parse_skill_requirements(post)
         assert req.require_bins == ["git"]
         assert req.require_envs == ["KEY"]
+        assert errors == []
 
     def test_requirements_list_form(self):
         post = {"requires": ["ffmpeg", "pandoc"]}
-        req = _extract_requirements(post)
+        req, errors = parse_skill_requirements(post)
         assert req.require_bins == ["ffmpeg", "pandoc"]
         assert req.require_envs == []
+        assert errors == []
 
     def test_requirements_garbage_falls_back_empty(self):
         post = {"requires": 12345}
-        req = _extract_requirements(post)
+        req, errors = parse_skill_requirements(post)
         assert req.require_bins == []
         assert req.require_envs == []
+        assert errors == [
+            "requires must be a mapping or a list of binaries",
+        ]
+
+    def test_requirements_mcp_field_is_parsed(self):
+        post = {"requires": {"mcp": ["github"]}}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_mcps == ["github"]
+        assert errors == []
+
+    def test_requirements_strips_and_dedupes_values(self):
+        # Normalisation keeps first-seen order: dict.fromkeys over stripped
+        # values, so duplicates and surrounding whitespace both collapse.
+        post = {"requires": {"bins": [" git ", "git", "curl"]}}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_bins == ["git", "curl"]
+        assert errors == []
+
+    def test_requirements_non_string_entry_is_rejected(self):
+        post = {"requires": {"bins": ["git", 42]}}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_bins == []
+        assert errors == ["requires.bins must be a list of non-empty strings"]
+
+    def test_requirements_blank_entry_is_rejected(self):
+        post = {"requires": {"env": ["  "]}}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_envs == []
+        assert errors == ["requires.env must be a list of non-empty strings"]
+
+    def test_requirements_bad_key_does_not_poison_good_keys(self):
+        # Only the offending key is cleared; the others still parse.
+        post = {"requires": {"bins": ["git"], "env": "not-a-list"}}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_bins == ["git"]
+        assert req.require_envs == []
+        assert errors == ["requires.env must be a list of non-empty strings"]
+
+    def test_requirements_metadata_not_a_dict_is_ignored(self):
+        post = {"metadata": "junk", "requires": ["git"]}
+        req, errors = parse_skill_requirements(post)
+
+        assert req.require_bins == ["git"]
+        assert errors == []
 
 
 # ---------------------------------------------------------------------------
