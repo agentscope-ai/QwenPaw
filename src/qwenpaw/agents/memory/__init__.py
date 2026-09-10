@@ -12,10 +12,6 @@ from .action_provider import (
 )
 from .base_memory_manager import BaseMemoryManager
 from .reme_light_memory_manager import ReMeLightMemoryManager
-from .adbpg_memory_manager import (
-    ADBPGMemoryManager,
-)  # registers "adbpg" backend
-from .powercontext_memory_manager import PowerContextMemoryManager
 from .dummy import (
     NoopMemoryManager,
 )  # registers "none" backend
@@ -46,8 +42,6 @@ __all__ = [
     "MemoryActionSpec",
     "BaseMemoryManager",
     "ReMeLightMemoryManager",
-    "ADBPGMemoryManager",
-    "PowerContextMemoryManager",
     "NoopMemoryManager",
     # proactive symbols resolved lazily at runtime via __getattr__
     "ProactiveConfig",

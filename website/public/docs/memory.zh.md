@@ -17,20 +17,69 @@ QwenPaw 的长期记忆由工作区的文件系统和 [ReMe](https://github.com/
 
 ## 可选的 PowerContext 后端
 
-`remelight` 仍是默认长期记忆后端。如需使用可选的 `powercontext` 后端，必须先单独部署或启动
-PowerContext Server；QwenPaw 不会自动下载或启动该服务。本地服务默认地址为
-`http://127.0.0.1:8000`。可使用以下命令安装并启动：
+`remelight` 仍是默认长期记忆后端。如需使用可选的 `powercontext` 后端，必须安装
+PowerContext memory 插件，并单独部署或启动 PowerContext Server；QwenPaw 不会自动下载或
+启动该服务。在源码目录中先构建并安装插件：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+cd plugins/memory/powercontext/frontend
+npm install
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/powercontext
+```
+
+本地服务默认地址为 `http://127.0.0.1:8000`。可使用以下命令安装并启动：
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 
-在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时、自动检索结果数量和注入上下文预算。保存后重启 QwenPaw，后端切换才会生效。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。记忆作用域留空时，QwenPaw 会使用持久化的安装级默认值 `qwenpaw:<installation_id>:agent:<agent_id>`；即使两个独立安装使用相同 Agent ID 并连接同一个 PowerContext 服务，也会被隔离。只有希望多个 Agent 共享记忆时，才应填写相同的显式作用域。复制 QwenPaw 工作目录会同时复制安装身份；若复制品不应共享记忆，应在复制后设置不同的显式作用域。自动检索还会受总注入上下文预算限制（默认 12,000 UTF-8 字节），请求超时限制为 1–60 秒。
+在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时、自动检索结果数量和注入上下文预算。保存会安排 Agent 重载，无需重启整个 QwenPaw 进程。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。记忆作用域留空时，QwenPaw 会使用持久化的安装级默认值 `qwenpaw:<installation_id>:agent:<agent_id>`；即使两个独立安装使用相同 Agent ID 并连接同一个 PowerContext 服务，也会被隔离。只有希望多个 Agent 共享记忆时，才应填写相同的显式作用域。复制 QwenPaw 工作目录会同时复制安装身份；若复制品不应共享记忆，应在复制后设置不同的显式作用域。自动检索还会受总注入上下文预算限制（默认 12,000 UTF-8 字节），请求超时限制为 1–60 秒。
 
 ### 网络与审批边界
 
 启用该后端后，自动检索和每回合结束后的受限状态写入均是配置驱动的后台网络操作：它们会将查询或经过长度限制的回合状态发送到所配置的 PowerContext 服务，不经过 Agent 工具调用。如果这种传输不合适，请关闭自动检索或改用其他记忆后端。相对地，Agent 可见的 `memory_search` 和 `memory_remember` 是受治理的操作：PowerContext 的检索工具被标记为网络 I/O，严格治理可以在发送查询前要求审批；`memory_remember` 同样作为网络写入受当前策略约束。
+
+### PowerContext 配置
+
+| 配置项                      | 说明                                                  | 默认值                                                       |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `base_url`                  | PowerContext 服务地址                                 | `""`                                                         |
+| `token`                     | 可选的 Bearer Token                                   | `""`                                                         |
+| `scope_id`                  | 记忆作用域；留空时使用按安装和 Agent 隔离的默认作用域 | `""`                                                         |
+| `timeout`                   | 请求超时秒数，范围为 1–60                             | `10.0`                                                       |
+| `auto_memory_search_config` | 自动召回设置和注入上下文的总字节预算                  | `{"enabled":true,"max_results":3,"max_context_bytes":12000}` |
+
+等价的 `agent.json` 配置为：
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "powercontext",
+    "memory_backend_configs": {
+      "powercontext": {
+        "base_url": "http://127.0.0.1:8000",
+        "token": "",
+        "scope_id": "",
+        "timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3,
+          "max_context_bytes": 12000
+        }
+      }
+    }
+  }
+}
+```
+
+插件配置必须放在 `memory_backend_configs.powercontext`；原先由核心定义的
+`powercontext_memory_config` 字段已不再支持。
+升级后的首次启动中，插件会将根配置中原有的 `powercontext_installation_id` 继承到
+QwenPaw 规范工作目录下的 `plugin-state/memory-powercontext/installation-id`。即使 Agent
+使用自定义 workspace 路径，也能保持默认作用域以及对既有远程记忆的访问。
 
 ## 先理解它怎样工作
 
@@ -431,7 +480,11 @@ POST /api/agents/{agentId}/memory/reindex/undo
 
 ## 其他 Memory Backend
 
-QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
+QwenPaw 的记忆系统采用可插拔的 Backend 架构。ReMeLight 仍是内置默认后端；ADBPG 和
+PowerContext 已拆分为可独立安装的插件。若 Agent 启动时所选插件缺失或加载失败，运行时会
+暂时使用 ReMeLight，并保留原 backend 选择和插件配置；日志会记录此次兜底。插件恢复后，
+重新加载 Agent 即可恢复原 backend。通过 `memory_manager_backend` 选择后端，插件拥有的每
+Agent 配置统一保存在 `memory_backend_configs.<backend_id>`。
 
 ### ADBPG（AnalyticDB for PostgreSQL）
 
@@ -439,23 +492,39 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 **核心特点：**
 
-- **跨会话持久化** — 记忆存储在云端数据库，重启后不丢失，支持多设备共享
-- **服务端事实抽取** — 由 ADBPG 记忆服务完成事实提取，客户端无额外开销
+- **跨会话持久化** — 抽取完成的记忆存储在云端，支持跨会话和多设备检索
+- **服务端事实抽取** — 每个普通对话回合提交新的用户消息，由服务端异步提取事实
 - **REST API 接入** — 通过 HTTP API 调用 ADBPG 记忆服务
 - **优雅降级** — ADBPG 不可达时 Agent 正常运行，仅长期记忆功能暂时禁用
 
 **配置方式：**
 
-进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
+在源码目录中先构建并安装插件：
 
-![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+```bash
+cd plugins/memory/adbpg/frontend
+npm ci
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/adbpg
+```
 
-> ⚠️ 切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效（页面也会以黄色横幅提醒）。
+发布的插件 ZIP 已包含配置界面，无需从源码构建。QwenPaw 运行时，可在 Console 插件页面
+上传 ZIP，或执行 `qwenpaw plugin install /path/to/memory-adbpg-1.0.0.zip`。从源码目录安装
+时，停止的 QwenPaw 需在安装后启动；运行中的 QwenPaw 会通过 API 热安装。
+
+然后进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择
+`adbpg`，并在 ADBPG 配置 Tab 中填写 `REST Base URL` 与 `REST API Key`。
+
+> 保存 backend 选择或插件配置后会安排 Agent 重载。backend 或有效配置发生变化时会创建
+> 新实例；backend 上下文未变化时可以复用原实例。无需重启整个进程。
+
+卸载或强制重装插件前，先将使用它的所有 Agent 切换到其他后端（如 `none`），并等待重载及待处理
+记忆任务结束。正在使用的记忆后端会拒绝卸载。
 
 > 迁移提示：ADBPG SQL 直连模式已移除。旧配置中的 `api_mode: "sql"`、
 > `host`、`port`、`user`、`password`、`dbname`、LLM 和 Embedding 相关字段
-> 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`，保存后重启
-> QwenPaw。
+> 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`。
 
 | 配置项                      | 说明                                                                    | 默认值                                |
 | --------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
@@ -465,22 +534,39 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 | `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                |
 | `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
 
+**提交、抽取与失败处理：**
+
+服务端默认异步抽取。自动记忆任务的 `completed` 只表示客户端处理结束：对实际发送的消息，
+它最多确认 HTTP 提交已被接受，不代表抽取完成或立即可检索。可先让 Agent 记住一条事实，
+等待服务端处理后再检索；通过 `/auto_memory_status` 和日志检查提交结果。关闭记忆后端会尝试在
+关闭超时内排空待提交任务，不会等待服务端抽取完成。
+
+**隔离粒度：**
+
+`memory_isolation: true` 时，远程 `agent_id` 为当前 Agent ID；为 `false` 时，远程
+`agent_id` 为 `shared`。两种模式的 `user_id` 和写入时的 `run_id` 均固定为 `shared`，
+搜索只按 `agent_id` 和 `user_id` 过滤。因此隔离粒度是 Agent，不是聊天用户或会话；同一
+服务数据集内的共享模式 Agent 会共享远程记忆。切换开关会切换读写命名空间，不会迁移已有
+记忆。本地 Markdown 文件仍属于各 Agent 自己的工作区。
+
 **配置示例：**
 
-完整配置可写入 `agent.json` 的 `running.adbpg_memory_config` 字段：
+完整配置可写入 `agent.json` 的 `running.memory_backend_configs.adbpg` 字段：
 
 ```json
 {
   "running": {
     "memory_manager_backend": "adbpg",
-    "adbpg_memory_config": {
-      "rest_base_url": "https://your-adbpg-memory-api.example.com",
-      "rest_api_key": "your-rest-api-key",
-      "memory_isolation": true,
-      "search_timeout": 10.0,
-      "auto_memory_search_config": {
-        "enabled": true,
-        "max_results": 3
+    "memory_backend_configs": {
+      "adbpg": {
+        "rest_base_url": "https://your-adbpg-memory-api.example.com",
+        "rest_api_key": "your-rest-api-key",
+        "memory_isolation": true,
+        "search_timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3
+        }
       }
     }
   }
@@ -488,6 +574,9 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 ```
 
 > 💡 通过 Console「运行配置」页面填写时，框架会自动将这些字段写入 `agent.json`，无需手动编辑文件。
+
+原先由核心定义的 `running.adbpg_memory_config` 字段已不再支持。启动 Agent 前请先安装
+插件，并将原字段内容迁移到 `running.memory_backend_configs.adbpg`。
 
 ---
 

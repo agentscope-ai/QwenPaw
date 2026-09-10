@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -9,19 +11,34 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
-from qwenpaw.agents.memory.powercontext_memory_manager import (
+from plugins.memory.powercontext.backend.config import PowerContextMemoryConfig
+from plugins.memory.powercontext.backend.manager import (
     PowerContextMemoryManager,
+    get_or_create_installation_id,
 )
-from qwenpaw.agents.memory.powercontext_prompts import (
+from plugins.memory.powercontext.backend.prompts import (
     POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE,
 )
-from qwenpaw.config.config import (
-    PowerContextMemoryConfig,
-)
+from qwenpaw.memory import MemoryBackendContext
 from qwenpaw.governance import PolicyGuardedTool
 from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
 from qwenpaw.runtime.builder import AgentBuilder
+
+
+def _manager(
+    tmp_path,
+    agent_id: str = "agent-1",
+    config: PowerContextMemoryConfig | None = None,
+) -> PowerContextMemoryManager:
+    return PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id=agent_id,
+            working_dir=tmp_path,
+            host_working_dir=tmp_path,
+            backend_config=(config or PowerContextMemoryConfig()).model_dump(),
+        ),
+    )
 
 
 def user(text: str) -> Msg:
@@ -32,9 +49,149 @@ def user(text: str) -> Msg:
     )
 
 
+def test_installation_id_adopts_legacy_root_config(tmp_path):
+    legacy_id = "0123456789abcdef0123456789abcdef"
+    (tmp_path / "config.json").write_text(
+        '{"powercontext_installation_id": "' + legacy_id + '"}',
+        encoding="utf-8",
+    )
+
+    assert get_or_create_installation_id(tmp_path) == legacy_id
+    assert (
+        tmp_path / "plugin-state" / "memory-powercontext" / "installation-id"
+    ).read_text(encoding="utf-8") == legacy_id
+
+
+def test_installation_id_rejects_corrupt_plugin_state(tmp_path):
+    identity_path = (
+        tmp_path / "plugin-state" / "memory-powercontext" / "installation-id"
+    )
+    identity_path.parent.mkdir(parents=True)
+    identity_path.write_text("x" * 32, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid PowerContext installation"):
+        get_or_create_installation_id(tmp_path)
+
+
+def test_installation_id_is_atomic_across_concurrent_creators(tmp_path):
+    worker_count = 8
+    barrier = threading.Barrier(worker_count)
+
+    def create_id() -> str:
+        barrier.wait()
+        return get_or_create_installation_id(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        installation_ids = list(
+            executor.map(lambda _index: create_id(), range(worker_count)),
+        )
+
+    assert len(set(installation_ids)) == 1
+    installation_id = installation_ids[0]
+    assert len(installation_id) == 32
+    state_dir = tmp_path / "plugin-state" / "memory-powercontext"
+    assert (state_dir / "installation-id").read_text(encoding="utf-8") == (
+        installation_id
+    )
+    assert not list(state_dir.glob(".installation-id-*"))
+
+
+@pytest.mark.asyncio
+async def test_installation_id_is_independent_of_custom_workspace_parent(
+    tmp_path,
+):
+    first_host = tmp_path / "install-a"
+    second_host = tmp_path / "install-b"
+    shared_workspace_parent = tmp_path / "external-workspaces"
+    shared_workspace_parent.mkdir()
+    first_host.mkdir()
+    second_host.mkdir()
+    config = PowerContextMemoryConfig(base_url="http://pc").model_dump()
+    first = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=shared_workspace_parent / "agent-a",
+            host_working_dir=first_host,
+            backend_config=config,
+        ),
+    )
+    second = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=shared_workspace_parent / "agent-b",
+            host_working_dir=second_host,
+            backend_config=config,
+        ),
+    )
+
+    await first.start()
+    await second.start()
+
+    assert first._client.config.scope_id != second._client.config.scope_id
+    await first.close()
+    await second.close()
+
+
+@pytest.mark.asyncio
+async def test_custom_workspace_adopts_canonical_host_legacy_id(tmp_path):
+    legacy_id = "0123456789abcdef0123456789abcdef"
+    host_root = tmp_path / "host"
+    workspace = tmp_path / "external" / "custom-agent"
+    host_root.mkdir()
+    workspace.mkdir(parents=True)
+    (host_root / "config.json").write_text(
+        '{"powercontext_installation_id": "' + legacy_id + '"}',
+        encoding="utf-8",
+    )
+    manager = PowerContextMemoryManager(
+        MemoryBackendContext(
+            agent_id="default",
+            working_dir=workspace,
+            host_working_dir=host_root,
+            backend_config=PowerContextMemoryConfig(
+                base_url="http://pc",
+            ).model_dump(),
+        ),
+    )
+
+    await manager.start()
+
+    assert manager._client.config.scope_id == (
+        f"qwenpaw:{legacy_id}:agent:default"
+    )
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_installation_identity_io_runs_off_event_loop(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _manager(
+        tmp_path,
+        "default",
+        PowerContextMemoryConfig(base_url="http://pc"),
+    )
+    event_loop_thread = threading.get_ident()
+    identity_thread = None
+
+    def resolve_identity():
+        nonlocal identity_thread
+        identity_thread = threading.get_ident()
+        return "0123456789abcdef0123456789abcdef"
+
+    monkeypatch.setattr(manager, "_get_installation_id", resolve_identity)
+
+    await manager.start()
+
+    assert identity_thread is not None
+    assert identity_thread != event_loop_thread
+    await manager.close()
+
+
 @pytest.mark.asyncio
 async def test_auto_search_injects_powercontext_result(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = object()
     manager._config = PowerContextMemoryConfig(
         auto_memory_search_config={
@@ -70,7 +227,7 @@ async def test_auto_search_injects_powercontext_result(tmp_path):
 
 @pytest.mark.asyncio
 async def test_auto_search_labels_recall_as_untrusted_history(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         search=AsyncMock(
             return_value=[
@@ -98,27 +255,19 @@ async def test_auto_search_labels_recall_as_untrusted_history(tmp_path):
 
 @pytest.mark.asyncio
 async def test_default_scope_is_resolved_per_agent(tmp_path, monkeypatch):
-    def load_config(agent_id):
-        del agent_id
-        return SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(
-                    base_url="http://pc",
-                ),
-            ),
-        )
-
+    config = PowerContextMemoryConfig(base_url="http://pc")
+    first = _manager(tmp_path, "agent-a", config)
+    second = _manager(tmp_path, "agent-b", config)
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        load_config,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager."
-        "get_or_create_powercontext_installation_id",
+        first,
+        "_get_installation_id",
         lambda: "installation-a",
     )
-    first = PowerContextMemoryManager(str(tmp_path), "agent-a")
-    second = PowerContextMemoryManager(str(tmp_path), "agent-b")
+    monkeypatch.setattr(
+        second,
+        "_get_installation_id",
+        lambda: "installation-a",
+    )
 
     await first.start()
     await second.start()
@@ -141,26 +290,16 @@ async def test_default_scope_is_rendered_in_memory_citation(
     tmp_path,
     monkeypatch,
 ):
-    def load_config(agent_id):
-        del agent_id
-        return SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(
-                    base_url="http://pc",
-                ),
-            ),
-        )
-
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        load_config,
+    manager = _manager(
+        tmp_path,
+        "default",
+        PowerContextMemoryConfig(base_url="http://pc"),
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager."
-        "get_or_create_powercontext_installation_id",
+        manager,
+        "_get_installation_id",
         lambda: "installation-a",
     )
-    manager = PowerContextMemoryManager(str(tmp_path), "default")
     await manager.start()
     await manager._client.close()
     manager._client = SimpleNamespace(
@@ -195,26 +334,16 @@ async def test_default_scope_fails_closed_when_installation_id_cannot_persist(
     tmp_path,
     monkeypatch,
 ):
-    def load_config(agent_id):
-        del agent_id
-        return SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(
-                    base_url="http://pc",
-                ),
-            ),
-        )
-
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        load_config,
+    manager = _manager(
+        tmp_path,
+        "default",
+        PowerContextMemoryConfig(base_url="http://pc"),
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager."
-        "get_or_create_powercontext_installation_id",
+        manager,
+        "_get_installation_id",
         Mock(side_effect=OSError("disk full")),
     )
-    manager = PowerContextMemoryManager(str(tmp_path), "default")
 
     await manager.start()
 
@@ -227,29 +356,15 @@ async def test_explicit_scope_remains_shared_across_agents(
     tmp_path,
     monkeypatch,
 ):
-    def load_config(agent_id):
-        del agent_id
-        return SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(
-                    base_url="http://pc",
-                    scope_id="project:shared",
-                ),
-            ),
-        )
-
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        load_config,
-    )
     installation_id = Mock()
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager."
-        "get_or_create_powercontext_installation_id",
-        installation_id,
+    config = PowerContextMemoryConfig(
+        base_url="http://pc",
+        scope_id="project:shared",
     )
-    first = PowerContextMemoryManager(str(tmp_path), "agent-a")
-    second = PowerContextMemoryManager(str(tmp_path), "agent-b")
+    first = _manager(tmp_path, "agent-a", config)
+    second = _manager(tmp_path, "agent-b", config)
+    monkeypatch.setattr(first, "_get_installation_id", installation_id)
+    monkeypatch.setattr(second, "_get_installation_id", installation_id)
 
     await first.start()
     await second.start()
@@ -266,27 +381,19 @@ async def test_default_scope_isolates_same_agent_across_installations(
     tmp_path,
     monkeypatch,
 ):
-    def load_config(agent_id):
-        del agent_id
-        return SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(
-                    base_url="http://pc",
-                ),
-            ),
-        )
-
+    config = PowerContextMemoryConfig(base_url="http://pc")
+    first = _manager(tmp_path, "default", config)
+    second = _manager(tmp_path, "default", config)
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        load_config,
+        first,
+        "_get_installation_id",
+        lambda: "installation-a",
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager."
-        "get_or_create_powercontext_installation_id",
-        Mock(side_effect=["installation-a", "installation-b"]),
+        second,
+        "_get_installation_id",
+        lambda: "installation-b",
     )
-    first = PowerContextMemoryManager(str(tmp_path), "default")
-    second = PowerContextMemoryManager(str(tmp_path), "default")
 
     await first.start()
     await second.start()
@@ -305,7 +412,7 @@ async def test_default_scope_isolates_same_agent_across_installations(
 
 @pytest.mark.asyncio
 async def test_auto_search_skips_backend_error(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = object()
     manager._config = PowerContextMemoryConfig()
     manager._search_memories = AsyncMock(
@@ -322,7 +429,7 @@ async def test_auto_search_skips_backend_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_auto_memory_schedules_structured_write(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     client = SimpleNamespace(remember=AsyncMock())
     manager._client = client
     await manager.auto_memory([user("goal A")])
@@ -338,7 +445,7 @@ async def test_auto_memory_worker_redacts_token_from_failure_status(
     caplog,
 ):
     token = "pc-secret-token-should-not-leak"
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         config=SimpleNamespace(token=token),
         remember=AsyncMock(side_effect=RuntimeError(token)),
@@ -360,7 +467,7 @@ async def test_auto_memory_worker_redacts_token_from_failure_status(
 async def test_close_stops_inherited_auto_memory_worker_before_client_close(
     tmp_path,
 ):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
 
     async def assert_worker_is_stopped() -> None:
         assert manager._auto_memory_worker_task is None
@@ -381,7 +488,7 @@ async def test_close_stops_inherited_auto_memory_worker_before_client_close(
 
 @pytest.mark.asyncio
 async def test_auto_memory_bounds_multibyte_text_and_excludes_search(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     client = SimpleNamespace(remember=AsyncMock())
     manager._client = client
     synthetic_search = manager._build_auto_memory_search_msg(
@@ -399,15 +506,8 @@ async def test_auto_memory_bounds_multibyte_text_and_excludes_search(tmp_path):
 
 @pytest.mark.asyncio
 async def test_unconfigured_backend_is_inactive(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
-        lambda agent_id: SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=PowerContextMemoryConfig(),
-            ),
-        ),
-    )
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    del monkeypatch
+    manager = _manager(tmp_path, "agent-1")
     await manager.start()
 
     assert not manager.list_memory_tools()
@@ -418,7 +518,7 @@ async def test_unconfigured_backend_is_inactive(tmp_path, monkeypatch):
 def test_powercontext_search_keeps_public_name_but_uses_network_policy(
     tmp_path,
 ):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = object()
 
     search_tool = PolicyGuardedTool(manager.list_memory_tools()[0])
@@ -435,7 +535,7 @@ async def test_runtime_builder_registers_powercontext_search_as_network(
     tmp_path,
 ):
     """The toolkit path must retain the PowerContext policy override."""
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = object()
 
     toolkit = await AgentBuilder().build_toolkit(
@@ -462,7 +562,7 @@ async def test_runtime_builder_registers_powercontext_search_as_network(
 @pytest.mark.asyncio
 async def test_close_redacts_token_from_client_exception(tmp_path, caplog):
     token = "pc-secret-token-should-not-leak"
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         config=SimpleNamespace(token=token),
         close=AsyncMock(side_effect=RuntimeError(token)),
@@ -475,7 +575,7 @@ async def test_close_redacts_token_from_client_exception(tmp_path, caplog):
 
 @pytest.mark.asyncio
 async def test_memory_search_reports_unconfigured_backend(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     result = await manager.memory_search("what did we decide?")
     assert result.state == ToolResultState.ERROR
     assert "not configured" in result.content[0].text
@@ -483,7 +583,7 @@ async def test_memory_search_reports_unconfigured_backend(tmp_path):
 
 @pytest.mark.asyncio
 async def test_memory_search_keeps_powercontext_citation(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         search=AsyncMock(
             return_value=[
@@ -514,7 +614,7 @@ async def test_memory_search_keeps_powercontext_citation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_auto_search_bounds_total_multibyte_context(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._config = PowerContextMemoryConfig(
         auto_memory_search_config={
             "enabled": True,
@@ -576,7 +676,7 @@ async def test_auto_search_bounds_total_multibyte_context(tmp_path):
 async def test_memory_search_counts_result_separators_in_total_context_budget(
     tmp_path,
 ):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._config = PowerContextMemoryConfig(
         auto_memory_search_config={"max_context_bytes": 1024},
     )
@@ -628,7 +728,7 @@ async def test_memory_search_redacts_token_from_unexpected_hit_error(
     caplog,
 ):
     token = "pc-secret-token-should-not-leak"
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         config=SimpleNamespace(token=token),
         search=AsyncMock(
@@ -646,7 +746,7 @@ async def test_memory_search_redacts_token_from_unexpected_hit_error(
 
 @pytest.mark.asyncio
 async def test_memory_search_returns_error_when_backend_fails(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         search=AsyncMock(side_effect=RuntimeError("offline")),
     )
@@ -657,7 +757,7 @@ async def test_memory_search_returns_error_when_backend_fails(tmp_path):
 
 @pytest.mark.asyncio
 async def test_memory_remember_is_explicit_and_registered(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     manager._client = SimpleNamespace(
         remember=AsyncMock(return_value={"remembered": True}),
     )
@@ -672,7 +772,7 @@ async def test_memory_remember_is_explicit_and_registered(tmp_path):
 
 @pytest.mark.asyncio
 async def test_memory_remember_rejects_overlimit_multibyte_text(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     client = SimpleNamespace(
         remember=AsyncMock(return_value={"remembered": True}),
     )
@@ -685,7 +785,7 @@ async def test_memory_remember_rejects_overlimit_multibyte_text(tmp_path):
 
 @pytest.mark.asyncio
 async def test_memory_remember_reports_backend_failure(tmp_path):
-    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager = _manager(tmp_path, "agent-1")
     client = SimpleNamespace(
         remember=AsyncMock(side_effect=RuntimeError("offline")),
     )

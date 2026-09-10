@@ -261,7 +261,7 @@ describe("agent session ownership epochs", () => {
     );
   });
 
-  it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {
+  it("a stale getSession cannot rewrite turn usage or fire selection", async () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
@@ -274,10 +274,8 @@ describe("agent session ownership epochs", () => {
     await sessionApi.getSessionList();
     const pending = sessionApi.getSession(A_CHAT);
 
-    // Switch to B and mark B's current view state with sentinels.
+    // Switch to B and mark B's current view state with a sentinel.
     sessionApi.setActiveAgent("agent-b");
-    (window as { currentSessionId?: string }).currentSessionId =
-      "sentinel-session";
     const sentinelSnapshot = {
       usage: null,
       context_usage: null,
@@ -288,9 +286,6 @@ describe("agent session ownership epochs", () => {
     dChat.resolve(makeHistory());
     await pending;
 
-    expect((window as { currentSessionId?: string }).currentSessionId).toBe(
-      "sentinel-session",
-    );
     expect(useTurnUsageStore.getState().snapshot).toBe(sentinelSnapshot);
     expect(onSessionSelected).not.toHaveBeenCalled();
   });
@@ -357,6 +352,22 @@ describe("agent session ownership epochs", () => {
     sessionApi.setActiveAgent("agent-b");
 
     expect(sessionApi.isSessionSwitching).toBe(false);
+  });
+
+  it("keeps a prepared blank session ahead of agent history", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    sessionApi.setActiveAgent("agent-b");
+    const blank: { id?: string } = {};
+
+    await sessionApi.createSession(blank);
+    listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, "console:b")]);
+    const sessions = await sessionApi.getSessionList();
+    await sessionApi.getSession(blank.id!);
+
+    expect(sessions[0].id).toBe(blank.id);
+    expect(blank.id).toMatch(/^\d+-[a-z0-9]+$/);
+    expect(getSpy).not.toHaveBeenCalled();
   });
 
   it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {

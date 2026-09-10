@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from qwenpaw.agents.memory.powercontext_client import (
+from plugins.memory.powercontext.backend.client import (
     MAX_MEMORY_TEXT_BYTES,
     PowerContextConfig,
     PowerContextHTTPError,

@@ -1,8 +1,6 @@
 import type { ComponentType } from "react";
 import { LightContextCard } from "../pages/Agent/Config/components/LightContextCard";
 import { ReMeLightMemoryCard } from "../pages/Agent/Config/components/ReMeLightMemoryCard";
-import { ADBPGConfigCard } from "../pages/Agent/Config/components/ADBPGConfigCard";
-import { PowerContextConfigCard } from "../pages/Agent/Config/components/PowerContextConfigCard";
 
 interface BackendMapping<T> {
   configField: string;
@@ -33,21 +31,9 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
     label: "remelight",
     tabKey: "remeLightMemory",
   },
-  adbpg: {
-    configField: "adbpg_memory_config",
-    component: ADBPGConfigCard,
-    label: "adbpg",
-    tabKey: "adbpgMemory",
-  },
-  powercontext: {
-    configField: "powercontext_memory_config",
-    component: PowerContextConfigCard,
-    label: "PowerContext",
-    tabKey: "powercontextMemory",
-  },
 };
 
-/** Valid memory backend keys (includes "none" which disables memory). */
+/** Core memory backend keys. Plugin options are registered at runtime. */
 export const MEMORY_MANAGER_BACKEND_OPTIONS = [
   ...Object.entries(MEMORY_MANAGER_BACKEND_MAPPINGS).map(
     ([value, { label }]) => ({ value, label }),

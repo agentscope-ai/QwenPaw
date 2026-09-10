@@ -66,8 +66,14 @@ export const skillMarkets: SkillMarket[] = [
     homepage: "https://clawhub.ai",
     urlPrefix: "https://clawhub.ai/",
     examples: [
-      { label: "word-docx", url: "https://clawhub.ai/ivangdavila/word-docx" },
-      { label: "excel-xlsx", url: "https://clawhub.ai/ivangdavila/excel-xlsx" },
+      {
+        label: "word-docx",
+        url: "https://clawhub.ai/ivangdavila/skills/word-docx",
+      },
+      {
+        label: "excel-xlsx",
+        url: "https://clawhub.ai/ivangdavila/skills/excel-xlsx",
+      },
     ],
   },
   {

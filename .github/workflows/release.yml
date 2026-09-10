@@ -48,6 +48,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: write
   issues: write
   # Needed by the freeze-main job below, which posts commit statuses
@@ -409,6 +410,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build memory plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for frontend_dir in plugins/memory/*/frontend; do
+            echo "Building ${frontend_dir}"
+            npm --prefix "$frontend_dir" ci
+            npm --prefix "$frontend_dir" run build
+          done
+
       - name: Pack plugins and build index
         # qwenpaw-creator and qwenpaw-data are released through their own
         # version-driven pipelines (creator-release.yml,
@@ -653,7 +669,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           shopt -s nullglob
-          for kind in bundle tool apps; do
+          for kind in bundle tool memory apps; do
             while IFS= read -r -d '' f; do
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"

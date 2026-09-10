@@ -10,13 +10,22 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Iterable, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    Optional,
+)
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
+from ...constant import WORKING_DIR
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -37,35 +46,92 @@ from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...utils.logging import sanitize_log_value
 
+if TYPE_CHECKING:
+    from ...memory import MemoryBackendContext
+
 logger = logging.getLogger(__name__)
+
+_MEMORY_BACKEND_FALLBACK = "remelight"
+
+
+def _configured_memory_backend_id(ws: "Workspace") -> str:
+    """Return the canonical backend selected in persisted Agent config."""
+    return ws.config.running.memory_manager_backend.strip().lower()
+
+
+def _effective_memory_backend_id(ws: "Workspace") -> str:
+    """Resolve the runtime backend without rewriting the configured choice."""
+    from ...memory import (
+        MemoryBackendUnavailableError,
+        get_memory_manager_backend,
+    )
+
+    configured = _configured_memory_backend_id(ws)
+    try:
+        get_memory_manager_backend(configured)
+    except MemoryBackendUnavailableError:
+        if configured == _MEMORY_BACKEND_FALLBACK:
+            raise
+        logger.warning(
+            "Configured memory backend '%s' is unavailable for agent '%s'; "
+            "using '%s' until the configured backend is available",
+            sanitize_log_value(configured),
+            sanitize_log_value(ws.agent_id),
+            _MEMORY_BACKEND_FALLBACK,
+        )
+        return _MEMORY_BACKEND_FALLBACK
+    return configured
+
+
+def _memory_backend_context(
+    ws: "Workspace",
+    backend_id: str | None = None,
+) -> "MemoryBackendContext":
+    """Snapshot all construction settings used by core and plugin backends."""
+    from ...memory import MemoryBackendContext
+
+    config = ws.config
+    running = config.running
+    backend_id = backend_id or _configured_memory_backend_id(ws)
+    backend_configs = getattr(running, "memory_backend_configs", {})
+    raw_config = dict(backend_configs.get(backend_id, {}) or {})
+    try:
+        estimate_divisor = float(
+            running.light_context_config.token_count_estimate_divisor,
+        )
+    except (AttributeError, TypeError, ValueError):
+        estimate_divisor = 4.0
+    return MemoryBackendContext(
+        agent_id=ws.agent_id,
+        working_dir=ws.workspace_dir,
+        host_working_dir=WORKING_DIR,
+        backend_config=raw_config,
+        language=getattr(config, "language", "zh") or "zh",
+        token_estimate_divisor=(
+            estimate_divisor if estimate_divisor > 0 else 4.0
+        ),
+    )
 
 
 def _memory_manager_reuse_compatible(
     workspace: "Workspace",
     instance: Any,
 ) -> bool:
-    """Keep a memory service only when its backend configuration is unchanged.
+    """Keep a memory service only when its construction context is unchanged.
 
     Reused services do not receive ``start()`` on workspace reload.  Remote
     backends therefore must be recreated when their endpoint, credentials,
     scope, timeout, or search settings change; otherwise the old HTTP client
-    would continue serving the new workspace configuration.
+    would continue serving the new workspace configuration. Language and
+    token estimates are also frozen in the plugin's construction context.
     """
-    from ...agents.memory.powercontext_memory_manager import (
-        PowerContextMemoryManager,
+    old_context = getattr(instance, "context", None)
+    if old_context is None:
+        return False
+    return old_context == _memory_backend_context(
+        workspace,
+        _effective_memory_backend_id(workspace),
     )
-
-    if not isinstance(instance, PowerContextMemoryManager):
-        return True
-    old_config = getattr(instance, "_config", None)
-    new_running = getattr(getattr(workspace, "_config", None), "running", None)
-    new_config = getattr(new_running, "powercontext_memory_config", None)
-    if old_config is None or new_config is None:
-        return old_config is new_config
-    try:
-        return old_config.model_dump() == new_config.model_dump()
-    except AttributeError:
-        return old_config == new_config
 
 
 class Workspace:
@@ -398,10 +464,31 @@ class Workspace:
         """
         # pylint: disable=protected-access
         from ...agents.memory.base_memory_manager import (
+            MemoryBackendUnavailableError,
+            create_memory_manager_backend,
             get_memory_manager_backend,
         )
 
         sm = self._service_manager
+
+        def _memory_manager_class(ws: "Workspace") -> type:
+            return get_memory_manager_backend(_effective_memory_backend_id(ws))
+
+        def _create_memory_manager(ws: "Workspace") -> Any:
+            configured = _configured_memory_backend_id(ws)
+            try:
+                return create_memory_manager_backend(
+                    configured,
+                    _memory_backend_context(ws, configured),
+                )
+            except MemoryBackendUnavailableError:
+                if configured == _MEMORY_BACKEND_FALLBACK:
+                    raise
+                fallback = _effective_memory_backend_id(ws)
+                return create_memory_manager_backend(
+                    fallback,
+                    _memory_backend_context(ws, fallback),
+                )
 
         # Priority 5: LocalWorkspace (tool routing)
         def _init_local_workspace(
@@ -440,23 +527,22 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=lambda ws: get_memory_manager_backend(
-                    ws._config.running.memory_manager_backend,
-                ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
+                service_class=_memory_manager_class,
+                create_service=_create_memory_manager,
                 start_method="start",
                 stop_method="close",
                 reusable=True,
                 reuse_compatibility=_memory_manager_reuse_compatible,
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 # reme depends on `agentscope.token`, which agentscope no
                 # longer ships; let the workspace boot without
                 # memory_manager when its import fails.
                 optional=True,
+                # The configured backend falls back before construction. A
+                # missing core fallback remains a fatal installation error.
+                fatal_exceptions=(MemoryBackendUnavailableError,),
             ),
         )
 

@@ -2,11 +2,11 @@
 name: mailbox
 description: "Use this skill whenever the user needs ANY mailbox/email operation — checking, reading, searching, sending, replying, forwarding, organizing or deleting email, managing threads, connecting a personal mailbox, or registering a new mailbox. This skill is the single entry point for email tasks and orchestrates qwenpawmail-mcp for nine supported personal-mail domains."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "📧"
     requires:
-      mcp: ["qwenpawmail-mcp"]
+      mcp: ["qwenpawmail"]
 ---
 
 # Mailbox Operations (qwenpawmail-mcp)

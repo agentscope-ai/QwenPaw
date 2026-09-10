@@ -8,7 +8,7 @@ from agentscope.tool import ToolChunk
 from .base_memory_manager import BaseMemoryManager, memory_registry
 
 
-@memory_registry.register("none")
+@memory_registry.register("none", label="none (disabled)")
 class NoopMemoryManager(BaseMemoryManager):
     """A no-op memory manager that disables all memory features.
 

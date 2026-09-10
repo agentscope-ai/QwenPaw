@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import click
+import frontmatter
+import httpx
 
 from ..agents.skill_system import (
     SkillConflictError,
@@ -19,7 +22,17 @@ from ..agents.skill_system import (
     reconcile_workspace_manifest,
     resolve_pool_skill_dir,
 )
-from ..agents.skill_system.store import validate_skill_content
+from ..agents.skill_system.models import SkillRequirements
+from ..agents.skill_system.registry import (
+    _build_skill_config_env_overrides,
+    _skill_env_key,
+    check_skill_dependencies,
+)
+from ..agents.skill_system.store import (
+    normalize_skill_manifest_entry,
+    parse_skill_requirements,
+    validate_skill_content,
+)
 from ..agents.skill_system.hub import (
     aclose_hub_client,
     import_pool_skill_from_hub,
@@ -27,8 +40,11 @@ from ..agents.skill_system.hub import (
 )
 from ..agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..config import load_config
+from ..envs import load_envs
+from ..envs.registry import is_bootstrap_protected_env_key
 from ..exceptions import SkillsError
 from ..security.skill_scanner import SkillScanError, scan_skill_directory
+from .http import client, resolve_base_url
 from .utils import prompt_checkbox, prompt_confirm
 
 
@@ -101,8 +117,8 @@ def _print_skill_changes(
         )
 
 
-def _validate_skill_frontmatter(skill_dir: Path) -> None:
-    """Validate required skill metadata."""
+def _validate_skill_frontmatter(skill_dir: Path) -> SkillRequirements:
+    """Validate skill metadata and the supported dependency declarations."""
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
         raise click.ClickException(f"Missing SKILL.md: {skill_md}")
@@ -110,12 +126,21 @@ def _validate_skill_frontmatter(skill_dir: Path) -> None:
     content = read_text_file_with_encoding_fallback(skill_md)
     try:
         validate_skill_content(content)
+        requirements, errors = parse_skill_requirements(
+            dict(frontmatter.loads(content).metadata),
+        )
     except SkillsError as exc:
         raise click.ClickException(str(exc))
     except Exception as exc:
         raise click.ClickException(
             f"SKILL.md frontmatter is invalid: {exc}",
         ) from exc
+
+    if errors:
+        raise click.ClickException(
+            "SKILL.md frontmatter is invalid:\n  - " + "\n  - ".join(errors),
+        )
+    return requirements
 
 
 def _resolve_scope(
@@ -154,13 +179,122 @@ def _resolve_skill_test_dir(
     return get_workspace_skills_dir(working_dir) / skill
 
 
-def _run_skill_test(skill_dir: Path) -> str:
+def _get_skill_test_env(
+    skill_dir: Path,
+    require_envs: list[str],
+    workspace_dir: Path | None,
+) -> dict[str, str]:
+    """Resolve local skill env without mutating the process environment."""
+    env = {_skill_env_key(key): value for key, value in os.environ.items()}
+    configured_envs = {
+        _skill_env_key(name): value
+        for name, value in load_envs().items()
+        if not is_bootstrap_protected_env_key(name)
+    }
+    env = {**configured_envs, **env}
+    if (
+        not require_envs
+        or workspace_dir is None
+        or skill_dir.resolve()
+        != (get_workspace_skills_dir(workspace_dir) / skill_dir.name).resolve()
+    ):
+        return env
+
+    entries = read_skill_manifest(workspace_dir).get("skills", {})
+    entry = normalize_skill_manifest_entry(entries.get(skill_dir.name))
+    skill_config = entry.get("config") or {}
+    if isinstance(skill_config, dict) and skill_config:
+        overrides = _build_skill_config_env_overrides(
+            skill_dir.name,
+            skill_config,
+            require_envs,
+        )
+        for key, value in overrides.items():
+            # Runtime injection also preserves existing values, even empty.
+            env.setdefault(_skill_env_key(key), value)
+    return env
+
+
+def _validate_skill_dependencies(
+    skill_dir: Path,
+    requirements: SkillRequirements,
+    workspace_dir: Path | None,
+) -> None:
+    """Check local prerequisites without executing binaries or MCP calls."""
+    env = _get_skill_test_env(
+        skill_dir,
+        requirements.require_envs,
+        workspace_dir,
+    )
+    missing = check_skill_dependencies(requirements, env, workspace_dir)
+
+    if requirements.require_mcps and workspace_dir is not None:
+        click.echo(
+            "MCP checks cover configuration only, "
+            "not connectivity or tool access.",
+        )
+
+    if missing:
+        raise click.ClickException(
+            "Declared dependencies are not satisfied:\n  - "
+            + "\n  - ".join(missing),
+        )
+
+
+def _warn_skill_command_conflict(
+    skill_name: str,
+    agent_id: str,
+    base_url: str,
+) -> None:
+    """Inspect the live registry, with a built-in-only check when offline."""
+    try:
+        with client(base_url) as http:
+            response = http.get(
+                "/workspace/commands/available",
+                headers={"X-Agent-Id": agent_id},
+                timeout=2.0,
+            )
+            response.raise_for_status()
+            commands = {
+                item["name"].lower(): item["category"]
+                for item in response.json()["commands"]
+            }
+            if not commands:
+                raise ValueError("Live command registry is empty")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        from ..runtime.builtin_commands import collect_builtin_command_specs
+
+        commands = {
+            name.lower(): spec.category
+            for spec in collect_builtin_command_specs()
+            for name in (spec.name, *spec.aliases)
+        }
+        click.echo(
+            "Warning: live command registry unavailable; checked built-in "
+            "commands only. Plugin and other runtime commands "
+            "were not checked.",
+        )
+
+    category = commands.get(skill_name.lower())
+    if category is not None:
+        click.echo(
+            f"Warning: /{skill_name} is shadowed by an existing "
+            f"{category or 'registered'} command in agent '{agent_id}'; "
+            "the command takes precedence over this skill.",
+        )
+
+
+def _run_skill_test(
+    skill_dir: Path,
+    *,
+    workspace_dir: Path | None = None,
+) -> str:
     """Run local skill validation and security scanning."""
     if not skill_dir.is_dir():
         raise click.ClickException(f"Skill directory not found: {skill_dir}")
 
     skill_name = skill_dir.name
-    _validate_skill_frontmatter(skill_dir)
+    requirements = _validate_skill_frontmatter(skill_dir)
     try:
         result = scan_skill_directory(
             skill_dir,
@@ -175,6 +309,7 @@ def _run_skill_test(skill_dir: Path) -> str:
             "Security scan found "
             f"{len(result.findings)} issue(s) in skill '{skill_name}'.",
         )
+    _validate_skill_dependencies(skill_dir, requirements, workspace_dir)
     return skill_name
 
 
@@ -833,14 +968,27 @@ def uninstall_cmd(
 @click.option(
     "--agent-id",
     default=None,
-    help="Target agent ID (defaults to 'default').",
+    help="Target agent for dependency and command checks "
+    "(default for skill names).",
 )
 @click.option(
     "--pool",
     is_flag=True,
     help="Resolve the skill name from the shared pool.",
 )
-def test_cmd(skill: str, agent_id: str | None, pool: bool) -> None:
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override API URL for command checks.",
+)
+@click.pass_context
+def test_cmd(
+    ctx: click.Context,
+    skill: str,
+    agent_id: str | None,
+    pool: bool,
+    base_url: str | None,
+) -> None:
     """Validate a workspace skill, pool skill, or local skill directory."""
     scope = _resolve_scope(agent_id, pool)
     skill_dir = _resolve_skill_test_dir(
@@ -848,6 +996,31 @@ def test_cmd(skill: str, agent_id: str | None, pool: bool) -> None:
         scope,
         pool=scope is None,
     )
-    skill_name = _run_skill_test(skill_dir)
+    # Local paths are not implicitly associated with the default agent.
+    target_agent = (
+        scope
+        if scope is not None
+        and (agent_id or not Path(skill).expanduser().exists())
+        else None
+    )
+    workspace_dir = (
+        _get_agent_workspace(target_agent) if target_agent else None
+    )
+    click.echo(
+        "Binary and environment checks use this CLI host "
+        "and local configuration.",
+    )
+    skill_name = _run_skill_test(skill_dir, workspace_dir=workspace_dir)
+    if target_agent:
+        _warn_skill_command_conflict(
+            skill_name,
+            target_agent,
+            resolve_base_url(ctx, base_url),
+        )
+    else:
+        click.echo(
+            "MCP configuration and command conflict checks skipped: "
+            "no target agent selected. Use --agent-id to check a workspace.",
+        )
     click.echo(f"Skill test passed: {skill_name}")
     click.echo(f"Path: {skill_dir}")

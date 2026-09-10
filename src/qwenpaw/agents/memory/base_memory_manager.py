@@ -6,11 +6,14 @@ import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from threading import RLock
 from typing import Any
+from weakref import WeakValueDictionary
 
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
 from agentscope.message import ToolCallBlock, ToolCallState
@@ -25,7 +28,6 @@ from ...constant import (
     AUTO_MEMORY_SEARCH_THINKING_PREFIX,
 )
 from ...app.crons.contracts import ServiceCronJob
-from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
 MAX_QUERY_CHARS = 50
@@ -44,14 +46,26 @@ class AutoMemorySearchOptions:
 
     max_results: int = 3
     estimate_divisor: float = 4.0
-    max_context_bytes: int | None = None
+
+
+@dataclass(frozen=True)
+class MemoryBackendContext:
+    """Stable construction context exposed to memory backend plugins."""
+
+    agent_id: str
+    working_dir: Path
+    host_working_dir: Path
+    backend_config: Mapping[str, Any]
+    language: str = "zh"
+    token_estimate_divisor: float = 4.0
 
 
 class BaseMemoryManager(ABC):
     """Abstract base class for memory manager backends.
 
     Lifecycle:
-        1. Instantiate with ``working_dir`` and ``agent_id``.
+        1. Plugins instantiate with ``MemoryBackendContext``; core backends may
+           use the legacy ``working_dir`` and ``agent_id`` arguments.
         2. ``await start()`` – initialize storage backend.
         3. Use ``auto_memory()``, ``memory_search()``, etc. during session.
         4. ``await close()`` – flush and release resources.
@@ -63,7 +77,19 @@ class BaseMemoryManager(ABC):
 
     enabled = True
 
-    def __init__(self, working_dir: str, agent_id: str):
+    def __init__(
+        self,
+        working_dir: str | None = None,
+        agent_id: str | None = None,
+        *,
+        context: MemoryBackendContext | None = None,
+    ):
+        if context is not None:
+            working_dir = str(context.working_dir)
+            agent_id = context.agent_id
+        if working_dir is None or agent_id is None:
+            raise TypeError("working_dir and agent_id are required")
+        self.context = context
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
         self._auto_memory_task_info: dict[str, dict[str, Any]] = {}
@@ -73,6 +99,8 @@ class BaseMemoryManager(ABC):
         ] = asyncio.Queue()
         self._auto_memory_worker_task: asyncio.Task | None = None
         self._auto_memory_worker_stopping = False
+        self._memory_backend_owner: str | None = None
+        memory_registry.track_instance(self)
 
     @abstractmethod
     async def start(self) -> None:
@@ -86,7 +114,10 @@ class BaseMemoryManager(ABC):
         """
         if not await self._shutdown_auto_memory_worker():
             return False
-        return await self._close_backend()
+        closed = await self._close_backend()
+        if closed:
+            memory_registry.release_instance(self)
+        return closed
 
     async def _close_backend(self) -> bool:
         """Release backend-specific resources after shared workers stop."""
@@ -294,6 +325,8 @@ class BaseMemoryManager(ABC):
             query=query,
             options=options,
         )
+        if result is None:
+            return None
         if result.state != ToolResultState.SUCCESS:
             return None
         text = self._tool_chunk_text(result).strip()
@@ -323,7 +356,7 @@ class BaseMemoryManager(ABC):
         *,
         query: str,
         options: AutoMemorySearchOptions,
-    ) -> ToolChunk:
+    ) -> ToolChunk | None:
         """Run the backend search used by automatic recall."""
         return await self.memory_search(
             query=query,
@@ -769,14 +802,378 @@ class BaseMemoryManager(ABC):
 # Registry and factory
 # ---------------------------------------------------------------------------
 
-memory_registry: Registry[BaseMemoryManager] = Registry()
+
+@dataclass(frozen=True)
+class MemoryBackendRegistration:
+    """One core or plugin-owned memory backend registration."""
+
+    plugin_id: str
+    backend_id: str
+    factory: type[BaseMemoryManager]
+    label: str
+    config_schema: type[Any] | None
+    metadata: Mapping[str, Any]
 
 
-def get_memory_manager_backend(backend: str) -> type[BaseMemoryManager]:
+class _MemoryBackendSelectionLease:
+    """Keep a selected plugin backend registered until reload handoff."""
+
+    def __init__(
+        self,
+        registry: "MemoryBackendRegistry",
+        registration: MemoryBackendRegistration,
+        agent_id: str,
+    ) -> None:
+        self._registry = registry
+        self.registration = registration
+        self.agent_id = agent_id
+        self._released = False
+
+    def release(self) -> None:
+        """Release this lease exactly once."""
+        if self._released:
+            return
+        self._registry._release_selection(  # pylint: disable=protected-access
+            self.registration.plugin_id,
+            self.agent_id,
+        )
+        self._released = True
+
+
+class MemoryBackendRegistry:  # pylint: disable=protected-access
+    """Owner-aware registry used by core and memory plugins."""
+
+    def __init__(self) -> None:
+        self._registrations: dict[str, MemoryBackendRegistration] = {}
+        self._instances: WeakValueDictionary[
+            int,
+            BaseMemoryManager,
+        ] = WeakValueDictionary()
+        self._unloading_owners: set[str] = set()
+        self._constructing_agents: dict[str, dict[str, int]] = {}
+        self._selecting_agents: dict[str, dict[str, int]] = {}
+        # Construction runs in worker threads, while unload and close run on
+        # the event loop. Short locked reservations close the unload race
+        # without holding this lock while arbitrary plugin code executes.
+        self._lock = RLock()
+
+    def track_instance(self, instance: BaseMemoryManager) -> None:
+        """Keep plugin ownership while a manager starts, runs, or drains."""
+        with self._lock:
+            matching_owners = {
+                registration.plugin_id
+                for registration in self._registrations.values()
+                if isinstance(instance, registration.factory)
+            }
+            if len(matching_owners) == 1:
+                instance._memory_backend_owner = matching_owners.pop()
+            self._instances[id(instance)] = instance
+
+    def release_instance(self, instance: BaseMemoryManager) -> None:
+        """Release ownership only after the manager has closed cleanly."""
+        with self._lock:
+            self._instances.pop(id(instance), None)
+
+    def active_agent_ids(self, plugin_id: str) -> list[str]:
+        """Return agents with live instances from this plugin's factories."""
+        with self._lock:
+            if not any(
+                registration.plugin_id == plugin_id
+                for registration in self._registrations.values()
+            ):
+                return []
+            instances = list(self._instances.values())
+            constructing = set(self._constructing_agents.get(plugin_id, {}))
+            selecting = set(self._selecting_agents.get(plugin_id, {}))
+        return sorted(
+            constructing
+            | selecting
+            | {
+                instance.agent_id
+                for instance in instances
+                if getattr(instance, "_memory_backend_owner", None)
+                == plugin_id
+            },
+        )
+
+    def begin_owner_unload(
+        self,
+        plugin_id: str,
+        selected_agent_ids: tuple[str, ...] = (),
+    ) -> list[str]:
+        """Reserve an owner unload and return agents that prevent it.
+
+        Once reserved, new construction from this owner is rejected until its
+        registrations are removed. The shared lock closes the gap between an
+        unload check and a concurrent backend constructor.
+        """
+        with self._lock:
+            if not any(
+                registration.plugin_id == plugin_id
+                for registration in self._registrations.values()
+            ):
+                return []
+            instances = list(self._instances.values())
+            in_use = set(selected_agent_ids)
+            in_use.update(self._constructing_agents.get(plugin_id, {}))
+            in_use.update(self._selecting_agents.get(plugin_id, {}))
+            in_use.update(
+                instance.agent_id
+                for instance in instances
+                if getattr(instance, "_memory_backend_owner", None)
+                == plugin_id
+            )
+            if in_use:
+                return sorted(in_use)
+            self._unloading_owners.add(plugin_id)
+            return []
+
+    def cancel_owner_unload(self, plugin_id: str) -> None:
+        """Allow construction again after an aborted unload."""
+        with self._lock:
+            self._unloading_owners.discard(plugin_id)
+
+    def reserve_selection(
+        self,
+        backend_id: str,
+        agent_id: str,
+    ) -> _MemoryBackendSelectionLease:
+        """Reserve a registered backend through durable reload handoff."""
+        normalized = self._normalize(backend_id)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                raise MemoryBackendUnavailableError(normalized)
+            selecting = self._selecting_agents.setdefault(
+                registration.plugin_id,
+                {},
+            )
+            selecting[agent_id] = selecting.get(agent_id, 0) + 1
+        return _MemoryBackendSelectionLease(self, registration, agent_id)
+
+    def _release_selection(self, plugin_id: str, agent_id: str) -> None:
+        """Release one selection reservation."""
+        with self._lock:
+            selecting = self._selecting_agents.get(plugin_id, {})
+            remaining = selecting.get(agent_id, 0) - 1
+            if remaining > 0:
+                selecting[agent_id] = remaining
+            else:
+                selecting.pop(agent_id, None)
+            if not selecting:
+                self._selecting_agents.pop(plugin_id, None)
+
+    def create(
+        self,
+        backend_id: str,
+        context: MemoryBackendContext,
+    ) -> BaseMemoryManager:
+        """Resolve and construct a backend atomically with owner unload."""
+        normalized = self._normalize(backend_id)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                raise MemoryBackendUnavailableError(normalized)
+            plugin_id = registration.plugin_id
+            factory = registration.factory
+            constructing = self._constructing_agents.setdefault(plugin_id, {})
+            constructing[context.agent_id] = (
+                constructing.get(context.agent_id, 0) + 1
+            )
+        try:
+            instance = factory(context=context)
+            instance._memory_backend_owner = plugin_id
+            return instance
+        finally:
+            with self._lock:
+                constructing = self._constructing_agents.get(plugin_id, {})
+                remaining = constructing.get(context.agent_id, 0) - 1
+                if remaining > 0:
+                    constructing[context.agent_id] = remaining
+                else:
+                    constructing.pop(context.agent_id, None)
+                if not constructing:
+                    self._constructing_agents.pop(plugin_id, None)
+
+    @staticmethod
+    def _normalize(backend_id: str) -> str:
+        normalized = backend_id.strip().lower()
+        if not normalized:
+            raise ValueError("Memory backend id must not be empty")
+        return normalized
+
+    def register(
+        self,
+        backend_id: str,
+        *,
+        owner: str = "core",
+        label: str | None = None,
+        config_schema: type[Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Callable[[type[BaseMemoryManager]], type[BaseMemoryManager]]:
+        """Register a class decorator, retained for core backends."""
+
+        def decorator(
+            factory: type[BaseMemoryManager],
+        ) -> type[BaseMemoryManager]:
+            self.register_backend(
+                plugin_id=owner,
+                backend_id=backend_id,
+                factory=factory,
+                label=label or backend_id,
+                config_schema=config_schema,
+                metadata=metadata,
+            )
+            return factory
+
+        return decorator
+
+    def register_backend(
+        self,
+        *,
+        plugin_id: str,
+        backend_id: str,
+        factory: type[BaseMemoryManager],
+        label: str,
+        config_schema: type[Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> MemoryBackendRegistration:
+        normalized = self._normalize(backend_id)
+        registration = MemoryBackendRegistration(
+            plugin_id=plugin_id,
+            backend_id=normalized,
+            factory=factory,
+            label=label or normalized,
+            config_schema=config_schema,
+            metadata=dict(metadata or {}),
+        )
+        with self._lock:
+            if plugin_id in self._unloading_owners:
+                raise RuntimeError(f"Plugin '{plugin_id}' is being unloaded")
+            existing = self._registrations.get(normalized)
+            if existing is not None:
+                if (
+                    existing.plugin_id == plugin_id
+                    and existing.factory is factory
+                ):
+                    return existing
+                raise ValueError(
+                    f"Memory backend '{normalized}' is already registered by "
+                    f"'{existing.plugin_id}'",
+                )
+            self._registrations[normalized] = registration
+        return registration
+
+    def get(self, backend_id: str) -> type[BaseMemoryManager] | None:
+        try:
+            normalized = self._normalize(backend_id)
+        except (AttributeError, ValueError):
+            return None
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.plugin_id in self._unloading_owners
+            ):
+                return None
+            return registration.factory
+
+    def get_registration(
+        self,
+        backend_id: str,
+    ) -> MemoryBackendRegistration | None:
+        try:
+            normalized = self._normalize(backend_id)
+        except (AttributeError, ValueError):
+            return None
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is not None
+                and registration.plugin_id in self._unloading_owners
+            ):
+                return None
+            return registration
+
+    def list_registered(self) -> list[str]:
+        with self._lock:
+            return [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id not in self._unloading_owners
+            ]
+
+    def describe(self) -> list[dict[str, Any]]:
+        with self._lock:
+            registrations = list(self._registrations.values())
+            unloading = set(self._unloading_owners)
+        return [
+            {
+                "id": item.backend_id,
+                "label": item.label,
+                "source": (
+                    "core"
+                    if item.plugin_id == "core"
+                    else f"plugin:{item.plugin_id}"
+                ),
+                "available": True,
+                "metadata": dict(item.metadata),
+            }
+            for item in registrations
+            if item.plugin_id not in unloading
+        ]
+
+    def unregister_owner(self, plugin_id: str) -> list[str]:
+        with self._lock:
+            removed = [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id == plugin_id
+            ]
+            for backend_id in removed:
+                del self._registrations[backend_id]
+            self._unloading_owners.discard(plugin_id)
+            self._constructing_agents.pop(plugin_id, None)
+            self._selecting_agents.pop(plugin_id, None)
+            return removed
+
+    def owned_by(self, plugin_id: str) -> list[str]:
+        """Return backend ids owned by one plugin."""
+        with self._lock:
+            return [
+                backend_id
+                for backend_id, registration in self._registrations.items()
+                if registration.plugin_id == plugin_id
+            ]
+
+
+class MemoryBackendUnavailableError(ValueError):
+    """Raised when an explicitly selected backend is not registered."""
+
+    def __init__(self, backend: str, reason: str = "plugin_not_installed"):
+        self.backend = backend
+        self.reason = reason
+        super().__init__(
+            f"Memory backend '{backend}' is unavailable ({reason})",
+        )
+
+
+memory_registry = MemoryBackendRegistry()
+
+
+def get_memory_manager_backend(
+    backend: str,
+) -> type[BaseMemoryManager]:
     """Return the memory manager class for the given backend name.
 
-    If the backend is not registered, falls back to the first registered
-    backend.
+    Unknown backends fail explicitly; memory data must never be redirected
+    into another backend as an implicit fallback.
 
     Args:
         backend: Backend name to resolve.
@@ -785,26 +1182,17 @@ def get_memory_manager_backend(backend: str) -> type[BaseMemoryManager]:
         The memory manager class.
 
     Raises:
-        ValueError: When no memory manager backends are registered.
+        MemoryBackendUnavailableError: When the backend is unavailable.
     """
     cls = memory_registry.get(backend)
     if cls is None:
-        registered = memory_registry.list_registered()
-        if not registered:
-            raise ValueError(
-                f"No memory manager backends registered. "
-                f"Requested: '{backend}'",
-            )
-        fallback = registered[0]
-        logger.warning(
-            f"Unsupported memory manager backend: '{backend}'. "
-            f"Falling back to '{fallback}'. "
-            f"Registered: {registered}",
-        )
-        cls = memory_registry.get(fallback)
-        if cls is None:
-            raise ValueError(
-                f"Fallback backend '{fallback}' not found in registry. "
-                f"This should not happen.",
-            )
+        raise MemoryBackendUnavailableError(backend)
     return cls
+
+
+def create_memory_manager_backend(
+    backend: str,
+    context: MemoryBackendContext,
+) -> BaseMemoryManager:
+    """Construct a registered backend without racing plugin unload."""
+    return memory_registry.create(backend, context)

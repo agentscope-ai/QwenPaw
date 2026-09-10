@@ -15,7 +15,7 @@ import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { MEMORY_MANAGER_BACKEND_OPTIONS } from "../../../../constants/backendMappings";
+import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
   useCodingMode,
@@ -171,6 +171,24 @@ export function ReactAgentCard({
   savingTimezone,
   onTimezoneChange,
 }: ReactAgentCardProps) {
+  const memoryBackends = useMemoryBackends();
+  const selectedMemoryBackend =
+    Form.useWatch("memory_manager_backend") || "remelight";
+  const memoryBackendOptions = memoryBackends.map((backend) => ({
+    value: backend.id,
+    label:
+      backend.available === false
+        ? `${backend.label} (unavailable)`
+        : backend.label,
+    disabled: backend.available === false,
+  }));
+  if (!memoryBackends.some((backend) => backend.id === selectedMemoryBackend)) {
+    memoryBackendOptions.push({
+      value: selectedMemoryBackend,
+      label: `${selectedMemoryBackend} (plugin unavailable)`,
+      disabled: true,
+    });
+  }
   const { t } = useTranslation();
 
   return (
@@ -273,10 +291,7 @@ export function ReactAgentCard({
           tooltip={t("agentConfig.memoryManagerBackendTooltip")}
           className={styles.reactAgentField}
         >
-          <Select
-            options={MEMORY_MANAGER_BACKEND_OPTIONS}
-            style={{ width: "100%" }}
-          />
+          <Select options={memoryBackendOptions} style={{ width: "100%" }} />
         </Form.Item>
       </div>
       <Alert
