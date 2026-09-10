@@ -329,6 +329,7 @@ For detailed usage instructions, troubleshooting, and common issues, see the [De
 
 After installation, configure your model in **Console → Settings → Models**, then explore:
 
+- With QwenPaw's built-in Agent, use `/help` in Console or channels for default command help; see [Magic Commands](https://qwenpaw.agentscope.io/docs/commands) for precedence and input rules.
 - [Add Skills](https://qwenpaw.agentscope.io/docs/skills) to extend capabilities (PDF, Office, browser, news, etc.)
 - [Set up Channels](https://qwenpaw.agentscope.io/docs/channels) for DingTalk, Lark, Discord, and more
 - [Configure Cron](https://qwenpaw.agentscope.io/docs/cron) for scheduled tasks and automation
