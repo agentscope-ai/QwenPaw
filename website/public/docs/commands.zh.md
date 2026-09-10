@@ -1088,6 +1088,46 @@ qwenpaw daemon version --agent-id abc123
 
 ---
 
+## ReMe 记忆命令
+
+通过统一的 `/reme` 入口调用当前 ReMe Light 后端对用户开放的 action：
+
+```text
+/reme help
+/reme status
+/reme search query="项目决策" limit=5
+/reme search query="项目决策" tags='["架构","记忆"]'
+/reme auto_dream hint="重点整理 AI 芯片"
+/reme auto_memory count=2 memory_hint="记录技术决策"
+/reme daily_paper topics="智能体,记忆" force=true
+/reme auto_fin topics="黄金,机器人" window_hours=12
+/reme reindex scope=all
+```
+
+命令格式为 `/reme <action> key=value`。包含空格的值使用双引号；JSON 列表和
+对象使用单引号包住，避免其中的双引号被命令行解析移除，例如
+`tags='["架构","记忆"]'` 或 `filter='{"kind":"decision"}'`。参数值沿用 ReMe
+CLI 的解析规则，因此数字、布尔值、列表和对象会保留对应类型。
+`/reme help` 会读取运行时 action 目录，展示当前 ReMe 版本实际接受的参数，
+并用 `*` 标出必填项。action 是否可用及参数校验均以正在运行的后端为准，
+QwenPaw 不再维护一套容易失同步的硬编码命令列表。
+
+`auto_memory` 由 QwenPaw 托管：`count` 选择当前会话最近的助手回复组（默认
+为 `1`），`memory_hint` 可选地指导记忆提取，消息内容与会话 ID 由 QwenPaw
+自动注入。其他 action 可添加 `show_metadata=true`，在回复正文中展示元数据。
+为保护对话上下文，整条可见回复最多展示 20,000 个字符；即使可见内容被截断，
+完整结构化元数据仍会附加在消息上。
+
+`daily_paper`、`auto_fin` 等生成类 action 也使用同一个命令入口。它们会立即执行，
+命令会等待 action 返回结果；与 `auto_memory` 不同，它们不会提交到对话记忆队列。
+对应的 `*_cron_enabled` 配置只控制定时运行，不限制手动执行 `/reme`。当前安装的
+ReMe 插件具体支持哪些参数，以 `/reme help` 显示的运行时 action 目录为准。
+
+原 `/dream`、`/memorize` 和 `/reme_status` 命令已移除，请分别使用
+`/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。
+
+---
+
 ## Proactive Mode - 主动提醒模式
 
 Proactive Mode（主动提醒模式）是一个智能化的功能，允许 AI 代理在检测到用户长时间未活动后，主动分析用户当前的会话上下文和屏幕活动，并提供相关的帮助和信息。

@@ -271,6 +271,18 @@ Auto Fin fetches CLS telegraph news from a rolling time window (the preceding 24
 
 Auto Fin has no reliable market-price feed, does not calculate returns, targets, or entry points, and is not investment advice. Merely placing an arbitrary file in `resource/` still does not process or index it, so Auto Resource is not a general-purpose file importer. See the [ReMe Auto Fin guide](https://github.com/agentscope-ai/ReMe/blob/main/plugins/auto-fin/README.md) for the complete pipeline and boundaries.
 
+Both generators can also be run manually from a conversation:
+
+```text
+/reme daily_paper topics="agents,memory" force=true
+/reme auto_fin topics="gold,robotics" window_hours=12
+```
+
+Manual execution does not require `daily_paper_cron_enabled` or
+`auto_fin_cron_enabled`; those switches control scheduling only. These commands
+wait for the generation action to finish. Run `/reme help` to see the precise
+parameters exposed by the currently installed plugins.
+
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 
 Daily notes alone eventually become another pile of files. Auto-Dream scans recently changed daily memory and integrates reusable material into `digest/`.
@@ -471,10 +483,11 @@ Legacy `inbox_push_enabled` is migration input only. It initializes any missing 
 The long-term memory page shows background jobs, the waiting queue, resource use, and index-component status.
 
 Conversation capture uses one FIFO Auto-Memory worker per Agent. Periodic
-capture, `/memorize`, context compaction, and `/new` all submit work to this
-same queue; each status record identifies its `periodic`, `manual`, `compact`,
-or `new` trigger. Use `/auto_memory_status` to inspect these tasks from a
-conversation. Shutdown uses one five-second deadline to stop this worker,
+capture, `/reme auto_memory`, context compaction, and `/new` all submit work to
+this same queue; each status record identifies its `periodic`, `manual`,
+`compact`, or `new` trigger. Use `/auto_memory_status` to inspect these tasks
+from a conversation. Run `/reme help` to inspect the live ReMe action catalog.
+Shutdown uses one five-second deadline to stop this worker,
 quiesce active ReMe jobs, and close ReMe; it reports failure instead of waiting
 indefinitely or replacing a backend that is still in use. ReMe maintenance
 operations such as status, graph snapshots, reindexing, and embedding rollback

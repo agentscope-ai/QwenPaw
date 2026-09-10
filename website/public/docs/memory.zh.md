@@ -243,6 +243,17 @@ Auto Fin 会拉取一个滚动时间窗口内的财联社电报（默认最近 2
 
 Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。任意文件仅仅放进 `resource/` 仍不会被自动处理，因此不应把 Auto Resource 理解成一个通用的文件导入器。完整流程与边界见 [ReMe Auto Fin 指南](https://github.com/agentscope-ai/ReMe/blob/main/plugins/auto-fin/README_ZH.md)。
 
+这两个生成能力也可以在对话中手动运行：
+
+```text
+/reme daily_paper topics="智能体,记忆" force=true
+/reme auto_fin topics="黄金,机器人" window_hours=12
+```
+
+手动执行不要求开启 `daily_paper_cron_enabled` 或 `auto_fin_cron_enabled`；这两个
+开关只控制定时调度。命令会等待生成 action 执行完成。当前安装插件实际开放的
+参数以 `/reme help` 为准。
+
 ### 4. Auto-Dream 把每日记录整理成长期经验
 
 只有 daily note 还不够。随着记录越来越多，Auto-Dream 会扫描近期发生变化的每日记忆，把可复用内容整合到 `digest/`。
@@ -442,9 +453,10 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 长期记忆页面可以查看后台任务、等待队列、资源占用和索引组件状态。
 
 每个 Agent 的对话记忆沉淀由一个 FIFO Auto-Memory worker 统一处理。周期触发、
-`/memorize`、上下文压缩和 `/new` 都会向同一队列提交任务；每条状态记录会标明
-`periodic`、`manual`、`compact` 或 `new` 触发来源。可在对话中使用
-`/auto_memory_status` 查看这些任务。关闭时会用同一个五秒 deadline 停止 worker、
+`/reme auto_memory`、上下文压缩和 `/new` 都会向同一队列提交任务；每条状态记录
+会标明 `periodic`、`manual`、`compact` 或 `new` 触发来源。可在对话中使用
+`/auto_memory_status` 查看这些任务，使用 `/reme help` 查看运行时 ReMe action
+目录。关闭时会用同一个五秒 deadline 停止 worker、
 等待正在执行的 ReMe job 退出并关闭 ReMe；如果无法按时完成，则返回失败，而不会
 无限等待或替换仍在使用的 backend。ReMe 的状态查询、图谱快照、索引重建和
 Embedding 配置撤销统一通过 memory action 接口执行，参数会按照每个 action 的完整

@@ -293,7 +293,7 @@ Now return to the financial analyst's research process:
 2. Auto Memory summarizes that day's CATL and lithium-price session into one note under the date directory, then refreshes the date index.
 3. If Daily Paper is enabled, relevant paper readings enter the same daily-memory and indexing system.
 4. The background keeps Markdown chunks, BM25, the optional vector index, and the Wikilink file graph up to date.
-5. When you run `/dream`, or enable its schedule, Auto Dream organizes records from multiple days into `personal`, `procedure`, and `wiki` nodes.
+5. When you run `/reme auto_dream`, or enable its schedule, Auto Dream organizes records from multiple days into `personal`, `procedure`, and `wiki` nodes.
 6. The next time you write a research report, `memory_search` returns the best-matching excerpts first, then follows outlinks, inlinks, and file paths only as needed.
 7. You can open, inspect, and correct the Markdown at any time. Your corrections become part of future collaboration.
 

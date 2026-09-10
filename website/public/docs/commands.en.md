@@ -1089,6 +1089,53 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ---
 
+## ReMe Memory Commands
+
+Use the single `/reme` entry point for user-callable actions exposed by the
+active ReMe Light backend:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme search query="project decisions" tags='["architecture","memory"]'
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme daily_paper topics="agents,memory" force=true
+/reme auto_fin topics="gold,robotics" window_hours=12
+/reme reindex scope=all
+```
+
+The syntax is `/reme <action> key=value`. Wrap values containing spaces in
+double quotes. Wrap JSON lists and objects in single quotes so their inner
+double quotes are preserved, for example `tags='["a","b"]'` or
+`filter='{"kind":"decision"}'`. Values use ReMe's CLI parsing, so numbers,
+booleans, lists, and objects keep their native types. `/reme help` reads the
+live action catalog, shows the arguments accepted by this ReMe version, and
+marks required arguments with `*`. Action availability and validation therefore
+stay aligned with the running backend instead of a hard-coded QwenPaw command
+list.
+
+`auto_memory` is QwenPaw-managed: `count` selects recent assistant reply
+groups from the current conversation (default `1`), `memory_hint` optionally
+guides extraction, and QwenPaw supplies the messages and session ID. Add
+`show_metadata=true` to another action to include its metadata in the visible
+response. The complete visible response is truncated at 20,000 characters to
+protect the chat context; complete structured metadata remains attached to the
+message even when its visible rendering is truncated.
+
+Generation actions such as `daily_paper` and `auto_fin` use the same command
+surface. They run immediately and the command waits for the action result;
+unlike `auto_memory`, they are not submitted to the conversation Auto-Memory
+queue. Their `*_cron_enabled` settings control scheduled runs only and do not
+gate manual `/reme` execution. Use `/reme help` for the exact live parameters
+supported by the installed ReMe plugins.
+
+The former `/dream`, `/memorize`, and `/reme_status` commands have been
+removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.
+
+---
+
 ## Proactive Mode - Proactive Notification Mode
 
 Proactive Mode is an intelligent feature that allows the AI agent to actively analyze the user's current session context and screen activities after detecting that the user has been inactive for a prolonged period, and provide relevant assistance and information.
