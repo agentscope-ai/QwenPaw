@@ -38,6 +38,7 @@ class StopHandlerResult:
     action: StopAction = StopAction.TERMINATE
     continuation_message: str = ""
     reason: str = ""
+    outcome_code: str = ""
     reset_peers: bool = False
     continuation_metadata: dict[str, Any] | None = None
     final_message: Any = None
