@@ -1,5 +1,5 @@
 diff --git a/packages/datapaw-host-core/frontend/src/App.tsx b/packages/datapaw-host-core/frontend/src/App.tsx
-index 7a150a49..aceb2c3f 100644
+index 7a150a4..aceb2c3 100644
 --- a/packages/datapaw-host-core/frontend/src/App.tsx
 +++ b/packages/datapaw-host-core/frontend/src/App.tsx
 @@ -3,19 +3,18 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
@@ -12,7 +12,7 @@ index 7a150a49..aceb2c3f 100644
  import ConsoleLayout from './layouts/ConsoleLayout';
  import { createHostThemeProviderProps } from './theme';
  import styles from './App.module.less';
-
+ 
  const AgentSettingsPage = lazy(() => import('./pages/AgentSettings'));
 -const ChannelSettingsPage = lazy(() => import('./pages/ChannelSettings'));
 -const McpSettingsPage = lazy(() => import('./pages/McpSettings'));
@@ -22,7 +22,7 @@ index 7a150a49..aceb2c3f 100644
 -const SkillsHubPage = lazy(() => import('./pages/SkillsHub'));
 +const SkillsHubPage = lazy(() => import('./pages/SkillsContribution'));
 +const DataBridgeSettingsPage = lazy(() => import('./pages/DataBridgeSettings'));
-
+ 
  function RedirectToConsole() {
    const location = useLocation();
 @@ -81,7 +80,7 @@ function LocalizedApp() {
@@ -57,7 +57,7 @@ index 7a150a49..aceb2c3f 100644
    );
  }
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
-index ea5b698f..d2d8d691 100644
+index ea5b698..d2d8d69 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
 @@ -1,14 +1,11 @@
@@ -101,7 +101,7 @@ index ea5b698f..d2d8d691 100644
              }
            },
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
-index e8689683..8d760a75 100644
+index e868968..8d760a7 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
 @@ -314,7 +314,7 @@ export default function GlobalProductNav({
@@ -122,8 +122,292 @@ index e8689683..8d760a75 100644
            renderWorkspaceTrigger={workspaces.length ? (trigger) => (
              <Dropdown
                getPopupContainer={getAccountCardPopupContainer}
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
+index 6b0fa9a..21b1ee2 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
+@@ -13,6 +13,7 @@ import type {
+   IAgentScopeRuntimeMessage,
+ } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
+ import {
++  AgentScopeRuntimeContentType,
+   AgentScopeRuntimeMessageType,
+ } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
+ import {
+@@ -455,6 +456,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
+   items: null;
+ };
+ 
++function withoutNamelessFileContent(
++  message: IAgentScopeRuntimeMessage,
++): IAgentScopeRuntimeMessage | null {
++  const content = message.content.filter((item) => (
++    item.type !== AgentScopeRuntimeContentType.FILE
++    || Boolean(item.file_name || item.fileName || item.file_id)
++  ));
++  if (!content.length) return null;
++  return content.length === message.content.length ? message : { ...message, content };
++}
++
+ function mergeRuntimeDisplayEntries(
+   entries: RuntimeDisplayEntry[],
+ ): RuntimeDisplayEntry[] {
+@@ -506,6 +518,7 @@ function RuntimeProcessTimeline({
+   timeline,
+   terminal,
+   chatId,
++  sessionId,
+   initialHistoricalSegmentKeys,
+   onArtifactOpen,
+   onArtifactDownload,
+@@ -515,6 +528,7 @@ function RuntimeProcessTimeline({
+   timeline?: ChatTimelineItem[] | null;
+   terminal: boolean;
+   chatId?: string | null;
++  sessionId?: string;
+   initialHistoricalSegmentKeys: ReadonlySet<string>;
+   onArtifactOpen?: (artifact: Artifact) => void;
+   onArtifactDownload?: (artifact: Artifact) => void;
+@@ -560,6 +574,7 @@ function RuntimeProcessTimeline({
+           return (
+             <RuntimeSegmentCard
+               data={projection.segment}
++              sessionId={sessionId}
+               defaultOpen={
+                 !chatId
+                 || !initialHistoricalSegmentKeys.has(
+@@ -587,7 +602,10 @@ function RuntimeProcessTimeline({
+           return <RuntimeError data={runtimeMessage} key={runtimeMessage.id} />;
+         }
+         if (runtimeMessage.type === AgentScopeRuntimeMessageType.MESSAGE) {
+-          return <RuntimeMessage data={runtimeMessage} key={runtimeMessage.id} />;
++          const renderableMessage = withoutNamelessFileContent(runtimeMessage);
++          return renderableMessage
++            ? <RuntimeMessage data={renderableMessage} key={runtimeMessage.id} />
++            : null;
+         }
+         return null;
+       })}
+@@ -922,6 +940,7 @@ function RuntimeResponseMessage({
+   timeline,
+   terminal,
+   chatId,
++  sessionId,
+   initialHistoricalSegmentKeys,
+   running,
+   waitingForInput,
+@@ -936,6 +955,7 @@ function RuntimeResponseMessage({
+   timeline?: ChatTimelineItem[] | null;
+   terminal: boolean;
+   chatId?: string | null;
++  sessionId?: string;
+   initialHistoricalSegmentKeys: ReadonlySet<string>;
+   running: boolean;
+   waitingForInput?: boolean;
+@@ -960,6 +980,7 @@ function RuntimeResponseMessage({
+               timeline={timeline}
+               terminal={terminal}
+               chatId={chatId}
++              sessionId={sessionId}
+               initialHistoricalSegmentKeys={initialHistoricalSegmentKeys}
+               onArtifactOpen={onArtifactOpen}
+               onArtifactDownload={onArtifactDownload}
+@@ -1784,6 +1805,7 @@ const RuntimeConversation = forwardRef<
+                 <RuntimeResponseMessage
+                   key={section.id}
+                   chatId={chatId}
++                  sessionId={controller.session?.id}
+                   messages={data.output}
+                   timeline={section.items}
+                   terminal={projection ? projection.chat.status !== 'running' : !running}
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
+index 781c181..d528bbc 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
+@@ -472,6 +472,65 @@
+   }
+ }
+ 
++.inlineReport {
++  display: flex;
++  padding: 6px 12px;
++  margin-top: 8px;
++  flex-direction: column;
++  gap: 6px;
++  background: var(--runtime-surface-important);
++  border: 0;
++}
++
++.inlineReportHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++}
++
++.inlineReportToggle {
++  display: inline-flex !important;
++  height: 22px !important;
++  padding: 0 4px !important;
++  align-items: center;
++  gap: 4px;
++  font-size: var(--text-micro) !important;
++}
++
++.inlineReportChevron {
++  font-size: 10px;
++  transition: transform 180ms ease;
++}
++
++.inlineReportChevronOpen {
++  transform: rotate(180deg);
++}
++
++.inlineReportFrame {
++  position: relative;
++  width: 100%;
++  height: var(--inline-report-height, 320px);
++  overflow: hidden;
++  background: var(--console-surface);
++  border-radius: 6px;
++  transition: height 200ms ease;
++
++  > iframe {
++    display: block;
++    width: 100%;
++    height: 100%;
++    min-height: 0;
++    border: 0;
++  }
++
++  > div {
++    height: 100%;
++    min-height: 0;
++    overflow: auto;
++  }
++}
++
+ .artifactGroupTitle {
+   color: var(--console-primary-active);
+   font-size: var(--text-micro);
+@@ -540,6 +599,7 @@
+ }
+ 
+ :global(:root[data-datapaw-theme='dark']) .segmentSummaryGrid > div,
++:global(:root[data-datapaw-theme='dark']) .inlineReport,
+ :global(:root[data-datapaw-theme='dark']) .inlineArtifact {
+   background: var(--datapaw-color-fill-tertiary);
+ }
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
+index f2e8d85..eb42642 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
+@@ -5,12 +5,14 @@ import { Badge } from 'antd';
+ import VirtualList from 'rc-virtual-list';
+ import type { ListRef } from 'rc-virtual-list';
+ import { forwardRef, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
++import type { CSSProperties } from 'react';
+ import type { Segment, SegmentArtifact } from '../../api/types';
+ import { formatSegmentDuration } from '../../model/runtime/runtimeProjection';
+ import { formatSegmentMarkdown } from '../../model/artifacts/segmentMarkdown';
+ import type { Artifact } from '../../types';
+ import { useAppI18n } from '@/i18n';
+ import ArtifactCard from '../ArtifactCard';
++import ArtifactPreview from '../ArtifactPreview';
+ import sharedStyles from '../../index.module.less';
+ import { mergeStyleModules } from '../../styleModules';
+ import ownerStyles from './index.module.less';
+@@ -23,11 +25,14 @@ const ARTIFACT_CARD_GAP = 6;
+ const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
+ const ARTIFACT_LIST_HEIGHT = ARTIFACT_ITEM_HEIGHT * ARTIFACT_BATCH_SIZE;
+ const ARTIFACT_VIRTUAL_THRESHOLD = 50;
++const INLINE_REPORT_PEEK_HEIGHT = 320;
++const INLINE_REPORT_EXPANDED_HEIGHT = 'min(680px, 72vh)';
+ const EMPTY_SEGMENT_ARTIFACTS: SegmentArtifact[] = [];
+ 
+ interface RuntimeSegmentCardProps {
+   data: Segment;
+   index: number;
++  sessionId?: string;
+   defaultOpen?: boolean;
+   onArtifactOpen?: (artifact: Artifact) => void;
+   onArtifactDownload?: (artifact: Artifact) => void;
+@@ -84,6 +89,7 @@ const ArtifactListItem = memo(forwardRef<HTMLDivElement, ArtifactListItemProps>(
+ export default function RuntimeSegmentCard({
+   data,
+   index,
++  sessionId,
+   defaultOpen = true,
+   onArtifactOpen,
+   onArtifactDownload,
+@@ -94,15 +100,25 @@ export default function RuntimeSegmentCard({
+   const artifactScrollAnimationRef = useRef<number | null>(null);
+   const pendingArtifactScrollRef = useRef(false);
+   const [open, setOpen] = useState(defaultOpen);
++  const [reportExpanded, setReportExpanded] = useState(false);
+   const [visibleArtifactLimit, setVisibleArtifactLimit] = useState(ARTIFACT_BATCH_SIZE);
+   const duration = formatSegmentDuration(data.started_at, data.ended_at);
+   const sourceArtifacts = data.artifact ?? EMPTY_SEGMENT_ARTIFACTS;
++  const inlineReport = useMemo(() => {
++    const htmlArtifacts = sourceArtifacts.filter((artifact) => /\.html?$/i.test(artifact.name));
++    const report = htmlArtifacts.find((artifact) => artifact.name.toLowerCase() === 'report.html')
++      ?? htmlArtifacts[htmlArtifacts.length - 1];
++    return report ? toDisplayArtifact(data.segment_id, report) : null;
++  }, [data.segment_id, sourceArtifacts]);
+   const visibleArtifacts = useMemo(() => (
+     sourceArtifacts
+       .slice(0, visibleArtifactLimit)
+       .map((artifact) => toDisplayArtifact(data.segment_id, artifact))
+   ), [data.segment_id, sourceArtifacts, visibleArtifactLimit]);
+   const hasMoreArtifacts = visibleArtifacts.length < sourceArtifacts.length;
++  const reportToggleLabel = t(
++    reportExpanded ? 'runtime.inlineReportCollapse' : 'runtime.inlineReportExpand',
++  );
+   const shouldVirtualizeArtifacts = visibleArtifacts.length > ARTIFACT_VIRTUAL_THRESHOLD;
+   const artifactListHeight = Math.min(
+     ARTIFACT_LIST_HEIGHT,
+@@ -215,6 +231,39 @@ export default function RuntimeSegmentCard({
+                     baseLineHeight={1.6}
+                   />
+                 </div>
++                {inlineReport && sessionId && data.ended_at !== null ? (
++                  <div className={styles.inlineReport}>
++                    <div className={styles.inlineReportHeader}>
++                      <span className={styles.artifactGroupTitle}>
++                        {t('runtime.inlineReport')}
++                      </span>
++                      <Button
++                        className={styles.inlineReportToggle}
++                        type="link"
++                        size="small"
++                        aria-expanded={reportExpanded}
++                        title={reportToggleLabel}
++                        onClick={() => setReportExpanded((current) => !current)}
++                      >
++                        {reportToggleLabel}
++                        <DownOutlined
++                          aria-hidden="true"
++                          className={`${styles.inlineReportChevron} ${reportExpanded ? styles.inlineReportChevronOpen : ''}`}
++                        />
++                      </Button>
++                    </div>
++                    <div
++                      className={styles.inlineReportFrame}
++                      style={{
++                        '--inline-report-height': reportExpanded
++                          ? INLINE_REPORT_EXPANDED_HEIGHT
++                          : `${INLINE_REPORT_PEEK_HEIGHT}px`,
++                      } as CSSProperties}
++                    >
++                      <ArtifactPreview artifact={inlineReport} sessionId={sessionId} />
++                    </div>
++                  </div>
++                ) : null}
+                 {sourceArtifacts.length ? (
+                   <div className={styles.inlineArtifact}>
+                     <span className={styles.artifactGroupTitle}>{t('runtime.keyArtifacts')}</span>
 diff --git a/packages/datapaw-host-core/frontend/src/i18n/locales.ts b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
-index 21f77a04..5362c802 100644
+index 21f77a0..84d0832 100644
 --- a/packages/datapaw-host-core/frontend/src/i18n/locales.ts
 +++ b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
 @@ -53,6 +53,7 @@ export const zhMessages = {
@@ -132,19 +416,39 @@ index 21f77a04..5362c802 100644
    'settings.channelConfiguration': '接入渠道配置',
 +  'settings.appConfiguration': '数据底座配置',
    'settings.mcpConfiguration': '工具配置',
-
+ 
    'workspace.tasks': '任务',
-@@ -781,6 +782,7 @@ export const enMessages: Record<MessageKey, string> = {
+@@ -183,6 +184,9 @@ export const zhMessages = {
+   'runtime.output': '输出',
+   'runtime.execution': '执行',
+   'runtime.conclusion': '结论',
++  'runtime.inlineReport': '报告预览',
++  'runtime.inlineReportExpand': '展开',
++  'runtime.inlineReportCollapse': '收起',
+   'runtime.keyArtifacts': '关键产物',
+   'runtime.loadMoreArtifacts': '加载更多',
+   'runtime.noInput': '无输入',
+@@ -781,6 +785,7 @@ export const enMessages: Record<MessageKey, string> = {
    'settings.dataBridge': 'Data Bridge',
    'settings.agentConfiguration': 'Agent Configuration',
    'settings.channelConfiguration': 'Channel Configuration',
 +  'settings.appConfiguration': 'DataBridge Configuration',
    'settings.mcpConfiguration': 'Tool Configuration',
-
+ 
    'workspace.tasks': 'Tasks',
+@@ -911,6 +916,9 @@ export const enMessages: Record<MessageKey, string> = {
+   'runtime.output': 'Output',
+   'runtime.execution': 'Execution',
+   'runtime.conclusion': 'Conclusion',
++  'runtime.inlineReport': 'Report preview',
++  'runtime.inlineReportExpand': 'Expand',
++  'runtime.inlineReportCollapse': 'Collapse',
+   'runtime.keyArtifacts': 'Key artifacts',
+   'runtime.loadMoreArtifacts': 'Load more',
+   'runtime.noInput': 'No input',
 diff --git a/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
 new file mode 100644
-index 00000000..aaffa449
+index 0000000..aaffa44
 --- /dev/null
 +++ b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
 @@ -0,0 +1,447 @@
@@ -597,7 +901,7 @@ index 00000000..aaffa449
 +}
 diff --git a/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
 new file mode 100644
-index 00000000..a655dba6
+index 0000000..a655dba
 --- /dev/null
 +++ b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
 @@ -0,0 +1,40 @@
@@ -642,25 +946,25 @@ index 00000000..a655dba6
 +  );
 +}
 diff --git a/packages/datapaw-host-core/frontend/src/services/auth.ts b/packages/datapaw-host-core/frontend/src/services/auth.ts
-index 1e81bc4d..6f0e81c7 100644
+index 1e81bc4..6f0e81c 100644
 --- a/packages/datapaw-host-core/frontend/src/services/auth.ts
 +++ b/packages/datapaw-host-core/frontend/src/services/auth.ts
 @@ -1,4 +1,4 @@
 -import { getApiUrl, getAuthApiUrl, getAuthLoginUrl } from "./config.js";
 +import { getApiUrl, getAuthApiUrl } from "./config.js";
-
+ 
  interface AuthStatusResponse {
    enabled: boolean;
 @@ -24,7 +24,6 @@ export interface HostCurrentUser {
  }
-
+ 
  let refreshInFlight: Promise<boolean> | null = null;
 -let ssoLoginPath: string | null = null;
  let currentUser: HostCurrentUser | null = null;
-
+ 
  export function getHostCurrentUser(): HostCurrentUser | null {
 @@ -54,12 +53,9 @@ export function refreshAuthSession(): Promise<boolean> {
-
+ 
  export function redirectToLogin(): void {
    if (typeof window === "undefined") return;
 -  if (ssoLoginPath) {
@@ -673,18 +977,18 @@ index 1e81bc4d..6f0e81c7 100644
 +  // page to bounce to. Surface the failure instead of navigating away.
 +  console.warn("Authentication is unavailable; staying on the current page.");
  }
-
+ 
  export async function fetchWithAuthRetry(
 @@ -96,7 +92,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
    }
-
+ 
    const status = await statusResponse.json() as AuthStatusResponse;
 -  ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
    if (!status.enabled) return true;
-
+ 
    const meResponse = await fetchWithAuthRetry(getAuthApiUrl("/me"));
 diff --git a/packages/datapaw-host-core/frontend/src/services/config.ts b/packages/datapaw-host-core/frontend/src/services/config.ts
-index d3ce27e7..6a1bd30b 100644
+index d3ce27e..6a1bd30 100644
 --- a/packages/datapaw-host-core/frontend/src/services/config.ts
 +++ b/packages/datapaw-host-core/frontend/src/services/config.ts
 @@ -28,7 +28,7 @@ export function getApiUrl(path: string): string {
@@ -695,4 +999,4 @@ index d3ce27e7..6a1bd30b 100644
 +    : `/api/v1${normalizedPath}`;
    return `${base}${prefixedPath}`;
  }
-
+ 
