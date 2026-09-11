@@ -4,12 +4,12 @@
 
 QwenPaw 里有两条相关但目前**各自独立**的链路：
 
-| 链路         | 数据来源                    | 产出                                  |
-| ------------ | --------------------------- | ------------------------------------- |
-| 记忆自进化   | `memory/` 每日记忆          | `digest/` 长期知识 + `interests.yaml` |
-| `/proactive` | 近期聊天会话 + 可选桌面截图 | 一条以 `[PROACTIVE]` 开头的主动消息   |
+| 链路         | 数据来源                    | 产出                                |
+| ------------ | --------------------------- | ----------------------------------- |
+| 记忆自进化   | `memory/` 每日记忆          | `digest/` 长期知识                  |
+| `/proactive` | 近期聊天会话 + 可选桌面截图 | 一条以 `[PROACTIVE]` 开头的主动消息 |
 
-`/proactive` 目前**不读取** `digest/` 和 `interests.yaml`。这一点在文末「当前边界」中会再说明。
+`/proactive` 目前**不读取** `digest/`。这一点在文末「当前边界」中会再说明。
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从捕获、整理到检索与发现的全景" />
@@ -85,25 +85,9 @@ Auto-Dream 不会每天从头重读整个 `memory/`：
 
 这也是为什么长期记忆可以一直修正而不丢历史：结论可变，现场不可变。
 
-### 顺手产出的兴趣主题
+### Auto-Dream 与主动交互仍是独立链路
 
-整合长期节点时，Auto-Dream 还会从近期证据里挑出少量、互不重复的兴趣主题，默认最多 3 个，写入 `memory/<date>/interests.yaml`：
-
-```yaml
-- title: 验证紧急回滚流程
-  reason: 已增加 hotfix 例外，但尚未记录事后补做的检查。
-  evidence:
-    - hotfix 复盘中讨论了跳过 staging 的情况。
-  keywords: [hotfix, rollback, release]
-  paths:
-    - memory/2026-08-20/hotfix-retrospective.md
-```
-
-每个主题都带上原因、证据、关键词和相关路径——也就是说，它不只说“你可能关心 X”，还能说清“我为什么这么认为”。生成时会参考近 7 天已经出过的主题做去重，避免天天推荐同一件事。ReMe 提供一个底层 `proactive` job 读取该文件，供其他集成消费；文件不存在时返回 skipped，不会报错。
-
-<p align="center">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 的整合结果与兴趣主题摘要" />
-</p>
+Auto-Dream 只负责将每日记忆整合为 `digest/` 中的长期节点，不再生成 `interests.yaml`。QwenPaw 的 `/proactive` mode 仍然根据近期会话和可选的屏幕上下文推断可能的下一步，不依赖 Auto-Dream 的产出。
 
 ---
 
