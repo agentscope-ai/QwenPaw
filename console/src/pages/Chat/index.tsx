@@ -3909,16 +3909,6 @@ export default function ChatPage() {
       className={`${styles.chatPageRoot} ${filesDrawerClass}`}
       onClickCapture={handleInternalFileLink}
     >
-      <AnimatePresence initial={false} mode="popLayout">
-        {filesDrawerState.kind !== "closed" ? (
-          <FilesDrawer
-            key="session-files-drawer"
-            state={filesDrawerState}
-            dispatch={dispatchFilesDrawer}
-            scope={sessionScope}
-          />
-        ) : null}
-      </AnimatePresence>
       {/* Main chat area */}
       <motion.div
         className={styles.chatMainArea}
@@ -4143,6 +4133,16 @@ export default function ChatPage() {
         </Modal>
       </motion.div>
       {/* End of main chat area */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {filesDrawerState.kind !== "closed" ? (
+          <FilesDrawer
+            key="session-files-drawer"
+            state={filesDrawerState}
+            dispatch={dispatchFilesDrawer}
+            scope={sessionScope}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

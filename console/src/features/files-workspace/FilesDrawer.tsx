@@ -230,7 +230,7 @@ export default function FilesDrawer({
     const maximum = Math.max(MIN_DRAWER_WIDTH, containerWidth - MIN_CHAT_WIDTH);
     const move = (nextEvent: PointerEvent) => {
       const next = Math.min(
-        Math.max(MIN_DRAWER_WIDTH, initial + nextEvent.clientX - startX),
+        Math.max(MIN_DRAWER_WIDTH, initial + startX - nextEvent.clientX),
         maximum,
       );
       setWidth(next);
@@ -271,13 +271,13 @@ export default function FilesDrawer({
       style={drawerStyle}
       layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
-        prefersReducedMotion ? false : { opacity: 0, x: -18, scale: 0.995 }
+        prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.995 }
       }
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={
         prefersReducedMotion
           ? { opacity: 0 }
-          : { opacity: 0, x: -14, scale: 0.995 }
+          : { opacity: 0, x: 14, scale: 0.995 }
       }
       transition={
         prefersReducedMotion
@@ -323,7 +323,7 @@ export default function FilesDrawer({
             const next = Math.min(
               Math.max(
                 MIN_DRAWER_WIDTH,
-                base + (event.key === "ArrowRight" ? 24 : -24),
+                base + (event.key === "ArrowLeft" ? 24 : -24),
               ),
               maximum,
             );

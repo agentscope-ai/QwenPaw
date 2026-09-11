@@ -15,9 +15,9 @@
   overflow: hidden;
   color: var(--files-ink);
   background: var(--files-bg);
-  border-right: 1px solid var(--files-line);
+  border-left: 1px solid var(--files-line);
   box-shadow: var(--app-shadow-md);
-  transform-origin: left center;
+  transform-origin: right center;
   will-change: transform, opacity;
   z-index: 20;
 }
@@ -148,7 +148,7 @@
 .resizeHandle {
   position: absolute;
   top: 0;
-  right: -4px;
+  left: -4px;
   bottom: 0;
   width: 8px;
   cursor: col-resize;
@@ -158,7 +158,7 @@
     content: "";
     position: absolute;
     top: 42%;
-    right: 3px;
+    left: 3px;
     width: 2px;
     height: 48px;
     border-radius: 2px;
@@ -945,6 +945,7 @@
     inset: 0;
     width: 100% !important;
     min-width: 0;
+    border-left: 0;
     border-right: 0;
   }
 

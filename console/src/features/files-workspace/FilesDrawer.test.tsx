@@ -190,14 +190,21 @@ describe("FilesDrawer", () => {
 
     const drawer = screen.getByRole("region");
     const separator = screen.getByRole("separator");
+    vi.spyOn(drawer, "getBoundingClientRect").mockReturnValue({
+      width: 500,
+    } as DOMRect);
+    vi.spyOn(drawer.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+    } as DOMRect);
     fireEvent.pointerDown(separator, { clientX: 420 });
     expect(drawer.className).toContain("drawerResizing");
 
-    fireEvent.pointerMove(window, { clientX: 520 });
+    fireEvent.pointerMove(window, { clientX: 320 });
     fireEvent.pointerUp(window);
     await waitFor(() => {
       expect(drawer.className).not.toContain("drawerResizing");
     });
+    expect(drawer).toHaveStyle({ width: "600px" });
   });
 
   // -------------------------------------------------------------------------
