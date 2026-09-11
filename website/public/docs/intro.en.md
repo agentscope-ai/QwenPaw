@@ -89,8 +89,9 @@ you've enabled.
   complex tasks. See [Multi-Agent](./multi-agent).
 - **Security mechanisms** — QwenPaw provides multi-layer security, including
   tool protection (intercept dangerous command parameters), file protection
-  (restrict sensitive path access), and skill scanner (check skill package
-  security). See [Security](./security).
+  (restrict sensitive path access), skill scanner (check skill package
+  security), and access policy (allow, deny, or require human approval for each
+  capability call). See [Security](./security).
 
 Each concept is explained in detail in its corresponding chapter.
 
