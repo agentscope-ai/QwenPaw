@@ -187,7 +187,7 @@ Long-term memory becomes useful not by preserving an isolated sentence, but by r
 
 Useful information does not come only from chat.
 
-Auto Resource is the umbrella term for a Beta pipeline that brings in external material. QwenPaw's currently available built-in entry point is Daily Paper; support for other resource types is still expanding.
+Auto Resource is the umbrella term for a Beta pipeline that brings in external material. QwenPaw currently provides two built-in entry points, Daily Paper and Auto Fin, while support for other resource types continues to expand.
 
 When enabled, Daily Paper collects candidates from the Hugging Face Papers weekly and monthly rankings, selects papers, preserves the original PDFs, and produces three detailed readings and one daily brief. These Markdown readings enter the same index as conversation memory and can later participate in Auto Dream.
 
@@ -195,11 +195,13 @@ If the analyst sets the topics to `battery, lithium, energy storage`, the pipeli
 
 For example, if a paper discusses battery-life prediction or energy-storage technology, that reading may provide evidence the next time you assess a battery maker's technical competitiveness.
 
+Auto Fin serves financial research. By default, it reviews CLS telegraph news from the preceding 24 hours, selects items related to configured topics, and searches existing ReMe memory for historical context. It then writes one Chinese report with validated Wikilinks into that day's memory directory. Current news and intermediate selections are not persisted; the job succeeds as a skip when nothing is relevant. A same-day rerun uses the existing report as context and atomically replaces it with a revision.
+
+Auto Fin has no reliable market-price feed, does not calculate returns, targets, or entry points, and is not investment advice.
+
 ![Daily Paper schedule and topic settings](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
 
-![ReMe Auto Resource turns source material into traceable memory; QwenPaw currently integrates this flow through Daily Paper](https://img.alicdn.com/imgextra/i2/O1CN015ankve1aJ7LTl8Cxa_!!6000000003308-55-tps-1200-640.svg)
-
-Simply placing an arbitrary file under `resource/` does not currently make QwenPaw process it automatically, and automatically collecting financial news into the knowledge base is still planned work. At this stage, Auto Resource should not be understood as a general-purpose file importer.
+Simply placing an arbitrary file under `resource/` still does not make QwenPaw process it automatically. Auto Resource should therefore not be understood as a general-purpose file importer.
 
 ## Auto Dream: Turn Scattered Daily Notes into Long-Term Experience
 

@@ -1,4 +1,4 @@
-import{j as i,h as rt}from"./markdown-2fhfZvTf.js";import{r as w,L as R}from"./router-BDS7Gjp_.js";import{c as he,D as nt,a as at,A as De,G as lt,u as ot}from"./index-rCx3aiCR.js";import{u as I}from"./i18n-B3Rb7eHK.js";import{u as Be,M as Ve,a as ct,b as ht,c as We,f as Ue,i as dt,d as J,h as mt,e as ut,p as pt,m as j,A as Ge}from"./proxy-BlnE62Wa.js";import{s as P,M as Ze}from"./utils-B18yBqyn.js";import{F as pe}from"./file-text-sBbmBeln.js";import{C as xt,a as ft}from"./copy-gI-KJiWB.js";/**
+import{j as i,h as rt}from"./markdown-2fhfZvTf.js";import{r as w,L as R}from"./router-BDS7Gjp_.js";import{c as he,D as nt,a as at,A as De,G as lt,u as ot}from"./index-BHI0BFHW.js";import{u as I}from"./i18n-B3Rb7eHK.js";import{u as Be,M as Ve,a as ct,b as ht,c as We,f as Ue,i as dt,d as J,h as mt,e as ut,p as pt,m as j,A as Ge}from"./proxy-BlnE62Wa.js";import{s as P,M as Ze}from"./utils-DI91zubG.js";import{F as pe}from"./file-text-BYSo6xYh.js";import{C as xt,a as ft}from"./copy-4zCePWIN.js";/**
  * @license lucide-react v0.468.0 - ISC
  *
  * This source code is licensed under the ISC license.
