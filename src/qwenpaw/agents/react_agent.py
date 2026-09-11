@@ -608,7 +608,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_audio_fallback_error(exc: Exception) -> bool:
-        """Return whether DashScope rejected the current audio payload."""
+        """Return whether the provider rejected the current audio payload.
+
+        Recognized rejection shapes:
+
+        1. DashScope modality error — HTTP 400 with
+           ``InternalError.Algo.InvalidParameter`` and the
+           "incorrect modal ... audio ..." wording.
+        2. DashScope URL-shape error — HTTP 400 with
+           "The provided URL does not appear to be valid" when local
+           audio is serialized as raw base64 (issue #7015, first
+           failure mode).
+        3. llama.cpp ``llama-server`` (OpenAI-compatible) backed by a
+           vision-only mmproj — HTTP 500 with
+           "audio input is not supported".
+
+        Callers gate this classifier on ``_last_wire_request_had_audio()``,
+        so shape 2 cannot misclassify genuinely malformed image/video
+        URLs: those requests carry no audio blocks and never reach the
+        audio-strip retry.
+        """
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -622,11 +641,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "wrong position",
             )
         )
-        return (
+        if (
             has_bad_request_status
             and "internalerror.algo.invalidparameter" in error_str
             and invalid_modal
-        )
+        ):
+            return True
+        if (
+            has_bad_request_status
+            and "the provided url does not appear to be valid" in error_str
+        ):
+            return True
+        if "audio input is not supported" in error_str:
+            return True
+        return False
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
