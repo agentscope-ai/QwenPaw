@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
+import type { FileTarget } from "./types";
 
 const clipboardMocks = vi.hoisted(() => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -256,10 +257,10 @@ describe("FilesDrawer", () => {
       sessionId: "session-1",
     };
     const target = {
-      source: "workspace" as const,
+      source: "workspace",
       path: "hello.txt",
       root: "project",
-    };
+    } satisfies FileTarget;
     const { rerender } = renderWithProviders(
       <FilesDrawer
         state={{ kind: "preview", target, trigger: null }}
