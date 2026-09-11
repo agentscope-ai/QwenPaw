@@ -666,15 +666,41 @@ class PawAppContext:
         channels: Optional[List[str]] = None,
         title: str = "",
         body: str = "",
+        user_id: str = "",
+        session_id: str = "",
     ) -> None:
-        """Send multi-channel notification."""
-        # pylint: disable=unused-argument
-        # Will delegate to ChannelManager when available
-        logger.info(
-            "PawApp notify: channels=%s title=%s",
-            channels,
-            title,
-        )
+        """Send a notification through the workspace's channels.
+
+        Delivers ``title``/``body`` as plain text via the workspace's
+        ChannelManager. Delivery is best-effort per channel; failures
+        are logged and do not raise.
+        """
+        text = "\n".join(part for part in (title, body) if part)
+        workspace = await self._get_workspace()
+        channel_manager = getattr(workspace, "channel_manager", None)
+        if channel_manager is None:
+            logger.info(
+                "PawApp notify (no channel manager): channels=%s title=%s",
+                channels,
+                title,
+            )
+            return
+        target_user = user_id or self.user_id
+        for channel in channels or []:
+            try:
+                await channel_manager.send_text(
+                    channel=channel,
+                    user_id=target_user,
+                    session_id=session_id or f"{channel}:{target_user}",
+                    text=text,
+                )
+            except Exception:
+                logger.warning(
+                    "PawApp notify failed: app=%s channel=%s",
+                    self.app_id,
+                    channel,
+                    exc_info=True,
+                )
 
     # ─── Toast ──────────────────────────────────────────────────────
 

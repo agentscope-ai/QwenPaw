@@ -1454,8 +1454,10 @@ class PluginLoader:
         # without the plugin builtins in the window between the two.
         unregister_namespace(module_name)
 
-        # Remove tools from agents.tools + runtime registries while
-        # ownership records still exist, then drop plugin registry state.
+        # Remove runtime registrations while owner and plugin registry state
+        # still exist. Slash cleanup is owner-scoped, so built-ins and other
+        # plugins remain untouched across unload and force-reload.
+        self._cleanup_plugin_slash_commands(plugin_id)
         self._cleanup_plugin_tools(plugin_id, record)
 
         # Clear all in-memory registry entries for this plugin
@@ -1474,6 +1476,29 @@ class PluginLoader:
                 )
 
         logger.info(f"Unloaded plugin '{plugin_id}'")
+
+    def _cleanup_plugin_slash_commands(self, plugin_id: str) -> None:
+        """Remove slash commands owned by *plugin_id* from live workspaces."""
+        manager = self.registry.get_workspace_manager()
+        if manager is None:
+            return
+        for workspace in getattr(manager, "agents", {}).values():
+            command_registry = getattr(
+                getattr(workspace, "plugins", None),
+                "slash_command_registry",
+                None,
+            )
+            if command_registry is None:
+                continue
+            removed = command_registry.unregister_owner(plugin_id)
+            if removed:
+                logger.info(
+                    "Removed slash commands %s from workspace '%s' "
+                    "for plugin '%s'",
+                    removed,
+                    getattr(workspace, "agent_id", "?"),
+                    plugin_id,
+                )
 
     def _cleanup_plugin_tools(
         self,

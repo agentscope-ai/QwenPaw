@@ -331,7 +331,7 @@ def _make_app_id_injector(app_id: str) -> Callable:
     return inject_app_id
 
 
-class PawApp:
+class PawApp:  # pylint: disable=too-many-public-methods
     """PawApp SDK — thin wrapper over QwenPaw's Plugin API.
 
     In the plugin loading pipeline, ``PawApp.register(api)`` is called
@@ -355,6 +355,7 @@ class PawApp:
         # Buffered registrations (applied when .register(api) is called)
         self._tools: List[dict] = []
         self._commands: List[dict] = []
+        self._middlewares: List[dict] = []
         self._hooks: List[dict] = []
         self._routers: List[APIRouter] = []
         self._lifecycle: dict = {}
@@ -479,6 +480,18 @@ class PawApp:
             return func
 
         return decorator
+
+    # ─── Middleware ─────────────────────────────────────────────────
+
+    def middleware(self, factory: Callable, *, priority: int = 100) -> None:
+        """Register an AgentScope middleware factory.
+
+        The factory is called once per agent request as
+        ``factory(ctx, agent_config) -> MiddlewareBase | None``;
+        returning None skips the middleware for that request.
+        Lower priority = outermost in the onion model.
+        """
+        self._middlewares.append({"factory": factory, "priority": priority})
 
     # ─── Decorator: hook ────────────────────────────────────────────
 
@@ -790,6 +803,20 @@ class PawApp:
                 enabled=tool_info.get("enabled", True),
                 tool_type=tool_info.get("tool_type", "network"),
                 target_param=tool_info.get("target_param", ""),
+            )
+
+        for command_info in self._commands:
+            api.register_slash_command(
+                command_info["name"],
+                command_info["func"],
+                category=f"pawapp:{self.app_id or self.name}",
+                help_text=command_info.get("description", ""),
+            )
+
+        for middleware_info in self._middlewares:
+            api.register_middleware(
+                middleware_info["factory"],
+                priority=middleware_info["priority"],
             )
 
         if self._dependency_agent_tools_enabled and len(self.dependencies):

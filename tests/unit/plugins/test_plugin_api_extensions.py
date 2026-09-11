@@ -9,10 +9,12 @@ Tests cover:
 """
 
 import importlib.util
+import logging
 import sys
 import tempfile
 import types
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import MagicMock
 
@@ -69,6 +71,185 @@ def plugin_api(fresh_registry):
     api = PluginApi("test-plugin", config={}, manifest={"id": "test-plugin"})
     api.set_registry(fresh_registry)
     return api
+
+
+class TestSlashCommandLifecycle:
+    """Plugin slash commands retain ownership across load and unload."""
+
+    @staticmethod
+    def _workspace(agent_id="ws-1"):
+        from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
+
+        return SimpleNamespace(
+            agent_id=agent_id,
+            plugins=SimpleNamespace(
+                slash_command_registry=SlashCommandRegistry(),
+            ),
+        )
+
+    def test_plugin_api_stamps_command_owner(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        workspace = self._workspace()
+        fresh_registry.set_workspace_manager(
+            SimpleNamespace(agents={workspace.agent_id: workspace}),
+        )
+
+        plugin_api.register_slash_command("owned", MagicMock())
+        hook = next(
+            hook
+            for hook in fresh_registry.get_startup_hooks()
+            if hook.hook_name == "slash_cmd_test-plugin_owned"
+        )
+        hook.callback()
+
+        spec, _args = workspace.plugins.slash_command_registry.resolve(
+            "/owned",
+        )
+        assert spec.owner_id == "test-plugin"
+
+    def test_plugin_collision_is_error_logged_and_propagated(
+        self,
+        plugin_api,
+        fresh_registry,
+        caplog,
+    ):
+        from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+        workspace = self._workspace()
+        workspace.plugins.slash_command_registry.register(
+            CommandSpec(name="reserved", handler=MagicMock()),
+        )
+        fresh_registry.set_workspace_manager(
+            SimpleNamespace(agents={workspace.agent_id: workspace}),
+        )
+        plugin_api.register_slash_command("reserved", MagicMock())
+        hook = next(
+            hook
+            for hook in fresh_registry.get_startup_hooks()
+            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        )
+
+        with caplog.at_level(logging.ERROR, logger="qwenpaw.plugins.api"):
+            with pytest.raises(ValueError, match="already registered"):
+                hook.callback()
+
+        assert "failed to register slash command '/reserved'" in caplog.text
+
+    def test_plugin_collision_does_not_partially_register_workspaces(
+        self,
+        plugin_api,
+        fresh_registry,
+    ):
+        from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+        first = self._workspace("ws-1")
+        second = self._workspace("ws-2")
+        second.plugins.slash_command_registry.register(
+            CommandSpec(name="reserved", handler=MagicMock()),
+        )
+        fresh_registry.set_workspace_manager(
+            SimpleNamespace(agents={"ws-1": first, "ws-2": second}),
+        )
+        plugin_api.register_slash_command("reserved", MagicMock())
+        hook = next(
+            hook
+            for hook in fresh_registry.get_startup_hooks()
+            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        )
+
+        with pytest.raises(ValueError, match="already registered"):
+            hook.callback()
+
+        assert (
+            first.plugins.slash_command_registry.resolve("/reserved") is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_unload_removes_only_owned_commands_and_allows_reload(
+        self,
+        fresh_registry,
+    ):
+        from qwenpaw.plugins.architecture import (
+            PluginEntryPoints,
+            PluginManifest,
+            PluginRecord,
+        )
+        from qwenpaw.plugins.loader import PluginLoader
+        from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+        workspace = self._workspace()
+        commands = workspace.plugins.slash_command_registry
+        builtin = CommandSpec(name="builtin", handler=MagicMock())
+        other = CommandSpec(
+            name="other",
+            handler=MagicMock(),
+            owner_id="other-plugin",
+        )
+        commands.register(builtin)
+        commands.register(
+            CommandSpec(
+                name="reloadable",
+                aliases=("stale",),
+                handler=MagicMock(),
+                owner_id="test-plugin",
+            ),
+        )
+        commands.register(other)
+        second_workspace = self._workspace("ws-2")
+        second_commands = second_workspace.plugins.slash_command_registry
+        second_commands.register(builtin)
+        second_commands.register(
+            CommandSpec(
+                name="reloadable",
+                handler=MagicMock(),
+                owner_id="test-plugin",
+            ),
+        )
+        fresh_registry.set_workspace_manager(
+            SimpleNamespace(
+                agents={
+                    workspace.agent_id: workspace,
+                    second_workspace.agent_id: second_workspace,
+                },
+            ),
+        )
+
+        loader = PluginLoader(plugin_dirs=[])
+        loader.registry = fresh_registry
+        manifest = PluginManifest(
+            id="test-plugin",
+            name="Test",
+            version="1.0.0",
+            entry=PluginEntryPoints(backend="plugin.py"),
+        )
+        loader._loaded_plugins["test-plugin"] = PluginRecord(
+            manifest=manifest,
+            source_path=Path("/fake-slash-plugin"),
+            enabled=True,
+            instance=None,
+        )
+
+        await loader.unload_plugin("test-plugin")
+
+        assert commands.names() == ["builtin", "other"]
+        assert commands.resolve("/builtin")[0] is builtin
+        assert commands.resolve("/other")[0] is other
+        assert second_commands.names() == ["builtin"]
+        assert second_commands.resolve("/builtin")[0] is builtin
+
+        replacement = CommandSpec(
+            name="reloadable",
+            aliases=("fresh",),
+            handler=MagicMock(),
+            owner_id="test-plugin",
+        )
+        commands.register(replacement)
+        assert commands.resolve("/reloadable")[0] is replacement
+        assert commands.resolve("/fresh")[0] is replacement
+        assert commands.resolve("/stale") is None
 
 
 # ---------------------------------------------------------------------------

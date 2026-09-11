@@ -148,6 +148,13 @@ The UI is shipped as a browser-native ES module. Its Vite configuration
 replaces `process.env.NODE_ENV` at build time so bundled dependencies do not
 leak the Node-only `process` global into the QwenPaw Console.
 
+The full Data console is a reviewed vendor snapshot tracked under
+`ui/public/data-console/`; normal builds, CI, and users do not need access to
+QwenPaw-Data-Cloud. Authorized maintainers or coding agents refresh that snapshot
+with `scripts/update-data-console.sh`, then review and publish the resulting diff.
+The Context console is built separately from the public QwenPaw-Data source by
+`scripts/sync-context-ui.sh`.
+
 `setup-dev.sh` runs the QwenPaw-Data workspace sync and creates ignored development
 links under this app. Set `QWENPAW_DATA_SOURCE_DIR` to use another checkout. At
 runtime, use `QWENPAW_DATA_CONTEXT_MODE=external` with `QWENPAW_DATA_CONTEXT_URL` and

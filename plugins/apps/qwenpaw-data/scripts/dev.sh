@@ -25,6 +25,11 @@ WORKING_DIR="${WORKING_DIR/#\~/$HOME}"
 
 "$SCRIPT_DIR/setup-dev.sh"
 
+python3 "$SCRIPT_DIR/verify-data-console.py" \
+  "$APP_DIR/ui/public/data-console" \
+  --canonical-bridge "$SCRIPT_DIR/data-console/paw-bridge.js" \
+  --canonical-patch "$SCRIPT_DIR/data-console/patches/console-embed.patch"
+
 echo "==> Building the QwenPaw-Data native UI"
 (cd "$APP_DIR/ui" && npm install --ignore-scripts --no-audit --no-fund && npm run build)
 
@@ -34,6 +39,8 @@ mkdir -p "$STAGE_DIR/backend" "$STAGE_DIR/ui/dist" \
   "$STAGE_DIR/agents/qwenpaw-data/en"
 cp "$APP_DIR/plugin.json" "$APP_DIR/requirements.txt" "$APP_DIR/__init__.py" "$STAGE_DIR/"
 cp "$APP_DIR"/backend/*.py "$STAGE_DIR/backend/"
+mkdir -p "$STAGE_DIR/backend/bridge"
+cp "$APP_DIR"/backend/bridge/*.py "$STAGE_DIR/backend/bridge/"
 cp "$APP_DIR/agents/qwenpaw-data/en/PROFILE.md" \
   "$APP_DIR/agents/qwenpaw-data/en/SOUL.md" "$STAGE_DIR/agents/qwenpaw-data/en/"
 cp "$APP_DIR/ui/dist/index.js" "$APP_DIR/ui/dist/index.js.map" "$STAGE_DIR/ui/dist/"
@@ -52,6 +59,13 @@ else
   echo "NOTE: embedded Context console not found; run" \
     "scripts/sync-context-ui.sh to vendor it." >&2
 fi
+
+DATA_CONSOLE_DIR="$APP_DIR/ui/dist/data-console"
+if [[ ! -f "$DATA_CONSOLE_DIR/index.html" ]]; then
+  echo "Required Data console was not built: $DATA_CONSOLE_DIR" >&2
+  exit 1
+fi
+cp -R "$DATA_CONSOLE_DIR" "$STAGE_DIR/ui/dist/data-console"
 
 # Hot-install against the configured instance. The CLI's hot-install path
 # routes via config.json's last_api (ignoring --host/--port), which can point
