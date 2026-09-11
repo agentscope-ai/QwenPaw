@@ -168,7 +168,7 @@ async function renderPage() {
   const user = userEvent.setup();
   const utils = render(<CheckpointsPage />);
   await waitFor(() =>
-    expect(screen.getByText("checkpoints.summary.total")).toBeInTheDocument(),
+    expect(screen.getByRole("button", { name: "c1aaaa" })).toBeInTheDocument(),
   );
   return { user, ...utils };
 }
