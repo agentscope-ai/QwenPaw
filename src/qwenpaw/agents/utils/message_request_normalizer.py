@@ -175,18 +175,57 @@ def _is_audio_block(block: Any) -> bool:
     return False
 
 
+def _is_document_block(block: Any) -> bool:
+    """Check if a block carries a PDF document payload.
+
+    ``application/pdf`` is rendered as an OpenAI ``file`` content part (or
+    ``input_file`` on the Responses API). OpenAI-compatible Chat Completions
+    servers (vLLM, DeepSeek, DashScope, ...) reject ``file`` parts, so
+    document blocks must be stripped at request time irrespective of the
+    model's multimodal support.
+    """
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "file":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "") if isinstance(source, dict) else ""
+            )
+            return media_type == "application/pdf"
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "file":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type == "application/pdf"
+    return False
+
+
 def _strip_media_blocks_in_place(
     msgs: list[Msg],
     *,
     audio_only: bool = False,
+    document_only: bool = False,
 ) -> int:
     """Strip media blocks from copied messages only.
 
     Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
     ``audio_only`` is true, image, video, and file blocks are preserved.
+    When ``document_only`` is true, only PDF document blocks are removed
+    (image/audio/video blocks are preserved).
     """
     total_stripped = 0
-    should_strip = _is_audio_block if audio_only else _is_media_block
+    if document_only:
+        should_strip = _is_document_block
+    elif audio_only:
+        should_strip = _is_audio_block
+    else:
+        should_strip = _is_media_block
 
     for msg in msgs:
         if not isinstance(msg.content, list):
@@ -311,6 +350,16 @@ def normalize_messages_for_model_request(
         _strip_media_blocks_in_place(normalized)
     elif strip_audio:
         _strip_media_blocks_in_place(normalized, audio_only=True)
+    elif target_family == "openai":
+        # OpenAI-compatible Chat Completions servers do not support ``file``
+        # content parts (that shape exists only in the Responses API). PDF
+        # document blocks persisted from tool results would otherwise be
+        # serialized as ``{"type": "file"}`` and rejected with 400 even by
+        # multimodal servers, so strip documents for the OpenAI chat family
+        # regardless of multimodal support. Images/audio/video are preserved:
+        # ``image_url`` / ``input_audio`` parts are accepted by these
+        # endpoints.
+        _strip_media_blocks_in_place(normalized, document_only=True)
     return normalized
 
 
