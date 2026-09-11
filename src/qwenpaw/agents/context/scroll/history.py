@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -67,6 +68,15 @@ class HistoryStore:
     # per process when it's missing, so a long-lived server doesn't log-spam.
     _fts_unavailable_warned = False
 
+    # ``quick_check`` scans the whole database. Agents are built per request,
+    # so running it in every constructor makes request cost grow with the
+    # entire history file. Keep independent connections, but coordinate the
+    # probe process-wide: the first opener checks, concurrent openers wait,
+    # and later openers skip it while the same file remains at this path.
+    _integrity_probe_condition = threading.Condition()
+    _integrity_probe_inflight: set[tuple[int, Path]] = set()
+    _integrity_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
+
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,32 +94,131 @@ class HistoryStore:
         # Flipped True by ``close()`` so callers can tell an intentional
         # teardown race from a real disk outage (see ``closed``).
         self._closed = False
-        try:
-            self._open_and_init()
-        except sqlite3.DatabaseError as exc:
-            # A corrupt / unreadable DB (truncated file, stale WAL trio, bad
-            # page) would crash every task at startup. Quarantine the bad file
-            # and recreate fresh, degrading "broken memory" to "lost history".
-            self._quarantine(exc)
-            self._open_and_init()
-
-    def _open_and_init(self) -> None:
-        # check_same_thread=False: used from both loop and worker threads;
-        # ``self._lock`` provides the serialization SQLite would get from
-        # same-thread affinity.
-        self._conn = sqlite3.connect(
-            str(self._path),
-            check_same_thread=False,
+        self._checked_identity: tuple[int, int] | None = None
+        probe_key, run_integrity_probe = self._claim_integrity_probe(
+            self._path,
         )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        # Probe for corruption that only surfaces on read.
+        try:
+            try:
+                self._open_and_init(
+                    run_integrity_probe=run_integrity_probe,
+                )
+            except sqlite3.DatabaseError as exc:
+                # A corrupt / unreadable DB (truncated file, stale WAL trio,
+                # bad page) would crash every task at startup. Quarantine the
+                # bad file and recreate fresh, degrading "broken memory" to
+                # "lost history". The probe claim stays held across recovery
+                # so a concurrent opener cannot race the quarantine.
+                # Cache hits own the same claim as first opens. Invalidate
+                # the old result before recovery and always check the new DB.
+                with self._integrity_probe_condition:
+                    self._integrity_probe_checked.pop(probe_key, None)
+                self._quarantine(exc)
+                self._open_and_init(run_integrity_probe=True)
+        except BaseException:
+            # Release SQLite resources before waking another constructor.
+            try:
+                self._conn.close()
+            except (AttributeError, sqlite3.Error):
+                pass
+            self._finish_integrity_probe(probe_key, succeeded=False)
+            raise
+        self._finish_integrity_probe(
+            probe_key,
+            succeeded=True,
+            checked_identity=self._checked_identity,
+        )
+
+    @staticmethod
+    def _file_identity(path: Path) -> tuple[int, int] | None:
+        """Return the stable identity of the current file at ``path``."""
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino
+
+    @classmethod
+    def _claim_integrity_probe(
+        cls,
+        path: Path,
+    ) -> tuple[tuple[int, Path], bool]:
+        """Serialize construction/recovery and decide whether to probe.
+
+        The path is the coordination key so a corrupt first open can
+        quarantine and recreate the file without another constructor racing
+        that recovery. The cached file identity makes replacing the DB at the
+        same path trigger a new probe.
+        """
+        key = os.getpid(), path.resolve(strict=False)
+        condition = cls._integrity_probe_condition
+        with condition:
+            while key in cls._integrity_probe_inflight:
+                condition.wait()
+
+            # Even a cache hit can encounter corruption during schema init.
+            # Hold ownership until construction (including recovery) finishes.
+            cls._integrity_probe_inflight.add(key)
+            identity = cls._file_identity(key[1])
+            if (
+                identity is not None
+                and cls._integrity_probe_checked.get(key) == identity
+            ):
+                return key, False
+
+            return key, True
+
+    @classmethod
+    def _finish_integrity_probe(
+        cls,
+        key: tuple[int, Path],
+        *,
+        succeeded: bool,
+        checked_identity: tuple[int, int] | None = None,
+    ) -> None:
+        """Publish a probe result and wake constructors waiting on it."""
+        condition = cls._integrity_probe_condition
+        with condition:
+            if not succeeded:
+                cls._integrity_probe_checked.pop(key, None)
+            elif checked_identity is not None:
+                # Never associate a result with a replacement we did not scan.
+                if cls._file_identity(key[1]) == checked_identity:
+                    cls._integrity_probe_checked[key] = checked_identity
+                else:
+                    cls._integrity_probe_checked.pop(key, None)
+            cls._integrity_probe_inflight.discard(key)
+            condition.notify_all()
+
+    def _run_integrity_check(self) -> None:
+        """Raise when SQLite reports corruption in the history database."""
         row = self._conn.execute("PRAGMA quick_check").fetchone()
         if not row or row[0] != "ok":
             raise sqlite3.DatabaseError(
                 f"quick_check failed: {row[0] if row else None}",
             )
+
+    def _open_and_init(self, *, run_integrity_probe: bool = True) -> None:
+        # check_same_thread=False: used from both loop and worker threads;
+        # ``self._lock`` provides the serialization SQLite would get from
+        # same-thread affinity.
+        self._checked_identity = None
+        identity_before_open = self._file_identity(self._path)
+        self._conn = sqlite3.connect(
+            str(self._path),
+            check_same_thread=False,
+        )
+        identity_after_open = self._file_identity(self._path)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        # Probe for corruption that only surfaces on read.
+        if run_integrity_probe:
+            self._run_integrity_check()
+            # A missing file may have just been created by sqlite3.connect.
+            # Otherwise require the same identity across connection opening.
+            if identity_before_open in (None, identity_after_open):
+                self._checked_identity = identity_after_open
         self._init_schema()
 
     def _quarantine(self, exc: Exception) -> None:
