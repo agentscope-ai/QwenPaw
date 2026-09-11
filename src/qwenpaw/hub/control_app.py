@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -30,7 +29,6 @@ from fastapi.responses import (
 from starlette.concurrency import run_in_threadpool
 
 from ..__version__ import __version__
-from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
 from .access_security import HubAccessSecurity
@@ -44,7 +42,8 @@ from .api_models import (
     PasswordChangeBody,
     RuntimeCreateBody,
 )
-from .auth import HubAuthService, HubUser
+from .auth import HubAuthService, HubDatabaseBusyError, HubUser
+from .bootstrap import get_hub_root
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
 from .provisioner import RuntimeProvisionerUnavailableError
@@ -77,14 +76,6 @@ from .static_files import (
     resolve_console_static_dir,
 )
 from . import websocket_proxy
-
-
-def get_hub_root() -> Path:
-    """Resolve the Hub data root without changing ordinary App paths."""
-    configured = os.environ.get("QWENPAW_HUB_DIR", "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (WORKING_DIR / "hub").resolve()
 
 
 def build_runtime_service(
@@ -486,6 +477,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             )
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except HubDatabaseBusyError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+                headers={"Retry-After": "1"},
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await record_audit(
