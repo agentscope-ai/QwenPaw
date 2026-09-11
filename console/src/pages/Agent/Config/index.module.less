@@ -580,6 +580,13 @@
   color: var(--app-success-text);
 }
 
+.memorySectionIconQuaternary {
+  border: 1px solid var(--app-warning-border);
+  background: var(--app-warning-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-warning-text);
+}
+
 .memoryCapabilityHeader {
   display: flex;
   align-items: flex-end;
@@ -826,6 +833,34 @@
     color: var(--app-text-secondary);
     font-size: 11px;
     line-height: 1.45;
+  }
+}
+
+.memoryRerankerToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+  }
+
+  &:active {
+    background: var(--app-fill-strong);
   }
 }
 
