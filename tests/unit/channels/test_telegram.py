@@ -35,6 +35,11 @@ import pytest
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels import utils as channel_utils
 from qwenpaw.app.channels.telegram import channel as telegram_module
+from qwenpaw.app.channels.telegram.format_html import (
+    has_markdown_table,
+    markdown_table_column_count,
+    markdown_to_telegram_html,
+)
 
 from qwenpaw.schemas import (
     TextContent,
@@ -44,6 +49,9 @@ from qwenpaw.schemas import (
     FileContent,
     ContentType,
 )
+
+
+_MARKDOWN_TABLE = "| A | B |\n|---|---|\n| 1 | 2 |"
 
 
 @pytest.mark.parametrize("filename", [None, "report.pdf"])
@@ -209,6 +217,8 @@ def mock_telegram_bot() -> MagicMock:
     bot.username = "test_bot"
     bot.id = 123456789
     bot.send_message = AsyncMock()
+    bot.do_api_request = AsyncMock()
+    bot.edit_message_text = AsyncMock()
     bot.send_chat_action = AsyncMock()
     bot.send_photo = AsyncMock()
     bot.send_video = AsyncMock()
@@ -881,6 +891,154 @@ class TestTelegramSend:
         # Should not raise
         result = await telegram_channel.send("12345", "Hello", {})
         assert result is None
+
+
+class TestTelegramRichMessages:
+    """Tests for native table delivery and legacy fallback."""
+
+    def test_table_detection_ignores_fenced_code(self):
+        """A table-looking fenced code block must use the legacy path."""
+        assert has_markdown_table(_MARKDOWN_TABLE)
+        assert not has_markdown_table(f"```\n{_MARKDOWN_TABLE}\n```")
+        assert markdown_table_column_count(_MARKDOWN_TABLE) == 2
+
+    def test_legacy_table_fallback_is_compact_and_escaped(self):
+        """Legacy HTML output must avoid width-induced message inflation."""
+        text = "| A | B |\n|---|---|\n| `<tag>` | **A & B** |"
+
+        output = markdown_to_telegram_html(text)
+
+        assert output.startswith("<pre>")
+        assert "|---|---|" not in output
+        assert "&lt;tag&gt;" in output
+        assert "A &amp; B" in output
+        assert "&amp;lt;" not in output
+        assert "**A" not in output
+
+    @pytest.mark.asyncio
+    async def test_send_rich_message_payload_and_thread(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+    ):
+        """Table messages use the Rich API with the original Markdown."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+
+        await telegram_channel.send(
+            "chat",
+            _MARKDOWN_TABLE,
+            {"message_thread_id": 42},
+        )
+
+        mock_telegram_bot.do_api_request.assert_awaited_once_with(
+            "sendRichMessage",
+            api_kwargs={
+                "chat_id": "chat",
+                "message_thread_id": 42,
+                "rich_message": {"markdown": _MARKDOWN_TABLE},
+            },
+        )
+        mock_telegram_bot.send_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error",
+        [
+            telegram_module.BadRequest("unsupported"),
+            telegram_module.EndPointNotFound("unsupported"),
+        ],
+    )
+    async def test_send_falls_back_when_rich_api_is_unavailable(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+        error,
+    ):
+        """Unsupported Rich API responses use the legacy sender."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+        mock_telegram_bot.do_api_request.side_effect = error
+
+        await telegram_channel.send("chat", _MARKDOWN_TABLE)
+
+        mock_telegram_bot.do_api_request.assert_awaited_once()
+        mock_telegram_bot.send_message.assert_awaited_once()
+        kwargs = mock_telegram_bot.send_message.call_args.kwargs
+        assert "<pre>" in kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_non_table_message_does_not_call_rich_api(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+    ):
+        """Ordinary messages retain the existing HTML send path."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+
+        await telegram_channel.send("chat", "**bold**")
+
+        mock_telegram_bot.do_api_request.assert_not_awaited()
+        mock_telegram_bot.send_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_table_over_rich_limit_uses_legacy_path(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+    ):
+        """Messages above the Rich limit must use the legacy API."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+        text = f"{_MARKDOWN_TABLE}{'x' * 32768}"
+
+        await telegram_channel.send("chat", text)
+
+        mock_telegram_bot.do_api_request.assert_not_awaited()
+        assert mock_telegram_bot.send_message.await_count > 1
+
+    @pytest.mark.asyncio
+    async def test_rich_network_error_does_not_duplicate_send(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+    ):
+        """Do not retry an uncertain Rich request through sendMessage."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+        mock_telegram_bot.do_api_request.side_effect = RuntimeError("timeout")
+
+        await telegram_channel.send("chat", _MARKDOWN_TABLE)
+
+        mock_telegram_bot.do_api_request.assert_awaited_once()
+        mock_telegram_bot.send_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_streaming_table_uses_rich_message_edit(
+        self,
+        telegram_channel,
+        mock_telegram_bot,
+    ):
+        """Streaming completion edits the placeholder as Rich content."""
+        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+        send_meta = {
+            "_tg_stream": {"message_ids": {"message": 99}},
+        }
+
+        await telegram_channel.on_streaming_end(
+            None,
+            "chat",
+            None,
+            send_meta,
+            "message",
+            _MARKDOWN_TABLE,
+        )
+
+        mock_telegram_bot.do_api_request.assert_awaited_once_with(
+            "editMessageText",
+            api_kwargs={
+                "chat_id": "chat",
+                "message_id": 99,
+                "rich_message": {"markdown": _MARKDOWN_TABLE},
+            },
+        )
+        mock_telegram_bot.edit_message_text.assert_not_awaited()
 
 
 # =============================================================================
