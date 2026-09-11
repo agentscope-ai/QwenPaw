@@ -4,6 +4,11 @@ import { filterMenuForAgentCapabilities } from "./capabilities";
 
 const items: MenuItem[] = [
   {
+    id: "core.import",
+    location: "primary.agentScoped",
+    label: "Import",
+  },
+  {
     id: "core.channels",
     location: "primary.agentScoped",
     label: "Channels",

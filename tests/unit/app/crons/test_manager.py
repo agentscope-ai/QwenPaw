@@ -10,6 +10,7 @@ verify fixes for #4835 (load-layer corruption), #4957 (TaskEngineMixin
 stale status — in agentscope-runtime), or #4232 (SafeJSONSession
 concurrent writes — already fixed upstream).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,7 @@ import pytest
 from qwenpaw.app.crons.contracts import ServiceCronJob
 from qwenpaw.app.crons.manager import CronManager
 from qwenpaw.app.crons.models import (
+    CronJobSpec,
     CronJobState,
     ScheduleSpec,
 )
@@ -57,6 +59,39 @@ def manager(repo: InMemoryJobRepository) -> CronManager:
         repo=repo,
         workspace=MagicMock(),
         channel_manager=AsyncMock(),
+    )
+
+
+def _review_gated_job(job_id: str = "imported") -> CronJobSpec:
+    job = make_cron_job_spec(job_id=job_id, enabled=False)
+    portability = {
+        "source": "codex",
+        "source_id": "automation-1",
+        "requires_review": True,
+        "safety": "disabled_until_explicit_promotion",
+    }
+    dispatch = job.dispatch.model_copy(
+        update={"meta": {"portability": dict(portability)}},
+    )
+    return job.model_copy(
+        update={
+            "meta": {"portability": portability},
+            "dispatch": dispatch,
+        },
+    )
+
+
+def _legacy_provenance_job(job_id: str = "legacy-imported") -> CronJobSpec:
+    job = make_cron_job_spec(job_id=job_id, enabled=True)
+    return job.model_copy(
+        update={
+            "meta": {
+                "portability": {
+                    "source": "codex",
+                    "source_id": "legacy-automation",
+                },
+            },
+        },
     )
 
 
@@ -277,6 +312,168 @@ async def test_pause_and_resume_raise_for_missing_job(manager: CronManager):
         await manager.pause_job("missing")
     with pytest.raises(KeyError, match="missing"):
         await manager.resume_job("missing")
+
+
+@pytest.mark.asyncio
+async def test_review_gated_job_cannot_run_or_resume(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+    await manager.start()
+    manager._executor.execute = AsyncMock()
+
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.run_job(job.id or "")
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.resume_job(job.id or "")
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is False
+    manager._executor.execute.assert_not_awaited()
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_legacy_import_provenance_is_repaired_and_fail_closed(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _legacy_provenance_job()
+    await repo.upsert_job(job)
+    await manager.start()
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is False
+    assert stored.meta["portability"]["requires_review"] is True
+    assert stored.dispatch.meta["portability"]["safety"] == (
+        "disabled_until_explicit_promotion"
+    )
+    assert stored.request is not None
+    assert (
+        stored.request.request_context["portability_review_required"] is True
+    )
+
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.run_job(job.id or "")
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.resume_job(job.id or "")
+
+    promoted = await manager.promote_imported_job(job.id or "")
+    assert promoted.enabled is False
+    assert promoted.meta["portability"]["promoted_at"]
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_generic_update_cannot_enable_or_clear_review_gate(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+
+    with pytest.raises(PermissionError, match="remain disabled"):
+        await manager.create_or_replace_job(
+            job.model_copy(update={"enabled": True}),
+        )
+    with pytest.raises(PermissionError, match="only be cleared"):
+        await manager.create_or_replace_job(
+            job.model_copy(update={"meta": {}}),
+        )
+
+    assert await repo.get_job(job.id or "") == job
+
+
+@pytest.mark.asyncio
+async def test_promotion_clears_review_gate_but_keeps_job_disabled(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+    await manager.start()
+
+    promoted = await manager.promote_imported_job(
+        job.id or "",
+        actor="test-reviewer",
+    )
+
+    assert promoted.enabled is False
+    portability = promoted.meta["portability"]
+    assert portability["requires_review"] is False
+    assert portability["safety"] == "reviewed_disabled"
+    assert portability["promoted_by"] == "test-reviewer"
+    await manager.resume_job(job.id or "")
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is True
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_remote_job_promotion_requires_explicit_local_project_dir(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job("remote-no-mapping")
+    portability = dict(job.meta["portability"])
+    portability.update(
+        {
+            "source_cwd_remote_or_unverified": True,
+            "source_cwd_binding": "omitted_remote_or_unverified",
+        },
+    )
+    job = job.model_copy(update={"meta": {"portability": portability}})
+    await repo.upsert_job(job)
+
+    with pytest.raises(PermissionError, match="local project_dir"):
+        await manager.promote_imported_job(job.id or "")
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.meta["portability"]["requires_review"] is True
+
+
+@pytest.mark.asyncio
+async def test_remote_job_can_be_promoted_after_local_directory_mapping(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+    tmp_path,
+):
+    job = _review_gated_job("remote-with-mapping")
+    portability = dict(job.meta["portability"])
+    portability.update(
+        {
+            "source_cwd_remote_or_unverified": True,
+            "source_cwd_binding": "omitted_remote_or_unverified",
+        },
+    )
+    assert job.request is not None
+    request = job.request.model_copy(
+        update={
+            "request_context": {
+                "source": "cron",
+                "portability_review_required": True,
+                "project_dir": str(tmp_path),
+            },
+        },
+    )
+    job = job.model_copy(
+        update={
+            "meta": {"portability": portability},
+            "request": request,
+        },
+    )
+    await repo.upsert_job(job)
+
+    promoted = await manager.promote_imported_job(job.id or "")
+
+    assert promoted.enabled is False
+    assert promoted.meta["portability"]["requires_review"] is False
 
 
 @pytest.mark.asyncio

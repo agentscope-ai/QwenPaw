@@ -1,0 +1,8 @@
+{
+  "name": "expo",
+  "version": "1.0.0",
+  "description": "Portable Expo fixture",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {"displayName": "Expo"}
+}

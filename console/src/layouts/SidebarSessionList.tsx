@@ -5,17 +5,19 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Input, Modal, Spin } from "antd";
+import { Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { ChevronDown, FolderPlus, Plus } from "lucide-react";
+import { ChevronDown, Ellipsis, FolderPlus, Search } from "lucide-react";
+import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
   getBackendId,
   useSessionListData,
   type ExtendedChatSession,
-} from "../pages/Chat/components/ChatSessionDrawer/useSessionListData";
+} from "./useSidebarSessionListData";
 import { getSessionIdFromPath } from "../utils/sessionRoute";
 import {
   useSessionListStore,
@@ -54,8 +56,10 @@ const SESSION_ROW_HEIGHT = 42;
 /** Fixed height of each group header row */
 const GROUP_HEADER_HEIGHT = 42;
 const DATE_HEADER_HEIGHT = 24;
+const LOAD_MORE_ROW_HEIGHT = 44;
+const GROUP_PAGE_SIZE = 10;
 
-/** A flattened row: either a group header or a session item */
+/** A flattened row rendered by the virtualized session list. */
 type FlatRow =
   | {
       kind: "groupHeader";
@@ -68,6 +72,12 @@ type FlatRow =
       groupId: string;
       dateGroup: ChatDateGroup;
       label: string;
+    }
+  | {
+      kind: "loadMore";
+      groupId: string;
+      remaining: number;
+      collapse: boolean;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
@@ -90,6 +100,7 @@ interface VirtualRowData {
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
+  loadMoreGroup: (groupId: string, collapse?: boolean) => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
@@ -166,6 +177,30 @@ const VirtualRow = React.memo(function VirtualRow({
     );
   }
 
+  if (row.kind === "loadMore") {
+    const label = row.collapse
+      ? data.t("chat.groups.collapseList", "Collapse list")
+      : data.t("chat.groups.loadMore", "Load more · {{count}} remaining", {
+          count: row.remaining,
+        });
+    return (
+      <div className={styles.loadMoreRow} style={style}>
+        <button
+          type="button"
+          className={styles.loadMoreButton}
+          aria-label={label}
+          onClick={() => data.loadMoreGroup(row.groupId, row.collapse)}
+        >
+          <span>{label}</span>
+          <ChevronDown
+            size={13}
+            style={{ transform: row.collapse ? "rotate(180deg)" : undefined }}
+          />
+        </button>
+      </div>
+    );
+  }
+
   const session = row.session;
   const channelKey = session.channel?.trim() || "";
   const channelLabel = channelKey
@@ -185,7 +220,6 @@ const VirtualRow = React.memo(function VirtualRow({
         label={session.name || "New Chat"}
       >
         <SessionItem
-          variant="sidebar"
           sessionId={session.id!}
           name={session.name || "New Chat"}
           channelKey={channelKey || undefined}
@@ -239,11 +273,16 @@ export default function SidebarSessionList({
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
   /** Collapsed chat groups — persisted so remounts keep the user's state */
-  const { collapsedGroups, toggleGroup, expandGroup } =
-    useCollapsedChatGroups();
+  const {
+    collapsedGroups,
+    toggleGroup,
+    expandGroup,
+    initializeCollapsedGroups,
+  } = useCollapsedChatGroups();
   const {
     groups: chatGroups,
     createGroup,
@@ -254,6 +293,11 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [visibleSessionCounts, setVisibleSessionCounts] = useState<
+    Record<string, number>
+  >({});
+  const searchInputRef = useRef<InputRef>(null);
+  const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
     () =>
       localizeSystemGroups(chatGroups, {
@@ -418,6 +462,21 @@ export default function SidebarSessionList({
     }
   }, [onNewChat]);
 
+  const handleOpenSearch = useCallback(() => {
+    setHistoryCollapsed(false);
+    setCreatingGroup(false);
+    setSearchOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, []);
+
+  const handleOpenCreateGroup = useCallback(() => {
+    setHistoryCollapsed(false);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setCreatingGroup(true);
+    window.setTimeout(() => groupInputRef.current?.focus(), 0);
+  }, []);
+
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -432,6 +491,111 @@ export default function SidebarSessionList({
       searchQuery.trim() ? null : groupChats(sortedSessions, visibleChatGroups),
     [sortedSessions, searchQuery, visibleChatGroups],
   );
+
+  const activeSessionPage = useMemo(() => {
+    if (!currentSessionId || !groups) return null;
+    const activeGroup = groups.find(({ sessions }) =>
+      sessions.some(
+        (session) =>
+          session.id === currentSessionId ||
+          session.realId === currentSessionId,
+      ),
+    );
+    if (!activeGroup) return null;
+    const orderedSessions = groupChatsByDate(activeGroup.sessions).flatMap(
+      (dateGroup) => dateGroup.sessions,
+    );
+    const sessionIndex = orderedSessions.findIndex(
+      (session) =>
+        session.id === currentSessionId || session.realId === currentSessionId,
+    );
+    if (sessionIndex < 0) return null;
+    return {
+      groupId: activeGroup.group.id,
+      requiredCount:
+        Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE,
+    };
+  }, [currentSessionId, groups]);
+
+  const defaultCollapsedGroupIds = useMemo(() => {
+    if (!groups) return new Set<string>();
+
+    const expandableGroupIds = new Set(
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .map(({ group }) => group.id),
+    );
+    const recentGroupIds = new Set<string>();
+    for (const session of sortedSessions) {
+      const groupId = resolveChatGroupId(session);
+      if (!expandableGroupIds.has(groupId)) continue;
+      recentGroupIds.add(groupId);
+      if (recentGroupIds.size === 2) break;
+    }
+    if (activeSessionPage) {
+      recentGroupIds.add(activeSessionPage.groupId);
+    }
+
+    // If there are no conversations yet, keep the first two user groups
+    // discoverable while leaving fixed system groups collapsed.
+    if (recentGroupIds.size === 0) {
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .slice(0, 2)
+        .forEach(({ group }) => recentGroupIds.add(group.id));
+    }
+
+    return new Set(
+      groups
+        .filter(
+          ({ group }) =>
+            !recentGroupIds.has(group.id) &&
+            (group.kind === "cron" ||
+              group.kind === "subagents" ||
+              !group.pinned),
+        )
+        .map(({ group }) => group.id),
+    );
+  }, [activeSessionPage, groups, sortedSessions]);
+
+  useEffect(() => {
+    if (loading) return;
+    initializeCollapsedGroups(defaultCollapsedGroupIds);
+  }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
+
+  const loadMoreGroup = useCallback(
+    (groupId: string, collapse = false) => {
+      setVisibleSessionCounts((previous) => ({
+        ...previous,
+        [groupId]: collapse
+          ? Math.max(
+              GROUP_PAGE_SIZE,
+              activeSessionPage?.groupId === groupId
+                ? activeSessionPage.requiredCount
+                : 0,
+            )
+          : (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
+      }));
+    },
+    [activeSessionPage],
+  );
+
+  useEffect(() => {
+    if (!activeSessionPage) return;
+    setVisibleSessionCounts((previous) => {
+      const currentCount =
+        previous[activeSessionPage.groupId] ?? GROUP_PAGE_SIZE;
+      if (currentCount >= activeSessionPage.requiredCount) return previous;
+      return {
+        ...previous,
+        [activeSessionPage.groupId]: activeSessionPage.requiredCount,
+      };
+    });
+  }, [activeSessionPage]);
 
   useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
@@ -456,20 +620,55 @@ export default function SidebarSessionList({
         collapsed,
       });
       if (!collapsed) {
+        const visibleCount = Math.min(
+          visibleSessionCounts[group.group.id] ?? GROUP_PAGE_SIZE,
+          group.sessions.length,
+        );
+        let renderedCount = 0;
         for (const dateGroup of groupChatsByDate(group.sessions)) {
+          const sessionsToRender = dateGroup.sessions.slice(
+            0,
+            visibleCount - renderedCount,
+          );
+          if (sessionsToRender.length === 0) break;
           rows.push({
             kind: "dateHeader",
             groupId: group.group.id,
             dateGroup: dateGroup.key,
             label: t(`chat.group.${dateGroup.key}`),
           });
-          for (const session of dateGroup.sessions) {
+          for (const session of sessionsToRender) {
             rows.push({
               kind: "session",
               session,
               groupId: group.group.id,
             });
           }
+          renderedCount += sessionsToRender.length;
+        }
+        if (visibleCount < group.sessions.length) {
+          rows.push({
+            kind: "loadMore",
+            groupId: group.group.id,
+            remaining: group.sessions.length - visibleCount,
+            collapse: false,
+          });
+        } else if (
+          visibleCount > GROUP_PAGE_SIZE &&
+          visibleCount >
+            Math.min(
+              activeSessionPage?.groupId === group.group.id
+                ? activeSessionPage.requiredCount
+                : GROUP_PAGE_SIZE,
+              group.sessions.length,
+            )
+        ) {
+          rows.push({
+            kind: "loadMore",
+            groupId: group.group.id,
+            remaining: 0,
+            collapse: true,
+          });
         }
       }
     }
@@ -480,6 +679,8 @@ export default function SidebarSessionList({
     isSessionDragging,
     searchQuery,
     filteredSessions,
+    visibleSessionCounts,
+    activeSessionPage,
     t,
   ]);
 
@@ -492,6 +693,8 @@ export default function SidebarSessionList({
         ? GROUP_HEADER_HEIGHT
         : row.kind === "dateHeader"
         ? DATE_HEADER_HEIGHT
+        : row.kind === "loadMore"
+        ? LOAD_MORE_ROW_HEIGHT
         : SESSION_ROW_HEIGHT;
     },
     [flatRows],
@@ -562,6 +765,7 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
+      loadMoreGroup,
       toggleGroup,
       groups: visibleChatGroups,
       renameGroup,
@@ -585,6 +789,7 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
+      loadMoreGroup,
       toggleGroup,
       visibleChatGroups,
       renameGroup,
@@ -602,49 +807,91 @@ export default function SidebarSessionList({
 
   return (
     <div className={styles.sessionList}>
-      {/* Sticky header: new chat + history title + search */}
+      {/* Sticky history header and compact actions. */}
       <div className={styles.sessionListHeader}>
-        {/* New Chat button */}
-        <button className={styles.newChatBtn} onClick={handleNewChat}>
-          <Plus size={14} />
-          <span>{t("chat.newChatTooltip")}</span>
-        </button>
-
-        {/* Conversation history header (collapsible) */}
-        <button
-          className={styles.historyHeader}
-          onClick={() => setHistoryCollapsed((c) => !c)}
-        >
-          <span className={styles.historyLabel}>
-            {t("chat.conversationHistory", "Conversation History")}
-          </span>
-          <span
-            className={styles.historyChevron}
-            style={{
-              transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
+        <div className={styles.historyHeaderRow}>
+          <button
+            className={styles.historyHeader}
+            type="button"
+            aria-expanded={!historyCollapsed}
+            onClick={() => setHistoryCollapsed((c) => !c)}
           >
-            <ChevronDown size={12} />
-          </span>
-        </button>
+            <span className={styles.historyLabel}>
+              {t("chat.conversationHistory", "Conversation History")}
+            </span>
+            <span
+              className={styles.historyChevron}
+              style={{
+                transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+              }}
+            >
+              <ChevronDown size={12} />
+            </span>
+          </button>
+          <div className={styles.historyActions}>
+            <Tooltip title={t("chat.newTask", "New task")}>
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("chat.newTask", "New task")}
+                onClick={handleNewChat}
+              >
+                <SparkNewChatLine size={18} />
+              </button>
+            </Tooltip>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomRight"
+              menu={{
+                items: [
+                  {
+                    key: "search",
+                    icon: <Search size={15} />,
+                    label: t(
+                      "chat.sessionPanel.searchConversations",
+                      "Search conversations",
+                    ),
+                    onClick: handleOpenSearch,
+                  },
+                  {
+                    key: "create-group",
+                    icon: <FolderPlus size={15} />,
+                    label: t("chat.groups.create", "New group"),
+                    onClick: handleOpenCreateGroup,
+                  },
+                ],
+              }}
+            >
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("sidebar.more", "More")}
+              >
+                <Ellipsis size={16} />
+              </button>
+            </Dropdown>
+          </div>
+        </div>
 
-        {/* Search bar */}
-        {!historyCollapsed && (
+        {!historyCollapsed && (searchOpen || creatingGroup) && (
           <div className={styles.searchContainer}>
-            <Input
-              size="small"
-              allowClear
-              placeholder={t(
-                "chat.sessionPanel.searchConversations",
-                "Search…",
-              )}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-            />
-            {creatingGroup ? (
+            {searchOpen && (
               <Input
-                autoFocus
+                ref={searchInputRef}
+                size="small"
+                allowClear
+                placeholder={t(
+                  "chat.sessionPanel.searchConversations",
+                  "Search…",
+                )}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            )}
+            {creatingGroup && (
+              <Input
+                ref={groupInputRef}
                 size="small"
                 className={styles.groupInput}
                 placeholder={t("chat.groups.namePlaceholder", "Group name")}
@@ -655,14 +902,6 @@ export default function SidebarSessionList({
                   if (!newGroupName.trim()) setCreatingGroup(false);
                 }}
               />
-            ) : (
-              <button
-                className={styles.createGroupBtn}
-                onClick={() => setCreatingGroup(true)}
-              >
-                <FolderPlus size={13} />
-                <span>{t("chat.groups.create", "New group")}</span>
-              </button>
             )}
           </div>
         )}
@@ -702,7 +941,6 @@ export default function SidebarSessionList({
                 itemCount={flatRows.length}
                 itemSize={getRowHeight}
                 itemData={virtualListData}
-                className={styles.list}
                 overscanCount={10}
                 onItemsRendered={({ visibleStartIndex: nextIndex }) =>
                   setVisibleStartIndex(nextIndex)

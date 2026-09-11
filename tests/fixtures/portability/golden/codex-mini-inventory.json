@@ -1,0 +1,44 @@
+{
+  "provider": "codex",
+  "sessions": [
+    {
+      "id": "01a02000-0000-7000-8000-000000000001",
+      "title": "Continue the Codex fixture",
+      "cwd": "/fixture/codex-project",
+      "history": [
+        {"kind": "user", "text": "Continue the Codex fixture"},
+        {"kind": "message", "text": "Codex fixture complete"}
+      ]
+    }
+  ],
+  "ignored_sessions": [
+    "01a02000-0000-7000-8000-000000000002"
+  ],
+  "skills": ["portable-skill"],
+  "mcp": [
+    {
+      "id": "codex:plugin-mcp:expo@mini-market:expo-docs",
+      "name": "expo-docs",
+      "transport": "streamable_http",
+      "command": "",
+      "args": [],
+      "url": "https://example.test/expo-mcp",
+      "plugin": "expo@mini-market"
+    }
+  ],
+  "memory": [
+    {"id": "codex:global", "cwd": "", "files": ["MEMORY.md"]}
+  ],
+  "marketplaces": [
+    {"id": "codex:mini-market", "name": "mini-market", "type": "unknown"}
+  ],
+  "plugins": [
+    {
+      "id": "expo@mini-market",
+      "name": "Expo",
+      "version": "1.0.0",
+      "adapter": "codex_content_bundle_v1"
+    }
+  ],
+  "scheduled_tasks": []
+}

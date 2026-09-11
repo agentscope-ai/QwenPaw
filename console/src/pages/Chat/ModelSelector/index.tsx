@@ -191,7 +191,7 @@ export default function ModelSelector({
     [providers],
   );
 
-  // Free providers appear in both tabs; other providers use model-level tags.
+  // Models are split by is_free; mixed-tier providers can appear in both tabs.
   const { freeProviders, proProviders } = useMemo(() => {
     return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);

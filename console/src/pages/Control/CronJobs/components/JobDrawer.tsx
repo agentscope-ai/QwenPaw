@@ -12,9 +12,11 @@ import { DatePicker, TimePicker } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import type {
-  CronDispatchTargetItem,
-  CronJobSpecOutput,
+import {
+  requiresCronLocalProjectMapping,
+  requiresCronImportReview,
+  type CronDispatchTargetItem,
+  type CronJobSpecOutput,
 } from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
@@ -62,6 +64,12 @@ export function JobDrawer({
   );
 
   const isEdit = !!editingJob;
+  const importReviewRequired =
+    editingJob !== null && requiresCronImportReview(editingJob);
+  const projectMappingRequired =
+    importReviewRequired &&
+    editingJob !== null &&
+    requiresCronLocalProjectMapping(editingJob);
 
   useEffect(() => {
     if (open) {
@@ -179,9 +187,37 @@ export function JobDrawer({
           name="enabled"
           label={t("cronJobs.enabled")}
           valuePropName="checked"
+          tooltip={
+            importReviewRequired ? t("cronJobs.importReviewBlocked") : undefined
+          }
         >
-          <Switch />
+          <Switch disabled={importReviewRequired} />
         </Form.Item>
+
+        {importReviewRequired && (
+          <Form.Item
+            name={["request", "request_context", "project_dir"]}
+            label={t("cronJobs.importReviewProjectDirLabel")}
+            tooltip={t("cronJobs.importReviewProjectDirTooltip")}
+            extra={t("cronJobs.importReviewProjectDirExtra")}
+            rules={
+              projectMappingRequired
+                ? [
+                    {
+                      required: true,
+                      whitespace: true,
+                      message: t("cronJobs.importReviewProjectDirRequired"),
+                    },
+                  ]
+                : undefined
+            }
+          >
+            <Input
+              placeholder={t("cronJobs.importReviewProjectDirPlaceholder")}
+              autoComplete="off"
+            />
+          </Form.Item>
+        )}
 
         <Form.Item
           noStyle

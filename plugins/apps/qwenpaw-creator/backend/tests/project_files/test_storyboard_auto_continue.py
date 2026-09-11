@@ -19,10 +19,8 @@ from services.project_files.facade import CreatorFileServices
 from services.project_files.review import ReviewDecisionItem
 from services.project_files.models import (
     ElementLocation,
-    EntityCollection,
     Project,
     R2VCreation,
-    Shot,
     TimelineElement,
     TimelineSpan,
 )
@@ -47,13 +45,6 @@ def _services_with_pending_review(
 ) -> CreatorFileServices:
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
     services = CreatorFileServices.create(tmp_path.resolve())
-    shot = Shot(
-        shot_id=f"{ELEMENT_ID}-shot",
-        description="猫追逐老鼠",
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=4,
-    )
     project = Project.new(project_id=PROJECT_ID, name="Auto Continue")
     project.timelines.items["timeline:main"].elements_by_id[
         ELEMENT_ID
@@ -65,10 +56,6 @@ def _services_with_pending_review(
         creation=R2VCreation(
             narrative="猫发现老鼠后追逐",
             storyboard_prompt="动画分镜：猫发现并追逐老鼠",
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
         ),
     )
     services.projects.create(

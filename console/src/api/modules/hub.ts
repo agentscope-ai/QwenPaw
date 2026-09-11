@@ -114,6 +114,7 @@ export interface HubHealth {
   runtime_state: HubRuntime["state"] | null;
   runtime_desired_state: HubRuntime["desired_state"] | null;
   runtime_start_policy: HubRuntime["start_policy"] | null;
+  runtime_last_error: string | null;
   provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 

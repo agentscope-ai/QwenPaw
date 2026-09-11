@@ -23,13 +23,8 @@ pytestmark = pytest.mark.unit
                 "显式媒体预算覆盖默认资产拆分",
                 "共享设计图数 + R2V Element 数",
                 "不能用共享设计 Artifact 冒充",
-            ),
-        ),
-        (
-            "visual_development_agent.system",
-            (
                 "单张共享设计图预算例外",
-                "不得在视觉开发范围调用第二次",
+                "不得建立 cast lineup 或创建第二个可调度视觉节点",
                 "全部图片调用上限”不足以覆盖这些 storyboard",
             ),
         ),

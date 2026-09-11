@@ -359,10 +359,19 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max auto-search results, etc.
-- **Embedding model** — Whether to enable embedding cache, etc.
+- **Long-term memory** — Select ReMeLight, disabled memory, or an installed
+  memory-backend plugin. The selector is populated from the runtime registry;
+  the selected plugin can add its own configuration tab. ReMeLight exposes
+  Auto-Memory cadence; Auto-Dream, Daily Paper, and Auto Fin schedules and Inbox
+  delivery; automatic memory search; and index maintenance.
+- **Embedding model** — Embedding service, dimensions, cache, health checks, and pending-rebuild state.
 
-For mechanics, see [Context](./context) and [Config & working directory](./config).
+Saving a backend selection or plugin-owned memory configuration schedules an
+Agent reload. If a previously selected plugin is unavailable, the Console keeps
+the selection visible as unavailable instead of silently changing the Agent to
+another memory store.
+
+For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embedding Models](./embedding), and [Config & working directory](./config).
 
 ---
 

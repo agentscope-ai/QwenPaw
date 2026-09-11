@@ -28,7 +28,10 @@ import {
   SparkDataLine,
   SparkDateLine,
   SparkDebugLine,
+  SparkDownloadLine,
   SparkEmailLine,
+  SparkFile2Line,
+  SparkHistoryLine,
   SparkInternetLine,
   SparkMagicWandLine,
   SparkMcpMcpLine,
@@ -44,9 +47,7 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import { GitBranch } from "lucide-react";
 import i18next from "i18next";
-import { Files } from "lucide-react";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
 
@@ -72,6 +73,14 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkMyApplicationLine,
     route: "core.marketplace",
     order: 15,
+  },
+  {
+    id: "core.import",
+    location: "primary.agentScoped",
+    label: navLabel("nav.import", "Import"),
+    icon: SparkDownloadLine,
+    route: "core.import",
+    order: 17,
   },
 
   // control-group
@@ -132,7 +141,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     location: "primary.agentScoped",
     parentId: "core.workspace-group",
     label: navLabel("nav.files"),
-    icon: Files,
+    icon: SparkFile2Line,
     route: "core.files",
     order: 5,
   },
@@ -195,7 +204,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     location: "primary.agentScoped",
     parentId: "core.agent-group",
     label: navLabel("checkpoints.nav"),
-    icon: GitBranch,
+    icon: SparkHistoryLine,
     route: "core.checkpoints",
     order: 80,
   },

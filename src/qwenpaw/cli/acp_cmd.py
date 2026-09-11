@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 
 import click
 
@@ -73,6 +74,20 @@ def acp_cmd(
             raise click.UsageError(str(exc)) from exc
 
     from ..agents.acp.server import run_qwenpaw_agent
+
+    # Warm-up heavy native imports before the event loop starts. In the full
+    # ACP runtime, the first `import numpy` (via agentscope.embedding inside
+    # workspace bootstrap) can block indefinitely on the Windows loader lock
+    # (all threads waiting, no concurrent import activity). Importing here,
+    # before asyncio.run, completes the DLL load while nothing else is
+    # contended and makes the workspace bootstrap pass through immediately.
+    # Best-effort and Windows-only: numpy is a transitive dependency, not a
+    # declared one, so environments without it must keep starting normally.
+    if sys.platform == "win32":
+        try:
+            import numpy  # noqa: E401,F402  pylint: disable=unused-import
+        except ModuleNotFoundError:
+            pass
 
     asyncio.run(
         run_qwenpaw_agent(

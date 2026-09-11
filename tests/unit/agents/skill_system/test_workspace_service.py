@@ -285,6 +285,41 @@ class TestZipImport:
         assert result["imported"] == []
         assert len(result["conflicts"]) == 1
 
+    def test_pawport_retry_replaces_only_its_prepared_skill(self, ws_env):
+        service, workspace_dir = ws_env
+        skill_dir = workspace_dir / "skills" / "zipped"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            _skill_md("zipped", "incomplete"),
+            encoding="utf-8",
+        )
+        (skill_dir / ".qwenpaw-pawport.json").write_text(
+            json.dumps(
+                {
+                    "owner": "pawport",
+                    "provider": "codex",
+                    "source_id": "zipped-id",
+                    "state": "prepared",
+                },
+            ),
+            encoding="utf-8",
+        )
+
+        result = service.import_from_zip(
+            self._make_zip(body="complete"),
+            pawport_owner={
+                "owner": "pawport",
+                "provider": "codex",
+                "source_id": "zipped-id",
+            },
+        )
+
+        assert result["imported"] == ["zipped"]
+        assert "complete" in (skill_dir / "SKILL.md").read_text(
+            encoding="utf-8",
+        )
+        assert not (skill_dir / ".qwenpaw-pawport.json").exists()
+
     def test_import_bad_zip_raises(self, ws_env):
         from qwenpaw.exceptions import SkillsError
 

@@ -60,3 +60,28 @@ async def test_coding_mode_routes_directly_to_harness(
             },
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_portability_adaptation_cannot_route_to_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(backend="codex"),
+    )
+    workspace = Workspace("agent-1", str(tmp_path / "workspace"))
+    runtime = FakeHarnessRuntime()
+    workspace._harness_runtime = runtime
+    request = SimpleNamespace(
+        request_context={"source": "portability_adaptation"},
+        session_id="migration-worker",
+        user_id="migration-worker",
+        channel="console",
+    )
+
+    with pytest.raises(PermissionError, match="PawPort compatibility"):
+        _ = [item async for item in workspace.stream_query(request)]
+
+    assert runtime.call is None

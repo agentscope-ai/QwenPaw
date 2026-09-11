@@ -1,6 +1,29 @@
-/* SidebarSessionList — compact session list embedded in simple-mode sidebar */
+/* SidebarSessionList — conversation history in the primary sidebar */
 
 .sessionList {
+  --sidebar-header-bg: var(--app-bg);
+  --sidebar-group-label: var(--app-text-quaternary);
+  --sidebar-group-label-hover: var(--app-text-tertiary);
+  --sidebar-state-text: var(--app-text-tertiary);
+  --sidebar-input-bg: var(--app-surface);
+  --sidebar-input-border: var(--app-border);
+  --sidebar-create-border: var(--app-border-strong);
+  --sidebar-create-bg: rgba(255, 255, 255, 0.42);
+  --sidebar-create-text: var(--app-text-secondary);
+  --sidebar-create-hover-border: color-mix(
+    in srgb,
+    var(--app-accent) 46%,
+    transparent
+  );
+  --sidebar-create-hover-bg: color-mix(
+    in srgb,
+    var(--app-accent) 6%,
+    transparent
+  );
+  --sidebar-create-hover-text: var(--app-accent-text);
+  --sidebar-sticky-bg: color-mix(in srgb, var(--app-bg) 96%, transparent);
+  --sidebar-sticky-border: var(--app-border-subtle);
+
   flex: 1;
   min-height: 0;
   display: flex;
@@ -8,33 +31,11 @@
   overflow: hidden;
 }
 
-/* Sticky header: new chat + history title + search */
+/* Sticky history header and compact actions */
 .sessionListHeader {
   flex-shrink: 0;
   z-index: 1;
-  background: #f9f8f4;
-}
-
-/* Search bar area */
-.newChatBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: calc(100% - 16px);
-  margin: 6px 8px 4px;
-  padding: 7px 12px;
-  border: none;
-  border-radius: 8px;
-  background: #ff7f16;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-
-  &:hover {
-    opacity: 0.85;
-  }
+  background: var(--sidebar-header-bg);
 }
 
 .searchContainer {
@@ -44,41 +45,15 @@
 .searchInput {
   border-radius: 6px;
   font-size: 12px;
-}
-
-.createGroupBtn {
-  display: flex;
-  width: 100%;
-  height: 32px;
-  align-items: center;
-  gap: 7px;
-  margin-top: 5px;
-  justify-content: center;
-  padding: 0 10px;
-  border: 1px dashed var(--colorBorder, rgba(43, 18, 0, 0.14));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.42);
-  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
-  font-size: 12px;
-  font-weight: 550;
-  cursor: pointer;
-
-  &:hover {
-    border-color: color-mix(in srgb, #ff7f16 46%, transparent);
-    background: color-mix(in srgb, #ff7f16 6%, transparent);
-    color: #ff7f16;
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
-    outline-offset: 1px;
-  }
+  background: var(--sidebar-input-bg);
+  border-color: var(--sidebar-input-border);
 }
 
 .groupInput {
-  margin-top: 5px;
   border-radius: 6px;
   font-size: 11px;
+  background: var(--sidebar-input-bg);
+  border-color: var(--sidebar-input-border);
 }
 
 /* Session items container */
@@ -97,14 +72,51 @@
   right: 4px;
   left: 4px;
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
-  background: color-mix(in srgb, #f9f8f4 96%, transparent);
+  border-bottom: 1px solid var(--sidebar-sticky-border);
+  background: var(--sidebar-sticky-bg);
   backdrop-filter: blur(12px);
 }
 
 /* Date group container */
 .group {
   margin-bottom: 4px;
+}
+
+.loadMoreRow {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 8px;
+}
+
+.loadMoreButton {
+  display: flex;
+  width: 100%;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  font-size: 11px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.loadMoreButton:hover {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+
+.loadMoreButton:focus-visible {
+  outline: 2px solid var(--app-accent-border);
+  outline-offset: 1px;
 }
 
 /* Date group label (clickable to collapse/expand) */
@@ -121,12 +133,12 @@
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  color: var(--sidebar-group-label);
   user-select: none;
   transition: color 0.15s;
 
   &:hover {
-    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+    color: var(--sidebar-group-label-hover);
   }
 }
 
@@ -138,85 +150,64 @@
   justify-content: center;
   padding: 24px 12px;
   font-size: 12px;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
-}
-
-/* Dark mode */
-:global(.dark-mode) {
-  .sessionListHeader {
-    background: #1a1a1a;
-  }
-
-  .groupLabel {
-    color: rgba(255, 255, 255, 0.42);
-  }
-
-  .groupHeader {
-    color: rgba(255, 255, 255, 0.42);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.45);
-    }
-  }
-
-  .loadingState,
-  .emptyState {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .historyHeader {
-    color: var(--text-secondary, rgba(255, 255, 255, 0.45));
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-    }
-  }
-
-  .searchInput {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .groupInput {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .createGroupBtn {
-    border-color: rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.035);
-    color: rgba(255, 255, 255, 0.62);
-
-    &:hover {
-      border-color: rgba(255, 143, 50, 0.5);
-      background: rgba(255, 127, 22, 0.1);
-      color: #ff8f32;
-    }
-  }
-
-  .stickyGroupHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-    background: color-mix(in srgb, #1a1a1a 96%, transparent);
-  }
+  color: var(--sidebar-state-text);
 }
 
 /* ── Collapsible history header ─────────────────────────────────────────── */
 
+.historyHeaderRow {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
 .historyHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 12px 4px 10px;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px 4px 10px;
   margin: 2px 0;
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   transition: color 0.15s;
 
   &:hover {
-    color: var(--colorText, rgba(0, 0, 0, 0.88));
+    color: var(--app-text);
+  }
+}
+
+.historyActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.historyAction {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--app-fill);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline-offset: 1px;
   }
 }
 
@@ -233,37 +224,31 @@
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
+:global(.dark-mode) .sessionList {
+  --sidebar-header-bg: var(--app-surface-subtle);
+  --sidebar-group-label: rgba(255, 255, 255, 0.42);
+  --sidebar-group-label-hover: rgba(255, 255, 255, 0.45);
+  --sidebar-state-text: var(--app-text-quaternary);
+  --sidebar-input-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-input-border: rgba(255, 255, 255, 0.1);
+  --sidebar-create-border: rgba(255, 255, 255, 0.14);
+  --sidebar-create-bg: rgba(255, 255, 255, 0.035);
+  --sidebar-create-text: rgba(255, 255, 255, 0.62);
+  --sidebar-create-hover-border: rgba(255, 143, 50, 0.5);
+  --sidebar-create-hover-bg: rgba(255, 127, 22, 0.1);
+  --sidebar-create-hover-text: #ff8f32;
+  --sidebar-sticky-bg: color-mix(
+    in srgb,
+    var(--app-surface-subtle) 96%,
+    transparent
+  );
 
-/* ── Time group header (Today / Last 7 days / Earlier) ─────────────────── */
+  .historyAction {
+    color: rgba(255, 255, 255, 0.68);
 
-.groupHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 10px 2px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  user-select: none;
-  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
-  transition: color 0.15s;
-
-  &:hover {
-    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+    &:hover {
+      color: rgba(255, 255, 255, 0.92);
+      background: rgba(255, 255, 255, 0.08);
+    }
   }
-}
-
-.groupHeaderText {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.groupChevron {
-  display: inline-flex;
-  align-items: center;
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
 }

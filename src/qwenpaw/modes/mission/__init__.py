@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Mission mode — ``AgentMode`` for autonomous iterative tasks.
-
-Exposes hooks and a prompt contributor so the Runtime
-lifecycle drives mission state load/save.  All domain
-logic (command handler, state files, prompts, gate)
-lives under ``modes.mission``.
-
-The Phase 2 execution loop is driven by ``MissionGate``
-registered into the universal ``StopHandler``.
-"""
+"""Mission mode for autonomous iterative tasks."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode, find_active_explicit_mode
+from ...app.agent_context import scoped_session_id
+from ...loop.gates.base import StopAction
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
 
@@ -249,6 +243,33 @@ class MissionMode(AgentMode):
             return False
         # pylint: disable=protected-access
         return self._gate._state() is not None
+
+    @property
+    def max_retries_per_story(self) -> int:
+        """Configured retry allowance used by Mission workers."""
+        return self._max_retries_per_story
+
+    def start_internal_mission(self, session_id: str, loop_dir: Path) -> None:
+        """Activate existing Mission state for a private workflow."""
+        from .gates import MissionGate
+
+        if self._gate is None:
+            self._gate = MissionGate()
+        with scoped_session_id(session_id):
+            self._gate.activate_for_mission(loop_dir)
+
+    async def check_internal_mission(self, session_id: str) -> bool:
+        """Return whether MissionGate accepts the current PRD state."""
+        if self._gate is None:
+            raise RuntimeError("MissionMode is not initialized")
+        with scoped_session_id(session_id):
+            return (await self._gate.check({})).action is StopAction.TERMINATE
+
+    def finish_internal_mission(self, session_id: str) -> None:
+        """Clear private Mission gate state."""
+        if self._gate is not None:
+            with scoped_session_id(session_id):
+                self._gate.reset_session()
 
 
 def _info_msg(text: str) -> Msg:

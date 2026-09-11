@@ -562,6 +562,148 @@ async def test_openai_formatter_aligns_reasoning_with_split_segments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_formatter_omits_thinking_without_mutation() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    old_thought = ThinkingBlock(thinking="old reasoning")
+    new_thought = ThinkingBlock(thinking="new reasoning")
+    formatter._qwenpaw_omit_thinking_ids = {old_thought.id}
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            old_thought,
+            ToolCallBlock(id="call_1", name="first", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="first",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            new_thought,
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert "reasoning_content" not in assistant_messages[0]
+    assert assistant_messages[1]["reasoning_content"] == "new reasoning"
+    assert old_thought.thinking == "old reasoning"
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "model_id"),
+    [
+        ("deepseek", None),
+        ("openrouter", "deepseek/deepseek-reasoner"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_deepseek_formatter_preserves_exact_reasoning(
+    provider_id: str,
+    model_id: str | None,
+) -> None:
+    """DeepSeek tool-call history must never use thinking omission."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    thought = ThinkingBlock(thinking="must be replayed exactly")
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            thought,
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    assert formatter.set_thinking_omit_ids({thought.id}) is False
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == (
+        "must be replayed exactly"
+    )
+    assert formatter._qwenpaw_omit_thinking_ids == set()
+    assert thought.thinking == "must be replayed exactly"
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_rejects_thinking_omission() -> None:
+    """A learned exact-replay requirement overrides prior fold state."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    thought = ThinkingBlock(thinking="must remain available")
+
+    assert formatter.set_thinking_omit_ids({thought.id}) is True
+    formatter._qwenpaw_require_reasoning_content = True
+    assert formatter.set_thinking_omit_ids({thought.id}) is False
+
+    formatted = await formatter.format(
+        [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[thought, TextBlock(text="done")],
+            ),
+        ],
+    )
+
+    assert formatted[0]["reasoning_content"] == "must remain available"
+    assert formatter._qwenpaw_omit_thinking_ids == set()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_formatter_preserves_native_thinking() -> None:
+    """Request-time elision must not alter signed Anthropic thinking."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    thought = ThinkingBlock(
+        thinking="native reasoning",
+        signature="signature-abc",
+    )
+    formatter._qwenpaw_omit_thinking_ids = {thought.id}
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[thought, TextBlock(text="done")],
+    )
+
+    formatted = await formatter.format([msg])
+
+    thinking = formatted[0]["content"][0]
+    assert thinking == {
+        "type": "thinking",
+        "thinking": "native reasoning",
+        "signature": "signature-abc",
+    }
+
+
+@pytest.mark.asyncio
 async def test_openai_formatter_aligns_reasoning_across_hint() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
@@ -658,7 +800,7 @@ async def test_required_reasoning_preserves_real_and_fills_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_required_reasoning_respects_disabled_relay_privacy() -> None:
+async def test_required_reasoning_overrides_disabled_relay() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
     )
@@ -680,7 +822,7 @@ async def test_required_reasoning_respects_disabled_relay_privacy() -> None:
     assistant_messages = [
         item for item in formatted if item.get("role") == "assistant"
     ]
-    assert assistant_messages[0]["reasoning_content"] == " "
+    assert assistant_messages[0]["reasoning_content"] == "private reasoning"
 
 
 @pytest.mark.asyncio

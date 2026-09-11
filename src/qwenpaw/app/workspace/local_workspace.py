@@ -25,6 +25,19 @@ if TYPE_CHECKING:
     from ...runtime.tool_registry import ToolRegistry
 
 
+def _is_builtin_self_authorizing_tool(name: str, descriptor: Any) -> bool:
+    """Check the callable and descriptor identities of a migration tool."""
+    from ...agents.tools import migration_compatibility
+
+    expected = getattr(migration_compatibility, name, None)
+    return bool(
+        descriptor
+        and descriptor.func is expected
+        and getattr(expected, "_tool_descriptor", None) is descriptor
+        and descriptor.metadata.get("self_authorizing_request_opt_in") is True,
+    )
+
+
 class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
     """LocalWorkspace whose ``list_tools`` delegates to ToolRegistry."""
 
@@ -85,6 +98,16 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
                 return []
             sa_set = set(subagent_whitelist)
             allowed = (allowed & sa_set) if allowed is not None else sa_set
+            # Private migration tools also enforce an in-memory capability.
+            self_authorizing = {
+                name
+                for name in sa_set
+                if _is_builtin_self_authorizing_tool(
+                    name,
+                    self._tool_registry.get(name),
+                )
+            }
+            denied -= self_authorizing
 
         descs = self._tool_registry.filter(
             active_modes=set(active_modes),

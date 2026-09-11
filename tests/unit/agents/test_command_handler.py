@@ -2,16 +2,46 @@
 # pylint: disable=protected-access
 import json
 import logging
-from types import SimpleNamespace
 import threading
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from agentscope.message import HintBlock, Msg, TextBlock
 
-from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.agents.command_handler import (
+    _MAX_REME_METADATA_CHARS,
+    _MAX_REME_OUTPUT_CHARS,
+    _REME_CHAT_SAFE_ACTIONS,
+    CommandHandler,
+)
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.middlewares import auto_memory_turn_state
+from qwenpaw.runtime.envelope import Envelope
+
+
+class _ActionMemoryManager:
+    """Small structural MemoryActionProvider test double."""
+
+    enabled = True
+
+    def __init__(self, *actions: str, response=None):
+        self._response = response
+        self.run_action_mock = AsyncMock(return_value=response)
+        self.submit_auto_memory = MagicMock()
+        self._actions = {
+            action: {
+                "description": f"Run {action}",
+                "parameters": {"type": "object", "properties": {}},
+            }
+            for action in actions
+        }
+
+    async def list_actions(self):
+        return self._actions
+
+    async def run_action(self, action: str, **kwargs):
+        return await self.run_action_mock(action, **kwargs)
 
 
 def _make_agent():
@@ -103,7 +133,7 @@ async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
     auto_memory_turn_state(agent.state)["pending"] = ["turn-1"]
     memory_manager = MagicMock()
     memory_manager.enabled = True
-    memory_manager.add_summarize_task = MagicMock()
+    memory_manager.submit_auto_memory = MagicMock()
 
     await CommandHandler(
         agent_name="QwenPaw",
@@ -111,7 +141,7 @@ async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
         memory_manager=memory_manager,
     ).handle_command("/new")
 
-    memory_manager.add_summarize_task.assert_called_once()
+    memory_manager.submit_auto_memory.assert_called_once()
     assert not agent.state.context
     assert auto_memory_turn_state(agent.state)["pending"] == []
 
@@ -258,46 +288,283 @@ async def test_system_prompt_command_returns_current_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dream_command_runs_auto_dream_with_hint() -> None:
+async def test_auto_memory_status_lists_queued_tasks() -> None:
     agent = _make_agent()
-    memory_manager = MagicMock()
-    memory_manager.dream = AsyncMock()
+    memory_manager = MagicMock(enabled=True)
+    memory_manager.list_auto_memory_tasks.return_value = []
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/dream consolidate recent topics")
+    msg = await handler.handle_command("/auto_memory_status")
 
-    assert handler.is_command("/dream")
-    memory_manager.dream.assert_awaited_once_with(
+    assert handler.is_command("/auto_memory_status")
+    assert "No Auto-memory Tasks" in msg.get_text_content()
+    memory_manager.list_auto_memory_tasks.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_reme_auto_dream_uses_cli_style_quoted_hint() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "auto_dream",
+        response=SimpleNamespace(
+            success=True,
+            answer="dream complete",
+            metadata={"changed": 2},
+        ),
+    )
+    authorizer = AsyncMock(return_value=True)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
+    )
+
+    msg = await handler.handle_command(
+        '/reme auto_dream hint="consolidate recent topics"',
+    )
+
+    assert handler.is_command("/reme auto_dream")
+    assert not handler.is_command("/dream")
+    memory_manager.run_action_mock.assert_awaited_once_with(
+        "auto_dream",
         hint="consolidate recent topics",
     )
-    assert "Auto-dream Complete" in msg.get_text_content()
+    authorizer.assert_awaited_once_with(
+        "auto_dream",
+        {"hint": "consolidate recent topics"},
+    )
+    assert "ReMe `auto_dream` Complete" in msg.get_text_content()
+    assert msg.metadata == {"changed": 2}
 
 
 @pytest.mark.asyncio
-async def test_dream_command_requires_memory_manager() -> None:
+async def test_reme_preserves_typed_list_and_object_arguments() -> None:
     agent = _make_agent()
-    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    memory_manager = _ActionMemoryManager(
+        "search",
+        response=SimpleNamespace(success=True, answer="done", metadata={}),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
 
-    msg = await handler.handle_command("/dream")
+    await handler.handle_command(
+        "/reme search "
+        'tags=\'["architecture","memory"]\' '
+        'filter=\'{"kind":"decision"}\'',
+    )
 
-    assert "Memory Manager Disabled" in msg.get_text_content()
+    memory_manager.run_action_mock.assert_awaited_once_with(
+        "search",
+        tags=["architecture", "memory"],
+        filter={"kind": "decision"},
+    )
 
 
 @pytest.mark.asyncio
-async def test_reme_status_reports_memory_and_count_warning() -> None:
+@pytest.mark.parametrize(
+    ("command", "action", "kwargs"),
+    [
+        (
+            '/reme daily_paper topics="agents and memory" force=true',
+            "daily_paper",
+            {"topics": "agents and memory", "force": True},
+        ),
+        (
+            '/reme auto_fin topics="gold,robotics" window_hours=12',
+            "auto_fin",
+            {"topics": "gold,robotics", "window_hours": 12},
+        ),
+    ],
+)
+async def test_reme_runs_generation_actions(
+    command: str,
+    action: str,
+    kwargs: dict,
+) -> None:
     agent = _make_agent()
-    memory_manager = MagicMock()
-    memory_manager.reme_status = AsyncMock(
-        return_value=SimpleNamespace(
+    memory_manager = _ActionMemoryManager(
+        action,
+        response=SimpleNamespace(success=True, answer="done", metadata={}),
+    )
+    authorizer = AsyncMock(return_value=True)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
+    )
+
+    msg = await handler.handle_command(command)
+
+    memory_manager.run_action_mock.assert_awaited_once_with(action, **kwargs)
+    authorizer.assert_awaited_once_with(action, kwargs)
+    assert f"ReMe `{action}` Complete" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_generation_action_requires_approval() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("daily_paper")
+    authorizer = AsyncMock(return_value=False)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+        reme_action_authorizer=authorizer,
+    )
+
+    msg = await handler.handle_command("/reme daily_paper force=true")
+
+    assert "Not Approved" in msg.get_text_content()
+    authorizer.assert_awaited_once_with("daily_paper", {"force": True})
+    memory_manager.run_action_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reme_help_lists_live_actions_and_adapter_arguments() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("status", "auto_memory")
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme help")
+    text = msg.get_text_content()
+
+    assert "/reme status" in text
+    assert "/reme auto_memory count=integer memory_hint=string" in text
+    assert "show_metadata=true" in text
+    memory_manager.run_action_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reme_help_lists_only_explicitly_chat_safe_actions() -> None:
+    agent = _make_agent()
+    unsafe_actions = {
+        "node_search",
+        "daily_list",
+        "list",
+        "stat",
+        "read",
+        "read_image",
+        "frontmatter_read",
+        "write",
+        "daily_write",
+        "edit",
+        "delete",
+        "move",
+        "frontmatter_delete",
+        "frontmatter_update",
+        "reindex",
+        "undo_reindex",
+        "daily_reindex",
+    }
+    memory_manager = _ActionMemoryManager(
+        *_REME_CHAT_SAFE_ACTIONS,
+        *unsafe_actions,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme help")
+    text = msg.get_text_content()
+
+    for action in _REME_CHAT_SAFE_ACTIONS:
+        assert f"/reme {action}" in text
+    for action in unsafe_actions:
+        assert f"- `/reme {action}`" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action",
+    [
+        "node_search",
+        "daily_list",
+        "list",
+        "stat",
+        "read",
+        "read_image",
+        "frontmatter_read",
+        "write",
+        "daily_write",
+        "edit",
+        "delete",
+        "move",
+        "frontmatter_delete",
+        "frontmatter_update",
+        "reindex",
+        "undo_reindex",
+        "daily_reindex",
+    ],
+)
+async def test_reme_blocks_actions_outside_chat_allowlist(action: str) -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("search", action)
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command(f"/reme {action}")
+
+    assert "Unknown ReMe Action" in msg.get_text_content()
+    memory_manager.run_action_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reme_help_sorts_arguments_and_bounds_output() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("search")
+    memory_manager._actions["search"] = {
+        "description": "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "zebra": {"type": "boolean"},
+                "alpha": {"type": "string"},
+            },
+            "required": ["alpha"],
+        },
+    }
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme help")
+    text = msg.get_text_content()
+
+    assert "alpha=string* zebra=boolean" in text
+    assert len(text) == _MAX_REME_OUTPUT_CHARS
+    assert text.endswith("ReMe output truncated by QwenPaw.")
+
+
+@pytest.mark.asyncio
+async def test_reme_status_reports_memory_warning_and_metadata() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "status",
+        response=SimpleNamespace(
             success=True,
             answer=(
                 "Memory (estimated component object size)\n"
                 "  file_store:default  12.00 MiB\n"
-                "  Components total  12.00 MiB\n"
                 "  Process RSS       80.00 MiB"
             ),
             metadata={"status": {"memory": {"process_rss": "80.00 MiB"}}},
@@ -309,31 +576,29 @@ async def test_reme_status_reports_memory_and_count_warning() -> None:
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/reme_status")
+    msg = await handler.handle_command("/reme status")
     text = msg.get_text_content()
 
-    assert handler.is_command("/reme_status")
-    memory_manager.reme_status.assert_awaited_once_with()
+    memory_manager.run_action_mock.assert_awaited_once_with("status")
     assert "Process RSS       80.00 MiB" in text
-    assert "may be counted more than once" in text
-    assert "EMBEDDING_STORE" in text
+    assert "counted more than once" in text
     assert msg.metadata == {
         "status": {"memory": {"process_rss": "80.00 MiB"}},
     }
 
 
 @pytest.mark.asyncio
-async def test_reme_status_requires_memory_manager() -> None:
+async def test_reme_requires_memory_manager() -> None:
     agent = _make_agent()
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
 
-    msg = await handler.handle_command("/reme_status")
+    msg = await handler.handle_command("/reme status")
 
     assert "Memory Manager Disabled" in msg.get_text_content()
 
 
 @pytest.mark.asyncio
-async def test_reme_status_reports_disabled_for_noop_manager(tmp_path) -> None:
+async def test_reme_reports_disabled_for_noop_manager(tmp_path) -> None:
     agent = _make_agent()
     memory_manager = NoopMemoryManager(
         working_dir=str(tmp_path),
@@ -345,19 +610,16 @@ async def test_reme_status_reports_disabled_for_noop_manager(tmp_path) -> None:
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/reme_status")
+    msg = await handler.handle_command("/reme status")
     text = msg.get_text_content()
 
-    assert handler.is_command("/reme_status")
+    assert handler.is_command("/reme status")
     assert "Memory Manager Disabled" in text
-    assert "memory_manager_backend" in text
-    assert "remelight" in text
-    assert "ReMe Status Unavailable" not in text
     assert "Traceback" not in text
 
 
 @pytest.mark.asyncio
-async def test_memorize_defaults_to_latest_reply_group() -> None:
+async def test_reme_auto_memory_defaults_to_latest_reply_group() -> None:
     agent = _make_agent()
     agent.state.context = [
         _msg("user", "u1"),
@@ -365,31 +627,32 @@ async def test_memorize_defaults_to_latest_reply_group() -> None:
         _msg("user", "u2"),
         _msg("assistant", "a2", msg_id="r2"),
     ]
-    memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager = _ActionMemoryManager("auto_memory")
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/memorize")
+    msg = await handler.handle_command("/reme auto_memory")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.submit_auto_memory.assert_called_once()
+    call_args = memory_manager.submit_auto_memory.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs == {
         "session_id": "session-1",
+        "trigger": "manual",
         "reply_id": "r2",
         "reply_ids": ["r2"],
+        "memory_hint": "",
     }
     assert "Reply groups: 1" in msg.get_text_content()
 
 
 @pytest.mark.asyncio
-async def test_memorize_count_selects_latest_reply_groups() -> None:
+async def test_reme_auto_memory_count_and_hint_select_reply_groups() -> None:
     agent = _make_agent()
     agent.state.context = [
         _msg("user", "u1"),
@@ -399,20 +662,21 @@ async def test_memorize_count_selects_latest_reply_groups() -> None:
         _msg("user", "u3"),
         _msg("assistant", "a3", msg_id="r3"),
     ]
-    memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager = _ActionMemoryManager("auto_memory")
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/memorize 2")
+    msg = await handler.handle_command(
+        '/reme auto_memory count=2 memory_hint="project decisions"',
+    )
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.submit_auto_memory.assert_called_once()
+    call_args = memory_manager.submit_auto_memory.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == [
         "u2",
         "a2",
@@ -421,11 +685,12 @@ async def test_memorize_count_selects_latest_reply_groups() -> None:
     ]
     assert kwargs["reply_id"] == "r3"
     assert kwargs["reply_ids"] == ["r2", "r3"]
+    assert kwargs["memory_hint"] == "project decisions"
     assert "Reply groups: 2" in msg.get_text_content()
 
 
 @pytest.mark.asyncio
-async def test_memorize_falls_back_to_assistant_replies_by_role() -> None:
+async def test_reme_auto_memory_falls_back_to_assistant_role() -> None:
     agent = _make_agent()
     agent.state.context = [
         _msg("user", "u1"),
@@ -433,20 +698,19 @@ async def test_memorize_falls_back_to_assistant_replies_by_role() -> None:
         _msg("user", "u2"),
         _msg("assistant", "a2", name="ConfiguredName", msg_id="r2"),
     ]
-    memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager = _ActionMemoryManager("auto_memory")
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/memorize")
+    msg = await handler.handle_command("/reme auto_memory")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
+    memory_manager.submit_auto_memory.assert_called_once()
+    call_args = memory_manager.submit_auto_memory.call_args
+    assert call_args is not None
+    args, kwargs = call_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs["reply_id"] == "r2"
     assert kwargs["reply_ids"] == ["r2"]
@@ -454,45 +718,213 @@ async def test_memorize_falls_back_to_assistant_replies_by_role() -> None:
 
 
 @pytest.mark.asyncio
-async def test_memorize_one_matches_explicit_one() -> None:
+async def test_reme_auto_memory_rejects_invalid_count() -> None:
     agent = _make_agent()
-    agent.state.context = [
-        _msg("user", "u1"),
-        _msg("assistant", "a1", msg_id="r1"),
-    ]
-    memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager = _ActionMemoryManager("auto_memory")
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    await handler.handle_command("/memorize 1")
+    msg = await handler.handle_command("/reme auto_memory count=two")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
-    assert await_args is not None
-    args, kwargs = await_args
-    assert [m.get_text_content() for m in args[0]] == ["u1", "a1"]
-    assert kwargs["reply_ids"] == ["r1"]
+    memory_manager.submit_auto_memory.assert_not_called()
+    assert "Invalid Count" in msg.get_text_content()
 
 
 @pytest.mark.asyncio
-async def test_memorize_rejects_invalid_count() -> None:
+async def test_reme_rejects_unknown_action_and_malformed_arguments() -> None:
     agent = _make_agent()
-    memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager = _ActionMemoryManager("search")
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
     )
 
-    msg = await handler.handle_command("/memorize two")
+    unknown = await handler.handle_command("/reme delete path=old.md")
+    malformed = await handler.handle_command("/reme search query")
 
-    memory_manager.auto_memory.assert_not_awaited()
-    assert "Invalid Count" in msg.get_text_content()
+    assert "Unknown ReMe Action" in unknown.get_text_content()
+    assert "expected key=value" in malformed.get_text_content()
+    memory_manager.run_action_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reme_optionally_renders_metadata() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "search",
+        response=SimpleNamespace(
+            success=True,
+            answer={"result": "found"},
+            metadata={"source": "memory"},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command(
+        "/reme search show_metadata=true",
+    )
+    text = msg.get_text_content()
+
+    memory_manager.run_action_mock.assert_awaited_once_with("search")
+    assert '"result": "found"' in text
+    assert '"source": "memory"' in text
+
+
+@pytest.mark.asyncio
+async def test_reme_bounds_the_complete_visible_response() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "search",
+        response=SimpleNamespace(
+            success=True,
+            answer={"result": "x" * 21000},
+            metadata={"source": "memory"},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme search show_metadata=true")
+    text = msg.get_text_content()
+
+    assert len(text) == _MAX_REME_OUTPUT_CHARS
+    assert text.endswith("ReMe output truncated by QwenPaw.")
+    assert msg.metadata == {"source": "memory"}
+
+
+@pytest.mark.asyncio
+async def test_reme_bounds_caller_and_backend_controlled_errors() -> None:
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager("search")
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    unknown = await handler.handle_command(
+        "/reme " + "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    malformed = await handler.handle_command(
+        "/reme search " + "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    memory_manager.run_action_mock.side_effect = ValueError(
+        "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    failed = await handler.handle_command("/reme search")
+
+    for msg in (unknown, malformed, failed):
+        text = msg.get_text_content()
+        assert len(text) == _MAX_REME_OUTPUT_CHARS
+        assert text.endswith("ReMe output truncated by QwenPaw.")
+
+
+@pytest.mark.asyncio
+async def test_reme_bounds_catalog_and_auto_memory_errors() -> None:
+    agent = _make_agent()
+    catalog_manager = _ActionMemoryManager("search")
+    catalog_manager.list_actions = AsyncMock(
+        side_effect=ValueError("x" * (_MAX_REME_OUTPUT_CHARS + 100)),
+    )
+    catalog_handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=catalog_manager,
+    )
+
+    catalog_error = await catalog_handler.handle_command("/reme help")
+
+    agent.state.context = [
+        _msg("user", "remember this"),
+        _msg("assistant", "noted", msg_id="r1"),
+    ]
+    auto_manager = _ActionMemoryManager("auto_memory")
+    auto_manager.submit_auto_memory.side_effect = ValueError(
+        "x" * (_MAX_REME_OUTPUT_CHARS + 100),
+    )
+    auto_handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=auto_manager,
+    )
+    auto_error = await auto_handler.handle_command("/reme auto_memory")
+
+    for msg in (catalog_error, auto_error):
+        text = msg.get_text_content()
+        assert len(text) == _MAX_REME_OUTPUT_CHARS
+        assert text.endswith("ReMe output truncated by QwenPaw.")
+
+
+@pytest.mark.asyncio
+async def test_reme_serializes_large_structured_values_off_event_loop(
+    monkeypatch,
+) -> None:
+    event_loop_thread = threading.get_ident()
+    serialization_threads = []
+    stringify = CommandHandler._stringify_reme_value
+
+    def tracked_stringify(value):
+        serialization_threads.append(threading.get_ident())
+        return stringify(value)
+
+    monkeypatch.setattr(
+        CommandHandler,
+        "_stringify_reme_value",
+        staticmethod(tracked_stringify),
+    )
+    agent = _make_agent()
+    memory_manager = _ActionMemoryManager(
+        "search",
+        response=SimpleNamespace(
+            success=True,
+            answer={"items": [{"value": "x" * 10000} for _ in range(100)]},
+            metadata={"graph": [{"node": "y" * 10000} for _ in range(100)]},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme search show_metadata=true")
+
+    assert len(msg.get_text_content()) == _MAX_REME_OUTPUT_CHARS
+    assert msg.metadata["qwenpaw_truncated"] is True
+    assert (
+        len(json.dumps(msg.metadata, ensure_ascii=False))
+        <= _MAX_REME_METADATA_CHARS
+    )
+    assert serialization_threads
+    assert event_loop_thread not in serialization_threads
+
+    envelope = Envelope(session_id="session-1")
+    events = [event async for event in envelope.from_msg(msg)]
+    assert (
+        max(len(event.model_dump_json()) for event in events)
+        < _MAX_REME_OUTPUT_CHARS + _MAX_REME_METADATA_CHARS + 5000
+    )
+
+
+def test_reme_output_truncation_accounts_for_suffix() -> None:
+    rendered = CommandHandler._bound_reme_output(
+        {"result": "x" * (_MAX_REME_OUTPUT_CHARS + 100)},
+    )
+
+    assert len(rendered) == _MAX_REME_OUTPUT_CHARS
+    assert rendered.endswith("ReMe output truncated by QwenPaw.")
+    assert "```" not in rendered
 
 
 def _make_config(

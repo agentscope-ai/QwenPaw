@@ -671,7 +671,7 @@ qwenpaw chats delete <chat_id>
 | `qwenpaw skills info SKILL_NAME`       | 一个精确的技能名                     | `--agent-id ID`（默认 `default`）或 `--pool`                                                                                                                     |
 | `qwenpaw skills install BUNDLE_URL`    | 支持来源的技能 URL                   | `--pool` 导入 Pool；`--agent-id ID` 直接安装到该 workspace；二者互斥；为兼容旧用法，两者都不传时仍导入 Pool；`--enable/--no-enable` 仅支持 workspace（默认启用） |
 | `qwenpaw skills uninstall SKILL_NAME`  | 一个精确的技能名                     | `--pool` 从 Pool 删除；`--agent-id ID` 从该 workspace 删除；二者互斥；为兼容旧用法，两者都不传时仍操作 Pool                                                      |
-| `qwenpaw skills test SKILL`            | 本地技能目录，或作用域内的精确技能名 | `--agent-id ID`（默认 `default`）或 `--pool`                                                                                                                     |
+| `qwenpaw skills test SKILL`            | 本地技能目录，或作用域内的精确技能名 | `--agent-id ID`（按名称查找时默认 `default`）或 `--pool`；命令检查可用 `--base-url URL` 指定服务                                                                 |
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # 导入到本地技能池
@@ -688,6 +688,15 @@ qwenpaw skills disable pdf --agent-id abc123      # 禁用但不卸载
 qwenpaw skills info [skill_name]               # 看默认智能体的技能详情
 qwenpaw skills info [skill_name] --pool        # 看 Pool 中的技能详情
 qwenpaw skills info [skill_name] --agent-id abc123 # 看特定智能体的技能详情
+
+# 检查已安装的技能
+qwenpaw skills test my_skill --agent-id abc123
+
+# 检查本地目录，不默认绑定智能体
+qwenpaw skills test ./my_skill
+
+# 同时检查目标 MCP 配置和命令名称
+qwenpaw skills test ./my_skill --agent-id abc123
 ```
 
 `skills config` 的复选框中可直接输入连续文本，即时缩小候选范围，无需用 ↑/↓

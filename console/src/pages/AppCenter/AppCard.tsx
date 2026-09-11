@@ -23,6 +23,7 @@ const CURATED_APP_DESCRIPTIONS: Record<string, Record<string, string>> = {
 export interface AppCardData {
   id: string;
   name: string;
+  author?: string;
   version: string;
   description: string;
   /** Per-locale descriptions from plugin.json, e.g. { "zh-CN": "..." }. */

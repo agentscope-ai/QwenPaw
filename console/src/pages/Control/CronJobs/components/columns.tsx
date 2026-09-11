@@ -1,7 +1,10 @@
-import { Button, Tooltip, Dropdown } from "@agentscope-ai/design";
+import { Button, Tooltip, Dropdown, Tag } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
-import type { CronJobSpecOutput } from "../../../../api/types";
+import {
+  requiresCronImportReview,
+  type CronJobSpecOutput,
+} from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
@@ -14,9 +17,11 @@ type CronJob = CronJobSpecOutput;
 interface ColumnHandlers {
   onToggleEnabled: (job: CronJob) => void;
   onExecuteNow: (job: CronJob) => void;
+  onPromoteImported: (job: CronJob) => void;
   onViewHistory: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
+  promotingJobIds: Set<string>;
   t: TFunction;
 }
 
@@ -69,18 +74,21 @@ export const createColumns = (
       dataIndex: "enabled",
       key: "enabled",
       width: 100,
-      render: (enabled: boolean) => (
-        <span className={styles.statusIndicator}>
-          <span
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          {enabled
-            ? handlers.t("common.enabled")
-            : handlers.t("common.disabled")}
-        </span>
-      ),
+      render: (enabled: boolean, record: CronJob) =>
+        requiresCronImportReview(record) ? (
+          <Tag color="orange">{handlers.t("cronJobs.importReviewBadge")}</Tag>
+        ) : (
+          <span className={styles.statusIndicator}>
+            <span
+              className={`${styles.statusDot} ${
+                enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            {enabled
+              ? handlers.t("common.enabled")
+              : handlers.t("common.disabled")}
+          </span>
+        ),
     },
     {
       title: handlers.t("cronJobs.scheduleType"),
@@ -305,6 +313,7 @@ export const createColumns = (
       width: 320,
       fixed: "right",
       render: (_: unknown, record: CronJob) => {
+        const reviewRequired = requiresCronImportReview(record);
         const menuItems: MenuProps["items"] = [
           {
             key: "edit",
@@ -321,9 +330,20 @@ export const createColumns = (
 
         return (
           <div className={styles.actionColumn}>
+            {reviewRequired && (
+              <Button
+                type="link"
+                size="small"
+                loading={handlers.promotingJobIds.has(record.id)}
+                onClick={() => handlers.onPromoteImported(record)}
+              >
+                {handlers.t("cronJobs.importReviewApprove")}
+              </Button>
+            )}
             <Button
               type="link"
               size="small"
+              disabled={reviewRequired}
               onClick={() => handlers.onToggleEnabled(record)}
             >
               {record.enabled
@@ -333,6 +353,7 @@ export const createColumns = (
             <Button
               type="link"
               size="small"
+              disabled={reviewRequired}
               onClick={() => handlers.onExecuteNow(record)}
             >
               {handlers.t("cronJobs.executeNow")}

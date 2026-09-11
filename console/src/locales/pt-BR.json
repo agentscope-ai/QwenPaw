@@ -66,6 +66,69 @@
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Recarregar"
   },
+  "portabilityImport": {
+    "title": "Importar",
+    "description": "Traga conversas e configurações de ferramentas de outros aplicativos de IA para o QwenPaw.",
+    "steps": {
+      "sources": "Aplicativos",
+      "inventory": "Escolher conteúdo",
+      "progress": "Importar"
+    },
+    "chooseSources": "Escolha os aplicativos",
+    "chooseSourcesHint": "Selecione um ou mais aplicativos detectados.",
+    "detected": "Detectado",
+    "notDetected": "Não detectado",
+    "noSources": "Nenhum aplicativo de IA compatível foi detectado neste dispositivo.",
+    "continue": "Continuar",
+    "scanning": "Verificando conversas e configurações de ferramentas…",
+    "chooseContent": "Escolha o que importar",
+    "defaultSelected": "Conversas e ferramentas são selecionadas por padrão. Plugins exigem sua confirmação explícita.",
+    "conversations": "Conversas",
+    "toolsSetup": "Ferramentas e configurações",
+    "heartbeatRequiresSessions": "Esta tarefa agendada exige a importação das conversas.",
+    "items": "{{count}} itens",
+    "start": "Iniciar importação",
+    "groups": {
+      "memory": "Memória",
+      "cron": "Agendamentos",
+      "skill": "Skills",
+      "mcp": "MCP",
+      "plugin": "Plugins"
+    },
+    "states": {
+      "pending": "Aguardando",
+      "repairing": "Corrigindo",
+      "ready": "Corrigido, aguardando importação",
+      "failed": "Falhou",
+      "succeeded": "Concluído",
+      "existing": "Já existe"
+    },
+    "hints": {
+      "failed": "Ajuste manualmente a configuração relacionada.",
+      "disabled": "Importado com sucesso, mas mantido desativado até sua revisão e ativação.",
+      "cronReview": "Importado desativado e impedido de executar até uma revisão explícita em Tarefas Cron; depois, ative-o separadamente."
+    },
+    "sessionStates": {
+      "failed": "Falha na importação",
+      "succeeded": "{{count}}/{{total}} importados",
+      "importing": "Importando {{count}}/{{total}}"
+    },
+    "finished": "Importação concluída",
+    "importing": "Importação em andamento",
+    "cancelling": "Interrompendo importação",
+    "cancellingHint": "Aguardando o Agent de reparo de compatibilidade parar com segurança.",
+    "keepOpen": "Revise cada item abaixo. Não feche o QwenPaw durante a importação.",
+    "details": "Detalhes da migração",
+    "targetAgent": "Agente de destino: {{agent}}",
+    "selectAllFailed": "Selecionar todas as ferramentas com falha",
+    "retrySelected": "Tentar novamente as selecionadas ({{count}})",
+    "retryConfirm": "Tentar novamente {{count}} ferramentas com falha selecionadas? Itens existentes do QwenPaw serão preservados.",
+    "pluginWarningTitle": "Aviso de execução de plugin",
+    "pluginWarning": "Estes plugins podem instalar dependências Python, executar código no processo do QwenPaw e registrar ferramentas, Hooks, rotas ou comandos globais. Selecionar um plugin também importa suas configurações e credenciais MCP vinculadas, desativadas para revisão. Importe apenas plugins de fontes confiáveis.",
+    "pluginWarningConfirm": "Confio nas fontes destes plugins e permito a instalação de dependências e a execução de código.",
+    "pluginWarningAction": "Confirmar e importar",
+    "done": "Concluir"
+  },
   "appCenter": {
     "backToList": "Voltar",
     "subtitle": "Gerencie os aplicativos instalados ou amplie seu espaço de trabalho pelo mercado de aplicativos.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "import": "Importar",
     "files": "Arquivos",
     "control": "Controle",
     "channels": "Canais",
@@ -146,7 +210,8 @@
     "debug": "Depuracao",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Gerenciador de Plugins"
+    "pluginManager": "Gerenciador de Plugins",
+    "moreSettings": "Mais configurações"
   },
   "os": {
     "console": "Console",
@@ -816,6 +881,8 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "preload": "Pré-carregar",
+    "preloadHint": "Quando ativado, o agente pré-carrega esta Skill e não precisa procurá-la e carregá-la durante a conversa.",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "Editável e projetado em agentes de terceiros compatíveis durante a execução.",
     "providerManaged": "Skills do agente de terceiros",
@@ -1752,7 +1819,48 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Mostrar value",
-    "hideValue": "Ocultar value"
+    "hideValue": "Ocultar valor",
+    "searchPlaceholder": "Buscar variáveis",
+    "liveSettings": "Configurações em tempo real",
+    "noLiveVariables": "Nenhuma configuração em tempo real corresponde ao filtro.",
+    "customSettings": "Variáveis personalizadas",
+    "noCustomVariables": "Nenhuma variável personalizada adicionada.",
+    "editVariable": "Editar variável",
+    "applyNow": "Aplicar agora",
+    "applyHint": "O processo atual do QwenPaw é atualizado imediatamente. Processos MCP em execução precisam ser recarregados.",
+    "applied": "Variável de ambiente aplicada",
+    "appliedWithFailures": "Salvo, mas {{count}} processo(s) MCP não puderam ser recarregados",
+    "resetVariable": "Redefinir variável",
+    "resetSuccess": "Valor do sistema ou padrão restaurado",
+    "readonlySettings": "Configurações somente leitura",
+    "noReadonlyVariables": "Nenhuma configuração somente leitura corresponde ao filtro.",
+    "impactTitle": "Impacto nos processos",
+    "explicitConsumers": "{{count}} processo(s) MCP usam esta variável explicitamente",
+    "implicitConsumers": "{{count}} processo(s) stdio MCP podem herdá-la implicitamente",
+    "restartMode": "Processos MCP em execução",
+    "restartAffected": "Recarregar MCPs afetados",
+    "restartNone": "Não recarregar",
+    "restartAllStdio": "Recarregar todos os MCPs stdio",
+    "readonlyReason": {
+      "startup": "Definido quando o QwenPaw inicia",
+      "agent_owned": "Gerenciado pela configuração de cada Agent",
+      "initial_default": "Usado apenas como padrão inicial do Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Lido do processo QwenPaw atual no início de cada operação.",
+      "hot_process": "Disponível por os.getenv() e herdado por futuros subprocessos.",
+      "startup_only": "Somente para referência; não pode ser alterado durante a execução.",
+      "internal": "Gerenciado internamente pelo QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Espera máxima pelo primeiro conteúdo relevante do stream; zero desativa o monitoramento.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Espera máxima entre partes relevantes do stream; zero desativa o monitoramento."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistema",
+      "default": "Padrão"
+    }
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
@@ -2334,8 +2442,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Backend de gerenciamento de memória de longo prazo",
-    "memoryManagerBackendTooltip": "Backend para o gerenciador de memória. Escolha remelight (arquivos locais) ou adbpg (banco de dados na nuvem).",
-    "memoryManagerBackendRestartWarning": "A troca do backend de gerenciamento de memória de longo prazo não permite recarregamento a quente. Salve e reinicie o QwenPaw para aplicar as alterações.",
+    "memoryManagerBackendTooltip": "Backend do gerenciador de memória. Backends de plugins aparecem aqui após a instalação do plugin.",
+    "memoryManagerBackendRestartWarning": "Salvar uma alteração de backend recarrega este Agent para aplicar o novo backend de memória.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
     "maxItersPlaceholder": "Enter max iterations",
@@ -2767,8 +2875,7 @@
     "contextStrategy": "Context Strategy",
     "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
-    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect."
+    "contextStrategyNative": "Native"
   },
   "tools": {
     "title": "Integrado Ferramentas",
@@ -2871,37 +2978,103 @@
     "settings": {
       "language": "Idioma",
       "theme": "Tema",
-      "mode": "Modo",
       "desktopMode": "Modo Desktop"
     },
-    "simpleMode": "Modo simples",
-    "fullMode": "Modo completo",
+    "quickMenu": {
+      "settings": "Configurações",
+      "appearance": "Aparência",
+      "about": "Sobre o QwenPaw"
+    },
+    "collapse": "Recolher barra lateral",
+    "expand": "Expandir barra lateral",
+    "more": "Mais",
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
+  "settingsCenter": {
+    "backToApp": "Voltar ao aplicativo",
+    "searchPlaceholder": "Pesquisar configurações",
+    "noResults": "Nenhuma configuração correspondente",
+    "groups": {
+      "application": "Configurações do aplicativo",
+      "agentConfiguration": "Configuração do agente",
+      "global": "Configurações globais",
+      "extensions": "Extensões"
+    },
+    "pages": { "general": "Geral", "navigation": "Barra lateral" },
+    "descriptions": {
+      "general": "Idioma, tema e comportamento do aplicativo",
+      "navigation": "Visibilidade da barra lateral",
+      "agents": "Perfis do QwenPaw, Codex e Qoder",
+      "models": "Provedores, credenciais e catálogo de modelos",
+      "skillPool": "Skills e extensões reutilizáveis",
+      "channels": "Conectar canais de mensagens e IM",
+      "skills": "Gerenciar skills do agente",
+      "tools": "Configurar ferramentas disponíveis",
+      "mcp": "Configurar serviços MCP",
+      "acp": "Configurar agentes ACP",
+      "agentConfig": "Configurar o comportamento de execução do agente",
+      "voice": "Entrada de voz e transcrição",
+      "heartbeat": "Disponibilidade do agente e ativação periódica",
+      "environments": "Variáveis de execução e segredos",
+      "security": "Políticas de execução e regras de proteção",
+      "offloadPolicy": "Política de execução em segundo plano",
+      "tokenUsage": "Estatísticas e tendências de uso",
+      "backups": "Exportar, restaurar e migrar dados",
+      "debug": "Logs e diagnóstico",
+      "extension": "Configurações fornecidas por uma extensão"
+    },
+    "appearanceAndLanguage": "Aparência e idioma",
+    "desktopApplication": "Aplicativo desktop",
+    "languageHint": "Altera o idioma da interface neste dispositivo.",
+    "themeHint": "Use aparência clara, escura ou de acordo com o sistema.",
+    "contentWidth": "Largura da mensagem",
+    "contentWidthHint": "Use a largura padrão ou expanda as conversas para a largura disponível.",
+    "contentWidthStandard": "Padrão",
+    "contentWidthWide": "Ampla",
+    "chatDisplay": "Exibição de mensagens",
+    "thinkingDisplay": "Mostrar raciocínio",
+    "thinkingDisplayHint": "Mostra o raciocínio do modelo nas conversas sem alterar seu comportamento.",
+    "toolDisplay": "Exibição de ferramentas",
+    "toolDisplayHint": "Escolha o que será exibido ao abrir um cartão de ferramenta.",
+    "toolDisplayCurrent": "Visualização em cartão",
+    "toolDisplayRaw": "Parâmetros brutos",
+    "assistantDisplay": "Recolhimento das mensagens do assistente",
+    "assistantDisplayHint": "Controle como textos intermediários, raciocínio e ferramentas são recolhidos.",
+    "displayExpanded": "Expandir tudo",
+    "displayProcessCollapsed": "Recolher processo",
+    "displayResultCollapsed": "Recolher resultados",
+    "closeBehaviorHint": "Escolha o que acontece quando a janela do desktop é fechada.",
+    "desktopModeHint": "Abra o espaço de trabalho desktop com várias janelas.",
+    "open": "Abrir",
+    "fixedEntries": "Entradas fixas",
+    "selectAll": "Selecionar tudo",
+    "invertSelection": "Inverter seleção",
+    "sidebarGroups": {
+      "agentConfiguration": "Configuração do agente",
+      "global": "Configurações globais",
+      "plugins": "Recursos de plugins"
+    },
+    "alwaysVisible": "Sempre visível"
+  },
   "chat": {
+    "newTask": "Nova tarefa",
     "groups": {
       "cronShort": "Agendado",
-      "subagentShort": "Subagente"
+      "subagentShort": "Subagente",
+      "loadMore": "Carregar mais · {{count}} restantes",
+      "collapseList": "Recolher lista"
     },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },
     "modelSelectTooltip": "Selecionar Modelo",
-    "newChatTooltip": "Novo Chat",
-    "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
-    "wideModeTooltip": "Modo amplo",
-    "normalModeTooltip": "Modo normal",
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",
       "stepsFailed": "Falhou · {{count}} etapas",
       "stepsCompleted": "{{count}} etapas concluídas"
     },
-    "allChats": "Todos Chats",
-    "createNewChat": "Criar Novo Chat",
-    "pinDrawer": "Fixar",
-    "unpinDrawer": "Desafixar",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",
@@ -3029,19 +3202,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noResults": "Nenhum resultado",
-      "noConversations": "Sem conversas",
-      "loadingConversations": "Carregando…"
+      "noConversations": "Sem conversas"
     },
-    "conversationHistory": "Histórico de conversas",
-    "history": {
-      "empty": "Sem histórico de conversas"
-    },
-    "sessionGroup": {
-      "today": "Hoje",
-      "recent": "Últimos 7 dias",
-      "earlier": "Anteriores"
-    }
+    "conversationHistory": "Histórico de conversas"
   },
   "security": {
     "parent": "Configuracoes",
@@ -3673,6 +3836,13 @@
     "installing": "Instalando...",
     "installSuccess": "Plugin instalado com sucesso",
     "installFailed": "Falha na instalação do plugin",
+    "update": "Atualizar",
+    "updateAll": "Atualizar todos",
+    "updateSuccess": "Plugin atualizado com sucesso",
+    "updateAllSuccess": "Todos os plugins foram atualizados com sucesso",
+    "updateAllResult": "{{succeeded}} plugins atualizados; {{failed}} falharam: {{names}}",
+    "updateFailed": "Falha ao atualizar o plugin",
+    "checkingUpdates": "Verificando atualizações de plugins...",
     "uninstall": "Desinstalar",
     "uninstallConfirm": "Desinstalar plugin \"{{name}}\"? Esta ação não pode ser desfeita. Alguns plugins podem exigir uma reinicialização do aplicativo para serem completamente removidos.",
     "uninstalling": "Desinstalando...",
@@ -3681,6 +3851,7 @@
     "statusLoaded": "Em execução",
     "statusUnloaded": "Não carregado",
     "type": "Tipo",
+    "typeMemory": "Memória",
     "version": "Versão",
     "author": "Autor",
     "unknown": "Desconhecido",
@@ -3697,6 +3868,8 @@
     "catalogUpgrade": "Atualização disponível",
     "catalogUpgradeBtn": "Atualizar",
     "catalogInstalled": "Instalado",
+    "catalogVersion": "Versão",
+    "catalogCurrentVersion": "Versão atual",
     "catalogSha256": "SHA256",
     "kindBundle": "Pacote",
     "kindTool": "Ferramenta",
@@ -3984,8 +4157,6 @@
     "checkAgentTaskDefault": "Verificar tarefa",
     "delegateExternalAgent": "Delegar {{runner}}",
     "delegateExternalAgentDefault": "Delegar agente externo",
-    "materializeSkill": "Criar {{skill}}",
-    "materializeSkillDefault": "Criar habilidade",
     "shell": "Executar {{command}}",
     "shellDefault": "Executar comando",
     "formatTable": {

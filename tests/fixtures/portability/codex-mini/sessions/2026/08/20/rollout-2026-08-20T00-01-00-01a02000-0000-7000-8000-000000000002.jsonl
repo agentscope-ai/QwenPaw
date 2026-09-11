@@ -1,0 +1,2 @@
+{"timestamp":"2026-08-20T00:01:00Z","type":"session_meta","payload":{"id":"01a02000-0000-7000-8000-000000000002","cwd":"/fixture/codex-project","source":{"subagent":{"other":"guardian"}},"thread_source":"subagent","parent_thread_id":"01a02000-0000-7000-8000-000000000001"}}
+{"timestamp":"2026-08-20T00:01:01Z","type":"event_msg","payload":{"type":"user_message","message":"The following is the Codex agent history whose action is being assessed"}}

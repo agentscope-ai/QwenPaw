@@ -180,6 +180,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    from ..config.utils import get_agent_dirs
+    from ..portability.transaction_journal import recover_import_transactions
+
+    try:
+        recovered_transactions = await recover_import_transactions(
+            get_agent_dirs(),
+        )
+    except Exception:
+        logger.exception(
+            "PawPort transaction recovery failed; continuing startup",
+        )
+        recovered_transactions = []
+    if recovered_transactions:
+        logger.warning(
+            "Recovered %d interrupted PawPort import transaction(s)",
+            len(recovered_transactions),
+        )
+
     # Migrate old conversations from sessions/*.json into each scroll agent's
     # history.db, so chats from before scroll existed stay recallable. This is
     # a one-off backfill, not core startup work: if it fails, we log and keep
@@ -274,9 +292,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=_api_action_command_specs
-            if _api_action_command_specs
-            else None,
+            extra_command_specs=(
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
+            ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():
@@ -346,12 +366,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
-    if browser_config.experimental:
-        from ..browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
-
-        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 
@@ -376,10 +390,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # ---- Plugin System (phase 1: channel plugins) ----
-            # Load channel-type plugins *before* agents start so that
-            # ChannelManager discovers them via get_channel_registry()
-            # on first creation — no reload needed afterwards.
+            # ---- Plugin System (phase 1: startup-critical plugins) ----
+            # Channel and memory plugins must register before agents start.
             logger.debug("Initializing plugin system...")
 
             from ..config.utils import get_plugins_dir
@@ -404,12 +416,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load channel plugins before agents start
+            # Phase 1: load startup-critical plugins before agents start
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
-                types=["channel"],
+                types=["channel", "memory"],
             )
-            logger.debug("Phase 1: channel plugins loaded")
+            logger.debug("Phase 1: channel and memory plugins loaded")
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
@@ -591,6 +603,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             with suppress(asyncio.CancelledError):
                 await _bg_task
 
+        # Import jobs can write workspaces and install plugins. Stop them
+        # before closing the services they depend on.
+        from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
+
+        await PORTABILITY_IMPORT_JOBS.shutdown()
+
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
 
@@ -659,6 +677,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await multi_agent_mgr.stop_all()
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
+
+        await PORTABILITY_IMPORT_JOBS.drain()
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client

@@ -365,6 +365,9 @@ export function useProjectLaunch(options?: {
   const [aspectRatio, setAspectRatio] = useState<string>(
     initialValues?.aspectRatio ?? "16:9",
   );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    null,
+  );
   const [attachments, setAttachments] = useState<AttachmentDraft[]>(() =>
     (initialValues?.sourceUrls ?? []).map((url) => ({
       kind: "url" as const,
@@ -532,6 +535,7 @@ export function useProjectLaunch(options?: {
         resolution,
         aspectRatio,
         contentType: isVideoEdit ? contentType : null,
+        templateId: selectedTemplateId ?? undefined,
         // With no assets, let Project creation persist the first Goal and
         // message atomically.  This avoids an observable IDLE Project between
         // navigation and the follow-up /messages request.
@@ -568,7 +572,7 @@ export function useProjectLaunch(options?: {
         : committedUrlAttachments;
 
       if (projectPayload.initialGoal) {
-        router.push(`/project/${project.projectId}/plan`);
+        router.push(`/project/${project.projectId}`);
         onLaunched?.();
         projectRequest.current = { signature: "", id: "" };
         initialMessageRequests.current.clear();
@@ -582,7 +586,7 @@ export function useProjectLaunch(options?: {
       // launch-upload store for the workspace progress card, and sends
       // the durable first message once every ingest settled — so a
       // torn-down composer can no longer strand a Goal-less Project.
-      router.push(`/project/${project.projectId}/plan`);
+      router.push(`/project/${project.projectId}`);
       onLaunched?.();
       projectRequest.current = { signature: "", id: "" };
       initialMessageRequests.current.clear();
@@ -614,6 +618,8 @@ export function useProjectLaunch(options?: {
     setResolution,
     aspectRatio,
     setAspectRatio,
+    selectedTemplateId,
+    setSelectedTemplateId,
     attachments,
     addFiles,
     addUrl,

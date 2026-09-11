@@ -70,7 +70,7 @@ from .proxy_limits import (
     send_with_response_header_timeout,
 )
 from .registry import RuntimeRegistry
-from .service import RuntimeService
+from .service import RuntimeOperationConflictError, RuntimeService
 from .static_files import (
     CompressedStaticFiles,
     resolve_console_response,
@@ -364,10 +364,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=423, detail=detail)
         if record.state is not RuntimeState.RUNNING:
             try:
-                record = await run_in_threadpool(
-                    runtime_service.start,
+                record = await runtime_service.execute(
+                    "start",
                     record.runtime_id,
                 )
+            except RuntimeOperationConflictError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             except Exception as exc:
                 raise HTTPException(
                     status_code=503,
@@ -407,25 +409,57 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         runtime_available = runtime_service.runtime_available()
         record = await personal_runtime(user) if runtime_available else None
+        if (
+            record is not None
+            and record.desired_state is not RuntimeState.STOPPED
+            and record.state in {RuntimeState.CREATED, RuntimeState.STOPPED}
+        ):
+            try:
+                runtime_service.submit("start", record.runtime_id)
+            except RuntimeOperationConflictError:
+                pass
+        active_operation = (
+            runtime_service.active_operation(record.runtime_id)
+            if record is not None
+            else None
+        )
+        if record is not None and active_operation is None:
+            record = await run_in_threadpool(
+                runtime_service.get,
+                record.runtime_id,
+            )
+        runtime_state = (
+            RuntimeState.STARTING
+            if active_operation in {"start", "restart", "rebuild"}
+            else record.state
+            if record is not None
+            else None
+        )
         security_levels = {
             name: provisioner.security_level
             for name, provisioner in runtime_service.provisioners.items()
         }
         return {
-            "status": ("ok" if runtime_available else "degraded"),
+            "status": (
+                "ok"
+                if runtime_available
+                and runtime_state is not RuntimeState.FAILED
+                else "degraded"
+            ),
             "mode": "hub",
             "security_levels": security_levels,
             "provisioners": sorted(runtime_service.provisioners),
             "provisioner_statuses": runtime_service.provisioner_statuses(),
             "default_provisioner": runtime_service.default_provisioner,
             "runtime_available": runtime_available,
-            "runtime_state": record.state.value if record else None,
+            "runtime_state": runtime_state.value if runtime_state else None,
             "runtime_desired_state": (
                 record.desired_state.value if record else None
             ),
             "runtime_start_policy": (
                 record.start_policy.value if record else None
             ),
+            "runtime_last_error": record.last_error if record else None,
         }
 
     @app.get("/api/version")
@@ -529,11 +563,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         record = await personal_runtime(user)
         try:
-            restarted = await run_in_threadpool(
-                runtime_service.restart,
+            restarted = await runtime_service.execute(
+                "restart",
                 record.runtime_id,
                 owner_initiated=True,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except PermissionError as exc:
             raise HTTPException(status_code=423, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
@@ -911,8 +947,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 ),
             )
             if body.auto_start:
-                record = await run_in_threadpool(
-                    runtime_service.start,
+                record = await runtime_service.execute(
+                    "start",
                     body.runtime_id,
                 )
             await record_audit(
@@ -926,6 +962,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 },
             )
             return await runtime_payload(record)
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
@@ -958,10 +996,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.start,
+            record = await runtime_service.execute(
+                "start",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
@@ -989,10 +1029,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         """Rebuild a Docker runtime with the current global image."""
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.rebuild,
+            record = await runtime_service.execute(
+                "rebuild",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
@@ -1019,10 +1061,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.stop,
+            record = await runtime_service.execute(
+                "stop",
                 runtime_id,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1043,11 +1087,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> dict[str, Any]:
         await require_runtime_access(runtime_id, user)
         try:
-            record = await run_in_threadpool(
-                runtime_service.stop,
+            record = await runtime_service.execute(
+                "stop",
                 runtime_id,
                 start_policy=RuntimeStartPolicy.ADMIN_ONLY,
             )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1068,7 +1114,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> None:
         await require_runtime_access(runtime_id, user)
         try:
-            await run_in_threadpool(runtime_service.delete, runtime_id)
+            await runtime_service.execute(
+                "delete",
+                runtime_id,
+            )
+        except RuntimeOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,

@@ -50,6 +50,8 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const AppCenterPage = lazyImportWithRetry("../../pages/AppCenter");
 const MarketplacePage = lazyImportWithRetry("../../pages/Market");
 const FilesPage = lazyImportWithRetry("../../pages/Files");
+const ImportPage = lazyImportWithRetry("../../pages/Import");
+const SettingsCenterPage = lazyImportWithRetry("../../pages/SettingsCenter");
 
 /**
  * "/" always lands on the canonical Chat workspace.
@@ -66,6 +68,11 @@ function ACPRedirect() {
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
   { id: "core.chat", path: "/chat/*", component: ChatPage },
+  {
+    id: "core.settings-center",
+    path: "/settings/*",
+    component: SettingsCenterPage,
+  },
   { id: "core.files", path: "/files", component: FilesPage },
   { id: "core.channels", path: "/channels", component: ChannelsPage },
   { id: "core.sessions", path: "/sessions", component: SessionsPage },
@@ -107,6 +114,7 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.debug", path: "/debug", component: DebugPage },
   { id: "core.backups", path: "/backups", component: BackupsPage },
   { id: "core.marketplace", path: "/market", component: MarketplacePage },
+  { id: "core.import", path: "/imports", component: ImportPage },
   // Deep-link / refresh target: `/apps/<id>` also lands on the App Center,
   // which opens the app inline (with the “← App Center” bar) from the URL.
   {

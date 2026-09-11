@@ -350,13 +350,9 @@ describe("LocalModelManageModal", () => {
     it("显示推荐的本地模型列表", async () => {
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
       // model names must be shown
-      expect(screen.getByText("Llama 2 7B")).toBeInTheDocument();
-      expect(screen.getByText("Mistral 7B")).toBeInTheDocument();
+      expect(await screen.findByText("Llama 2 7B")).toBeInTheDocument();
+      expect(await screen.findByText("Mistral 7B")).toBeInTheDocument();
     });
 
     it("当没有推荐模型时显示提示", async () => {
@@ -364,13 +360,10 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
-      // the no-recommended-model hint (translation key) must be shown
+      // Wait for all initialization results to be reflected in the UI rather
+      // than merely waiting for the recommendation request to start.
       expect(
-        screen.getByText("models.localNoRecommendedModels"),
+        await screen.findByText("models.localNoRecommendedModels"),
       ).toBeInTheDocument();
     });
 
@@ -385,13 +378,10 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      await waitFor(() => {
-        expect(api.listRecommendedLocalModels).toHaveBeenCalled();
-      });
-
-      // the no-downloaded-model hint (translation key) must be shown
+      // Wait for the resolved runtime status and model list to be reflected in
+      // the UI, rather than merely waiting for the requests to start.
       expect(
-        screen.getByText("models.localNoDownloadedModelsHint"),
+        await screen.findByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
     });
   });
@@ -410,7 +400,7 @@ describe("LocalModelManageModal", () => {
       ).toBeInTheDocument();
 
       // the input must be shown
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       expect(input).toBeInTheDocument();
@@ -429,7 +419,7 @@ describe("LocalModelManageModal", () => {
       });
 
       // type the repo ID
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");
@@ -478,7 +468,7 @@ describe("LocalModelManageModal", () => {
       });
 
       // type the repo ID
-      const input = screen.getByPlaceholderText(
+      const input = await screen.findByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");
@@ -850,6 +840,135 @@ describe("LocalModelManageModal", () => {
       );
       // if the labels exist, the advanced settings are expanded and generate_kwargs is handled
       expect(generateConfigLabel).toBeInTheDocument();
+    });
+  });
+
+  describe("高级配置校验分支", () => {
+    it("max context length 低于最小值时拒绝保存", async () => {
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+      renderModal({ onSaved });
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const contextInput = screen.getByDisplayValue("65536");
+      fireEvent.change(contextInput, { target: { value: "1000" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[0]);
+
+      // Below the minimum, the save API must NOT be called
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("max context length 非整数时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const contextInput = screen.getByDisplayValue("65536");
+      fireEvent.change(contextInput, { target: { value: "65536.5" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[0]);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("server port 超出范围时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const portInput = screen.getByDisplayValue("8080");
+      fireEvent.change(portInput, { target: { value: "99999" } });
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      // the second save button belongs to server port
+      await user.click(saveButtons[1]);
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+    });
+
+    it("generate config 非法 JSON 时拒绝保存", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      // find the generate config textarea (advanced settings expanded)
+      const textarea = document.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement;
+      if (textarea) {
+        fireEvent.change(textarea, { target: { value: "{ bad json" } });
+        const saveButtons = screen.getAllByRole("button", {
+          name: /models.save/i,
+        });
+        await user.click(saveButtons[saveButtons.length - 1]);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  describe("下载与服务动作", () => {
+    it("空 repo ID 时给出警告且不发起下载", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalServerStatus).toHaveBeenCalled());
+
+      // locate the custom-model download button and click with empty repo
+      const customDownloadButtons = screen
+        .getAllByRole("button")
+        .filter(
+          (b) => b.querySelector("svg") && b.closest("[class*='customModel']"),
+        );
+      if (customDownloadButtons.length > 0) {
+        await user.click(customDownloadButtons[0]);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(api.startLocalModelDownload).not.toHaveBeenCalled();
+      }
+    });
+
+    it("推荐模型下载按钮触发下载并轮询", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.startLocalModelDownload).mockResolvedValue(
+        undefined as any,
+      );
+      renderModal();
+
+      await waitFor(() =>
+        expect(api.listRecommendedLocalModels).toHaveBeenCalled(),
+      );
+
+      // The not-downloaded model (mistral) has a download button
+      const downloadButtons = screen.queryAllByRole("button").filter((b) => {
+        const row = b.closest("[class*='modelListItem']");
+        return row && row.textContent?.includes("Mistral 7B");
+      });
+      if (downloadButtons.length > 0) {
+        await user.click(downloadButtons[0]);
+        await waitFor(() =>
+          expect(api.startLocalModelDownload).toHaveBeenCalled(),
+        );
+      }
     });
   });
 });

@@ -66,6 +66,69 @@
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
     "reload": "Muat ulang"
   },
+  "portabilityImport": {
+    "title": "Impor",
+    "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
+    "steps": {
+      "sources": "Aplikasi",
+      "inventory": "Pilih konten",
+      "progress": "Impor"
+    },
+    "chooseSources": "Pilih aplikasi",
+    "chooseSourcesHint": "Pilih satu atau beberapa aplikasi yang terdeteksi.",
+    "detected": "Terdeteksi",
+    "notDetected": "Tidak terdeteksi",
+    "noSources": "Tidak ada aplikasi AI yang didukung terdeteksi di perangkat ini.",
+    "continue": "Lanjutkan",
+    "scanning": "Memeriksa percakapan dan pengaturan alat…",
+    "chooseContent": "Pilih yang akan diimpor",
+    "defaultSelected": "Percakapan dan alat dipilih secara default. Plugin memerlukan konfirmasi eksplisit Anda.",
+    "conversations": "Percakapan",
+    "toolsSetup": "Alat & pengaturan",
+    "heartbeatRequiresSessions": "Tugas terjadwal ini memerlukan percakapan untuk diimpor.",
+    "items": "{{count}} item",
+    "start": "Mulai impor",
+    "groups": {
+      "memory": "Memori",
+      "cron": "Jadwal",
+      "skill": "Skill",
+      "mcp": "MCP",
+      "plugin": "Plugin"
+    },
+    "states": {
+      "pending": "Menunggu",
+      "repairing": "Memperbaiki",
+      "ready": "Berhasil diperbaiki, menunggu impor",
+      "failed": "Gagal",
+      "succeeded": "Berhasil",
+      "existing": "Sudah ada"
+    },
+    "hints": {
+      "failed": "Sesuaikan konfigurasi terkait secara manual.",
+      "disabled": "Berhasil diimpor tetapi tetap nonaktif hingga Anda meninjau dan mengaktifkannya.",
+      "cronReview": "Diimpor dalam keadaan nonaktif dan tidak dapat dijalankan sampai Anda meninjaunya secara eksplisit di Tugas Cron; aktifkan secara terpisah setelahnya."
+    },
+    "sessionStates": {
+      "failed": "Impor gagal",
+      "succeeded": "{{count}}/{{total}} diimpor",
+      "importing": "Mengimpor {{count}}/{{total}}"
+    },
+    "finished": "Impor selesai",
+    "importing": "Impor sedang berjalan",
+    "cancelling": "Menghentikan impor",
+    "cancellingHint": "Menunggu Agent perbaikan kompatibilitas berhenti dengan aman.",
+    "keepOpen": "Tinjau status setiap item di bawah. Jangan tutup QwenPaw selama impor.",
+    "details": "Detail migrasi",
+    "targetAgent": "Agent tujuan: {{agent}}",
+    "selectAllFailed": "Pilih semua alat yang gagal",
+    "retrySelected": "Coba lagi yang dipilih ({{count}})",
+    "retryConfirm": "Coba lagi {{count}} alat gagal yang dipilih? Item QwenPaw yang sudah ada akan dipertahankan.",
+    "pluginWarningTitle": "Peringatan eksekusi plugin",
+    "pluginWarning": "Plugin ini dapat memasang dependensi Python, menjalankan kode dalam proses QwenPaw, serta mendaftarkan alat, Hook, rute, atau perintah global. Memilih plugin juga mengimpor konfigurasi dan kredensial MCP terikatnya dalam keadaan nonaktif untuk ditinjau. Impor hanya plugin dari sumber yang tepercaya.",
+    "pluginWarningConfirm": "Saya memercayai sumber plugin ini dan mengizinkan pemasangan dependensi serta eksekusi kode.",
+    "pluginWarningAction": "Konfirmasi dan impor",
+    "done": "Selesai"
+  },
   "appCenter": {
     "backToList": "Kembali",
     "subtitle": "Kelola aplikasi yang terpasang atau perluas workspace Anda dari pasar aplikasi.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "import": "Impor",
     "files": "File",
     "control": "Kontrol",
     "channels": "Saluran",
@@ -146,7 +210,8 @@
     "debug": "Debug",
     "plugins": "Plugin",
     "pluginManager": "Manajer Plugin",
-    "backups": "Cadangan"
+    "backups": "Cadangan",
+    "moreSettings": "Pengaturan lainnya"
   },
   "os": {
     "console": "Konsol",
@@ -269,12 +334,86 @@
     "settings": {
       "language": "Bahasa",
       "theme": "Tema",
-      "mode": "Mode",
       "desktopMode": "Mode Desktop"
     },
-    "simpleMode": "Mode sederhana",
-    "fullMode": "Mode lengkap",
+    "quickMenu": {
+      "settings": "Pengaturan",
+      "appearance": "Tampilan",
+      "about": "Tentang QwenPaw"
+    },
+    "collapse": "Ciutkan bilah samping",
+    "expand": "Luaskan bilah samping",
+    "more": "Lainnya",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
+  },
+  "settingsCenter": {
+    "backToApp": "Kembali ke aplikasi",
+    "searchPlaceholder": "Cari pengaturan",
+    "noResults": "Tidak ada pengaturan yang cocok",
+    "groups": {
+      "application": "Pengaturan aplikasi",
+      "agentConfiguration": "Konfigurasi agen",
+      "global": "Pengaturan global",
+      "extensions": "Ekstensi"
+    },
+    "pages": {
+      "general": "Umum",
+      "navigation": "Bilah samping"
+    },
+    "descriptions": {
+      "general": "Bahasa, tema, dan perilaku aplikasi",
+      "navigation": "Visibilitas bilah samping",
+      "agents": "Profil QwenPaw, Codex, dan Qoder",
+      "models": "Penyedia, kredensial, dan katalog model",
+      "skillPool": "Keterampilan dan ekstensi yang dapat digunakan kembali",
+      "channels": "Hubungkan IM dan kanal pesan",
+      "skills": "Kelola keterampilan agen",
+      "tools": "Konfigurasikan alat yang tersedia",
+      "mcp": "Konfigurasikan layanan MCP",
+      "acp": "Konfigurasikan agen ACP",
+      "agentConfig": "Konfigurasikan perilaku runtime agen",
+      "voice": "Input suara dan transkripsi",
+      "heartbeat": "Ketersediaan agen dan aktivasi berkala",
+      "environments": "Variabel runtime dan rahasia",
+      "security": "Kebijakan eksekusi dan aturan keamanan",
+      "offloadPolicy": "Kebijakan eksekusi latar belakang",
+      "tokenUsage": "Statistik dan tren penggunaan",
+      "backups": "Ekspor, pulihkan, dan migrasikan data",
+      "debug": "Log dan diagnostik",
+      "extension": "Pengaturan yang disediakan oleh ekstensi"
+    },
+    "appearanceAndLanguage": "Tampilan & bahasa",
+    "desktopApplication": "Aplikasi desktop",
+    "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
+    "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
+    "contentWidth": "Lebar pesan",
+    "contentWidthHint": "Gunakan lebar standar atau perluas percakapan ke ruang yang tersedia.",
+    "contentWidthStandard": "Standar",
+    "contentWidthWide": "Lebar",
+    "chatDisplay": "Tampilan pesan",
+    "thinkingDisplay": "Tampilkan proses berpikir",
+    "thinkingDisplayHint": "Tampilkan penalaran model dalam percakapan tanpa mengubah perilaku model.",
+    "toolDisplay": "Tampilan alat",
+    "toolDisplayHint": "Pilih konten yang ditampilkan setelah membuka kartu alat.",
+    "toolDisplayCurrent": "Tampilan kartu",
+    "toolDisplayRaw": "Parameter mentah",
+    "assistantDisplay": "Pelipatan pesan asisten",
+    "assistantDisplayHint": "Atur cara teks perantara, penalaran, dan alat dilipat.",
+    "displayExpanded": "Tampilkan semua",
+    "displayProcessCollapsed": "Lipat proses",
+    "displayResultCollapsed": "Lipat hasil",
+    "closeBehaviorHint": "Pilih tindakan saat jendela desktop ditutup.",
+    "desktopModeHint": "Buka ruang kerja desktop multi-jendela.",
+    "open": "Buka",
+    "fixedEntries": "Entri tetap",
+    "selectAll": "Pilih semua",
+    "invertSelection": "Balik pilihan",
+    "sidebarGroups": {
+      "agentConfiguration": "Konfigurasi agen",
+      "global": "Pengaturan global",
+      "plugins": "Fitur plugin"
+    },
+    "alwaysVisible": "Selalu ditampilkan"
   },
   "hub": {
     "brand": {
@@ -618,29 +757,24 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen"
+      "subagentShort": "Subagen",
+      "loadMore": "Muat lebih banyak · {{count}} tersisa",
+      "collapseList": "Ciutkan daftar"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },
     "modelSelectTooltip": "Pilih model",
-    "newChatTooltip": "Chat baru",
-    "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
-    "wideModeTooltip": "Mode lebar",
-    "normalModeTooltip": "Mode normal",
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",
       "stepsCanceled": "Dibatalkan · {{count}} langkah",
       "stepsFailed": "Gagal · {{count}} langkah",
       "stepsCompleted": "Selesai {{count}} langkah"
     },
-    "allChats": "Semua Chat",
-    "createNewChat": "Buat Chat Baru",
-    "pinDrawer": "Sematkan",
-    "unpinDrawer": "Lepas sematan",
     "statusIdle": "Idle",
     "statusInProgress": "Sedang berjalan",
     "disclaimer": "Bekerja untuk Anda, berkembang bersama Anda",
@@ -768,19 +902,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Cari…",
-      "noResults": "Tidak ada hasil",
-      "noConversations": "Tidak ada percakapan",
-      "loadingConversations": "Memuat…"
+      "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan",
-    "history": {
-      "empty": "Tidak ada riwayat obrolan"
-    },
-    "sessionGroup": {
-      "today": "Hari ini",
-      "recent": "7 hari terakhir",
-      "earlier": "Sebelumnya"
-    }
+    "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",
@@ -1044,6 +1168,8 @@
   "skills": {
     "title": "Skill",
     "description": "Kelola skill dan kemampuan agen.",
+    "preload": "Pramuat",
+    "preloadHint": "Saat diaktifkan, agen memuat skill ini lebih awal sehingga tidak perlu mencari dan memuatnya lagi selama percakapan.",
     "qwenpawManaged": "Dikelola QwenPaw",
     "qwenpawManagedHint": "Dapat diedit dan diproyeksikan ke agen pihak ketiga yang didukung saat runtime.",
     "providerManaged": "Skill agen pihak ketiga",
@@ -1741,6 +1867,13 @@
     "installing": "Menginstal...",
     "installSuccess": "Plugin berhasil diinstal",
     "installFailed": "Instalasi plugin gagal",
+    "update": "Perbarui",
+    "updateAll": "Perbarui semua",
+    "updateSuccess": "Plugin berhasil diperbarui",
+    "updateAllSuccess": "Semua plugin berhasil diperbarui",
+    "updateAllResult": "{{succeeded}} plugin diperbarui; {{failed}} gagal: {{names}}",
+    "updateFailed": "Pembaruan plugin gagal",
+    "checkingUpdates": "Memeriksa pembaruan plugin...",
     "uninstall": "Copot",
     "uninstallConfirm": "Copot plugin \"{{name}}\"? Tindakan ini tidak dapat dibatalkan. Beberapa plugin mungkin memerlukan restart aplikasi agar sepenuhnya dihapus.",
     "uninstalling": "Mencopot...",
@@ -1749,6 +1882,7 @@
     "statusLoaded": "Berjalan",
     "statusUnloaded": "Tidak dimuat",
     "type": "Tipe",
+    "typeMemory": "Memori",
     "version": "Versi",
     "author": "Penulis",
     "unknown": "Tidak diketahui",
@@ -1765,6 +1899,8 @@
     "catalogUpgrade": "Pembaruan tersedia",
     "catalogUpgradeBtn": "Perbarui",
     "catalogInstalled": "Terinstal",
+    "catalogVersion": "Versi",
+    "catalogCurrentVersion": "Versi saat ini",
     "catalogSha256": "SHA256",
     "kindBundle": "Bundel",
     "kindTool": "Alat",
@@ -2158,7 +2294,48 @@
     "variable": "variabel",
     "variables": "variabel",
     "showValue": "Tampilkan nilai",
-    "hideValue": "Sembunyikan nilai"
+    "hideValue": "Sembunyikan nilai",
+    "searchPlaceholder": "Cari variabel",
+    "liveSettings": "Pengaturan waktu nyata",
+    "noLiveVariables": "Tidak ada pengaturan waktu nyata yang cocok dengan filter.",
+    "customSettings": "Variabel kustom",
+    "noCustomVariables": "Belum ada variabel khusus.",
+    "editVariable": "Edit variabel",
+    "applyNow": "Terapkan sekarang",
+    "applyHint": "Proses QwenPaw saat ini langsung diperbarui. Proses MCP yang berjalan perlu dimuat ulang.",
+    "applied": "Variabel lingkungan diterapkan",
+    "appliedWithFailures": "Tersimpan, tetapi {{count}} proses MCP gagal dimuat ulang",
+    "resetVariable": "Atur ulang variabel",
+    "resetSuccess": "Nilai sistem atau nilai bawaan dipulihkan",
+    "readonlySettings": "Pengaturan hanya-baca",
+    "noReadonlyVariables": "Tidak ada pengaturan hanya-baca yang cocok dengan filter.",
+    "impactTitle": "Dampak proses",
+    "explicitConsumers": "{{count}} proses MCP menggunakan variabel ini secara eksplisit",
+    "implicitConsumers": "{{count}} proses stdio MCP mungkin mewarisinya secara implisit",
+    "restartMode": "Proses MCP yang berjalan",
+    "restartAffected": "Muat ulang MCP terdampak",
+    "restartNone": "Jangan muat ulang",
+    "restartAllStdio": "Muat ulang semua MCP stdio",
+    "readonlyReason": {
+      "startup": "Ditentukan saat QwenPaw dimulai",
+      "agent_owned": "Dikelola oleh konfigurasi setiap Agent",
+      "initial_default": "Hanya nilai awal konfigurasi Agent"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Dibaca dari proses QwenPaw saat ini pada awal setiap operasi.",
+      "hot_process": "Tersedia melalui os.getenv() dan diwarisi oleh subproses berikutnya.",
+      "startup_only": "Hanya untuk referensi; tidak dapat diubah saat QwenPaw berjalan.",
+      "internal": "Dikelola secara internal oleh QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Waktu tunggu maksimum untuk konten stream pertama; nol menonaktifkan pemantauan.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Waktu tunggu maksimum antarbagian stream; nol menonaktifkan pemantauan."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "Sistem",
+      "default": "Bawaan"
+    }
   },
   "tokenUsage": {
     "title": "Penggunaan Token",
@@ -2355,8 +2532,6 @@
     "checkAgentTaskDefault": "Periksa tugas",
     "delegateExternalAgent": "Delegasikan {{runner}}",
     "delegateExternalAgentDefault": "Delegasikan ke agen eksternal",
-    "materializeSkill": "Buat {{skill}}",
-    "materializeSkillDefault": "Buat skill",
     "shell": "Jalankan {{command}}",
     "shellDefault": "Jalankan perintah",
     "formatTable": {
@@ -2935,8 +3110,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout perolehan slot harus lebih besar dari jeda batas kecepatan + jitter",
     "contextManagementTitle": "Manajemen Konteks",
     "memoryManagerBackend": "Backend Manajemen Memori Jangka Panjang",
-    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal) atau adbpg (database cloud).",
-    "memoryManagerBackendRestartWarning": "Mengalihkan backend manajemen memori jangka panjang tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
+    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Backend plugin muncul di sini setelah pluginnya dipasang.",
+    "memoryManagerBackendRestartWarning": "Menyimpan perubahan backend akan memuat ulang Agent ini agar backend memori baru diterapkan.",
     "maxIters": "Iterasi Maksimum",
     "maxItersTooltip": "Jumlah maksimum iterasi penalaran-tindakan untuk agen ReAct",
     "maxItersPlaceholder": "Masukkan iterasi maksimum",
@@ -3374,29 +3549,7 @@
     "contextStrategy": "Strategi Konteks",
     "contextStrategyTooltip": "Cara agen mengelola konteks panjang. Scroll (disarankan) menyimpan giliran yang dievakuasi ke penyimpanan riwayat permanen dan memanggilnya kembali sesuai kebutuhan; Native menggunakan kompresi di tempat. Mulai ulang QwenPaw agar perubahan diterapkan.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
-    "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
-    "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
-    "adbpgConfig": {
-      "title": "Konfigurasi Memori ADBPG",
-      "apiMode": "Mode API",
-      "host": "Host",
-      "port": "Port",
-      "user": "Nama Pengguna",
-      "password": "Kata Sandi",
-      "dbname": "Database",
-      "llmModel": "Model LLM",
-      "llmApiKey": "API Key LLM",
-      "llmBaseUrl": "URL Dasar LLM",
-      "embeddingModel": "Model Embedding",
-      "embeddingApiKey": "API Key Embedding",
-      "embeddingBaseUrl": "URL Dasar Embedding",
-      "embeddingDims": "Dimensi Embedding",
-      "restBaseUrl": "URL Dasar REST",
-      "restApiKey": "API Key REST",
-      "memoryIsolation": "Isolasi Memori (per-agen)",
-      "searchTimeout": "Timeout Pencarian"
-    }
+    "contextStrategyNative": "Native"
   },
   "loop": {
     "gotoSettings": "Pengaturan Loop Agen",
