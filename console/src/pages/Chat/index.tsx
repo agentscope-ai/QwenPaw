@@ -13,7 +13,7 @@ import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -1680,7 +1680,6 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const isMobile = useIsMobile();
-  const prefersReducedMotion = useReducedMotion();
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -3910,22 +3909,7 @@ export default function ChatPage() {
       onClickCapture={handleInternalFileLink}
     >
       {/* Main chat area */}
-      <motion.div
-        className={styles.chatMainArea}
-        layout={prefersReducedMotion ? false : "position"}
-        transition={
-          prefersReducedMotion
-            ? { duration: 0 }
-            : {
-                layout: {
-                  type: "spring",
-                  stiffness: 360,
-                  damping: 38,
-                  mass: 0.82,
-                },
-              }
-        }
-      >
+      <div className={styles.chatMainArea}>
         <div
           ref={chatMessagesAreaRef}
           className={
@@ -4131,7 +4115,7 @@ export default function ChatPage() {
             ]}
           />
         </Modal>
-      </motion.div>
+      </div>
       {/* End of main chat area */}
       <AnimatePresence initial={false} mode="popLayout">
         {filesDrawerState.kind !== "closed" ? (
