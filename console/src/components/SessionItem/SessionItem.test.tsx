@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import SessionItem from ".";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string) =>
+      key === "appCenter.moreActions" ? "More actions" : key,
+  }),
 }));
 
 describe("SessionItem status indicator", () => {
@@ -36,7 +39,7 @@ describe("SessionItem actions", () => {
 
     expect(document.querySelector("svg.lucide-grip-vertical")).toBeNull();
 
-    const moreButton = screen.getByRole("button", { name: "moreActions" });
+    const moreButton = screen.getByRole("button", { name: "More actions" });
     expect(moreButton).toBeInTheDocument();
     fireEvent.click(moreButton);
 

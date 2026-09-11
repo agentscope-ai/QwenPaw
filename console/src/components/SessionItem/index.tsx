@@ -271,7 +271,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
         >
           <button
             type="button"
-            aria-label={t("moreActions", "More actions")}
+            aria-label={t("appCenter.moreActions", "More actions")}
             className={styles.moreBtn}
             onClick={(e) => e.stopPropagation()}
           >
