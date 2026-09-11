@@ -1,5 +1,5 @@
 import {
-  ArrowRight,
+  ArrowLeft,
   Copy,
   Download,
   Expand,
@@ -352,7 +352,7 @@ export default function FilesDrawer({
             className={styles.secondaryButton}
             onClick={() => dispatch({ type: "COLLAPSE_TO_PREVIEW" })}
           >
-            <ArrowRight size={15} />
+            <ArrowLeft size={15} />
             {t("files.backToPreview")}
           </button>
         )}
