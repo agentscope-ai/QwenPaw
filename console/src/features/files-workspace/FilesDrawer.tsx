@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   lazy,
+  useLayoutEffect,
   useRef,
   useState,
   Suspense,
@@ -33,6 +34,12 @@ const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+
+function readStoredWidth(key: string): number {
+  if (typeof window === "undefined") return 0;
+  const stored = Number(localStorage.getItem(key));
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
 
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
@@ -81,11 +88,10 @@ export default function FilesDrawer({
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(widthStorageKey));
-    setWidth(Number.isFinite(stored) && stored > 0 ? stored : 0);
+  useLayoutEffect(() => {
+    setWidth(readStoredWidth(widthStorageKey));
   }, [widthStorageKey]);
 
   const close = useCallback(() => {
@@ -230,7 +236,7 @@ export default function FilesDrawer({
     const maximum = Math.max(MIN_DRAWER_WIDTH, containerWidth - MIN_CHAT_WIDTH);
     const move = (nextEvent: PointerEvent) => {
       const next = Math.min(
-        Math.max(MIN_DRAWER_WIDTH, initial + nextEvent.clientX - startX),
+        Math.max(MIN_DRAWER_WIDTH, initial + startX - nextEvent.clientX),
         maximum,
       );
       setWidth(next);
@@ -271,13 +277,13 @@ export default function FilesDrawer({
       style={drawerStyle}
       layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
-        prefersReducedMotion ? false : { opacity: 0, x: -18, scale: 0.995 }
+        prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.995 }
       }
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={
         prefersReducedMotion
           ? { opacity: 0 }
-          : { opacity: 0, x: -14, scale: 0.995 }
+          : { opacity: 0, x: 14, scale: 0.995 }
       }
       transition={
         prefersReducedMotion
@@ -323,7 +329,7 @@ export default function FilesDrawer({
             const next = Math.min(
               Math.max(
                 MIN_DRAWER_WIDTH,
-                base + (event.key === "ArrowRight" ? 24 : -24),
+                base + (event.key === "ArrowLeft" ? 24 : -24),
               ),
               maximum,
             );
@@ -411,13 +417,13 @@ export default function FilesDrawer({
           initial={
             prefersReducedMotion
               ? false
-              : { opacity: 0, x: isWorkspace ? 10 : -10 }
+              : { opacity: 0, x: isWorkspace ? -10 : 10 }
           }
           animate={{ opacity: 1, x: 0 }}
           exit={
             prefersReducedMotion
               ? { opacity: 0 }
-              : { opacity: 0, x: isWorkspace ? -8 : 8 }
+              : { opacity: 0, x: isWorkspace ? 8 : -8 }
           }
           transition={
             prefersReducedMotion
