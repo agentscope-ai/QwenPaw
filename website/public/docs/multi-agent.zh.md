@@ -584,7 +584,6 @@ qwenpaw cron create \
 **不支持 `--agent-id` 的命令**（全局操作）：
 
 - `qwenpaw init` - 初始化
-- `qwenpaw providers` - 模型提供商
 - `qwenpaw models` - 模型配置
 - `qwenpaw env` - 环境变量
 
