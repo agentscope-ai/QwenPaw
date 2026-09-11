@@ -20,8 +20,8 @@ export function MailProcessingPauses() {
     error,
     refresh,
   } = useRequest(mailAccessControlApi.getMailProcessingPauses, {
-      pollingInterval: 6000,
-      pollingWhenHidden: false,
+    pollingInterval: 6000,
+    pollingWhenHidden: false,
     onError: () => {}, // Retain current pauses and show one persistent error.
   });
 
