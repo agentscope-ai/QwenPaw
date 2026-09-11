@@ -4,75 +4,15 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
-  background: var(--colorBgContainer, #fff);
+  color: var(--app-text);
+  background: var(--app-bg);
 }
 
 .rootDark {
-  color: rgba(255, 255, 255, 0.85);
-  background: #141414;
-
-  .sidebar {
-    border-right-color: rgba(255, 255, 255, 0.08);
-    background: #1a1a1a;
-  }
-
-  .content {
-    background: #141414;
-  }
-
-  .navGroup h2,
-  .noResults,
-  .settingCopy small,
-  .sectionTitle,
-  .itemIcon {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .navItem {
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  .navItem:hover {
-    color: rgba(255, 255, 255, 0.95);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .navItemActive,
-  .navItemActive:hover {
-    color: #ff7f16;
-    background: rgba(255, 127, 22, 0.5);
-  }
-
-  .settingsCard {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: #1f1f1f;
-  }
-
-  .backButton {
-    color: rgba(255, 255, 255, 0.72);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.92) !important;
-      background: rgba(255, 255, 255, 0.06) !important;
-    }
-  }
-
-  .settingsAgentSelect {
-    :global(.ant-select-selector) {
-      border-color: rgba(255, 255, 255, 0.12) !important;
-      background: rgba(255, 255, 255, 0.04) !important;
-    }
-  }
-
-  .settingRow + .settingRow,
-  .fixedItem {
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .settingIcon {
-    background: rgba(255, 127, 22, 0.14);
-  }
+  /* Vendor overrides only: antd/qwenpaw internals do not consume
+   * `--app-*` tokens, so these dark-only tweaks stay here (the
+   * exception allowed by tokens.css). Every token-driven rule lives
+   * in the base styles and switches with `html.dark-mode` on its own. */
 
   .segmentedControl,
   .messageDisplayControl {
@@ -123,16 +63,6 @@
       color: var(--app-text-tertiary);
     }
   }
-
-  .itemOption {
-    border-color: rgba(255, 255, 255, 0.12);
-    color: var(--app-text);
-
-    &:hover {
-      border-color: rgba(255, 157, 77, 0.55);
-      background: rgba(255, 127, 22, 0.1);
-    }
-  }
 }
 
 .body {
@@ -148,8 +78,8 @@
   flex-direction: column;
   min-height: 0;
   padding: 16px;
-  border-right: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
-  background: #f9f8f4;
+  border-right: 1px solid var(--app-border-subtle);
+  background: var(--app-shell-bg);
 }
 
 .backButton {
@@ -157,7 +87,7 @@
   height: 36px;
   margin: 0 2px 16px;
   padding-inline: 8px 12px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  color: var(--app-text-secondary);
   font-weight: 500;
 }
 
@@ -177,7 +107,7 @@
 
   h2 {
     margin: 0 10px 6px;
-    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+    color: var(--app-text-tertiary);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -196,9 +126,9 @@
   :global(.ant-select-selector) {
     height: 36px !important;
     padding: 0 10px !important;
-    border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08)) !important;
+    border: 1px solid var(--app-border) !important;
     border-radius: 8px !important;
-    background: var(--colorBgContainer, #fff) !important;
+    background: var(--app-surface) !important;
     box-shadow: none !important;
   }
 
@@ -231,7 +161,7 @@
 
 .settingsAgentOptionBackend {
   flex: none;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   font-size: 10px;
 }
 
@@ -245,7 +175,7 @@
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--app-text);
   text-align: left;
   background: transparent;
   cursor: pointer;
@@ -264,23 +194,22 @@
   }
 
   &:hover {
-    color: rgba(0, 0, 0, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--app-fill);
   }
 }
 
 .navItemActive {
-  color: rgba(0, 0, 0, 0.88);
-  background: rgba(43, 18, 0, 0.08);
+  color: var(--app-nav-selected-text);
+  background: var(--app-nav-selected-bg);
 
   &:hover {
-    background: rgba(43, 18, 0, 0.08);
+    background: var(--app-nav-selected-bg-hover);
   }
 }
 
 .noResults {
   padding: 24px 10px;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   font-size: 13px;
   text-align: center;
 }
@@ -333,7 +262,7 @@
 
 .sectionTitle {
   margin: 0 2px 10px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  color: var(--app-text-secondary);
   font-size: 14px;
   font-weight: 600;
   line-height: 22px;
@@ -345,9 +274,9 @@
 
 .settingsCard {
   overflow: hidden;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--app-border);
   border-radius: 14px;
-  background: var(--colorBgContainer, #fff);
+  background: var(--app-surface);
 }
 
 .settingRow {
@@ -358,7 +287,7 @@
   padding: 16px 18px;
 
   & + & {
-    border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+    border-top: 1px solid var(--app-border-subtle);
   }
 }
 
@@ -368,8 +297,8 @@
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  color: var(--colorPrimary, #ff7f16);
-  background: var(--colorPrimaryBg, #fff7e6);
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
   place-items: center;
 }
 
@@ -386,7 +315,7 @@
 
   small {
     margin-top: 2px;
-    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    color: var(--app-text-secondary);
     font-size: 12px;
   }
 }
@@ -435,19 +364,19 @@
   gap: 9px;
   min-width: 0;
   padding: 11px 12px;
-  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--app-border);
   border-radius: 9px;
   cursor: pointer;
 
   &:hover {
-    border-color: var(--colorPrimaryBorder, #ffd591);
-    background: var(--colorPrimaryBg, #fff7e6);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
   }
 }
 
 .itemIcon {
   display: inline-flex;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  color: var(--app-text-secondary);
 }
 
 @media (min-width: 769px) and (max-width: 900px) {
@@ -476,7 +405,7 @@
   .sidebar {
     max-height: 48vh;
     border-right: 0;
-    border-bottom: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+    border-bottom: 1px solid var(--app-border-subtle);
   }
 
   .content {

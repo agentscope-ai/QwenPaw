@@ -45,7 +45,29 @@ describe("SettingsCenter responsive layout", () => {
     expect(compactDesktopRule).toContain("width: calc(100% - 48px);");
   });
 
-  it("keeps navigation helpers legible in dark mode", () => {
+  it("adapts navigation helpers to dark mode via semantic tokens", () => {
+    const navRules = stylesSource.slice(
+      stylesSource.indexOf("\n.navItem {"),
+      stylesSource.indexOf("\n.noResults {"),
+    );
+    const backButtonRule = stylesSource.slice(
+      stylesSource.indexOf("\n.backButton {"),
+      stylesSource.indexOf("\n.searchInput {"),
+    );
+    const sidebarRule = stylesSource.slice(
+      stylesSource.indexOf("\n.sidebar {"),
+      stylesSource.indexOf("\n.backButton {"),
+    );
+
+    expect(navRules).toContain("color: var(--app-text);");
+    expect(navRules).toContain("background: var(--app-fill);");
+    expect(navRules).toContain("background: var(--app-nav-selected-bg);");
+    expect(backButtonRule).toContain("color: var(--app-text-secondary);");
+    expect(sidebarRule).toContain("background: var(--app-shell-bg);");
+    expect(sidebarRule).toContain("var(--app-border-subtle)");
+  });
+
+  it("keeps the dark override block free of hardcoded colours", () => {
     const darkStart = stylesSource.indexOf(".rootDark {");
     const darkRule = stylesSource.slice(
       darkStart,
@@ -53,11 +75,8 @@ describe("SettingsCenter responsive layout", () => {
     );
 
     expect(darkStart).toBeGreaterThanOrEqual(0);
-    expect(darkRule).toContain(".backButton");
-    expect(darkRule).toContain(".settingsAgentSelect");
-    expect(darkRule).toContain(".navItem {");
-    expect(darkRule).toContain("color: rgba(255, 255, 255, 0.75);");
-    expect(darkRule).toContain("rgba(255, 255, 255, 0.12)");
+    expect(darkRule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(darkRule).not.toMatch(/rgba?\(/);
   });
 
   it("keeps general and sidebar controls legible in dark mode", () => {
