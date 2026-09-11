@@ -231,8 +231,10 @@ class SIPChannel(BaseChannel):
                 cfg.tts_provider,
                 text,
                 cfg.tts_voice,
-                cfg.dashscope_api_key,
+                cfg.tts_api_key or cfg.dashscope_api_key,
                 sample_rate=sr,
+                model=cfg.tts_model,
+                endpoint=cfg.tts_endpoint,
             ):
                 if abort.is_set():
                     break
@@ -345,8 +347,10 @@ class SIPChannel(BaseChannel):
                     cfg.tts_provider,
                     err_msg,
                     cfg.tts_voice,
-                    cfg.dashscope_api_key,
+                    cfg.tts_api_key or cfg.dashscope_api_key,
                     sample_rate=sr,
+                    model=cfg.tts_model,
+                    endpoint=cfg.tts_endpoint,
                 ):
                     if is_dev:
                         chunk = _pcm16_to_pyvoip(chunk)
@@ -410,8 +414,10 @@ class SIPChannel(BaseChannel):
                 cfg.tts_provider,
                 welcome,
                 cfg.tts_voice,
-                cfg.dashscope_api_key,
+                cfg.tts_api_key or cfg.dashscope_api_key,
                 sample_rate=sr,
+                model=cfg.tts_model,
+                endpoint=cfg.tts_endpoint,
             ):
                 if abort and abort.is_set():
                     break
