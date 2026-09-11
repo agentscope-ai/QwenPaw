@@ -120,27 +120,52 @@ export function WebSearchConfigModal({
             <Select>
               <Select.Option value="tavily">tavily</Select.Option>
               <Select.Option value="anysearch">anysearch</Select.Option>
+              <Select.Option value="serply">serply</Select.Option>
             </Select>
           </Form.Item>
           {providerValue !== "tavily" && (
             <>
-              <Form.Item name="api_key" label={t("tools.webSearchApiKeyLabel")}>
+              <Form.Item
+                name="api_key"
+                label={t(
+                  providerValue === "serply"
+                    ? "tools.webSearchApiKeyRequiredLabel"
+                    : "tools.webSearchApiKeyLabel",
+                )}
+              >
                 <Input.Password autoComplete="off" />
               </Form.Item>
-              <Typography.Text
-                type="secondary"
-                style={{ fontSize: 12, lineHeight: "20px", display: "block" }}
-              >
-                {t("tools.webSearchQuotaHintBefore")}
-                <Typography.Link
-                  href="https://anysearch.com"
-                  target="_blank"
-                  rel="noreferrer"
+              {providerValue === "serply" ? (
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12, lineHeight: "20px", display: "block" }}
                 >
-                  anysearch.com
-                </Typography.Link>
-                {t("tools.webSearchQuotaHintAfter")}
-              </Typography.Text>
+                  {t("tools.webSearchSerplyHintBefore")}
+                  <Typography.Link
+                    href="https://serply.io"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    serply.io
+                  </Typography.Link>
+                  {t("tools.webSearchSerplyHintAfter")}
+                </Typography.Text>
+              ) : (
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12, lineHeight: "20px", display: "block" }}
+                >
+                  {t("tools.webSearchQuotaHintBefore")}
+                  <Typography.Link
+                    href="https://anysearch.com"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    anysearch.com
+                  </Typography.Link>
+                  {t("tools.webSearchQuotaHintAfter")}
+                </Typography.Text>
+              )}
             </>
           )}
         </Form>

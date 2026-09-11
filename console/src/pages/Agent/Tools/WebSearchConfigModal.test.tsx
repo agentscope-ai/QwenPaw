@@ -132,6 +132,40 @@ describe("WebSearchConfigModal", () => {
     expect(link).toHaveAttribute("target", "_blank");
   });
 
+  it("switching to serply shows a required api_key field and the serply.io link", async () => {
+    hoisted.getToolConfig.mockResolvedValueOnce({});
+    renderModal();
+
+    await waitFor(() => {
+      expect(selectedProvider()).toBe("tavily");
+    });
+
+    await switchProvider("serply");
+
+    expect(passwordInput()).not.toBeNull();
+    expect(
+      screen.getByText("tools.webSearchApiKeyRequiredLabel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        (_, el) =>
+          el?.textContent?.includes("tools.webSearchSerplyHintBefore") ?? false,
+      ).length,
+    ).toBeGreaterThan(0);
+    const link = screen.getByRole("link", { name: "serply.io" });
+    expect(link).toHaveAttribute("href", "https://serply.io");
+    expect(link).toHaveAttribute("target", "_blank");
+    // The AnySearch quota hint belongs to anysearch only.
+    expect(
+      screen.queryByRole("link", { name: "anysearch.com" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(hoisted.getToolConfig).toHaveBeenLastCalledWith("web_search", {
+        provider: "serply",
+      });
+    });
+  });
+
   it("re-fetches with the selected provider when switching inside the modal", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({});
     renderModal();
