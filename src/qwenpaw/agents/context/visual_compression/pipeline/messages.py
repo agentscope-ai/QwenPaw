@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterable
@@ -105,13 +104,6 @@ def message_has_native_media(message: Msg) -> bool:
     return bool(message_data_blocks(message))
 
 
-def user_text(message: Msg) -> str:
-    """Return only native user text, never attachment placeholders."""
-    return "\n\n".join(
-        block.text for block in message.content if isinstance(block, TextBlock)
-    )
-
-
 def data_blocks(pages: Iterable[RenderedPage]) -> list[DataBlock]:
     return [
         DataBlock(
@@ -168,8 +160,8 @@ def message_body(msg: Msg) -> str:
     )
 
 
-def message_segments(msg: Msg, turn: int) -> tuple[str, str]:
-    """Serialize one turn and its width-identical role-color slots."""
+def message_segments(msg: Msg) -> tuple[str, str]:
+    """Serialize one message and its width-identical role-color slots."""
     groups: list[tuple[str, list[str]]] = []
     for block in msg.content:
         text = block_text(block)
@@ -192,7 +184,7 @@ def message_segments(msg: Msg, turn: int) -> tuple[str, str]:
     slot_segments: list[str] = []
     for role, parts in groups:
         body = "\n\n".join(parts)
-        opening = f'<{role} t="{turn}">'
+        opening = f"<{role}>"
         closing = f"</{role}>"
         mark = ROLE_MARK_ASSISTANT if role == "assistant" else ROLE_MARK_USER
         text_segments.append(f"{opening}\n{body}\n{closing}")
@@ -208,7 +200,6 @@ def message_segments(msg: Msg, turn: int) -> tuple[str, str]:
 
 def estimate_native_message_tokens(
     messages: list[Msg],
-    tools: list[dict] | None,
     chars_per_token: float = 4.0,
 ) -> int:
     """Estimate native tokens removed by a history replacement."""
@@ -216,20 +207,11 @@ def estimate_native_message_tokens(
     for msg in messages:
         parts.append(msg.role)
         parts.extend(block_text(block) for block in msg.content)
-    if tools:
-        parts.append(json.dumps(tools, ensure_ascii=False))
     return count_text_tokens("\n".join(parts), chars_per_token)
-
-
-def compact_slab_whitespace(text: str) -> str:
-    """Normalize slab text before rendering while preserving line structure."""
-    normalized = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
-    return re.sub(r"\n{3,}", "\n\n", normalized)
 
 
 __all__ = [
     "block_text",
-    "compact_slab_whitespace",
     "data_blocks",
     "estimate_native_message_tokens",
     "inspect_media",
@@ -239,5 +221,4 @@ __all__ = [
     "message_has_native_media",
     "message_body",
     "message_segments",
-    "user_text",
 ]

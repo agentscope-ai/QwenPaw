@@ -23,11 +23,10 @@ FACTSHEET_MAX_DISTINCT = 2_048
 FACTSHEET_MAX_CHUNK_CHARS = 512
 FACTSHEET_PAGE_CHARS = 28_080
 
+HISTORY_KEEP_RECENT_TURNS = 2
+HISTORY_BATCH_MIN_PAGES = 0.75
+HISTORY_MIN_TAIL_PAGE_FILL = 0.25
 MAX_IMAGES_PER_REQUEST = 64
-MAX_IMAGES_PER_TOOL_RESULT = 10
-HISTORY_MIN_COLLAPSE_MESSAGES = 10
-HISTORY_COLLAPSE_GRID_MESSAGES = 50
-HISTORY_FREEZE_GRID_MESSAGES = 10
 ROLE_MARK_USER = "\x01"
 ROLE_MARK_ASSISTANT = "\x02"
 
@@ -40,9 +39,6 @@ class EffortPreset:
     cell_width: int
     line_height: int
     readable_chars_per_image: int
-    static_min_chars: int
-    tool_result_min_chars: int
-    history_keep_recent_messages: int
 
 
 EFFORT_PRESETS: Mapping[
@@ -52,30 +48,21 @@ EFFORT_PRESETS: Mapping[
     {
         "low": EffortPreset(
             effort="low",
-            cell_width=5,
-            line_height=8,
-            readable_chars_per_image=28_080,
-            static_min_chars=2_000,
-            tool_result_min_chars=6_000,
-            history_keep_recent_messages=6,
+            cell_width=8,
+            line_height=16,
+            readable_chars_per_image=8_775,
         ),
         "medium": EffortPreset(
             effort="medium",
-            cell_width=4,
-            line_height=8,
-            readable_chars_per_image=35_100,
-            static_min_chars=1_800,
-            tool_result_min_chars=5_000,
-            history_keep_recent_messages=5,
+            cell_width=6,
+            line_height=13,
+            readable_chars_per_image=14_300,
         ),
         "high": EffortPreset(
             effort="high",
-            cell_width=3,
-            line_height=7,
-            readable_chars_per_image=53_040,
-            static_min_chars=1_500,
-            tool_result_min_chars=4_000,
-            history_keep_recent_messages=4,
+            cell_width=5,
+            line_height=8,
+            readable_chars_per_image=28_080,
         ),
     },
 )
@@ -103,14 +90,13 @@ __all__ = [
     "FACTSHEET_MAX_ENTRIES",
     "FACTSHEET_MAX_SCAN_CHARS",
     "FACTSHEET_PAGE_CHARS",
-    "HISTORY_COLLAPSE_GRID_MESSAGES",
-    "HISTORY_FREEZE_GRID_MESSAGES",
-    "HISTORY_MIN_COLLAPSE_MESSAGES",
+    "HISTORY_BATCH_MIN_PAGES",
+    "HISTORY_MIN_TAIL_PAGE_FILL",
+    "HISTORY_KEEP_RECENT_TURNS",
     "IMAGE_COST_SAFETY_MARGIN",
     "IMAGE_PATCH_SIZE",
     "LOW_EFFORT_PRESET",
     "MAX_IMAGES_PER_REQUEST",
-    "MAX_IMAGES_PER_TOOL_RESULT",
     "MAX_VISUAL_COST_RATIO",
     "ROLE_MARK_ASSISTANT",
     "ROLE_MARK_USER",

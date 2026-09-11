@@ -82,26 +82,19 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     )
 
 
-# Visual compression collapses history/context ranges into user-role
-# messages with these names. They are model-only reconstructions.
-_VISUAL_PLACEHOLDER_NAMES = frozenset(
-    {"visual_context", "visual_history"},
-)
-
-
 def _is_synthetic_user_message(msg: Msg) -> bool:
     """Return whether *msg* is a runtime-injected user-role message.
 
     Loop gates, stop handlers, and rubric evaluation append tagged
     ``role="user"`` stubs to keep a turn going; visual compression
-    collapses history into ``visual_history`` / ``visual_context``
+    collapses history into ``visual_history``
     user messages. None of them is user transcript — rendering them as
     user cards made the original instruction appear rewritten after a
     session switch.
     """
     if msg.role != "user":
         return False
-    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+    if msg.name == "visual_history":
         return True
     metadata = getattr(msg, "metadata", None)
     return (

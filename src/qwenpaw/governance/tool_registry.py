@@ -462,14 +462,14 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
             policy_name=policy_name,
             owner="builtin",
         )
-    # Visual compact recovery is feature-scoped and collected by AgentBuilder,
+    # Current-context recall is opt-in and collected by AgentBuilder,
     # so it stays out of the global @tool_descriptor builtin set.
     register_tool_governance(
         registry,
-        python_name="recover_visual_context",
+        python_name="recall_context",
         tool_type="internal",
         target_param="",
-        policy_name="RecoverVisualContext",
+        policy_name="RecallContext",
         owner="builtin",
     )
 
