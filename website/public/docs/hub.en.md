@@ -24,11 +24,13 @@ Hub is self-hosted software, not a cloud service operated by the QwenPaw team. T
 
 ## Install
 
-Hub requires a non-desktop installation of QwenPaw 2.2.0 or later. Install or upgrade the Python package with the Hub dependencies:
+Hub requires a non-desktop installation of QwenPaw 2.2.0 or later. We recommend installing the complete Hub dependencies for both Local and Docker runtimes:
 
 ```bash
 pip install -U "qwenpaw[hub]"
 ```
+
+If you only use the Local runtime, the base `qwenpaw` package is sufficient and the Docker SDK is not required. Without the complete Hub dependencies, the Docker runtime is shown as unavailable in the administration page.
 
 Confirm that the command is available:
 
@@ -38,7 +40,17 @@ qwenpaw hub --help
 
 ## First start
 
-Start Hub on the loopback interface first:
+Initialize the first administrator directly in the server terminal:
+
+```bash
+qwenpaw hub --init-admin admin
+```
+
+The command prompts for the password twice without displaying it, then exits. It only works while Hub has no users, so it cannot add administrators to an existing Hub.
+
+After setting `public_base_url`, you can start the remote Hub directly without placing the browser and Hub on the same network. See **Give a trusted team remote access** below for a complete startup example.
+
+Browser initialization remains available. First, start Hub on the loopback interface:
 
 ```bash
 qwenpaw hub --host 127.0.0.1 --port 8000
@@ -46,7 +58,7 @@ qwenpaw hub --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/` and register an account. The first registered account becomes the administrator.
 
-If Hub is running on a remote server, initialize it through an SSH tunnel:
+If Hub is running on a remote server, reach this page through an SSH tunnel:
 
 ```bash
 ssh -L 8000:127.0.0.1:8000 user@example.com
@@ -208,7 +220,7 @@ Before an upgrade:
 
 ### Hub refuses to listen on an external address
 
-Register the first administrator through `127.0.0.1`, set `public_base_url`, and add `--force-public` when starting Hub.
+Run `qwenpaw hub --init-admin USERNAME` on the server, set `public_base_url`, and add `--force-public` when starting Hub. Alternatively, use an SSH tunnel to reach `127.0.0.1` and register the first administrator in a browser.
 
 ### Existing runtimes still show Local after selecting Docker
 

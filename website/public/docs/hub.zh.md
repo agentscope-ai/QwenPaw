@@ -24,11 +24,13 @@ Hub 是自托管软件，不是 QwenPaw 团队代为运营的云服务。服务�
 
 ## 安装
 
-Hub 需要非桌面版 QwenPaw 2.2.0 或更高版本。通过 Python 包安装或升级 QwenPaw，并启用 Hub 可选依赖：
+Hub 需要非桌面版 QwenPaw 2.2.0 或更高版本。推荐安装包含 Local 和 Docker 运行方式的完整 Hub 依赖：
 
 ```bash
 pip install -U "qwenpaw[hub]"
 ```
+
+如果只使用 Local 运行方式，安装基础包 `qwenpaw` 即可，不要求安装 Docker SDK。未安装完整 Hub 依赖时，管理页面中的 Docker 运行方式会显示为不可用。
 
 确认命令已经可用：
 
@@ -38,7 +40,17 @@ qwenpaw hub --help
 
 ## 第一次启动
 
-先让 Hub 只监听本机地址：
+在服务器终端直接初始化第一个管理员：
+
+```bash
+qwenpaw hub --init-admin admin
+```
+
+命令会隐藏输入并要求确认密码，成功后立即退出。它只允许在 Hub 还没有任何用户时执行，因此不会为已经初始化的 Hub 增加管理员。
+
+随后配置 `public_base_url`，就可以直接启动远程 Hub，无需让浏览器和 Hub 位于同一网络。完整启动示例见下文“让可信团队远程访问 Hub”。
+
+也可以继续使用浏览器初始化。先让 Hub 只监听本机地址：
 
 ```bash
 qwenpaw hub --host 127.0.0.1 --port 8000
@@ -46,7 +58,7 @@ qwenpaw hub --host 127.0.0.1 --port 8000
 
 打开 `http://127.0.0.1:8000/` 并注册账户。第一个注册的账户会自动成为管理员。
 
-如果 Hub 运行在远程服务器上，可以通过 SSH 端口转发完成初始化：
+如果 Hub 运行在远程服务器上，需要通过 SSH 端口转发访问该页面：
 
 ```bash
 ssh -L 8000:127.0.0.1:8000 user@example.com
@@ -208,7 +220,7 @@ runtimes/
 
 ### Hub 拒绝监听外部地址
 
-先通过 `127.0.0.1` 完成第一个管理员注册，然后配置 `public_base_url`，并在启动时添加 `--force-public`。
+先在服务器运行 `qwenpaw hub --init-admin USERNAME`，然后配置 `public_base_url`，并在启动时添加 `--force-public`。也可以通过 SSH 端口转发访问 `127.0.0.1`，在浏览器中完成第一个管理员注册。
 
 ### 选择 Docker 后，已有环境仍显示 Local
 

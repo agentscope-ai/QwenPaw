@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import re
 import threading
 import time
@@ -13,9 +14,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-
-import docker
-from docker.errors import DockerException, ImageNotFound, NotFound
 
 from .credentials import runtime_credential_name_allowed
 from .models import RuntimeRecord, RuntimeState
@@ -36,6 +34,40 @@ PULL_POLICIES = frozenset({"always", "if_not_present", "never"})
 _IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,511}$")
 _START_TIMEOUT_SECONDS = 90.0
 _STOP_TIMEOUT_SECONDS = 20
+
+
+class _UnavailableDockerException(Exception):
+    """Represent a generic Docker error while the SDK is unavailable."""
+
+
+class _UnavailableDockerImageNotFound(_UnavailableDockerException):
+    """Represent a missing Docker image while the SDK is unavailable."""
+
+
+class _UnavailableDockerNotFound(_UnavailableDockerException):
+    """Represent a missing Docker object while the SDK is unavailable."""
+
+
+_DockerException: type[Exception]
+_DockerImageNotFound: type[Exception]
+_DockerNotFound: type[Exception]
+
+
+try:
+    docker: Any = importlib.import_module("docker")
+except ModuleNotFoundError as import_error:
+    if import_error.name != "docker":
+        raise
+    docker = None
+    _DOCKER_IMPORT_ERROR: ModuleNotFoundError | None = import_error
+    _DockerException = _UnavailableDockerException
+    _DockerImageNotFound = _UnavailableDockerImageNotFound
+    _DockerNotFound = _UnavailableDockerNotFound
+else:
+    _DOCKER_IMPORT_ERROR = None
+    _DockerException = docker.errors.DockerException
+    _DockerImageNotFound = docker.errors.ImageNotFound
+    _DockerNotFound = docker.errors.NotFound
 
 
 class DockerRuntimeProvisioner(RuntimeProvisioner):
@@ -70,8 +102,16 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             raise
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
-        """Verify that a Linux Docker engine is reachable."""
+        """Report whether Linux Docker runtime support is available."""
         root_dir.mkdir(parents=True, exist_ok=True)
+        if _DOCKER_IMPORT_ERROR is not None:
+            return RuntimeProvisionerAvailability(
+                available=False,
+                reason=(
+                    "Docker runtime support is not installed. Install "
+                    "qwenpaw[hub] to enable it."
+                ),
+            )
         try:
             client = self._get_client()
             client.ping()
@@ -190,7 +230,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             self._write_container_logs(record, container)
             try:
                 container.stop(timeout=_STOP_TIMEOUT_SECONDS)
-            except DockerException:
+            except _DockerException:
                 pass
             raise
 
@@ -326,7 +366,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         """Return whether an exact image reference is available locally."""
         try:
             self._get_client().images.get(reference)
-        except ImageNotFound:
+        except _DockerImageNotFound:
             return False
         return True
 
@@ -374,6 +414,13 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
     def _get_client(self) -> Any:
         with self._client_lock:
             if self._client is None:
+                if _DOCKER_IMPORT_ERROR is not None:
+                    raise RuntimeError(
+                        "Docker runtime support is not installed. Install "
+                        "qwenpaw[hub] to enable it.",
+                    ) from _DOCKER_IMPORT_ERROR
+                if docker is None:
+                    raise RuntimeError("Docker SDK failed to load.")
                 self._client = docker.from_env()
             return self._client
 
@@ -433,7 +480,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             if container.status == "running":
                 container.stop(timeout=_STOP_TIMEOUT_SECONDS)
             container.remove(force=True)
-        except NotFound:
+        except _DockerNotFound:
             return
 
     def _labels(self, runtime_id: str, owner_user_id: str) -> dict[str, str]:
@@ -548,5 +595,5 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             output = container.logs(tail=200).decode("utf-8", errors="replace")
             with record.log_file.open("a", encoding="utf-8") as log_file:
                 log_file.write(output)
-        except (DockerException, OSError):
+        except (_DockerException, OSError):
             return
