@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import sys
 import threading
@@ -87,11 +88,23 @@ class HistoryStore:
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
+            if not (
+                self._is_corruption(exc)
+                or getattr(exc, "sqlite_errorcode", None)
+                == sqlite3.SQLITE_NOTADB
+                or str(exc).startswith("quick_check failed:")
+            ):
+                if hasattr(self, "_conn"):
+                    self._conn.close()
+                raise
             # A corrupt / unreadable DB (truncated file, stale WAL trio, bad
             # page) would crash every task at startup. Quarantine the bad file
             # and recreate fresh, degrading "broken memory" to "lost history".
             self._quarantine(exc)
             self._open_and_init()
+        except RuntimeError:
+            self._conn.close()
+            raise
 
     def _open_and_init(self) -> None:
         # check_same_thread=False: used from both loop and worker threads;
@@ -105,12 +118,132 @@ class HistoryStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         # Probe for corruption that only surfaces on read.
-        row = self._conn.execute("PRAGMA quick_check").fetchone()
-        if not row or row[0] != "ok":
-            raise sqlite3.DatabaseError(
-                f"quick_check failed: {row[0] if row else None}",
-            )
+        results = [r[0] for r in self._conn.execute("PRAGMA quick_check")]
+        if results != ["ok"]:
+            # Some SQLite builds also report FTS damage here. Repair that
+            # derived index before considering whole-database quarantine.
+            if self._is_fts_only_corruption(results):
+                self._repair_fts()
+                results = [
+                    r[0] for r in self._conn.execute("PRAGMA quick_check")
+                ]
+            if self._is_fts_only_corruption(results):
+                raise RuntimeError(
+                    "History FTS corruption remains after repair; "
+                    f"history preserved: {self._path}: {results}",
+                )
+            if results != ["ok"]:
+                raise sqlite3.DatabaseError(f"quick_check failed: {results}")
         self._init_schema()
+        if self._fts:
+            try:
+                # FTS integrity-check is an INSERT and needs a writer lock.
+                # This optional probe must not stall request construction
+                # behind an ordinary writer; subsequent opens try it again.
+                try:
+                    self._conn.execute("PRAGMA busy_timeout=0")
+                    with self._conn:
+                        self._check_fts()
+                finally:
+                    self._conn.execute(
+                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}",
+                    )
+            except sqlite3.DatabaseError as exc:
+                code = getattr(exc, "sqlite_errorcode", None)
+                if code is not None and (code & 0xFF) in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    logger.debug(
+                        "Deferring history FTS check until a later open: %s",
+                        self._path,
+                    )
+                elif self._is_corruption(exc):
+                    self._repair_fts()
+                else:
+                    raise
+
+    @staticmethod
+    def _is_fts_only_corruption(results: Sequence[str]) -> bool:
+        # SQLite versions describe FTS damage differently. Match the error
+        # category and exact index name, not a single diagnostic spelling.
+        # Mixed results or corruption in another table must not be treated
+        # as repairable damage to this derived index alone.
+        pattern = (
+            r"(?:malformed inverted index for FTS5 table "
+            r"(?:main\.)?conversation_history_fts|"
+            r"fts5: corruption\b.* from table "
+            r'"(?:main\.)?conversation_history_fts")'
+        )
+        return bool(results) and all(
+            re.fullmatch(pattern, result) is not None for result in results
+        )
+
+    @staticmethod
+    def _is_corruption(exc: sqlite3.DatabaseError) -> bool:
+        # Extended codes such as SQLITE_CORRUPT_VTAB share this primary code.
+        code = getattr(exc, "sqlite_errorcode", None)
+        return code is not None and (code & 0xFF) == sqlite3.SQLITE_CORRUPT
+
+    def _check_fts(self) -> None:
+        # Do not use rank=1: recall-tool rows are deliberately absent from
+        # this external-content index, so full content equality is invalid.
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts) VALUES('integrity-check')",
+        )
+
+    def _rebuild_fts(self) -> None:
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts) VALUES('rebuild')",
+        )
+        # Rebuild includes every source row. Remove the deliberately excluded
+        # rows now, while we know they are indexed, in the same transaction.
+        for row in self._conn.execute(
+            "SELECT seq, content FROM conversation_history "
+            "WHERE name IN (?, ?)",
+            _RECALL_TOOL_NAMES,
+        ).fetchall():
+            self._conn.execute(
+                "INSERT INTO conversation_history_fts"
+                "(conversation_history_fts, rowid, content) "
+                "VALUES('delete', ?, ?)",
+                (row["seq"], row["content"] or ""),
+            )
+
+    def _repair_fts(self) -> None:
+        logger.warning("Rebuilding damaged history FTS index: %s", self._path)
+        try:
+            with self._conn:
+                self._rebuild_fts()
+                self._check_fts()
+        except sqlite3.DatabaseError as exc:
+            # Keep the source history even if repair fails. In particular,
+            # do not let the constructor quarantine it as a corrupt database.
+            raise RuntimeError(
+                f"History FTS repair failed; history preserved: {self._path}",
+            ) from exc
+        logger.info("History FTS index repaired: %s", self._path)
+
+    def _delete_fts_row(self, row: sqlite3.Row) -> None:
+        # Older rebuilds may have indexed recall rows. The docsize table
+        # records actual membership (SELECT on the virtual table instead
+        # reads external content, including rows that were never indexed).
+        if (
+            row["name"] in _RECALL_TOOL_NAMES
+            and not self._conn.execute(
+                "SELECT 1 FROM conversation_history_fts_docsize WHERE id = ?",
+                (row["seq"],),
+            ).fetchone()
+        ):
+            return
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts, rowid, content) "
+            "VALUES('delete', ?, ?)",
+            (row["seq"], row["content"] or ""),
+        )
 
     def _quarantine(self, exc: Exception) -> None:
         """Move the unreadable DB + its -wal/-shm aside with a timestamp."""
@@ -219,12 +352,11 @@ class HistoryStore:
                 "content_rowid='seq', tokenize='porter unicode61')",
             )
             if not existed:
-                self._conn.execute(
-                    "INSERT INTO conversation_history_fts"
-                    "(conversation_history_fts) VALUES('rebuild')",
-                )
+                self._rebuild_fts()
             self._fts = True
         except sqlite3.OperationalError as exc:
+            if "no such module: fts5" not in str(exc).lower():
+                raise
             self._fts = False
             if not HistoryStore._fts_unavailable_warned:
                 HistoryStore._fts_unavailable_warned = True
@@ -377,17 +509,16 @@ class HistoryStore:
         first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
         the stored value unchanged for backwards-compatible direct callers.
         """
-        # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
-        # so don't touch the index for them on update either.
-        fts_sync = self._fts and name not in _RECALL_TOOL_NAMES
         with self._lock, self._conn:
-            old_content = None
-            if fts_sync:
-                r = self._conn.execute(
-                    "SELECT content FROM conversation_history WHERE seq = ?",
-                    (seq,),
-                ).fetchone()
-                old_content = r["content"] if r else None
+            old_row = self._conn.execute(
+                "SELECT seq, content, name FROM conversation_history "
+                "WHERE seq = ?",
+                (seq,),
+            ).fetchone()
+            if old_row is None:
+                return
+            if self._fts:
+                self._delete_fts_row(old_row)
             # Keep every column name below as a hard-coded literal. Only
             # values are parameterized; never add caller-controlled names.
             assignments = [
@@ -420,14 +551,7 @@ class HistoryStore:
                 + " WHERE seq = ?",
                 values,
             )
-            if fts_sync:
-                if old_content is not None:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (seq, old_content),
-                    )
+            if self._fts and name not in _RECALL_TOOL_NAMES:
                 self._conn.execute(
                     "INSERT INTO conversation_history_fts(rowid, content) "
                     "VALUES (?, ?)",
@@ -499,7 +623,7 @@ class HistoryStore:
                         ownership = " AND (agent_id = ? OR agent_id IS NULL)"
                         params.append(agent_id)
                     rows = self._conn.execute(
-                        "SELECT seq, dedup_key, content "
+                        "SELECT seq, dedup_key, content, name "
                         "FROM conversation_history "
                         "WHERE session_id = ? AND dedup_key IN ("
                         + placeholders
@@ -533,12 +657,7 @@ class HistoryStore:
 
                     if self._fts:
                         for row in duplicates:
-                            self._conn.execute(
-                                "INSERT INTO conversation_history_fts"
-                                "(conversation_history_fts, rowid, content) "
-                                "VALUES('delete', ?, ?)",
-                                (row["seq"], row["content"] or ""),
-                            )
+                            self._delete_fts_row(row)
                     if duplicates:
                         self._conn.executemany(
                             "DELETE FROM conversation_history WHERE seq = ?",
@@ -683,28 +802,37 @@ class HistoryStore:
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
-        with self._lock, self._conn:
-            doomed = self._conn.execute(
-                "SELECT seq, content FROM conversation_history WHERE " + where,
-                params,
-            ).fetchall()
-            if not doomed:
-                return 0
-            if dry_run:
-                return len(doomed)
-            if self._fts:
-                for row in doomed:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (row["seq"], row["content"] or ""),
-                    )
-            self._conn.execute(
-                "DELETE FROM conversation_history WHERE " + where,
-                params,
-            )
-            return len(doomed)
+        with self._lock:
+            for attempt in range(2):
+                try:
+                    with self._conn:
+                        doomed = self._conn.execute(
+                            "SELECT seq, content, name "
+                            "FROM conversation_history WHERE " + where,
+                            params,
+                        ).fetchall()
+                        if dry_run or not doomed:
+                            return len(doomed)
+                        if self._fts:
+                            for row in doomed:
+                                self._delete_fts_row(row)
+                        self._conn.execute(
+                            "DELETE FROM conversation_history WHERE " + where,
+                            params,
+                        )
+                    return len(doomed)
+                except sqlite3.DatabaseError as exc:
+                    # The transaction has rolled back before rebuilding. Never
+                    # rebuild for operational errors or retry more than once.
+                    if (
+                        attempt
+                        or dry_run
+                        or not self._fts
+                        or not self._is_corruption(exc)
+                    ):
+                        raise
+                    self._repair_fts()
+        raise AssertionError("unreachable")
 
     def vacuum(self) -> None:
         """Rebuild the database file to reclaim space freed by ``purge``.
