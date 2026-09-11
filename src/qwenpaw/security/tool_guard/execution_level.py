@@ -5,7 +5,8 @@ Defines different approval strategies for tool execution:
 - STRICT: All tools require approval
 - SMART: Low-risk tools auto-allowed, medium+ require approval
 - AUTO: Only guarded_tools require approval (backward compatible)
-- OFF: Tool guard completely disabled
+- OFF: Optional approval checks disabled; hard sensitive-path protections stay
+  active
 """
 from __future__ import annotations
 
@@ -42,10 +43,11 @@ class ToolExecutionLevel(str, Enum):
     """
 
     OFF = "off"
-    """Tool guard completely disabled (no protection).
+    """Disable optional approval checks while retaining hard protections.
 
     Use case: Development/testing, fully trusted environments.
-    Behavior: All tools execute immediately without any checks.
+    Behavior: Clean tools execute immediately; built-in and configured
+    sensitive-path protections still require approval (or deny).
     """
 
     @classmethod
@@ -71,7 +73,7 @@ class ToolExecutionLevel(str, Enum):
         return self == ToolExecutionLevel.STRICT
 
     def is_disabled(self) -> bool:
-        """Check if tool guard is completely disabled."""
+        """Check if optional approval checks are disabled."""
         return self == ToolExecutionLevel.OFF
 
     def is_smart_mode(self) -> bool:

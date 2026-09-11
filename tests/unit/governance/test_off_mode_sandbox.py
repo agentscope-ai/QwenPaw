@@ -62,10 +62,10 @@ class TestRegistryFlag:
 
 class TestOffModeSandbox:
     @pytest.mark.asyncio
-    async def test_off_allows_sensitive_call_without_policy_evaluation(self):
+    async def test_off_denies_when_governance_policy_is_unavailable(self):
         class _PolicyMustNotRun:
             def assert_policy(self, _tc_spec):
-                raise AssertionError("OFF must not evaluate governance policy")
+                raise AssertionError("policy must not run when unavailable")
 
         tool = _FakeTool("read_file")
         tool._qp_governor = _PolicyMustNotRun()
@@ -76,7 +76,7 @@ class TestOffModeSandbox:
             {"file_path": "/home/user/.qwenpaw.secret/providers.json"},
         )
 
-        assert decision.behavior.value == "allow"
+        assert decision.behavior.value == "deny"
 
     def test_repl_gets_sandbox_compiled(self):
         tool = _FakeTool("recall_history_python")
