@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.approvals import ApprovalIdentityPolicy, ApprovalService
 from qwenpaw.runtime.commands.control import approval_handler as ah
 from qwenpaw.runtime.commands.control.base import ControlContext
 from qwenpaw.security.tool_guard.approval import (
@@ -43,6 +44,9 @@ def _pending(
     severity="medium",
     tool_name="Bash",
     findings_count=1,
+    identity_policy=ApprovalIdentityPolicy.AGENT,
+    user_id="u1",
+    channel="console",
 ):
     return SimpleNamespace(
         request_id=request_id,
@@ -53,6 +57,12 @@ def _pending(
         severity=severity,
         findings_count=findings_count,
         created_at=time.time() - 5,
+        # Fields read by ApprovalService.actor_can_resolve / _is_spawn_child.
+        identity_policy=identity_policy,
+        user_id=user_id,
+        channel=channel,
+        owner_agent_id=agent_id,
+        extra={},
     )
 
 
@@ -64,12 +74,18 @@ def handler():
 @pytest.fixture
 def mock_service(monkeypatch):
     svc = SimpleNamespace(
-        get_pending_by_session=AsyncMock(return_value=None),
         get_request=AsyncMock(return_value=None),
         resolve_request=AsyncMock(return_value=None),
         get_all_pending_by_agent=AsyncMock(return_value=[]),
+        get_all_pending_by_session=AsyncMock(return_value=[]),
         get_pending_by_root_session=AsyncMock(return_value=[]),
         get_pending_by_root_session_children=AsyncMock(return_value=[]),
+        # Delegate to the real policy predicate instead of stubbing a constant
+        # ``True``: the handler's caller-visibility filters are only exercised
+        # when the predicate can also return ``False``.  It is a pure
+        # staticmethod (no I/O, no lock), so the real implementation is the
+        # cheapest faithful stand-in.
+        actor_can_resolve=ApprovalService.actor_can_resolve,
     )
     monkeypatch.setattr(ah, "get_approval_service", lambda: svc)
     return svc
@@ -162,12 +178,62 @@ class TestHandleApprove:
 
     async def test_queue_head_used_when_no_id(self, handler, mock_service):
         head = _pending(request_id="head-id")
-        mock_service.get_pending_by_session.return_value = head
+        mock_service.get_all_pending_by_session.return_value = [head]
         mock_service.get_request.return_value = head
         mock_service.resolve_request.return_value = head
         ctx = _context({"action": "approve"})
         result = await handler._handle_approve(ctx)
         assert "工具已批准" in result
+
+    async def test_queue_head_skips_invisible_request(
+        self,
+        handler,
+        mock_service,
+    ):
+        """A pending owned by another agent must not become the queue head."""
+        invisible = _pending(request_id="other-id", agent_id="agent-other")
+        visible = _pending(request_id="mine-id")
+        mock_service.get_all_pending_by_session.return_value = [
+            invisible,
+            visible,
+        ]
+        mock_service.get_request.side_effect = (
+            lambda rid: visible if rid == "mine-id" else None
+        )
+        mock_service.resolve_request.return_value = visible
+        ctx = _context({"action": "approve"})
+        result = await handler._handle_approve(ctx)
+        assert "工具已批准" in result
+        # FIFO walk stopped at the first *visible* entry, not the first entry.
+        assert mock_service.get_request.await_args.args[0] == "mine-id"
+
+    async def test_queue_head_empty_when_nothing_visible(
+        self,
+        handler,
+        mock_service,
+    ):
+        invisible = _pending(request_id="other-id", agent_id="agent-other")
+        mock_service.get_all_pending_by_session.return_value = [invisible]
+        ctx = _context({"action": "approve"})
+        result = await handler._handle_approve(ctx)
+        assert "无待审批工具" in result
+        mock_service.resolve_request.assert_not_awaited()
+
+    async def test_exact_requester_policy_requires_same_identity(
+        self,
+        handler,
+        mock_service,
+    ):
+        """EXACT_REQUESTER pending from another user is filtered out."""
+        pending = _pending(
+            request_id="exact-id",
+            identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
+            user_id="someone-else",
+        )
+        mock_service.get_all_pending_by_session.return_value = [pending]
+        ctx = _context({"action": "approve"})
+        result = await handler._handle_approve(ctx)
+        assert "无待审批工具" in result
 
     async def test_cross_session_hint_shown(self, handler, mock_service):
         pending = _pending(session_id="other-sess")
@@ -277,8 +343,26 @@ class TestHandleList:
         ]
         ctx = _context({"action": "list", "all": True})
         result = await handler._handle_list(ctx)
-        assert "所有会话" in result
+        # Discriminates the --all branch from the current-session branch.
+        # Asserted on the stable header prefix rather than the parenthetical,
+        # which reads "(当前调用者可见)" since caller-scoped visibility landed.
+        assert "全局待审批工具列表" in result
         assert "Bash" in result
+
+    async def test_all_sessions_list_filters_invisible(
+        self,
+        handler,
+        mock_service,
+    ):
+        """--all still hides pendings the caller may not resolve."""
+        mock_service.get_all_pending_by_agent.return_value = [
+            _pending(request_id="mine", tool_name="Bash"),
+            _pending(request_id="theirs", tool_name="Secret", agent_id="b"),
+        ]
+        ctx = _context({"action": "list", "all": True})
+        result = await handler._handle_list(ctx)
+        assert "Bash" in result
+        assert "Secret" not in result
 
     async def test_subsession_annotated(self, handler, mock_service):
         mock_service.get_pending_by_root_session.return_value = [
