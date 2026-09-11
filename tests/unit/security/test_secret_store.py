@@ -3,6 +3,8 @@
 """Tests for the encrypted secret store layer."""
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -249,3 +251,190 @@ class TestKeyringAccountIsolation:
         monkeypatch.setenv("QWENPAW_SECRET_DIR", "set-to-mark-relocated")
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path / "x")
         assert mod._keyring_account() == mod._keyring_account()
+
+
+@pytest.fixture
+def _umask_022():
+    """Pin a permissive umask so mode assertions are deterministic."""
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.fixture
+def _no_chmod(monkeypatch):
+    """Disable ``os.chmod`` so only creation-time modes can pass a test.
+
+    ``secret_store`` calls ``os.chmod`` best effort (``except OSError:
+    pass``), so a mode that only holds because the chmod succeeded is not a
+    guarantee. Everything asserted under this fixture holds without it.
+    """
+    monkeypatch.setattr(os, "chmod", lambda *args, **kwargs: None)
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX mode bits are not meaningful on Windows",
+)
+@pytest.mark.usefixtures("_umask_022")
+class TestMasterKeyFilePermissions:
+    """The fallback key file must be owner-only from the moment it exists.
+
+    The module docstring promises ``SECRET_DIR/.master_key`` is persisted
+    "with mode ``0o600``", so the mode has to come from creating the file
+    rather than from a follow-up call that is allowed to fail.
+    """
+
+    @staticmethod
+    def _secret_dir(mod, monkeypatch, tmp_path: Path) -> Path:
+        secret_dir = tmp_path / "secrets"
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: secret_dir)
+        return secret_dir
+
+    @staticmethod
+    def _legacy_key_file(secret_dir: Path, content: str) -> Path:
+        """Lay down a key file as a pre-0o600 version would have left it."""
+        secret_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
+        os.chmod(secret_dir, 0o755)
+        path = secret_dir / ".master_key"
+        path.write_text(content, encoding="utf-8")
+        os.chmod(path, 0o644)
+        # Under ``_no_chmod`` the call above is a no-op, so state the
+        # precondition rather than assuming it.
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
+        return path
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_new_key_file_is_owner_only(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+
+        mod._write_key_file("cd" * 32)
+
+        key_path = secret_dir / ".master_key"
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_world_readable_key_file_is_replaced_not_truncated(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A pre-existing 0o644 file must not host the new key.
+
+        Opening the destination with ``O_TRUNC`` would keep its mode, so
+        the freshly written key would sit in a world-readable inode.
+        """
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "ab" * 32)
+
+        mod._write_key_file("cd" * 32)
+
+        assert key_path.read_text(encoding="utf-8") == "cd" * 32
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_corrupt_world_readable_key_file_is_replaced(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """The regeneration path starts from the same 0o644 file."""
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "not-a-hex-key")
+
+        assert mod._read_key_file() is None
+
+        mod._write_key_file("ef" * 32)
+
+        assert key_path.read_text(encoding="utf-8") == "ef" * 32
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_reading_a_valid_legacy_key_migrates_it(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A valid 0o644 key is never rewritten, so reading must fix it.
+
+        Running without ``chmod`` is the point: tightening the mode of
+        the legacy inode is the best-effort step that cannot be relied
+        on, so the key has to end up in an inode created ``0o600``.
+        """
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "ab" * 32)
+        legacy_inode = key_path.stat().st_ino
+
+        assert mod._read_key_file() == "ab" * 32
+
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert key_path.stat().st_ino != legacy_inode
+        assert key_path.read_text(encoding="utf-8") == "ab" * 32
+        assert [p.name for p in secret_dir.iterdir()] == [".master_key"]
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_owner_only_key_is_read_without_being_rewritten(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A key that is already 0o600 must not be replaced on read."""
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        mod._write_key_file("ab" * 32)
+        key_path = secret_dir / ".master_key"
+        inode = key_path.stat().st_ino
+
+        assert mod._read_key_file() == "ab" * 32
+
+        assert key_path.stat().st_ino == inode
+
+    def test_no_temporary_key_file_is_left_behind(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+
+        mod._write_key_file("11" * 32)
+        mod._write_key_file("22" * 32)
+
+        assert [p.name for p in secret_dir.iterdir()] == [".master_key"]
+
+
+class TestMasterKeyFileContent:
+    """Tightening the permissions must not change what is written."""
+
+    def test_key_file_is_written_and_replaced(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = tmp_path / "secrets"
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: secret_dir)
+
+        mod._write_key_file("11" * 32)
+        assert mod._read_key_file() == "11" * 32
+
+        mod._write_key_file("22" * 32)
+        assert mod._read_key_file() == "22" * 32
