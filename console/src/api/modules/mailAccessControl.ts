@@ -28,7 +28,28 @@ export interface MailACLData {
   pending: MailPendingEntry[];
 }
 
+export interface MailProcessingPause {
+  agent_id: string;
+  pause_id: string;
+  reason: "batch" | "failures" | "state_error";
+  count: number;
+}
+
 export const mailAccessControlApi = {
+  getMailProcessingPauses: () =>
+    request<MailProcessingPause[]>("/mail-access-control/processing-pauses"),
+
+  resumeMailProcessing: (agentId: string, pauseId: string) =>
+    request(
+      "/mail-access-control/processing/" +
+        encodeURIComponent(agentId) +
+        "/resume",
+      {
+        method: "POST",
+        body: JSON.stringify({ pause_id: pauseId }),
+      },
+    ),
+
   getMailAclAll: () =>
     request<Record<string, MailACLData>>("/mail-access-control"),
 
