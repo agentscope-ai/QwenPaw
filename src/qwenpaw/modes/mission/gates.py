@@ -74,7 +74,15 @@ class MissionGate(LoopGate):
         state: Optional[_MissionState] = self._state()
         if state is None:
             state = self._try_restore(ctx)
-        if state is None or not state.active:
+        if state is None:
+            saved = self._saved_state(ctx)
+            if isinstance(saved, dict) and saved.get("active"):
+                return StopHandlerResult(
+                    action=StopAction.TERMINATE,
+                    reason="Mission state directory was deleted",
+                )
+            return _bypass
+        if not state.active:
             return _bypass
 
         from .state import (
@@ -220,6 +228,18 @@ class MissionGate(LoopGate):
             ld,
         )
         return ms
+
+    @staticmethod
+    def _saved_state(ctx: Any) -> dict[str, Any] | None:
+        """Return the persisted Mission state from a hook context."""
+        if isinstance(ctx, dict):
+            mode_state = ctx.get("mode_state")
+        else:
+            mode_state = getattr(ctx, "mode_state", None)
+        if not isinstance(mode_state, dict):
+            return None
+        saved = mode_state.get("mission")
+        return saved if isinstance(saved, dict) else None
 
     @staticmethod
     def _remaining_summary(

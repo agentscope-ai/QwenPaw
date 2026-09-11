@@ -3,10 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
 import {
-  buildSessionPath,
+  buildChatPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
-import { useCodingMode } from "../../../../stores/codingModeStore";
 import {
   useSessionListStore,
   type ExtendedSession,
@@ -16,14 +15,13 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
  *
- * Extracts sessionId from both `/chat/<id>` and `/coding/<id>` URLs so that
- * Coding mode sessions survive page refreshes (issue #5142).
+ * Extracts the session ID from the canonical `/chat/<id>` URL.
  *
  * Only reacts to URL or session list changes. currentSessionId is read via ref
  * to avoid triggering the effect when the context changes from the other direction
  * (context → URL via onSessionSelected), which would cause circular re-loads.
  *
- * IMPORTANT: sessions array reference changes (e.g. from polling in pinned drawer)
+ * IMPORTANT: sessions array reference changes (e.g. from sidebar polling)
  * must NOT re-trigger setCurrentSessionId when the chatId hasn't changed, otherwise
  * it causes an infinite loop of getSession calls bouncing between two chat IDs.
  *
@@ -34,10 +32,6 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 const ChatSessionInitializer: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { codingMode } = useCodingMode();
-
-  // Issue #5142: Match both /chat/<id> and /coding/<id> so that Coding mode
-  // sessions are restored from the URL on page refresh, just like Chat mode.
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -50,7 +44,7 @@ const ChatSessionInitializer: React.FC = () => {
 
   // Sync library sessions → shared Zustand store whenever they change.
   // This makes the session list available to components outside the context tree
-  // (e.g. SidebarSessionList in simple-mode sidebar).
+  // (e.g. the shared SidebarSessionList).
   useEffect(() => {
     syncFromLibrary(
       sessions as ExtendedSession[],
@@ -65,9 +59,6 @@ const ChatSessionInitializer: React.FC = () => {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
-  const codingModeRef = useRef(codingMode);
-  codingModeRef.current = codingMode;
-
   const createNewSessionRef = useRef(createNewSession);
   createNewSessionRef.current = createNewSession;
 
@@ -75,7 +66,7 @@ const ChatSessionInitializer: React.FC = () => {
   const switchControllerRef = useRef<AbortController | null>(null);
 
   /** Track the last chatId for which we called setCurrentSessionId, so that
-   *  subsequent sessions array reference changes (from polling in pinned drawer)
+   *  subsequent sessions array reference changes (from sidebar polling)
    *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
   const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
 
@@ -98,13 +89,6 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // This prevents the polling-triggered sessions refresh (pinned drawer)
-    // from re-calling setCurrentSessionId and causing circular getSession loops.
-    if (chatId === lastAppliedChatIdRef.current) {
-      return;
-    }
-
     // Match by multiple criteria in order of specificity:
     // 1) Library id (localId or UUID)
     let matching = sessions.find((s) => s.id === chatId);
@@ -120,6 +104,17 @@ const ChatSessionInitializer: React.FC = () => {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
       );
+    }
+
+    // If we already applied this exact chatId and the context is in sync, skip.
+    // Comparing both values lets a blank new chat reopen the same URL later,
+    // while still ignoring polling-only session list updates.
+    if (
+      matching &&
+      chatId === lastAppliedChatIdRef.current &&
+      currentSessionIdRef.current === matching.id
+    ) {
+      return;
     }
 
     if (matching && currentSessionIdRef.current !== matching.id) {
@@ -147,7 +142,6 @@ const ChatSessionInitializer: React.FC = () => {
         .sessionId;
       if (!sessionId) return;
 
-      const mode = codingModeRef.current ? "coding" : "chat";
       const currentSessions = sessionsRef.current;
       const matching = currentSessions.find((s) => s.id === sessionId);
 
@@ -166,7 +160,7 @@ const ChatSessionInitializer: React.FC = () => {
               sessionId,
               realId,
             );
-            const targetUrl = buildSessionPath(mode, effectiveId);
+            const targetUrl = buildChatPath(effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
             sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });
@@ -209,6 +203,17 @@ const ChatSessionInitializer: React.FC = () => {
     }
 
     return () => {
+      // Abort any in-flight embedded switch so a late preload result cannot
+      // navigate after this initializer (and its chat view) is gone. The
+      // aborted promise's finally skips finishSessionSwitch, and the ref
+      // always points at the newest switch started by this instance, so
+      // releasing the lock here cannot unlock someone else's switch.
+      const controller = switchControllerRef.current;
+      if (controller && !controller.signal.aborted) {
+        controller.abort();
+        sessionApi.finishSessionSwitch();
+      }
+      switchControllerRef.current = null;
       window.removeEventListener(
         "qwenpaw:sidebar-select-session",
         handleSelectSession,

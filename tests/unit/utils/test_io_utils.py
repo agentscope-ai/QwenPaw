@@ -19,6 +19,7 @@ from qwenpaw.utils.io_utils import (
     read_bytes_async,
     read_json_async,
     read_text_async,
+    run_async_to_completion,
     run_sync_io,
     write_bytes_async,
     write_json_atomic,
@@ -221,6 +222,58 @@ async def test_async_json_helpers_run_sync_io_in_worker_thread(
     assert read_thread is not None
     assert write_thread != event_loop_thread
     assert read_thread != event_loop_thread
+
+
+@pytest.mark.asyncio
+async def test_async_completion_survives_repeated_cancellation() -> None:
+    """Repeated cancellation cannot interrupt a protected operation."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+
+    async def operation() -> None:
+        started.set()
+        await release.wait()
+        completed.set()
+
+    task = asyncio.create_task(run_async_to_completion(operation()))
+    await started.wait()
+    for _ in range(3):
+        task.cancel()
+        await asyncio.sleep(0)
+    finished_early = task.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert finished_early is False
+    assert completed.is_set() is True
+
+
+@pytest.mark.asyncio
+async def test_run_sync_io_survives_repeated_cancellation() -> None:
+    """Repeated cancellation cannot detach a running worker thread."""
+    started = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+
+    def operation() -> None:
+        started.set()
+        release.wait(timeout=2)
+        completed.set()
+
+    task = asyncio.create_task(run_sync_io(operation))
+    assert await asyncio.to_thread(started.wait, 2)
+    for _ in range(3):
+        task.cancel()
+        await asyncio.sleep(0)
+    finished_early = task.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert finished_early is False
+    assert completed.is_set() is True
 
 
 @pytest.mark.asyncio

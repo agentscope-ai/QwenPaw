@@ -658,7 +658,11 @@ class TestDisableThinkingForwarding:
                 return {"text": "git *"}
 
         model = _RecordingModel()
-        monkeypatch.setattr(g, "_build_model", lambda *a, **kw: model)
+
+        async def build_model(*_args, **_kwargs):
+            return model
+
+        monkeypatch.setattr(g, "_build_model", build_model)
 
         result = await g.generalize_rule_match("Bash", "git status")
         assert result == "Bash(git *)"

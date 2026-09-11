@@ -43,7 +43,7 @@ describe("request", () => {
   beforeEach(() => {
     vi.mocked(buildAuthHeaders).mockReturnValue({});
     Object.defineProperty(window, "location", {
-      value: { pathname: "/chat", href: "" },
+      value: { pathname: "/chat", search: "", hash: "", href: "" },
       writable: true,
     });
   });
@@ -113,11 +113,20 @@ describe("request", () => {
     mockFetch(401);
     await expect(request("/models")).rejects.toThrow("Not authenticated");
     expect(clearAuthToken).toHaveBeenCalledOnce();
-    expect(window.location.href).toBe("/login");
+    expect(window.location.href).toBe("/login?redirect=%2Fchat");
+  });
+
+  it("preserves OS paths and the console basename on 401", async () => {
+    window.location.pathname = "/console/os/apps/office";
+    mockFetch(401);
+    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    expect(window.location.href).toBe(
+      "/console/login?redirect=%2Fos%2Fapps%2Foffice",
+    );
   });
 
   it("does not redirect again when already on /login for 401", async () => {
-    window.location.pathname = "/login";
+    window.location.pathname = "/console/login";
     window.location.href = "";
     mockFetch(401);
     await expect(request("/models")).rejects.toThrow("Not authenticated");
@@ -370,5 +379,43 @@ describe("request", () => {
 
     expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     removeSpy.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 429 error message — regression for A#83794374
+  // When the 429 response body has no usable error detail (empty object,
+  // null fields, or empty body), the thrown Error.message must never contain
+  // the literal string "undefined". It should either include the raw body or
+  // fall back to "Request failed: 429 Too Many Requests".
+  // ---------------------------------------------------------------------------
+
+  function mock429Fetch(body: string, contentType = "application/json") {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: { get: () => contentType },
+      text: () => Promise.resolve(body),
+    } as unknown as Response);
+  }
+
+  it("429 with empty JSON body does not produce 'undefined' in error message (A#83794374)", async () => {
+    mock429Fetch("{}");
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).not.toContain("undefined");
+  });
+
+  it("429 with null detail and message does not produce 'undefined' (A#83794374)", async () => {
+    mock429Fetch(JSON.stringify({ detail: null, message: null }));
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).not.toContain("undefined");
+  });
+
+  it("429 with empty body falls back to 'Request failed: 429 Too Many Requests' (A#83794374)", async () => {
+    mock429Fetch("");
+    const error = await request("/models").catch((e) => e);
+    expect((error as Error).message).toBe(
+      "Request failed: 429 Too Many Requests",
+    );
   });
 });

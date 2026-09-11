@@ -9,6 +9,7 @@ import pytest
 
 from qwenpaw.app.crons.repo.json_repo import (
     JsonJobRepository,
+    migrate_final_mode_to_stream,
     migrate_legacy_weixin_jobs_file,
 )
 from qwenpaw.app.crons.models import JobsFile
@@ -145,3 +146,99 @@ def test_migrate_is_idempotent(tmp_path: Path):
 def test_migrate_noop_when_file_missing(tmp_path: Path):
     # Should not raise.
     migrate_legacy_weixin_jobs_file(tmp_path / "nonexistent.json")
+
+
+# ---------------------------------------------------------------------------
+# migrate_final_mode_to_stream
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_final_mode_rewrites_to_stream(tmp_path: Path):
+    jobs_path = tmp_path / "jobs.json"
+    data = {
+        "version": 1,
+        "jobs": [
+            {
+                "id": "j1",
+                "name": "Final Job",
+                "dispatch": {
+                    "mode": "final",
+                    "target": {"session_id": "console:u1", "user_id": "u1"},
+                },
+            },
+            {
+                "id": "j2",
+                "name": "Stream Job",
+                "dispatch": {
+                    "mode": "stream",
+                    "target": {"session_id": "console:u2", "user_id": "u2"},
+                },
+            },
+        ],
+    }
+    jobs_path.write_text(json.dumps(data), encoding="utf-8")
+
+    migrate_final_mode_to_stream(jobs_path)
+
+    result = json.loads(jobs_path.read_text(encoding="utf-8"))
+    assert result["version"] == 2
+    assert result["jobs"][0]["dispatch"]["mode"] == "stream"
+    assert result["jobs"][1]["dispatch"]["mode"] == "stream"
+    # Backup file should exist.
+    backups = list(tmp_path.glob("*.final-mode-migrate.bak"))
+    assert len(backups) == 1
+
+
+def test_migrate_final_mode_skips_when_version_ge_2(tmp_path: Path):
+    jobs_path = tmp_path / "jobs.json"
+    data = {
+        "version": 2,
+        "jobs": [
+            {
+                "id": "j1",
+                "dispatch": {
+                    "mode": "final",
+                    "target": {"session_id": "console:u1", "user_id": "u1"},
+                },
+            },
+        ],
+    }
+    original = json.dumps(data)
+    jobs_path.write_text(original, encoding="utf-8")
+
+    migrate_final_mode_to_stream(jobs_path)
+
+    # File content unchanged — mode stays "final".
+    assert jobs_path.read_text(encoding="utf-8") == original
+
+
+def test_migrate_final_mode_bumps_version_even_without_final_jobs(
+    tmp_path: Path,
+):
+    jobs_path = tmp_path / "jobs.json"
+    data = {
+        "version": 1,
+        "jobs": [
+            {
+                "id": "j1",
+                "dispatch": {
+                    "mode": "stream",
+                    "target": {"session_id": "console:u1", "user_id": "u1"},
+                },
+            },
+        ],
+    }
+    jobs_path.write_text(json.dumps(data), encoding="utf-8")
+
+    migrate_final_mode_to_stream(jobs_path)
+
+    result = json.loads(jobs_path.read_text(encoding="utf-8"))
+    assert result["version"] == 2
+    assert result["jobs"][0]["dispatch"]["mode"] == "stream"
+    # No backup needed when no mode was changed.
+    backups = list(tmp_path.glob("*.final-mode-migrate.bak"))
+    assert len(backups) == 0
+
+
+def test_migrate_final_mode_noop_when_file_missing(tmp_path: Path):
+    migrate_final_mode_to_stream(tmp_path / "nonexistent.json")

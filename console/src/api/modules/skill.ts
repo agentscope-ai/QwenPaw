@@ -7,6 +7,10 @@ import type {
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
+  PoolSkillDetail,
+  SkillAutomationResponse,
+  SkillAutomationUpdate,
+  SkillDetail,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -48,10 +52,11 @@ export function invalidateSkillCache(options?: {
     }
 
     // Targeted invalidation based on options
-    if (options.pool && key === "/skills/pool") {
+    if (
+      options.pool &&
+      (key === "/skills/pool" || key.startsWith("/skills/pool/"))
+    ) {
       apiCache.delete(key);
-      apiCache.delete("/skills/pool/builtin-notice");
-      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -152,6 +157,18 @@ export const skillApi = {
     setCache(cacheKey, data);
     return data;
   },
+
+  getSkill: (skillName: string, agentId?: string) => {
+    const opts: RequestInit = {};
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    return request<SkillDetail>(
+      `/skills/${encodeURIComponent(skillName)}`,
+      opts,
+    );
+  },
+
+  getPoolSkill: (skillName: string) =>
+    request<PoolSkillDetail>(`/skills/pool/${encodeURIComponent(skillName)}`),
 
   refreshSkills: async (agentId?: string) => {
     const opts: RequestInit = { method: "POST" };
@@ -449,6 +466,15 @@ export const skillApi = {
       },
     ),
 
+  updateSkillPreload: (skillName: string, preload: boolean) =>
+    request<{ updated: boolean; preload: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/preload`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ preload }),
+      },
+    ),
+
   updateSkillTags: (skillName: string, tags: string[]) =>
     request<{ updated: boolean; tags: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/tags`,
@@ -467,7 +493,7 @@ export const skillApi = {
       },
     ),
 
-  updatePoolSkillAutoUpdate: (
+  updatePoolSkillAutoSync: (
     skillName: string,
     payload: { enabled: boolean; targets: string[] | null },
   ) =>
@@ -475,49 +501,21 @@ export const skillApi = {
       updated: boolean;
       enabled: boolean;
       targets: string[] | null;
-    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-update`, {
+    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-sync`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
 
-  getSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updateSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
+  updatePoolSkillAutomation: (
+    skillName: string,
+    payload: SkillAutomationUpdate,
+  ) =>
+    request<SkillAutomationResponse>(
+      `/skills/pool/${encodeURIComponent(skillName)}/automation`,
       {
         method: "PUT",
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(payload),
       },
-    ),
-
-  deleteSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
-
-  getPoolSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updatePoolSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deletePoolSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
     ),
 
   streamOptimizeSkill: async function (

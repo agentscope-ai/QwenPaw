@@ -16,6 +16,10 @@ from qwenpaw.exceptions import (
     ProcessLaunchError,
 )
 
+# Upper bound for the liveness probe so a wedged ``tasklist`` cannot stall
+# shutdown. Callers with a deadline of their own pass a smaller budget.
+_PID_PROBE_TIMEOUT = 5.0
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -528,17 +532,27 @@ def _wait_for_process_exit(
         if not process.is_alive():
             process.join(timeout=0)
             return True
-        if not _is_pid_running(process.pid, process.platform_name):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if not _is_pid_running(
+            process.pid,
+            process.platform_name,
+            probe_timeout=min(_PID_PROBE_TIMEOUT, remaining),
+        ):
             process.join(timeout=0)
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(0.1, remaining))
+    # The deadline is spent, so there is no budget left to probe with.
+    # Report "still running" and let the caller escalate; a stale exit is
+    # picked up by the next phase, which probes with its own budget.
     if not process.is_alive():
         process.join(timeout=0)
         return True
-    return not _is_pid_running(process.pid, process.platform_name)
+    return False
 
 
 def _coerce_subprocess_path(
@@ -573,16 +587,27 @@ def _supports_process_groups(process: ManagedProcess) -> bool:
 def _is_pid_running(
     pid: int,
     platform_name: str,
+    *,
+    probe_timeout: float = _PID_PROBE_TIMEOUT,
 ) -> bool:
     if platform_name == "nt":
+        probe_kwargs: dict[str, Any] = {
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "errors": "replace",
+            "timeout": probe_timeout,
+        }
+        probe_kwargs.update(windows_hidden_subprocess_kwargs())
         try:
             output = subprocess.check_output(
                 ["tasklist", "/fi", f"PID eq {pid}"],
-                stderr=subprocess.STDOUT,
-                text=True,
+                **probe_kwargs,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+        except (OSError, subprocess.SubprocessError):
+            # A failed probe says nothing about the PID. Callers read False as
+            # a confirmed exit, so a timed-out or unavailable tasklist must not
+            # short-circuit the kill escalation in shutdown_process_sync().
+            return True
         return str(pid) in output
 
     try:

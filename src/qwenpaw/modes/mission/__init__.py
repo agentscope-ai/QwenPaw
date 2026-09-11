@@ -176,10 +176,13 @@ class MissionMode(AgentMode):
             default_verify_command=self._default_verify_command,
         )
         task_text = parsed["task_text"]
+        from ...config.context import get_current_project_dir
+
+        workspace_dir = getattr(ctx, "workspace_dir")
+        project_dir = get_current_project_dir() or workspace_dir
 
         # --- info sub-commands ---
         if task_text.strip().lower() == "status":
-            workspace_dir = getattr(ctx, "workspace_dir")
             session_id = getattr(
                 ctx,
                 "session_id",
@@ -187,14 +190,13 @@ class MissionMode(AgentMode):
             )
             text = await asyncio.to_thread(
                 format_status,
-                workspace_dir,
+                project_dir,
                 session_id,
             )
             return _info_msg(text)
 
         if task_text.strip().lower() == "list":
-            workspace_dir = getattr(ctx, "workspace_dir")
-            text = await asyncio.to_thread(format_list, workspace_dir)
+            text = await asyncio.to_thread(format_list, project_dir)
             return _info_msg(text)
 
         # --- help / empty ---
@@ -210,13 +212,13 @@ class MissionMode(AgentMode):
             )
 
         # --- start new mission ---
-        workspace_dir = getattr(ctx, "workspace_dir")
         agent_id = getattr(ctx, "agent_id", "")
         session_id = getattr(ctx, "session_id", "")
 
         prompt, loop_dir = await start_mission(
             task_text=task_text,
-            workspace_dir=workspace_dir,
+            project_dir=project_dir,
+            agent_workspace_dir=workspace_dir,
             agent_id=agent_id,
             session_id=session_id,
             verify_commands=parsed["verify_commands"],

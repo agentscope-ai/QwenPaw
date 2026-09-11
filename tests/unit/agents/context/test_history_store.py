@@ -39,6 +39,51 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert store.count("other") == 0
 
 
+def test_created_at_index_exists_for_date_filtered_recall(
+    store: HistoryStore,
+):
+    indexes = {
+        row["name"]
+        for row in store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'",
+        )
+    }
+
+    assert "ch_created_at" in indexes
+
+
+def test_created_at_index_migrates_existing_populated_store(
+    tmp_path: Path,
+):
+    """An upgrade backfills the new index without losing legacy rows."""
+    db_path = tmp_path / "history.db"
+    legacy = HistoryStore(db_path)
+    with legacy._conn:
+        legacy._conn.execute("DROP INDEX ch_created_at")
+        legacy._conn.executemany(
+            "INSERT INTO conversation_history"
+            "(session_id, kind, created_at) VALUES (?, ?, ?)",
+            [
+                ("legacy", "model_turn", f"2024-01-{(i % 28) + 1:02d}")
+                for i in range(5000)
+            ],
+        )
+    legacy.close()
+
+    migrated = HistoryStore(db_path)
+    try:
+        indexes = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'",
+            )
+        }
+        assert "ch_created_at" in indexes
+        assert migrated.count("legacy") == 5000
+    finally:
+        migrated.close()
+
+
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     """A second append of the same (session, dedup_key) is a no-op that
     returns the existing seq — the resume/migration safety net."""
@@ -95,6 +140,73 @@ def test_same_dedup_key_different_session_does_not_collide(
     b = store.append(session_id="s2", dedup_key="m1", entry=_entry())
     assert a != b
     assert store.count("s1") == 1 and store.count("s2") == 1
+
+
+def test_reconcile_rows_uses_exact_file_keys_and_claims_agent(
+    store: HistoryStore,
+):
+    selected_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="selected",
+        entry=_entry("selected row"),
+    )
+    unrelated_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="other-file",
+        entry=_entry("unrelated row"),
+    )
+
+    moved, deduplicated, claimed = store.reconcile_session_rows(
+        {"sync:shared-stem"},
+        "canonical",
+        {"selected"},
+        agent_id="agent-1",
+    )
+
+    assert (moved, deduplicated, claimed) == (1, 0, 0)
+    selected = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (selected_seq,),
+    ).fetchone()
+    assert tuple(selected) == ("canonical", "agent-1")
+    unrelated = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (unrelated_seq,),
+    ).fetchone()
+    assert tuple(unrelated) == ("sync:shared-stem", None)
+
+
+def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    kept = store.append(
+        session_id="canonical",
+        dedup_key="shared",
+        entry=_entry("canonical copy"),
+    )
+    duplicate = store.append(
+        session_id="sync:file",
+        dedup_key="shared",
+        entry=_entry("legacy duplicate token"),
+    )
+
+    moved, deduplicated, claimed = store.reconcile_session_rows(
+        {"sync:file"},
+        "canonical",
+        {"shared"},
+    )
+
+    assert (moved, deduplicated, claimed) == (0, 1, 0)
+    assert store.count("sync:file") == 0
+    assert store.count("canonical") == 1
+    assert duplicate != kept
+    hits = store._conn.execute(
+        "SELECT rowid FROM conversation_history_fts "
+        "WHERE conversation_history_fts MATCH 'legacy'",
+    ).fetchall()
+    assert hits == []
 
 
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):

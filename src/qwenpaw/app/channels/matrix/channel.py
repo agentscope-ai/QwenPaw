@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import importlib
 import inspect
 import io
 import logging
@@ -51,6 +50,7 @@ from nio import (
     ToDeviceError,
     UploadResponse,
 )
+from nio.crypto import ENCRYPTION_ENABLED
 from nio.event_builders.direct_messages import ToDeviceMessage
 from nio.events.to_device import RoomKeyRequest, RoomKeyRequestCancellation
 from nio.responses import (
@@ -72,6 +72,7 @@ from qwenpaw.schemas import (
 from ....app.channels.renderer import ChannelDisplayConfig
 from ....app.channels.base import BaseChannel
 from ....app.channels.utils import file_url_to_local_path
+from ....app.channels.utils import data_url_filename, parse_data_url_async
 from ....constant import WORKING_DIR
 
 logger = logging.getLogger("qwenpaw.channels.matrix")
@@ -89,6 +90,21 @@ DM_ROOM_CACHE_MAX_ENTRIES = 1_000
 ROOM_HISTORY_MAX_ROOMS = 256
 VERIFICATION_STATE_MAX_ENTRIES = 1_024
 VERIFICATION_STATE_TTL_S = 60 * 60
+
+# nio's _send() retries transport errors but not unparseable HTTP
+# responses (e.g. 502 before Synapse is ready).  login()/whoami()
+# return LoginError/WhoamiError with status_code=None and start()
+# gives up.  These constants drive a retry loop covering that gap.
+_NON_RETRYABLE_AUTH_CODES = frozenset(
+    {
+        "M_FORBIDDEN",
+        "M_MISSING_TOKEN",
+        "M_UNKNOWN_TOKEN",
+        "M_USER_DEACTIVATED",
+    },
+)
+_LOGIN_RETRY_INITIAL_DELAY = 5.0
+_LOGIN_RETRY_MAX_DELAY = 60.0
 
 # Known QwenPaw slash commands — used to decide whether to strip
 # @mention prefix
@@ -164,6 +180,16 @@ CURRENT_MESSAGE_MARKER = "[Current message - respond to this]"
 DEFAULT_HISTORY_LIMIT = 50
 
 
+@dataclass(frozen=True)
+class _UploadedMedia:
+    """Metadata shared by the media upload and its room event."""
+
+    uri: str
+    filename: str
+    mime_type: str
+    size: int
+
+
 @dataclass
 class HistoryEntry:
     """A buffered room message that didn't mention the bot."""
@@ -212,6 +238,7 @@ class MatrixChannel(BaseChannel):
         access_control_dm: bool = False,
         access_control_group: bool = False,
         enabled: bool = True,
+        share_session_in_group: bool = True,
         **_kwargs: Any,
     ) -> None:
         super().__init__(
@@ -232,6 +259,7 @@ class MatrixChannel(BaseChannel):
         self.device_id: str = device_id
         self.encryption: bool = encryption
         self.enabled: bool = enabled
+        self.share_session_in_group: bool = share_session_in_group
         # Channel-level mute
         self.dm_disabled: bool = dm_disabled
         self.group_disabled: bool = group_disabled
@@ -248,6 +276,7 @@ class MatrixChannel(BaseChannel):
         self._client: Optional[AsyncClient] = None
         self._user_id: Optional[str] = None
         self._sync_task: Optional[asyncio.Task] = None
+        self._stop_event: Optional[asyncio.Event] = None
         self._typing_tasks: Dict[str, asyncio.Task] = {}
         self._room_histories: OrderedDict[
             str,
@@ -329,6 +358,9 @@ class MatrixChannel(BaseChannel):
             access_control_dm=bool(raw.get("access_control_dm", False)),
             access_control_group=bool(raw.get("access_control_group", False)),
             enabled=raw.get("enabled", True),
+            share_session_in_group=bool(
+                raw.get("share_session_in_group", True),
+            ),
         )
 
     @classmethod
@@ -424,20 +456,23 @@ class MatrixChannel(BaseChannel):
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        """Probe olm before creating AsyncClientConfig;
-        disable E2EE if absent."""
+        """Disable E2EE when matrix-nio has no crypto backend.
+
+        Checks ``nio.crypto.ENCRYPTION_ENABLED`` — the same flag
+        ``AsyncClientConfig`` validates — instead of probing backend
+        module names, which are version-dependent (#6476).
+        """
         if not self.encryption:
             return
-        try:
-            importlib.import_module("olm")
-        except ImportError:
-            logger.error(
-                "MatrixChannel: olm not installed — falling back to "
-                "non-encrypted mode. "
-                "To enable E2EE: pip install matrix-nio[e2e] && "
-                "apt/dnf install libolm-dev",
-            )
-            self.encryption = False
+        if ENCRYPTION_ENABLED:
+            return
+        logger.error(
+            "MatrixChannel: matrix-nio has no E2EE backend available "
+            "— falling back to non-encrypted mode. To enable E2EE: "
+            "pip install 'matrix-nio[e2e]' (matrix-nio >= 0.26 on "
+            "Python 3.12+).",
+        )
+        self.encryption = False
 
     def _init_async_client(self, resolved_device_id: str) -> None:
         # E2EE: when encryption is enabled, provide store_path so matrix-nio
@@ -570,6 +605,42 @@ class MatrixChannel(BaseChannel):
                     "device_id; E2EE store may not be reusable",
                 )
 
+    def _is_stopping(self) -> bool:
+        """Return True if stop() has been requested."""
+        return self._stop_event is not None and self._stop_event.is_set()
+
+    def _is_retryable_auth_failure(self, response: Any) -> bool:
+        """Return True if a login/whoami error may recover on retry.
+
+        Checks both the Matrix errcode (``status_code``) and the
+        underlying HTTP status -- only 5xx / 408 / 429 are retried.
+        """
+        code = getattr(response, "status_code", None)
+        if code in _NON_RETRYABLE_AUTH_CODES:
+            return False
+        http_status = getattr(
+            getattr(response, "transport_response", None),
+            "status",
+            None,
+        )
+        if http_status is None:
+            return True
+        return http_status >= 500 or http_status in (408, 429)
+
+    async def _wait_backoff_or_stop(self, delay: float) -> bool:
+        """Sleep for delay; return True if stop() was called."""
+        if self._stop_event is None:
+            await asyncio.sleep(delay)
+            return False
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=delay,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def _login_with_password(
         self,
         login_user: str,
@@ -584,58 +655,104 @@ class MatrixChannel(BaseChannel):
             login_kwargs,
             resolved_device_id,
         )
-        resp, last_exc = await self._try_password_login_variants(attempts)
-        if last_exc is not None:
-            raise last_exc
-        if isinstance(resp, LoginResponse):
-            self._handle_password_login_success(resp)
-            return True
-        logger.error("MatrixChannel: password login failed: %s", resp)
-        return False
+        delay = _LOGIN_RETRY_INITIAL_DELAY
+        while True:
+            if self._is_stopping():
+                return False
+            resp, last_exc = await self._try_password_login_variants(
+                attempts,
+            )
+            if last_exc is not None:
+                raise last_exc
+            if isinstance(resp, LoginResponse):
+                if self._is_stopping():
+                    return False
+                self._handle_password_login_success(resp)
+                return True
+            if not self._is_retryable_auth_failure(resp):
+                logger.error(
+                    "MatrixChannel: password login rejected: %s",
+                    resp,
+                )
+                return False
+            logger.warning(
+                "MatrixChannel: password login temporarily "
+                "failed, retrying in %.1fs: %s",
+                delay,
+                resp,
+            )
+            if await self._wait_backoff_or_stop(delay):
+                return False
+            delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
 
     async def _login_with_access_token(self) -> bool:
         self._client.access_token = self.access_token
-        whoami = await self._client.whoami()
-        if isinstance(whoami, WhoamiResponse):
-            if self.matrix_user_id and self.matrix_user_id != whoami.user_id:
+        delay = _LOGIN_RETRY_INITIAL_DELAY
+        while True:
+            if self._is_stopping():
+                return False
+            whoami = await self._client.whoami()
+            if isinstance(whoami, WhoamiResponse):
+                if self._is_stopping():
+                    return False
+                return self._handle_token_login_success(whoami)
+            if not self._is_retryable_auth_failure(whoami):
                 logger.error(
-                    "MatrixChannel: configured user_id=%s does not match "
-                    "access_token owner=%s; refusing stale credentials",
-                    self.matrix_user_id,
-                    whoami.user_id,
+                    "MatrixChannel: token login rejected: %s",
+                    whoami,
                 )
                 return False
-            self._user_id = whoami.user_id
-            self._client.user_id = whoami.user_id
-            self._client.user = whoami.user_id
-            # E2EE requires device_id to associate Olm keys with this
-            # device
-            if whoami.device_id:
-                self._client.device_id = whoami.device_id
-            logger.info(
-                "MatrixChannel: logged in as %s (token, device=%s)",
-                self._user_id,
-                whoami.device_id,
+            logger.warning(
+                "MatrixChannel: token login temporarily failed, "
+                "retrying in %.1fs: %s",
+                delay,
+                whoami,
             )
-            self._save_auth_state()
-            # Load crypto store after user_id and device_id are set
-            if self.encryption and self._client.store_path:
-                if self._client.device_id:
-                    self._client.load_store()
-                    logger.info(
-                        "MatrixChannel: crypto store loaded from %s",
-                        self._client.store_path,
-                    )
-                else:
-                    logger.error(
-                        "MatrixChannel: E2EE enabled but whoami returned "
-                        "no device_id — encryption disabled "
-                        "(token may lack device scope)",
-                    )
-                    self.encryption = False
-            return True
-        logger.error("MatrixChannel: token login failed: %s", whoami)
-        return False
+            if await self._wait_backoff_or_stop(delay):
+                return False
+            delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
+
+    def _handle_token_login_success(
+        self,
+        whoami: WhoamiResponse,
+    ) -> bool:
+        if self.matrix_user_id and self.matrix_user_id != whoami.user_id:
+            logger.error(
+                "MatrixChannel: configured user_id=%s does not match "
+                "access_token owner=%s; refusing stale credentials",
+                self.matrix_user_id,
+                whoami.user_id,
+            )
+            return False
+        self._user_id = whoami.user_id
+        self._client.user_id = whoami.user_id
+        self._client.user = whoami.user_id
+        # E2EE requires device_id to associate Olm keys with this
+        # device
+        if whoami.device_id:
+            self._client.device_id = whoami.device_id
+        logger.info(
+            "MatrixChannel: logged in as %s (token, device=%s)",
+            self._user_id,
+            whoami.device_id,
+        )
+        self._save_auth_state()
+        # Load crypto store after user_id and device_id are set
+        if self.encryption and self._client.store_path:
+            if self._client.device_id:
+                self._client.load_store()
+                logger.info(
+                    "MatrixChannel: crypto store loaded from %s",
+                    self._client.store_path,
+                )
+            else:
+                logger.error(
+                    "MatrixChannel: E2EE enabled but whoami returned "
+                    "no device_id — encryption disabled "
+                    "(token may lack device scope)",
+                )
+                self.encryption = False
+        return True
 
     def _register_plain_room_callbacks(self) -> None:
         self._client.add_event_callback(
@@ -709,6 +826,7 @@ class MatrixChannel(BaseChannel):
                 "MatrixChannel: homeserver not configured, skipping",
             )
             return
+        self._stop_event = asyncio.Event()
         self._preflight_e2ee_dependencies()
         login_user = (self.matrix_user_id or "").strip()
         has_password_creds = bool(login_user and self.password)
@@ -749,6 +867,8 @@ class MatrixChannel(BaseChannel):
         logger.info("MatrixChannel: sync loop started")
 
     async def stop(self) -> None:
+        if self._stop_event:
+            self._stop_event.set()
         if self._sync_task:
             self._sync_task.cancel()
             try:
@@ -2261,11 +2381,38 @@ class MatrixChannel(BaseChannel):
     # send_media outbound path (same role as worker _upload_file).
     # ------------------------------------------------------------------
 
-    async def _upload_file(self, file_ref: str) -> Optional[str]:
-        """Upload a local file to Matrix; return mxc:// URI or None."""
+    async def _upload_file(
+        self,
+        file_ref: str,
+        filename_hint: Optional[str] = None,
+    ) -> Optional[_UploadedMedia]:
+        """Upload media and return the URI and metadata for its room event."""
         if not self._client:
             return None
         try:
+            data_media = await parse_data_url_async(file_ref)
+            if data_media is not None:
+                data = data_media.data
+                mime_type = data_media.media_type
+                filename = data_url_filename(filename_hint, data_media.suffix)
+                resp, _ = await self._client.upload(
+                    io.BytesIO(data),
+                    content_type=mime_type,
+                    filename=filename,
+                    filesize=len(data),
+                )
+                if isinstance(resp, UploadResponse):
+                    return _UploadedMedia(
+                        uri=resp.content_uri,
+                        filename=filename,
+                        mime_type=mime_type,
+                        size=len(data),
+                    )
+                logger.warning(
+                    f"MatrixChannel: data URL upload failed: {resp}",
+                )
+                return None
+
             # file_ref may be a file:// URI or a plain path
             path = Path(file_url_to_local_path(file_ref) or file_ref)
             if not path.exists():
@@ -2289,7 +2436,12 @@ class MatrixChannel(BaseChannel):
                     path.name,
                     resp.content_uri,
                 )
-                return resp.content_uri
+                return _UploadedMedia(
+                    uri=resp.content_uri,
+                    filename=path.name,
+                    mime_type=mime_type,
+                    size=len(data),
+                )
             logger.warning("MatrixChannel: upload failed: %s", resp)
             return None
         except Exception as exc:
@@ -2893,13 +3045,13 @@ class MatrixChannel(BaseChannel):
         if not content:
             content = [TextContent(type=ContentType.TEXT, text="")]
 
-        # Use room_id as the AgentRequest user_id so that all participants
-        # in the same room share one session (QwenPaw keys session state on
-        # both session_id AND user_id).  The real sender is preserved in
-        # meta["sender_id"] for reply mentions.
         req = self.build_agent_request_from_user_content(
             channel_id=CHANNEL_KEY,
-            sender_id=room_id,
+            sender_id=(
+                sender_id
+                if meta.get("is_group") and not self.share_session_in_group
+                else room_id
+            ),
             session_id=session_id,
             content_parts=content,
             channel_meta=meta,
@@ -2926,7 +3078,14 @@ class MatrixChannel(BaseChannel):
 
     def get_to_handle_from_request(self, request: Any) -> str:
         meta = getattr(request, "channel_meta", {}) or {}
-        return meta.get("room_id", getattr(request, "user_id", ""))
+        room_id = meta.get("room_id")
+        if room_id:
+            return room_id
+        # Recover the room from session_id when metadata is unavailable.
+        session_id = getattr(request, "session_id", "") or ""
+        if session_id.startswith("matrix:"):
+            return session_id[len("matrix:") :]
+        return getattr(request, "user_id", "")
 
     # ------------------------------------------------------------------
     # Mention helper — MSC3952 m.mentions from body text scan
@@ -3317,8 +3476,11 @@ class MatrixChannel(BaseChannel):
             return
 
         # Upload to Matrix media repository
-        mxc_uri = await self._upload_file(file_ref)
-        if not mxc_uri:
+        uploaded = await self._upload_file(
+            file_ref,
+            filename_hint=getattr(part, "filename", None),
+        )
+        if not uploaded:
             logger.warning(
                 "MatrixChannel: send_media upload failed for %s",
                 file_ref,
@@ -3327,22 +3489,13 @@ class MatrixChannel(BaseChannel):
 
         # Build and send the Matrix room event
         try:
-            path_str = file_url_to_local_path(file_ref) or file_ref
-            filename = os.path.basename(path_str) or "file"
-            mime_type, _ = mimetypes.guess_type(path_str)
-            mime_type = mime_type or "application/octet-stream"
-            try:
-                file_size = os.path.getsize(path_str)
-            except OSError:
-                file_size = 0
-
             event_content: dict[str, Any] = {
                 "msgtype": matrix_msgtype,
-                "body": filename,
-                "url": mxc_uri,
+                "body": uploaded.filename,
+                "url": uploaded.uri,
                 "info": {
-                    "mimetype": mime_type,
-                    "size": file_size,
+                    "mimetype": uploaded.mime_type,
+                    "size": uploaded.size,
                 },
             }
             sender_id = (meta or {}).get("sender_id") or (meta or {}).get(
@@ -3361,7 +3514,7 @@ class MatrixChannel(BaseChannel):
             logger.debug(
                 "MatrixChannel: sent %s %s to %s",
                 matrix_msgtype,
-                filename,
+                uploaded.filename,
                 room_id,
             )
         except Exception as exc:

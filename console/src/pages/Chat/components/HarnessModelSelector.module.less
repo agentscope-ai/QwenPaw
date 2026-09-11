@@ -1,0 +1,107 @@
+.trigger {
+  --hms-trigger-text: #201b17;
+  --hms-trigger-bg: rgba(255, 125, 18, 0.08);
+  --hms-trigger-border: rgba(255, 125, 18, 0.3);
+  --hms-trigger-icon: var(--app-accent);
+
+  display: inline-flex;
+  max-width: 230px;
+  height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  overflow: hidden;
+  color: var(--hms-trigger-text);
+  background: var(--hms-trigger-bg);
+  border: 1px solid var(--hms-trigger-border);
+  border-radius: 10px;
+  cursor: pointer;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  svg:first-child {
+    flex: 0 0 auto;
+    color: var(--hms-trigger-icon);
+  }
+}
+
+.panel {
+  --hms-heading-text: #201b17;
+  --hms-text-muted: #72675e;
+  --hms-hint: #80746a;
+  --hms-heading-border: rgba(120, 99, 83, 0.14);
+  --hms-footer: #8b786a;
+
+  display: grid;
+  width: min(340px, calc(100vw - 32px));
+  gap: 14px;
+  padding: 4px;
+
+  label {
+    display: grid;
+    gap: 6px;
+
+    > span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--hms-text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+  }
+
+  :global(.ant-select) {
+    width: 100%;
+  }
+}
+
+.heading {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hms-heading-border);
+
+  span {
+    color: var(--hms-heading-text);
+    text-transform: capitalize;
+    font-weight: 650;
+  }
+
+  small {
+    color: var(--hms-hint);
+  }
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--hms-footer);
+  font-size: 11px;
+}
+
+:global(.dark-mode) .trigger {
+  --hms-trigger-text: #f5eee8;
+  --hms-trigger-bg: rgba(255, 132, 31, 0.12);
+  --hms-trigger-border: rgba(255, 144, 54, 0.35);
+  --hms-trigger-icon: #ff9a47;
+}
+
+:global(.dark-mode) .panel {
+  --hms-heading-text: rgba(255, 255, 255, 0.88);
+  --hms-text-muted: rgba(255, 255, 255, 0.65);
+  --hms-hint: rgba(255, 255, 255, 0.65);
+  --hms-heading-border: rgba(255, 255, 255, 0.1);
+  --hms-footer: rgba(255, 255, 255, 0.58);
+}
+
+@media (max-width: 680px) {
+  .trigger {
+    max-width: 150px;
+  }
+}

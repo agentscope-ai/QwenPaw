@@ -424,8 +424,10 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Modify test collection to add markers based on test location."""
     for item in items:
-        # Auto-mark tests based on directory
-        path_str = str(item.path)
+        # Auto-mark tests based on directory. as_posix() keeps the separator
+        # forward-slashed on Windows, where str() would yield backslashes and
+        # silently drop these tests from any -m filtered run.
+        path_str = item.path.as_posix()
         if "/unit/" in path_str:
             item.add_marker(pytest.mark.unit)
         elif "/integration/" in path_str:

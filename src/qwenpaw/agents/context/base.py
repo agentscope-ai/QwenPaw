@@ -2,11 +2,13 @@
 """The pluggable context-manager interface.
 
 A ``ContextManager`` is an injectable strategy that owns an agent's context
-management. :class:`~qwenpaw.agents.react_agent.QwenPawAgent` delegates its two
-AgentScope hooks to it:
+management. :class:`~qwenpaw.agents.react_agent.QwenPawAgent` delegates its
+AgentScope hooks and provider-overflow recovery to it:
 
 * ``_save_to_context`` -> :meth:`on_save` (after the base append)
-* ``compress_context`` -> :meth:`compress` (instead of the base compression)
+* ``_compress_context_impl`` -> :meth:`compress`
+  (instead of native compression)
+* overflow retry -> :meth:`recover_from_context_overflow`
 
 When no manager is injected, the agent keeps its native AgentScope behavior —
 so a strategy is purely additive and fully opt-in.
@@ -20,6 +22,13 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 class ContextManager(Protocol):
     """Strategy that drives an agent's context management."""
 
+    async def recover_from_context_overflow(self, agent: Any) -> bool:
+        """Try to shorten an input rejected by the model provider.
+
+        Return ``True`` only when recovery changed the model input enough to
+        justify rebuilding it and retrying the provider request once.
+        """
+
     async def compress(
         self,
         agent: Any,
@@ -28,8 +37,8 @@ class ContextManager(Protocol):
     ) -> None:
         """Compress ``agent.state.context`` when it exceeds the threshold.
 
-        Called from ``QwenPawAgent.compress_context`` in place of the native
-        AgentScope compression. ``instructions`` is optional, one-shot
+        Called from ``QwenPawAgent._compress_context_impl`` after AgentScope's
+        compression middleware chain. ``instructions`` is optional, one-shot
         guidance for a manual compaction and must not be persisted as active
         conversation state.
         """

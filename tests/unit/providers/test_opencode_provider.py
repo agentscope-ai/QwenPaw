@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for the OpenCode built-in provider.
+"""Unit tests for the OpenCode built-in provider."""
 
-After review feedback: OPENCODE_MODELS reduced to 8 intersection models
-(Zen ∩ Go), endpoint filtering removed for minimal diff.
-"""
-
+from qwenpaw.providers.provider_catalog import (
+    KILO_MODELS,
+)
 from qwenpaw.providers.provider_manager import (
     OPENCODE_MODELS,
     PROVIDER_OPENCODE,
@@ -19,6 +18,25 @@ class TestOpenCodeProvider:
     def test_opencode_provider_is_openai_compatible(self):
         """PROVIDER_OPENCODE should be an OpenAIProvider."""
         assert isinstance(PROVIDER_OPENCODE, OpenAIProvider)
+
+    def test_opencode_catalog_excludes_expired_free_models(self):
+        """Expired promotions and unsupported IDs stay out of the catalog."""
+        model_ids = {model.id for model in OPENCODE_MODELS}
+        assert "deepseek-v4-flash-free" not in model_ids
+        assert "nemotron-3-super-free" not in model_ids
+
+    def test_kilo_catalog_contains_current_free_models(self):
+        """Kilo's catalog keeps the currently published free routes."""
+        model_ids = {model.id for model in KILO_MODELS if model.is_free}
+        assert {
+            "kilo-auto/free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "stepfun/step-3.7-flash:free",
+        } <= model_ids
+        assert "poolside/laguna-m.1:free" not in model_ids
+        assert "poolside/laguna-xs.2:free" not in model_ids
+        assert "nex-agi/nex-n2-pro:free" not in model_ids
 
     def test_opencode_provider_key_attributes(self):
         """Provider-level attributes should be correctly set."""
@@ -77,7 +95,7 @@ class TestOpenCodeProvider:
         assert isinstance(provider, OpenAIProvider)
 
     def test_get_info_returns_all_models(self):
-        """get_info() should return all 8 intersection models."""
+        """get_info() should return the maintained OpenCode models."""
         import asyncio
 
         provider = PROVIDER_OPENCODE.model_copy()

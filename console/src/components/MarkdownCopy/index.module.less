@@ -12,7 +12,7 @@
   font-size: 12px;
   font-weight: 600;
   height: 20px;
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .controlGroup {
@@ -40,7 +40,8 @@
   overflow: auto;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
-  background-color: #fff;
+  background-color: var(--app-surface);
+  color: var(--app-text);
   max-width: 100%;
 
   :global {
@@ -48,6 +49,7 @@
       max-width: 100%;
       overflow-wrap: break-word;
       word-break: break-word;
+      color: var(--app-text);
     }
 
     pre {

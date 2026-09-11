@@ -593,18 +593,27 @@ async def _stream_action_responses(
         ),
     )
     loop = asyncio.get_running_loop()
-    from ...tool_calls import get_call_context
+    from ...tool_calls import arm_kill_deadline, get_call_context
 
     _tc_ctx = get_call_context()
-    if _tc_ctx is not None and _tc_ctx.remaining() is not None:
-        deadline = _tc_ctx.deadline
-    elif max_runtime is not None and max_runtime > 0:
-        deadline = loop.time() + max_runtime
-    else:
-        deadline = None
+    # Publish max_runtime onto kill_deadline so coordinator keep_foreground
+    # does not treat a shorter offload hook timeout as a hard kill.
+    if _tc_ctx is not None and max_runtime is not None and max_runtime > 0:
+        arm_kill_deadline(_tc_ctx, float(max_runtime))
+    fallback_deadline = (
+        loop.time() + max_runtime
+        if max_runtime is not None and max_runtime > 0
+        else None
+    )
 
     try:
         while True:
+            # Re-read kill_deadline each iteration so extend / no_deadline
+            # from the coordinator take effect (do not freeze a local copy).
+            if _tc_ctx is not None:
+                deadline = _tc_ctx.kill_deadline
+            else:
+                deadline = fallback_deadline
             if run_task.done():
                 await flush_snapshot()
                 await settle_flush_task()

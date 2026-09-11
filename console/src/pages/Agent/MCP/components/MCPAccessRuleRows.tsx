@@ -12,7 +12,6 @@ import type {
 } from "../../../../api/types";
 import {
   buildSubjectValueOptions,
-  MCP_CHANNEL_SOURCE_VALUES,
   ruleHasAmbiguousUserSource,
   ruleHasUnknownUserValue,
 } from "../accessPolicy";
@@ -121,13 +120,14 @@ const CHANNEL_SOURCE_FALLBACK_LABELS: Record<string, string> = {
 function channelSourceOptions(
   allChannelsLabel: string,
   channelLabel: (value: string) => string,
+  channelSourceValues: readonly string[],
 ): { label: string; value: string }[] {
   return [
     {
       label: allChannelsLabel,
       value: "*",
     },
-    ...MCP_CHANNEL_SOURCE_VALUES.map((value) => ({
+    ...channelSourceValues.map((value) => ({
       label: channelLabel(value),
       value,
     })),
@@ -160,6 +160,7 @@ function sourceValueSelectValue(sourceValue: string): string {
 interface MCPAccessRuleRowsProps<Rule extends MCPAccessRule> {
   rules: Rule[];
   principalOptions?: MCPAccessPrincipalOption[];
+  channelSourceValues: readonly string[];
   getKey: (rule: Rule) => string;
   updateRule: (rule: Rule, patch: Partial<MCPAccessRule>) => void;
   setRuleEffect: (rule: Rule, effect: MCPAccessEffect) => void;
@@ -171,6 +172,7 @@ interface MCPAccessRuleRowsProps<Rule extends MCPAccessRule> {
 export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
   rules,
   principalOptions = [],
+  channelSourceValues,
   getKey,
   updateRule,
   setRuleEffect,
@@ -186,6 +188,7 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
   const sourceValueOptions = channelSourceOptions(
     t("mcp.access.sourceValueAllChannels"),
     channelLabel,
+    channelSourceValues,
   );
   const channelSourceTypeLabel = t("mcp.access.source.channel");
   const subjectTypeOptions = [

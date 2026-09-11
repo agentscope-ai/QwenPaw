@@ -7,16 +7,9 @@ interface CodingModeState {
    * fetched from backend (UI should treat as loading).
    */
   codingModeByAgent: Record<string, boolean>;
-  /**
-   * Active coding project directory path, keyed by agentId.
-   * Key absent / undefined → never selected (show picker on next toggle).
-   * null → user explicitly chose the default workspace (skip picker).
-   * string → specific project directory.
-   */
-  projectDirByAgent: Record<string, string | null>;
-
+  /** Monotonic local-write version used to ignore stale sync responses. */
+  codingModeRevisionByAgent: Record<string, number>;
   setCodingMode: (agentId: string, enabled: boolean) => void;
-  setProjectDir: (agentId: string, path: string | null) => void;
 }
 
 // Backend (agent.json) is the source of truth. State is held in-memory
@@ -25,16 +18,15 @@ interface CodingModeState {
 // real backend state across tabs / sessions.
 export const useCodingModeStore = create<CodingModeState>((set) => ({
   codingModeByAgent: {},
-  projectDirByAgent: {},
+  codingModeRevisionByAgent: {},
 
   setCodingMode: (agentId: string, enabled: boolean) =>
     set((state: CodingModeState) => ({
       codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
-    })),
-
-  setProjectDir: (agentId: string, path: string | null) =>
-    set((state: CodingModeState) => ({
-      projectDirByAgent: { ...state.projectDirByAgent, [agentId]: path },
+      codingModeRevisionByAgent: {
+        ...state.codingModeRevisionByAgent,
+        [agentId]: (state.codingModeRevisionByAgent[agentId] ?? 0) + 1,
+      },
     })),
 }));
 
@@ -55,24 +47,5 @@ export function useCodingMode(): {
     codingMode: codingModeByAgent[selectedAgent] ?? false,
     initialized: selectedAgent in codingModeByAgent,
     setCodingMode: (enabled: boolean) => setCodingMode(selectedAgent, enabled),
-  };
-}
-
-/** Convenience hook: coding project directory for the currently selected agent.
- *
- * Returns `undefined` when the user has never chosen a project (show picker),
- * `null` when they explicitly chose the default workspace (skip picker),
- * or a `string` path when a specific project is active.
- */
-export function useProjectDir(): {
-  projectDir: string | null | undefined;
-  setProjectDir: (path: string | null) => void;
-} {
-  const { selectedAgent } = useAgentStore();
-  const { projectDirByAgent, setProjectDir } = useCodingModeStore();
-  return {
-    // Do NOT fall back to null here – undefined means "never selected"
-    projectDir: projectDirByAgent[selectedAgent],
-    setProjectDir: (path: string | null) => setProjectDir(selectedAgent, path),
   };
 }

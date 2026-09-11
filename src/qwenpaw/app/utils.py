@@ -3,10 +3,14 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
+
+from ..utils.logging import sanitize_log_value
+from ..utils.io_utils import run_async_to_completion
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -89,7 +93,12 @@ def safe_project_dest(base: Path, name: str) -> Path:
     return dest
 
 
-def schedule_agent_reload(request: "Request", agent_id: str) -> None:
+def schedule_agent_reload(
+    request: "Request",
+    agent_id: str,
+    *,
+    on_complete: Callable[[bool], Awaitable[None]] | None = None,
+) -> bool:
     """Schedule an agent reload in background (non-blocking).
 
     This is a common pattern used across multiple endpoints to reload
@@ -103,6 +112,11 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
     Args:
         request: FastAPI request object (must have multi_agent_manager)
         agent_id: Agent ID to reload
+        on_complete: Optional async callback receiving whether reload
+            committed successfully.
+
+    Returns:
+        ``True`` when the reload task was scheduled, otherwise ``False``.
 
     Example:
         >>> from qwenpaw.app.utils import schedule_agent_reload
@@ -118,21 +132,38 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
 
     if manager is None:
         logger.warning(
-            f"Cannot schedule agent reload for '{agent_id}': "
+            "Cannot schedule agent reload for "
+            f"'{sanitize_log_value(agent_id)}': "
             "MultiAgentManager not initialized in app state",
         )
-        return
+        return False
 
     async def reload_in_background():
+        reloaded = False
         try:
-            await manager.reload_agent(agent_id)
+            reloaded = await manager.reload_agent(agent_id)
         except Exception as e:
             logger.warning(
-                f"Background reload failed for agent '{agent_id}': {e}",
+                "Background reload failed for agent "
+                f"'{sanitize_log_value(agent_id)}': {e}",
                 exc_info=True,
             )
+        finally:
+            if on_complete is not None:
+                try:
+                    await run_async_to_completion(on_complete(reloaded))
+                except Exception:
+                    logger.exception(
+                        "Agent reload completion failed for '%s'",
+                        sanitize_log_value(agent_id),
+                    )
 
+    # The caller just persisted a config change: bump the generation so
+    # any reload already mid-build aborts its (now stale) swap and this
+    # reload delivers the fresh state.
+    manager.note_agent_config_changed(agent_id)
     asyncio.create_task(reload_in_background())
+    return True
 
 
 def check_upload_size(data: bytes) -> None:

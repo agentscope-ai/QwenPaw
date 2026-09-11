@@ -319,6 +319,32 @@ export interface ChatCardItem {
   render: React.FC<Record<string, unknown>>;
 }
 
+export interface ChatApprovalData {
+  requestId: string;
+  sessionId: string;
+  rootSessionId?: string;
+  agentId: string;
+  toolName: string;
+  severity: string;
+  findingsCount: number;
+  findingsSummary: string;
+  toolParams: Record<string, unknown>;
+  createdAt: number;
+  timeoutSeconds: number;
+  sourceType: string;
+}
+
+export interface ChatApprovalRendererProps {
+  approval: ChatApprovalData;
+  onResolved: () => void;
+}
+
+export interface ChatApprovalRendererItem {
+  id: string;
+  sourceType: string;
+  render: React.FC<ChatApprovalRendererProps>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Audit — unified across console + chat registries
 // ─────────────────────────────────────────────────────────────────────────────

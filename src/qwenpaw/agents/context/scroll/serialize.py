@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from agentscope.message import Msg
 
 from ....constant import QWENPAW_MESSAGE_TAG_KEY
+from ....utils.tool_call_extra import TOOL_CALL_EXTRAS_METADATA_KEY
 from ..types import LogEntry
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
@@ -287,14 +289,22 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
         if media:
             joined = "\n".join(media)
             text = f"{text}\n{joined}".strip() if text else joined
-        # Persist the runtime tag (loop_continuation / auto_continue / …) so
-        # durable rows keep the "this user msg is a synthetic stub, not a
-        # request" signal — the recall layer's active-turn floor anchors on
-        # real requests only and needs it in SQL.
-        tag = None
+        # Persist only protocol metadata required to reconstruct the turn:
+        # runtime tags distinguish synthetic stubs from real requests, while
+        # provider tool-call extras preserve signatures for exact archives.
+        persisted_metadata: dict[str, Any] = {}
         msg_meta = getattr(msg, "metadata", None)
         if isinstance(msg_meta, dict):
             tag = msg_meta.get(QWENPAW_MESSAGE_TAG_KEY)
+            if tag:
+                persisted_metadata[QWENPAW_MESSAGE_TAG_KEY] = str(tag)
+            tool_call_extras = msg_meta.get(
+                TOOL_CALL_EXTRAS_METADATA_KEY,
+            )
+            if isinstance(tool_call_extras, dict):
+                persisted_metadata[TOOL_CALL_EXTRAS_METADATA_KEY] = deepcopy(
+                    tool_call_extras,
+                )
         entries.append(
             LogEntry(
                 kind="model_turn"
@@ -307,7 +317,7 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
                 tool_input=tool_input,
                 headline=headline,
                 blocks=dumped or None,
-                metadata=({QWENPAW_MESSAGE_TAG_KEY: str(tag)} if tag else {}),
+                metadata=persisted_metadata,
                 created_at=created_at,
             ),
         )

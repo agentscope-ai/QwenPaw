@@ -19,10 +19,19 @@ shift || true
 
 # Channels to exclude from the image (default: imessage).
 DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS:-imessage}"
+QWENPAW_VERSION=$(sed -n \
+    's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    src/qwenpaw/__version__.py)
+if [ -z "$QWENPAW_VERSION" ]; then
+    echo "[docker_build] Failed to read src/qwenpaw/__version__.py" >&2
+    exit 1
+fi
 
 echo "[docker_build] Building image: $TAG (Dockerfile: $DOCKERFILE)"
 docker build -f "$DOCKERFILE" \
     --build-arg QWENPAW_DISABLED_CHANNELS="$DISABLED_CHANNELS" \
+    --build-arg \
+    QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="$QWENPAW_VERSION" \
     ${QWENPAW_ENABLED_CHANNELS:+--build-arg QWENPAW_ENABLED_CHANNELS="$QWENPAW_ENABLED_CHANNELS"} \
     -t "$TAG" "$@" .
 echo "[docker_build] Done."

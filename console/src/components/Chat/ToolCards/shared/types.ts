@@ -7,7 +7,6 @@
 export type ToolCallStatus = "calling" | "done" | "error";
 
 export interface ToolInputProgress {
-  characterCount: number;
   preview: string;
   truncated: boolean;
 }
@@ -17,6 +16,7 @@ export interface ToolCallContent {
   id: string;
   name: string;
   serverLabel?: string;
+  rawInput?: unknown;
   params: Record<string, unknown>;
   inputProgress?: ToolInputProgress;
   result?: unknown;

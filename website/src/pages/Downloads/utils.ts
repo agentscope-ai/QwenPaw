@@ -14,6 +14,25 @@ export function pickLocalizedField(
   return en || zh;
 }
 
+export function normalizeDesktopDownloadMetadata(
+  file: FileMetadata,
+): FileMetadata {
+  const replaceDesktopClient = (value: string) =>
+    value.split("桌面客户端").join("桌面版");
+
+  return {
+    ...file,
+    name: {
+      ...file.name,
+      "zh-CN": replaceDesktopClient(file.name["zh-CN"]),
+    },
+    description: {
+      ...file.description,
+      "zh-CN": replaceDesktopClient(file.description["zh-CN"]),
+    },
+  };
+}
+
 export function isPreviewVersion(version: string): boolean {
   return /[ab]\d*$/i.test(version) || /preview/i.test(version);
 }

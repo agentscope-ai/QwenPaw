@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-nested-blocks,too-many-branches
+# pylint: disable=too-many-nested-blocks,too-many-branches,too-many-statements
 """API routes for built-in tools management."""
 
 from __future__ import annotations
@@ -11,6 +11,15 @@ from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ...config import load_config
+from ...config.config import AgentProfileConfig, update_agent_config_async
+from ...config.utils import mutate_config
+from ...drivers.credentials.types import CredentialRecord
+from ...security.secret_store import (
+    mask_secret_value,
+    restore_masked_secret_value,
+)
+from ...utils.io_utils import run_sync_io
+from ..driver_config_service import DriverConfigService
 from ..utils import schedule_agent_reload
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -85,6 +94,48 @@ class ToolConfigUpdate(BaseModel):
     )
 
 
+_BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
+    "web_search": [
+        {
+            "name": "provider",
+            "label": "Provider",
+            "type": "select",
+            "options": ["tavily", "anysearch"],
+            "default": "tavily",
+        },
+        {
+            "name": "api_key",
+            "label": "API Key (optional)",
+            "type": "password",
+        },
+    ],
+}
+
+
+def _builtin_credential_ref(tool_name: str, config: dict) -> str:
+    """Return the credential-store ref for a builtin tool's password field,
+    or "" when provider is missing/blank or keyless (caller must skip
+    credential I/O)."""
+    provider = str(config.get("provider") or "").strip()
+    if not provider:
+        return ""
+    if tool_name == "web_search" and provider == "tavily":
+        return ""
+    return f"tool/{tool_name}/{provider}"
+
+
+def _persist_browser_experimental(config: dict[str, Any]) -> None:
+    """Persist Browser-card gating before the next process registration."""
+    experimental = config.get("experimental")
+    if not isinstance(experimental, bool):
+        return
+
+    def apply_experimental(application_config: Any) -> None:
+        application_config.browser.experimental = experimental
+
+    mutate_config(apply_experimental)
+
+
 def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     """Build a complete ToolInfo from a tool config, including plugin metadata.
 
@@ -146,6 +197,25 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
                         masked_config[field["name"]] = "***"
             tool_info.config_values = masked_config
 
+    if tool_name == "browser":
+        config_values: dict[str, Any] = {
+            "experimental": load_config().browser.experimental,
+        }
+        try:
+            from ...agents.tools import browser_track_effective
+
+            config_values["experimental_effective"] = browser_track_effective()
+        except Exception:
+            pass
+        tool_info.config_values = config_values
+    elif tool_name in _BUILTIN_TOOL_CONFIG_FIELDS:
+        tool_info.config_fields = [
+            ToolConfigField(**f)
+            for f in _BUILTIN_TOOL_CONFIG_FIELDS[tool_name]
+        ]
+        if tool_config.config:
+            tool_info.config_values = dict(tool_config.config)
+
     return tool_info
 
 
@@ -160,7 +230,6 @@ async def list_tools(
     """
     from ..agent_context import get_agent_for_request
     from ...config.config import load_agent_config
-    from ...plugins.registry import PluginRegistry
 
     workspace = await get_agent_for_request(request)
     agent_config = load_agent_config(workspace.agent_id)
@@ -176,92 +245,10 @@ async def list_tools(
     else:
         builtin_tools = agent_config.tools.builtin_tools
 
-    # Get plugin registry for config metadata
-    registry = PluginRegistry()
-
-    # Optimize: Preload all manifests to avoid N+1 queries
-    all_manifests = registry.get_all_plugin_manifests()
-
-    # Build tool_name -> manifest mapping
-    tool_to_manifest = {}
-    for manifest in all_manifests.values():
-        meta = manifest.get("meta", {})
-        # Support old format: meta.tool_name
-        tool_name = meta.get("tool_name")
-        if tool_name:
-            tool_to_manifest[tool_name] = manifest
-        # Support new format: meta.tools array
-        tools = meta.get("tools", [])
-        if isinstance(tools, list):
-            for tool in tools:
-                if isinstance(tool, dict) and "name" in tool:
-                    tool_to_manifest[tool["name"]] = manifest
-
-    # Optimize: Load agent_config once instead of per-tool
-    # (reuse the already-loaded agent_config from above)
-    # No need to reload it since we have builtin_tools from it
-
-    tools_list = []
-    for tool_config in builtin_tools.values():
-        tool_info = ToolInfo(
-            name=tool_config.name,
-            enabled=tool_config.enabled,
-            description=tool_config.description,
-            async_execution=tool_config.async_execution,
-            icon=tool_config.icon or "",
-        )
-
-        # Add config metadata from plugin manifest (using cached mapping)
-        manifest = tool_to_manifest.get(tool_config.name)
-        if manifest and "meta" in manifest:
-            meta = manifest["meta"]
-
-            # Try to get tool-specific config first (from meta.tools array)
-            config_fields_data = None
-            requires_config = False
-
-            tools = meta.get("tools", [])
-            if isinstance(tools, list):
-                for tool in tools:
-                    if (
-                        isinstance(tool, dict)
-                        and tool.get("name") == tool_config.name
-                    ):
-                        # Found tool-specific config
-                        requires_config = tool.get("requires_config", False)
-                        config_fields_data = tool.get("config_fields", [])
-                        break
-
-            # Fallback to global config if tool-specific not found
-            if config_fields_data is None:
-                requires_config = meta.get("requires_config", False)
-                config_fields_data = meta.get("config_fields", [])
-
-            tool_info.requires_config = requires_config
-
-            # Convert config_fields to Pydantic models
-            if config_fields_data:
-                tool_info.config_fields = [
-                    ToolConfigField(**field) for field in config_fields_data
-                ]
-
-            # Get current config values directly from tool_config
-            # (no need to reload agent_config)
-            if tool_config.config:
-                masked_config = dict(tool_config.config)
-                # Mask password fields
-                for field in config_fields_data:
-                    if (
-                        field.get("type") == "password"
-                        and field["name"] in masked_config
-                    ):
-                        if masked_config[field["name"]]:
-                            masked_config[field["name"]] = "***"
-                tool_info.config_values = masked_config
-
-        tools_list.append(tool_info)
-
-    return tools_list
+    return [
+        _build_tool_info(tool_config, tool_config.name)
+        for tool_config in builtin_tools.values()
+    ]
 
 
 @router.patch("/{tool_name}/toggle", response_model=ToolInfo)
@@ -360,12 +347,18 @@ async def update_tool_async_execution(
 async def get_tool_config(
     tool_name: str = Path(...),
     request: Request = None,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     """Get tool configuration (sensitive fields masked).
 
     Args:
         tool_name: Tool function name
         request: FastAPI request
+        provider: Optional provider to query credentials for (builtin tools
+            with per-provider credential slots, e.g. web_search). When
+            provided, the credential ref is computed from this value instead
+            of the currently saved config, so the frontend can show the key
+            for a provider the user is *about to* select.
 
     Returns:
         Tool configuration with sensitive fields masked
@@ -377,7 +370,14 @@ async def get_tool_config(
     registry = PluginRegistry()
 
     # Get tool config for this agent
-    config = registry.get_tool_config(tool_name, workspace.agent_id) or {}
+    config = (
+        await run_sync_io(
+            registry.get_tool_config,
+            tool_name,
+            workspace.agent_id,
+        )
+        or {}
+    )
 
     # Mask sensitive fields
     plugin_id = registry.get_plugin_id_for_tool(tool_name)
@@ -412,6 +412,33 @@ async def get_tool_config(
                         masked_config[field["name"]] = "***"
             return masked_config
 
+    elif tool_name in _BUILTIN_TOOL_CONFIG_FIELDS:
+        result = dict(config)
+        pw_field = next(
+            (
+                f
+                for f in _BUILTIN_TOOL_CONFIG_FIELDS[tool_name]
+                if f["type"] == "password"
+            ),
+            None,
+        )
+        if pw_field:
+            ref_provider = (provider or "").strip() or result.get("provider")
+            if ref_provider:
+                result["provider"] = ref_provider
+                ref = _builtin_credential_ref(
+                    tool_name,
+                    {"provider": ref_provider},
+                )
+                if ref:
+                    record = await DriverConfigService(
+                        workspace,
+                    ).load_optional_credential(ref)
+                    key = record.secrets.get("api_key", "") if record else ""
+                    if key:
+                        result[pw_field["name"]] = mask_secret_value(key)
+        return result
+
     return config
 
 
@@ -432,7 +459,8 @@ async def update_tool_config(
         Success response
 
     Raises:
-        HTTPException: If update fails
+        HTTPException: 404 if the tool is not found, 500 if the
+            update fails for an unexpected reason
     """
     from ...plugins.registry import PluginRegistry
     from ..agent_context import get_agent_for_request
@@ -442,7 +470,20 @@ async def update_tool_config(
 
     # Get plugin manifest to check for password fields
     plugin_id = registry.get_plugin_id_for_tool(tool_name)
-    config_to_save = dict(body.config)
+    requested_config = dict(body.config)
+    password_fields: set[str] = set()
+
+    # Builtin-tool credential slot handling (web_search api_key): the key
+    # never lands in agent.json; it lives in the driver credential store
+    # under a per-provider ref. The mutation is deferred until after
+    # agent.json is committed, with config rollback on credential failure.
+    credential_action: tuple[str, ...] = ()
+    credential_service: DriverConfigService | None = None
+    old_tool_config: dict[str, Any] = {}
+
+    def _restore_tool_config(agent_config: AgentProfileConfig) -> None:
+        tool_config = agent_config.tools.builtin_tools[tool_name]
+        tool_config.config = dict(old_tool_config) if old_tool_config else None
 
     if plugin_id:
         manifest = registry.get_plugin_manifest(plugin_id)
@@ -465,37 +506,122 @@ async def update_tool_config(
             if config_fields is None:
                 config_fields = meta.get("config_fields", [])
 
-            # Get existing config
-            existing_config = (
-                registry.get_tool_config(
-                    tool_name,
-                    workspace.agent_id,
-                )
-                or {}
-            )
-
-            # Preserve existing password values if user sent masked value
             for field in config_fields:
                 if field.get("type") == "password":
-                    field_name = field["name"]
-                    new_value = config_to_save.get(field_name)
+                    password_fields.add(field["name"])
 
-                    # If value is "***" (masked), keep existing value
-                    if new_value == "***" and field_name in existing_config:
-                        config_to_save[field_name] = existing_config[
-                            field_name
-                        ]
+    elif tool_name in _BUILTIN_TOOL_CONFIG_FIELDS:
+        pw_field = next(
+            (
+                f
+                for f in _BUILTIN_TOOL_CONFIG_FIELDS[tool_name]
+                if f["type"] == "password"
+            ),
+            None,
+        )
+        if pw_field and pw_field["name"] in requested_config:
+            incoming = requested_config.pop(pw_field["name"])
+            ref = _builtin_credential_ref(tool_name, requested_config)
+            if ref:
+                credential_service = DriverConfigService(workspace)
+                old_record = await credential_service.load_optional_credential(
+                    ref,
+                )
+                old_key = (
+                    old_record.secrets.get("api_key", "") if old_record else ""
+                )
+                new_key = restore_masked_secret_value(incoming, old_key)
+                if new_key:
+                    credential_action = ("put", ref, new_key)
+                elif old_record:
+                    credential_action = ("delete", ref)
+
+    def apply_tool_config(agent_config: AgentProfileConfig) -> None:
+        nonlocal old_tool_config
+        if (
+            not agent_config.tools
+            or tool_name not in agent_config.tools.builtin_tools
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{tool_name}' not found",
+            )
+
+        tool_config = agent_config.tools.builtin_tools[tool_name]
+        existing_config = tool_config.config or {}
+        if not old_tool_config:
+            old_tool_config = dict(existing_config)
+        config_to_save = dict(requested_config)
+        for field_name in password_fields:
+            if (
+                config_to_save.get(field_name) == "***"
+                and field_name in existing_config
+            ):
+                config_to_save[field_name] = existing_config[field_name]
+        tool_config.config = config_to_save
 
     # Save tool config for this agent
     try:
-        registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
-
-        # Hot reload config to apply changes without full restart
-        schedule_agent_reload(request, workspace.agent_id)
-
-        return {"status": "success", "message": "Configuration updated"}
+        agent_config = await update_agent_config_async(
+            workspace.agent_id,
+            apply_tool_config,
+        )
+        persisted_config = dict(
+            agent_config.tools.builtin_tools[tool_name].config,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update config: {str(e)}",
         ) from e
+
+    # Credential mutation for builtin tools (web_search api_key) is deferred
+    # until agent.json is safely committed, and the config is rolled back if
+    # the credential write fails — the two stores cannot drift silently
+    # (review #7081, Issue 2).
+    if credential_action:
+        try:
+            if credential_action[0] == "put":
+                await credential_service.credential_store.put(
+                    CredentialRecord(
+                        ref=credential_action[1],
+                        kind="static",
+                        secrets={"api_key": credential_action[2]},
+                    ),
+                )
+            else:
+                await credential_service.credential_store.delete(
+                    credential_action[1],
+                )
+        except Exception as e:
+            try:
+                await update_agent_config_async(
+                    workspace.agent_id,
+                    _restore_tool_config,
+                )
+            except Exception:
+                pass  # Best-effort rollback; the config write already failed.
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save credential: {str(e)}",
+            ) from e
+
+    if tool_name == "browser":
+        await run_sync_io(
+            _persist_browser_experimental,
+            persisted_config,
+        )
+        # Prefetch after an explicit settings save, not during app startup.
+        if persisted_config.get("experimental") is True:
+            from ...browser.runtime.managed_playwright import (
+                start_managed_chromium_download,
+            )
+
+            start_managed_chromium_download()
+
+    # Hot reload config to apply changes without full restart
+    schedule_agent_reload(request, workspace.agent_id)
+
+    return {"status": "success", "message": "Configuration updated"}

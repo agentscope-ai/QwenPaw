@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, mock_open, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
@@ -14,6 +15,7 @@ from qwenpaw.sandbox import (
     SandboxCapability,
     SandboxConfig,
     SandboxMode,
+    create_sandbox,
     probe_sandbox_support,
 )
 from qwenpaw.sandbox.config import (
@@ -64,9 +66,8 @@ class TestProbeSandboxSupport:
         assert "4.0" in result.reason
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
-    def test_windows_calls_appcontainer_probe(self, mock_probe):
-        # Windows sandbox should delegate to _probe_windows_appcontainer.
+    @patch("qwenpaw.sandbox.config._probe_windows")
+    def test_windows_calls_windows_probe(self, mock_probe):
         mock_probe.return_value = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
@@ -225,6 +226,43 @@ class TestDetectPlatformMode:
 # ============================================================================
 # LinuxSandbox._generate_sandbox_script — rule compilation
 # ============================================================================
+
+
+class TestLinuxSandboxExecution:
+    """Test Landlock sandbox process configuration."""
+
+    def test_execute_redirects_stdin_to_devnull(self, tmp_path):
+        """Landlock commands must not inherit the parent console stdin."""
+        from qwenpaw.sandbox.linux_sandbox import LinuxSandbox
+
+        sandbox = LinuxSandbox(
+            SandboxConfig(
+                mode=SandboxMode.LANDLOCK,
+                workspace_dir=str(tmp_path),
+            ),
+        )
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"ok", b""))
+
+        with (
+            patch(
+                "qwenpaw.sandbox.linux_sandbox._generate_sandbox_script",
+                return_value="print('sandbox')",
+            ),
+            patch(
+                "qwenpaw.sandbox.linux_sandbox."
+                "asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=proc),
+            ) as create_process,
+        ):
+            result = asyncio.run(sandbox.execute("echo ok"))
+
+        assert result.exit_code == 0
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
 
 class TestLinuxSandboxRuleCompilation:
@@ -387,3 +425,30 @@ class TestGovernanceSandboxUnavailable:
             governor.sandbox_capability.reason
             == "Kernel 5.10 < 5.13, Landlock unavailable"
         )
+
+
+# ============================================================================
+# Platform compatibility guard — cross-platform downgrade
+# ============================================================================
+
+
+class TestCreateSandboxLandlockDowngrade:
+    """Test that LANDLOCK mode downgrades on non-linux platforms."""
+
+    @patch("qwenpaw.sandbox.config.sys")
+    @patch(
+        "qwenpaw.sandbox.config.detect_platform_mode",
+        return_value=SandboxMode.NONE,
+    )
+    def test_landlock_mode_on_darwin_downgrades(self, mock_detect, mock_sys):
+        """LANDLOCK on macOS downgrades to platform default."""
+        from qwenpaw.sandbox.local_sandbox import NoneSandbox
+
+        mock_sys.platform = "darwin"
+        config = SandboxConfig(
+            mode=SandboxMode.LANDLOCK,
+            workspace_dir="/tmp/ws",
+        )
+        sb = create_sandbox(config)
+        assert isinstance(sb, NoneSandbox)
+        mock_detect.assert_called_once()

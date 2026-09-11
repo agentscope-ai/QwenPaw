@@ -10,6 +10,8 @@ branch (and the native no-op) without constructing a real model/agent.
 
 from types import SimpleNamespace
 
+import pytest
+
 from qwenpaw.agents.command_handler import CommandHandler
 
 
@@ -37,9 +39,10 @@ def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
     return handler
 
 
-def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
     handler = _handler(tmp_path, strategy="scroll", monkeypatch=monkeypatch)
-    mgr = handler._build_standalone_scroll_manager()
+    mgr = await handler._build_standalone_scroll_manager(_config("scroll"))
     try:
         assert mgr is not None
         # Bound to the authoritative session id, not state.session_id.
@@ -50,19 +53,27 @@ def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
             mgr.close()
 
 
-def test_native_strategy_stays_on_native(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_native_strategy_stays_on_native(tmp_path, monkeypatch):
     handler = _handler(tmp_path, strategy="native", monkeypatch=monkeypatch)
-    assert handler._build_standalone_scroll_manager() is None
+    assert (
+        await handler._build_standalone_scroll_manager(_config("native"))
+        is None
+    )
 
 
-def test_no_workspace_stays_on_native(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_no_workspace_stays_on_native(tmp_path, monkeypatch):
     handler = _handler(
         tmp_path,
         strategy="scroll",
         workspace=False,
         monkeypatch=monkeypatch,
     )
-    assert handler._build_standalone_scroll_manager() is None
+    assert (
+        await handler._build_standalone_scroll_manager(_config("scroll"))
+        is None
+    )
 
 
 class _FakeCtxConfig:

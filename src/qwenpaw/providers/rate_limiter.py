@@ -343,7 +343,7 @@ async def get_rate_limiter(
             jitter_range=resolved_jitter,
         )
         _limiters[limiter_key] = limiter
-        logger.info(
+        logger.debug(
             "LLM rate limiter initialized: key=%r max_concurrent=%d "
             "max_qpm=%d default_pause=%.1fs jitter=%.1fs",
             limiter_key,

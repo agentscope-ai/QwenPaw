@@ -1,11 +1,11 @@
 .queueItem {
   padding: 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid var(--app-border-subtle);
   font-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
 
   &:last-child {
     border-bottom: none;
@@ -20,11 +20,11 @@
 }
 
 .queueItemMeta {
-  color: rgba(20, 20, 19, 0.45);
+  color: var(--app-text-tertiary);
 }
 
 .queueItemMessage {
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
@@ -44,52 +44,26 @@
 }
 
 .queued {
-  background: rgba(239, 240, 243, 0.9);
-  color: rgba(20, 20, 19, 0.55);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
 }
 
 .installing {
-  background: rgba(255, 127, 22, 0.1);
-  color: #d48806;
+  background: var(--app-accent-soft);
+  color: var(--app-warning-text);
 }
 
 .completed {
-  background: rgba(82, 196, 26, 0.12);
-  color: #389e0d;
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 }
 
 .failed {
-  background: rgba(245, 34, 45, 0.08);
-  color: #cf1322;
+  background: var(--app-error-bg);
+  color: var(--app-error-text);
 }
 
 .cancelled {
-  background: rgba(239, 240, 243, 0.9);
-  color: rgba(20, 20, 19, 0.45);
-}
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .queueItem {
-    color: rgba(255, 255, 255, 0.88);
-    border-bottom-color: rgba(255, 255, 255, 0.06);
-  }
-
-  .queueItemMeta {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .queueItemMessage {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .queued {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .cancelled {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.45);
-  }
+  background: var(--app-fill-subtle);
+  color: var(--app-text-tertiary);
 }

@@ -601,13 +601,23 @@ class TestAgentStatsEmptyAndLoading:
                 logger.info("Loading state not captured (possibly loaded too fast)")
 
             page.wait_for_load_state("commit", timeout=30000)
+            # The filters row only renders once the initial load settles
+            # (loading/error/data all gate it), so anchor on it instead of
+            # a fixed sleep.
+            try:
+                page.locator('[class*="datePicker"]').first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:
+                logger.info("date picker not visible; continuing")
             page.wait_for_timeout(1500)
 
             # 3. Check empty state
             log_test_step("3. Check empty state or data display")
             empty = page.locator(".qwenpaw-empty, [class*='empty']").first
             cards = page.locator(
-                '[class*="summaryCard"], [class*="SummaryCard"], .qwenpaw-statistic, .qwenpaw-card'
+                '[class*="summaryCards"] [class*="card"], '
+                '[class*="SummaryCard"], .qwenpaw-statistic, .qwenpaw-card'
             ).all()
 
             # Page should display one of: data cards, empty state, or error state + retry button

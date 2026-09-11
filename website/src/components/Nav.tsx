@@ -5,14 +5,21 @@ import { QwenpawMascot } from "./QwenpawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
 import { useSiteConfig } from "@/config-context";
-import { GitHubIcon, BlogIcon, NoteIcon, AgentScopePlatformIcon } from "./Icon";
 import {
-  CommunityBenefitsMobileList,
-  CommunityBenefitsPanel,
+  GitHubIcon,
+  BlogIcon,
+  NoteIcon,
+  AgentScopePlatformIcon,
+  LuckyBagIcon,
+  SparkChatAnywhereLineIcon,
+} from "./Icon";
+import {
+  COMMUNITY_BENEFITS_URL,
   CommunityBenefitsTriggerLabel,
 } from "./NavCommunityBenefits";
 
 const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
+const COMMUNITY_URL = "https://platform.agentscope.io/community";
 
 const AGENTSCOPE_LOGO_SIZE = 22;
 
@@ -57,25 +64,12 @@ export function Nav() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
   const [open, setOpen] = useState(false);
-  const [benefitsOpen, setBenefitsOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
-  const [mobileBenefitsOpen, setMobileBenefitsOpen] = useState(false);
-  const benefitsRef = useRef<HTMLDivElement>(null);
   const exploreRef = useRef<HTMLDivElement>(null);
-  const closeBenefitsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const closeExploreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const docsBase = docsPath.replace(/\/$/, "") || "/docs";
-
-  const clearBenefitsTimer = () => {
-    if (closeBenefitsTimerRef.current) {
-      clearTimeout(closeBenefitsTimerRef.current);
-      closeBenefitsTimerRef.current = null;
-    }
-  };
 
   const clearExploreTimer = () => {
     if (closeExploreTimerRef.current) {
@@ -84,23 +78,8 @@ export function Nav() {
     }
   };
 
-  const openBenefits = () => {
-    clearBenefitsTimer();
-    setExploreOpen(false);
-    setBenefitsOpen(true);
-  };
-
-  const scheduleCloseBenefits = () => {
-    clearBenefitsTimer();
-    closeBenefitsTimerRef.current = setTimeout(() => {
-      setBenefitsOpen(false);
-      closeBenefitsTimerRef.current = null;
-    }, 120);
-  };
-
   const openExplore = () => {
     clearExploreTimer();
-    setBenefitsOpen(false);
     setExploreOpen(true);
   };
 
@@ -115,16 +94,12 @@ export function Nav() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (benefitsRef.current && !benefitsRef.current.contains(target)) {
-        setBenefitsOpen(false);
-      }
       if (exploreRef.current && !exploreRef.current.contains(target)) {
         setExploreOpen(false);
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setBenefitsOpen(false);
       setExploreOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -137,7 +112,6 @@ export function Nav() {
 
   useEffect(() => {
     return () => {
-      clearBenefitsTimer();
       clearExploreTimer();
     };
   }, []);
@@ -166,44 +140,10 @@ export function Nav() {
             <AgentScopeLogo />
             <span>{t("nav.agentscopeTeam")}</span>
           </a>
-          <div
-            ref={benefitsRef}
-            className="relative"
-            onMouseEnter={openBenefits}
-            onMouseLeave={scheduleCloseBenefits}
-          >
-            <span
-              role="button"
-              tabIndex={0}
-              className={`${navLinkOrangeClass} cursor-pointer pt-2`}
-              aria-expanded={benefitsOpen}
-              aria-haspopup="true"
-              onClick={() => {
-                setExploreOpen(false);
-                setBenefitsOpen((v) => !v);
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                setExploreOpen(false);
-                setBenefitsOpen((v) => !v);
-              }}
-            >
-              <CommunityBenefitsTriggerLabel open={benefitsOpen} />
-            </span>
-            {benefitsOpen && (
-              <div
-                className="absolute left-1/2 top-full z-100 mt-2 -translate-x-1/2 rounded-lg border border-neutral-100 bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
-                role="menu"
-                onMouseEnter={openBenefits}
-                onMouseLeave={scheduleCloseBenefits}
-              >
-                <CommunityBenefitsPanel
-                  onNavigate={() => setBenefitsOpen(false)}
-                />
-              </div>
-            )}
-          </div>
+          <Link to="/blog" className={navLinkOrangeClass}>
+            <BlogIcon size={18} aria-hidden />
+            <span>{t("nav.blog")}</span>
+          </Link>
 
           <div
             ref={exploreRef}
@@ -218,13 +158,11 @@ export function Nav() {
               aria-expanded={exploreOpen}
               aria-haspopup="true"
               onClick={() => {
-                setBenefitsOpen(false);
                 setExploreOpen((v) => !v);
               }}
               onKeyDown={(e) => {
                 if (e.key !== "Enter" && e.key !== " ") return;
                 e.preventDefault();
-                setBenefitsOpen(false);
                 setExploreOpen((v) => !v);
               }}
             >
@@ -258,14 +196,16 @@ export function Nav() {
                     <AgentScopePlatformIcon size={18} />
                     <span>{t("nav.platform")}</span>
                   </a>
-                  <Link
-                    to="/blog"
+                  <a
+                    href={COMMUNITY_BENEFITS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className={exploreMenuItemClass}
                     onClick={() => setExploreOpen(false)}
                   >
-                    <BlogIcon size={18} aria-hidden />
-                    <span>{t("nav.blog")}</span>
-                  </Link>
+                    <LuckyBagIcon />
+                    <CommunityBenefitsTriggerLabel badgeAfter />
+                  </a>
                   <a
                     href="https://github.com/agentscope-ai/QwenPaw"
                     target="_blank"
@@ -285,6 +225,17 @@ export function Nav() {
                     <NoteIcon />
                     <span>{t("nav.releaseNotes")}</span>
                   </Link>
+                  <a
+                    href={COMMUNITY_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={exploreMenuItemClass}
+                    title={t("nav.discussion")}
+                    onClick={() => setExploreOpen(false)}
+                  >
+                    <SparkChatAnywhereLineIcon size={18} />
+                    <span>{t("nav.discussion")}</span>
+                  </a>
                 </div>
               </div>
             )}
@@ -381,33 +332,16 @@ export function Nav() {
           <span>{t("nav.agentscopeTeam")}</span>
         </a>
 
-        <div>
-          <span
-            role="button"
-            tabIndex={0}
-            className={`${navLinkOrangeClass} w-full cursor-pointer text-left`}
-            aria-expanded={mobileBenefitsOpen}
-            onClick={() => setMobileBenefitsOpen((v) => !v)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return;
-              e.preventDefault();
-              setMobileBenefitsOpen((v) => !v);
-            }}
-          >
-            <CommunityBenefitsTriggerLabel
-              open={mobileBenefitsOpen}
-              badgeAfter
-            />
-          </span>
-          {mobileBenefitsOpen && (
-            <CommunityBenefitsMobileList
-              onNavigate={() => {
-                setMobileBenefitsOpen(false);
-                setOpen(false);
-              }}
-            />
-          )}
-        </div>
+        <a
+          href={COMMUNITY_BENEFITS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+        >
+          <LuckyBagIcon />
+          <CommunityBenefitsTriggerLabel badgeAfter />
+        </a>
 
         <span
           role="button"
@@ -434,6 +368,16 @@ export function Nav() {
           <NoteIcon />
           {t("nav.releaseNotes")}
         </Link>
+        <a
+          href={COMMUNITY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+        >
+          <SparkChatAnywhereLineIcon size={18} />
+          {t("nav.discussion")}
+        </a>
         <Link
           to="/downloads"
           className={navLinkOrangeClass}

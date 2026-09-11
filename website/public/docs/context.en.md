@@ -225,7 +225,7 @@ A failed cell is unmistakable: the observation leads with a `RECALL FAILED — t
 
 Search (both `recall_history(op="search")` and `ms.search`) also never echoes the agent back at itself: the recall tool's own source/output rows are kept out of the results, and so is the current **active turn** (the latest user request and the reply being written) — otherwise a multi-round recall would top-k-match the previous round's quoted findings instead of the real history. Earlier evicted turns of the same session remain searchable, and `ms.expand` / `ms.recall_tool` stay unfiltered (verbatim replay is their point).
 
-Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. (`recall_history` is unaffected: it never executes model-authored code, so it runs everywhere — including on platforms without a sandbox, such as Windows without WSL2.) If no sandbox is available, the REPL fails closed unless both are true:
+Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. (`recall_history` is unaffected: it never executes model-authored code, so it still runs when no sandbox backend is available or sandboxing is disabled. QwenPaw supports native Windows sandbox backends; WSL2 itself is not a prerequisite for sandboxing.) If no sandbox is available, the REPL fails closed unless both are true:
 
 - environment variable `QWENPAW_ALLOW_UNSANDBOXED_RECALL` is truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`
@@ -331,3 +331,58 @@ Retrieval headlines and the synthetic `<system-info>` continuation block are mod
 ## Legacy Compatibility
 
 Existing configurations that already use the AgentScope-native path continue to load for backward compatibility and fallback. Native is not exposed as a Console option; Scroll is the documented user-facing context protocol.
+
+## Visual Compact
+
+> **Beta feature:** Visual Compact is disabled by default and remains under active development. It can reduce input tokens in long conversations, but model reading of text in images is not completely lossless and may affect answer quality. Try it on non-critical tasks first, then decide whether to keep it enabled based on your results.
+
+Visual Compact turns eligible older, longer context into visual pages before a request is sent to the model. Recent conversation remains as text. Because an image can carry a large amount of dense text, this approach can significantly reduce token usage in long conversations.
+
+It works alongside the existing context strategy and long-term memory. It does not delete chat history, rewrite stored conversations, or save the generated images to local storage.
+
+QwenPaw only applies Visual Compact when the context is long enough and the visual replacement is expected to save tokens. Short requests or requests without a worthwhile saving are left unchanged.
+
+### Model requirement
+
+Visual Compact requires a **native multimodal model that accepts image input**, such as `qwen3.6-plus`. A multimodal provider, a model name that suggests vision support, or a compatibility layer that can transport images is not sufficient by itself.
+
+Use the multimodal capability test in model settings to confirm that the selected model can actually read images. If QwenPaw cannot explicitly confirm image support, Visual Compact is skipped safely.
+
+### Enable Visual Compact
+
+1. Open the Agent's **Configuration** page.
+2. Go to **Context Management** and expand **Visual Compact**.
+3. Turn on **Enable Visual Compact**.
+4. Choose a compression intensity. Start with **Low** unless token pressure is more important than visual readability.
+
+| Intensity  | Behavior                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------- |
+| **Low**    | Prioritizes readability and compresses less eligible content. Recommended as the default starting point. |
+| **Medium** | Balances visual readability with greater token savings.                                                  |
+| **High**   | Uses the densest pages and prioritizes token savings, with the highest recognition risk.                 |
+
+Higher intensity does not necessarily produce better answers.
+
+### Use cases & known drawbacks
+
+Visual Compact is most useful for long-running conversations, tool-heavy tasks, and sessions where large tool outputs or older context create significant input-token pressure.
+
+- **How to check**
+  1. Set the `QWENPAW_LOG_LEVEL` environment variable to `debug`, then restart QwenPaw.
+  2. After completing a long request, open `qwenpaw.log` in the working directory (or use `/daemon logs`) and search for `Visual Compact transform`.
+  3. `applied=true` means visual compression was applied to that request. `estimated_saved_tokens` and `estimated_savings_pct` show the estimated number and percentage of tokens saved.
+- **Keep in mind**
+  - These values are calculated from local token and image-cost estimates. They are not exact usage or billing totals reported by the provider.
+  - Actual savings vary with the context, selected intensity, and the model's image-token accounting. Provider-side benefits such as Prompt Cache are not included.
+
+**Known drawbacks**
+
+- A model may misread small text, numbers, identifiers, formatting, or uncommon characters and return a plausible but incorrect answer.
+- Rendering visual pages consumes local CPU and memory and can add latency, especially the first time a long context is rendered.
+- QwenPaw provides an exact-source recovery tool when visual compression is applied, but the model may not always call it or may search for the wrong evidence.
+
+For tasks that require exact wording, such as checking an ID, hash, or version number, use **Low** intensity or disable Visual Compact.
+
+If an exact value appears incorrect, ask the Agent to use `recover_visual_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
+
+> **Acknowledgment:** The engineering implementation of Visual Compact was informed by [pxpipe](https://github.com/teamchong/pxpipe).

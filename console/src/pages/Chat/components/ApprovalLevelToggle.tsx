@@ -5,16 +5,26 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Dropdown, Tag, Tooltip } from "antd";
+import { Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { Shield, Ban, AlertTriangle, CheckCircle } from "lucide-react";
-import { DownOutlined } from "@ant-design/icons";
+import {
+  AlertTriangle,
+  Ban,
+  Check,
+  CheckCircle,
+  ChevronDown,
+  Shield,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   LEVELS,
   normalizeLevel,
   type ToolExecutionLevel,
 } from "../../../utils/approval";
+import { useIsMobile } from "../../../hooks/useIsMobile";
+import { OsDrawer } from "../../../os/OsOverlay";
+import drawerStyles from "./ApprovalToggle.module.less";
 
 const LEVEL_META: Record<
   ToolExecutionLevel,
@@ -37,14 +47,20 @@ interface ApprovalLevelToggleProps {
   runningConfigApprovalLevel: ToolExecutionLevel;
   /** null = no session override, backend uses running-config */
   onChange?: (sessionOverride: ToolExecutionLevel | null) => void;
+  compact?: boolean;
+  className?: string;
 }
 
 const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   sessionId,
   runningConfigApprovalLevel,
   onChange,
+  compact = false,
+  className,
 }) => {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
   const [sessionLevel, setSessionLevel] = useState<ToolExecutionLevel | null>(
     null,
   );
@@ -61,7 +77,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
     // 2. localId (timestamp-random) -> real UUID (session resolved)
     if (prevSessionId !== sessionId) {
       const isLocalId = (id: string) =>
-        id === "new" || /^\d{13}-[a-z0-9]{7}$/.test(id);
+        id.startsWith("new:") || /^\d{13}-[a-z0-9]{7}$/.test(id);
       const isRealId = (id: string) => id.length === 36 && id.includes("-");
 
       // Migrate if transitioning from local/temp to real
@@ -94,6 +110,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   const handleSelect = useCallback(
     (level: ToolExecutionLevel) => {
       setSessionLevel(level);
+      setOpen(false);
       localStorage.setItem(storageKey(sessionId), level);
       onChangeRef.current?.(level);
     },
@@ -132,32 +149,131 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
     return items;
   }, [handleSelect, t]);
 
-  return (
-    <Tooltip title={t("agentConfig.toolExecutionLevelTitle")}>
-      <Dropdown
-        menu={{ items: menuItems, selectedKeys: [effectiveLevel] }}
-        trigger={["click"]}
-      >
-        <Tag
-          style={{
-            cursor: "pointer",
-            userSelect: "none",
-            borderColor: meta.color,
-            color: meta.color,
-            transition: "all 0.2s",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            lineHeight: "22px",
-          }}
-        >
-          {meta.icon}
+  const trigger = (
+    <button
+      className={[drawerStyles.trigger, className].filter(Boolean).join(" ")}
+      aria-expanded={open}
+      aria-haspopup="listbox"
+      aria-label={t("agentConfig.toolExecutionLevelTitle")}
+      onClick={isMobile ? () => setOpen((current) => !current) : undefined}
+      type="button"
+      style={{
+        cursor: "pointer",
+        userSelect: "none",
+        borderColor: meta.color,
+        color: meta.color,
+        transition: "all 0.2s",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        lineHeight: "22px",
+        width: compact ? 30 : undefined,
+        height: compact ? 30 : undefined,
+        padding: compact ? 0 : undefined,
+        marginInlineEnd: 0,
+        justifyContent: "center",
+      }}
+    >
+      {meta.icon}
+      {!compact && (
+        <>
           {t(
             `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
             effectiveLevel,
           )}
-          <DownOutlined style={{ fontSize: 10 }} />
-        </Tag>
+          <ChevronDown size={12} />
+        </>
+      )}
+    </button>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {trigger}
+        <OsDrawer
+          aria-label={t("agentConfig.toolExecutionLevelTitle")}
+          open={open}
+          placement="bottom"
+          height="auto"
+          closable={false}
+          destroyOnHidden
+          onClose={() => setOpen(false)}
+          styles={{
+            body: { padding: 0, overflow: "hidden" },
+            content: {
+              borderRadius: "14px 14px 0 0",
+              overflow: "hidden",
+            },
+            wrapper: { maxHeight: "min(52dvh, 430px)" },
+          }}
+        >
+          <div className={drawerStyles.sheet}>
+            <div className={drawerStyles.sheetHeader}>
+              <strong>{t("agentConfig.toolExecutionLevelTitle")}</strong>
+              <button
+                type="button"
+                aria-label={t("common.close")}
+                className={drawerStyles.closeButton}
+                onClick={() => setOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={drawerStyles.optionList} role="listbox">
+              {LEVELS.map((level) => {
+                const levelMeta = LEVEL_META[level];
+                const name = t(
+                  `agentConfig.toolExecutionLevel.${level.toLowerCase()}`,
+                  level,
+                );
+                const description = t(
+                  `agentConfig.toolExecutionLevel.${level.toLowerCase()}Desc`,
+                  "",
+                );
+                const selected = level === effectiveLevel;
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={`${drawerStyles.option} ${
+                      selected ? drawerStyles.optionSelected : ""
+                    }`}
+                    data-level={level}
+                    key={level}
+                    onClick={() => handleSelect(level)}
+                  >
+                    <span
+                      className={drawerStyles.optionIcon}
+                      style={{ color: levelMeta.color }}
+                    >
+                      {levelMeta.icon}
+                    </span>
+                    <span className={drawerStyles.optionCopy}>
+                      <strong>{name}</strong>
+                      {description && <small>{description}</small>}
+                    </span>
+                    {selected && <Check size={16} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </OsDrawer>
+      </>
+    );
+  }
+
+  return (
+    <Tooltip title={t("agentConfig.toolExecutionLevelTooltip")}>
+      <Dropdown
+        menu={{ items: menuItems, selectedKeys: [effectiveLevel] }}
+        trigger={["click"]}
+        open={open}
+        onOpenChange={setOpen}
+      >
+        {trigger}
       </Dropdown>
     </Tooltip>
   );

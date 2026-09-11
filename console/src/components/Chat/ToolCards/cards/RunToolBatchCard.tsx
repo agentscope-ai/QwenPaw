@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { NodeIndexOutlined } from "@ant-design/icons";
+import { Workflow } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock, MediaPreview } from "../shared";
 import {
@@ -289,17 +289,17 @@ function stripPreviewedMediaJson(
     const escapedUrl = escapeRegExp(media.url);
     const patterns = [
       new RegExp(
-        `\\{[\\s\\S]*?\"type\"\\s*:\\s*\"${escapeRegExp(
+        `\\{[\\s\\S]*?"type"\\s*:\\s*"${escapeRegExp(
           media.type,
-        )}\"[\\s\\S]*?(?:\"filename\"|\"file_name\"|\"name\"|\"title\")\\s*:\\s*\"${escapedName}\"[\\s\\S]*?(?:\"url\"|\"uri\"|\"path\"|\"file_path\"|\"data\")\\s*:\\s*\"${escapedUrl}\"[\\s\\S]*?\\}`,
+        )}"[\\s\\S]*?(?:"filename"|"file_name"|"name"|"title")\\s*:\\s*"${escapedName}"[\\s\\S]*?(?:"url"|"uri"|"path"|"file_path"|"data")\\s*:\\s*"${escapedUrl}"[\\s\\S]*?\\}`,
         "g",
       ),
       new RegExp(
-        `\\{[\\s\\S]*?(?:\"filename\"|\"file_name\"|\"name\"|\"title\")\\s*:\\s*\"${escapedName}\"[\\s\\S]*?(?:\"url\"|\"uri\"|\"path\"|\"file_path\"|\"data\")\\s*:\\s*\"${escapedUrl}\"[\\s\\S]*?\\}`,
+        `\\{[\\s\\S]*?(?:"filename"|"file_name"|"name"|"title")\\s*:\\s*"${escapedName}"[\\s\\S]*?(?:"url"|"uri"|"path"|"file_path"|"data")\\s*:\\s*"${escapedUrl}"[\\s\\S]*?\\}`,
         "g",
       ),
       new RegExp(
-        `\\{[\\s\\S]*?(?:\"url\"|\"uri\"|\"path\"|\"file_path\"|\"data\")\\s*:\\s*\"${escapedUrl}\"[\\s\\S]*?\\}`,
+        `\\{[\\s\\S]*?(?:"url"|"uri"|"path"|"file_path"|"data")\\s*:\\s*"${escapedUrl}"[\\s\\S]*?\\}`,
         "g",
       ),
     ];
@@ -363,9 +363,10 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<NodeIndexOutlined />}
+      icon={<Workflow size={15} />}
       title={title}
       inlineResult={inlineResult}
+      defaultExpanded={mediaItems.length > 0}
     >
       {content.status === "calling" && (
         <DefaultBlock

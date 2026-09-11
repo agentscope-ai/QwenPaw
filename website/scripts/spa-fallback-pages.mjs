@@ -15,6 +15,7 @@ const DOC_SLUGS = [
   "intro",
   "quickstart",
   "console",
+  "mailbox",
   "channels",
   "skills",
   "memory",
@@ -24,6 +25,7 @@ const DOC_SLUGS = [
   "config",
   "backup",
   "cli",
+  "creator",
   "community",
   "contributing",
 ];
@@ -31,9 +33,19 @@ const DOC_SLUGS = [
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
   const BLOG_SLUGS = [
+    "qwenpaw-mailbox",
+    "creator-install-guide",
+    "qwenpaw-long-term-memory",
+    "qwenpaw-files-workspace",
+    "qwenpaw-os-shell",
     "introducing-qwenpaw-driver",
     "qwenpaw-developer-day-collection",
     "play-with-qwenpaw-pet",
+    "paw-git",
+    "runtime-architecture-upgrade",
+    "qwenpaw-plugin-picks-1",
+    "qwenpaw-loop-engineering",
+    "qwenpaw-sandbox",
   ];
   const paths = [
     "docs",

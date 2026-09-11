@@ -10,6 +10,7 @@ export type CopyableContent = {
 
 export type CopyableMessage = {
   role?: string;
+  type?: string;
   content?: string | CopyableContent[];
 };
 
@@ -28,35 +29,35 @@ export type RuntimeLoadingBridgeApi = {
 
 /** Extract copyable text from assistant response. */
 export function extractCopyableText(response: CopyableResponse): string {
-  const collectText = (assistantOnly: boolean) => {
-    const chunks = (response.output || []).flatMap((item: CopyableMessage) => {
-      if (assistantOnly && item.role !== "assistant") return [];
+  const chunks = (response.output || []).flatMap((item: CopyableMessage) => {
+    if (item.role !== "assistant") return [];
 
-      if (typeof item.content === "string") {
-        return [item.content];
+    // Runtime reasoning, tool calls, and tool results also use the assistant
+    // role. Only ordinary assistant messages belong on the clipboard.
+    if (item.type !== "message") return [];
+
+    if (typeof item.content === "string") {
+      return [item.content];
+    }
+
+    if (!Array.isArray(item.content)) {
+      return [];
+    }
+
+    return item.content.flatMap((content: CopyableContent) => {
+      if (content.type === "text" && typeof content.text === "string") {
+        return [content.text];
       }
 
-      if (!Array.isArray(item.content)) {
-        return [];
+      if (content.type === "refusal" && typeof content.refusal === "string") {
+        return [content.refusal];
       }
 
-      return item.content.flatMap((content: CopyableContent) => {
-        if (content.type === "text" && typeof content.text === "string") {
-          return [content.text];
-        }
-
-        if (content.type === "refusal" && typeof content.refusal === "string") {
-          return [content.refusal];
-        }
-
-        return [];
-      });
+      return [];
     });
+  });
 
-    return chunks.filter(Boolean).join("\n\n").trim();
-  };
-
-  return collectText(true) || JSON.stringify(response);
+  return chunks.filter(Boolean).join("\n\n").trim();
 }
 
 /** Extract plain text from user message content. */
@@ -184,6 +185,10 @@ export function normalizeContentUrls(part: any): any {
 export function toDisplayUrl(url: string | undefined): string {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  // Data URLs (base64 images etc.) must pass through untouched — routing
+  // them through filePreviewUrl would corrupt the URL and break rendering
+  // of historical messages on session reload.
+  if (url.startsWith("data:")) return url;
   if (url.startsWith("file://")) url = url.replace("file://", "");
   return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
@@ -191,6 +196,50 @@ export function toDisplayUrl(url: string | undefined): string {
 // ---------------------------------------------------------------------------
 // DOM utilities
 // ---------------------------------------------------------------------------
+
+/** Return the sender textarea belonging to the focused sender surface. */
+export function getActiveSenderTextarea(): HTMLTextAreaElement | null {
+  const focused =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[class*="sender"]')
+      : null;
+  const focusedTextarea = focused?.querySelector("textarea");
+  if (focusedTextarea instanceof HTMLTextAreaElement) {
+    return focusedTextarea;
+  }
+
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>(
+      '[class*="sender"] textarea',
+    ),
+  );
+  return (
+    candidates.find((textarea) => textarea.offsetParent !== null) ??
+    candidates[candidates.length - 1] ??
+    null
+  );
+}
+
+/** Resolve the sender's state textarea from its textarea or rich editor. */
+export function getSenderTextareaFromTarget(
+  target: EventTarget | null,
+): HTMLTextAreaElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+
+  const sender = target.closest('[class*="sender"]');
+  if (!sender) return null;
+
+  if (target instanceof HTMLTextAreaElement) {
+    return target;
+  }
+
+  const isRichEditor =
+    target.isContentEditable ||
+    target.getAttribute("contenteditable") === "true";
+  if (!isRichEditor) return null;
+  const textarea = sender.querySelector("textarea");
+  return textarea instanceof HTMLTextAreaElement ? textarea : null;
+}
 
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
@@ -208,4 +257,17 @@ export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   textarea.selectionStart = textarea.selectionEnd = value.length;
   const event = new Event("input", { bubbles: true });
   textarea.dispatchEvent(event);
+}
+
+/**
+ * Clear the submitted sender value without erasing text typed for the next
+ * message while the request was being prepared.
+ */
+export function clearSubmittedSenderInput(submittedValue: string): boolean {
+  const textarea = getActiveSenderTextarea();
+  if (!textarea || textarea.value !== submittedValue) {
+    return false;
+  }
+  setTextareaValue(textarea, "");
+  return true;
 }

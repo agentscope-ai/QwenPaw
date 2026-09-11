@@ -9,6 +9,7 @@ const agent = (startup_status: AgentSummary["startup_status"]) => ({
   description: "",
   workspace_dir: "",
   enabled: startup_status !== "disabled",
+  backend: "qwenpaw" as const,
   startup_status,
 });
 

@@ -243,6 +243,49 @@ class TestAgentMdManagerListMemoryMds:
         result = manager.list_memory_mds()
         assert "digest/wiki/topic.md" in {item["filename"] for item in result}
 
+    def test_lists_daily_and_digest_sections_independently(
+        self,
+        manager,
+        tmp_path,
+    ):
+        daily = tmp_path / "memory" / "nested"
+        digest = tmp_path / "digest" / "nested"
+        daily.mkdir(parents=True)
+        digest.mkdir(parents=True)
+        (daily / "same.md").write_text("daily")
+        (digest / "same.md").write_text("digest")
+        (daily / "ignored.txt").write_text("ignored")
+
+        daily_files = manager.list_memory_mds("daily")
+        digest_files = manager.list_memory_mds("digest")
+
+        assert [item["filename"] for item in daily_files] == ["nested/same.md"]
+        assert [item["filename"] for item in digest_files] == [
+            "nested/same.md",
+        ]
+
+    def test_daily_section_excludes_nested_digest_directory(
+        self,
+        manager,
+    ):
+        manager.digest_dir = manager.memory_dir / "digest"
+        manager.digest_dir.mkdir()
+        (manager.memory_dir / "daily.md").write_text("daily")
+        (manager.digest_dir / "knowledge.md").write_text("knowledge")
+
+        daily_files = manager.list_memory_mds("daily")
+        digest_files = manager.list_memory_mds("digest")
+        legacy_files = manager.list_memory_mds()
+
+        assert [item["filename"] for item in daily_files] == ["daily.md"]
+        assert [item["filename"] for item in digest_files] == [
+            "knowledge.md",
+        ]
+        assert {item["filename"] for item in legacy_files} == {
+            "daily.md",
+            "digest/knowledge.md",
+        }
+
     def test_ignores_files_in_working_dir(self, manager, tmp_path):
         (tmp_path / "working.md").write_text("# Working")
         result = manager.list_memory_mds()
@@ -297,6 +340,13 @@ class TestAgentMdManagerReadMemoryMd:
         result = manager.read_memory_md("digest/wiki/topic.md")
         assert result == "topic"
 
+    def test_reads_explicit_memory_section(self, manager, tmp_path):
+        (tmp_path / "memory" / "same.md").write_text("daily")
+        (tmp_path / "digest" / "same.md").write_text("digest")
+
+        assert manager.read_memory_md("same.md", "daily") == "daily"
+        assert manager.read_memory_md("same.md", "digest") == "digest"
+
     def test_raises_file_not_found(self, manager):
         with pytest.raises(FileNotFoundError):
             manager.read_memory_md("missing.md")
@@ -345,6 +395,12 @@ class TestAgentMdManagerWriteMemoryMd:
 
     def test_writes_digest_path(self, manager, tmp_path):
         manager.write_memory_md("digest/wiki/topic.md", "data")
+        assert (tmp_path / "digest" / "wiki" / "topic.md").read_text(
+            encoding="utf-8",
+        ) == "data"
+
+    def test_writes_explicit_memory_section(self, manager, tmp_path):
+        manager.write_memory_md("wiki/topic.md", "data", "digest")
         assert (tmp_path / "digest" / "wiki" / "topic.md").read_text(
             encoding="utf-8",
         ) == "data"

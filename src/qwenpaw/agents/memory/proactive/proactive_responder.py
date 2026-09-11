@@ -7,17 +7,23 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, List, Dict
 
-import aiohttp
+import httpx
 
-from agentscope.agent import Agent, ReActConfig
-from agentscope.message import Msg
+from agentscope.agent import Agent, InjectionConfig, ReActConfig
+from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
+from ....utils.runtime_api import async_api_client
+from ...tools.agent_management import resolve_agent_api_base_url
 from ...tools import (
-    browser_use,
+    browser,
     execute_shell_command,
     read_file,
+    web_search,
+    web_fetch,
     desktop_screenshot,
 )
 from .proactive_prompts import (
@@ -31,6 +37,7 @@ from .proactive_utils import (
     ensure_tz_aware,
     is_agent_busy,
 )
+from ....utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ....app.workspace import Workspace
@@ -42,10 +49,13 @@ async def generate_proactive_response(
     workspace: "Workspace",
 ) -> Optional[Msg]:
     """Main function to generate proactive response based on memory."""
-    from ....app.agent_context import get_current_agent_id
+    from ....app.agent_context import set_current_agent_id
+    from ....config.context import set_current_workspace_dir
 
+    set_current_agent_id(workspace.agent_id)
+    set_current_workspace_dir(workspace.workspace_dir)
     baseline_timestamp = datetime.now(timezone.utc)  # Use UTC time directly
-    active_agent_id = get_current_agent_id()
+    active_agent_id = workspace.agent_id
 
     agent = await _initialize_single_proactive_agent(
         active_agent_id,
@@ -107,17 +117,22 @@ async def _initialize_single_proactive_agent(
     # as that would pollute the global cache and cause user settings to be
     # silently overwritten when save_agent_config() is later triggered.
     _PROACTIVE_MAX_ITERS = 50
-    agent_config = load_agent_config(agent_id)
+    agent_config = await run_sync_io(load_agent_config, agent_id)
 
     # Create model and formatter for the agent
-    from ...model_factory import create_model_and_formatter
+    from ...model_factory import create_model_and_formatter_async
 
-    model, formatter = create_model_and_formatter(agent_id=agent_config.id)
+    model, formatter = await create_model_and_formatter_async(
+        agent_id=agent_config.id,
+        agent_config=agent_config,
+    )
 
     tools = [
-        FunctionTool(browser_use),
+        FunctionTool(web_search),
+        FunctionTool(web_fetch),
         FunctionTool(read_file),
         FunctionTool(execute_shell_command),
+        FunctionTool(browser),
     ]
 
     from ...prompt import get_active_model_supports_multimodal
@@ -136,12 +151,24 @@ async def _initialize_single_proactive_agent(
         if hasattr(innermost, "formatter"):
             innermost.formatter = formatter
 
+    state = AgentState(
+        permission_context=PermissionContext(mode=PermissionMode.BYPASS),
+    )
     agent = Agent(
         name="ProactiveAssistant",
         model=model,
-        system_prompt="You are a helpful assistant.",
+        system_prompt=(
+            "You are a helpful assistant. Tool priority:\n"
+            "1. `web_search` for finding information online.\n"
+            "2. `web_fetch` for reading a known URL's content.\n"
+            "3. `browser` ONLY for interactive tasks (login, clicking, "
+            "filling forms, or JS-heavy sites that web_fetch cannot handle).\n"
+            "Prefer lightweight tools over browser whenever possible."
+        ),
         toolkit=toolkit,
         react_config=ReActConfig(max_iters=_PROACTIVE_MAX_ITERS),
+        injection_config=InjectionConfig(inject_runtime_state=False),
+        state=state,
     )
 
     return agent
@@ -153,7 +180,13 @@ async def _extract_tasks_from_memory(
 ) -> List[ProactiveTask]:
     """Extract likely user tasks from memory context."""
     prompt = f"{PROACTIVE_TASK_EXTRACTION_PROMPT}\n#Contexts: {memory_context}"
-    response = await agent.reply(Msg(name="User", role="user", content=prompt))
+    response = await agent.reply(
+        Msg(
+            name="User",
+            role="user",
+            content=[TextBlock(type="text", text=prompt)],
+        ),
+    )
 
     if not response or not response.content:
         return []
@@ -195,9 +228,11 @@ async def _execute_query(
 ) -> ProactiveQueryResult:
     """Execute a query using available tools."""
     prompt = (
-        f"Task: Answer: {query} using tools -- "
-        "`browser_use` primary, `execute_shell_command`/`read_file` "
-        "only if essential.\n"
+        f"Task: Answer: {query} using tools --\n"
+        "Use `web_search` to find information, then `web_fetch` to read "
+        "specific URLs. Use `browser` ONLY for interactive tasks (login, "
+        "clicking, JS-heavy sites).\n"
+        "`execute_shell_command`/`read_file` only if essential.\n"
         "Self-check: Did you retrieve new, query-relevant data or "
         "complete given task?\n"
         "Output: Query answer and end strictly with `[SUCCESS]` "
@@ -206,7 +241,13 @@ async def _execute_query(
         "No trailing text."
     )
 
-    response = await agent.reply(Msg(name="User", role="user", content=prompt))
+    response = await agent.reply(
+        Msg(
+            name="User",
+            role="user",
+            content=[TextBlock(type="text", text=prompt)],
+        ),
+    )
 
     success = False
     response_content = response.get_text_content()
@@ -232,7 +273,8 @@ async def _generate_final_message(
 
     gathered_info = f"Query: {result.query}\nResult: {result.data}\n\n"
 
-    agent_language = load_agent_config(active_agent_id).language
+    agent_config = await run_sync_io(load_agent_config, active_agent_id)
+    agent_language = agent_config.language
     proactive_content = PROACTIVE_USER_FACING_MESSAGE_PROMPT.format(
         gathered_info=gathered_info,
         language=agent_language,
@@ -253,8 +295,6 @@ async def send_proactive_message_via_http(
     timeout_seconds: int = 60,
 ) -> Optional[Msg]:
     """Send a proactive message by directly calling the QwenPaw API."""
-
-    from ...tools.agent_management import resolve_agent_api_base_url
 
     session_id = f"proactive_mode:{active_agent_id}"
 
@@ -277,7 +317,6 @@ async def send_proactive_message_via_http(
     }
 
     headers = {"X-Agent-Id": active_agent_id}
-    timeout_config = aiohttp.ClientTimeout(total=timeout_seconds)
 
     base_url = resolve_agent_api_base_url()
     clean_base = base_url.rstrip("/")
@@ -286,30 +325,29 @@ async def send_proactive_message_via_http(
     )
 
     try:
-        async with aiohttp.ClientSession() as session:
-            url = f"{api_base_url.rstrip('/')}/console/chat"
-            async with session.post(
-                url,
+        async with (
+            asyncio.timeout(timeout_seconds),
+            async_api_client(api_base_url, timeout=timeout_seconds) as session,
+        ):
+            async with session.stream(
+                "POST",
+                "/console/chat",
                 json=request_payload,
                 headers=headers,
-                timeout=timeout_config,
             ) as resp:
                 resp.raise_for_status()
                 last_data = None
-                async for line_bytes in resp.content:
-                    line = line_bytes.decode("utf-8").strip()
+                async for line in resp.aiter_lines():
+                    line = line.strip()
                     if line.startswith("data: "):
-                        try:
-                            last_data = line[6:]
-                        except Exception:
-                            continue
+                        last_data = line[6:]
 
                 if last_data:
                     logger.info("Proactive message sent successfully via HTTP")
                 else:
                     logger.warning("No valid SSE data received from agent")
 
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, httpx.TimeoutException):
         logger.error(
             "Timeout (%ds) calling QwenPaw API for proactive message",
             timeout_seconds,

@@ -142,6 +142,21 @@ class TestBuildAgentRequestFromNative:
         req = console_channel.build_agent_request_from_native(payload)
         assert req.request_context == {"foo": "bar"}
 
+    def test_message_metadata_propagated(self, console_channel):
+        payload = {
+            "sender_id": "u1",
+            "content_parts": [TextContent(text="hi")],
+            "message_metadata": {
+                "qwenpaw_client_message_id": "client-2",
+            },
+            "meta": {},
+        }
+        req = console_channel.build_agent_request_from_native(payload)
+
+        assert req.input[0].metadata == {
+            "qwenpaw_client_message_id": "client-2",
+        }
+
     def test_non_dict_payload_returns_empty_request(
         self,
         console_channel,

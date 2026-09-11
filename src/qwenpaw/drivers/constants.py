@@ -35,3 +35,8 @@ PRINCIPAL_SOURCE_CHANNEL: Final = "channel"
 PRINCIPAL_SUBJECT_ALL: Final = "all"
 PRINCIPAL_SUBJECT_USER: Final = "user"
 PRINCIPAL_SUBJECT_SESSION: Final = "session"
+
+# Request-scoped Driver capabilities, such as MCP servers supplied by an ACP
+# client, use this key to prevent one session from seeing another session's
+# transient handlers.
+DRIVER_SCOPE_CONTEXT_KEY: Final = "driver_scope_id"

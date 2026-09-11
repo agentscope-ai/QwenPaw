@@ -621,10 +621,12 @@ def _patch_mission_master_prompt() -> None:
         agent_id: str,
         max_iterations: int = 20,
         verify_commands: str = "",
+        verification_instructions: str = "",
+        max_retries_per_story: int = 3,
         prd_path: str = "",
         progress_path: str = "",
         git_context: dict | None = None,
-        workspace_dir: str = "",
+        source_project_dir: str = "",
     ) -> str:
         if agent_id not in _CLOUDPAW_AGENT_IDS:
             logger.debug(
@@ -637,10 +639,12 @@ def _patch_mission_master_prompt() -> None:
                 agent_id=agent_id,
                 max_iterations=max_iterations,
                 verify_commands=verify_commands,
+                verification_instructions=verification_instructions,
+                max_retries_per_story=max_retries_per_story,
                 prd_path=prd_path,
                 progress_path=progress_path,
                 git_context=git_context,
-                workspace_dir=workspace_dir,
+                source_project_dir=source_project_dir,
             )
 
         logger.info(
@@ -655,13 +659,14 @@ def _patch_mission_master_prompt() -> None:
             progress_path = f"{loop_dir}/progress.txt"
         if not verify_commands:
             verify_commands = "(none specified — rely on acceptance criteria)"
-        if not workspace_dir:
-            workspace_dir = loop_dir
+        if not source_project_dir:
+            source_project_dir = loop_dir
 
         gsec = _build_git_sections(git_context)
 
         worker_tpl = WORKER_PROMPT_TEMPLATE.format(
             loop_dir=loop_dir,
+            source_project_dir=source_project_dir,
             prd_path=prd_path,
             progress_path=progress_path,
             **gsec,
@@ -670,11 +675,12 @@ def _patch_mission_master_prompt() -> None:
         verifier_tpl = build_verifier_prompt(
             loop_dir=loop_dir,
             verify_commands=verify_commands,
+            verification_instructions=verification_instructions,
         )
 
         prompt = CLOUDPAW_MASTER_PROMPT.format(
             loop_dir=loop_dir,
-            workspace_dir=workspace_dir,
+            workspace_dir=source_project_dir,
             agent_id=agent_id,
             max_iterations=max_iterations,
             verify_commands=verify_commands,

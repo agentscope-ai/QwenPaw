@@ -38,6 +38,7 @@ async function fetchBlogPost(
   }
   if (!response.ok) return null;
   const md = await response.text();
+  if (!md.trimStart().startsWith("---")) return null;
   return parseBlogMarkdown(md, {
     sessionList: slug === DEVELOPER_DAY_COLLECTION_SLUG,
   });

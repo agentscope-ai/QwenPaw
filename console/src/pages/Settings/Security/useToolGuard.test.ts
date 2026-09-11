@@ -10,6 +10,7 @@ const hoisted = vi.hoisted(() => {
     getToolGuard: vi.fn(),
     getBuiltinRules: vi.fn(),
     getSandbox: vi.fn(),
+    getDenyPathsProtection: vi.fn(),
   };
   return { apiMocks };
 });
@@ -57,7 +58,15 @@ describe("useToolGuard", () => {
     apiMocks.getToolGuard.mockReset();
     apiMocks.getBuiltinRules.mockReset();
     apiMocks.getSandbox.mockReset();
+    apiMocks.getDenyPathsProtection.mockReset();
     apiMocks.getSandbox.mockResolvedValue({ enabled: true });
+    apiMocks.getDenyPathsProtection.mockResolvedValue({
+      active: false,
+      protected_paths: [],
+      failed_paths: [],
+      platform_supported: false,
+      message: null,
+    });
   });
 
   it("mounts and loads config/builtinRules, sets disabledRules/autoDenyRules/customRules, loading false", async () => {

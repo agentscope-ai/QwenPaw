@@ -1,4 +1,4 @@
-import { Select, Tooltip } from "antd";
+import { Popover, Select, Tooltip } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import {
@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
 import { useAgentLongPress } from "./useAgentLongPress";
+import { isAgentAvailableInChat } from "../../utils/agentVisibility";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -41,6 +42,7 @@ export default function AgentSelector({
   translationRef.current = t;
   const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const collapsedTriggerRef = useRef<HTMLButtonElement>(null);
   const [disabledExpanded, setDisabledExpanded] = useState(false);
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [pinningAgentId, setPinningAgentId] = useState<string | null>(null);
@@ -70,31 +72,35 @@ export default function AgentSelector({
     void loadAgents();
   }, [loadAgents]);
 
-  const enabledAgents = useMemo(
-    () => agents.filter((agent) => agent.enabled),
+  const chatAgents = useMemo(
+    () => agents.filter(isAgentAvailableInChat),
     [agents],
   );
+  const enabledAgents = useMemo(
+    () => chatAgents.filter((agent) => agent.enabled),
+    [chatAgents],
+  );
   const pinnedAgents = useMemo(
-    () => agents.filter((agent) => agent.id === "default" || agent.pinned),
-    [agents],
+    () => chatAgents.filter((agent) => agent.id === "default" || agent.pinned),
+    [chatAgents],
   );
   const regularEnabledAgents = useMemo(
     () =>
-      agents.filter(
+      chatAgents.filter(
         (agent) => agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [chatAgents],
   );
   const regularDisabledAgents = useMemo(
     () =>
-      agents.filter(
+      chatAgents.filter(
         (agent) => !agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [chatAgents],
   );
 
   const handleChange = (value: string) => {
-    const targetAgent = agents.find((agent) => agent.id === value);
+    const targetAgent = chatAgents.find((agent) => agent.id === value);
     if (!targetAgent?.enabled) return;
     setSelectedAgent(value);
     message.success(t("agent.switchSuccess"));
@@ -107,6 +113,8 @@ export default function AgentSelector({
     if (!currentAgent) {
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDeleted"));
+    } else if (!isAgentAvailableInChat(currentAgent)) {
+      setSelectedAgent("default");
     } else if (!currentAgent.enabled) {
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDisabled"));
@@ -193,33 +201,9 @@ export default function AgentSelector({
     },
   );
 
-  const currentAgentInfo = agents.find((agent) => agent.id === selectedAgent);
-
-  if (collapsed) {
-    return (
-      <Tooltip
-        title={
-          currentAgentInfo
-            ? getAgentDisplayName(currentAgentInfo, t)
-            : selectedAgent
-        }
-        placement="right"
-        overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
-      >
-        <div className={styles.agentSelectorCollapsed}>
-          <Bot size={18} strokeWidth={2} />
-          {currentAgentInfo && (
-            <span className={styles.collapsedStatusIndicator}>
-              <AgentStatusIndicator
-                status={currentAgentInfo.startup_status}
-                enabled={currentAgentInfo.enabled}
-              />
-            </span>
-          )}
-        </div>
-      </Tooltip>
-    );
-  }
+  const currentAgentInfo = chatAgents.find(
+    (agent) => agent.id === selectedAgent,
+  );
 
   const renderToggleButton = (agent: AgentSummary, nextEnabled: boolean) => {
     const isToggling = togglingAgentId === agent.id;
@@ -265,7 +249,11 @@ export default function AgentSelector({
     );
   };
 
-  const renderAgentDetails = (agent: AgentSummary, disabled: boolean) => (
+  const renderAgentDetails = (
+    agent: AgentSummary,
+    disabled: boolean,
+    onClick?: () => void,
+  ) => (
     <div
       className={[
         styles.agentOption,
@@ -283,6 +271,9 @@ export default function AgentSelector({
           : t("agent.longPressToPin")
       }
       {...getLongPressProps(agent)}
+      onClick={onClick}
+      role={onClick ? "option" : undefined}
+      aria-selected={onClick ? agent.id === selectedAgent : undefined}
     >
       <div className={styles.agentOptionHeader}>
         <div className={styles.agentStatusColumn}>
@@ -326,6 +317,159 @@ export default function AgentSelector({
       <div className={styles.agentOptionId}>{`ID: ${agent.id}`}</div>
     </div>
   );
+
+  if (collapsed) {
+    const closeCollapsedMenu = () => {
+      setDropdownOpen(false);
+      collapsedTriggerRef.current?.focus();
+    };
+    const selectCollapsedAgent = (agent: AgentSummary) => {
+      if (!agent.enabled) return;
+      handleChange(agent.id);
+      closeCollapsedMenu();
+    };
+
+    return (
+      <Popover
+        open={dropdownOpen}
+        onOpenChange={setDropdownOpen}
+        placement="rightTop"
+        trigger="click"
+        overlayClassName={styles.collapsedAgentPopover}
+        content={
+          <div
+            className={`${styles.dropdownContent} ${styles.collapsedAgentContent}`}
+            role="listbox"
+            aria-label={t("agent.selectAgent")}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                closeCollapsedMenu();
+              }
+            }}
+          >
+            <div className={styles.dropdownHeader}>
+              <span className={styles.dropdownHeaderTitle}>
+                {t("agent.currentWorkspace")}
+              </span>
+              <button
+                type="button"
+                className={styles.managementLink}
+                onClick={() => {
+                  closeCollapsedMenu();
+                  navigate("/agents");
+                }}
+              >
+                {t("agent.management")}
+                <ChevronRight size={12} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div className={styles.collapsedAgentGroupLabel}>
+              {t("agent.pinnedAgents")}
+            </div>
+            <div className={styles.enabledAgentList}>
+              {pinnedAgents.map((agent) => (
+                <div key={agent.id} className={styles.collapsedAgentRow}>
+                  {renderAgentDetails(
+                    agent,
+                    !agent.enabled,
+                    agent.enabled
+                      ? () => selectCollapsedAgent(agent)
+                      : undefined,
+                  )}
+                </div>
+              ))}
+            </div>
+            {regularEnabledAgents.length > 0 && (
+              <>
+                <div className={styles.collapsedAgentGroupLabel}>
+                  {t("agent.otherAgents")}
+                </div>
+                <div className={styles.enabledAgentList}>
+                  {regularEnabledAgents.map((agent) => (
+                    <div key={agent.id} className={styles.collapsedAgentRow}>
+                      {renderAgentDetails(agent, false, () =>
+                        selectCollapsedAgent(agent),
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {regularDisabledAgents.length > 0 && (
+              <div className={styles.disabledAgentSection}>
+                <button
+                  type="button"
+                  className={styles.disabledAgentHeader}
+                  aria-expanded={disabledExpanded}
+                  aria-controls="collapsed-disabled-agent-list"
+                  onClick={() => setDisabledExpanded((expanded) => !expanded)}
+                >
+                  <span>
+                    {t("agent.disabledAgents", {
+                      count: regularDisabledAgents.length,
+                    })}
+                  </span>
+                  <ChevronDown
+                    size={15}
+                    className={
+                      disabledExpanded ? styles.disabledChevronExpanded : ""
+                    }
+                  />
+                </button>
+                {disabledExpanded && (
+                  <div
+                    id="collapsed-disabled-agent-list"
+                    className={styles.disabledAgentList}
+                  >
+                    {regularDisabledAgents.map((agent) => (
+                      <div key={agent.id} className={styles.disabledAgentRow}>
+                        {renderAgentDetails(agent, true)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        }
+      >
+        <Tooltip
+          title={
+            dropdownOpen
+              ? undefined
+              : currentAgentInfo
+              ? getAgentDisplayName(currentAgentInfo, t)
+              : selectedAgent
+          }
+          placement="right"
+          overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
+        >
+          <button
+            ref={collapsedTriggerRef}
+            type="button"
+            className={styles.agentSelectorCollapsed}
+            aria-label={t("agent.selectAgent")}
+            aria-haspopup="listbox"
+            aria-expanded={dropdownOpen}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeCollapsedMenu();
+            }}
+          >
+            <Bot size={18} strokeWidth={2} />
+            {currentAgentInfo && (
+              <span className={styles.collapsedStatusIndicator}>
+                <AgentStatusIndicator
+                  status={currentAgentInfo.startup_status}
+                  enabled={currentAgentInfo.enabled}
+                />
+              </span>
+            )}
+          </button>
+        </Tooltip>
+      </Popover>
+    );
+  }
 
   return (
     <div className={styles.agentSelectorWrapper}>

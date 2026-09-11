@@ -75,6 +75,7 @@ class WorkspaceBootstrapFactory:
             )
             from ...hooks.request_setup.contextvars_hook import (
                 ContextVarsSetupHook,
+                MailF1CleanupHook,
             )
             from ...hooks.request_setup.media_hook import MediaProcessHook
             from ...hooks.session.session_hook import (
@@ -84,6 +85,10 @@ class WorkspaceBootstrapFactory:
             from ...hooks.skill_env.skill_env_hook import (
                 SkillEnvCleanupHook,
                 SkillEnvHook,
+            )
+            from ...checkpoints.hooks import (
+                CheckpointAutoSnapshotHook,
+                CheckpointQueryGateHook,
             )
 
             hook_clses: list[type] = [
@@ -100,6 +105,9 @@ class WorkspaceBootstrapFactory:
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
+                CheckpointQueryGateHook,
+                CheckpointAutoSnapshotHook,
+                MailF1CleanupHook,
             ]
             if extra_hook_clses:
                 hook_clses.extend(extra_hook_clses)

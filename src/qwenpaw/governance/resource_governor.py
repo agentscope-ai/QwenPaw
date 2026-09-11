@@ -7,43 +7,38 @@ addition, sandbox config compilation.
 """
 
 from __future__ import annotations
+
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
+from ..constant import WORKING_DIR
+from ..sandbox import (
+    MountSpec,
+    SandboxCapability,
+    SandboxConfig,
+    detect_platform_mode,
+    probe_sandbox_support,
+)
+from ..utils.io_utils import get_sync_path_lock, run_sync_io
+from .audit import AuditLog
 from .policy import (
-    GovernancePolicy,
-    GovernanceRule,
-    GovernanceAction,
-    GovernanceDecision,
-    ToolCallSpec,
     DEFAULT_SANDBOX_DENY_PATHS,
     FILE_READ_TOOLS,
     FILE_WRITE_TOOLS,
+    GovernanceAction,
+    GovernanceDecision,
+    GovernancePolicy,
+    GovernanceRule,
+    ToolCallSpec,
+    _parse_match,
     load_governance_policy,
     save_governance_policy,
-    _parse_match,
-)
-from .audit import AuditLog
-from ..constant import WORKING_DIR
-from ..utils.io_utils import get_sync_path_lock, run_sync_io
-
-from ..sandbox import (
-    SandboxCapability,
-    SandboxConfig,
-    MountSpec,
-    probe_sandbox_support,
-    detect_platform_mode,
 )
 
 logger = logging.getLogger(__name__)
-
-
-# Module-level debounce: avoid spamming the auto-disable warning on every
-# tool-execution check.  0 = never warned; otherwise the epoch of the last
-# warning.
-_sandbox_admin_warned_at: float = 0.0
 
 
 class ResourceGovernor:
@@ -65,14 +60,35 @@ class ResourceGovernor:
         workspace_dir: str,
         governance_dir: Optional[str] = None,
         coding_project_dir: Optional[str] = None,
+        extra_project_dirs: Optional[list[str]] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
-        # Coding project dir (Coding Mode). Falls back to the workspace
-        # when unset so the CODING_PROJECT_DIR policy placeholder always
+        # Primary project directory. Falls back to the workspace when
+        # unset so the CODING_PROJECT_DIR policy placeholder always
         # resolves to a concrete path.
         self.coding_project_dir = Path(
             coding_project_dir or workspace_dir,
         )
+        # Remaining bound project directories (the list minus the
+        # primary). They get their own ALLOW rules and sandbox mounts;
+        # entries duplicating the primary/workspace are dropped. Keys come
+        # from the shared ``dir_key`` so the fold follows the platform:
+        # folding unconditionally would make ``/repo`` and ``/Repo`` look
+        # identical on Linux and leave one of two bound roots ungranted.
+        from ..services.project_directory import dir_key
+
+        seen = {dir_key(self.workspace_dir), dir_key(self.coding_project_dir)}
+        self.extra_project_dirs: list[Path] = []
+        for raw in extra_project_dirs or []:
+            try:
+                path = Path(raw).expanduser()
+            except (OSError, TypeError, ValueError):
+                continue
+            key = dir_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.extra_project_dirs.append(path)
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
@@ -120,42 +136,16 @@ class ResourceGovernor:
         read error it returns True (fail-safe): a glitch then routes the
         command through the sandbox instead of running it unsandboxed.
 
-        On Windows, if ``sandbox_enabled`` is True but the process lacks
-        administrator privileges, the switch is treated as False for this
-        session and a warning is logged.  The config file is NOT modified
-        so the user's intent is preserved for future admin launches.
+        On Windows without administrator privileges, the unelevated sandbox
+        backend (WRITE_RESTRICTED token) is used automatically.  The sandbox
+        remains active — only the isolation level is reduced compared to the
+        elevated (admin) backend.
         """
-        global _sandbox_admin_warned_at
         try:
             from ..config import load_config
 
             config = load_config()
-            enabled = bool(config.security.sandbox_enabled)
-
-            # Runtime guard: if sandbox is enabled but we're on Windows
-            # without admin, treat as disabled for this session.
-            if enabled:
-                from ..utils.platform import is_windows_admin
-
-                if not is_windows_admin():
-                    import time as _time
-
-                    now = _time.monotonic()
-                    # Throttle: this method is called on every tool-execution
-                    # check.  Without a debounce interval the same warning
-                    # would be emitted hundreds of times per session.
-                    # 30 s keeps the user informed without flooding the log.
-                    if now - _sandbox_admin_warned_at > 30:
-                        logger.warning(
-                            "Windows sandbox inactive for this session: "
-                            "sandbox_enabled is true but the process lacks "
-                            "administrator privileges. To use the sandbox, "
-                            "restart QwenPaw as administrator.",
-                        )
-                        _sandbox_admin_warned_at = now
-                    return False
-
-            return enabled
+            return bool(config.security.sandbox_enabled)
         except Exception:
             logger.debug(
                 "ResourceGovernor: failed to read sandbox_enabled; "
@@ -186,6 +176,9 @@ class ResourceGovernor:
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
+                extra_project_dirs=[
+                    str(path) for path in self.extra_project_dirs
+                ],
             )
 
             # Persist migrations/defaults while holding the same lock used by
@@ -248,9 +241,11 @@ class ResourceGovernor:
         # Sandbox not usable (platform unsupported OR the global
         # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
         # run inside a sandbox. Reaching this point means the command already
-        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # cleared Phase 1 deep scan (configured auto-deny rules and
+        # finding-driven approval thresholds), Phase 1.5 shell-danger
         # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
-        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # blocked or escalated it. Rather than nag the user, run it
+        # unsandboxed (ALLOW).
         # Only the sandbox isolation layer is dropped; Phase 0-2 protections
         # stay fully in force. STRICT never reaches here (it returns ASK in
         # evaluate() before producing SANDBOX_FALLBACK).
@@ -384,13 +379,17 @@ class ResourceGovernor:
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
-        # Coding project dir is readwrite by default (Coding Mode). When
-        # it is distinct from the workspace, mount it explicitly so Bash
-        # can write there; the policy ALLOW rule alone is not enough for
-        # sandboxed shell tools.
+        # Project dirs are readwrite by default. When they are distinct
+        # from the workspace, mount them explicitly so Bash can write
+        # there; the policy ALLOW rule alone is not enough for sandboxed
+        # shell tools.
         cpd = str(self.coding_project_dir)
         if cpd and cpd != ws and not any(m.path == cpd for m in mounts):
             mounts.append(MountSpec(path=cpd, writable=True))
+        for extra in self.extra_project_dirs:
+            extra_path = str(extra)
+            if extra_path and not any(m.path == extra_path for m in mounts):
+                mounts.append(MountSpec(path=extra_path, writable=True))
 
         return SandboxConfig(
             mode=detect_platform_mode(),
@@ -417,9 +416,13 @@ class ResourceGovernor:
 
         Strategy:
             - WORKSPACE_DIR/* → workspace_dir (mount as a whole)
-            - /absolute/path/* → /absolute/path (take directory part)
+            - ``~`` / ``$VAR`` → expanded before anything else
+            - absolute path/* → that path (take directory part)
             - relative path → workspace_dir / relative (take directory part)
             - Pure wildcards (*, **) → skip, cannot derive a concrete path
+
+        The result is always normalised, so the same directory written two
+        ways yields one string.
         """
         p = pattern.rstrip("*").rstrip("/")
 
@@ -431,12 +434,27 @@ class ResourceGovernor:
         if "WORKSPACE_DIR" in p:
             p = p.replace("WORKSPACE_DIR", workspace_dir)
 
-        # Absolute path
-        if p.startswith("/"):
-            return p
+        # ``~/.cache/uv`` is how an operator naturally writes a tool cache
+        # in policy.yaml, and every backend already expands ``~`` for
+        # deny_paths. Leaving it literal here fell through to the relative
+        # branch below and produced ``<workspace>/~/.cache/uv`` -- a path
+        # that never exists, so the backends' existence check dropped the
+        # mount and the grant silently did nothing.
+        p = os.path.expanduser(os.path.expandvars(p))
 
-        # Relative path → resolve based on workspace
-        return str(Path(workspace_dir) / p)
+        # isabs() rather than startswith("/") so a Windows path such as
+        # ``C:\Users\...`` is not mistaken for a workspace-relative one.
+        if not os.path.isabs(p):
+            # Relative path → resolve based on workspace
+            p = str(Path(workspace_dir) / p)
+
+        # expanduser only rewrites the leading ``~``, so on Windows it
+        # returns mixed separators (``C:\Users\x/.cache/uv``).
+        # ``compile_sandbox_config`` de-duplicates mounts by path string and
+        # relies on that to let a Write rule override a Read rule for the
+        # same directory; without normalising, the two spellings become two
+        # separate MountSpecs and the write never wins.
+        return os.path.normpath(p)
 
     # ------------------------------------------------------------------
     # Core interface 4: Dynamic rule addition
@@ -455,6 +473,9 @@ class ResourceGovernor:
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
+                extra_project_dirs=[
+                    str(path) for path in self.extra_project_dirs
+                ],
             )
             policy.add_rule(rule)
             save_governance_policy(

@@ -95,7 +95,7 @@ async def _run_task(
 ) -> dict:
     from types import SimpleNamespace
 
-    from agentscope.message import Msg
+    from agentscope.message import UserMsg
 
     from ..runtime.builder import AgentBuilder
     from ..schemas import AgentRequest
@@ -137,7 +137,7 @@ async def _run_task(
         try:
             response = await asyncio.wait_for(
                 agent.reply(
-                    [Msg(name="user", role="user", content=instruction)],
+                    [UserMsg(name="user", content=instruction)],
                 ),
                 timeout=timeout,
             )
@@ -258,6 +258,7 @@ def task_cmd(
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
     from ..config.config import ModelSlotConfig
+    from ..exceptions import ConfigurationException
     from ..utils.logging import setup_logger
 
     setup_logger("info")
@@ -269,7 +270,7 @@ def task_cmd(
 
     try:
         agent_config = load_agent_config(agent_id)
-    except ValueError as exc:
+    except (ConfigurationException, ValueError) as exc:
         click.echo(f"Error loading agent config: {exc}", err=True)
         sys.exit(1)
 

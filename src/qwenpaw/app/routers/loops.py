@@ -35,6 +35,8 @@ class LoopModeInfo(BaseModel):
     slash_command: str
     description: str
     source: Literal["builtin", "custom", "plugin"]
+    name_i18n: dict[str, str] | None = None
+    description_i18n: dict[str, str] | None = None
 
 
 class LoopModeStatus(BaseModel):
@@ -380,6 +382,8 @@ def _build_loop_catalog(
         command = commands[0]
         metadata = command.metadata or {}
         descriptor_id = f"plugin:{runtime_name}"
+        name_i18n = _as_str_dict(metadata.get("name_i18n"))
+        description_i18n = _as_str_dict(metadata.get("description_i18n"))
         result.append(
             LoopModeInfo(
                 id=descriptor_id,
@@ -387,10 +391,26 @@ def _build_loop_catalog(
                 slash_command=command.name,
                 description=command.help_text,
                 source="plugin",
+                name_i18n=name_i18n or None,
+                description_i18n=description_i18n or None,
             ),
         )
         runtime_modes[runtime_name] = descriptor_id
     return _deduplicate(result), runtime_modes
+
+
+def _as_str_dict(value: Any) -> dict[str, str]:
+    """Normalize metadata i18n maps to ``dict[str, str]``."""
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if item is None:
+            continue
+        text = str(item).strip()
+        if text:
+            result[str(key)] = text
+    return result
 
 
 __all__ = ["LoopModeInfo", "LoopModeStatus", "router"]

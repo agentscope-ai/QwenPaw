@@ -53,10 +53,12 @@ export const toolsApi = {
   /**
    * Get tool configuration
    */
-  getToolConfig: (toolName: string) =>
-    request<Record<string, any>>(
-      `/tools/${encodeURIComponent(toolName)}/config`,
-    ),
+  getToolConfig: (toolName: string, params?: Record<string, string>) => {
+    const query = params ? `?${new URLSearchParams(params).toString()}` : "";
+    return request<Record<string, any>>(
+      `/tools/${encodeURIComponent(toolName)}/config${query}`,
+    );
+  },
 
   /**
    * Update tool configuration

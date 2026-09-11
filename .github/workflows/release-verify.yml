@@ -173,6 +173,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - name: Get QwenPaw version
+        id: version
+        uses: ./.github/actions/get-version
+
       - name: Log in to Aliyun ACR (when credentials available)
         if: env.ACR_USERNAME != ''
         uses: docker/login-action@v3
@@ -187,6 +191,7 @@ jobs:
         env:
           DOCKER_NODE_IMAGE: ${{ inputs.docker_node_image }}
           DOCKER_UV_IMAGE: ${{ inputs.docker_uv_image }}
+          QWENPAW_VERSION: ${{ steps.version.outputs.version }}
         run: |
           BUILD_ARGS=""
           if [ -n "$DOCKER_NODE_IMAGE" ]; then
@@ -198,8 +203,21 @@ jobs:
           docker build \
             -f deploy/Dockerfile \
             -t qwenpaw-verify:test \
+            --build-arg \
+            QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="$QWENPAW_VERSION" \
             $BUILD_ARGS \
             .
+
+      - name: Verify managed runtime boundary version
+        env:
+          QWENPAW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          actual=$(docker image inspect qwenpaw-verify:test \
+            --format '{{ index .Config.Labels "io.qwenpaw.managed-runtime-boundary.version" }}')
+          if [ "$actual" != "$QWENPAW_VERSION" ]; then
+            echo "::error::Runtime boundary version mismatch: $actual != $QWENPAW_VERSION"
+            exit 1
+          fi
 
       - name: Start container
         run: |

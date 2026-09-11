@@ -82,3 +82,21 @@ export function trackBlogPostView(params: {
     page_path: pagePath,
   });
 }
+
+/** Fire a custom GA4 event (no-op when gtag is unavailable, e.g. DEV). */
+export function trackEvent(
+  eventName: string,
+  params?: Record<string, string | number | boolean>,
+) {
+  if (!window.gtag) return;
+  window.gtag("event", eventName, params);
+}
+
+/** Homepage hero “Try Now / 快速体验” → AgentScope Platform. */
+export function trackHeroQuickTryClick() {
+  trackEvent("hero_quick_try_click", {
+    link_url: "https://platform.agentscope.io/",
+    link_text: "quick_try",
+    location: "home_hero",
+  });
+}

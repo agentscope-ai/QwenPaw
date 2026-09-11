@@ -17,6 +17,7 @@ import { combineDisposables } from "../registry/types";
 import { ChatScalar } from "../registry/slotKeys";
 import type {
   ChatActionSpec,
+  ChatApprovalRendererItem,
   ChatNodeItem,
   ChatRequestPayloadTransform,
   ChatRequestPayloadTransformItem,
@@ -155,6 +156,13 @@ export interface QwenPawChatNamespace {
     toolName: string,
     render: React.FC<Record<string, unknown>>,
   ): Disposable;
+  approval: {
+    render(
+      pluginId: string,
+      sourceType: string,
+      render: ChatApprovalRendererItem["render"],
+    ): Disposable;
+  };
   card(
     pluginId: string,
     cardName: string,
@@ -355,6 +363,10 @@ function makeChatNamespace(): QwenPawChatNamespace {
       // `usePlugins().toolRenderConfig` path keeps producing the same map.
       pluginSystem.addToolRenderers(pid, { [toolName]: render });
       return chatExtensions.addToolRender(pid, toolName, render);
+    },
+    approval: {
+      render: (pid, sourceType, render) =>
+        chatExtensions.addApprovalRenderer(pid, sourceType, render),
     },
     card: (pid, cardName, render) =>
       chatExtensions.addCard(pid, cardName, render),

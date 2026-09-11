@@ -8,20 +8,19 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from qwenpaw.hooks.session.session_hook import (
-    SessionLoadHook,
-    SessionSaveHook,
-)
+from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
+from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
 class _FakeSession:
-    def __init__(self) -> None:
+    def __init__(self, *, save_error: Exception | None = None) -> None:
         self.loaded = False
         self.saved = False
         self.load_payload = {}
         self.saved_payload = {}
+        self.save_error = save_error
 
     async def load_session_state(self, *args, **kwargs) -> None:
         del args
@@ -30,6 +29,8 @@ class _FakeSession:
 
     async def save_session_state(self, *args, **kwargs) -> None:
         del args
+        if self.save_error is not None:
+            raise self.save_error
         self.saved = True
         self.saved_payload = kwargs["agent"].state_dict()
 
@@ -45,6 +46,7 @@ def _ctx(session: _FakeSession, *, ephemeral: bool):
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
         mode_state={},
+        extras={},
     )
 
 
@@ -57,6 +59,7 @@ async def test_ephemeral_request_skips_session_load_and_save():
 
     assert session.loaded is False
     assert session.saved is False
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
 
 
 async def test_normal_request_loads_and_saves_session_state():
@@ -71,5 +74,16 @@ async def test_normal_request_loads_and_saves_session_state():
 
     assert session.loaded is True
     assert session.saved is True
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is True
     assert ctx.mode_state == {"mission": {"active": True}}
     assert session.saved_payload["mode_state"] == ctx.mode_state
+
+
+async def test_failed_session_save_does_not_mark_turn_as_persisted():
+    session = _FakeSession(save_error=RuntimeError("save failed"))
+    ctx = _ctx(session, ephemeral=False)
+
+    await SessionSaveHook().run(ctx)
+
+    assert session.saved is False
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False

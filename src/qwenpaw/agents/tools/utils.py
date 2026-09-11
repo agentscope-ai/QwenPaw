@@ -30,15 +30,25 @@ def _fit_truncation_notice(notice: str, info: dict[str, Any]) -> str:
     if len(notice.encode("utf-8")) <= MAX_TRUNCATION_NOTICE_BYTES:
         return notice
 
-    compact = (
-        TRUNCATION_NOTICE_MARKER
-        + "\nOutput truncated; recovery details are in "
-        "qwenpaw_truncation metadata."
-        f"\nTotal lines: {info['total_lines']}; "
-        f"excerpt starts at line {info['start_line']} and contains "
-        f"{info['excerpt_bytes']} bytes."
-        f"\nContinue with read_file at line {info['read_from']}."
-    )
+    if info.get("continuation_mode") == "artifact":
+        compact = (
+            TRUNCATION_NOTICE_MARKER
+            + "\nOversized single line truncated; recovery details are in "
+            "qwenpaw_truncation metadata."
+            f"\nThe {info['excerpt_bytes']}-byte preview starts at line "
+            f"{info['start_line']}. Inspect the saved artifact for the full "
+            "content."
+        )
+    else:
+        compact = (
+            TRUNCATION_NOTICE_MARKER
+            + "\nOutput truncated; recovery details are in "
+            "qwenpaw_truncation metadata."
+            f"\nTotal lines: {info['total_lines']}; "
+            f"excerpt starts at line {info['start_line']} and contains "
+            f"{info['excerpt_bytes']} bytes."
+            f"\nContinue with read_file at line {info['read_from']}."
+        )
     compact_bytes = compact.encode("utf-8")
     if len(compact_bytes) <= MAX_TRUNCATION_NOTICE_BYTES:
         return compact
@@ -57,7 +67,7 @@ def build_truncation_metadata(
     start_line: int,
     max_bytes: int,
     excerpt_bytes: int,
-    read_from: int,
+    read_from: int | None,
     block_index: int = 0,
 ) -> dict[str, Any]:
     """Build metadata and the matching user-facing truncation notice."""
@@ -71,13 +81,23 @@ def build_truncation_metadata(
         "excerpt_bytes": excerpt_bytes,
         "read_from": read_from,
     }
-    notice = (
-        TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
-        f"\nThe full content is saved to the file and contains {total_lines} lines in total."
-        f"\nThis excerpt starts at line {start_line} and covers the next {excerpt_bytes} bytes."
-        "\nIf the current content is not enough, call `read_file` with "
-        f'file_path="{file_path or ""}" start_line={read_from} to read more.'
-    )
+    if read_from is None:
+        info["continuation_mode"] = "artifact"
+        notice = (
+            TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
+            f"\nThe full content is saved to the file and contains {total_lines} lines in total."
+            f"\nThis excerpt starts at line {start_line} and covers the first {excerpt_bytes} bytes of an oversized line."
+            "\nThe remaining content is part of the same oversized line, so line-based continuation is unavailable."
+            f'\nInspect the saved artifact at file_path="{file_path or ""}" with a byte- or structure-aware tool.'
+        )
+    else:
+        notice = (
+            TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
+            f"\nThe full content is saved to the file and contains {total_lines} lines in total."
+            f"\nThis excerpt starts at line {start_line} and covers the next {excerpt_bytes} bytes."
+            "\nIf the current content is not enough, call `read_file` with "
+            f'file_path="{file_path or ""}" start_line={read_from} to read more.'
+        )
     info["notice"] = _fit_truncation_notice(notice, info)
     return {TRUNCATION_METADATA_KEY: {str(block_index): info}}
 
@@ -282,8 +302,8 @@ def _truncate_fresh(
     Slices at the byte boundary and appends a truncation notice with a continuation
     hint so callers know which line to read next.
 
-    Returns the original text unchanged when it fits within max_bytes, or when the
-    last line itself exceeds max_bytes (unhandled edge case).
+    An oversized final line gets a bounded preview backed by the saved artifact;
+    line-based continuation is intentionally disabled for that preview.
     """
     text_bytes = text.encode(encoding)
 
@@ -292,9 +312,8 @@ def _truncate_fresh(
         return text, {}
 
     # Slice at the byte boundary.
-    # Assuming every single line is shorter than DEFAULT_MAX_BYTES, this cut always
-    # lands mid-line, guaranteeing at least one complete line before the boundary.
-    # Lines that exceed DEFAULT_MAX_BYTES are not handled and may be skipped entirely.
+    # This can land mid-line. Oversized final lines are kept as bounded,
+    # artifact-backed previews below instead of being restored in full.
     truncated = text_bytes[:max_bytes]
     # Decode back to str; errors="ignore" drops any split multi-byte character
     # at the cut boundary without raising an exception.
@@ -306,12 +325,15 @@ def _truncate_fresh(
     newline_count = result.count("\n")
 
     # Compute the first line number not yet fully included in this chunk.
-    # max(1, ...) prevents next_line from equaling start_line when a single line
-    # exceeds max_bytes (newline_count == 0), which would make the caller retry
-    # the same range indefinitely.
     next_line = start_line + max(1, newline_count)
 
-    if next_line <= total_lines:
+    if newline_count == 0:
+        # The preview contains no complete line, even when later lines exist
+        # in the source. Advancing to start_line + 1 would silently skip the
+        # unshown remainder of the current oversized line, while repeating
+        # start_line cannot make progress. Recover from the artifact instead.
+        read_from = None
+    elif next_line <= total_lines:
         # Truncation fell before the last line — continue reading from next_line.
         read_from = next_line
     elif start_line < total_lines:
@@ -319,9 +341,9 @@ def _truncate_fresh(
         # Re-read from the start of the last line so the caller gets it in full.
         read_from = total_lines
     else:
-        # start_line == total_lines: the last line itself exceeds DEFAULT_MAX_BYTES.
-        # This case is outside our handled range — return without a truncation notice.
-        return result, {}
+        # Keep the bounded preview and direct recovery to the saved artifact;
+        # line pagination cannot advance safely from this range.
+        read_from = None
 
     metadata = build_truncation_metadata(
         file_path=file_path,
@@ -432,9 +454,11 @@ def _retruncate(
     newline_count = result.count("\n")
 
     # The next read should start at the line immediately after all complete lines.
-    # max(1, ...) guards against the theoretical zero-newline case
-    # (impossible when every line is shorter than DEFAULT_MAX_BYTES).
+    # max(1, ...) guards against a zero-newline preview.
     next_line = start_line + max(1, newline_count)
+    read_from = (
+        None if info.get("continuation_mode") == "artifact" else next_line
+    )
     updated = build_truncation_metadata(
         file_path=info.get("file_path"),
         file_size_bytes=info.get("file_size_bytes"),
@@ -442,7 +466,7 @@ def _retruncate(
         start_line=start_line,
         max_bytes=max_bytes,
         excerpt_bytes=len(result.encode(encoding)),
-        read_from=next_line,
+        read_from=read_from,
         block_index=block_index,
     )
     updated_info = updated[TRUNCATION_METADATA_KEY][str(block_index)]

@@ -77,6 +77,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
   "card_template_id": "",
   "card_template_key": "content",
   "robot_code": "",
+  "share_session_in_group": false,
   "show_tool_calls": true,
   "show_tool_results": true,
   "show_thinking": true,
@@ -87,15 +88,17 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 
 **DingTalk-specific fields:**
 
-| Field               | Type   | Default         | Description                                                                                                      |
-| ------------------- | ------ | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `client_id`         | string | `""` (required) | DingTalk app Client ID (AppKey)                                                                                  |
-| `client_secret`     | string | `""` (required) | DingTalk app Client Secret (AppSecret)                                                                           |
-| `message_type`      | string | `"markdown"`    | Message mode: `"markdown"` (default) or `"card"` (AI interactive card)                                           |
-| `card_template_id`  | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                            |
-| `card_template_key` | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                             |
-| `robot_code`        | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty) |
-| `media_dir`         | string | `null`          | Media file download directory (leave empty to not save)                                                          |
+| Field                    | Type   | Default         | Description                                                                                                                |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `client_id`              | string | `""` (required) | DingTalk app Client ID (AppKey)                                                                                            |
+| `client_secret`          | string | `""` (required) | DingTalk app Client Secret (AppSecret)                                                                                     |
+| `message_type`           | string | `"markdown"`    | Message mode: `"markdown"` (default) or `"card"` (AI interactive card)                                                     |
+| `card_template_id`       | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                                      |
+| `card_template_key`      | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                                       |
+| `robot_code`             | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty)           |
+| `card_auto_layout`       | bool   | `false`         | If `true`, DingTalk renders AI Cards in widescreen on desktop (only for `card` messages)                                   |
+| `share_session_in_group` | bool   | `false`         | If `true`, all group members share one conversation context; if `false` (default), each member gets an independent context |
+| `media_dir`              | string | `null`          | Media file download directory (leave empty to not save)                                                                    |
 
 > **Tips:**
 >
@@ -233,20 +236,22 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
   "bot_prefix": "[BOT]",
   "app_id": "cli_xxxxx",
   "app_secret": "your App Secret",
-  "domain": "feishu"
+  "domain": "feishu",
+  "share_session_in_group": false
 }
 ```
 
 **Feishu-specific fields:**
 
-| Field                | Type   | Default         | Description                                    |
-| -------------------- | ------ | --------------- | ---------------------------------------------- |
-| `app_id`             | string | `""` (required) | Feishu App ID                                  |
-| `app_secret`         | string | `""` (required) | Feishu App Secret                              |
-| `domain`             | string | `"feishu"`      | `"feishu"` (China) or `"lark"` (International) |
-| `encrypt_key`        | string | `""`            | Event encryption key (optional)                |
-| `verification_token` | string | `""`            | Event verification token (optional)            |
-| `media_dir`          | string | `null`          | Directory for received media files             |
+| Field                    | Type   | Default         | Description                                                                                              |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""` (required) | Feishu App ID                                                                                            |
+| `app_secret`             | string | `""` (required) | Feishu App Secret                                                                                        |
+| `domain`                 | string | `"feishu"`      | `"feishu"` (China) or `"lark"` (International)                                                           |
+| `encrypt_key`            | string | `""`            | Event encryption key (optional)                                                                          |
+| `verification_token`     | string | `""`            | Event verification token (optional)                                                                      |
+| `share_session_in_group` | bool   | `false`         | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
+| `media_dir`              | string | `null`          | Directory for received media files                                                                       |
 
 > **Tip:** Other fields (encrypt_key, verification_token, media_dir) are optional; with WebSocket mode you can omit them (defaults apply).
 
@@ -522,14 +527,14 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 
 3. Go to **Network Config** → **New** → **WebSocket Client** (reverse WS):
    - URL: `ws://<qwenpaw_host>:6199/ws`
-   - Access Token: same as `access_token` in QwenPaw config (optional)
+   - Access Token: same as `access_token` in QwenPaw config (required unless QwenPaw listens on loopback)
 
 ### Fill agent.json
 
 ```json
 "onebot": {
   "enabled": true,
-  "ws_host": "0.0.0.0",
+  "ws_host": "127.0.0.1",
   "ws_port": 6199,
   "access_token": "",
   "share_session_in_group": false
@@ -538,26 +543,41 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 
 **OneBot-specific fields:**
 
-| Field                    | Type   | Default   | Description                                                                                              |
-| ------------------------ | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
-| `ws_host`                | string | `0.0.0.0` | WebSocket server listen address                                                                          |
-| `ws_port`                | int    | `6199`    | WebSocket server listen port                                                                             |
-| `access_token`           | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
-| `share_session_in_group` | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
+| Field                    | Type   | Default     | Description                                                                                              |
+| ------------------------ | ------ | ----------- | -------------------------------------------------------------------------------------------------------- |
+| `ws_host`                | string | `127.0.0.1` | WebSocket server listen address. Loopback by default so the port is not reachable from the network       |
+| `ws_port`                | int    | `6199`      | WebSocket server listen port                                                                             |
+| `access_token`           | string | `""`        | Shared token sent by the OneBot client. **Required when `ws_host` is not a loopback address**            |
+| `media_base64`           | bool   | `false`     | Encode local outbound media as Base64 before sending it to the OneBot client                             |
+| `media_base64_max_mb`    | int    | `10`        | Maximum size in MB for Base64-encoded outbound media; larger files use their original path               |
+| `media_download_max_mb`  | int    | `50`        | Maximum size in MB for each remote inbound media file downloaded from the OneBot client                  |
+| `share_session_in_group` | bool   | `false`     | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
-> **Docker Compose tip:** When running QwenPaw and NapCat in Docker Compose, set the NapCat reverse WS URL to `ws://qwenpaw:6199/ws` (using the service name).
+### Security
 
-**Multimodal support:**
+The reverse WebSocket server accepts OneBot events, and those events drive the
+agent. An unauthenticated listener that is reachable from the network therefore
+lets anyone drive your agent.
 
-| Type  | Receive | Send |
-| ----- | ------- | ---- |
-| Text  | ✓       | ✓    |
-| Image | ✓       | ✓    |
-| Audio | 🚧      | ✓    |
-| Video | 🚧      | ✓    |
-| File  | ✓       | ✓    |
+- **Keep `ws_host` on `127.0.0.1`** whenever the OneBot implementation runs on
+  the same machine. This is the default and needs no token.
+- **Setting `ws_host` to any other address requires `access_token`.** While the
+  token is empty, the server keeps listening but rejects every connection with
+  `401` and logs how to fix it.
+- **Pass the token in the `Authorization` header**, which is what the OneBot
+  v11 reverse WebSocket spec defines. Configure it in the Token field of your
+  OneBot client; both `Bearer <token>` and `Token <token>` are accepted.
+  A token placed in the URL query string (`?access_token=...`) is not accepted,
+  because query strings are recorded in proxy and container access logs.
+- **Prefer a private network or a reverse proxy** over exposing the port
+  directly: `ws://` traffic is unencrypted, so a token sent over the public
+  internet can be intercepted.
 
-> **Note:** Audio and video are received at the channel level, but require QwenPaw's transcription provider (`transcription_provider_type`) to be configured for the LLM to process them. Without transcription, voice messages are shown as placeholders.
+> **Docker Compose tip:** When running QwenPaw and NapCat in Docker Compose, the
+> two containers are not on the same loopback interface, so set `ws_host` to
+> `0.0.0.0`, **set `access_token`**, and point the NapCat reverse WS URL at
+> `ws://qwenpaw:6199/ws` (using the service name). Do not publish port 6199 to
+> the host, or publish it as `127.0.0.1:6199:6199` so it stays local.
 
 ---
 
@@ -612,18 +632,20 @@ Find `wecom` and fill in the corresponding information, for example:
   "bot_id": "your bot_id",
   "secret": "your secret",
   "media_dir": "~/.qwenpaw/media",
-  "max_reconnect_attempts": -1
+  "max_reconnect_attempts": -1,
+  "share_session_in_group": true
 }
 ```
 
 **WeCom-specific fields:**
 
-| Field                    | Type   | Default            | Description                                          |
-| ------------------------ | ------ | ------------------ | ---------------------------------------------------- |
-| `bot_id`                 | string | `""` (required)    | WeCom bot ID                                         |
-| `secret`                 | string | `""` (required)    | WeCom bot secret                                     |
-| `media_dir`              | string | `~/.qwenpaw/media` | Media files (images, files, etc.) download directory |
-| `max_reconnect_attempts` | int    | `-1`               | WebSocket max reconnect attempts (`-1` = unlimited)  |
+| Field                    | Type   | Default            | Description                                                                                              |
+| ------------------------ | ------ | ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `bot_id`                 | string | `""` (required)    | WeCom bot ID                                                                                             |
+| `secret`                 | string | `""` (required)    | WeCom bot secret                                                                                         |
+| `media_dir`              | string | `~/.qwenpaw/media` | Media files (images, files, etc.) download directory                                                     |
+| `max_reconnect_attempts` | int    | `-1`               | WebSocket max reconnect attempts (`-1` = unlimited)                                                      |
+| `share_session_in_group` | bool   | `true`             | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
 ### Start chatting with the bot in WeCom
 
@@ -883,17 +905,19 @@ Find `channels.matrix` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
   "bot_prefix": "[BOT]",
   "homeserver": "https://matrix.org",
   "user_id": "@mybot:matrix.org",
-  "access_token": "syt_..."
+  "access_token": "syt_...",
+  "share_session_in_group": true
 }
 ```
 
 **Matrix-specific fields:**
 
-| Field          | Type   | Default         | Description                                        |
-| -------------- | ------ | --------------- | -------------------------------------------------- |
-| `homeserver`   | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`) |
-| `user_id`      | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)            |
-| `access_token` | string | `""` (required) | Bot access token (starts with `syt_`)              |
+| Field                    | Type   | Default         | Description                                                                                                   |
+| ------------------------ | ------ | --------------- | ------------------------------------------------------------------------------------------------------------- |
+| `homeserver`             | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`)                                                            |
+| `user_id`                | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)                                                                       |
+| `access_token`           | string | `""` (required) | Bot access token (starts with `syt_`)                                                                         |
+| `share_session_in_group` | bool   | `true`          | If `true`, all members in a group room share one session; if `false`, each member gets an independent session |
 
 Save the file; the channel will reload automatically if QwenPaw is already running.
 
@@ -906,6 +930,7 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 - Matrix supports multimodal messages (text, images, videos, audio, and files). Attachments are received via `mxc://` media URLs and uploaded to the homeserver, then sent as native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
 - For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+- Group rooms share one session by default to preserve the previous behavior. Set `share_session_in_group` to `false` to give each member an independent conversation context. Direct messages keep their existing room-based session identity.
 
 ---
 
@@ -1613,23 +1638,23 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 
 ### Config overview
 
-| Channel    | Config key | Main fields                                                                                                |
-| ---------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| DingTalk   | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code                    |
-| Feishu     | feishu     | app_id, app_secret, domain; optional encrypt_key, verification_token, media_dir                            |
-| iMessage   | imessage   | db_path, poll_sec (macOS only)                                                                             |
-| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                                                            |
-| QQ         | qq         | app_id, client_secret, markdown_enabled, max_reconnect_attempts                                            |
-| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                            |
-| Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                        |
-| Matrix     | matrix     | homeserver, user_id, access_token                                                                          |
-| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                    |
-| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
-| WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
-| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
-| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
-| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
-| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                     |
+| Channel    | Config key | Main fields                                                                                                              |
+| ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| DingTalk   | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code; optional share_session_in_group |
+| Feishu     | feishu     | app_id, app_secret, domain; optional encrypt_key, verification_token, media_dir, share_session_in_group                  |
+| iMessage   | imessage   | db_path, poll_sec (macOS only)                                                                                           |
+| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                                                                          |
+| QQ         | qq         | app_id, client_secret, markdown_enabled, max_reconnect_attempts                                                          |
+| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                                          |
+| Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                                      |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                                                        |
+| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                                  |
+| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts, share_session_in_group                                       |
+| WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                                    |
+| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                                        |
+| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                                       |
+| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider               |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                                   |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.
 
@@ -1669,6 +1694,7 @@ done). **✗** = not supported (not possible on this channel).
 | Slack      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| OneBot     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -1693,6 +1719,9 @@ Notes:
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
+- **OneBot**: Receives and localizes images, video, audio, and files; sends
+  media through native OneBot segments. Local outbound media can optionally
+  be encoded as Base64.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
 - **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, files, and videos; audio files (e.g., MP3) are not supported due to iLink API limitations.

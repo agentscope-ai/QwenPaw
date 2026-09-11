@@ -1,0 +1,48 @@
+{
+  "id": "legacy-custom",
+  "name": "Legacy Custom",
+  "base_url": "https://custom.example/v1",
+  "api_key": "",
+  "chat_model": "OpenAIChatModel",
+  "models": [],
+  "extra_models": [
+    {
+      "id": "custom-default",
+      "name": "Custom Default",
+      "supports_multimodal": false,
+      "supports_image": false,
+      "supports_video": false,
+      "is_free": false,
+      "max_tokens": 8192,
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true
+    },
+    {
+      "id": "custom-configured",
+      "name": "Custom Configured",
+      "supports_multimodal": false,
+      "supports_image": true,
+      "supports_video": false,
+      "is_free": true,
+      "max_tokens": 4096,
+      "max_input_length": 262144,
+      "max_input_length_configured": true,
+      "generate_kwargs": {
+        "temperature": 0.4
+      },
+      "relay_reasoning": true
+    }
+  ],
+  "generate_kwargs": {
+    "top_p": 0.8
+  },
+  "custom_headers": {
+    "X-Custom-Legacy": "kept"
+  },
+  "is_custom": true,
+  "meta": {
+    "fixture_version": "v2.1.0"
+  }
+}

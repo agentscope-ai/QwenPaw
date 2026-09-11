@@ -57,6 +57,15 @@ type TrustPrompt = {
   request: RestoreBackupRequest;
 };
 
+function isRestoreTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Request timeout after ") &&
+    error.message.includes(" POST /backups/") &&
+    error.message.endsWith("/restore")
+  );
+}
+
 export default function RestoreBackupModal({
   open,
   backup,
@@ -213,7 +222,18 @@ export default function RestoreBackupModal({
     onClose();
   };
 
-  const showRestoreFailure = (detail: Record<string, unknown> | null) => {
+  const showRestoreFailure = (
+    detail: Record<string, unknown> | null,
+    error: unknown,
+  ) => {
+    if (isRestoreTimeout(error)) {
+      message.error({
+        content: t("backup.restoreTimedOut"),
+        duration: 8,
+      });
+      return;
+    }
+
     if (detail?.code === "restore_target_busy") {
       const lockedPaths = Array.isArray(detail.locked_paths)
         ? detail.locked_paths.filter(
@@ -241,6 +261,21 @@ export default function RestoreBackupModal({
       return;
     }
 
+    const rawDetail: unknown = detail;
+    const reason =
+      typeof rawDetail === "string"
+        ? rawDetail.trim()
+        : typeof detail?.message === "string"
+        ? detail.message.trim()
+        : "";
+    if (reason) {
+      message.error({
+        content: `${t("backup.restoreFailed")}: ${reason}`,
+        duration: 8,
+      });
+      return;
+    }
+
     message.error(t("backup.restoreFailed"));
   };
 
@@ -255,7 +290,7 @@ export default function RestoreBackupModal({
       if (trustMode) {
         setTrustPrompt({ mode: trustMode, request });
       } else {
-        showRestoreFailure(detail);
+        showRestoreFailure(detail, err);
       }
     } finally {
       setLoading(false);
@@ -272,7 +307,7 @@ export default function RestoreBackupModal({
       });
       setTrustPrompt(null);
     } catch (err: unknown) {
-      showRestoreFailure(parseErrorDetail(err));
+      showRestoreFailure(parseErrorDetail(err), err);
     } finally {
       setTrustLoading(false);
     }

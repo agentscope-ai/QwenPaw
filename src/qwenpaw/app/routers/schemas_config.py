@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Request/response schemas for config API endpoints."""
 
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -46,3 +46,17 @@ class ChannelRestartResponse(BaseModel):
     channel: str
     status: Literal["restarted"]
     detail: str = ""
+
+
+class ChannelConflictAgent(BaseModel):
+    """Agent using the same Bot identity for a running channel."""
+
+    agent_id: str
+    agent_name: str
+
+
+class ChannelConflictResponse(BaseModel):
+    """Response model for channel Bot conflict preflight checks."""
+
+    conflict: bool
+    agents: List[ChannelConflictAgent] = Field(default_factory=list)

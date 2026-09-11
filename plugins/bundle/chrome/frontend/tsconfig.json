@@ -1,0 +1,21 @@
+{
+  "//": [
+    "`types: []` disables automatic @types/* registration. Without it,",
+    "@types/react's `export as namespace React` would expose `React` as",
+    "a global value and clash with the `const React = host.React` line",
+    "in `src/index.tsx` ('Cannot redeclare block-scoped variable React').",
+    "Window globals are declared explicitly in `src/qwenpaw-host.d.ts`",
+    "instead. The unknown `//` key is ignored by tsc."
+  ],
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src"]
+}

@@ -26,7 +26,7 @@ qwenpaw .                     # 以当前目录作为项目
 qwenpaw tui /path/to/repo     # 指定一个明确的目录
 ```
 
-这只会为**当前这次终端会话**启用 Coding 模式的提示词与工具行为——并不会改动 `agent.json` 中保存的项目，也不会改变控制台里选中的项目。关于底层会发生哪些变化，详见 [Coding 模式](/docs/coding-mode)。
+这只会为**当前这次终端会话**启用 Coding 模式的提示词与工具行为——并不会改动 `agent.json` 中保存的项目，也不会改变控制台里选中的项目。
 
 > 无需单独安装或维护服务：终端界面会用它自带的解释器启动属于自己的 `qwenpaw acp` 后端，因此它驱动的始终是与你的 `qwenpaw` 命令相同的安装环境 / 虚拟环境。
 
@@ -133,7 +133,6 @@ qwenpaw tui /path/to/repo     # 指定一个明确的目录
 
 ## 相关链接
 
-- [Coding 模式](/docs/coding-mode) —— 在代码仓库中启动终端界面时会有哪些变化
 - [魔法命令](/docs/commands) —— 智能体斜杠命令的完整列表
 - [ACP 集成](/docs/acp-integration) —— 终端界面与后端通信所使用的协议
 - [CLI](/docs/cli) —— 其他 `qwenpaw` 子命令

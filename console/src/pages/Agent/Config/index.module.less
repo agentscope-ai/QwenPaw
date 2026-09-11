@@ -7,11 +7,11 @@
 
   :global {
     .qwenpaw-slider-track {
-      background-color: #ff7f16;
+      background-color: var(--app-accent);
     }
 
     .qwenpaw-slider .qwenpaw-slider-handle::after {
-      box-shadow: 0 0 0 2px #ff7f16;
+      box-shadow: 0 0 0 2px var(--app-accent);
     }
 
     .qwenpaw-tabs-nav {
@@ -33,7 +33,7 @@
     margin-bottom: 20px;
 
     &::before {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--app-border-subtle);
     }
   }
 
@@ -41,20 +41,20 @@
     padding: 10px 4px;
     font-size: 14px;
     font-weight: 500;
-    color: #666 !important;
+    color: var(--app-text-secondary) !important;
 
     &:hover {
-      color: #ff7f16 !important;
+      color: var(--app-accent) !important;
     }
   }
 
   :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-    color: #ff7f16 !important;
+    color: var(--app-accent) !important;
     font-weight: 600;
   }
 
   :global(.qwenpaw-tabs-ink-bar) {
-    background: #ff7f16 !important;
+    background: var(--app-accent) !important;
     height: 3px;
     border-radius: 2px 2px 0 0;
   }
@@ -77,7 +77,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   margin-bottom: 0;
 }
 
@@ -90,23 +90,1264 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
 
 .formCard {
   width: 100%;
+}
+
+.memoryReferences {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+
+  a {
+    color: var(--app-accent-text);
+    font-weight: 550;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--app-accent-hover);
+      text-decoration: underline;
+    }
+  }
+
+  i {
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background: var(--app-text-quaternary);
+  }
+}
+
+.memoryOverview {
+  margin-bottom: 18px;
+  padding: 20px;
+  border: 1px solid var(--app-accent-border);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--app-accent-faint), transparent 58%);
+}
+
+.memoryOverviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+
+  h3 {
+    margin: 3px 0 5px;
+    color: var(--app-text);
+    font-size: 17px;
+    font-weight: 650;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.memoryStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+
+  > span,
+  > i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+  }
+}
+
+.memoryStatusUnknown {
+  border: 1px solid var(--app-border);
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
+
+  > span,
+  > i {
+    background: var(--app-status-idle);
+  }
+}
+
+.memoryStatusChecking {
+  border: 1px solid var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info-text);
+
+  > span,
+  > i {
+    background: var(--app-selected-border);
+    box-shadow: 0 0 0 3px var(--app-info-bg);
+  }
+}
+
+.memoryStatusHealthy {
+  border: 1px solid var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
+
+  > span,
+  > i {
+    background: var(--app-success);
+    box-shadow: 0 0 0 3px var(--app-success-faint);
+  }
+}
+
+.memoryStatusError {
+  border: 1px solid var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-text);
+
+  > span,
+  > i {
+    background: var(--app-error);
+    box-shadow: 0 0 0 3px var(--app-error-ring);
+  }
+}
+
+.memoryOverviewGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-surface);
+  overflow: hidden;
+}
+
+.embeddingIndexItem {
+  position: relative;
+  min-width: 0;
+  border-right: 0;
+}
+
+.embeddingIndexPrimaryAction {
+  width: 100%;
+  height: 100%;
+  border-right: 0;
+}
+
+.embeddingIndexReady {
+  background: var(--app-success-faint);
+
+  .embeddingIndexPrimaryAction:hover {
+    background: var(--app-success-bg);
+  }
+
+  .embeddingIndexPrimaryAction > svg {
+    color: var(--app-success-text);
+  }
+}
+
+.embeddingIndexDisabled {
+  background: var(--app-fill-faint);
+
+  .embeddingIndexPrimaryAction > svg {
+    color: var(--app-text-quaternary);
+  }
+}
+
+.embeddingIndexRebuildRequired {
+  background: var(--app-accent-faint);
+}
+
+.embeddingIndexUndoAction {
+  position: absolute;
+  right: 29px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-accent-text);
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.memoryOverviewItem {
+  position: relative;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 0;
+  border-right: 1px solid var(--app-border-subtle);
+  background: transparent;
+
+  &:last-child {
+    border-right: 0;
+  }
+
+  > span,
+  > strong,
+  > small {
+    display: block;
+  }
+
+  > span {
+    margin-bottom: 5px;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+
+  > strong {
+    overflow: hidden;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > small {
+    margin-top: 2px;
+    overflow: hidden;
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewItem > .memoryOverviewLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  > svg {
+    flex: none;
+  }
+}
+
+.memoryOverviewClickableItem {
+  padding-right: 34px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  transition: background 160ms ease;
+
+  > svg {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    color: var(--app-accent-text);
+    transform: translateY(-50%);
+    transition:
+      color 160ms ease,
+      transform 160ms ease;
+  }
+
+  &:hover {
+    background: var(--app-accent-faint);
+
+    > svg {
+      color: var(--app-accent-text);
+      transform: translate(2px, -50%);
+    }
+  }
+
+  &:focus-visible {
+    z-index: 1;
+    outline: 2px solid var(--app-accent-border);
+    outline-offset: -2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+
+    &:hover {
+      background: transparent;
+
+      > svg {
+        transform: translateY(-50%);
+      }
+    }
+  }
+}
+
+.memoryServiceStatusLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.memoryServiceStatusLine .memoryReferences {
+  flex: none;
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.memoryOverviewMetrics {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 14px;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 5px;
+  }
+
+  small {
+    flex: none;
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.memoryOverviewActionItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > span {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+
+  .memoryStatusBadge {
+    display: inline-flex;
+  }
+}
+
+.memoryOverviewMaintenance {
+  background: var(--app-warning-bg);
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > strong,
+  > div > span,
+  > div > small {
+    display: block;
+  }
+
+  > div > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+
+  > div > strong {
+    margin-bottom: 2px;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  > div > small {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+}
+
+.memoryConfigGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.memoryConfigStack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+
+  > section {
+    flex: 1 1 auto;
+  }
+}
+
+.memoryConfigPanel,
+.memoryRecallPanel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-fill-faint);
+}
+
+.memorySectionIcon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.memorySectionIconPrimary {
+  border: 1px solid var(--app-accent-border);
+  background: var(--app-accent-soft);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-accent-text);
+}
+
+.memorySectionIconSecondary {
+  border: 1px solid var(--app-info-border);
+  background: var(--app-info-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-info-text);
+}
+
+.memorySectionIconTertiary {
+  border: 1px solid var(--app-success-border);
+  background: var(--app-success-bg);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-success-text);
+}
+
+.memoryCapabilityHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 2px 0 12px;
+
+  span,
+  h4 {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 3px;
+    color: var(--app-accent-text);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  h4 {
+    margin: 0;
+    color: var(--app-text);
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  code {
+    flex: none;
+    padding: 3px 8px;
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    background: var(--app-fill-faint);
+    color: var(--app-text-secondary);
+    font-size: 10px;
+  }
+}
+
+.memoryCapabilityTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memoryDevelopingBadge {
+  display: inline-flex !important;
+  align-items: center;
+  width: fit-content;
+  margin: 0 !important;
+  padding: 2px 7px;
+  border: 1px solid var(--app-info-border);
+  border-radius: 999px;
+  background: var(--app-info-bg);
+  color: var(--app-info-text) !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+  line-height: 15px;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+}
+
+.memorySourceCard {
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+
+  + .memorySourceCard {
+    margin-top: 12px;
+  }
+}
+
+.memorySourceHeader {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+.memorySourceToggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  > span:last-child {
+    min-width: 0;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 4px;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  small {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  &:focus-visible {
+    border-radius: 8px;
+    outline: 2px solid var(--app-accent-border);
+    outline-offset: 4px;
+  }
+}
+
+.memorySourceChevron {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+.memorySourceChevronExpanded {
+  transform: rotate(90deg);
+}
+
+.memorySourceActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+
+  > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--app-accent-text);
+    font-size: 10px;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--app-accent);
+    }
+  }
+
+  code {
+    padding: 3px 8px;
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    background: var(--app-fill-faint);
+    color: var(--app-text-secondary);
+    font-size: 10px;
+  }
+}
+
+.memorySourceContent {
+  padding: 16px 14px 0;
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-fill-faint);
+}
+
+.memorySourceDisclaimer {
+  margin: -2px 0 16px;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.memoryCapabilityDivider {
+  height: 1px;
+  margin: 22px 0 20px;
+  background: linear-gradient(90deg, var(--app-border), var(--app-fill-faint));
+}
+
+.memorySectionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 20px;
+
+  h3 {
+    margin: 0 0 4px;
+    color: var(--app-text);
+    font-size: 16px;
+    font-weight: 650;
+  }
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.memoryToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 56px;
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-surface);
+
+  > div {
+    min-width: 0;
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 3px;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.memorySettingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 56px;
+  padding: 11px 13px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 10px;
+  background: var(--app-surface);
+
+  > div:first-child {
+    min-width: 0;
+  }
+
+  strong,
+  > div:first-child > span {
+    display: block;
+  }
+
+  strong {
+    margin-bottom: 3px;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  > div:first-child > span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.memoryRequiredMark {
+  display: inline !important;
+  margin-left: 4px;
+  color: var(--app-error-text);
+}
+
+.memoryInlineField {
+  flex: 0 1 25%;
+  width: 25%;
+  min-width: 120px;
+  max-width: 160px;
+  margin-bottom: 0 !important;
+}
+
+.memoryStatusModalTitle {
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: var(--app-text);
+    font-size: 16px;
+    font-weight: 650;
+  }
+
+  > span {
+    margin-top: 3px;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    font-weight: 400;
+  }
+}
+
+.memoryStatusModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.memoryStatusLoading {
+  display: flex;
+  min-height: 260px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.memoryStatusContent {
+  padding-top: 4px;
+}
+
+.memoryTaskPanel {
+  padding: 2px 0 4px;
+
+  :global(.ant-alert),
+  :global(.qwenpaw-alert) {
+    margin-top: 12px;
+  }
+}
+
+.memoryTaskSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0 18px;
+
+  > div {
+    min-width: 0;
+  }
+
+  > div > strong,
+  > div > span {
+    display: block;
+  }
+
+  > div > strong {
+    margin-bottom: 5px;
+    color: var(--app-text);
+    font-size: 14px;
+    font-weight: 680;
+  }
+
+  > div > span {
+    color: var(--app-text-secondary);
+    font-size: 10px;
+    line-height: 1.6;
+  }
+}
+
+.memoryAutoMemoryHistory {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
+.memoryAutoMemoryHistoryHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  strong {
+    color: var(--app-text);
+    font-size: 11px;
+  }
+
+  span {
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+  }
+}
+
+.memoryAutoMemoryHistoryList {
+  display: grid;
+  gap: 6px;
+
+  details {
+    border: 1px solid var(--app-border-subtle);
+    border-radius: 8px;
+    background: var(--app-surface);
+  }
+
+  summary {
+    display: grid;
+    grid-template-columns: minmax(70px, auto) 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 11px;
+    cursor: pointer;
+    list-style-position: inside;
+
+    span,
+    strong,
+    small {
+      font-size: 10px;
+    }
+
+    span {
+      color: var(--app-accent-text);
+      font-weight: 650;
+    }
+
+    strong {
+      color: var(--app-text);
+      font-weight: 550;
+    }
+
+    small {
+      color: var(--app-text-tertiary);
+    }
+  }
+
+  pre {
+    max-height: 220px;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    border-top: 1px solid var(--app-border-subtle);
+    color: var(--app-text);
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.memoryAutoMemoryHistoryEmpty {
+  margin: 0;
+  padding: 22px 12px;
+  border-radius: 8px;
+  background: var(--app-fill-faint);
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.memoryStatusMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+
+  > div {
+    padding: 16px;
+    border: 1px solid var(--app-accent-border);
+    border-radius: 12px;
+    background: linear-gradient(
+      135deg,
+      var(--app-accent-faint),
+      var(--app-surface)
+    );
+  }
+
+  span,
+  strong,
+  small {
+    display: block;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+
+  strong {
+    margin: 5px 0 3px;
+    color: var(--app-text);
+    font-size: 22px;
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  small {
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+  }
+}
+
+.memoryStatusComponentSection {
+  h4 {
+    margin: 0 0 10px;
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 650;
+  }
+}
+
+.memoryStatusComponentList {
+  border: 1px solid var(--app-border);
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.memoryStatusComponentRow {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(100px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--app-border-subtle);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  > span {
+    color: var(--app-text);
+    font-size: 12px;
+    font-weight: 550;
+  }
+
+  code {
+    overflow: hidden;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--app-text);
+    font-size: 12px;
+    font-weight: 650;
+  }
+}
+
+.memoryStatusNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--app-fill-faint);
+
+  > span {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: var(--app-fill-strong);
+    color: var(--app-text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+    font-size: 10px;
+    line-height: 1.55;
+  }
+}
+
+.embeddingStatusValueEnabled,
+.embeddingStatusValueDisabled {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+  }
+}
+
+.embeddingStatusValueEnabled {
+  color: var(--app-success-text) !important;
+
+  i {
+    background: var(--app-success);
+    box-shadow: 0 0 0 3px var(--app-success-faint);
+  }
+}
+
+.embeddingStatusValueDisabled {
+  color: var(--app-text-secondary) !important;
+
+  i {
+    background: var(--app-text-quaternary);
+  }
+}
+
+.embeddingStatusValueVerified {
+  color: var(--app-success-text) !important;
+}
+
+.embeddingStatusValuePending {
+  color: var(--app-accent-text) !important;
+}
+
+.embeddingVerificationAction {
+  background: var(--app-accent-faint);
+
+  &:hover {
+    background: var(--app-accent-soft);
+  }
+}
+
+@media (max-width: 1100px) {
+  .memoryOverviewGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memoryOverviewItem:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .memoryOverviewItem:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--app-border-subtle);
+  }
+
+  .memoryConfigGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .memoryOverviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryOverviewItem,
+  .memoryOverviewItem:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border-subtle);
+  }
+
+  .memoryOverviewItem:last-child {
+    border-bottom: 0;
+  }
+
+  .memoryOverviewActionItem {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryOverviewActionItem :global(.ant-btn),
+  .memoryOverviewActionItem :global(.qwenpaw-btn) {
+    width: 100%;
+  }
+
+  .memorySettingRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memorySourceHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memorySourceActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .memoryInlineField {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .memoryOverviewHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryCapabilityHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memoryStatusMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryTaskSummary {
+    align-items: flex-start;
+    flex-direction: column-reverse;
+  }
+
+  .memoryStatusComponentRow {
+    grid-template-columns: 1fr auto;
+
+    code {
+      display: none;
+    }
+  }
+}
+
+.visualCompactDescription {
+  margin: 0 0 20px !important;
+  line-height: 1.6;
+}
+
+.visualCompactEffortControl {
+  width: 100%;
+  padding: 3px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-fill-faint);
+
+  :global(.ant-segmented-item),
+  :global(.qwenpaw-segmented-item) {
+    border-radius: 7px;
+    font-weight: 500;
+  }
+
+  :global(.ant-segmented-thumb),
+  :global(.qwenpaw-segmented-thumb) {
+    border-radius: 7px;
+    box-shadow: var(--app-shadow-sm);
+  }
+}
+
+.visualCompactEffortDescription {
+  display: block;
+  min-height: 20px;
+  margin: -12px 0 16px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.visualCompactNote {
+  margin: 0 !important;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-fill-faint);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .form {
@@ -131,6 +1372,88 @@
   margin-bottom: 0 !important;
 }
 
+.reactAgentSettings {
+  margin: 20px 0 4px;
+  padding-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--app-border);
+}
+
+.reactAgentWideField {
+  margin-bottom: 0 !important;
+}
+
+.projectDirectorySetting,
+.switchSetting {
+  min-height: 64px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-fill-faint);
+}
+
+.projectDirectorySetting {
+  color: var(--app-accent-hover);
+
+  > div {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--app-text);
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+}
+
+.switchSetting {
+  justify-content: space-between;
+
+  > span {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.spin {
+  flex: 0 0 auto;
+  color: var(--app-accent-hover);
+  animation: config-spin 900ms linear infinite;
+}
+
+@keyframes config-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .reactAgentSettings {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* LLM Retry row layout */
 .llmRetryRow {
   display: grid;
@@ -145,31 +1468,16 @@
 /* Slider overrides - remove theme color */
 :global {
   .ant-slider-rail {
-    background-color: rgba(20, 20, 19, 0.15) !important;
+    background-color: var(--app-fill-subtle) !important;
   }
 
   .ant-slider-track {
-    background-color: rgba(20, 20, 19, 0.25) !important;
+    background-color: var(--app-fill-strong) !important;
   }
 
   .ant-slider-handle::after {
-    box-shadow: 0 0 0 2px rgba(20, 20, 19, 0.25) !important;
-    background-color: #fff !important;
-  }
-}
-
-:global(.dark-mode) {
-  .ant-slider-rail {
-    background-color: rgba(255, 255, 255, 0.15) !important;
-  }
-
-  .ant-slider-track {
-    background-color: rgba(255, 255, 255, 0.25) !important;
-  }
-
-  .ant-slider-handle::after {
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) !important;
-    background-color: #fff !important;
+    box-shadow: 0 0 0 2px var(--app-fill-strong) !important;
+    background-color: var(--app-surface) !important;
   }
 }
 
@@ -177,7 +1485,7 @@
 
 .sliderValue {
   font-weight: 500;
-  color: #1890ff;
+  color: var(--app-info-text);
 }
 
 .buttonGroup {
@@ -199,12 +1507,12 @@
 
 .stateText {
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-secondary);
 }
 
 .stateTextError {
   font-size: 14px;
-  color: #ff4d4f;
+  color: var(--app-error-text);
 }
 
 .footerActions {
@@ -212,52 +1520,9 @@
   justify-content: flex-end;
   align-items: center;
   padding: 16px 24px;
-  border-top: 1px solid #eae9e7;
-  background: #fff;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
   flex-shrink: 0;
-}
-
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .footerActions {
-    background: #1f1f1f;
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .sliderValue {
-    color: #ff7f16;
-  }
-
-  .mainTabs {
-    :global(.qwenpaw-tabs-tab .qwenpaw-tabs-tab-btn) {
-      color: #ffffff !important;
-    }
-
-    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-      color: #ff7f16 !important;
-      font-weight: 600;
-    }
-
-    :global(.qwenpaw-tabs-ink-bar) {
-      background: #ff7f16 !important;
-    }
-  }
 }
 
 /* ─── Mobile responsive ─────────────────────────────────────────────────────── */

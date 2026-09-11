@@ -1,0 +1,2 @@
+httpx>=0.27
+pydantic>=2

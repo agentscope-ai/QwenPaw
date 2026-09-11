@@ -5,14 +5,12 @@ import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
-import {
-  CONTEXT_MANAGER_BACKEND_MAPPINGS,
-  MEMORY_MANAGER_BACKEND_MAPPINGS,
-  MEMORY_MANAGER_BACKEND_OPTIONS,
-} from "../../../constants/backendMappings";
+import { CONTEXT_MANAGER_BACKEND_MAPPINGS } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
-export function useAgentConfig() {
+export function useAgentConfig(
+  onConfigLoaded?: (config: AgentsRunningConfig) => void,
+) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
@@ -27,8 +25,15 @@ export function useAgentConfig() {
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
+  const latestConfigRequestRef = useRef(0);
 
   const fetchConfig = useCallback(async () => {
+    const requestId = ++latestConfigRequestRef.current;
+    const requestedAgent = selectedAgent || "default";
+    const isCurrentRequest = () =>
+      requestId === latestConfigRequestRef.current &&
+      (useAgentStore.getState().selectedAgent || "default") === requestedAgent;
+
     setLoading(true);
     setError(null);
     try {
@@ -37,6 +42,8 @@ export function useAgentConfig() {
         api.getAgentLanguage(),
         api.getUserTimezone(),
       ]);
+      if (!isCurrentRequest()) return;
+
       const loadedLevel = (
         config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
@@ -45,13 +52,7 @@ export function useAgentConfig() {
         config.context_manager_backend in CONTEXT_MANAGER_BACKEND_MAPPINGS
           ? config.context_manager_backend
           : "light";
-      const memoryBackend =
-        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS ||
-        MEMORY_MANAGER_BACKEND_OPTIONS.some(
-          (o) => o.value === config.memory_manager_backend,
-        )
-          ? config.memory_manager_backend
-          : "remelight";
+      const memoryBackend = config.memory_manager_backend || "remelight";
       form.setFieldsValue({
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
@@ -76,8 +77,8 @@ export function useAgentConfig() {
         context_manager_backend: contextBackend,
         light_context_config: config.light_context_config,
         memory_manager_backend: memoryBackend,
+        memory_backend_configs: config.memory_backend_configs || {},
         reme_light_memory_config: config.reme_light_memory_config,
-        adbpg_memory_config: config.adbpg_memory_config,
         auto_title_config: config.auto_title_config ?? {
           enabled: true,
           timeout_seconds: 30.0,
@@ -86,17 +87,20 @@ export function useAgentConfig() {
 
       // Store original config for complete save
       originalConfigRef.current = config;
+      onConfigLoaded?.(config);
 
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
     } catch (err) {
+      if (!isCurrentRequest()) return;
+
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
       setError(errMsg);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [form, t, selectedAgent]);
+  }, [form, t, selectedAgent, onConfigLoaded]);
 
   useEffect(() => {
     fetchConfig();
@@ -159,21 +163,26 @@ export function useAgentConfig() {
           original.light_context_config,
           formValues.light_context_config,
         ) as typeof original.light_context_config,
-        adbpg_memory_config: deepMergeConfig(
-          original.adbpg_memory_config,
-          formValues.adbpg_memory_config,
-        ) as typeof original.adbpg_memory_config,
+        memory_backend_configs:
+          deepMergeConfig(
+            original.memory_backend_configs,
+            formValues.memory_backend_configs,
+          ) || {},
         auto_title_config: deepMergeConfig(
           original.auto_title_config,
           formValues.auto_title_config,
         ) as typeof original.auto_title_config,
         approval_level: approvalLevel,
+        // Keep legacy max_iters aligned with the UI-bound iteration limit.
+        max_iters:
+          formValues.loop?.iteration?.max_iterations ?? original.max_iters,
       };
 
-      await api.updateAgentRunningConfig(configToSave);
+      const savedConfig = await api.updateAgentRunningConfig(configToSave);
 
       // Update original config after successful save
-      originalConfigRef.current = configToSave;
+      originalConfigRef.current = savedConfig;
+      onConfigLoaded?.(savedConfig);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -183,7 +192,7 @@ export function useAgentConfig() {
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel]);
+  }, [form, t, selectedAgent, approvalLevel, onConfigLoaded]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {

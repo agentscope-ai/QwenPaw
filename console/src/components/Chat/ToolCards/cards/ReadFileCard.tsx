@@ -2,7 +2,12 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { FileTextOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell, DefaultBlock } from "../shared";
+import {
+  ToolCardShell,
+  DefaultBlock,
+  FileAttachmentPreview,
+  FilePreviewLink,
+} from "../shared";
 import { shortFileName, countLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -48,7 +53,9 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
       icon={<FileTextOutlined />}
       title={title}
       badges={badge}
+      summaryAction={<FilePreviewLink content={content} />}
     >
+      <FileAttachmentPreview content={content} />
       {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );

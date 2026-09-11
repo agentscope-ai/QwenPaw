@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""Placeholder-verified prompts owned by the file-native Creator Runtime."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import re
+
+_PROMPT_ROOT = Path(__file__).resolve().parent
+_PLACEHOLDER = re.compile(r"\{\{([a-zA-Z0-9_]+)\}\}")
+
+
+@dataclass(frozen=True, slots=True)
+class FileAgentPromptSpec:
+    prompt_id: str
+    filename: str
+    placeholders: frozenset[str]
+
+
+def _spec(
+    prompt_id: str,
+    filename: str,
+    *placeholders: str,
+) -> FileAgentPromptSpec:
+    return FileAgentPromptSpec(
+        prompt_id=prompt_id,
+        filename=filename,
+        placeholders=frozenset(placeholders),
+    )
+
+
+FILE_AGENT_PROMPT_SPECS = {
+    item.prompt_id: item
+    for item in (
+        _spec(
+            "creator_agent.system",
+            "creator_agent.system.txt",
+            "project_id",
+            "workspace_schema",
+            "tts_guidance",
+            "video_duration_guidance",
+            "video_model_guidance",
+            "image_model_guidance",
+            "external_skills",
+            "live_operation_guidance",
+        ),
+        _spec(
+            "source_intelligence_agent.system",
+            "source_intelligence_agent.system.txt",
+            "project_id",
+            "workspace_schema",
+            "memory_guidance",
+        ),
+        _spec(
+            "ai_editing_director.system",
+            "ai_editing_director.system.txt",
+            "project_id",
+            "workspace_schema",
+            "content_type",
+            "target_duration_seconds",
+            "tts_guidance",
+        ),
+    )
+}
+
+
+def load_file_agent_prompt(prompt_id: str) -> str:
+    try:
+        spec = FILE_AGENT_PROMPT_SPECS[prompt_id]
+    except KeyError as exc:
+        raise KeyError(
+            f"File Agent prompt is not allowlisted: {prompt_id}",
+        ) from exc
+    data = (_PROMPT_ROOT / spec.filename).read_bytes()
+    text = data.decode("utf-8").strip()
+    actual = frozenset(_PLACEHOLDER.findall(text))
+    if actual != spec.placeholders:
+        raise RuntimeError(
+            f"Prompt placeholders mismatch for {prompt_id}: "
+            f"expected={sorted(spec.placeholders)} actual={sorted(actual)}",
+        )
+    return text
+
+
+def render_file_agent_prompt(prompt_id: str, **values: str) -> str:
+    spec = FILE_AGENT_PROMPT_SPECS[prompt_id]
+    supplied = frozenset(values)
+    if supplied != spec.placeholders:
+        raise ValueError(
+            f"Prompt values mismatch for {prompt_id}: "
+            f"expected={sorted(spec.placeholders)} actual={sorted(supplied)}",
+        )
+    rendered = load_file_agent_prompt(prompt_id)
+    for name, value in values.items():
+        rendered = rendered.replace("{{" + name + "}}", value)
+    if _PLACEHOLDER.search(rendered):
+        raise RuntimeError(f"Unresolved prompt placeholder: {prompt_id}")
+    return rendered
+
+
+def render_creator_system_prompt(
+    *,
+    project_id: str,
+    workspace_schema: str | None = None,
+    external_skills: str | None = None,
+    live_operation: str | None = None,
+) -> str:
+    if workspace_schema is None:
+        from services.project_files.schema_prompt import (
+            build_project_schema_prompt,
+        )
+
+        workspace_schema = build_project_schema_prompt().text
+    # Mirrors the specialist-side dynamic injection: the delegator learns that
+    # narration exists exactly when the tools do, and learns that a character
+    # voice is a prerequisite exactly when the configured model needs one.
+    from services.file_agent_runtime.prompts.tts_guidance import (
+        delegator_guidance,
+    )
+    from models import config as model_config
+    from models.image.base import image_model_prompt_guidance
+    from models.video_capabilities import (
+        video_model_delegator_guidance,
+        video_model_duration_guidance,
+        video_model_prompt_guidance,
+    )
+
+    if external_skills is None:
+        # Isolated by design: the loader never raises, a broken skill only
+        # yields an empty context block.
+        from services.external_skills import render_external_skills_context
+
+        external_skills = render_external_skills_context()
+    if live_operation is None:
+        # Injected exactly when the tool is callable, mirroring how narration
+        # guidance appears only alongside the tools that can produce it.
+        from services.file_agent_runtime.prompts import (
+            live_operation_guidance as _live_operation_module,
+        )
+
+        live_operation = _live_operation_module.live_operation_guidance()
+    if (
+        model_config.get_execution_authorization_mode()
+        == model_config.EXECUTION_AUTHORIZATION_ALLOW_ALL
+    ):
+        execution_guidance = (
+            "当前允许自动制作。已提交的媒体目标在输入、审阅和依赖满足后开始执行；"
+            "已有运行中的任务时，等待结果通知，不重复请求相同制作。"
+            "写入项目或通过审阅不证明任务已经开始；只依据真实任务和产物报告进展。"
+        )
+    else:
+        execution_guidance = (
+            "当前媒体生成需要逐项授权。"
+            "用户要求制作时，必须调用 request_workgraph_execution 提出真实请求；"
+            "每项批准后才执行。若调用因现有审阅而返回阻塞，该请求已结束、未排队，"
+            "审阅通过后须重新请求，不能声称会自动续跑。"
+            "全部片段就绪后，用该工具的 compose 阶段提交本地成片合成；"
+            "合成复用已有片段，不新增付费生成授权。"
+        )
+    rendered = render_file_agent_prompt(
+        "creator_agent.system",
+        project_id=project_id,
+        workspace_schema=workspace_schema,
+        tts_guidance=delegator_guidance(),
+        video_duration_guidance=video_model_duration_guidance(
+            model_config.get_video_model_name(),
+            model_config.get_video_backend(),
+        ),
+        video_model_guidance="\n\n".join(
+            (
+                video_model_delegator_guidance(
+                    model_config.get_video_model_name(),
+                    model_config.get_video_backend(),
+                ),
+                video_model_prompt_guidance(
+                    model_config.get_video_model_name(),
+                    model_config.get_video_backend(),
+                ),
+            ),
+        ),
+        image_model_guidance=image_model_prompt_guidance(
+            model_config.get_image_model_name(),
+        ),
+        external_skills=external_skills,
+        live_operation_guidance=live_operation,
+    )
+    return rendered + "\n\n# 当前制作执行方式\n\n" + execution_guidance
+
+
+__all__ = [
+    "FILE_AGENT_PROMPT_SPECS",
+    "FileAgentPromptSpec",
+    "load_file_agent_prompt",
+    "render_creator_system_prompt",
+    "render_file_agent_prompt",
+]

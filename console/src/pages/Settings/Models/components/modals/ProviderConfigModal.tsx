@@ -22,6 +22,7 @@ import type {
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
+import { getValidApiKeyPrefixes, validateApiKey } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
 
 interface ProviderConfigFormValues
@@ -361,15 +362,10 @@ export function ProviderConfigModal({
     [provider.id, provider.chat_model, effectiveChatModel],
   );
 
-  const validApiKeyPrefixes = useMemo(() => {
-    if (provider.api_key_prefixes && provider.api_key_prefixes.length > 0) {
-      return provider.api_key_prefixes;
-    }
-    if (provider.api_key_prefix) {
-      return [provider.api_key_prefix];
-    }
-    return [];
-  }, [provider.api_key_prefix, provider.api_key_prefixes]);
+  const validApiKeyPrefixes = useMemo(
+    () => getValidApiKeyPrefixes(provider),
+    [provider.api_key_prefix, provider.api_key_prefixes],
+  );
 
   const apiKeyPlaceholder = useMemo(() => {
     if (provider.api_key) {
@@ -790,18 +786,16 @@ export function ProviderConfigModal({
           rules={[
             {
               validator: (_, value) => {
-                if (
-                  value &&
-                  validApiKeyPrefixes.length > 0 &&
-                  authMode !== "auth_token" &&
-                  !validApiKeyPrefixes.some((prefix) =>
-                    value.startsWith(prefix),
-                  )
-                ) {
+                const result = validateApiKey(
+                  value,
+                  validApiKeyPrefixes,
+                  authMode,
+                );
+                if (!result.valid) {
                   return Promise.reject(
                     new Error(
                       t("models.apiKeyShouldStart", {
-                        prefix: validApiKeyPrefixes.join(", "),
+                        prefix: result.prefix,
                       }),
                     ),
                   );

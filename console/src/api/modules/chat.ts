@@ -6,6 +6,7 @@ import type {
   ChatHistory,
   ChatDeleteResponse,
   ChatUpdateRequest,
+  ChatGroup,
   BatchArchiveResult,
   Session,
 } from "../types";
@@ -15,6 +16,10 @@ export interface ChatUploadResponse {
   url: string;
   file_name: string;
   stored_name?: string;
+}
+
+export interface ChatStatusResponse {
+  status: "idle" | "running";
 }
 
 const FILES_PREVIEW = "/files/preview";
@@ -59,12 +64,18 @@ export const chatApi = {
     user_id?: string;
     channel?: string;
     archived?: boolean;
+    include_app_owned?: boolean;
   }) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);
     if (params?.channel) searchParams.append("channel", params.channel);
     if (params?.archived !== undefined)
       searchParams.append("archived", String(params.archived));
+    if (params?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(params.include_app_owned),
+      );
     const query = searchParams.toString();
     return request<ChatSpec[]>(`/chats${query ? `?${query}` : ""}`);
   },
@@ -75,10 +86,39 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (chatId: string, options?: { signal?: AbortSignal }) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`, {
-      signal: options?.signal,
-    }),
+  getChat: (
+    chatId: string,
+    options?: { signal?: AbortSignal; include_app_owned?: boolean },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(options.include_app_owned),
+      );
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
+      {
+        signal: options?.signal,
+      },
+    );
+  },
+
+  getChatStatus: (
+    chatId: string,
+    options?: { signal?: AbortSignal; agentId?: string },
+  ) => {
+    return request<ChatStatusResponse>(
+      `/chats/${encodeURIComponent(chatId)}/status`,
+      {
+        signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
+      },
+    );
+  },
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
@@ -121,6 +161,32 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify({ chat_ids: chatIds }),
     }),
+
+  listGroups: () => request<ChatGroup[]>("/chats/groups"),
+
+  createGroup: (name: string) =>
+    request<ChatGroup>("/chats/groups", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  updateGroup: (groupId: string, update: { name?: string; pinned?: boolean }) =>
+    request<ChatGroup>(`/chats/groups/${encodeURIComponent(groupId)}`, {
+      method: "PUT",
+      body: JSON.stringify(update),
+    }),
+
+  reorderGroups: (groupIds: string[]) =>
+    request<ChatGroup[]>("/chats/groups/order", {
+      method: "PUT",
+      body: JSON.stringify({ group_ids: groupIds }),
+    }),
+
+  deleteGroup: (groupId: string) =>
+    request<{ success: boolean; group_id: string }>(
+      `/chats/groups/${encodeURIComponent(groupId)}`,
+      { method: "DELETE" },
+    ),
 
   stopChat: (chatId: string) =>
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {

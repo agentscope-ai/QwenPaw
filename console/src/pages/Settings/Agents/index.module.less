@@ -1,6 +1,9 @@
 .agentsPage {
-  height: calc(100vh - 128px);
+  height: 100%;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :global {
     .qwenpaw-card-body {
@@ -12,7 +15,7 @@
       .qwenpaw-table-thead
       > tr
       > th {
-      background: #f9f8f4 !important;
+      background: var(--app-surface-sunken) !important;
     }
 
     .qwenpaw-table-cell {
@@ -49,17 +52,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -87,24 +90,79 @@
   margin: 0;
   font-size: 24px;
   font-weight: 600;
+  color: var(--app-text);
 }
 
 .sectionDesc {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
 }
 
 /* ---- Table Card ---- */
 
 .tableCard {
-  margin-bottom: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 
-  &:last-child {
-    margin-bottom: 0;
+  :global {
+    .qwenpaw-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ant-card-body,
+    .qwenpaw-card-body {
+      padding: 0 !important;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qwenpaw-table-wrapper {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .qwenpaw-table-container {
+      max-height: 100%;
+      overflow: auto;
+    }
   }
+}
 
-  :global(.ant-card-body) {
-    padding: 0;
+.backendTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-color: var(--app-border-strong);
+  color: var(--app-text-secondary);
+  background: var(--app-surface-subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendTagThirdParty {
+  border-color: var(--app-accent-border);
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
+}
+
+.agentRoutingFormItem {
+  padding-top: 4px;
+  margin-bottom: 20px;
+
+  :global(.ant-form-item-control-input),
+  :global(.qwenpaw-form-item-control-input) {
+    min-height: 0;
   }
 }
 
@@ -117,13 +175,13 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   cursor: grab;
 }
 
 .dragHandleButton:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.72);
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
 }
 
 .dragHandleButton:active {
@@ -136,7 +194,7 @@
 }
 
 .sortableRowDragging {
-  background: rgba(24, 144, 255, 0.08);
+  background: var(--app-accent-soft);
 }
 
 /* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
@@ -152,19 +210,19 @@
 .pickerCard {
   position: relative;
   padding: 8px 12px;
-  border: 1.5px solid #e8e8e8;
+  border: 1.5px solid var(--app-border);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 
   &:hover {
-    border-color: #615ced;
-    background: rgba(97, 92, 237, 0.02);
+    border-color: var(--app-accent);
+    background: var(--app-accent-faint);
   }
 
   &.pickerCardSelected {
-    border-color: #615ced;
-    background: rgba(97, 92, 237, 0.06);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 
   &.pickerCardDisabled {
@@ -180,8 +238,8 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #615ced;
-  color: #fff;
+  background: var(--app-accent);
+  color: var(--app-text-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,74 +249,8 @@
 .pickerCardTitle {
   font-size: 13px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--app-text);
   word-break: break-all;
-}
-
-/* ─── Dark mode ──────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .sectionTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .sectionDesc {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .dragHandleButton {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .dragHandleButton:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.78);
-  }
-
-  .sortableRowDragging {
-    background: rgba(120, 170, 255, 0.12);
-  }
-
-  .pickerCard {
-    border-color: rgba(255, 255, 255, 0.12);
-
-    &:hover {
-      background: rgba(97, 92, 237, 0.08);
-    }
-
-    &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.12);
-    }
-  }
-
-  .pickerCardTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  :global {
-    .qwenpaw-table-wrapper
-      .qwenpaw-table-container
-      .qwenpaw-table-thead
-      > tr
-      > th {
-      background: rgba(255, 255, 255, 0.04) !important;
-    }
-  }
 }
 
 /* Text buttons in table - dark mode */

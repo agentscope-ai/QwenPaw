@@ -1,0 +1,572 @@
+// This panel keeps its own warm palette on purpose; it is not part of the
+// neutral --app-* scale. The colours live in one place per theme: the light
+// values below and the dark overrides at the bottom of the file. Brand orange
+// comes from the global token so it cannot drift.
+.section {
+  margin: 4px 0 20px;
+
+  --abf-text: #2d231d;
+  --abf-text-muted: #7b716a;
+  --abf-text-faint: #9d948d;
+  --abf-icon: #79685b;
+  --abf-icon-muted: #9a8d83;
+
+  --abf-accent: #d45f00;
+  --abf-accent-border: rgba(255, 127, 22, 0.55);
+  --abf-accent-border-selected: var(--app-accent);
+  --abf-accent-bg: #fff6ed;
+  --abf-accent-bg-soft: #ffe8d3;
+  --abf-accent-bg-faint: rgba(255, 127, 22, 0.035);
+  --abf-accent-bg-hover: rgba(255, 127, 22, 0.1);
+
+  --abf-surface: #fffdfa;
+  --abf-surface-hover: #fffdfa;
+  --abf-surface-alt: #faf7f4;
+  --abf-icon-bg: #f3ede8;
+  --abf-panel-from: #fffdfa;
+  --abf-panel-to: #fff7ef;
+  --abf-provider-bg: rgba(255, 255, 255, 0.72);
+  --abf-provider-bg-hover: #fffaf5;
+  --abf-provider-bg-selected: #fffaf5;
+  --abf-provider-bg-disabled: rgba(255, 255, 255, 0.62);
+  --abf-row-bg: rgba(255, 255, 255, 0.78);
+  --abf-radio-bg: #ffffff;
+
+  --abf-border: #e8dfd8;
+  --abf-border-strong: #d3c7be;
+  --abf-border-disabled: #e9e1da;
+
+  --abf-ok-border: #d6e8d8;
+  --abf-ok-bg: #f5faf5;
+  --abf-ok-text: #357544;
+
+  --abf-shadow-hover: 0 8px 24px rgba(186, 83, 0, 0.09);
+  --abf-shadow-selected: inset 0 0 0 1px rgba(255, 127, 22, 0.14);
+  --abf-shadow-card: 0 5px 16px rgba(186, 83, 0, 0.08);
+}
+
+.sectionHeading {
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 3px 0;
+    color: var(--abf-text);
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 0;
+    color: var(--abf-text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.eyebrow {
+  color: var(--abf-accent);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.typeCard {
+  position: relative;
+  display: flex;
+  min-height: 92px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--abf-border);
+  border-radius: 14px;
+  color: var(--abf-text);
+  background: var(--abf-surface);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    background 160ms ease;
+
+  &:hover {
+    border-color: var(--abf-accent-border);
+    background: var(--abf-surface-hover);
+    box-shadow: var(--abf-shadow-hover);
+    transform: translateY(-1px);
+  }
+
+  &.selected {
+    border-color: var(--app-accent);
+    background: var(--abf-accent-bg);
+    box-shadow: var(--abf-shadow-selected);
+  }
+}
+
+.typeIcon,
+.providerIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--abf-icon);
+  background: var(--abf-icon-bg);
+}
+
+.selected .typeIcon,
+.providerCardSelected .providerIcon {
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-soft);
+}
+
+.typeIcon {
+  width: 38px;
+  height: 38px;
+}
+
+.typeCopy,
+.providerCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+
+  strong {
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  small {
+    color: var(--abf-text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.radioMark {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  border: 1px solid var(--abf-border-strong);
+  border-radius: 50%;
+}
+
+.selected .radioMark {
+  border: 4px solid var(--app-accent);
+  background: var(--abf-radio-bg);
+}
+
+.thirdPartyPanel {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--abf-border);
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    var(--abf-panel-from) 0%,
+    var(--abf-panel-to) 100%
+  );
+}
+
+.panelHeading {
+  margin-bottom: 11px;
+
+  h4 {
+    margin: 0 0 2px;
+    color: var(--abf-text);
+    font-size: 13px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--abf-text-muted);
+    font-size: 11px;
+  }
+}
+
+.providerGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.providerCardSelected,
+.providerCard,
+.providerCardDisabled {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 11px;
+  text-align: left;
+}
+
+.providerCardSelected {
+  border: 1px solid var(--abf-accent-border-selected);
+  color: var(--abf-text);
+  background: var(--abf-provider-bg-selected);
+  cursor: default;
+  box-shadow: var(--abf-shadow-card);
+}
+
+.providerCard {
+  border: 1px solid var(--abf-border);
+  color: var(--abf-text);
+  background: var(--abf-provider-bg);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    transform 150ms ease;
+
+  &:hover {
+    border-color: var(--abf-accent-border);
+    background: var(--abf-provider-bg-hover);
+    transform: translateY(-1px);
+  }
+}
+
+.providerCardDisabled {
+  border: 1px solid var(--abf-border-disabled);
+  color: var(--abf-text-faint);
+  background: var(--abf-provider-bg-disabled);
+
+  small {
+    color: var(--abf-text-faint);
+  }
+}
+
+.providerIcon {
+  width: 31px;
+  height: 31px;
+  border-radius: 8px;
+}
+
+.providerCheck {
+  flex: 0 0 auto;
+  color: var(--abf-accent);
+}
+
+.providerConfig {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--abf-border);
+}
+
+.binaryField {
+  margin-bottom: 7px;
+
+  :global(.ant-form-item-label) {
+    padding-bottom: 4px;
+  }
+
+  :global(.ant-input-affix-wrapper) {
+    min-height: 38px;
+    padding-right: 4px;
+  }
+}
+
+.binaryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.helpIcon {
+  display: inline-flex;
+  color: var(--abf-icon-muted);
+  cursor: help;
+  transition: color 150ms ease;
+
+  &:hover {
+    color: var(--abf-accent);
+  }
+}
+
+.detectLabel {
+  margin-left: 2px;
+}
+
+.binaryStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 10px;
+  padding: 6px 8px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.detected {
+  border-color: var(--abf-ok-border);
+  background: var(--abf-ok-bg);
+}
+
+.notDetected {
+  border-color: var(--abf-border);
+  background: var(--abf-surface-alt);
+}
+
+.binaryStatusLabel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.detected .binaryStatusLabel {
+  color: var(--abf-ok-text);
+}
+
+.notDetected .binaryStatusLabel {
+  color: var(--abf-text-muted);
+}
+
+.binaryPath {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--abf-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyPathButton {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--abf-icon-muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+
+  &:hover {
+    color: var(--abf-accent);
+    background: var(--abf-accent-bg-hover);
+  }
+}
+
+.authHint {
+  margin: 0 2px 10px;
+  color: var(--abf-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.accountRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--abf-border);
+  border-radius: 10px;
+  background: var(--abf-row-bg);
+}
+
+.chatSettingsHint {
+  margin: 10px 2px 0;
+  color: var(--abf-text-muted);
+  font-size: 12px;
+}
+
+.capabilityPanel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--abf-border);
+}
+
+.capabilityTitle {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--abf-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.capabilityItem {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--abf-border);
+  border-radius: 10px;
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-faint);
+
+  > span {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: var(--abf-text);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: var(--abf-text-muted);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+}
+
+.accountState {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.accountLabel {
+  color: var(--abf-text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connectedState,
+.disconnectedState {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.connectedState {
+  color: var(--abf-accent);
+}
+
+.disconnectedState {
+  color: var(--abf-text-muted);
+}
+
+.accountAction {
+  flex: 0 0 auto;
+}
+
+// Dark theme: only the palette is redefined, every rule above stays shared.
+:global(.dark-mode) .section {
+  --abf-text: #f5eee8;
+  --abf-text-muted: #a99d94;
+  --abf-text-faint: #716a64;
+  --abf-icon: #bca99a;
+  --abf-icon-muted: #8f837a;
+
+  --abf-accent: #ff9a47;
+  --abf-accent-border: rgba(255, 127, 22, 0.68);
+  --abf-accent-border-selected: #e87313;
+  --abf-accent-bg: rgba(255, 127, 22, 0.12);
+  --abf-accent-bg-soft: rgba(255, 127, 22, 0.16);
+  --abf-accent-bg-faint: rgba(255, 127, 22, 0.06);
+  --abf-accent-bg-hover: rgba(255, 127, 22, 0.12);
+
+  --abf-surface: #211e1b;
+  --abf-surface-hover: #26211d;
+  --abf-surface-alt: rgba(255, 255, 255, 0.025);
+  --abf-icon-bg: #332d28;
+  --abf-panel-from: #211d19;
+  --abf-panel-to: #191817;
+  --abf-provider-bg: rgba(255, 255, 255, 0.025);
+  --abf-provider-bg-hover: rgba(255, 127, 22, 0.07);
+  --abf-provider-bg-selected: rgba(255, 127, 22, 0.09);
+  --abf-provider-bg-disabled: rgba(255, 255, 255, 0.018);
+  --abf-row-bg: rgba(255, 255, 255, 0.035);
+  --abf-radio-bg: #211d19;
+
+  --abf-border: #3d352f;
+  --abf-border-strong: #62564d;
+  --abf-border-disabled: #332f2b;
+
+  --abf-ok-border: rgba(91, 158, 105, 0.32);
+  --abf-ok-bg: rgba(70, 129, 82, 0.1);
+  --abf-ok-text: #86c792;
+
+  --abf-shadow-hover: 0 10px 28px rgba(0, 0, 0, 0.24);
+  --abf-shadow-selected: inset 0 0 0 1px rgba(255, 153, 70, 0.12);
+  --abf-shadow-card: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+@media (max-width: 680px) {
+  .typeGrid,
+  .providerGrid,
+  .capabilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .typeCard {
+    min-height: 80px;
+  }
+
+  .accountRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .accountAction :global(.ant-btn) {
+    width: 100%;
+  }
+
+  .binaryStatus {
+    flex-wrap: wrap;
+  }
+
+  .binaryPath {
+    min-width: 160px;
+    order: 3;
+    flex-basis: calc(100% - 32px);
+    margin-left: 19px;
+  }
+
+  .copyPathButton {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .detectLabel {
+    display: none;
+  }
+}

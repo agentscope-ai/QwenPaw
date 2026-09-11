@@ -1,0 +1,37 @@
+.draggable {
+  height: 100%;
+  border-radius: 8px;
+  touch-action: manipulation;
+}
+
+.dragging {
+  opacity: 0.28;
+}
+
+.dropActive {
+  border-radius: 8px;
+  background: var(--app-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--app-accent-border);
+}
+
+.overlay {
+  display: flex;
+  width: min(280px, calc(100vw - 32px));
+  height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--app-accent-border);
+  border-radius: 10px;
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
+  color: var(--app-text);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.overlay span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

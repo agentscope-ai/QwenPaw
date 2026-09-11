@@ -1,16 +1,531 @@
+// App Center — warm-neutral, restrained visual language shared by the
+// installed-apps view and the app market. Embedded PawApp runtime styles
+// (capsule button, embed frame) are intentionally left untouched.
+
 .page {
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--app-surface);
 }
 
 .pageBody {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 32px 36px;
+  padding: 16px;
+
+  @media (max-width: 1023px) {
+    padding: 24px;
+  }
+
+  @media (max-width: 639px) {
+    padding: 16px;
+  }
 }
+
+.pageInner {
+  margin: 0 auto;
+}
+
+.subtitle {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+}
+
+// ── View tabs ───────────────────────────────────────────────────────────────
+
+.viewTabs {
+  margin-bottom: 4px;
+
+  :global(.ant-tabs-nav),
+  :global(.qwenpaw-tabs-nav) {
+    margin-bottom: 20px;
+
+    &::before {
+      border-bottom-color: var(--app-border);
+    }
+  }
+
+  // Narrow screens: tabs stay reachable via horizontal scroll (antd default)
+  // without shrinking below a comfortable touch size.
+  :global(.ant-tabs-tab),
+  :global(.qwenpaw-tabs-tab) {
+    padding: 8px 4px;
+
+    @media (max-width: 639px) {
+      padding: 10px 4px;
+    }
+  }
+}
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.countBadge {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--app-fill);
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+// ── Toolbar ─────────────────────────────────────────────────────────────────
+
+.marketFilterBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: nowrap;
+}
+
+.marketFilterOptions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.marketFilterActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.marketFilter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+
+  &:hover:not(:disabled) {
+    color: var(--app-text);
+    border-color: var(--app-border-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.marketFilterActive {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-weight: 500;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolbarSpacer {
+  flex: 1;
+}
+
+.searchInput {
+  width: 320px;
+  max-width: 320px;
+
+  @media (max-width: 639px) {
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .marketFilterBar {
+    flex-wrap: wrap;
+  }
+
+  .marketFilterOptions {
+    min-width: 0;
+    flex: 1;
+    overflow-x: auto;
+  }
+
+  .marketFilterActions {
+    margin-left: auto;
+  }
+
+  .marketFilterBar .searchInput {
+    width: 100%;
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+.categorySelect {
+  min-width: 140px;
+}
+
+.refreshBtn {
+  width: 32px;
+  padding: 0;
+}
+
+// ── Grid & cards ────────────────────────────────────────────────────────────
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+
+  @media (max-width: 639px) {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+.appCard {
+  position: relative;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: none;
+  overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+
+  &:hover {
+    border-color: var(--app-border-strong);
+    box-shadow: var(--app-shadow-sm);
+    transform: translateY(-2px);
+  }
+
+  // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
+  // for safety in tests/storybook-like environments.
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
+    position: relative;
+    height: 100%;
+    min-height: 184px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: transparent;
+
+    @media (max-width: 639px) {
+      min-height: 184px;
+      padding: 14px;
+    }
+  }
+
+  &:hover .cardHoverActions,
+  &:focus-within .cardHoverActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  &:hover .cardFooter,
+  &:focus-within .cardFooter {
+    opacity: 0;
+  }
+}
+
+.appCardClickable {
+  cursor: pointer;
+}
+
+.cardOpenButton {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 8px;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+.cardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--app-accent);
+  background: var(--app-fill-subtle);
+}
+
+/* Image icons carry their own artwork; keep the slot neutral. */
+.cardIconImage {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+/* Emoji icons from plugin.json render as plain glyphs inside the slot. */
+.cardIconEmoji {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.marketLogo {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.cardBody {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.cardTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.versionBadge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--app-fill);
+  color: var(--app-text-secondary);
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.cardDesc {
+  min-height: 39px;
+  margin: 0 !important;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.cardMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+// Metadata follows the fixed-height description so cards stay aligned without
+// leaving a large vertical gap above the metadata.
+.cardFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  color: var(--app-text-secondary);
+  transition: opacity 0.16s ease;
+}
+
+.metaDownloads {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--app-text-secondary);
+  margin-left: auto;
+}
+
+.featuredTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--app-accent);
+  background: var(--app-fill-subtle);
+}
+
+.emptyActions {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.cardActions {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    flex: 1;
+    min-width: 0;
+    border-radius: 6px;
+  }
+
+  @media (max-width: 639px) {
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      min-height: 36px;
+    }
+  }
+}
+
+.cardHoverActions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+@media (max-width: 639px), (hover: none) {
+  .cardHoverActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .appCard .cardFooter {
+    opacity: 0;
+  }
+}
+
+.loadMoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 8px;
+}
+
+.noMoreText {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+
+.sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+
+.stateBlock {
+  display: block;
+  margin: 0 auto;
+  padding: 48px 0;
+  text-align: center;
+}
+
+// ── Motion & theme adaptations ──────────────────────────────────────────────
+
+@media (prefers-reduced-motion: reduce) {
+  .appCard,
+  .appCard:hover {
+    transform: none;
+    transition: none;
+  }
+
+  .cardHoverActions {
+    transition: none;
+  }
+}
+
+/* Dark-only exception: tabs need an explicit contrast adjustment for antd. */
+:global(.dark-mode) {
+  .viewTabs {
+    :global(.ant-tabs-tab),
+    :global(.qwenpaw-tabs-tab) {
+      color: var(--app-text-secondary);
+    }
+
+    :global(.ant-tabs-tab-active .ant-tabs-tab-btn),
+    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+      color: var(--app-text);
+    }
+
+    :global(.ant-tabs-ink-bar),
+    :global(.qwenpaw-tabs-ink-bar) {
+      background: var(--app-accent);
+    }
+  }
+}
+
+// ── Embedded PawApp runtime (unchanged design) ──────────────────────────────
 
 .embedPage {
   position: fixed;
@@ -21,7 +536,7 @@
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-container, #fff);
+  background: var(--app-surface);
   animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   // Safe area CSS variables for PawApp developers
@@ -193,7 +708,7 @@
   width: 100%;
   height: 100%;
   overflow: auto;
-  background: var(--color-bg-layout, #fafafa);
+  background: var(--app-surface-subtle);
   position: relative;
 
   // ═══ 框架自动处理安全区域 ═══
@@ -207,415 +722,4 @@
   // Smooth scrolling
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
-}
-
-.toolbar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
-  align-items: center;
-}
-
-.searchInput {
-  max-width: 320px;
-}
-
-.categorySelect {
-  min-width: 140px;
-}
-
-.refreshBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--color-border, #d9d9d9);
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: var(--color-primary, #1677ff);
-    color: var(--color-primary, #1677ff);
-  }
-}
-
-.container {
-  flex: 1;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-}
-
-.gridLarge {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 24px;
-}
-
-.appCard {
-  position: relative;
-  cursor: pointer;
-  border-radius: 12px;
-  border: 1px solid var(--color-border-secondary, #f0f0f0);
-  background: var(--color-bg-container, #fff);
-  height: 100%;
-  min-height: 180px;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  transition: all 0.3s ease;
-
-  &:hover {
-    transform: translateY(-4px);
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  }
-
-  &:hover .cardUninstall {
-    opacity: 1;
-  }
-
-  &:hover .appCardIcon {
-    transform: scale(1.05);
-  }
-
-  :global(.ant-card-body) {
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-}
-
-.appCardLarge {
-  position: relative;
-  cursor: pointer;
-  border-radius: 20px;
-  border: 1px solid var(--color-border-secondary, #f0f0f0);
-  background: linear-gradient(
-    145deg,
-    var(--color-bg-container, #fff) 0%,
-    var(--color-bg-layout, #fafafa) 100%
-  );
-  height: 100%;
-  min-height: 260px;
-  overflow: hidden;
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.03),
-    0 1px 2px rgba(0, 0, 0, 0.02);
-  transition:
-    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.25s ease;
-
-  &::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 60%;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.8) 0%,
-      rgba(255, 255, 255, 0) 100%
-    );
-    opacity: 0;
-    transition: opacity 0.35s ease;
-    pointer-events: none;
-  }
-
-  &:hover {
-    transform: translateY(-8px) scale(1.01);
-    border-color: var(--color-primary-border, rgba(22, 119, 255, 0.4));
-    box-shadow:
-      0 6px 16px rgba(0, 0, 0, 0.06),
-      0 20px 48px -8px rgba(0, 0, 0, 0.18),
-      0 0 0 1px rgba(22, 119, 255, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  }
-
-  &:hover::before {
-    opacity: 1;
-  }
-
-  &:hover .cardUninstall {
-    opacity: 1;
-  }
-
-  &:hover .appCardIcon {
-    transform: scale(1.1);
-  }
-
-  :global(.ant-card-body) {
-    padding: 32px 28px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-}
-
-.cardUninstall {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: 1px solid var(--color-border-secondary, #f0f0f0);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--color-text-secondary, #8c8c8c);
-  cursor: pointer;
-  opacity: 0;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(8px);
-  transition: all 0.25s ease;
-
-  &:hover {
-    border-color: #ff4d4f;
-    color: #ff4d4f;
-    background: var(--color-error-bg, #fff2f0);
-    transform: scale(1.05);
-    box-shadow: 0 4px 14px rgba(255, 77, 79, 0.25);
-  }
-}
-
-.appCardIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
-  color: var(--color-primary, #1677ff);
-  background: linear-gradient(
-    135deg,
-    rgba(22, 119, 255, 0.12),
-    rgba(22, 119, 255, 0.04)
-  );
-  box-shadow: inset 0 0 0 1px rgba(22, 119, 255, 0.1);
-  transition: transform 0.3s ease;
-}
-
-.appCardIconLarge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 88px;
-  height: 88px;
-  border-radius: 22px;
-  color: var(--color-primary, #1677ff);
-  background: linear-gradient(
-    135deg,
-    rgba(22, 119, 255, 0.16),
-    rgba(22, 119, 255, 0.06),
-    rgba(22, 119, 255, 0.02)
-  );
-  box-shadow:
-    inset 0 0 0 1px rgba(22, 119, 255, 0.15),
-    0 4px 12px rgba(22, 119, 255, 0.08);
-  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.appEmoji {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.appEmojiLarge {
-  font-size: 48px;
-  line-height: 1;
-}
-
-.appCardBody {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.appCardHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.appCardTitle {
-  font-size: 15px;
-  line-height: 1.4;
-  font-weight: 600;
-}
-
-.appCardTitleLarge {
-  font-size: 19px;
-  line-height: 1.3;
-  letter-spacing: 0.3px;
-  font-weight: 600;
-}
-
-.appCardVersion {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-tertiary, #bfbfbf);
-  font-variant-numeric: tabular-nums;
-}
-
-.appCardVersionLarge {
-  flex-shrink: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-tertiary, #bfbfbf);
-  font-variant-numeric: tabular-nums;
-}
-
-.appCardDesc {
-  margin: 0 !important;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
-}
-
-.appCardDescLarge {
-  margin: 0 !important;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
-}
-
-.appCardTag {
-  align-self: flex-start;
-  margin: 4px 0 0 !important;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 20px;
-  font-weight: 500;
-  color: var(--color-text-secondary, #595959);
-  background: var(--color-fill-quaternary, #f5f5f5);
-}
-
-.appCardTagLarge {
-  align-self: flex-start;
-  margin: 4px 0 0 !important;
-  padding: 3px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  line-height: 22px;
-  font-weight: 500;
-  color: var(--color-text-secondary, #595959);
-  background: var(--color-fill-quaternary, #f5f5f5);
-}
-
-.marketToolbar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-  align-items: center;
-}
-
-.marketSection {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 2px solid var(--color-border-secondary, #f0f0f0);
-}
-
-.sectionHeader {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
-  color: var(--color-text, rgba(0, 0, 0, 0.88));
-}
-
-.sectionTitle {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  color: var(--color-text, rgba(0, 0, 0, 0.88));
-}
-
-.marketCardBody {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.marketMeta {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-secondary, #8c8c8c);
-}
-
-.marketActions {
-  display: flex;
-  gap: 12px;
-  margin-top: 16px;
-
-  :global(.ant-btn) {
-    height: 36px;
-    font-size: 14px;
-    font-weight: 500;
-    border-radius: 10px;
-  }
-}
-
-.marketLogo {
-  width: 68px;
-  height: 68px;
-  border-radius: 16px;
-  object-fit: contain;
-}
-
-.featuredBadge {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 50%, #ffd700 100%);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  box-shadow:
-    0 4px 12px rgba(255, 215, 0, 0.35),
-    0 0 0 3px rgba(255, 215, 0, 0.15),
-    inset 0 1px 2px rgba(255, 255, 255, 0.5);
-  animation: featured-pulse 2.5s ease-in-out infinite;
-}
-
-@keyframes featured-pulse {
-  0%,
-  100% {
-    transform: scale(1) rotate(0deg);
-    box-shadow:
-      0 4px 12px rgba(255, 215, 0, 0.35),
-      0 0 0 3px rgba(255, 215, 0, 0.15),
-      inset 0 1px 2px rgba(255, 255, 255, 0.5);
-  }
-  50% {
-    transform: scale(1.1) rotate(5deg);
-    box-shadow:
-      0 6px 16px rgba(255, 215, 0, 0.5),
-      0 0 0 4px rgba(255, 215, 0, 0.25),
-      inset 0 1px 2px rgba(255, 255, 255, 0.6);
-  }
 }

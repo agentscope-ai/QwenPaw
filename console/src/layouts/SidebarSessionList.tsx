@@ -5,47 +5,88 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Input, Spin } from "antd";
+import { Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { SparkPlusLine, SparkDownArrowLine } from "@agentscope-ai/icons";
+import { ChevronDown, Ellipsis, FolderPlus, Search } from "lucide-react";
+import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
+  getBackendId,
   useSessionListData,
   type ExtendedChatSession,
-} from "../pages/Chat/components/ChatSessionDrawer/useSessionListData";
+} from "./useSidebarSessionListData";
 import { getSessionIdFromPath } from "../utils/sessionRoute";
 import {
   useSessionListStore,
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
+import { findSessionRowIndex } from "../utils/sessionGrouping";
+import {
+  groupChats,
+  groupChatsByDate,
+  findStickyGroupHeaderIndex,
+  localizeSystemGroups,
+  resolveChatGroupId,
+  type ChatDateGroup,
+} from "../utils/chatGroups";
+import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
+import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
+import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
+import SessionGroupHeader from "../components/SessionGroupHeader";
+import SessionDateHeader from "../components/SessionDateHeader";
+import {
+  DraggableSession,
+  SessionDropZone,
+  SessionGroupDndProvider,
+} from "../components/SessionGroupDnd";
+import { chatApi } from "../api/modules/chat";
+import type { ChatGroup } from "../api/types/chat";
+import { useAppMessage } from "../hooks/useAppMessage";
+import { useSessionAttention } from "../hooks/useSessionAttention";
+import { useAgentStore } from "../stores/agentStore";
 import styles from "./sidebarSessionList.module.less";
 
 /** Fixed height of each session item row */
 const SESSION_ROW_HEIGHT = 42;
 /** Fixed height of each group header row */
-const GROUP_HEADER_HEIGHT = 28;
+const GROUP_HEADER_HEIGHT = 42;
+const DATE_HEADER_HEIGHT = 24;
+const LOAD_MORE_ROW_HEIGHT = 44;
+const GROUP_PAGE_SIZE = 10;
 
-/** A flattened row: either a group header or a session item */
+/** A flattened row rendered by the virtualized session list. */
 type FlatRow =
   | {
       kind: "groupHeader";
-      groupKey: DateGroup;
-      label: string;
+      group: ChatGroup;
       count: number;
       collapsed: boolean;
     }
-  | { kind: "session"; session: ExtendedChatSession };
+  | {
+      kind: "dateHeader";
+      groupId: string;
+      dateGroup: ChatDateGroup;
+      label: string;
+    }
+  | {
+      kind: "loadMore";
+      groupId: string;
+      remaining: number;
+      collapse: boolean;
+    }
+  | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
 // ── Component ─────────────────────────────────────────────────────────────
 
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   editingSessionId: string | null;
   editValue: string;
@@ -53,12 +94,54 @@ interface VirtualRowData {
   handleSessionClick: (sessionId: string) => void;
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
-  handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string, pinned: boolean) => void;
+  handleMove: (sessionId: string, groupId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  toggleGroup: (key: DateGroup) => void;
+  loadMoreGroup: (groupId: string, collapse?: boolean) => void;
+  groups: ChatGroup[];
+  toggleGroup: (key: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  pinGroup: (groupId: string, pinned: boolean) => void;
+  deleteGroup: (groupId: string) => void;
+  moveGroup: (groupId: string, offset: number) => void;
+}
+
+type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
+
+function GroupHeaderContent({
+  row,
+  data,
+}: {
+  row: GroupHeaderRow;
+  data: VirtualRowData;
+}) {
+  const movableGroups = data.groups.filter(
+    (group) =>
+      group.kind !== "cron" &&
+      group.kind !== "subagents" &&
+      group.pinned === row.group.pinned,
+  );
+  const groupIndex = movableGroups.findIndex(
+    (group) => group.id === row.group.id,
+  );
+  return (
+    <SessionGroupHeader
+      group={row.group}
+      count={row.count}
+      collapsed={row.collapsed}
+      canMoveUp={groupIndex > 0}
+      canMoveDown={groupIndex >= 0 && groupIndex < movableGroups.length - 1}
+      onToggle={() => data.toggleGroup(row.group.id)}
+      onRename={(name) => data.renameGroup(row.group.id, name)}
+      onPin={(pinned) => data.pinGroup(row.group.id, pinned)}
+      onDelete={() => data.deleteGroup(row.group.id)}
+      onMoveUp={() => data.moveGroup(row.group.id, -1)}
+      onMoveDown={() => data.moveGroup(row.group.id, 1)}
+    />
+  );
 }
 
 /** Virtual list row renderer */
@@ -72,20 +155,47 @@ const VirtualRow = React.memo(function VirtualRow({
 
   if (row.kind === "groupHeader") {
     return (
-      <div style={style}>
+      <SessionDropZone
+        id={`group:${row.group.id}`}
+        groupId={row.group.id}
+        style={style}
+      >
+        <GroupHeaderContent row={row} data={data} />
+      </SessionDropZone>
+    );
+  }
+
+  if (row.kind === "dateHeader") {
+    return (
+      <SessionDropZone
+        id={`date:${row.groupId}:${row.dateGroup}`}
+        groupId={row.groupId}
+        style={style}
+      >
+        <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
+      </SessionDropZone>
+    );
+  }
+
+  if (row.kind === "loadMore") {
+    const label = row.collapse
+      ? data.t("chat.groups.collapseList", "Collapse list")
+      : data.t("chat.groups.loadMore", "Load more · {{count}} remaining", {
+          count: row.remaining,
+        });
+    return (
+      <div className={styles.loadMoreRow} style={style}>
         <button
-          className={styles.groupLabel}
-          onClick={() => data.toggleGroup(row.groupKey)}
+          type="button"
+          className={styles.loadMoreButton}
+          aria-label={label}
+          onClick={() => data.loadMoreGroup(row.groupId, row.collapse)}
         >
-          <span>{row.label}</span>
-          <span
-            className={styles.groupChevron}
-            style={{
-              transform: row.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
-          >
-            <SparkDownArrowLine size={10} />
-          </span>
+          <span>{label}</span>
+          <ChevronDown
+            size={13}
+            style={{ transform: row.collapse ? "rotate(180deg)" : undefined }}
+          />
         </button>
       </div>
     );
@@ -99,34 +209,49 @@ const VirtualRow = React.memo(function VirtualRow({
   const isEditing = data.editingSessionId === session.id;
 
   return (
-    <div style={style}>
-      <SessionItem
-        variant="sidebar"
+    <SessionDropZone
+      id={`session-target:${session.id}`}
+      groupId={row.groupId}
+      style={style}
+    >
+      <DraggableSession
         sessionId={session.id!}
-        name={session.name || "New Chat"}
-        channelKey={channelKey || undefined}
-        channelLabel={channelLabel}
-        chatStatus={session.status}
-        generating={session.generating}
-        pinned={session.pinned}
-        archived={session.archived}
-        active={
-          session.id === data.currentSessionId ||
-          (!!data.currentSessionId && session.realId === data.currentSessionId)
-        }
-        disabled={false}
-        editing={isEditing}
-        editValue={isEditing ? data.editValue : undefined}
-        onClick={data.handleSessionClick}
-        onEdit={data.handleEditStart}
-        onDelete={data.handleDelete}
-        onPin={data.handlePinToggle}
-        onArchive={data.handleArchiveToggle}
-        onEditChange={data.handleEditChange}
-        onEditSubmit={data.handleEditSubmit}
-        onEditCancel={data.handleEditCancel}
-      />
-    </div>
+        groupId={row.groupId}
+        label={session.name || "New Chat"}
+      >
+        <SessionItem
+          sessionId={session.id!}
+          name={session.name || "New Chat"}
+          channelKey={channelKey || undefined}
+          channelLabel={channelLabel}
+          chatStatus={session.status}
+          generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
+          archived={session.archived}
+          pinned={session.pinned}
+          source={session.source}
+          groupId={row.groupId}
+          groups={data.groups}
+          active={
+            session.id === data.currentSessionId ||
+            (!!data.currentSessionId &&
+              session.realId === data.currentSessionId)
+          }
+          disabled={false}
+          editing={isEditing}
+          editValue={isEditing ? data.editValue : undefined}
+          onClick={data.handleSessionClick}
+          onEdit={data.handleEditStart}
+          onDelete={data.handleDelete}
+          onArchive={data.handleArchiveToggle}
+          onPin={data.handlePinToggle}
+          onMove={data.handleMove}
+          onEditChange={data.handleEditChange}
+          onEditSubmit={data.handleEditSubmit}
+          onEditCancel={data.handleEditCancel}
+        />
+      </DraggableSession>
+    </SessionDropZone>
   );
 });
 
@@ -142,14 +267,45 @@ export default function SidebarSessionList({
   onSessionClick: onSessionClickProp,
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
-  /** Collapsed date groups — default: "month" and "older" are collapsed */
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
-    () => new Set<DateGroup>(["month", "older"]),
+  const [isSessionDragging, setIsSessionDragging] = useState(false);
+  /** Collapsed chat groups — persisted so remounts keep the user's state */
+  const {
+    collapsedGroups,
+    toggleGroup,
+    expandGroup,
+    initializeCollapsedGroups,
+  } = useCollapsedChatGroups();
+  const {
+    groups: chatGroups,
+    createGroup,
+    renameGroup,
+    pinGroup,
+    deleteGroup,
+    reorderGroups,
+  } = useChatGroups(true);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [visibleSessionCounts, setVisibleSessionCounts] = useState<
+    Record<string, number>
+  >({});
+  const searchInputRef = useRef<InputRef>(null);
+  const groupInputRef = useRef<InputRef>(null);
+  const visibleChatGroups = useMemo(
+    () =>
+      localizeSystemGroups(chatGroups, {
+        default: t("chat.groups.uncategorized", "Uncategorized"),
+        cron: t("chat.groups.cron", "Scheduled tasks"),
+        subagents: t("chat.groups.subagents", "Subagents"),
+      }),
+    [chatGroups, t],
   );
 
   const storeSessionsRaw = useSessionListStore((s) => s.sessions);
@@ -186,16 +342,117 @@ export default function SidebarSessionList({
     handleSessionClick,
     handleEditStart,
     handleDelete,
-    handlePinToggle,
     handleArchiveToggle,
+    handlePinToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,
+    refreshSessions,
   } = useSessionListData(storeSessions, setSessions, {
     active: true,
     currentSessionId,
     onSessionClick,
   });
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions,
+    currentSessionId,
+  );
+
+  const handleMove = useCallback(
+    async (sessionId: string, groupId: string, expandTarget = true) => {
+      const session = storeSessions.find((item) => item.id === sessionId);
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      try {
+        await chatApi.updateChat(backendId, { group_id: groupId });
+        await refreshSessions();
+        if (expandTarget) expandGroup(groupId);
+        const target = visibleChatGroups.find((group) => group.id === groupId);
+        message.success(
+          t("chat.groups.moveSuccess", "Moved to {{name}}", {
+            name: target?.name ?? "",
+          }),
+        );
+      } catch (error) {
+        console.error("Failed to move conversation:", error);
+        message.error(
+          t("chat.groups.moveFailed", "Could not move the conversation"),
+        );
+      }
+    },
+    [
+      expandGroup,
+      message,
+      refreshSessions,
+      storeSessions,
+      t,
+      visibleChatGroups,
+    ],
+  );
+
+  const handleDragMove = useCallback(
+    (sessionId: string, groupId: string) => {
+      void handleMove(sessionId, groupId, false);
+    },
+    [handleMove],
+  );
+
+  const handleCreateGroup = useCallback(async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    await createGroup(name);
+    setCreatingGroup(false);
+    setNewGroupName("");
+  }, [createGroup, newGroupName]);
+
+  const handleDeleteGroup = useCallback(
+    (groupId: string) => {
+      Modal.confirm({
+        title: t("chat.groups.deleteTitle", "Delete this group?"),
+        content: t(
+          "chat.groups.deleteHint",
+          "Conversations will return to their built-in group.",
+        ),
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          await deleteGroup(groupId);
+          await refreshSessions();
+        },
+      });
+    },
+    [deleteGroup, refreshSessions, t],
+  );
+
+  const handleMoveGroup = useCallback(
+    async (groupId: string, offset: number) => {
+      const source = chatGroups.find((group) => group.id === groupId);
+      if (!source || source.kind === "cron" || source.kind === "subagents") {
+        return;
+      }
+      const movable = chatGroups.filter(
+        (group) =>
+          group.kind !== "cron" &&
+          group.kind !== "subagents" &&
+          group.pinned === source.pinned,
+      );
+      const index = movable.findIndex((group) => group.id === groupId);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= movable.length) return;
+      const next = [...chatGroups];
+      const sourceIndex = next.findIndex((group) => group.id === groupId);
+      const targetIndex = next.findIndex(
+        (group) => group.id === movable[target].id,
+      );
+      [next[sourceIndex], next[targetIndex]] = [
+        next[targetIndex],
+        next[sourceIndex],
+      ];
+      await reorderGroups(next.map((group) => group.id));
+    },
+    [chatGroups, reorderGroups],
+  );
 
   const handleNewChat = useCallback(() => {
     if (onNewChat) {
@@ -204,6 +461,21 @@ export default function SidebarSessionList({
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
     }
   }, [onNewChat]);
+
+  const handleOpenSearch = useCallback(() => {
+    setHistoryCollapsed(false);
+    setCreatingGroup(false);
+    setSearchOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, []);
+
+  const handleOpenCreateGroup = useCallback(() => {
+    setHistoryCollapsed(false);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setCreatingGroup(true);
+    window.setTimeout(() => groupInputRef.current?.focus(), 0);
+  }, []);
 
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
@@ -215,18 +487,117 @@ export default function SidebarSessionList({
   }, [sortedSessions, searchQuery]);
 
   const groups = useMemo(
-    () => (searchQuery.trim() ? null : groupSessions(sortedSessions, t)),
-    [sortedSessions, searchQuery, t],
+    () =>
+      searchQuery.trim() ? null : groupChats(sortedSessions, visibleChatGroups),
+    [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  const toggleGroup = useCallback((key: DateGroup) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+  const activeSessionPage = useMemo(() => {
+    if (!currentSessionId || !groups) return null;
+    const activeGroup = groups.find(({ sessions }) =>
+      sessions.some(
+        (session) =>
+          session.id === currentSessionId ||
+          session.realId === currentSessionId,
+      ),
+    );
+    if (!activeGroup) return null;
+    const orderedSessions = groupChatsByDate(activeGroup.sessions).flatMap(
+      (dateGroup) => dateGroup.sessions,
+    );
+    const sessionIndex = orderedSessions.findIndex(
+      (session) =>
+        session.id === currentSessionId || session.realId === currentSessionId,
+    );
+    if (sessionIndex < 0) return null;
+    return {
+      groupId: activeGroup.group.id,
+      requiredCount:
+        Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE,
+    };
+  }, [currentSessionId, groups]);
+
+  const defaultCollapsedGroupIds = useMemo(() => {
+    if (!groups) return new Set<string>();
+
+    const expandableGroupIds = new Set(
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .map(({ group }) => group.id),
+    );
+    const recentGroupIds = new Set<string>();
+    for (const session of sortedSessions) {
+      const groupId = resolveChatGroupId(session);
+      if (!expandableGroupIds.has(groupId)) continue;
+      recentGroupIds.add(groupId);
+      if (recentGroupIds.size === 2) break;
+    }
+    if (activeSessionPage) {
+      recentGroupIds.add(activeSessionPage.groupId);
+    }
+
+    // If there are no conversations yet, keep the first two user groups
+    // discoverable while leaving fixed system groups collapsed.
+    if (recentGroupIds.size === 0) {
+      groups
+        .filter(
+          ({ group }) => group.kind !== "cron" && group.kind !== "subagents",
+        )
+        .slice(0, 2)
+        .forEach(({ group }) => recentGroupIds.add(group.id));
+    }
+
+    return new Set(
+      groups
+        .filter(
+          ({ group }) =>
+            !recentGroupIds.has(group.id) &&
+            (group.kind === "cron" ||
+              group.kind === "subagents" ||
+              !group.pinned),
+        )
+        .map(({ group }) => group.id),
+    );
+  }, [activeSessionPage, groups, sortedSessions]);
+
+  useEffect(() => {
+    if (loading) return;
+    initializeCollapsedGroups(defaultCollapsedGroupIds);
+  }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
+
+  const loadMoreGroup = useCallback(
+    (groupId: string, collapse = false) => {
+      setVisibleSessionCounts((previous) => ({
+        ...previous,
+        [groupId]: collapse
+          ? Math.max(
+              GROUP_PAGE_SIZE,
+              activeSessionPage?.groupId === groupId
+                ? activeSessionPage.requiredCount
+                : 0,
+            )
+          : (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
+      }));
+    },
+    [activeSessionPage],
+  );
+
+  useEffect(() => {
+    if (!activeSessionPage) return;
+    setVisibleSessionCounts((previous) => {
+      const currentCount =
+        previous[activeSessionPage.groupId] ?? GROUP_PAGE_SIZE;
+      if (currentCount >= activeSessionPage.requiredCount) return previous;
+      return {
+        ...previous,
+        [activeSessionPage.groupId]: activeSessionPage.requiredCount,
+      };
     });
-  }, []);
+  }, [activeSessionPage]);
+
+  useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -234,27 +605,84 @@ export default function SidebarSessionList({
       return filteredSessions.map((s) => ({
         kind: "session",
         session: s,
+        groupId: resolveChatGroupId(s),
       }));
     }
     if (!groups) return [];
     const rows: FlatRow[] = [];
     for (const group of groups) {
-      const collapsed = collapsedGroups.has(group.key);
+      const collapsed =
+        isSessionDragging || collapsedGroups.has(group.group.id);
       rows.push({
         kind: "groupHeader",
-        groupKey: group.key,
-        label: group.label,
+        group: group.group,
         count: group.sessions.length,
         collapsed,
       });
       if (!collapsed) {
-        for (const session of group.sessions) {
-          rows.push({ kind: "session", session });
+        const visibleCount = Math.min(
+          visibleSessionCounts[group.group.id] ?? GROUP_PAGE_SIZE,
+          group.sessions.length,
+        );
+        let renderedCount = 0;
+        for (const dateGroup of groupChatsByDate(group.sessions)) {
+          const sessionsToRender = dateGroup.sessions.slice(
+            0,
+            visibleCount - renderedCount,
+          );
+          if (sessionsToRender.length === 0) break;
+          rows.push({
+            kind: "dateHeader",
+            groupId: group.group.id,
+            dateGroup: dateGroup.key,
+            label: t(`chat.group.${dateGroup.key}`),
+          });
+          for (const session of sessionsToRender) {
+            rows.push({
+              kind: "session",
+              session,
+              groupId: group.group.id,
+            });
+          }
+          renderedCount += sessionsToRender.length;
+        }
+        if (visibleCount < group.sessions.length) {
+          rows.push({
+            kind: "loadMore",
+            groupId: group.group.id,
+            remaining: group.sessions.length - visibleCount,
+            collapse: false,
+          });
+        } else if (
+          visibleCount > GROUP_PAGE_SIZE &&
+          visibleCount >
+            Math.min(
+              activeSessionPage?.groupId === group.group.id
+                ? activeSessionPage.requiredCount
+                : GROUP_PAGE_SIZE,
+              group.sessions.length,
+            )
+        ) {
+          rows.push({
+            kind: "loadMore",
+            groupId: group.group.id,
+            remaining: 0,
+            collapse: true,
+          });
         }
       }
     }
     return rows;
-  }, [groups, collapsedGroups, searchQuery, filteredSessions]);
+  }, [
+    groups,
+    collapsedGroups,
+    isSessionDragging,
+    searchQuery,
+    filteredSessions,
+    visibleSessionCounts,
+    activeSessionPage,
+    t,
+  ]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -263,6 +691,10 @@ export default function SidebarSessionList({
       if (!row) return SESSION_ROW_HEIGHT;
       return row.kind === "groupHeader"
         ? GROUP_HEADER_HEIGHT
+        : row.kind === "dateHeader"
+        ? DATE_HEADER_HEIGHT
+        : row.kind === "loadMore"
+        ? LOAD_MORE_ROW_HEIGHT
         : SESSION_ROW_HEIGHT;
     },
     [flatRows],
@@ -270,13 +702,31 @@ export default function SidebarSessionList({
 
   /** Height of the virtual list container */
   const [listHeight, setListHeight] = useState(0);
+  const [visibleStartIndex, setVisibleStartIndex] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
+
+  useEffect(() => {
+    if (isSessionDragging) listRef.current?.scrollTo(0);
+  }, [isSessionDragging]);
 
   /** Reset virtual list cache when flatRows change */
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
   }, [flatRows]);
+
+  // Bring the active conversation into view once its row is visible
+  // (group expanded + list measured). Guarded by the last-scrolled id so
+  // background polling doesn't keep yanking the scroll position.
+  const lastScrolledSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) return;
+    if (lastScrolledSessionRef.current === currentSessionId) return;
+    const index = findSessionRowIndex(flatRows, currentSessionId);
+    if (index < 0) return;
+    lastScrolledSessionRef.current = currentSessionId;
+    listRef.current?.scrollToItem(index, "smart");
+  }, [currentSessionId, flatRows, listHeight]);
 
   /** Callback ref: attach a ResizeObserver to measure list container height */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
@@ -301,6 +751,7 @@ export default function SidebarSessionList({
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,
@@ -308,15 +759,23 @@ export default function SidebarSessionList({
       handleSessionClick,
       handleEditStart,
       handleDelete,
-      handlePinToggle,
       handleArchiveToggle,
+      handlePinToggle,
+      handleMove,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
+      loadMoreGroup,
       toggleGroup,
+      groups: visibleChatGroups,
+      renameGroup,
+      pinGroup,
+      deleteGroup: handleDeleteGroup,
+      moveGroup: handleMoveGroup,
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,
@@ -324,57 +783,126 @@ export default function SidebarSessionList({
       handleSessionClick,
       handleEditStart,
       handleDelete,
-      handlePinToggle,
       handleArchiveToggle,
+      handlePinToggle,
+      handleMove,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
+      loadMoreGroup,
       toggleGroup,
+      visibleChatGroups,
+      renameGroup,
+      pinGroup,
+      handleDeleteGroup,
+      handleMoveGroup,
     ],
   );
 
+  const stickyGroupRow = useMemo<GroupHeaderRow | null>(() => {
+    if (searchQuery.trim() || isSessionDragging) return null;
+    const index = findStickyGroupHeaderIndex(flatRows, visibleStartIndex);
+    return index === null ? null : (flatRows[index] as GroupHeaderRow);
+  }, [flatRows, isSessionDragging, searchQuery, visibleStartIndex]);
+
   return (
     <div className={styles.sessionList}>
-      {/* Sticky header: new chat + history title + search */}
+      {/* Sticky history header and compact actions. */}
       <div className={styles.sessionListHeader}>
-        {/* New Chat button */}
-        <button className={styles.newChatBtn} onClick={handleNewChat}>
-          <SparkPlusLine size={14} />
-          <span>{t("chat.newChatTooltip")}</span>
-        </button>
-
-        {/* Conversation history header (collapsible) */}
-        <button
-          className={styles.historyHeader}
-          onClick={() => setHistoryCollapsed((c) => !c)}
-        >
-          <span className={styles.historyLabel}>
-            {t("chat.conversationHistory", "Conversation History")}
-          </span>
-          <span
-            className={styles.historyChevron}
-            style={{
-              transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-            }}
+        <div className={styles.historyHeaderRow}>
+          <button
+            className={styles.historyHeader}
+            type="button"
+            aria-expanded={!historyCollapsed}
+            onClick={() => setHistoryCollapsed((c) => !c)}
           >
-            <SparkDownArrowLine size={12} />
-          </span>
-        </button>
+            <span className={styles.historyLabel}>
+              {t("chat.conversationHistory", "Conversation History")}
+            </span>
+            <span
+              className={styles.historyChevron}
+              style={{
+                transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+              }}
+            >
+              <ChevronDown size={12} />
+            </span>
+          </button>
+          <div className={styles.historyActions}>
+            <Tooltip title={t("chat.newTask", "New task")}>
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("chat.newTask", "New task")}
+                onClick={handleNewChat}
+              >
+                <SparkNewChatLine size={18} />
+              </button>
+            </Tooltip>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomRight"
+              menu={{
+                items: [
+                  {
+                    key: "search",
+                    icon: <Search size={15} />,
+                    label: t(
+                      "chat.sessionPanel.searchConversations",
+                      "Search conversations",
+                    ),
+                    onClick: handleOpenSearch,
+                  },
+                  {
+                    key: "create-group",
+                    icon: <FolderPlus size={15} />,
+                    label: t("chat.groups.create", "New group"),
+                    onClick: handleOpenCreateGroup,
+                  },
+                ],
+              }}
+            >
+              <button
+                type="button"
+                className={styles.historyAction}
+                aria-label={t("sidebar.more", "More")}
+              >
+                <Ellipsis size={16} />
+              </button>
+            </Dropdown>
+          </div>
+        </div>
 
-        {/* Search bar */}
-        {!historyCollapsed && (
+        {!historyCollapsed && (searchOpen || creatingGroup) && (
           <div className={styles.searchContainer}>
-            <Input
-              size="small"
-              allowClear
-              placeholder={t(
-                "chat.sessionPanel.searchConversations",
-                "Search…",
-              )}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-            />
+            {searchOpen && (
+              <Input
+                ref={searchInputRef}
+                size="small"
+                allowClear
+                placeholder={t(
+                  "chat.sessionPanel.searchConversations",
+                  "Search…",
+                )}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            )}
+            {creatingGroup && (
+              <Input
+                ref={groupInputRef}
+                size="small"
+                className={styles.groupInput}
+                placeholder={t("chat.groups.namePlaceholder", "Group name")}
+                value={newGroupName}
+                onChange={(event) => setNewGroupName(event.target.value)}
+                onPressEnter={() => void handleCreateGroup()}
+                onBlur={() => {
+                  if (!newGroupName.trim()) setCreatingGroup(false);
+                }}
+              />
+            )}
           </div>
         )}
       </div>
@@ -394,18 +922,33 @@ export default function SidebarSessionList({
           )}
 
           {sortedSessions.length > 0 && listHeight > 0 && (
-            <VariableSizeList
-              ref={listRef}
-              height={listHeight}
-              width="100%"
-              itemCount={flatRows.length}
-              itemSize={getRowHeight}
-              itemData={virtualListData}
-              className={styles.list}
-              overscanCount={10}
+            <SessionGroupDndProvider
+              onMove={handleDragMove}
+              onDragStateChange={setIsSessionDragging}
             >
-              {VirtualRow}
-            </VariableSizeList>
+              {stickyGroupRow && (
+                <div className={styles.stickyGroupHeader}>
+                  <GroupHeaderContent
+                    row={stickyGroupRow}
+                    data={virtualListData}
+                  />
+                </div>
+              )}
+              <VariableSizeList
+                ref={listRef}
+                height={listHeight}
+                width="100%"
+                itemCount={flatRows.length}
+                itemSize={getRowHeight}
+                itemData={virtualListData}
+                overscanCount={10}
+                onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                  setVisibleStartIndex(nextIndex)
+                }
+              >
+                {VirtualRow}
+              </VariableSizeList>
+            </SessionGroupDndProvider>
           )}
         </div>
       )}

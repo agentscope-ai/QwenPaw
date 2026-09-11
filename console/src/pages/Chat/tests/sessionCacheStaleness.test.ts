@@ -115,4 +115,23 @@ describe("SessionApi converted-cache staleness on updated_at change (#6131)", ()
     // Cache is still valid: no extra network fetch.
     expect(getChatSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("returns a new list when grouping metadata changes", async () => {
+    const id = "33333333-3333-4333-8333-333333333333";
+    const initial = {
+      ...makeChatSpec(id, T0),
+      source: "chat",
+      group_id: "work",
+    } as ChatSpec;
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([initial]);
+
+    const first = await sessionApi.getSessionList();
+    listSpy.mockResolvedValue([{ ...initial, group_id: "default" }]);
+    const second = await sessionApi.getSessionList();
+
+    expect(second).not.toBe(first);
+    expect((second[0] as unknown as { groupId: string }).groupId).toBe(
+      "default",
+    );
+  });
 });

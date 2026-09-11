@@ -4,6 +4,10 @@
 Semantics: left-closed, right-open interval  ``>=min, <max``.
 When ``max`` is not specified, it is derived from ``min`` as
 ``{major}.{minor+1}.0`` (all patch versions of the same minor).
+
+NOTE: Upper-bound (``max``) enforcement is temporarily disabled.
+Restore the commented check in ``check_plugin_version_compat`` when
+re-enabling full range checks.
 """
 
 from __future__ import annotations
@@ -60,7 +64,15 @@ def check_plugin_version_compat(
             else _derive_exclusive_max(manifest.min_version)
         )
 
-    if current < min_v or current >= max_v:
-        msg = f"requires QwenPaw >={min_v}, <{max_v}, current is {current}"
+    # Temporary: only enforce >= min.  Original full-range check:
+    # if current < min_v or current >= max_v:
+    #     msg = (
+    #         f"requires QwenPaw >={min_v}, <{max_v}, current is {current}"
+    #     )
+    #     return False, msg
+    # return True, ""
+    if current < min_v:
+        msg = f"requires QwenPaw >={min_v}, current is {current}"
         return False, msg
+    _ = max_v  # retained for restoring the upper-bound check above
     return True, ""

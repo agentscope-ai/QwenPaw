@@ -2,19 +2,29 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--body-background, #fff);
+  container-type: inline-size;
+  background: var(--app-surface);
   overflow: hidden;
 }
 
 // ---- Tab bar ---------------------------------------------------------------
 .tabBar {
+  position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+  flex-shrink: 0;
+  min-width: 0;
+  height: 42px;
+  background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.tabViewport {
+  position: relative;
+  min-width: 0;
+  flex: 1;
   overflow-x: auto;
   overflow-y: hidden;
-  flex-shrink: 0;
-  background: var(--header-background, #fafafa);
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -22,33 +32,59 @@
   }
 }
 
+.tabRail {
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+}
+
 .tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px 5px 12px;
-  font-size: 12px;
+  gap: 6px;
+  min-width: 112px;
+  max-width: 176px;
+  flex: 0 1 176px;
+  padding: 0 9px 0 12px;
+  font-size: 11px;
   font-family: "SFMono-Regular", Consolas, monospace;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-secondary);
   white-space: nowrap;
   cursor: pointer;
-  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  border-right: 1px solid var(--app-border-subtle);
   background: transparent;
-  transition: background 0.12s;
-  min-width: 0;
-  flex-shrink: 0;
-  max-width: 200px;
+  outline: none;
+  transition:
+    background 0.12s,
+    color 0.12s;
 
   &:hover {
-    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
-    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--app-accent-ring);
   }
 }
 
 .tabActive {
-  background: var(--body-background, #fff);
-  color: var(--text-primary, rgba(0, 0, 0, 0.88));
-  border-bottom: 2px solid var(--primary-color, #1677ff);
+  background: var(--app-surface);
+  color: var(--app-text);
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: 11px;
+    bottom: 0;
+    left: 11px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--app-accent);
+  }
 }
 
 .tabName {
@@ -62,17 +98,12 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--warning-color, #faad14);
+  background: var(--app-warning);
   flex-shrink: 0;
 }
 
-// Tab with pending diff — subtle teal left border
-.tabDiff {
-  border-left: 2px solid var(--info-color, #13c2c2) !important;
-}
-
 .diffDot {
-  color: var(--info-color, #13c2c2);
+  color: var(--app-info-text);
   flex-shrink: 0;
 }
 
@@ -80,13 +111,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border: none;
   background: transparent;
   cursor: pointer;
-  border-radius: 3px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  border-radius: 5px;
+  color: var(--app-text-quaternary);
   padding: 0;
   flex-shrink: 0;
   opacity: 0;
@@ -103,9 +134,319 @@
   }
 
   &:hover {
-    background: var(--item-hover-bg, rgba(0, 0, 0, 0.08));
-    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
     opacity: 1 !important;
+  }
+}
+
+.tabControls {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  border-left: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -32px;
+    width: 32px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--app-surface-subtle));
+  }
+}
+
+.tabControlBtn,
+.openFilesBtn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s,
+    border-color 0.12s;
+
+  &:hover {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent-ring);
+    outline-offset: 1px;
+  }
+}
+
+.tabControlBtn {
+  width: 26px;
+  padding: 0;
+}
+
+.openFilesBtn {
+  position: relative;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: 11px;
+}
+
+.openFilesBtnActive {
+  color: var(--app-text);
+  border-color: var(--app-border-strong);
+  background: var(--app-surface-raised);
+}
+
+.openFilesLabel {
+  white-space: nowrap;
+}
+
+.tabCount {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 5px;
+  color: var(--app-text-secondary);
+  background: var(--app-fill-subtle);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.openFilesPanel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 8px;
+  width: min(390px, calc(100% - 16px));
+  max-height: min(520px, calc(100vh - 180px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 12px;
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
+  animation: openFilesIn 0.14s ease-out;
+}
+
+@media (hover: none) {
+  .closeBtn,
+  .openFileClose {
+    opacity: 0.6;
+  }
+}
+
+@keyframes openFilesIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.openFilesHeader {
+  padding: 14px 14px 11px;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.openFilesTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+
+  strong {
+    color: var(--app-text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+  }
+}
+
+.openFilesSearch {
+  position: relative;
+  display: block;
+
+  > svg {
+    position: absolute;
+    z-index: 1;
+    top: 10px;
+    left: 10px;
+    color: var(--app-text-tertiary);
+    pointer-events: none;
+  }
+
+  input {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px 0 32px;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    outline: none;
+    color: var(--app-text);
+    background: var(--app-surface-subtle);
+    font-size: 12px;
+
+    &::placeholder {
+      color: var(--app-text-tertiary);
+    }
+
+    &:focus {
+      border-color: var(--app-accent);
+      box-shadow: 0 0 0 3px var(--app-accent-ring);
+      background: var(--app-surface);
+    }
+  }
+}
+
+.openFilesList {
+  min-height: 72px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.openFileItem {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  border-radius: 8px;
+  color: var(--app-text-secondary);
+
+  &:hover {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+
+    .openFileClose {
+      opacity: 1;
+    }
+  }
+}
+
+.openFileItemActive {
+  color: var(--app-text);
+  background: var(--app-accent-soft);
+}
+
+.openFileMain {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  > svg {
+    flex: 0 0 auto;
+  }
+}
+
+.openFileCopy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.openFileName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.openFilePath {
+  overflow: hidden;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.openFileClose {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--app-text-tertiary);
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+    opacity: 1;
+  }
+}
+
+.openFilesEmpty {
+  padding: 30px 12px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.openFilesFooter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-subtle);
+
+  button {
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--app-text-secondary);
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: var(--app-text);
+      background: var(--app-surface);
+    }
+
+    &:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
   }
 }
 
@@ -115,14 +456,14 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--app-border-subtle);
   flex-shrink: 0;
   min-height: 30px;
 }
 
 .fileName {
   font-size: 11px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  color: var(--app-text-tertiary);
   font-family: "SFMono-Regular", Consolas, monospace;
   flex: 1;
   overflow: hidden;
@@ -131,25 +472,71 @@
 }
 
 .toolbarRight {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.documentActions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 2px;
 }
 
-// Diff action bar (replaces toolbarRight when diff is active)
+.modeSwitch {
+  padding: 2px;
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface-subtle);
+
+  button {
+    height: 24px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--app-text-secondary);
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+  }
+}
+
+.modeActive {
+  color: var(--app-accent-text) !important;
+  background: var(--app-accent-soft) !important;
+}
+
 .diffActions {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding-right: 7px;
+  border-right: 1px solid var(--app-border);
 }
 
 .diffLabel {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--info-color, #13c2c2);
+  color: var(--app-info-text);
   font-weight: 500;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .keepBtn {
@@ -159,15 +546,19 @@
   padding: 2px 10px !important;
   height: 22px !important;
   font-size: 12px !important;
-  background: rgba(82, 196, 26, 0.1) !important;
-  color: #52c41a !important;
+  background: var(--app-success-bg) !important;
+  color: var(--app-success-text) !important;
   border-radius: 4px;
-  border: 1px solid rgba(82, 196, 26, 0.3);
+  border: 1px solid var(--app-success-border);
   width: auto !important;
 
   &:hover:not(:disabled) {
-    background: rgba(82, 196, 26, 0.18) !important;
-    color: #52c41a !important;
+    background: color-mix(
+      in srgb,
+      var(--app-success) 18%,
+      var(--app-surface)
+    ) !important;
+    color: var(--app-success-text) !important;
   }
 }
 
@@ -178,15 +569,88 @@
   padding: 2px 10px !important;
   height: 22px !important;
   font-size: 12px !important;
-  background: rgba(255, 77, 79, 0.08) !important;
-  color: #ff4d4f !important;
+  background: var(--app-error-bg) !important;
+  color: var(--app-error-text) !important;
   border-radius: 4px;
-  border: 1px solid rgba(255, 77, 79, 0.25);
+  border: 1px solid var(--app-error-border);
   width: auto !important;
 
   &:hover:not(:disabled) {
-    background: rgba(255, 77, 79, 0.15) !important;
-    color: #ff4d4f !important;
+    background: color-mix(
+      in srgb,
+      var(--app-error) 15%,
+      var(--app-surface)
+    ) !important;
+    color: var(--app-error-text) !important;
+  }
+}
+
+@container (max-width: 760px) {
+  .tab {
+    min-width: 104px;
+    max-width: 142px;
+    flex-basis: 142px;
+  }
+
+  .openFilesLabel {
+    display: none;
+  }
+
+  .fileName {
+    max-width: 120px;
+  }
+
+  .diffLabel span {
+    display: none;
+  }
+
+  .keepBtn,
+  .undoBtn {
+    width: 24px !important;
+    padding: 0 !important;
+    justify-content: center;
+  }
+
+  .actionLabel {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .scrollControl {
+    display: none;
+  }
+
+  .tabControls {
+    padding: 0 5px;
+  }
+
+  .openFilesBtn {
+    width: 34px;
+    padding: 0;
+  }
+
+  .tabCount {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 8px;
+  }
+
+  .openFilesPanel {
+    right: 6px;
+    width: calc(100% - 12px);
+  }
+
+  .fileName {
+    display: none;
+  }
+
+  .toolbar {
+    justify-content: flex-end;
   }
 }
 
@@ -200,15 +664,15 @@
   background: transparent;
   cursor: pointer;
   border-radius: 4px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-secondary);
   padding: 0;
   transition:
     background 0.12s,
     color 0.12s;
 
   &:hover:not(:disabled) {
-    background: var(--item-hover-bg, rgba(0, 0, 0, 0.06));
-    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
   }
 
   &:disabled {
@@ -219,14 +683,29 @@
 
 // Preview toggle — highlight when preview is active
 .previewActiveBtn {
-  color: var(--primary-color, #1677ff) !important;
-  background: var(--primary-bg, rgba(22, 119, 255, 0.1)) !important;
+  color: var(--app-accent-text) !important;
+  background: var(--app-accent-soft) !important;
 }
 
 // ---- Editor ----------------------------------------------------------------
 .editor {
   flex: 1;
   overflow: hidden;
+}
+
+.textPreview {
+  height: 100%;
+  margin: 0;
+  padding: clamp(20px, 3vw, 42px);
+  overflow: auto;
+  color: var(--app-text);
+  background: var(--app-surface);
+  font:
+    13px/1.72 "SFMono-Regular",
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 // ---- Diff editor wrap + per-hunk action overlays --------------------------
@@ -269,7 +748,7 @@
   line-height: 1;
   border: 1px solid;
   border-radius: 3px;
-  background: var(--body-background, #fff);
+  background: var(--app-surface-raised);
   cursor: pointer;
   transition:
     background 0.12s,
@@ -277,20 +756,20 @@
 }
 
 .hunkKeepBtn {
-  color: #52c41a;
-  border-color: rgba(82, 196, 26, 0.4);
+  color: var(--app-success-text);
+  border-color: var(--app-success-border);
 
   &:hover {
-    background: rgba(82, 196, 26, 0.12);
+    background: var(--app-success-bg);
   }
 }
 
 .hunkUndoBtn {
-  color: #ff4d4f;
-  border-color: rgba(255, 77, 79, 0.35);
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
 
   &:hover {
-    background: rgba(255, 77, 79, 0.1);
+    background: var(--app-error-bg);
   }
 }
 
@@ -302,103 +781,15 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: var(--body-background, #fff);
+  background: var(--app-surface);
 }
 
 .emptyIcon {
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.15));
+  color: var(--app-text-quaternary);
 }
 
 .emptyText {
   font-size: 13px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  color: var(--app-text-tertiary);
   margin: 0;
-}
-
-// ---- Dark mode -----------------------------------------------------------
-:global(.dark-mode) {
-  .wrap,
-  .empty,
-  .tabActive {
-    background: #1e1e1e;
-  }
-
-  .tabBar {
-    background: #1a1a1a;
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .tab {
-    color: rgba(255, 255, 255, 0.55);
-    border-right-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .tabActive {
-    color: rgba(255, 255, 255, 0.88);
-    border-bottom-color: #4da3ff;
-  }
-
-  .closeBtn {
-    color: rgba(255, 255, 255, 0.4);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .toolbar {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .fileName {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .iconBtn {
-    color: rgba(255, 255, 255, 0.55);
-
-    &:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .previewActiveBtn {
-    color: #4da3ff !important;
-    background: rgba(22, 119, 255, 0.18) !important;
-  }
-
-  .emptyIcon {
-    color: rgba(255, 255, 255, 0.15);
-  }
-
-  .emptyText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .hunkBtn {
-    background: #2a2a2a;
-  }
-
-  .hunkKeepBtn {
-    border-color: rgba(82, 196, 26, 0.45);
-
-    &:hover {
-      background: rgba(82, 196, 26, 0.18);
-    }
-  }
-
-  .hunkUndoBtn {
-    border-color: rgba(255, 77, 79, 0.4);
-
-    &:hover {
-      background: rgba(255, 77, 79, 0.16);
-    }
-  }
 }

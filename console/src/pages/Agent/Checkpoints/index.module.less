@@ -1,0 +1,491 @@
+.page {
+  --checkpoint-surface: var(--app-surface);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--app-text);
+}
+
+.pageHeader {
+  padding: 20px;
+}
+
+.workspacePath {
+  min-width: 0;
+  max-width: min(42vw, 520px);
+  margin-left: 10px;
+  padding: 1px 5px;
+  overflow: hidden;
+  color: var(--app-text-secondary);
+  background: var(--app-fill);
+  border-radius: 3px;
+  font:
+    11px/20px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions,
+.autoControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.autoControl {
+  margin-right: 4px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
+}
+
+.summaryBar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid var(--app-border);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.summaryBar strong {
+  color: var(--app-text);
+  font-size: 14px;
+}
+
+.summaryBar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.summaryBar i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.autoDot {
+  background: var(--app-info-text);
+}
+.snapshotDot {
+  background: var(--app-success);
+}
+.safetyDot {
+  background: var(--app-warning);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.searchInput {
+  width: min(360px, 42vw);
+}
+.sessionFilter {
+  width: min(240px, 26vw);
+}
+
+.mainArea {
+  flex: 1;
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--checkpoint-surface);
+}
+
+.centerState {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--app-text-secondary);
+}
+
+.graphPanel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.graphHeader,
+.graphRow {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.graphHeader {
+  height: 38px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-sunken);
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.graphHeader > span {
+  flex-shrink: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+.graphHeader > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graphHeader .messageHeader {
+  flex: 1;
+  min-width: 120px;
+}
+.graphHeader > span:nth-child(3) {
+  width: 164px;
+}
+.graphHeader > span:nth-child(4) {
+  width: 102px;
+}
+.graphHeader > span:nth-child(5) {
+  width: 142px;
+}
+
+.graphBody {
+  flex: 1;
+  min-height: 0;
+}
+
+.graphRow {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.graphRow:hover {
+  background: var(--app-fill-subtle);
+}
+.graphRow:focus-visible {
+  outline: 2px solid var(--app-selected-border);
+  outline-offset: -2px;
+}
+.selectedRow {
+  background: var(--app-selected-bg);
+}
+.selectedRow:hover {
+  background: var(--app-selected-bg-hover);
+}
+
+.graphCell {
+  height: 58px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.graphSvg {
+  display: block;
+}
+.graphSvg line,
+.graphSvg path {
+  stroke-width: 1.7;
+  vector-effect: non-scaling-stroke;
+}
+.headHalo {
+  stroke-width: 2.2;
+  opacity: 0.34;
+}
+.snapshotNode {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(45deg);
+}
+
+.messageCell {
+  min-width: 120px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.messageTitle,
+.messageMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageTitle {
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.messageMeta {
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+}
+
+.kindCell {
+  width: 164px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.kindTag,
+.headTag {
+  margin: 0;
+  font-size: 10px;
+  line-height: 19px;
+}
+.kind_auto {
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
+}
+.kind_snap {
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
+}
+.kind_pre_restore {
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
+}
+.headTag {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border-radius: 3px;
+  color: var(--app-text-inverse);
+  background: var(--app-accent-active);
+  box-shadow: var(--app-shadow-sm);
+  font-weight: 700;
+}
+
+.shaCell,
+.timeCell {
+  flex-shrink: 0;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+
+.shaCell {
+  width: 102px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.timeCell {
+  width: 142px;
+}
+.emptyState {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.detailTitle {
+  color: var(--app-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.commitValue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.commitValue code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snapshotForm,
+.restoreBody,
+.scopeOptions {
+  display: flex;
+  flex-direction: column;
+}
+
+.snapshotForm {
+  gap: 9px;
+}
+.snapshotForm label {
+  margin-top: 7px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.restoreBody {
+  gap: 16px;
+}
+.restoreTarget {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.restoreTarget span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.restoreTarget code {
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.scopeOptions {
+  gap: 13px;
+  padding: 4px 0;
+}
+.previewSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.previewSummary span::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--app-success);
+  vertical-align: 1px;
+}
+.fileSelection {
+  max-height: 260px;
+  margin-top: 10px;
+  overflow: auto;
+  border-top: 1px solid var(--app-border-subtle);
+}
+.fileSelection :global(.ant-checkbox-wrapper) {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+.fileSelection :global(.ant-checkbox-wrapper > span:last-child) {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fileSelection code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deleteStatus {
+  color: var(--app-error-text);
+  font-size: 11px;
+}
+.restoreStatus {
+  color: var(--app-success-text);
+  font-size: 11px;
+}
+.muted {
+  display: block;
+  padding: 18px 0;
+  color: var(--app-text-tertiary);
+}
+
+@media (max-width: 900px) {
+  .graphHeader > span:nth-child(3),
+  .kindCell {
+    width: 132px;
+  }
+  .graphHeader > span:nth-child(4),
+  .shaCell {
+    display: none;
+  }
+  .workspacePath {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageHeader {
+    padding: 12px 16px;
+  }
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .content {
+    padding: 0 12px 12px;
+  }
+  .summaryBar {
+    gap: 13px;
+    overflow-x: auto;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .searchInput {
+    width: 100%;
+  }
+  .sessionFilter {
+    flex: 1;
+    min-width: 150px;
+  }
+  .graphHeader > span:nth-child(3),
+  .kindCell {
+    display: none;
+  }
+  .graphHeader > span:nth-child(5),
+  .timeCell {
+    width: 98px;
+    padding-right: 8px;
+    font-size: 10px;
+  }
+  .messageCell {
+    padding: 0 8px;
+  }
+}

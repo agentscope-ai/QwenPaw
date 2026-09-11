@@ -18,6 +18,8 @@ import {
   addToolRule,
   buildMCPAccessToolGroups,
   findMCPAccessPolicyWarning,
+  getMCPChannelSourceValues,
+  MCP_CHANNEL_SOURCE_VALUES,
   normalizeMCPAccessPolicy,
   removeClientRule,
   removeToolRule,
@@ -50,6 +52,9 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   const [principalOptions, setPrincipalOptions] = useState<
     MCPAccessPrincipalOption[]
   >([]);
+  const [channelSourceValues, setChannelSourceValues] = useState<string[]>([
+    ...MCP_CHANNEL_SOURCE_VALUES,
+  ]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toolsError, setToolsError] = useState("");
@@ -62,13 +67,20 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       setLoading(true);
       setTools([]);
       setPrincipalOptions([]);
+      setChannelSourceValues([...MCP_CHANNEL_SOURCE_VALUES]);
       setToolsError("");
       try {
-        const savedPolicy = await api.getMCPPolicy(client.key);
+        const [savedPolicy, availableChannelValues] = await Promise.all([
+          api.getMCPPolicy(client.key),
+          api.listChannelTypes().catch(() => []),
+        ]);
         if (!cancelled) {
           const normalized = normalizeMCPAccessPolicy(savedPolicy);
           setPolicy(normalized);
           setInitialPolicySignature(policySignature(normalized));
+          setChannelSourceValues(
+            getMCPChannelSourceValues(normalized, availableChannelValues),
+          );
         }
 
         try {
@@ -246,6 +258,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           <MCPAccessClientPanel
             policy={policy}
             principalOptions={principalOptions}
+            channelSourceValues={channelSourceValues}
             setDefaultEffect={setDefaultEffect}
             addClientAccessRule={() =>
               setPolicy((prev) => (prev ? addClientRule(prev) : prev))
@@ -270,6 +283,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
             <MCPAccessToolPanel
               groups={groups}
               principalOptions={principalOptions}
+              channelSourceValues={channelSourceValues}
               setToolDefaultEffect={(toolName, effect) =>
                 setPolicy((prev) =>
                   prev ? upsertToolDefault(prev, toolName, effect) : prev,

@@ -1,0 +1,5 @@
+.qwenpaw-data-dev/
+.venv-qwenpaw-data
+ui/dist/
+ui/node_modules/
+ui/public/context-console/

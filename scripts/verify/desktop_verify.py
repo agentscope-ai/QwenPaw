@@ -6,13 +6,15 @@ tauri-win / tauri-mac) end-to-end:
 
 1. ``GET /api/version`` — health + version match.
 2. ``GET /``           — frontend HTML served.
-3. ``PUT /api/models/<provider>/config``            — install API key.
-4. ``POST /api/models/<provider>/models``           — register the chat model
+3. ``POST /api/agents/default/memory/reindex?scope=bm25`` — prove the packaged
+   ReMe runtime starts.
+4. ``PUT /api/models/<provider>/config``            — install API key.
+5. ``POST /api/models/<provider>/models``           — register the chat model
                                                        (newer aliases like
                                                        qwen3.6-plus aren't in
                                                        the built-in catalogue).
-5. ``PUT /api/models/active``                       — mark it active globally.
-6. **UI single-round factual Q&A**                  — drive the real SPA:
+6. ``PUT /api/models/active``                       — mark it active globally.
+7. **UI single-round factual Q&A**                  — drive the real SPA:
    - Open the page and wait for the chat input to render.
    - Send "What is the tallest mountain in the world?" via the
      input box.
@@ -43,6 +45,7 @@ from __future__ import annotations
 
 import abc
 import argparse
+import faulthandler
 import json
 import os
 import sys
@@ -56,12 +59,22 @@ DEFAULT_TIMEOUT = 120
 SESSION_ID = "release-verify-session"
 USER_ID = "release-verify-user"
 
+# The verify step runs under timeout-minutes: 10 in desktop-build.yml, so
+# self-report at 540s: a hung driver dumps every thread's stack and exits
+# while there is still time, instead of being SIGKILLed at 600s with its
+# buffered stdout discarded and the step showing no diagnostics at all.
+HANG_DUMP_SECONDS = 540
+
 # Selectors come straight from e2e/pages/chat_page.py so they stay in sync
 # with what the real UI tests expect.
-SEL_INPUT = "textarea.qwenpaw-sender-input"
+SEL_INPUT = (
+    '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible, '
+    "textarea.qwenpaw-sender-input:visible"
+)
 SEL_SEND_BTN = "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
 SEL_USER_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-end"
 SEL_AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"
+SEL_TOUR_NEXT = "button.qwenpaw-tour-next-btn"
 
 
 # =============================================================================
@@ -147,6 +160,33 @@ def verify_frontend(base_url: str) -> None:
             "Frontend HTML does not mention QwenPaw — wrong bundle?",
         )
     print("PASS  GET / -> frontend HTML served")
+
+
+def verify_reme_runtime(base_url: str) -> None:
+    """Run a provider-free job against the packaged ReMe runtime."""
+    body = _http(
+        "POST",
+        f"{base_url}/api/agents/default/memory/reindex?scope=bm25",
+        timeout=120,
+    )
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Memory reindex returned non-JSON: {body[:200]}",
+        ) from exc
+    if payload.get("status") != "completed" or payload.get("scope") != "bm25":
+        raise RuntimeError(
+            f"Memory reindex returned an unexpected response: {body[:300]}",
+        )
+    print("PASS  packaged ReMe runtime completed BM25 reindex")
+
+
+def verify_packaged_api(base_url: str) -> None:
+    """Verify the desktop's basic API, frontend, and embedded ReMe runtime."""
+    health_check(base_url)
+    verify_frontend(base_url)
+    verify_reme_runtime(base_url)
 
 
 def configure_provider(
@@ -254,6 +294,7 @@ class PlaywrightDriver(UIDriver):
 
     INPUT_VISIBLE_TIMEOUT_MS = 60_000
     NAVIGATE_TIMEOUT_MS = 60_000
+    LAUNCH_TIMEOUT_MS = 60_000
 
     def __init__(
         self,
@@ -306,7 +347,10 @@ class PlaywrightDriver(UIDriver):
                     raise UIDriverInitError(
                         f"playwright has no browser '{browser}'",
                     )
-                self._browser = launcher.launch(headless=headless)
+                self._browser = launcher.launch(
+                    headless=headless,
+                    timeout=self.LAUNCH_TIMEOUT_MS,
+                )
                 self._context = self._browser.new_context()
                 self._page = self._context.new_page()
         except UIDriverInitError:
@@ -510,17 +554,34 @@ class PlaywrightDriver(UIDriver):
             except Exception:  # noqa: BLE001
                 pass
 
+    def _dismiss_open_tour(self) -> None:
+        """Complete any active product tour before driving the chat UI."""
+        dismissed_steps = 0
+        for _ in range(10):
+            next_button = self._page.locator(SEL_TOUR_NEXT).first
+            if not next_button.is_visible():
+                break
+            next_button.click(timeout=5_000)
+            dismissed_steps += 1
+            time.sleep(0.2)
+
+        if self._page.locator(SEL_TOUR_NEXT).first.is_visible():
+            raise RuntimeError("Product tour did not close after 10 steps")
+        if dismissed_steps:
+            print(f"INFO  dismissed product tour ({dismissed_steps} step(s))")
+
     def chat_one_round(self, message: str, timeout: int) -> str:
+        self._dismiss_open_tour()
         self._wait_previous_round_idle()
 
         ai_count_before = self._page.locator(SEL_AI_BUBBLE).count()
         user_count_before = self._page.locator(SEL_USER_BUBBLE).count()
 
         # Defensive input flow borrowed from e2e/pages/chat_page.py:
-        # focus the textarea, clear any leftover text, fill the new
+        # focus the chat input, clear any leftover text, fill the new
         # message, then click send (or fall back to Enter).
         input_box = self._page.locator(SEL_INPUT).first
-        input_box.click()
+        input_box.focus()
         time.sleep(0.2)
         input_box.fill("")
         time.sleep(0.2)
@@ -563,9 +624,9 @@ class PlaywrightDriver(UIDriver):
             )
         except Exception:  # noqa: BLE001
             # Fall back to pressing Enter — some layouts ignore the
-            # send button click but accept Enter on the textarea.
+            # send button click but accept Enter on the chat input.
             try:
-                input_box.click()
+                input_box.focus()
                 time.sleep(0.2)
                 input_box.press("Enter")
                 self._page.wait_for_function(
@@ -877,8 +938,7 @@ def main() -> int:
     driver: UIDriver | None = None
     try:
         # ---- API-level checks (always run, no key needed) ----
-        health_check(base_url)
-        verify_frontend(base_url)
+        verify_packaged_api(base_url)
 
         # ---- UI load (always run unless --skip-ui, no key needed) ----
         # This catches broken Vite bundles, missing assets, CSP issues,
@@ -946,4 +1006,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    faulthandler.dump_traceback_later(HANG_DUMP_SECONDS, exit=True)
     sys.exit(main())

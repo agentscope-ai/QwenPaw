@@ -33,11 +33,11 @@
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史、蒸馏知识。较早轮次会被逐出但可随时召回，不摘要压缩、不丢失信息。                                                                           |
+| **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史，以及由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动的自进化个人知识库。对话与资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
 | **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
-| **代码模式**                        | 三面板 Web IDE，含文件树、Diff 预览与对话区。内置跳转定义、查找引用与结构化代码搜索。                                                                                                 |
+| **通用文件工作区**                    | 在项目文件与 Agent 文件中统一提供文件导航、预览、编辑、Diff、上传和下载。                                                                                                           |
 | **能力扩展**                        | Skills 覆盖定时任务、文档、浏览器、新闻等。插件架构带 Plugin Market。MCP 集成外部工具。自由组合成面向场景的工作流。                                                                    |
 | **随处可达**                        | 钉钉、飞书、微信、Discord、Telegram、iMessage、QQ — 一个实例，全频道连接。Console、TUI 与桌面应用可直接访问。                                                                         |
 | **你的，不是我们的**                      | 本地部署，数据留在你的机器，无第三方托管，无数据上传。                                                                                                         |
@@ -48,7 +48,7 @@
 <br>
 
 - **自动化与定时任务**：设置定时任务 — 新闻摘要、报告生成、多频道广播 — 全部按你的时间表自动运行。
-- **代码与开发**：在项目中阅读、编辑、审查与测试代码；Coding 模式帮你快速定位和理解代码。
+- **代码与开发**：通过通用文件工作区在项目中阅读、编辑、审查与测试代码。
 - **文档处理**：读取、写入与转换 PDF、Word、Excel、PowerPoint 文件。
 - **信息收集**：搜索网页、关注资讯订阅、总结视频内容，并从个人知识库中检索所需信息。
 - **多频道运营**：向钉钉、飞书、Discord、Telegram 等推送告警、摘要或 AI 生成内容 — 可同时或按频道分发。
@@ -60,9 +60,13 @@
 
 ## 新闻
 
-- [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、ReMe 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-09-03] **v2.2.0** | 新增可自托管的多用户 QwenPaw Hub、QwenPaw Mail、原生 QwenPaw Data、统一模型路由和 Creator 1.1，并全面改进应用市场、控制台、Skills、频道与运行可靠性。[v2.2.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，Agent OS 架构、Loop Engineering、Scroll 上下文、ReMe v0.4.0 长期记忆与内置终端界面。
+- [2026-08-13] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+
+- [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，带来 Agent OS 架构、Loop Engineering、Scroll 上下文、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库与内置终端界面。
 
   | 亮点 | 更新内容 |
   |------|----------|
@@ -70,16 +74,10 @@
   | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
   | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
   | **Scroll 上下文** | 每一轮都持久化；滚出窗口的轮次带索引，按需回放——不摘要、不丢失。 |
-  | **ReMe v0.4.0 长期记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库** | 持续将对话与资料转化为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
   | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
   基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — 免费模型 OAuth、插件市场、MCP 工具白名单。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [全部发布说明 →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -334,7 +332,6 @@ docker run -p 127.0.0.1:8088:8088 \
 - [添加 Skills](https://qwenpaw.agentscope.io/docs/skills) 扩展能力（PDF、Office、浏览器、新闻等）
 - [配置频道](https://qwenpaw.agentscope.io/docs/channels) 连接钉钉、飞书、Discord 等
 - [配置 Cron](https://qwenpaw.agentscope.io/docs/cron) 实现定时任务与自动化
-- [体验 Coding 模式](https://qwenpaw.agentscope.io/docs/coding-mode) 进行 IDE 式代码协作
 - 查看完整 [快速开始指南](https://qwenpaw.agentscope.io/docs/quickstart) 了解所有选项与验证步骤
 
 ---
@@ -385,7 +382,7 @@ QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练�
 
 ## 安全特性
 
-QwenPaw 内置四层核心安全防护：
+QwenPaw 内置五层核心安全防护：
 
 - **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock，Windows 使用 AppContainer。Shell 命令在受限文件系统视图中运行。
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。
@@ -408,12 +405,12 @@ QwenPaw 内置四层核心安全防护：
 | [桌面应用](https://qwenpaw.agentscope.io/docs/desktop)               | 桌面应用安装与使用                               |
 | [模型](https://qwenpaw.agentscope.io/docs/models)                    | 配置云端、本地与自定义提供商                     |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)              | 钉钉、飞书、QQ、Discord、iMessage 等             |
-| [Coding 模式](https://qwenpaw.agentscope.io/docs/coding-mode)        | 面向代码任务的三面板 Web IDE                     |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | 扩展与自定义能力                                 |
 | [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系与 Plugin Market                         |
 | [MCP 和工具](https://qwenpaw.agentscope.io/docs/mcp)                 | 管理 MCP 客户端                                  |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                | 智能体人格定制（SOUL / PROFILE）                 |
-| [记忆](https://qwenpaw.agentscope.io/docs/memory)                    | 长期语义记忆（ReMe）                             |
+| [记忆](https://qwenpaw.agentscope.io/docs/memory)                    | 基于本地、可编辑、可检索且相互链接的 Markdown 记忆构建自进化个人知识库，由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动 |
+| [ReMe 文档](https://docs.agentscope.io/reme/latest/zh/overview)      | ReMe 官方概览与文档                              |
 | [记忆进化与主动交互](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | 智能体记忆进化与主动交互                 |
 | [上下文](https://qwenpaw.agentscope.io/docs/context)                 | 基于滚动的上下文管理                             |
 | [魔法命令](https://qwenpaw.agentscope.io/docs/commands)              | 无需等待 AI 理解即可控制对话状态                 |
@@ -441,20 +438,27 @@ QwenPaw 内置四层核心安全防护：
 
 ## 路线图
 
-| 方向                     | 事项                                                                                         | 状态   |
-| ------------------------ | -------------------------------------------------------------------------------------------- | ------ |
-| **横向拓展**             | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                              | 征集中 |
-| **已有功能扩展与完善**   | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                    | 征集中 |
-| **模型**                 | 多模型切换                                                                                   | 进行中 |
-| **Browser-use**          | 支持 Chrome 扩展                                                                             | 进行中 |
-| **长期记忆**             | 个人知识库                                                                                   | 进行中 |
-| **QwenPaw 应用**         | QwenPaw Creator                                                                              | 进行中 |
-|                          | QwenPaw Insight                                                                              | 进行中 |
-| **多智能体**             | 兼容 Claude Code 等既有 Agent                                                                | 计划中 |
-|                          | 群聊                                                                                         | 计划中 |
-|                          | Subagent 可视化                                                                              | 计划中 |
+| 方向                     | 事项                                      | 状态   |
+| ------------------------ | ----------------------------------------- | ------ |
+| **横向拓展**             | 更多频道、模型、技能、MCP                 | 征集中 |
+| **已有功能扩展与完善**   | 展示、下载与 Windows 兼容优化             | 征集中 |
+| **模型**                 | 多模型切换                                | 进行中 |
+| **安全与审批**           | 批量预览与批准                            | 进行中 |
+| **自动化**               | 自动化任务                                | 进行中 |
+| **智能体交互**           | 智能体任务交接                            | 进行中 |
+|                          | 运行中任务调整                            | 进行中 |
+| **工作区**               | 多工作区                                  | 进行中 |
+| **上下文**               | 系统提示压缩                              | 进行中 |
+| **工具系统**             | 多位置文件修改                            | 进行中 |
+|                          | 持久终端与后台任务                        | 进行中 |
+| **Computer-use**         | 屏幕目标定位与操作                        | 进行中 |
+| **语音交互**             | 实时语音任务                              | 进行中 |
+| **上下文管理与记忆**     | 向量模型与存储热切换                      | 进行中 |
+|                          | 个人知识库                                | 进行中 |
+| **QwenPaw 应用**         | QwenPaw Insight                           | 进行中 |
+|                          | QwenPaw Mail                              | 进行中 |
 
-_状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
+_状态说明：**进行中** — 正在积极开发；**征集中** — 我们强烈鼓励社区参与。_
 
 ---
 
@@ -487,7 +491,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
+- **开发**（测试、格式化）：`pip install -e ".[dev,test,full]"`
 - **然后**：运行 `qwenpaw init --defaults`，再运行 `qwenpaw app`。
 
 > **版本更新提示：** 当执行 `git pull` 更新到大版本后，请重新构建前端、重新安装 Python 包（`pip install -e .`）、重启 `qwenpaw app`，并清除浏览器缓存（`Ctrl+Shift+R` 或 macOS 上 `Cmd+Shift+R`）。

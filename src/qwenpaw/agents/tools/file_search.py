@@ -16,8 +16,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...constant import WORKING_DIR
-from ...config.context import get_current_workspace_dir
+from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 
@@ -167,13 +166,17 @@ def _resolve_search_root(
 ) -> "Path | ToolChunk":
     """Resolve and validate a search root path.
 
+    Defaults to the PRIMARY project directory — extra roots are never
+    scanned implicitly (they can be searched by explicit path).
     Returns a ``Path`` on success or a ``ToolChunk`` error.
     """
-    search_root = (
-        Path(_resolve_file_path(path))
-        if path
-        else (get_current_workspace_dir() or WORKING_DIR)
-    )
+    if path:
+        try:
+            search_root = Path(_resolve_file_path(path))
+        except ValueError as e:
+            return _make_response(f"Error: {e}")
+    else:
+        search_root = get_tool_base_dir()
     try:
         exists = search_root.exists()
     except OSError as e:
@@ -614,7 +617,7 @@ async def grep_search(
     show_file: bool = True,
 ) -> ToolChunk:
     """Search file contents by pattern, recursively. Relative paths resolve
-    from WORKING_DIR. Output format: ``path:line_number: content``.
+    from the project directory. Output format: ``path:line_number: content``.
 
     When *show_file* is False, each match line omits the file path prefix
     (``line_number:> content``).  For multi-file searches, the file path
@@ -625,7 +628,8 @@ async def grep_search(
         pattern (`str`):
             Search string (or regex when *is_regex* is True).
         path (`str`, optional):
-            File or directory to search in.  Defaults to WORKING_DIR.
+            File or directory to search in.  Defaults to the project
+            directory.
         is_regex (`bool`, optional):
             Treat *pattern* as a regular expression.  Defaults to False.
         case_sensitive (`bool`, optional):
@@ -676,6 +680,7 @@ async def grep_search(
         match_lines, status = await cancellable_wait(
             asyncio.to_thread(_worker),
             fallback_secs=_GREP_TIMEOUT,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
@@ -732,13 +737,14 @@ async def glob_search(
     path: Optional[str] = None,
 ) -> ToolChunk:
     """Find files matching a glob pattern (e.g. ``"*.py"``, ``"**/*.json"``).
-    Relative paths resolve from WORKING_DIR.
+    Relative paths resolve from the project directory.
 
     Args:
         pattern (`str`):
             Glob pattern to match.
         path (`str`, optional):
-            Root directory to search from.  Defaults to WORKING_DIR.
+            Root directory to search from.  Defaults to the project
+            directory.
     """
     if not pattern:
         return _make_response("Error: No glob `pattern` provided.")
@@ -762,6 +768,7 @@ async def glob_search(
         results, truncated = await cancellable_wait(
             asyncio.to_thread(_worker),
             fallback_secs=_GLOB_TIMEOUT,
+            as_kill_deadline=True,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()

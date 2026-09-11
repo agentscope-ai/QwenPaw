@@ -137,6 +137,7 @@ class YuanbaoChannel(BaseChannel):
         app_id: str,
         app_secret: str,
         api_domain: str = DEFAULT_API_DOMAIN,
+        ws_url: str = "",
         bot_prefix: str = "",
         media_dir: str = "",
         workspace_dir: Path | None = None,
@@ -171,6 +172,7 @@ class YuanbaoChannel(BaseChannel):
         self.app_id = app_id
         self.app_secret = app_secret
         self.api_domain = api_domain or DEFAULT_API_DOMAIN
+        self.ws_url = (ws_url or "").strip() or DEFAULT_WS_URL
         self.bot_prefix = bot_prefix
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
@@ -279,6 +281,7 @@ class YuanbaoChannel(BaseChannel):
                     "api_domain",
                     DEFAULT_API_DOMAIN,
                 ),
+                ws_url=config.get("ws_url", ""),
                 bot_prefix=config.get("bot_prefix", ""),
                 media_dir=config.get("media_dir", ""),
                 on_reply_sent=on_reply_sent,
@@ -308,6 +311,7 @@ class YuanbaoChannel(BaseChannel):
             app_id=config.app_id,
             app_secret=config.app_secret,
             api_domain=config.api_domain,
+            ws_url=getattr(config, "ws_url", "") or "",
             bot_prefix=config.bot_prefix,
             media_dir=getattr(config, "media_dir", "") or "",
             on_reply_sent=on_reply_sent,
@@ -443,7 +447,7 @@ class YuanbaoChannel(BaseChannel):
         self._session = aiohttp.ClientSession()
         try:
             self._ws = await self._session.ws_connect(
-                DEFAULT_WS_URL,
+                self.ws_url,
                 timeout=aiohttp.ClientWSTimeout(
                     ws_close=float(SEND_TIMEOUT),
                 ),

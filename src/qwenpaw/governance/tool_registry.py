@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,17 @@ class ToolRegistry:
         input_data: dict[str, Any],
         workspace_dir: str = "",
     ) -> str:
-        """Extract the target from tool call arguments."""
+        """Extract the target from tool call arguments.
+
+        Args:
+            tool_name: policy-layer tool name, e.g. ``"Read"``
+            input_data: the tool call's raw arguments
+            workspace_dir: base directory for resolving *relative* paths of
+                ``file``-type tools. This must be the same base the tool
+                itself uses (the PRIMARY project directory — see
+                ``qwenpaw.config.context.get_tool_base_dir``), otherwise the
+                policy is evaluated against a path the tool never touches.
+        """
         param = self.get_target_param(tool_name)
         if not param:
             return ""
@@ -185,8 +196,22 @@ class ToolRegistry:
         if self._types.get(tool_name) == "file" and workspace_dir:
             if not path:
                 path = workspace_dir
-            elif not os.path.isabs(path):
+            elif not Path(path).is_absolute():
+                # ``Path.is_absolute()`` rather than ``os.path.isabs()``:
+                # the answer must be the one the *tool* uses, or the policy
+                # is evaluated against a path the tool never touches. They
+                # disagree on Windows for a drive-less rooted path such as
+                # ``/Windows/system32`` — pathlib always calls it relative
+                # (no drive) and resolves it against the workspace drive,
+                # while ``os.path.isabs()`` called it absolute before
+                # Python 3.13 and left it drive-less, so a DENY pattern
+                # like ``C:\Windows\**`` no longer matched the target the
+                # tool would actually write to.
                 path = os.path.join(workspace_dir, path)
+            # Collapse ``.``/``..`` segments lexically so relative paths
+            # that climb back into the project still match ALLOW rules
+            # (wcmatch's ``**`` refuses to match paths with dot segments).
+            path = os.path.normpath(path)
 
         # 3) Append pattern for file-search tools (e.g. Glob)
         pattern_param = self._pattern_params.get(tool_name)
@@ -402,7 +427,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
 
     Exception path for dynamic / mode-scoped tools that must not appear in
     the global builtin set (scroll ``recall_history*``, memory manager
-    ``memory_search``). Keep this list documented when adding similar tools.
+    tools). Keep this list documented when adding similar tools.
     """
     # Scroll strategy tools — hand-built descriptors, not global builtins.
     register_tool_governance(
@@ -422,13 +447,29 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         sandbox_required=True,
         owner="builtin",
     )
-    # Memory manager tool — registered dynamically outside agents.tools.
+    # Memory manager tools are registered dynamically outside agents.tools.
+    # Local searches remain internal; plugin backends may override the policy
+    # identity when a query leaves the process.
+    for python_name, policy_name, tool_type in (
+        ("memory_search", "MemorySearch", "internal"),
+        ("memory_remember", "MemoryRemember", "network"),
+    ):
+        register_tool_governance(
+            registry,
+            python_name=python_name,
+            tool_type=tool_type,
+            target_param="",
+            policy_name=policy_name,
+            owner="builtin",
+        )
+    # Visual compact recovery is feature-scoped and collected by AgentBuilder,
+    # so it stays out of the global @tool_descriptor builtin set.
     register_tool_governance(
         registry,
-        python_name="memory_search",
+        python_name="recover_visual_context",
         tool_type="internal",
         target_param="",
-        policy_name="MemorySearch",
+        policy_name="RecoverVisualContext",
         owner="builtin",
     )
 

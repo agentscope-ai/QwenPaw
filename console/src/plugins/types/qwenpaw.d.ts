@@ -221,6 +221,29 @@ export interface QwenPawChatNamespace {
     toolName: string,
     render: React.FC<Record<string, unknown>>,
   ): Disposable;
+  approval: {
+    render(
+      pluginId: string,
+      sourceType: string,
+      render: React.FC<{
+        approval: {
+          requestId: string;
+          sessionId: string;
+          rootSessionId?: string;
+          agentId: string;
+          toolName: string;
+          severity: string;
+          findingsCount: number;
+          findingsSummary: string;
+          toolParams: Record<string, unknown>;
+          createdAt: number;
+          timeoutSeconds: number;
+          sourceType: string;
+        };
+        onResolved: () => void;
+      }>,
+    ): Disposable;
+  };
   card(
     pluginId: string,
     cardName: string,
@@ -261,6 +284,19 @@ export interface QwenPawAuditNamespace {
   overrides(): OverrideRecord[];
 }
 
+export interface MemoryBackendExtension {
+  id: string;
+  label: string;
+  configPath?: string[];
+  tabKey?: string;
+  ConfigComponent?: React.ComponentType;
+  available?: boolean;
+}
+
+export interface QwenPawMemoryBackendsNamespace {
+  register(pluginId: string, extension: MemoryBackendExtension): Disposable;
+}
+
 export interface PluginRouteDeclaration {
   path: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -274,7 +310,11 @@ export interface QwenPawWindowNamespace {
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
+  memoryBackends: QwenPawMemoryBackendsNamespace;
   modules: Record<string, Record<string, unknown>>;
+  paw?: {
+    forApp(appId: string): import("../pawapp-sdk/types").PawSdk;
+  };
   registerRoutes?(pluginId: string, routes: PluginRouteDeclaration[]): void;
   registerToolRender?(
     pluginId: string,

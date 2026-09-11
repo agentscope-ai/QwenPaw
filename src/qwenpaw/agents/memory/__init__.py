@@ -4,11 +4,14 @@
 from typing import TYPE_CHECKING
 
 from .agent_md_manager import AgentMdManager
+from .action_provider import (
+    MemoryActionProvider,
+    MemoryActionResponse,
+    MemoryActionResult,
+    MemoryActionSpec,
+)
 from .base_memory_manager import BaseMemoryManager
 from .reme_light_memory_manager import ReMeLightMemoryManager
-from .adbpg_memory_manager import (
-    ADBPGMemoryManager,
-)  # registers "adbpg" backend
 from .dummy import (
     NoopMemoryManager,
 )  # registers "none" backend
@@ -22,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ProactiveQueryResult,
         ProactiveTask,
         enable_proactive_for_session,
+        disable_proactive_for_session,
         extract_content,
         generate_proactive_response,
         proactive_configs,
@@ -32,15 +36,19 @@ if TYPE_CHECKING:  # pragma: no cover
 # pylint: disable=undefined-all-variable
 __all__ = [
     "AgentMdManager",
+    "MemoryActionProvider",
+    "MemoryActionResponse",
+    "MemoryActionResult",
+    "MemoryActionSpec",
     "BaseMemoryManager",
     "ReMeLightMemoryManager",
-    "ADBPGMemoryManager",
     "NoopMemoryManager",
     # proactive symbols resolved lazily at runtime via __getattr__
     "ProactiveConfig",
     "ProactiveTask",
     "ProactiveQueryResult",
     "enable_proactive_for_session",
+    "disable_proactive_for_session",
     "proactive_trigger_loop",
     "proactive_tasks",
     "proactive_configs",
@@ -53,6 +61,7 @@ _PROACTIVE_EXPORTS = {
     "ProactiveTask",
     "ProactiveQueryResult",
     "enable_proactive_for_session",
+    "disable_proactive_for_session",
     "proactive_trigger_loop",
     "proactive_tasks",
     "proactive_configs",

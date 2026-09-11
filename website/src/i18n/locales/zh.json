@@ -5,6 +5,7 @@
     "explore": "探索",
     "more": "更多",
     "releaseNotes": "更新日志",
+    "discussion": "QwenPaw 讨论区",
     "qwenpaw": "Qwenpaw",
     "download": "下载",
     "github": "GitHub",
@@ -28,9 +29,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v2.0.0 五大方面能力升级：",
-    "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
-    "releaseNote": "QwenPaw v2.0.0版本全新发布",
+    "sub": "v2.2.0 智能体应用与平台能力全面升级：",
+    "sub1": "新增 QwenPaw Hub、Mail、Data 与 Creator 1.1，升级模型路由、扩展市场和运行体验",
+    "releaseNote": "QwenPaw v2.2.0 版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
@@ -65,21 +66,37 @@
     "sub": "记忆与个性化由你掌控。",
     "learnMore": "了解更多",
     "cards": {
-      "agentOs": {
-        "title": "Agent OS",
-        "desc": "QwenPaw 2.0 以类操作系统的 Harness 架构连接模型与应用，将 Agent 从独立应用升级为开放的智能基座。未来还将持续推出面向不同场景的 QwenPaw 小程序与轻量应用。"
+      "hub": {
+        "title": "QwenPaw Hub",
+        "desc": "在自己的服务器上为团队部署 QwenPaw。成员通过统一入口登录，同时拥有相互隔离的工作区、配置、凭据和会话，并支持本地进程与 Docker 运行时。"
       },
-      "tui": {
-        "title": "终端交互",
-        "desc": "基于 Textual 打造全屏终端聊天体验，支持流式输出、工具调用渲染与会话管理，并与控制台及各频道共享会话和记忆。"
+      "mail": {
+        "title": "QwenPaw Mail",
+        "desc": "让智能体实时监控、搜索、总结、回复、转发和整理邮件，并根据你的习惯持续完善自动分诊规则。陌生收件人与关键操作仍由你确认。"
       },
-      "scrollContext": {
-        "title": "滚动上下文",
-        "desc": "每轮对话实时写入 SQLite。窗口满时通过索引驱逐腾出空间，不摘要、不丢弃原文；历史内容可随时按需回溯，确保上下文信息完整保留。"
+      "data": {
+        "title": "QwenPaw Data",
+        "desc": "用自然语言提出业务问题，获得由真实企业数据支撑、过程可追溯的分析结果。通过语义模型、图谱关系和受控 SQL 串联完整分析流程。"
       },
-      "loopEngineering": {
-        "title": "循环工程",
-        "desc": "Agent 执行逻辑从硬编码走向可编排：当前可通过插件接口灵活组合流程，未来还将以 “Oh-My-Paw” 官方插件持续提供更多循环控制方案，让同一个 Agent 按场景切换行为模式。"
+      "creator": {
+        "title": "QwenPaw Creator 1.1",
+        "desc": "覆盖更多主流图片与视频生成模型，并强化叙事视频中的对白生成。新增网页和桌面操作录制、百炼 Wan3 视频生成及自动质量检查。"
+      },
+      "modelRouting": {
+        "title": "统一模型路由",
+        "desc": "通过统一的提供商发现、能力感知路由、回退策略和思考控制，让模型配置与选择更加一致，并提供更完整的 Prompt Cache 用量洞察。"
+      },
+      "backgroundWork": {
+        "title": "控制台与后台任务",
+        "desc": "更清晰地跟踪智能体协作和长时间运行的工作。子智能体会话支持分组和状态提醒，统一任务列表集中展示进度与生成产物。"
+      },
+      "extensions": {
+        "title": "统一扩展市场",
+        "desc": "在同一个入口搜索和管理应用、插件与 Skills。支持 Skill 搜索、批量启用或禁用、内置 Skills 自动更新，以及新安装 PawApp 的即时启动。"
+      },
+      "reliability": {
+        "title": "更快、更稳、更安全",
+        "desc": "加快工作区启动与长对话响应，降低流式处理开销，并全面加强模型流恢复、配置持久化、File Guard、沙箱及桌面端稳定性。"
       }
     }
   },
@@ -240,7 +257,8 @@
       "dingtalk": "钉钉",
       "xiaohongshu": "小红书",
       "wechat": "微信公众号",
-      "douyin": "抖音"
+      "douyin": "抖音",
+      "bilibili": "哔哩哔哩"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED，保留所有权利。",
     "poweredBy": {
@@ -288,16 +306,21 @@
     "desktop": "桌面应用",
     "demo": "功能演示",
     "console": "控制台",
+    "mailbox": "邮箱管理与自动化",
     "tui": "终端界面",
     "multiAgent": "多智能体",
     "models": "模型",
     "channels": "频道配置",
     "skills": "Skills",
     "mcp": "MCP 与内置工具",
+    "browser": "浏览器",
     "acpServer": "ACP 集成",
-    "memory": "记忆",
+    "memory": "长期记忆",
+    "embedding": "向量模型",
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
-    "codingMode": "Coding 模式",
+    "computerUse": "电脑操作",
+    "chrome": "Chrome 浏览器扩展",
+    "creator": "Creator: Agentic 视频创作平台",
     "context": "上下文",
     "loopEngineering": "循环工程",
     "commands": "魔法命令",
@@ -309,6 +332,7 @@
     "cli": "CLI",
     "plugins": "插件系统",
     "pluginsMigration": "插件迁移指南",
+    "hub": "部署与管理多租户 QwenPaw",
     "architecture": "架构设计",
     "faq": "常见问题",
     "apiTutorial": "RESTful API 接口",
@@ -318,8 +342,10 @@
     "practiceAgentTeam": "Agent Team 实践",
     "groupWelcome": "欢迎",
     "groupControl": "控制",
+    "groupBrowserDesktop": "浏览器与桌面",
     "groupAgent": "智能体",
     "groupSettings": "设置",
+    "groupHub": "Hub 部署与管理",
     "groupPractice": "实践",
     "groupOthers": "其他",
     "toggleSidebar": "切换侧边栏",

@@ -137,7 +137,7 @@ Everything else here — the workspace boundary, the request lifecycle, the reso
 
 A **workspace** is the unit of isolation. One installation can run many agents, and each agent gets exactly one workspace: an on-disk directory plus the live services that operate on it. Workspaces load lazily the first time an agent is addressed, and shut down cleanly on stop. No agent can see another's files, memory, or conversations unless it explicitly messages the other.
 
-Each workspace bundles two things: the **services** an agent needs at runtime (session and history, memory, connectors, channels, chats, scheduling), and a set of **extension registries** for tools, hooks, commands, and prompt fragments. Third-party **plugins** add to these registries — model providers, tools, hooks, slash commands, prompt sections, HTTP routes, and agent middleware — so you can extend the platform without forking it. See [Plugins](./plugins).
+Each workspace bundles two things: the **services** an agent needs at runtime (session and history, memory, connectors, channels, chats, scheduling), and a set of **extension registries** for tools, hooks, commands, prompt fragments, and memory backends. Third-party **plugins** add to these registries — model providers, tools, memory stores, hooks, slash commands, prompt sections, HTTP routes, and agent middleware — so you can extend the platform without forking it. Startup-critical channel and memory plugins register before workspaces are created. See [Plugins](./plugins).
 
 <svg viewBox="0 0 860 420" width="100%" role="img" aria-label="Workspace anatomy: a registry holds multiple isolated per-agent workspaces; each workspace bundles services and an on-disk directory." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
@@ -254,7 +254,7 @@ The runtime turns one incoming request into a stream of UI events. It runs as a 
 
 **Modes** bundle related commands, tools, hooks, and prompt fragments behind a single on/off switch. Two modes ship today:
 
-- **Coding mode** adds project-aware tools (code search, inline diff editing) and a coding system prompt, scoped to a project directory. See [Coding Mode](./coding-mode).
+- **Coding mode** adds project-aware tools (code search, inline diff editing) and a coding system prompt, scoped to a project directory.
 - **Mission mode** runs long tasks as a two-phase loop: the agent first writes a plan, then iterates with implementation tools until every checkpoint passes.
 
 **Assembling the agent** happens once per request: the agent config, model, tools, system prompt, memory, and context strategy come together, and every tool is wrapped so the governance layer always sees it. Building fresh each time keeps provisioning and policy out of the agent itself.
@@ -278,7 +278,7 @@ Multiple agents coordinate two ways (see [Multi-Agent](./multi-agent)):
 
 QwenPaw separates two things that are easy to conflate: **memory** (what the agent remembers across conversations) and **context** (what fits in the model's window right now).
 
-<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="Memory is a pluggable backend over transparent Markdown files; context management is either summarizing compaction or the Scroll strategy with a durable store and a recall tool." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="Memory selects either the built-in ReMe backend or an installed plugin backend; ReMe uses transparent Markdown files. Context management is either summarizing compaction or the Scroll strategy with a durable store and a recall tool." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMemArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -291,7 +291,7 @@ QwenPaw separates two things that are easy to conflate: **memory** (what the age
   <line x1="220" y1="94" x2="220" y2="108" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpMemArrow)"/>
   <rect x="40" y="110" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="220" y="129" text-anchor="middle" font-size="12" fill="currentColor">Pluggable memory backend</text>
   <rect x="40" y="152" width="174" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="127" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">ReMe (default)</text>
-  <rect x="226" y="152" width="174" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="313" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">Plain Markdown</text>
+  <rect x="226" y="152" width="174" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="313" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">Installed plugin backend</text>
   <text x="40" y="208" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">TRANSPARENT FILES IN THE WORKSPACE</text>
   <g font-size="11.5" fill="currentColor">
     <rect x="40" y="218" width="360" height="26" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="220" y="235" text-anchor="middle">MEMORY.md — long-term notes</text>
@@ -314,7 +314,15 @@ QwenPaw separates two things that are easy to conflate: **memory** (what the age
   <text x="640" y="332" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">demand rather than summarized away.</text>
 </svg>
 
-**Memory** is a pluggable backend. The default is built on the [ReMe](https://github.com/agentscope-ai/ReMe) memory library, which runs recall, write, and consolidation ("dream") as background work over the workspace; a simpler option reads and writes the same files directly. Either way the substrate is **human-readable Markdown** — `MEMORY.md` for durable notes and dated daily files — so memory is something you can open, audit, and edit. See [Memory](./memory) and [Memory-Evolving &amp; Proactive](./memory-evolving-and-proactive).
+**Memory** is selected through an owner-aware backend registry. The built-in
+default uses the [ReMe](https://github.com/agentscope-ai/ReMe) library to run
+recall, write, and consolidation ("dream") as background work over transparent
+workspace Markdown. Optional installed plugins such as ADBPG and PowerContext
+can instead own remote storage, configuration validation, tools, and retrieval
+behavior. Each workspace passes the selected backend a stable context containing
+the Agent identity, workspace, language, and that Agent's plugin configuration;
+an unavailable backend fails explicitly rather than receiving another store as
+a fallback. See [Memory](./memory), [Memory-Evolving &amp; Proactive](./memory-evolving-and-proactive), and [Plugins](./plugins#memory-backend-plugins).
 
 **Context** management is pluggable too. By default QwenPaw summarizes older turns once the window fills. The opt-in **Scroll** strategy instead keeps every turn in a durable store, maintains a compact index of what has scrolled out, and gives the agent a tool to replay any earlier span on demand, so long conversations stay fully recallable. See [Context](./context).
 

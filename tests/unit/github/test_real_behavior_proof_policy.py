@@ -81,6 +81,38 @@ class TestExternalPrPass:
         assert ev.status == ProofStatus.PASSED
 
     @staticmethod
+    def test_passes_with_fenced_evidence_only_no_prose():
+        # Regression for #6626: an Evidence section that contains ONLY a
+        # fenced transcript (no prose outside the fence) must still pass.
+        # The old _strip_code_fences deleted the whole block, leaving
+        # Evidence empty -> MISSING. The fence-aware section extractor keeps
+        # the fenced content so the section has real authored content.
+        ev = evaluate_pull_request_context(
+            **_external_pr(
+                _proof_body(
+                    "```text\n$ pytest -q\n4 passed\n```",
+                ),
+            ),
+        )
+        assert ev.status == ProofStatus.PASSED
+
+    @staticmethod
+    def test_fenced_heading_does_not_start_section():
+        # Regression for #6626: a heading-like line INSIDE a fenced block
+        # must not be treated as a real section boundary (and must not
+        # truncate the surrounding Evidence section).
+        ev = evaluate_pull_request_context(
+            **_external_pr(
+                _proof_body(
+                    "```bash\n$ pytest -q\n## NOT A HEADING\n4 passed\n```",
+                ),
+            ),
+        )
+        assert ev.status == ProofStatus.PASSED
+        # The fake heading inside the fence must not register as a section.
+        assert not ev.missing_sections
+
+    @staticmethod
     def test_passes_with_test_output():
         ev = evaluate_pull_request_context(
             **_external_pr(_proof_body("pytest passed: 4 files, 67 cases.")),

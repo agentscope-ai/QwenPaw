@@ -1,0 +1,198 @@
+/**
+ * tokens.css — project-level semantic colour tokens (single source of truth).
+ *
+ * Layering:
+ *   1. ThemeContext  → owns light / dark / system state, toggles `.dark-mode`
+ *                      on <html>.
+ *   2. ConfigProvider → owns antd component tokens (App.tsx).
+ *   3. this file      → owns the `--app-*` tokens consumed by *.module.less.
+ *
+ * Rules:
+ *   - Light values live in `:root`, dark values in `html.dark-mode`.
+ *   - Modules consume `var(--app-*)` and MUST NOT re-declare colours inside a
+ *     `.dark-mode` block; only structural or third-party-specific exceptions
+ *     (Monaco, login backdrop, vendor overrides) stay in modules.
+ *   - Historical `--color*`, `--ant-color-*`, and `--qwenpaw-color-*`
+ *     aliases have been removed. Project modules use `--app-*` directly.
+ *
+ * Values are the palette already in effect (antd default algorithm surfaces
+ * plus the brand orange), not a redesign.
+ */
+
+:root {
+  /* Surfaces */
+  --app-bg: #f9f8f4;
+  --app-surface: #ffffff;
+  --app-surface-subtle: #faf9f7;
+  --app-surface-raised: #ffffff;
+  /* Inset strips such as table headers, which sit lower than the card. */
+  --app-surface-sunken: #f9f8f4;
+  /* Persistent application chrome: header, sidebar, and sticky sidebar areas. */
+  --app-shell-bg: #f9f8f4;
+
+  /* Fills (hover / selected / inline chips) */
+  --app-fill-strong: rgba(0, 0, 0, 0.09);
+  --app-fill: rgba(0, 0, 0, 0.06);
+  --app-fill-subtle: rgba(0, 0, 0, 0.04);
+  --app-fill-faint: rgba(0, 0, 0, 0.02);
+
+  /* Borders */
+  --app-border: #eae8e7;
+  --app-border-strong: #d8d4cf;
+  --app-border-hover: #d8d4cf;
+  --app-border-subtle: #f0eeeb;
+
+  /* Text */
+  --app-text: rgba(20, 20, 19, 0.88);
+  --app-text-secondary: rgba(20, 20, 19, 0.58);
+  --app-text-tertiary: rgba(20, 20, 19, 0.45);
+  --app-text-quaternary: rgba(20, 20, 19, 0.25);
+  --app-text-inverse: #ffffff;
+
+  /* Brand accent — identical in both themes (matches OS shell ACCENT) */
+  --app-accent: #ff7f16;
+  --app-accent-hover: #ff9d4d;
+  --app-accent-active: #d96806;
+  /* Accent used as text: darkened in light mode so small labels stay legible
+   * on an accent-soft background. */
+  --app-accent-text: #bd5100;
+  --app-accent-faint: rgba(255, 127, 22, 0.04);
+  --app-accent-soft: rgba(255, 127, 22, 0.1);
+  --app-accent-soft-hover: rgba(255, 127, 22, 0.16);
+  --app-accent-border: rgba(255, 127, 22, 0.42);
+  --app-accent-ring: rgba(255, 127, 22, 0.2);
+
+  /* Navigation selection stays neutral in the light shell. */
+  --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
+  --app-nav-selected-bg-hover: rgba(43, 18, 0, 0.1);
+  --app-nav-selected-text: var(--app-text);
+
+  /* Selected row / active item. Still antd blue: kept as-is so the token
+   * extraction stays visually neutral. Switching selection to the brand
+   * orange is a design decision and only needs an edit here. */
+  --app-selected-bg: #e6f4ff;
+  --app-selected-bg-hover: #d6eaff;
+  --app-selected-border: #1677ff;
+
+  /* Informational callouts (also antd blue) */
+  --app-info-bg: rgba(22, 119, 255, 0.06);
+  --app-info-bg-hover: rgba(22, 119, 255, 0.12);
+  --app-info-border: rgba(22, 119, 255, 0.16);
+  --app-info-text: #1668dc;
+
+  /* Status. The *-text variants are the readable-on-*-bg pairing: the base
+   * colour is tuned for icons and fills, not for small labels. */
+  --app-success: #52c41a;
+  --app-success-text: #389e0d;
+  /* -faint tints a control surface without replacing it; -bg is a filled
+   * status background. Mixing them up makes a whole input read as green. */
+  --app-success-faint: rgba(82, 196, 26, 0.02);
+  --app-success-bg: #f6ffed;
+  --app-success-border: #b7eb8f;
+  --app-warning: #faad14;
+  --app-warning-text: #d48806;
+  --app-warning-bg: #fffbe6;
+  --app-warning-border: #ffe58f;
+  --app-error: #ff4d4f;
+  --app-error-text: #cf1322;
+  --app-error-faint: rgba(255, 77, 79, 0.02);
+  --app-error-bg: #fff2f0;
+  --app-error-border: #ffccc7;
+  --app-error-ring: rgba(255, 77, 79, 0.2);
+
+  /* Search-hit highlight */
+  --app-highlight-bg: rgba(255, 214, 102, 0.65);
+
+  /* Idle status dot — neutral in both themes, unrelated to the status colours */
+  --app-status-idle: #94a3b8;
+
+  /* Scrollbars need a visible thumb, not a surface fill */
+  --app-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+
+  /* Elevation */
+  --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+html.dark-mode {
+  /* Surfaces */
+  --app-bg: #141414;
+  --app-surface: #1f1f1f;
+  --app-surface-subtle: #1a1a1a;
+  --app-surface-raised: #262626;
+  --app-surface-sunken: #262626;
+  --app-shell-bg: #1a1a1a;
+
+  /* Fills */
+  --app-fill-strong: rgba(255, 255, 255, 0.16);
+  --app-fill: rgba(255, 255, 255, 0.12);
+  --app-fill-subtle: rgba(255, 255, 255, 0.08);
+  --app-fill-faint: rgba(255, 255, 255, 0.04);
+
+  /* Borders */
+  --app-border: rgba(255, 255, 255, 0.12);
+  --app-border-strong: rgba(255, 255, 255, 0.15);
+  --app-border-hover: rgba(255, 255, 255, 0.3);
+  --app-border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --app-text: rgba(255, 255, 255, 0.85);
+  --app-text-secondary: rgba(255, 255, 255, 0.65);
+  --app-text-tertiary: rgba(255, 255, 255, 0.45);
+  --app-text-quaternary: rgba(255, 255, 255, 0.35);
+
+  /* Accent softs need more opacity to read on dark surfaces */
+  --app-accent-text: #ff9a47;
+  --app-accent-faint: rgba(255, 127, 22, 0.08);
+  --app-accent-soft: rgba(255, 127, 22, 0.16);
+  --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
+  --app-accent-border: rgba(255, 127, 22, 0.5);
+
+  /* Dark navigation uses the brand accent for a clear active state. */
+  --app-nav-selected-bg: var(--app-accent-soft);
+  --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-nav-selected-text: var(--app-accent-text);
+
+  /* Selection */
+  --app-selected-bg: rgba(22, 119, 255, 0.12);
+  --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
+  --app-selected-border: #4096ff;
+
+  /* Informational callouts */
+  --app-info-bg: rgba(22, 119, 255, 0.12);
+  --app-info-bg-hover: rgba(22, 119, 255, 0.2);
+  --app-info-border: rgba(22, 119, 255, 0.28);
+  --app-info-text: #6cb2ff;
+
+  /* Status */
+  --app-success: #49aa19;
+  --app-success-text: #6abe39;
+  --app-success-faint: rgba(82, 196, 26, 0.05);
+  --app-success-bg: #162312;
+  --app-success-border: #274916;
+  --app-warning: #d89614;
+  --app-warning-text: #e8b339;
+  --app-warning-bg: #2b2111;
+  --app-warning-border: #594214;
+  --app-error: #dc4446;
+  --app-error-text: #ff7875;
+  --app-error-faint: rgba(255, 77, 79, 0.05);
+  --app-error-bg: #2c1618;
+  --app-error-border: #58191c;
+  --app-error-ring: rgba(220, 68, 70, 0.25);
+
+  /* Search-hit highlight */
+  --app-highlight-bg: rgba(255, 214, 102, 0.35);
+
+  /* Idle status dot */
+  --app-status-idle: rgba(255, 255, 255, 0.35);
+
+  /* Scrollbars */
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+
+  /* Elevation */
+  --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+}

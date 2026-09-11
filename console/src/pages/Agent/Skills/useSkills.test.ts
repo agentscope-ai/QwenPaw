@@ -30,6 +30,15 @@ const hoisted = vi.hoisted(() => {
   const handleScanErrorMock = vi.fn().mockReturnValue(false);
   const checkScanWarningsMock = vi.fn().mockResolvedValue(undefined);
   const showScanErrorModalMock = vi.fn();
+  const harnessMocks = {
+    listSkills: vi.fn(),
+  };
+  const agentState = {
+    selectedAgent: "agent-1",
+    agents: [{ id: "agent-1", backend: "qwenpaw" }] as Array<
+      Record<string, unknown>
+    >,
+  };
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite fetchSkills loop via useEffect.
   const stableT = (k: string) => k;
@@ -42,6 +51,8 @@ const hoisted = vi.hoisted(() => {
     handleScanErrorMock,
     checkScanWarningsMock,
     showScanErrorModalMock,
+    harnessMocks,
+    agentState,
     stableT,
   };
 });
@@ -65,7 +76,11 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
+  useAgentStore: () => hoisted.agentState,
+}));
+
+vi.mock("../../../api/modules/harness", () => ({
+  harnessApi: hoisted.harnessMocks,
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -94,6 +109,7 @@ vi.mock("../../../utils/scanError", () => ({
 }));
 
 import { useSkills } from "./useSkills";
+import { notifySkillChange } from "../../../utils/skillChangeEvents";
 
 const {
   apiMocks,
@@ -101,13 +117,14 @@ const {
   modalConfirmMock,
   parseErrorDetailMock,
   handleScanErrorMock,
+  harnessMocks,
+  agentState,
 } = hoisted;
 
 function makeSkill(overrides: Partial<SkillSpec> = {}): SkillSpec {
   return {
     name: "my-skill",
     description: "test",
-    content: "content",
     source: "local",
     enabled: true,
     ...overrides,
@@ -140,6 +157,9 @@ describe("useSkills", () => {
     parseErrorDetailMock.mockReset();
     handleScanErrorMock.mockReset();
     handleScanErrorMock.mockReturnValue(false);
+    harnessMocks.listSkills.mockReset();
+    agentState.selectedAgent = "agent-1";
+    agentState.agents = [{ id: "agent-1", backend: "qwenpaw" }];
 
     apiMocks.listSkills.mockResolvedValue([makeSkill()]);
     apiMocks.getBlockedHistory.mockResolvedValue([]);
@@ -154,6 +174,59 @@ describe("useSkills", () => {
       expect(result.current.loading).toBe(false);
     });
     expect(result.current.skills).toEqual(skills);
+  });
+
+  it("refreshes an already-mounted workspace after a market install", async () => {
+    apiMocks.listSkills
+      .mockResolvedValueOnce([makeSkill({ name: "existing" })])
+      .mockResolvedValue([makeSkill({ name: "installed-from-market" })]);
+    const { result } = renderSkillsHook();
+
+    await waitFor(() =>
+      expect(result.current.skills[0]?.name).toBe("existing"),
+    );
+
+    act(() => {
+      notifySkillChange("agent-1");
+    });
+
+    await waitFor(() =>
+      expect(result.current.skills[0]?.name).toBe("installed-from-market"),
+    );
+    expect(apiMocks.listSkills).toHaveBeenCalledTimes(2);
+    expect(apiMocks.listSkills).toHaveBeenLastCalledWith("agent-1");
+  });
+
+  it("loads Provider Skills separately as read-only inventory", async () => {
+    agentState.agents = [
+      {
+        id: "agent-1",
+        backend: "qoder",
+        backend_capabilities: {
+          provider_skills_discovery: true,
+        },
+      },
+    ];
+    harnessMocks.listSkills.mockResolvedValue({
+      skills: [
+        {
+          name: "find-skills",
+          description: "Find Skills",
+          provider_id: "qoder",
+          source: "user",
+          enabled: true,
+          read_only: true,
+          scope: "provider",
+        },
+      ],
+    });
+
+    const { result } = renderSkillsHook();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(harnessMocks.listSkills).toHaveBeenCalledWith("qoder");
+    expect(result.current.providerSkills).toHaveLength(1);
+    expect(result.current.providerSkills[0].read_only).toBe(true);
   });
 
   it("fetchSkills failure: message.error", async () => {

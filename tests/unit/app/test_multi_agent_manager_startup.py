@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for bounded multi-agent startup scheduling."""
+
 # pylint: disable=protected-access
 from __future__ import annotations
 
@@ -16,7 +17,26 @@ import qwenpaw.app.multi_agent_manager as multi_agent_manager_module
 import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
+from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.workspace import Workspace
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.memory.reme_light_memory_manager import (
+    ReMeLightMemoryManager,
+)
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
+from qwenpaw.memory import MemoryBackendContext, memory_registry
+
+
+class _RemoteMemoryManager:
+    def __init__(self, context: MemoryBackendContext) -> None:
+        self.context = context
+        self.config = dict(context.backend_config)
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
 
 def _config(*agent_ids: str):
@@ -33,19 +53,393 @@ def _config(*agent_ids: str):
     )
 
 
+class _ReloadServiceManager:
+    def __init__(
+        self,
+        reusable: dict | None = None,
+        accepted: set[str] | None = None,
+    ) -> None:
+        self.services = {}
+        self._reusable = reusable or {}
+        self.reused_services = accepted or set()
+        self.descriptors = {
+            name: SimpleNamespace(reusable=True) for name in self._reusable
+        }
+
+    def get_reusable_services(self) -> dict:
+        return self._reusable
+
+
+class _ReloadWorkspace:
+    def __init__(
+        self,
+        agent_id: str,
+        *,
+        reusable: dict | None = None,
+        accepted: set[str] | None = None,
+    ) -> None:
+        self.agent_id = agent_id
+        self.task_tracker = TaskTracker()
+        self._service_manager = _ReloadServiceManager(reusable, accepted)
+        self.started = False
+        self.stopped = False
+        self.manager = None
+
+    def set_task_tracker(self, task_tracker: TaskTracker) -> None:
+        assert not self.started
+        self.task_tracker = task_tracker
+
+    async def set_reusable_components(self, _components: dict) -> None:
+        return None
+
+    async def start(self) -> None:
+        self.started = True
+
+    def set_manager(self, manager: MultiAgentManager) -> None:
+        self.manager = manager
+
+    async def stop(self, final: bool = True) -> None:
+        del final
+        self.stopped = True
+
+
+def test_get_loaded_agent_never_starts_a_workspace() -> None:
+    manager = MultiAgentManager()
+    workspace = MagicMock()
+    manager.agents["loaded"] = workspace
+
+    assert manager.get_loaded_agent("loaded") is workspace
+    assert manager.get_loaded_agent("not-loaded") is None
+
+
+def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    assert descriptor.reusable is True
+    assert descriptor.require_clean_stop is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_falls_back_to_remelight_for_unregistered_backend(
+    monkeypatch,
+    tmp_path,
+    caplog,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        language="zh",
+        running=SimpleNamespace(
+            memory_manager_backend="missing-memory-plugin",
+            memory_backend_configs={
+                "missing-memory-plugin": {"token": "keep-me"},
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        ReMeLightMemoryManager,
+        "_initialize_reme",
+        lambda _self: None,
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert isinstance(workspace.memory_manager, ReMeLightMemoryManager)
+    assert workspace.memory_manager.context.backend_config == {}
+    assert (
+        workspace.config.running.memory_manager_backend
+        == "missing-memory-plugin"
+    )
+    assert workspace.config.running.memory_backend_configs == {
+        "missing-memory-plugin": {"token": "keep-me"},
+    }
+    assert "using 'remelight'" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
+    tmp_path,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(memory_manager_backend="none"),
+    )
+    old_manager = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=tmp_path,
+            backend_config={"kind": "old"},
+        ),
+        close=AsyncMock(),
+    )
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert isinstance(workspace.memory_manager, NoopMemoryManager)
+    assert workspace.memory_manager is not old_manager
+    assert "memory_manager" not in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
+    tmp_path,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(memory_manager_backend="none"),
+    )
+    old_manager = NoopMemoryManager(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=constants.WORKING_DIR,
+            backend_config={},
+        ),
+    )
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert workspace.memory_manager is old_manager
+    assert "memory_manager" in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_workspace_recreates_plugin_manager_when_config_changes(
+    tmp_path,
+) -> None:
+    """A reload must not keep a client with the old remote scope or URL."""
+    old_config = {
+        "base_url": "http://old.example",
+        "scope_id": "agent:old",
+    }
+    new_config = {
+        "base_url": "http://new.example",
+        "scope_id": "agent:new",
+    }
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": new_config,
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+        language="zh",
+    )
+    old_manager = _RemoteMemoryManager(
+        MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=tmp_path,
+            backend_config=old_config,
+        ),
+    )
+    memory_registry.register_backend(
+        plugin_id="test-remote-memory",
+        backend_id="remote-memory",
+        factory=_RemoteMemoryManager,
+        label="Remote Memory",
+    )
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    manager = workspace.memory_manager
+    assert manager is not old_manager
+    assert isinstance(manager, _RemoteMemoryManager)
+    assert manager.config["base_url"] == "http://new.example"
+    assert manager.config["scope_id"] == "agent:new"
+    await manager.close()
+    memory_registry.unregister_owner("test-remote-memory")
+
+
+@pytest.mark.asyncio
+async def test_reload_marks_rejected_reusable_service_for_cleanup(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    config = _config("agent-1")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    memory_manager = object()
+    old_workspace = _ReloadWorkspace(
+        "agent-1",
+        reusable={"memory_manager": memory_manager},
+        accepted={"memory_manager"},
+    )
+    new_workspace = _ReloadWorkspace("agent-1", accepted=set())
+    manager.agents["agent-1"] = old_workspace
+    manager._create_workspace = MagicMock(return_value=new_workspace)
+
+    assert await manager.reload_agent("agent-1") is True
+
+    descriptor = old_workspace._service_manager.descriptors["memory_manager"]
+    assert descriptor.reusable is False
+    assert (
+        "memory_manager" not in old_workspace._service_manager.reused_services
+    )
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_reload_reuses_tracker_for_active_stream_reconnect(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    config = _config("agent-1")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    old_workspace = _ReloadWorkspace("agent-1")
+    new_workspace = _ReloadWorkspace("agent-1")
+    manager.agents["agent-1"] = old_workspace
+    manager._create_workspace = MagicMock(return_value=new_workspace)
+    release = asyncio.Event()
+    emitted = asyncio.Event()
+
+    async def producer(_payload):
+        yield "data: replayed\n\n"
+        emitted.set()
+        await release.wait()
+        yield "data: live\n\n"
+
+    original_queue, _ = await old_workspace.task_tracker.attach_or_start(
+        "chat-1",
+        None,
+        producer,
+        owner=old_workspace,
+    )
+    await asyncio.wait_for(emitted.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert await manager.reload_agent("agent-1") is True
+    assert manager.agents["agent-1"] is new_workspace
+    assert new_workspace.task_tracker is old_workspace.task_tracker
+
+    reconnect_queue = await new_workspace.task_tracker.attach("chat-1")
+    assert reconnect_queue is not None
+    assert await reconnect_queue.get() == "data: replayed\n\n"
+    assert await reconnect_queue.get() == REPLAY_END_SSE
+
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    release.set()
+    assert await reconnect_queue.get() == "data: live\n\n"
+    assert await reconnect_queue.get() is None
+    async for _ in old_workspace.task_tracker.stream_from_queue(
+        original_queue,
+        "chat-1",
+    ):
+        pass
+    await asyncio.wait_for(
+        asyncio.gather(*cleanup_tasks),
+        timeout=1,
+    )
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_cleanup_keeps_old_workspace_alive_after_wait_timeout() -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        side_effect=[False, True],
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(
+        asyncio.gather(*cleanup_tasks),
+        timeout=1,
+    )
+
+    assert old_workspace.task_tracker.wait_tasks_done.await_count == 2
+    assert old_workspace.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_cleanup_forces_stop_after_maximum_wait_rounds(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    old_workspace = _ReloadWorkspace("agent-1")
+    task = asyncio.Future()
+    old_workspace.task_tracker.wait_tasks_done = AsyncMock(
+        return_value=False,
+    )
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS",
+        2,
+    )
+
+    await manager._graceful_stop_old_instance(
+        old_workspace,
+        "agent-1",
+        active_tasks={"chat-1": task},
+    )
+    cleanup_tasks = list(manager._cleanup_tasks)
+    assert cleanup_tasks
+    await asyncio.wait_for(
+        asyncio.gather(*cleanup_tasks),
+        timeout=1,
+    )
+
+    assert old_workspace.task_tracker.wait_tasks_done.await_count == 2
+    assert old_workspace.stopped is True
+
+
 def _read_custom_startup_concurrency(
     value: str | None = None,
-    legacy_value: str | None = None,
 ) -> int:
     """Read the import-time setting in an isolated interpreter."""
     env = os.environ.copy()
     env.pop(constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV, None)
-    legacy_env = "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
-    env.pop(legacy_env, None)
     if value is not None:
         env[constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV] = value
-    if legacy_value is not None:
-        env[legacy_env] = legacy_value
 
     code = (
         "from qwenpaw.constant import "
@@ -98,11 +492,6 @@ def test_custom_startup_concurrency_parsing(
     expected: int,
 ) -> None:
     assert _read_custom_startup_concurrency(value=value) == expected
-
-
-def test_custom_startup_concurrency_supports_legacy_env() -> None:
-    """The legacy COPAW-prefixed environment variable remains supported."""
-    assert _read_custom_startup_concurrency(legacy_value="3") == 3
 
 
 @pytest.mark.asyncio

@@ -58,7 +58,7 @@ Optionally, add a one-shot instruction to guide which supported information the 
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -85,18 +85,389 @@ Optionally, add a one-shot instruction to guide which supported information the 
 
 ---
 
+## Checkpoint Commands
+
+**State checkpoints** maintain a local, restorable history for the current Agent workspace. You can restore an earlier conversation state and optionally restore long-term memory or selected workspace files with it.
+
+> Console: **Agent → Checkpoints**
+> Chat: send `/checkpoint`
+
+Checkpoints are designed for frequent saves and quick rollbacks. They are not full-instance backups and never rewrite your project's own Git history. To migrate an instance or preserve global settings and secrets, use [Backup & Restore](./backup).
+
+| Command                                       | Description                                       |
+| --------------------------------------------- | ------------------------------------------------- |
+| `/checkpoint`                                 | Show checkpoint command help                      |
+| `/checkpoint auto [on\|off]`                  | View or change automatic checkpoint status        |
+| `/checkpoint snapshot [name]`                 | Create a named snapshot                           |
+| `/checkpoint timeline [--limit=N] [--all]`    | View checkpoint history                           |
+| `/checkpoint restore <target> [options]`      | Preview or apply a restore                        |
+| `/checkpoint gc [--all-sessions] [--compact]` | Preview or clean up old checkpoints               |
+| `/checkpoint reset --confirm`                 | Reset checkpoint history and settings to defaults |
+
+---
+
+### When to use checkpoints
+
+| Scenario                                             | Recommended action                           |
+| ---------------------------------------------------- | -------------------------------------------- |
+| Before a risky conversation or tool operation        | Create a named snapshot                      |
+| Return to an earlier conversation state              | Restore the conversation only                |
+| Roll back `MEMORY.md` and `memory/` as well          | Restore with memory included                 |
+| The Agent accidentally changed a few workspace files | Preview the diff and select only those files |
+| Automatic checkpoints consume too much disk space    | Preview and run garbage collection           |
+
+> 💡 Create a **named snapshot** at important milestones. Named snapshots are not removed by automatic garbage collection and make better long-term anchors than timeline numbers.
+
+---
+
+### How it works
+
+Every workspace has an independent shadow Git repository:
+
+```text
+<workspace>/checkpoints/
+├─ shadow.git/   # Checkpoint objects and refs
+├─ heads.json    # Current checkpoint for each session
+└─ config.toml   # Automatic-save, retention, and safety settings
+```
+
+The shadow repository is completely separate from a project `.git/`. It never creates project branches or commits and never modifies the project's index. Git automatically deduplicates identical objects, so consecutive checkpoints normally add only changed data.
+
+```mermaid
+flowchart LR
+    A[Response and session save complete] --> B{Automatic checkpoints on?}
+    B -- Yes --> C[Wait for debounce]
+    C --> D[Write to shadow Git]
+    E[Create a manual snapshot] --> D
+    D --> F[Timeline / graph]
+    F --> G[Preview restore]
+    G --> H[Create pre-restore safety point]
+    H --> I[Apply restore]
+```
+
+Logical parent metadata records the relationship between checkpoints, allowing the Console to display branching history. If you restore an older checkpoint and continue working, a new branch grows from that point without deleting later checkpoints.
+
+---
+
+### Checkpoint types
+
+| Type                                       | Created by                                                                                         | Retention                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **Automatic checkpoint** (auto)            | Created in the background after a successful non-command response when automatic saves are enabled | Cleaned according to count and age |
+| **Named snapshot** (snapshot)              | Click **Create snapshot** in the Console or run `/checkpoint snapshot`                             | Never removed by automatic GC      |
+| **Pre-restore safety point** (pre-restore) | Created automatically before every applied restore                                                 | Kept for 7 days by default         |
+
+**HEAD** in the timeline marks the checkpoint currently selected for a session. It is a state marker, not a fourth checkpoint type, and garbage collection never deletes a session HEAD.
+
+---
+
+### Enable automatic checkpoints
+
+Automatic checkpoints are disabled by default. Turn on **Automatic checkpoints** on the Console's Checkpoints page, or use:
+
+```text
+/checkpoint auto           # Show current status
+/checkpoint auto on        # Enable
+/checkpoint auto off       # Disable
+```
+
+Once enabled, QwenPaw creates an automatic checkpoint when all of the following are true:
+
+1. The Agent response completed successfully.
+2. The current session was saved successfully.
+3. The user input was not a command beginning with `/`.
+4. The debounce interval since this session's last automatic checkpoint has elapsed; the default is 1.5 seconds.
+
+Creation runs in the background. If several responses finish close together, debouncing coalesces them to avoid redundant checkpoints.
+
+---
+
+### Create a named snapshot
+
+In the Console, click **Create snapshot** and enter a name. You can also run:
+
+```text
+/checkpoint snapshot before-refactor
+/checkpoint snapshot "before release"
+```
+
+If you omit the name, QwenPaw generates one. Names are normalized into safe ref names; when a session already has the same name, QwenPaw appends a numeric suffix.
+
+---
+
+### View the timeline
+
+The Console provides graph and list views with type, session, and text filters. In chat, use:
+
+```text
+/checkpoint timeline
+/checkpoint timeline --limit=50
+/checkpoint timeline --all
+```
+
+- The default view shows the current session's latest 20 records.
+- `--limit=N` changes the result count; the default maximum is 200.
+- `--all` displays checkpoints from every session in the workspace; without it, only the current session is shown.
+
+A restore target can be:
+
+| Form            | Example           | Meaning                                                                                    |
+| --------------- | ----------------- | ------------------------------------------------------------------------------------------ |
+| Timeline number | `#3` or `3`       | The third row in the current-session output; the number can change as the timeline changes |
+| Snapshot name   | `before-refactor` | A named snapshot in the current session                                                    |
+| Commit SHA      | `1a2b3c4`         | A SHA prefix of at least 7 characters                                                      |
+
+> 💡 If you need to reuse a target later, copy its SHA or create a named snapshot instead of relying on a timeline number.
+
+---
+
+### Restore a checkpoint
+
+#### Restore scopes
+
+Every restore includes the **current conversation**. Other scopes must be enabled explicitly:
+
+| Scope                | Default  | Restored content                                              |
+| -------------------- | -------- | ------------------------------------------------------------- |
+| Current conversation | Included | The current session file and Agent conversation state         |
+| Long-term memory     | Excluded | `MEMORY.md` and `memory/`                                     |
+| Workspace files      | Excluded | Ordinary workspace files explicitly selected from the preview |
+
+Memory restore does not roll back derived ReMe indexes, caches, digests, resource directories, or `history.db`. Those runtime data remain current and can be regenerated by the system when needed.
+
+#### Restore from the Console
+
+1. Open **Agent → Checkpoints**.
+2. Select a checkpoint in the graph or list and click **Restore**.
+3. Choose whether to include long-term memory and workspace files.
+4. Click **Preview** and inspect everything that would be overwritten, created, or deleted.
+5. If workspace files are included, select only the paths you intend to restore.
+6. Confirm the restore. The Console applies the exact commit returned by the preview, so a timeline update cannot silently change the target.
+7. Refresh the conversation page to load the restored session state.
+
+#### Restore from chat
+
+Restore the conversation only:
+
+```text
+/checkpoint restore #3 --dry-run
+/checkpoint restore #3 --confirm
+```
+
+Restore long-term memory as well:
+
+```text
+/checkpoint restore before-refactor --include-memory --dry-run
+/checkpoint restore before-refactor --include-memory --confirm
+```
+
+Workspace-file restore is always a two-step operation. Preview the candidate changes first:
+
+```text
+/checkpoint restore 1a2b3c4 --include-files --dry-run
+```
+
+Then explicitly list the paths to apply:
+
+```text
+/checkpoint restore 1a2b3c4 --include-files --files README.md "notes/plan v2.md" --confirm
+```
+
+You can combine memory and file restore:
+
+```text
+/checkpoint restore 1a2b3c4 --include-memory --include-files --files README.md src/example.py --confirm
+```
+
+`--files` can be repeated and accepts comma-separated values. Quote paths containing spaces. Every path must be workspace-relative; absolute paths and `..` are rejected.
+
+> ⚠️ If a selected file does not exist in the target checkpoint, restoring it **deletes the current file**. The preview labels these operations as deletions—review each one before confirming.
+
+#### What if I only enter a target?
+
+This command does not modify anything:
+
+```text
+/checkpoint restore #3
+```
+
+QwenPaw returns the corresponding preview and confirmation commands. `--dry-run` and `--confirm` are mutually exclusive, and an applied restore always requires explicit `--confirm`.
+
+---
+
+### Restore safety
+
+Checkpoint restore uses several layers of protection:
+
+1. **Preview first**: `--dry-run` computes changes without writing to the workspace.
+2. **Pin the target**: the Console applies the exact commit SHA returned by the preview.
+3. **Pause internal writers**: an applied restore pauses cooperating internal schedulers and waits for tracked Agent tasks.
+4. **Create a safety point**: QwenPaw creates a pre-restore checkpoint before changing anything.
+5. **Roll back on failure**: if applying the restore fails, QwenPaw attempts to restore changed paths and the session HEAD.
+
+If internal tasks do not finish before the safety timeout, the restore is cancelled instead of forcing an overwrite. Wait for the tasks to finish, then preview and restore again.
+
+> ⚠️ Internal coordination cannot pause external editors, scripts, or other processes. Avoid external writes to the same workspace during restore. If files change after a preview, cancel and preview again.
+
+A restore can only use checkpoints accessible to the current session. Other sessions may be visible in the Console, but cannot be used to overwrite the wrong session identity.
+
+---
+
+### Clean up old checkpoints
+
+The default retention policy is:
+
+| Object                    | Default policy                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| Automatic checkpoints     | Keep the newest 20 per session, or records younger than 7 days                           |
+| Pre-restore safety points | Keep for 7 days                                                                          |
+| Named snapshots           | Excluded from GC; removed when their session is deleted or the checkpoint store is reset |
+| Session HEAD              | Always keep                                                                              |
+
+The automatic-checkpoint count and age rules use OR semantics: a checkpoint is kept if it is among the newest 20 or is less than 7 days old.
+
+The Console lets you preview normal cleanup or **thorough compaction** before confirming. Chat commands:
+
+```text
+/checkpoint gc --dry-run
+/checkpoint gc --confirm
+/checkpoint gc --all-sessions --dry-run
+/checkpoint gc --all-sessions --confirm
+/checkpoint gc --compact --dry-run
+/checkpoint gc --compact --confirm
+```
+
+- GC handles the current session by default; `--all-sessions` handles every session in the workspace.
+- `--compact` removes every non-HEAD automatic checkpoint. Named snapshots remain, and pre-restore points still follow their age policy.
+- Without `--dry-run` or `--confirm`, the command only displays confirmation instructions.
+
+---
+
+### Stored content and boundaries
+
+Checkpoints store conversation state, memory source files, and ordinary workspace content needed for restore, while excluding runtime state that should not be rolled back.
+
+| Category                              | Behavior                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `sessions/`                           | Stored and handled by conversation restore                                                            |
+| `MEMORY.md`, `memory/`                | Stored and restored only when memory is included                                                      |
+| Ordinary workspace files              | Stored and restored only after explicit selection                                                     |
+| Project `.git/`                       | Excluded; project history is never modified                                                           |
+| `checkpoints/`                        | Excluded so the shadow repository never snapshots itself                                              |
+| Credentials and runtime configuration | Excluded, including `credentials.yaml`, `agent.json`, and `access_control.json`                       |
+| QwenPaw runtime state                 | Excluded, including `history.db`, cron state, caches, derived memory indexes, media, and tool results |
+| Persona and runtime skill files       | Excluded, including `AGENTS.md`, `SOUL.md`, and `skills/`                                             |
+| Development artifacts                 | Excluded, including `.venv/`, `node_modules/`, `dist/`, `build/`, logs, and Python caches             |
+
+Checkpoints use their own exclusion rules; a workspace `.gitignore` does not narrow the checkpoint boundary. Binary files and line endings are stored byte-for-byte, and the shadow repository disables Git filters that could rewrite content.
+
+> ⚠️ Ordinary workspace files can still contain sensitive information you created. Checkpoints stay inside the local workspace, so protect `<workspace>/checkpoints/` as you would the workspace itself.
+
+---
+
+### Configuration
+
+The configuration file is created at `<workspace>/checkpoints/config.toml`:
+
+```toml
+[gc]
+gc_keep_count = 20
+gc_keep_days = 7
+pre_restore_retention_days = 7
+
+[auto]
+enabled = false
+debounce_seconds = 1.5
+
+[timeline]
+default_limit = 20
+max_limit = 200
+
+[display]
+query_preview_chars = 120
+
+[safety]
+include_memory_quiesce_timeout = 30.0
+```
+
+| Setting                          | Meaning                                                     |
+| -------------------------------- | ----------------------------------------------------------- |
+| `gc_keep_count`                  | Number of newest automatic checkpoints retained per session |
+| `gc_keep_days`                   | Age-based retention for automatic checkpoints               |
+| `pre_restore_retention_days`     | Retention for pre-restore safety points                     |
+| `enabled`                        | Whether automatic checkpoints are enabled                   |
+| `debounce_seconds`               | Per-session debounce interval for automatic checkpoints     |
+| `default_limit` / `max_limit`    | Default and maximum timeline result counts                  |
+| `query_preview_chars`            | Maximum user-query preview length in the timeline           |
+| `include_memory_quiesce_timeout` | Maximum seconds to wait for internal tasks before restore   |
+
+The Console can edit the three GC retention settings directly. Edit the TOML file for the other advanced settings. Invalid or out-of-range values fall back to safe defaults.
+
+---
+
+### Reset checkpoints
+
+Reset deletes all checkpoint history for the current workspace and reinitializes the shadow repository:
+
+```text
+/checkpoint reset --confirm
+```
+
+Automatic checkpoints return to the disabled state after reset. Reset does not delete the current conversation, long-term memory, or ordinary workspace files, but removed checkpoint history can no longer be recovered through QwenPaw.
+
+---
+
+### Checkpoints vs. backups vs. project Git
+
+| Capability                   | State checkpoints       | Backup & Restore                                    | Project Git            |
+| ---------------------------- | ----------------------- | --------------------------------------------------- | ---------------------- |
+| Primary purpose              | Frequent state rollback | Migration and disaster recovery                     | Source version control |
+| Scope                        | One Agent workspace     | Agents, global config, skill pool, optional secrets | Project-tracked files  |
+| Conversation state           | Yes                     | Yes                                                 | Usually no             |
+| Selective file restore       | Yes                     | By backup module                                    | Yes                    |
+| Rewrites project Git history | No                      | No                                                  | Yes                    |
+| Portable archive             | No                      | Yes                                                 | Depends on a remote    |
+
+The three tools complement each other: use checkpoints for everyday rollback, project Git for code, and backups before upgrades or for cross-device migration.
+
+---
+
+### FAQ
+
+#### Why does QwenPaw say Git is missing?
+
+Checkpoints require Git on the local machine. Install it from [git-scm.com](https://git-scm.com/downloads), verify that `git` works in a terminal, and restart QwenPaw.
+
+#### Why does the conversation page still show the old state after restore?
+
+The page may still hold the pre-restore session in memory. Refresh the conversation page or reopen the session to load the restored state.
+
+#### Why is a file missing from the restore candidates?
+
+Unchanged files are not listed. Conversation, memory, and QwenPaw runtime files are also excluded from ordinary file candidates because dedicated restore flows handle them or they are intentionally not restorable.
+
+#### Can I return to the state from before a restore?
+
+Yes. Every applied restore creates a pre-restore safety point first. It is kept for 7 days by default and can be found and previewed in the timeline.
+
+#### Will the checkpoint store grow forever?
+
+Git deduplicates identical content, and automatic GC removes old refs according to the retention policy. You should still review storage statistics periodically and run cleanup after inspecting its preview.
+
+---
+
 ## Conversation Debugging Commands
 
 Commands for viewing and managing conversation history.
 
-| Command             | Response Content              |
-| ------------------- | ----------------------------- |
-| `/history`          | 📋 Message list + Token stats |
-| `/message`          | 📄 Specified message details  |
-| `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
-| `/dump_history`     | 📁 Exported history file path |
-| `/load_history`     | ✅ History load result        |
+| Command               | Response Content              |
+| --------------------- | ----------------------------- |
+| `/history`            | 📋 Message list + Token stats |
+| `/message`            | 📄 Specified message details  |
+| `/compact_str`        | 📝 Compressed summary content |
+| `/auto_memory_status` | 📊 Auto-memory task status    |
+| `/dump_history`       | 📁 Exported history file path |
+| `/load_history`       | ✅ History load result        |
 
 ---
 
@@ -212,30 +583,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /auto_memory_status - View Auto-memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display the running status of all background auto-memory tasks, including task ID, start time, and execution results.
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: User requested help building a user authentication system...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` automatically starts an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 
@@ -643,7 +1016,11 @@ qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 
 ### /approval - Tool Execution Approval Commands
 
-Manage tool guard approval requests. When `approval_level` is set to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a pending-approval flow. Use these commands to approve, deny, list, or cancel requests.
+Manage tool guard and command approval requests. When `approval_level` is set
+to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a
+pending-approval flow. Side-effecting `/reme` generation commands also use
+this flow with exact-requester identity isolation. Use these commands to
+approve, deny, list, or cancel requests visible to the current caller.
 
 **Usage:**
 
@@ -651,7 +1028,7 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /approval approve [request_id]           # Approve specific request or queue head
 /approval deny [request_id] [reason]     # Deny with optional reason
 /approval list                           # List pending approvals (current session)
-/approval list --all                     # List all pending approvals (all sessions)
+/approval list --all                     # List visible approvals across sessions
 /approval cancel <request_id>            # Cancel a specific request
 ```
 
@@ -664,7 +1041,11 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /deny <request_id> <reason>              # Same as /approval deny <request_id> <reason>
 ```
 
-> `/approval list` shows pending approvals for the current session (including child sessions). Use `--all` or `-a` to see all sessions for this agent.
+> `/approval list` shows caller-visible approvals for the current session
+> (including permitted child sessions). Use `--all` or `-a` to search the
+> current Agent's other sessions. Exact-requester approvals remain visible and
+> resolvable only to their originating Agent, user, channel, session, and root
+> session; the authenticated Console is an explicit administrator.
 
 ---
 
@@ -713,6 +1094,64 @@ Decompose large tasks into user stories and complete them through a **master →
 ```
 
 For a full guide, see [Loop Engineering](./loop-engineering).
+
+---
+
+## ReMe Memory Commands
+
+Use the single `/reme` entry point for QwenPaw's explicitly chat-safe ReMe
+actions:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme search query="project decisions" tags='["architecture","memory"]'
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme daily_paper topics="agents,memory" force=true
+/reme auto_fin topics="gold,robotics" window_hours=12
+```
+
+The chat allowlist is `status`, `search`, `proactive`, `auto_memory`,
+`auto_dream`, `daily_paper`, and `auto_fin`. Backend availability alone does
+not make an action callable from chat. Raw vault actions such as `read`,
+`read_image`, `write`, `edit`, `delete`, `move`, `list`, `stat`,
+`daily_write`, `daily_list`, `frontmatter_*`, and `node_search` are excluded.
+Global maintenance actions such as `reindex`, `undo_reindex`, and
+`daily_reindex` must instead use the authenticated Console or maintenance API.
+
+The syntax is `/reme <action> key=value`. Wrap values containing spaces in
+double quotes. Wrap JSON lists and objects in single quotes so their inner
+double quotes are preserved, for example `tags='["a","b"]'` or
+`filter='{"kind":"decision"}'`. Values use ReMe's CLI parsing, so numbers,
+booleans, lists, and objects keep their native types. `/reme help` intersects
+the live backend catalog with QwenPaw's chat allowlist, shows the parameters
+accepted by this ReMe version, and marks required arguments with `*`.
+Validation therefore stays aligned with the running backend without allowing a
+new backend job to expand chat permissions automatically.
+
+`auto_memory` is QwenPaw-managed: `count` selects recent assistant reply
+groups from the current conversation (default `1`), `memory_hint` optionally
+guides extraction, and QwenPaw supplies the messages and session ID. Add
+`show_metadata=true` to another action to include its metadata in the visible
+response. The complete visible response is truncated at 20,000 characters to
+protect the chat context. Structured metadata is attached to the message up to
+8,000 serialized characters; larger metadata is replaced by a bounded preview.
+
+Generation actions such as `daily_paper` and `auto_fin` use the same command
+surface. They require approval before running, then the command waits for the
+action result. Each approval is bound to the originating Agent, user, channel,
+session, and root session. Another chat participant or session cannot list,
+approve, deny, or cancel it; the authenticated Console remains an explicit
+administrator. Canceling the originating request also removes its pending
+approval. Unlike `auto_memory`, these actions are not submitted to the
+conversation Auto-Memory queue. Their `*_cron_enabled` settings control
+scheduled runs only and do not gate manual `/reme` execution. Use `/reme help`
+for the exact live parameters supported by the installed ReMe plugins.
+
+The former `/dream`, `/memorize`, and `/reme_status` commands have been
+removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.
 
 ---
 

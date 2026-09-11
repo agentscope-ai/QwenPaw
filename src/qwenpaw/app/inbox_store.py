@@ -108,6 +108,38 @@ async def list_events(
     return events[offset : offset + max(limit, 0)]
 
 
+async def query_events(
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    source_types: set[str] | None = None,
+    status: str | None = None,
+    agent_id: str | None = None,
+    unread_only: bool = False,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Return a filtered page with exact total and unread counts."""
+    async with _LOCK:
+        events = await run_sync_io(_load_events)
+    if source_types:
+        events = [
+            event
+            for event in events
+            if event.get("source_type") in source_types
+        ]
+    if status:
+        events = [event for event in events if event.get("status") == status]
+    if agent_id:
+        events = [
+            event for event in events if event.get("agent_id") == agent_id
+        ]
+    unread_count = sum(not bool(event.get("read")) for event in events)
+    if unread_only:
+        events = [event for event in events if not bool(event.get("read"))]
+    total = len(events)
+    page = events[offset : offset + max(limit, 0)]
+    return page, total, unread_count
+
+
 async def mark_read(event_ids: list[str]) -> int:
     if not event_ids:
         return 0
@@ -132,6 +164,39 @@ async def mark_all_read() -> int:
                 event["read"] = True
                 updated += 1
         await run_sync_io(_save_events, events)
+    return updated
+
+
+async def mark_read_by_acl_sender(agent_id: str, sender_address: str) -> int:
+    """Mark matching unread ACL-pending events for one agent as read.
+
+    Called when the user approves / denies / dismisses an ACL pending sender
+    so the corresponding notification is cleared from the unread count.
+    """
+    needle = (sender_address or "").lower().strip()
+    if not agent_id or not needle:
+        return 0
+    updated = 0
+    async with _LOCK:
+        events = await run_sync_io(_load_events)
+        for event in events:
+            if bool(event.get("read")):
+                continue
+            if event.get("agent_id") != agent_id:
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("acl_status") != "pending":
+                continue
+            event_sender = payload.get("acl_sender_address")
+            if not isinstance(event_sender, str):
+                continue
+            if event_sender.lower().strip() == needle:
+                event["read"] = True
+                updated += 1
+        if updated:
+            await run_sync_io(_save_events, events)
     return updated
 
 

@@ -94,7 +94,17 @@ def test_loop_catalog_includes_enabled_custom_and_plugin_modes(
                     name="review",
                     handler=handler,
                     help_text="Review the current work.",
-                    metadata={"loop_name": "Review"},
+                    metadata={
+                        "loop_name": "Review",
+                        "name_i18n": {
+                            "en": "Review",
+                            "zh-CN": "评审",
+                        },
+                        "description_i18n": {
+                            "en": "**Review** — code review",
+                            "zh-CN": "**评审** — 代码评审",
+                        },
+                    },
                 ),
             ]
 
@@ -114,7 +124,13 @@ def test_loop_catalog_includes_enabled_custom_and_plugin_modes(
         "custom:quality",
         "plugin:review",
     ]
-    assert response.json()[-1]["name"] == "Review"
+    plugin = response.json()[-1]
+    assert plugin["name"] == "Review"
+    assert plugin["name_i18n"] == {"en": "Review", "zh-CN": "评审"}
+    assert plugin["description_i18n"] == {
+        "en": "**Review** — code review",
+        "zh-CN": "**评审** — 代码评审",
+    }
 
 
 def test_loop_status_reports_active_mode_and_restores_context(
@@ -293,6 +309,8 @@ def test_loop_status_reports_custom_mode(client, workspace) -> None:
         "slash_command": "quality",
         "description": "",
         "source": "custom",
+        "name_i18n": None,
+        "description_i18n": None,
     }
 
 

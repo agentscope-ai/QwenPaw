@@ -460,7 +460,7 @@ def _build_spec_from_cli(
 @click.option(
     "--mode",
     type=click.Choice(["stream", "final"], case_sensitive=False),
-    default="final",
+    default="stream",
     help=(
         "Delivery mode: 'stream' sends incremental updates; "
         "'final' sends only the final result."

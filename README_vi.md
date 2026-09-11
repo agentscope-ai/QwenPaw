@@ -33,11 +33,11 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và tri thức đã chưng cất. Các lượt cũ bị loại khỏi cửa sổ nhưng vẫn truy xuất theo yêu cầu; không bị tóm tắt hay mất mát.     |
+| **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và cơ sở tri thức cá nhân tự tiến hóa được vận hành bởi [ReMe](https://github.com/agentscope-ai/ReMe). Hội thoại và tài liệu liên tục được chuyển thành bộ nhớ Markdown dễ đọc, chỉnh sửa, tìm kiếm và liên kết với nhau. |
 | **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime QwenPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
 | **Bảo mật tích hợp sẵn**                     | Sandbox cấp kernel, Tool Guard, File Guard và Skill Scanner. Lệnh nguy hiểm bị chặn trước khi chạy.                                            |
 | **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
-| **Coding Mode**                              | Web IDE ba khung với cây tệp, xem trước diff và chat. Nhảy tới định nghĩa, tìm tham chiếu và tìm kiếm mã cấu trúc tích hợp sẵn.                                              |
+| **Không gian làm việc tệp**                  | Điều hướng, xem trước, chỉnh sửa, diff, tải lên và tải xuống thống nhất cho tệp dự án và Agent.                                                                             |
 | **Mở rộng**                                  | Skills cho lập lịch, tài liệu, trình duyệt, tin tức và hơn thế. Kiến trúc plugin kèm chợ. Tích hợp MCP cho công cụ bên ngoài. Kết hợp thành quy trình theo mục đích.  |
 | **Sẵn sàng mọi nơi**                      | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — một instance, mọi kênh. Console, TUI và ứng dụng desktop để truy cập trực tiếp.                                            |
 | **Của bạn, không phải của chúng tôi**        | Triển khai cục bộ — dữ liệu ở lại máy bạn. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.                                                                         |
@@ -48,7 +48,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 > <br>
 >
 > - **Tự động hóa & lập lịch**: Thiết lập tác vụ định kỳ — tóm tắt tin tức, tạo báo cáo, phát sóng đa kênh — tất cả theo lịch của bạn.
-> - **Mã nguồn & phát triển**: Đọc, chỉnh sửa, review và kiểm thử mã trong dự án; Coding Mode giúp bạn nhanh chóng tìm và hiểu mã.
+> - **Mã nguồn & phát triển**: Đọc, chỉnh sửa, review và kiểm thử mã trong dự án bằng không gian làm việc tệp thống nhất.
 > - **Xử lý tài liệu**: Đọc, ghi và chuyển đổi tệp PDF, Word, Excel và PowerPoint.
 > - **Thu thập thông tin**: Tìm kiếm web, theo dõi nguồn đăng ký, tóm tắt video và tìm thông tin trong cơ sở tri thức cá nhân.
 > - **Vận hành đa kênh**: Đẩy cảnh báo, tóm tắt hoặc nội dung do AI tạo tới DingTalk, Lark, Discord, Telegram, v.v. — đồng thời hoặc theo từng kênh.
@@ -60,9 +60,13 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ ReMe, cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-09-03] **v2.2.0** | QwenPaw Hub đa người dùng tự lưu trữ, QwenPaw Mail, QwenPaw Data nguyên bản, định tuyến mô hình hợp nhất, Creator 1.1 cùng nhiều cải tiến lớn cho Market, Console, Skills, kênh và độ tin cậy. [Ghi chú phát hành v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
+- [2026-08-13] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+
+- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, cơ sở tri thức cá nhân tự tiến hóa [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
@@ -70,16 +74,10 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
   | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
   | **Scroll Context** | Mọi lượt được lưu trữ; lượt bị đẩy ra có chỉ mục, recall theo yêu cầu — không tóm tắt, không mất. |
-  | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 — Cơ sở tri thức cá nhân tự tiến hóa** | Liên tục chuyển hội thoại và tài liệu thành bộ nhớ Markdown dễ đọc, chỉnh sửa, tìm kiếm và liên kết với nhau. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
   Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — OAuth Mô hình Miễn phí, Chợ Plugin, Danh sách trắng MCP. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [Tất cả ghi chú phát hành →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -334,7 +332,6 @@ Sau khi cài đặt, cấu hình mô hình trong **Console → Settings → Mode
 - [Thêm Skills](https://qwenpaw.agentscope.io/docs/skills) để mở rộng khả năng (PDF, Office, trình duyệt, tin tức, v.v.)
 - [Thiết lập Kênh](https://qwenpaw.agentscope.io/docs/channels) cho DingTalk, Lark, Discord, v.v.
 - [Cấu hình Cron](https://qwenpaw.agentscope.io/docs/cron) cho tác vụ định kỳ và tự động hóa
-- [Thử Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode) để hợp tác mã nguồn kiểu IDE
 - Xem [hướng dẫn Bắt đầu nhanh](https://qwenpaw.agentscope.io/docs/quickstart) đầy đủ cho mọi tùy chọn và bước xác minh
 
 ---
@@ -406,12 +403,12 @@ Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi 
 | [Ứng dụng Desktop](https://qwenpaw.agentscope.io/docs/desktop)               | Cài đặt và sử dụng ứng dụng desktop       |
 | [Mô hình](https://qwenpaw.agentscope.io/docs/models)                  | Cấu hình nhà cung cấp đám mây, cục bộ và tùy chỉnh   |
 | [Kênh](https://qwenpaw.agentscope.io/docs/channels)                   | DingTalk, Lark, QQ, Discord, iMessage, và hơn nữa  |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | Web IDE ba khung cho tác vụ tập trung mã nguồn       |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | Mở rộng và tùy chỉnh khả năng                         |
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Hệ thống plugin và Chợ Plugin                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                         | Quản lý máy khách MCP                                 |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | Tùy chỉnh tính cách tác nhân (SOUL / PROFILE)  |
-| [Bộ nhớ](https://qwenpaw.agentscope.io/docs/memory)                   | Bộ nhớ ngữ nghĩa dài hạn (ReMe)                 |
+| [Bộ nhớ](https://qwenpaw.agentscope.io/docs/memory)                   | Cơ sở tri thức cá nhân tự tiến hóa dựa trên bộ nhớ Markdown cục bộ, có thể chỉnh sửa, tìm kiếm và liên kết với nhau, được vận hành bởi [ReMe](https://github.com/agentscope-ai/ReMe) |
+| [Tài liệu ReMe](https://docs.agentscope.io/reme/latest/en/overview)   | Tổng quan và tài liệu chính thức của ReMe         |
 | [Bộ nhớ tiến hóa & Chủ động](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Tác nhân tiến hóa bộ nhớ và tương tác chủ động       |
 | [Ngữ cảnh](https://qwenpaw.agentscope.io/docs/context)               | Quản lý ngữ cảnh dựa trên cuộn (scroll)                  |
 | [Lệnh ma thuật](https://qwenpaw.agentscope.io/docs/commands)         | Điều khiển trạng thái hội thoại mà không cần đợi AI   |
@@ -439,20 +436,27 @@ Tài liệu đầy đủ: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscop
 
 ## Lộ Trình Phát Triển
 
-| Lĩnh vực                   | Mục                                                                                        | Trạng thái          |
-| -------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
-| **Mở rộng ngang**          | Thêm kênh, mô hình, Skills, MCP — **hoan nghênh đóng góp từ cộng đồng**                   | Đang kêu gọi đóng góp |
-| **Mở rộng tính năng hiện có** | Tối ưu hiển thị, gợi ý tải xuống, tương thích đường dẫn Windows — **hoan nghênh đóng góp** | Đang kêu gọi đóng góp |
-| **Mô hình**                | Chuyển đổi đa mô hình                                                                       | Đang thực hiện      |
-| **Browser-use**            | Hỗ trợ tiện ích mở rộng Chrome                                                              | Đang thực hiện      |
-| **Bộ nhớ dài hạn**        | Cơ sở tri thức cá nhân                                                                      | Đang thực hiện      |
-| **Ứng dụng QwenPaw**      | QwenPaw Creator                                                                             | Đang thực hiện      |
-|                            | QwenPaw Insight                                                                             | Đang thực hiện      |
-| **Đa tác nhân**            | Tương thích với các tác nhân hiện có (ví dụ: Claude Code)                                  | Đã lên kế hoạch     |
-|                            | Chat nhóm                                                                                   | Đã lên kế hoạch     |
-|                            | Trực quan hóa tác nhân con                                                                  | Đã lên kế hoạch     |
+| Lĩnh vực                       | Mục                                           | Trạng thái            |
+| ------------------------------ | --------------------------------------------- | --------------------- |
+| **Mở rộng ngang**              | Thêm kênh, mô hình, Skills và MCP             | Đang kêu gọi đóng góp |
+| **Mở rộng tính năng hiện có**  | Cải thiện hiển thị, tải xuống và Windows      | Đang kêu gọi đóng góp |
+| **Mô hình**                    | Chuyển đổi đa mô hình                         | Đang thực hiện        |
+| **An toàn và phê duyệt**       | Xem trước và phê duyệt hàng loạt              | Đang thực hiện        |
+| **Tự động hóa**                | Tác vụ tự động                                | Đang thực hiện        |
+| **Tương tác agent**            | Bàn giao tác vụ giữa các agent                | Đang thực hiện        |
+|                                | Điều chỉnh tác vụ đang chạy                   | Đang thực hiện        |
+| **Không gian làm việc**        | Nhiều workspace                               | Đang thực hiện        |
+| **Ngữ cảnh**                   | Nén lời nhắc hệ thống                         | Đang thực hiện        |
+| **Hệ thống công cụ**           | Thay đổi tệp ở nhiều vị trí                   | Đang thực hiện        |
+|                                | Terminal liên tục và tác vụ nền               | Đang thực hiện        |
+| **Computer-use**               | Xác định và thao tác mục tiêu trên màn hình   | Đang thực hiện        |
+| **Tương tác giọng nói**        | Tác vụ giọng nói thời gian thực               | Đang thực hiện        |
+| **Quản lý ngữ cảnh và bộ nhớ** | Chuyển nóng mô hình vector và backend lưu trữ | Đang thực hiện        |
+|                                | Cơ sở tri thức cá nhân                        | Đang thực hiện        |
+| **Ứng dụng QwenPaw**           | QwenPaw Insight                               | Đang thực hiện        |
+|                                | QwenPaw Mail                                  | Đang thực hiện        |
 
-_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đã lên kế hoạch** — đã xếp hàng hoặc đang thiết kế, cũng hoan nghênh đóng góp; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
+_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
 
 ---
 
@@ -485,7 +489,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **Dev** (kiểm thử, định dạng): `pip install -e ".[dev,full]"`
+- **Dev** (kiểm thử, định dạng): `pip install -e ".[dev,test,full]"`
 - **Sau đó**: Chạy `qwenpaw init --defaults`, rồi `qwenpaw app`.
 
 > **Lưu ý khi cập nhật:** Khi cập nhật lên phiên bản chính mới sau `git pull`, vui lòng xây dựng lại frontend, cài đặt lại gói (`pip install -e .`), khởi động lại `qwenpaw app`, và xóa bộ nhớ đệm trình duyệt với `Ctrl+Shift+R` (hoặc `Cmd+Shift+R` trên macOS).

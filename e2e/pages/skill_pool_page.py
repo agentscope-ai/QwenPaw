@@ -6,8 +6,8 @@ Wraps interactions on the Skill Pool page (``/skill-pool``), including the
 skill auto-sync affordances added in upstream #5639:
 
 - the per-card sync status badge (colored dot + status label),
-- the hover-revealed auto-update quick-toggle button,
-- the edit-drawer Auto Sync switch + target-agent select (staged until Save).
+- the hover-revealed single automation quick action,
+- the independent built-in Auto Update and Auto Sync detail settings.
 
 Selectors target the real post-#5639 DOM: antd ``prefixCls`` is ``qwenpaw``
 and component-local styles are CSS-Module hashed class names, matched via
@@ -41,20 +41,19 @@ class SkillPoolPage(BasePage):
     # Sync status badge (rendered for every card) + its colored dot.
     STATUS_BADGE = '[class*="statusBadge"]'
     STATUS_DOT = '[class*="statusDot"]'
-    # "Auto Sync" chip in the title row — only when skill.auto_update === true.
-    AUTO_UPDATE_TAG = '[class*="autoUpdateTag"]'
+    # Automation chip in the title row (Auto Sync, Auto Update, or both).
+    AUTOMATION_TAG = '[class*="automationTag"]'
     BUILTIN_TAG = '[class*="builtinTag"]'
     CUSTOM_TAG = '[class*="customTag"]'
-    # Card footer is only mounted on hover / batch / mobile; the auto-update
-    # quick-toggle button (SyncOutlined) lives inside it.
+    # Card footer is only mounted on hover / batch / mobile; the single
+    # automation quick action (SyncOutlined) lives inside it.
     CARD_FOOTER = '[class*="cardFooter"]'
-    AUTO_UPDATE_BUTTON = '[class*="autoUpdateButton"]'
+    AUTOMATION_BUTTON = '[class*="automationButton"]'
 
     # Edit drawer (PoolSkillDrawer.tsx)
     DRAWER = '.qwenpaw-drawer'
     DRAWER_TITLE = '.qwenpaw-drawer-title'
-    # The only Switch inside the drawer is the Auto Sync toggle.
-    AUTO_SYNC_SWITCH = '.qwenpaw-drawer button[role="switch"]'
+    AUTO_SYNC_SWITCH = '.qwenpaw-drawer [data-testid="auto-sync-switch"]'
     # Target-agent multi-select is rendered ONLY after the switch is ON; anchor
     # on its placeholder text (unique) so we don't match other selects.
     TARGET_SELECT_PLACEHOLDER = (
@@ -107,7 +106,7 @@ class SkillPoolPage(BasePage):
         return card if card.count() > 0 else None
 
     def hover_card(self, card: Locator) -> "SkillPoolPage":
-        """Hover a card so its footer (auto-update button) is mounted."""
+        """Hover a card so its footer automation action is mounted."""
         card.scroll_into_view_if_needed(timeout=5000)
         card.hover(timeout=5000)
         self.wait(300)
@@ -146,8 +145,8 @@ class SkillPoolPage(BasePage):
     def seed_pool_skill(api_context, name: str, content: str = "") -> bool:
         """Create a pool skill via ``POST /api/skills/pool/create``.
 
-        A freshly-created pool skill has ``auto_update=false`` (the create
-        schema has no auto_update field). Returns True on success; a 4xx
+        A freshly-created pool skill has ``auto_sync=false`` (the create
+        schema has no auto_sync field). Returns True on success; a 4xx
         (already exists) is treated as a soft success so re-runs don't break
         setup.
         """
@@ -163,21 +162,6 @@ class SkillPoolPage(BasePage):
         ok = resp.ok or resp.status in (400, 409)
         logger.info("seed_pool_skill(%s) -> HTTP %s (ok=%s)", name, resp.status, ok)
         return ok
-
-    @staticmethod
-    def set_pool_auto_update(
-        api_context, name: str, enabled: bool, targets=None
-    ) -> bool:
-        """Set a pool skill's auto-update via PUT .../auto-update."""
-        resp = api_context.put(
-            f"/api/skills/pool/{name}/auto-update",
-            data={"enabled": enabled, "targets": targets},
-        )
-        logger.info(
-            "set_pool_auto_update(%s, enabled=%s) -> HTTP %s",
-            name, enabled, resp.status,
-        )
-        return resp.ok
 
     @staticmethod
     def delete_pool_skill(api_context, name: str) -> None:

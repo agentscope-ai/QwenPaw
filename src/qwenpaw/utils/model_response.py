@@ -9,7 +9,17 @@ reply needs the same handling, so it lives here once.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from typing import Any
+
+_REASONING_BLOCK_TYPES = frozenset(
+    {
+        "analysis",
+        "reasoning",
+        "reasoning_content",
+        "thinking",
+    },
+)
 
 
 def safe_attr(obj: Any, name: str) -> Any:
@@ -25,8 +35,14 @@ def safe_attr(obj: Any, name: str) -> Any:
 
 
 def _first_text_in_list(items: list) -> str:
-    """First text fragment from a list-of-blocks ``content``."""
+    """First answer text from block content, excluding reasoning blocks."""
     for item in items:
+        block_type = safe_attr(item, "type")
+        if (
+            isinstance(block_type, str)
+            and block_type.lower() in _REASONING_BLOCK_TYPES
+        ):
+            continue
         got = (
             item.get("text")
             if isinstance(item, dict)
@@ -41,20 +57,27 @@ def extract_response_text(response: Any) -> str:
     """Pull text out of a ``ChatResponse``-like object or a stream chunk.
 
     Handles the ``.text`` scalar, a ``.content`` string, and the
-    list-of-text-blocks shape some providers return.
+    list-of-text-blocks shape some providers return. A non-empty structured
+    ``content`` list is authoritative over an aggregate ``.text`` value.
+    Explicit reasoning and thinking blocks are never treated as answer text,
+    including non-standard compatible-provider blocks that store their
+    payload under ``text``.
     """
     if response is None:
         return ""
     if isinstance(response, str):
         return response
-    text = safe_attr(response, "text")
-    if isinstance(text, str) and text:
-        return text
     content = safe_attr(response, "content")
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
+    if isinstance(content, list) and content:
+        # A non-empty structured response is authoritative. Falling back to
+        # an aggregate ``.text`` value when it contains only thinking blocks
+        # can re-introduce the reasoning text that was deliberately skipped.
         return _first_text_in_list(content)
+    text = safe_attr(response, "text")
+    if isinstance(text, str) and text:
+        return text
     return ""
 
 
@@ -70,7 +93,7 @@ async def consume_model_response(
     cumulative text — the last non-empty wins); others return one response.
     """
     response = await model(messages, **call_kwargs)
-    if not hasattr(response, "__aiter__"):
+    if not isinstance(response, AsyncIterable):
         return extract_response_text(response)
     text = ""
     async for chunk in response:

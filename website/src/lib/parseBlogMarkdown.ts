@@ -54,7 +54,7 @@ export function compareBlogPostsByDateDesc(
 
 /** Match session titles like `**06-30 QwenPaw 开发者日会：…**`. */
 const SESSION_TITLE_LINE =
-  /^\*\*\d{2}-\d{2}\s+.*(?:开发者日会|Developer Day).*\*\*$/;
+  /^\*\*\d{2}-\d{2}\s+.*(?:开发者日会|社区交流会|Developer Day|Community Meetup).*\*\*$/;
 
 export function countDeveloperDaySessions(body: string): number {
   return body.split("\n").filter((line) => SESSION_TITLE_LINE.test(line.trim()))

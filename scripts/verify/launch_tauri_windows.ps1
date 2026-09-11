@@ -93,6 +93,7 @@ Start-Process -FilePath $tauriExe
 #    not inside the workspace dir.
 $portFile = Join-Path $env:USERPROFILE ".qwenpaw\desktop_port"
 $port = $null
+$backendReady = $false
 $deadline = (Get-Date).AddSeconds(120)
 while ((Get-Date) -lt $deadline) {
   if (Test-Path $portFile) {
@@ -103,6 +104,7 @@ while ((Get-Date) -lt $deadline) {
           -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($r.StatusCode -eq 200) {
           Write-Host "Tauri app ready on port $port"
+          $backendReady = $true
           break
         }
       } catch {}
@@ -110,9 +112,8 @@ while ((Get-Date) -lt $deadline) {
   }
   Start-Sleep -Seconds 2
 }
-if (-not $port) {
-  Write-Host "::error::Tauri app did not start within 120s"
-  exit 1
+if (-not $backendReady) {
+  throw "Tauri app did not start within 120s"
 }
 
 # 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so

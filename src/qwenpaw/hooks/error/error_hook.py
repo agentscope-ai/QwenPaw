@@ -34,10 +34,10 @@ class ErrorNormalizeHook(LifecycleHook):
             if ctx.agent is not None:
                 _m = getattr(ctx.agent, "model", None)
                 if _m is not None:
-                    model_name = getattr(_m, "model_name", None) or getattr(
-                        _m,
-                        "name",
-                        None,
+                    model_name = (
+                        getattr(_m, "model_name", None)
+                        or getattr(_m, "model", None)
+                        or getattr(_m, "name", None)
                     )
         except Exception:
             pass

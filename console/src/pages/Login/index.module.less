@@ -1,0 +1,207 @@
+.hubDisclaimer {
+  --login-disclaimer-border: #f1d5bc;
+  --login-disclaimer-text: #5c4030;
+  --login-disclaimer-bg: #fff9f4;
+  --login-disclaimer-muted: #72594a;
+  --login-disclaimer-accent: #9b4b13;
+
+  margin: 2px 0 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--login-disclaimer-border);
+  border-radius: 9px;
+  color: var(--login-disclaimer-text);
+  background: var(--login-disclaimer-bg);
+
+  :global(.ant-checkbox) {
+    margin-top: 2px;
+  }
+}
+
+.disclaimerPoints {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  color: var(--login-disclaimer-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.consentText {
+  margin-left: 8px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+
+  button {
+    padding: 0;
+    border: 0;
+    color: var(--login-disclaimer-accent);
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+.disclaimerHeading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--login-disclaimer-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hubLinks {
+  --login-links-border: rgba(41, 24, 13, 0.09);
+  --login-links-divider: rgba(41, 24, 13, 0.14);
+  --login-links-text: #776c64;
+  --login-links-hover: #d95300;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid var(--login-links-border);
+
+  > span {
+    width: 1px;
+    height: 12px;
+    background: var(--login-links-divider);
+  }
+
+  a,
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    color: var(--login-links-text);
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    transition: color 160ms ease;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--login-links-hover);
+    }
+  }
+}
+
+@media (max-width: 380px) {
+  .hubLinks {
+    gap: 8px;
+
+    a,
+    button {
+      gap: 4px;
+      font-size: 11px;
+    }
+
+    svg {
+      display: none;
+    }
+  }
+}
+
+:global(html.dark-mode) .hubDisclaimer {
+  --login-disclaimer-border: rgba(255, 157, 86, 0.25);
+  --login-disclaimer-text: rgba(255, 255, 255, 0.78);
+  --login-disclaimer-bg: rgba(255, 122, 26, 0.08);
+  --login-disclaimer-muted: rgba(255, 255, 255, 0.58);
+  --login-disclaimer-accent: #ff9d56;
+}
+
+:global(html.dark-mode) .hubLinks {
+  --login-links-border: rgba(255, 255, 255, 0.09);
+  --login-links-divider: rgba(255, 255, 255, 0.14);
+  --login-links-text: rgba(255, 255, 255, 0.48);
+  --login-links-hover: #ff9d56;
+}
+
+.termsModal {
+  --login-terms-body: #4e443e;
+  --login-terms-heading: #29180d;
+  --login-terms-lead: #72594a;
+  --login-terms-accent: #9b4b13;
+
+  :global(.ant-modal-content) {
+    padding: 24px;
+    border-radius: 12px;
+  }
+
+  :global(.ant-modal-title) {
+    font-size: 18px;
+  }
+}
+
+.termsScroll {
+  max-height: min(52vh, 430px);
+  margin-top: 18px;
+  padding: 0 16px 18px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--login-terms-body);
+  scrollbar-gutter: stable;
+
+  section {
+    margin-top: 20px;
+  }
+
+  h3 {
+    margin: 0 0 7px;
+    color: var(--login-terms-heading);
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.72;
+  }
+}
+
+.termsLead {
+  color: var(--login-terms-lead);
+}
+
+.termsEnd {
+  margin-top: 22px !important;
+  font-weight: 600;
+}
+
+.scrollHint {
+  margin: 12px 0 0;
+  color: var(--login-terms-accent);
+  font-size: 12px;
+  text-align: right;
+}
+
+:global(html.dark-mode) .termsModal {
+  --login-terms-body: rgba(255, 255, 255, 0.66);
+  --login-terms-heading: rgba(255, 255, 255, 0.9);
+  --login-terms-lead: rgba(255, 255, 255, 0.58);
+  --login-terms-accent: #ff9d56;
+}
+
+@media (max-width: 520px) {
+  .termsModal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+
+    :global(.ant-modal-content) {
+      padding: 20px;
+    }
+  }
+
+  .termsScroll {
+    max-height: 55vh;
+  }
+}

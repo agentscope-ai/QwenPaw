@@ -43,7 +43,10 @@ class ChatPage(BasePage):
     SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
 
     # Input area
-    CHAT_INPUT = 'textarea.qwenpaw-sender-input'
+    CHAT_INPUT = (
+        '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible, '
+        "textarea.qwenpaw-sender-input:visible"
+    )
     SEND_BTN = 'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
     FILE_INPUT = 'input[type="file"]'
     UPLOAD_WRAPPER = 'span.qwenpaw-upload-wrapper'
@@ -55,7 +58,7 @@ class ChatPage(BasePage):
     MESSAGE_LIST = '.qwenpaw-bubble-list-scroll'
 
     # Welcome screen (check input visibility)
-    WELCOME_TEXT = 'textarea.qwenpaw-sender-input'
+    WELCOME_TEXT = CHAT_INPUT
     QUICK_ACTIONS = '.quick-action'
 
     # Session management (right-side "All Chats" drawer).
@@ -64,15 +67,15 @@ class ChatPage(BasePage):
     # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
     # role, keeping the old class as a fallback for older builds.
     SESSION_ITEM = (
-        '[class*=listWrapper] div[role="button"], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
     SESSION_ACTIVE = (
-        '[class*=listWrapper] div[role="button"][class*=active], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"][class*=active], '
         '[class*=chatSessionItem][class*=active]'
     )
     SESSION_NAME = (
-        '[class*=listWrapper] div[role="button"] [class*=name], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"] [class*=name], '
         '[class*=chatSessionItem] [class*=name]'
     )
     # SessionItem actions now live behind a "more" button (SparkMoreLine)
@@ -105,21 +108,31 @@ class ChatPage(BasePage):
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
 
     # --- Tool approval level toggle (composer / sender area) — upstream #5685 ---
-    # A single antd Tag whose text is one of the 4 levels; clicking it opens a
-    # dropdown of exactly 4 options. No CSS-module class or data-testid, so we
-    # anchor on the level texts (browser locale is en-US; ZH kept as fallback).
+    # Upstream #7334 rebuilt ApprovalLevelToggle from an antd Tag into a plain
+    # ``<button class="...trigger">`` (CSS-module hash class, not stable), so
+    # the old ``span.qwenpaw-tag`` anchor no longer exists. The button carries
+    # ``aria-label=<i18n toolExecutionLevelTitle>`` — the same handle upstream
+    # uses in its own unit test (ApprovalToggle.test.tsx) — so we anchor on it.
+    # Note: #7368 renamed that title from "Tool Execution Security" to
+    # "Tool Approval Mode" (zh: 工具审批模式). In non-compact desktop mode the
+    # button text also contains the current level label (e.g. "Strict Mode");
+    # in compact/mobile mode it is icon-only. Only one of ApprovalLevelToggle /
+    # HarnessApprovalToggle renders at a time (mutually exclusive in the
+    # composer), and the harness variant uses a different aria-label, so the
+    # locator below is unambiguous.
+    APPROVAL_TOGGLE = (
+        'button[aria-label="Tool Approval Mode"], '
+        'button[aria-label="工具审批模式"]'
+    )
     APPROVAL_LEVELS = {
         "STRICT": ("Strict Mode", "严格模式"),
         "SMART": ("Smart Mode", "智能模式"),
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
-    _APPROVAL_LABEL_RE = re.compile(
-        r"Strict Mode|Smart Mode|Auto Mode|Off Mode|"
-        r"严格模式|智能模式|自动模式|关闭模式"
-    )
     # Only items inside the currently-open dropdown (antd keeps closed menus in
-    # the DOM with a ``-hidden`` modifier).
+    # the DOM with a ``-hidden`` modifier). The #7334 rebuild kept the antd
+    # Dropdown for the menu itself, so this selector is unchanged.
     APPROVAL_MENU_ITEM = (
         '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
         '.qwenpaw-dropdown-menu-item'
@@ -129,6 +142,52 @@ class ChatPage(BasePage):
     MODEL_SELECTOR = '.qwenpaw-dropdown-trigger'
     MODEL_OPTION = '.qwenpaw-dropdown-menu-item'
     AGENT_SELECTOR = '.qwenpaw-select-selector'
+
+    # --- Sidebar agent switcher (components/AgentSelector) ---
+    # The antd Select sits inside a CSS-module wrapper whose hashed class
+    # keeps the "agentSelector" basename; scoping avoids other Selects.
+    AGENT_SWITCHER = '[class*="agentSelector"] .qwenpaw-select-selector'
+    AGENT_SWITCHER_VALUE = (
+        '[class*="agentSelector"] .qwenpaw-select-selection-item'
+    )
+    AGENT_SWITCHER_OPTION = (
+        '.qwenpaw-select-dropdown:not(.qwenpaw-select-dropdown-hidden) '
+        '.qwenpaw-select-item-option'
+    )
+
+    # --- Slash-command suggestion popup (@ant-design/x Suggestion) ---
+    # Opens while the input starts with "/" and has no whitespace yet.
+    # Two nodes carry .qwenpaw-suggestion (inline content + the cascader
+    # dropdown); anchor on the dropdown, excluding its hidden state.
+    SUGGESTION_POPUP = (
+        '.qwenpaw-suggestion.qwenpaw-select-dropdown'
+        ':not(.qwenpaw-select-dropdown-hidden)'
+    )
+    SUGGESTION_ITEM = '.qwenpaw-suggestion-item'
+
+    # --- Sidebar session date groups — upstream #5643 ---
+    # SidebarSessionList renders one <button class={styles.groupLabel}> per
+    # non-empty bucket (Pinned / Today / Within 7 days / Within 30 days /
+    # Earlier); clicking toggles collapse. "month" + "older" start collapsed.
+    SIDEBAR_GROUP_LABEL = 'div[role="button"][class*="SessionGroupHeader"]'
+    SIDEBAR_DATE_LABEL = '[data-date-group]'
+    SIDEBAR_GROUP_CHEVRON = 'span[class*="groupChevron"]'
+    SIDEBAR_GROUP_TEXTS = {
+        "pinned": ("Pinned", "置顶"),
+        "today": ("Today", "今天"),
+        "week": ("Within 7 days", "7天内"),
+        "month": ("Within 30 days", "30天内"),
+        "older": ("Earlier", "更早"),
+    }
+
+    # --- Non-owner tab banner — upstream #5664 ---
+    # antd <Alert type="info" banner> injected into the sender beforeUI slot
+    # when this tab lost the qwenpaw:queue-owner:<sessionId> Web Lock. Appears
+    # only after a 300ms ownershipResolved fallback timer.
+    QUEUE_BANNER = '.qwenpaw-alert-banner'
+    _QUEUE_BANNER_RE = re.compile(
+        r"This tab queues only|当前标签页仅入队"
+    )
 
     # Action buttons
     COPY_BTN = 'span[title="复制"]'
@@ -372,7 +431,7 @@ class ChatPage(BasePage):
 
         # ---- Fill the input box ----
         input_box = self.page.locator(self.CHAT_INPUT)
-        input_box.click()
+        input_box.focus()
         self.wait(300)
         input_box.fill("")
         self.wait(200)
@@ -405,7 +464,7 @@ class ChatPage(BasePage):
         except (TimeoutError, AssertionError, Exception):
             logger.warning("[send_message] user bubble missing, retrying with Enter")
             input_box = self.page.locator(self.CHAT_INPUT)
-            input_box.click()
+            input_box.focus()
             self.wait(200)
             input_box.press("Enter")
             # Verify again after retry; if still failing, raise for real
@@ -880,7 +939,10 @@ class ChatPage(BasePage):
         if not sessions or index >= len(sessions):
             logger.warning(f"Session at index {index} not found")
             return False
-        target = sessions[index]
+        # The sidebar is a virtual list: rows are recycled, so a locator
+        # captured via .all() can detach mid-interaction. Re-resolve by
+        # nth() right before each interaction attempt instead.
+        target = self.page.locator(self.SESSION_ITEM).nth(index)
 
         # antd keeps closed menus in the DOM with a ``-hidden`` modifier; the
         # open one is the menu WITHOUT it.
@@ -904,6 +966,20 @@ class ChatPage(BasePage):
                 self.page.mouse.move(0, 0)
             except Exception:
                 pass
+            # Virtual list: off-viewport rows are not in the DOM at all.
+            # Scroll the list container so the target row gets rendered
+            # before resolving it.
+            try:
+                if not target.is_visible():
+                    self.page.locator(
+                        '[class*="listWrapper"] [class*="scroll"], '
+                        '[class*="listWrapper"]'
+                    ).first.evaluate(
+                        "el => el.scrollTo({top: el.scrollHeight})"
+                    )
+                    self.wait(500)
+            except Exception as exc:
+                logger.warning(f"[_open_session_menu] scroll failed: {exc}")
             try:
                 target.scroll_into_view_if_needed(timeout=5000)
                 target.hover(timeout=8000)
@@ -1084,12 +1160,13 @@ class ChatPage(BasePage):
     # ========== Tool approval level toggle ==========
 
     def get_approval_toggle(self) -> Locator:
-        """Locate the approval-level Tag in the composer (matches any level)."""
-        return (
-            self.page.locator("span.qwenpaw-tag")
-            .filter(has_text=self._APPROVAL_LABEL_RE)
-            .first
-        )
+        """Locate the approval-level trigger button in the composer.
+
+        Upstream #7334 replaced the antd Tag with a ``<button>`` carrying an
+        ``aria-label`` (localized approval-mode title); we anchor on that
+        attribute, exactly like upstream's own ApprovalToggle.test.tsx.
+        """
+        return self.page.locator(self.APPROVAL_TOGGLE).first
 
     def open_approval_menu(self) -> "ChatPage":
         """Click the approval Tag and wait for its dropdown to render."""
@@ -1131,6 +1208,58 @@ class ChatPage(BasePage):
                 return out;
             }"""
         )
+
+    # ========== Sidebar date groups (upstream #5643) ==========
+
+    def get_sidebar_group_header(self, group: str) -> Locator:
+        """Locator for one sidebar date-bucket header.
+
+        Args:
+            group: bucket key — pinned / today / week / month / older.
+
+        Upstream re-architected the sidebar: date buckets now render as
+        non-collapsible ``SessionDateHeader`` rows carrying a
+        ``data-date-group`` attribute, nested inside collapsible user
+        groups.
+        """
+        en, zh = self.SIDEBAR_GROUP_TEXTS[group]
+        return self.page.locator(
+            f'{self.SIDEBAR_DATE_LABEL}[data-date-group="{group}"], '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{en}"), '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{zh}")'
+        ).first
+
+    def toggle_sidebar_user_group(self) -> "ChatPage":
+        """Click the first collapsible user-group header."""
+        logger.info("Toggling the first sidebar user group")
+        self.page.locator(self.SIDEBAR_GROUP_LABEL).first.click()
+        self.wait(300)
+        return self
+
+    def toggle_sidebar_group(self, group: str) -> "ChatPage":
+        """Click a sidebar group header to collapse / expand it."""
+        logger.info(f"Toggling sidebar group '{group}'")
+        self.get_sidebar_group_header(group).click()
+        self.wait(300)
+        return self
+
+    def get_sidebar_session_by_name(self, name: str) -> Locator:
+        """Sidebar session row matched by its display name.
+
+        Scoped away from the All-Chats drawer by requiring the row to sit
+        under the sidebar group list (sibling of ``groupLabel`` buttons).
+        """
+        return self.page.locator(
+            f'div[role="button"][class*="item"]:has-text("{name}")'
+        ).first
+
+    # ========== Non-owner tab banner (upstream #5664) ==========
+
+    def get_queue_banner(self) -> Locator:
+        """The queue-only info banner in the sender area (non-owner tab)."""
+        return self.page.locator(self.QUEUE_BANNER).filter(
+            has_text=self._QUEUE_BANNER_RE
+        ).first
 
     # ========== Model and Agent switching ==========
     

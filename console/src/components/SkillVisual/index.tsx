@@ -22,9 +22,8 @@ export const getFileIcon = (filePath: string) => {
   const textSkillIcons = new Set([
     "news",
     "file_reader",
-    "browser_visible",
+    "browser",
     "guidance",
-    "himalaya",
     "dingtalk_channel",
   ]);
 

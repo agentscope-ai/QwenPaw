@@ -18,13 +18,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.crons.contracts import ServiceCronJob
 from qwenpaw.app.crons.manager import CronManager
-from qwenpaw.app.crons.models import CronJobState, ScheduleSpec
+from qwenpaw.app.crons.models import (
+    CronJobState,
+    ScheduleSpec,
+)
 from tests.unit.app.conftest import (
     InMemoryJobRepository,
     make_cron_job_spec,
     make_execution_record,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_inbox_writes(monkeypatch):
+    """Prevent cron tests from writing to the real inbox store.
+
+    CronManager._execute_once calls append_inbox_event on success,
+    which writes to WORKING_DIR/inbox_events.json.  Without this
+    guard any test that exercises _execute_once (directly or via
+    the scheduler) would leak real data to disk.
+    """
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.manager.append_inbox_event",
+        AsyncMock(),
+    )
 
 
 @pytest.fixture
@@ -72,11 +91,18 @@ async def test_keepalive_task_lifecycle(manager: CronManager):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_dream_waits_for_random_delay(
+async def test_service_job_uses_scheduler_jitter(
     repo: InMemoryJobRepository,
 ):
+    callback = AsyncMock()
+    declaration = ServiceCronJob(
+        key="maintenance",
+        cron="0 23 * * *",
+        callback=callback,
+        jitter_seconds=60,
+    )
     workspace = MagicMock()
-    workspace.memory_manager.dream = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [declaration]
     mgr = CronManager(
         repo=repo,
         workspace=workspace,
@@ -84,21 +110,39 @@ async def test_scheduled_dream_waits_for_random_delay(
         agent_id="test-agent",
     )
 
-    with (
-        patch(
-            "qwenpaw.app.crons.manager.random.randint",
-            return_value=42,
-        ) as randint_mock,
-        patch(
-            "qwenpaw.app.crons.manager.asyncio.sleep",
-            new_callable=AsyncMock,
-        ) as sleep_mock,
-    ):
-        await mgr._dream_callback()
+    await mgr.start()
 
-    randint_mock.assert_called_once_with(0, 60)
-    sleep_mock.assert_awaited_once_with(42)
-    workspace.memory_manager.dream.assert_awaited_once_with()
+    job = mgr._scheduler.get_job("_service:memory:maintenance")
+    assert job is not None
+    assert job.trigger.jitter == 60
+    callback.assert_not_awaited()
+    await mgr.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_registers_jobs_declared_by_memory_manager(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    callback = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="0 8 * * *",
+            callback=callback,
+        ),
+    ]
+    mgr = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+        agent_id="test-agent",
+    )
+
+    await mgr.start()
+
+    assert mgr._scheduler.get_job("_service:memory:maintenance") is not None
+    await mgr.stop()
 
 
 @pytest.mark.asyncio
@@ -188,6 +232,78 @@ async def test_create_or_replace_job_registers_with_scheduler(
 
     assert manager._scheduler.get_job("j1") is not None
     await manager.stop()
+
+
+# ---------------------------------------------------------------------------
+# pause_job / resume_job
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pause_job_persists_disabled_state(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await repo.upsert_job(make_cron_job_spec(job_id="j-pause"))
+
+    await manager.pause_job("j-pause")
+
+    stored = await manager.get_job("j-pause")
+    assert stored is not None
+    assert stored.enabled is False
+    listed = await manager.list_jobs()
+    assert listed[0].enabled is False
+
+
+@pytest.mark.asyncio
+async def test_resume_job_persists_enabled_state(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await repo.upsert_job(
+        make_cron_job_spec(job_id="j-resume", enabled=False),
+    )
+
+    await manager.resume_job("j-resume")
+
+    stored = await repo.get_job("j-resume")
+    assert stored is not None
+    assert stored.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_raise_for_missing_job(manager: CronManager):
+    with pytest.raises(KeyError, match="missing"):
+        await manager.pause_job("missing")
+    with pytest.raises(KeyError, match="missing"):
+        await manager.resume_job("missing")
+
+
+@pytest.mark.asyncio
+async def test_paused_job_remains_paused_after_restart(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    await manager.start()
+    await manager.create_or_replace_job(make_cron_job_spec(job_id="j-restart"))
+    await manager.pause_job("j-restart")
+    await manager.stop()
+
+    restarted = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    try:
+        await restarted.start()
+        stored = await repo.get_job("j-restart")
+        assert stored is not None
+        assert stored.enabled is False
+        aps_job = restarted._scheduler.get_job("j-restart")
+        assert aps_job is not None
+        assert aps_job.next_run_time is None
+    finally:
+        await restarted.stop()
 
 
 # ---------------------------------------------------------------------------

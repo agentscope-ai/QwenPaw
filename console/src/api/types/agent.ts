@@ -32,6 +32,11 @@ export interface ScrollConfig {
   offload_dialog: boolean;
 }
 
+export interface VisualCompactConfig {
+  enabled: boolean;
+  effort: "low" | "medium" | "high";
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
@@ -39,6 +44,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  visual_compact_config: VisualCompactConfig;
 }
 
 export interface AutoMemorySearchConfig {
@@ -47,7 +53,12 @@ export interface AutoMemorySearchConfig {
 }
 
 export interface EmbeddingModelConfig {
-  backend: string;
+  backend:
+    | "openai"
+    | "dashscope"
+    | "dashscope_multimodal"
+    | "gemini"
+    | "ollama";
   api_key: string;
   base_url: string;
   model_name: string;
@@ -57,14 +68,27 @@ export interface EmbeddingModelConfig {
   max_cache_size: number;
   max_input_length: number;
   max_batch_size: number;
+  health_check_timeout: number;
 }
 
 export interface ReMeLightMemoryConfig {
-  summarize_when_compact: boolean;
-  inbox_push_enabled: boolean;
+  needs_reindex: boolean;
+  auto_memory_inbox_push_enabled: boolean;
+  auto_dream_inbox_push_enabled: boolean;
+  daily_paper_inbox_push_enabled: boolean;
+  auto_fin_inbox_push_enabled: boolean;
   auto_memory_interval: number;
   dream_cron_enabled: boolean;
   dream_cron: string;
+  daily_paper_cron_enabled: boolean;
+  daily_paper_cron: string;
+  daily_paper_use_hf_mirror: boolean;
+  daily_paper_topics: string;
+  auto_fin_cron_enabled: boolean;
+  auto_fin_cron: string;
+  auto_fin_topics: string;
+  auto_fin_window_hours: number;
+  memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
 }
@@ -72,14 +96,6 @@ export interface ReMeLightMemoryConfig {
 export interface AutoTitleConfig {
   enabled: boolean;
   timeout_seconds: number;
-}
-
-export interface ADBPGMemoryConfig {
-  rest_base_url: string;
-  rest_api_key: string;
-  memory_isolation: boolean;
-  search_timeout: number;
-  auto_memory_search_config: AutoMemorySearchConfig;
 }
 
 export interface DoomLoopStageConfig {
@@ -171,7 +187,7 @@ export interface AgentsRunningConfig {
   context_manager_backend: string;
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
-  adbpg_memory_config?: ADBPGMemoryConfig | null;
+  memory_backend_configs?: Record<string, Record<string, unknown>>;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

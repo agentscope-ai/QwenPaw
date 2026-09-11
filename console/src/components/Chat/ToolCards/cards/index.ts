@@ -23,10 +23,10 @@ export { default as ViewImageCard } from "./ViewImageCard";
 export { default as ViewVideoCard } from "./ViewVideoCard";
 export { default as DesktopScreenshotCard } from "./DesktopScreenshotCard";
 export { default as SendFileCard } from "./SendFileCard";
-export {
-  default as BrowserUseCard,
-  BROWSER_TOOL_NAMES,
-} from "./BrowserUseCard";
+export { default as BrowserCard } from "./BrowserCard";
+// ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+export { default as BrowserUseCard } from "./deprecated/BrowserUseCard";
+// ── END DEPRECATED BROWSER ──
 export { default as GetCurrentTimeCard } from "./GetCurrentTimeCard";
 export { default as SetTimezoneCard } from "./SetTimezoneCard";
 export { default as TokenUsageCard } from "./TokenUsageCard";
@@ -36,7 +36,6 @@ export { default as ChatWithAgentCard } from "./ChatWithAgentCard";
 export { default as SubmitToAgentCard } from "./SubmitToAgentCard";
 export { default as CheckAgentTaskCard } from "./CheckAgentTaskCard";
 export { default as DelegateExternalAgentCard } from "./DelegateExternalAgentCard";
-export { default as MaterializeSkillCard } from "./MaterializeSkillCard";
 export { default as ShellCard } from "./ShellCard";
 export { default as RunToolBatchCard } from "./RunToolBatchCard";
 export { default as GenericToolCard } from "./GenericToolCard";
@@ -52,7 +51,10 @@ import ViewImageCard from "./ViewImageCard";
 import ViewVideoCard from "./ViewVideoCard";
 import DesktopScreenshotCard from "./DesktopScreenshotCard";
 import SendFileCard from "./SendFileCard";
-import BrowserUseCard from "./BrowserUseCard";
+import BrowserCard from "./BrowserCard";
+// ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+import BrowserUseCard from "./deprecated/BrowserUseCard";
+// ── END DEPRECATED BROWSER ──
 import GetCurrentTimeCard from "./GetCurrentTimeCard";
 import SetTimezoneCard from "./SetTimezoneCard";
 import TokenUsageCard from "./TokenUsageCard";
@@ -62,7 +64,6 @@ import ChatWithAgentCard from "./ChatWithAgentCard";
 import SubmitToAgentCard from "./SubmitToAgentCard";
 import CheckAgentTaskCard from "./CheckAgentTaskCard";
 import DelegateExternalAgentCard from "./DelegateExternalAgentCard";
-import MaterializeSkillCard from "./MaterializeSkillCard";
 import ShellCard from "./ShellCard";
 import RunToolBatchCard from "./RunToolBatchCard";
 
@@ -94,18 +95,12 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   desktop_screenshot: DesktopScreenshotCard,
   send_file_to_user: SendFileCard,
 
-  // Browser
+  // Unified Browser SDK
+  browser: BrowserCard,
+
+  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
   browser_use: BrowserUseCard,
-  browser_navigate: BrowserUseCard,
-  navigate: BrowserUseCard,
-  browser_click: BrowserUseCard,
-  click: BrowserUseCard,
-  browser_type: BrowserUseCard,
-  type: BrowserUseCard,
-  browser_snapshot: BrowserUseCard,
-  snapshot: BrowserUseCard,
-  browser_scroll: BrowserUseCard,
-  scroll: BrowserUseCard,
+  // ── END DEPRECATED BROWSER ──
 
   // Time
   get_current_time: GetCurrentTimeCard,
@@ -123,9 +118,6 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   submit_to_agent: SubmitToAgentCard,
   check_agent_task: CheckAgentTaskCard,
   delegate_external_agent: DelegateExternalAgentCard,
-
-  // Skills
-  materialize_skill: MaterializeSkillCard,
 
   // Shell
   execute_shell_command: ShellCard,

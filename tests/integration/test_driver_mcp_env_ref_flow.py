@@ -13,6 +13,8 @@ from tests.integration.driver_mcp_fakes import patch_mcp_runtime_clients
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.p1
 async def test_env_ref_header_resolves_from_environment_at_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

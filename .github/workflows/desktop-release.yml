@@ -22,6 +22,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -227,12 +228,26 @@ jobs:
 
       - name: Stage Tauri Windows installer and updater assets
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          $output = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            $installer = Get-ChildItem `
+              "console/src-tauri/target/release/bundle/nsis/*-setup.exe" |
+              Select-Object -First 1
+            if (-not $installer) {
+              throw "No Tauri Windows installer found"
+            }
+            Copy-Item -Force $installer.FullName $output
+            Write-Host "Staged installer without updater metadata: $output"
+            exit 0
+          }
           python scripts/pack-tauri/generate_update_manifest.py stage `
             --bundle-dir console/src-tauri/target/release/bundle/nsis `
             --pattern '*-setup.exe' `
             --target windows-x86_64 `
-            --output "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe" `
+            --output $output `
             --pubkey-config console/src-tauri/tauri.version.conf.json
 
       - name: Verify desktop (Tauri Windows)
@@ -257,6 +272,36 @@ jobs:
           Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           exit 0
+
+      - name: Generate desktop artifact checksum (Tauri Windows)
+        shell: pwsh
+        run: |
+          $artifacts = @(Get-ChildItem "dist/QwenPaw-Tauri-*-Windows-setup.exe")
+          if ($artifacts.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($artifacts.Count)"
+          }
+          $artifact = $artifacts[0]
+          $hash = (Get-FileHash -Algorithm SHA256 $artifact.FullName).Hash.ToLowerInvariant()
+          "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
+
+          $updaterSignatures = @(Get-ChildItem `
+            "dist/QwenPaw-Tauri-*-Windows-setup.exe.sig" `
+            -ErrorAction SilentlyContinue)
+          $updaterMetadata = @(Get-ChildItem `
+            "dist/tauri-windows-*-updater.json" `
+            -ErrorAction SilentlyContinue)
+          if ($updaterSignatures.Count -gt 1 `
+              -or $updaterMetadata.Count -gt 1 `
+              -or $updaterSignatures.Count -ne $updaterMetadata.Count) {
+            throw "Expected one Windows updater signature and metadata file, or neither"
+          }
+          if ($updaterSignatures.Count -eq 1) {
+            foreach ($updaterFile in @($updaterSignatures[0], $updaterMetadata[0])) {
+              $updaterHash = (Get-FileHash -Algorithm SHA256 $updaterFile.FullName).Hash.ToLowerInvariant()
+              "$updaterHash  $($updaterFile.Name)" |
+                Set-Content -Encoding ascii "$($updaterFile.FullName).sha256"
+            }
+          }
 
       - name: Upload desktop verify logs (Tauri Windows)
         if: failure()
@@ -283,16 +328,24 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-Windows-setup.exe
+          path: |
+            dist/QwenPaw-Tauri-*-Windows-setup.exe
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sha256
 
       - name: Upload Tauri Windows updater metadata
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+        if: >-
+          (github.event_name == 'release' ||
+          (github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.upload_to_oss == 'true')) &&
+          hashFiles('dist/QwenPaw-Tauri-*-Windows-setup.exe.sig') != ''
         uses: actions/upload-artifact@v4
         with:
           name: tauri-updater-meta-windows
           path: |
             dist/QwenPaw-Tauri-*-Windows-setup.exe.sig
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig.sha256
             dist/tauri-windows-x86_64-updater.json
+            dist/tauri-windows-x86_64-updater.json.sha256
 
   build-tauri-macos:
     needs: [check-release-secrets]
@@ -300,7 +353,7 @@ jobs:
       always() &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -379,6 +432,44 @@ jobs:
           fi
           rm -rf dist/verify-tauri
 
+      - name: Generate desktop artifact checksum (Tauri macOS)
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/QwenPaw-Tauri-*-macOS.zip)
+          if [ ${#artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one macOS ZIP, found ${#artifacts[@]}"
+            exit 1
+          fi
+          artifact="${artifacts[0]}"
+          (
+            cd "$(dirname "$artifact")"
+            shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+          )
+
+          updater_archives=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz)
+          updater_signatures=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig)
+          updater_metadata=(dist/tauri-darwin-*-updater.json)
+          if [ ${#updater_archives[@]} -gt 1 ]; then
+            echo "::error::Expected at most one macOS updater archive, found ${#updater_archives[@]}"
+            exit 1
+          fi
+          if [ ${#updater_signatures[@]} -ne ${#updater_archives[@]} ] || \
+             [ ${#updater_metadata[@]} -ne ${#updater_archives[@]} ]; then
+            echo "::error::Expected one macOS updater archive, signature and metadata file, or none"
+            exit 1
+          fi
+          if [ ${#updater_archives[@]} -eq 1 ]; then
+            for updater_file in \
+              "${updater_archives[0]}" \
+              "${updater_signatures[0]}" \
+              "${updater_metadata[0]}"; do
+              (
+                cd "$(dirname "$updater_file")"
+                shasum -a 256 "$(basename "$updater_file")" > "$(basename "$updater_file").sha256"
+              )
+            done
+          fi
+
       - name: Upload desktop verify logs (Tauri macOS)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -404,27 +495,54 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Tauri-*-macOS.zip
+          path: |
+            dist/QwenPaw-Tauri-*-macOS.zip
+            dist/QwenPaw-Tauri-*-macOS.zip.sha256
 
       - name: Upload Tauri macOS updater metadata
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+        if: >-
+          (github.event_name == 'release' ||
+          (github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.upload_to_oss == 'true')) &&
+          hashFiles('dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig') != ''
         uses: actions/upload-artifact@v4
         with:
           name: tauri-updater-meta-macos
           path: |
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sha256
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
             dist/tauri-darwin-*-updater.json
+            dist/tauri-darwin-*-updater.json.sha256
 
   upload-release:
     needs: [build-tauri-windows, build-tauri-macos]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     permissions:
+      actions: read
       contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout release target
+        uses: actions/checkout@v4
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          # Release events check out the tag by default; keep helpers on the
+          # revision that defined this emergency workflow instead.
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Download and verify desktop installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2
 
       - name: Move artifacts to root for upload
         run: |
@@ -441,11 +559,32 @@ jobs:
             QwenPaw-[0-9]*-macOS.zip
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
-            QwenPaw-Tauri-*-macOS.app.tar.gz
             qwenpaw-tauri-latest.json
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify uploaded Release asset sizes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(
+            QwenPaw-Setup-*.exe
+            QwenPaw-[0-9]*-macOS.zip
+            QwenPaw-Tauri-*-Windows-setup.exe
+            QwenPaw-Tauri-*-macOS.zip
+          )
+          if [ -f qwenpaw-tauri-latest.json ]; then
+            files+=(qwenpaw-tauri-latest.json)
+          fi
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No uploaded Release assets found to verify"
+            exit 1
+          fi
+          bash "$RELEASE_INFRA/scripts/pack/verify_github_release_assets.sh" \
+            "${{ github.event.release.tag_name }}" \
+            "${files[@]}"
 
   upload-oss:
     needs: [build-tauri-windows, build-tauri-macos]
@@ -460,9 +599,20 @@ jobs:
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
       OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     steps:
-      - name: Checkout (for scripts)
+      - name: Checkout release target
         uses: actions/checkout@v4
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          # Release events check out the tag by default; keep helpers on the
+          # revision that defined this emergency workflow instead.
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -476,8 +626,13 @@ jobs:
         id: version
         uses: ./.github/actions/get-version
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download and verify desktop artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
+            --attempts 2 \
+            --include-updater-metadata
 
       - name: Install ossutil
         run: |
@@ -508,7 +663,7 @@ jobs:
           echo "Processing Windows artifact: $WIN_EXE"
 
           # Generate metadata
-          python scripts/pack/generate_oss_metadata.py \
+          python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
             --file "$WIN_EXE" \
             --product desktop \
             --platform win \
@@ -516,28 +671,24 @@ jobs:
             --output win-metadata.json
 
           # Upload file (versioned)
-          ossutil cp "$WIN_EXE" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$WIN_EXE" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe"
 
           # Upload file (latest)
-          ossutil cp "$WIN_EXE" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-latest.exe" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$WIN_EXE" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-latest.exe"
 
           # Upload metadata (versioned)
-          ossutil cp win-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            win-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json"
 
           # Upload metadata (latest)
-          ossutil cp win-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            win-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json"
 
           echo "✓ Windows artifacts uploaded"
 
@@ -555,7 +706,7 @@ jobs:
           echo "Processing macOS artifact: $MAC_ZIP"
 
           # Generate metadata
-          python scripts/pack/generate_oss_metadata.py \
+          python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
             --file "$MAC_ZIP" \
             --product desktop \
             --platform mac \
@@ -563,28 +714,24 @@ jobs:
             --output mac-metadata.json
 
           # Upload file (versioned)
-          ossutil cp "$MAC_ZIP" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$MAC_ZIP" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip"
 
           # Upload file (latest)
-          ossutil cp "$MAC_ZIP" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-latest-macOS.zip" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$MAC_ZIP" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-latest-macOS.zip"
 
           # Upload metadata (versioned)
-          ossutil cp mac-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            mac-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json"
 
           # Upload metadata (latest)
-          ossutil cp mac-metadata.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            mac-metadata.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json"
 
           echo "✓ macOS artifacts uploaded"
 
@@ -609,29 +756,25 @@ jobs:
             fi
 
             echo "Processing ${platform} Tauri artifact: ${artifact}"
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "${artifact}" \
               --product desktop \
               --platform "${platform}" \
               --version "${VERSION}" \
               --output "${metadata}"
 
-            ossutil cp "${artifact}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
-              --acl public-read \
-              --force
-            ossutil cp "${artifact}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
-              --acl public-read \
-              --force
-            ossutil cp "${metadata}" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
-              --acl public-read \
-              --force
-            ossutil cp "${metadata}" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
-              --acl public-read \
-              --force
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}"
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}"
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json"
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json"
           }
 
           upload_tauri_artifact \
@@ -660,10 +803,9 @@ jobs:
             echo "No macOS .app.tar.gz found, skipping"
             exit 0
           fi
-          ossutil cp "$APP_TAR_GZ" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$APP_TAR_GZ" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz"
 
       - name: Link artifacts into updater-meta dirs for manifest generation
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
@@ -695,7 +837,7 @@ jobs:
             exit 0
           fi
           NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
-          python scripts/pack-tauri/generate_update_manifest.py manifest \
+          python "$RELEASE_INFRA/scripts/pack-tauri/generate_update_manifest.py" manifest \
             --version "$VERSION" \
             --base-url "$OSS_BASE" \
             --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
@@ -703,10 +845,9 @@ jobs:
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
-          ossutil cp qwenpaw-tauri-latest-oss.json \
-            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
 
       - name: Update desktop index
         run: |
@@ -725,7 +866,7 @@ jobs:
 
           # Merge Windows metadata if exists
           if [ -f "win-metadata.json" ]; then
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "$(find QwenPaw-Desktop-Windows-* -name 'QwenPaw-Setup-*.exe' | head -1)" \
               --product desktop \
               --platform win \
@@ -737,7 +878,7 @@ jobs:
 
           # Merge macOS metadata if exists
           if [ -f "mac-metadata.json" ]; then
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "$(find QwenPaw-Desktop-macOS-* -name 'QwenPaw-*.zip' | head -1)" \
               --product desktop \
               --platform mac \
@@ -755,7 +896,7 @@ jobs:
             if [ ! -f "${metadata}" ]; then
               return 0
             fi
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "$(find ${dirs} -name "${pattern}" | head -1)" \
               --product desktop \
               --platform "${platform}" \
@@ -777,10 +918,9 @@ jobs:
             "mac-tauri"
 
           # Upload updated desktop/index.json
-          ossutil cp desktop-index.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            desktop-index.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json"
 
           echo "✓ Desktop index updated"
 
@@ -820,9 +960,8 @@ jobs:
           PYTHON
 
           # Upload main index
-          ossutil cp main-index.json \
-            "oss://${OSS_BUCKET}/metadata/index.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json"
 
           echo "✓ Main index updated"

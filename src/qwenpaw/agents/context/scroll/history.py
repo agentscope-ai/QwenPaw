@@ -18,6 +18,7 @@ from ..types import LogEntry
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
+_UNSET = object()
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
 # printed stdout/stderr — are written through to history like any turn, but
@@ -176,6 +177,10 @@ class HistoryStore:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_created_at "
+                "ON conversation_history(created_at)",
             )
             # Idempotency net: a second append of the same logical event, such
             # as a resume re-persisting its restored window, collides here and
@@ -359,6 +364,7 @@ class HistoryStore:
         name: str | None = None,
         tool_state: str | None = None,
         tool_input: Any = None,
+        metadata: Any = _UNSET,
     ) -> None:
         """Refresh an already-appended row in place (keeping FTS in sync).
 
@@ -366,9 +372,10 @@ class HistoryStore:
         accumulates a whole reply into a single assistant Msg, so the durable
         row must end up with every cell's blocks and any later-emitted
         headline. The scalar ``tool_call_id``/``name``/``tool_state``/
-        ``tool_input`` are refreshed too, so a turn that grows a *later* tool
-        call doesn't leave them frozen at their first-write values. ``seq`` is
-        unchanged.
+        ``tool_input`` and message ``metadata`` are refreshed too, so a turn
+        that grows a *later* tool call doesn't leave them frozen at their
+        first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
+        the stored value unchanged for backwards-compatible direct callers.
         """
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
@@ -381,20 +388,37 @@ class HistoryStore:
                     (seq,),
                 ).fetchone()
                 old_content = r["content"] if r else None
+            # Keep every column name below as a hard-coded literal. Only
+            # values are parameterized; never add caller-controlled names.
+            assignments = [
+                "content = ?",
+                "headline = ?",
+                "blocks = ?",
+                "tool_call_id = ?",
+                "name = ?",
+                "tool_state = ?",
+                "tool_input = ?",
+            ]
+            values: list[Any] = [
+                content,
+                headline,
+                _to_json(blocks),
+                tool_call_id,
+                name,
+                tool_state,
+                _to_json(tool_input),
+            ]
+            if metadata is not _UNSET:
+                assignments.append("metadata = ?")
+                # The history schema canonically represents empty metadata
+                # as SQL NULL, matching the initial insert path.
+                values.append(_to_json(metadata or None))
+            values.append(seq)
             self._conn.execute(
-                "UPDATE conversation_history SET content = ?, headline = ?, "
-                "blocks = ?, tool_call_id = ?, name = ?, tool_state = ?, "
-                "tool_input = ? WHERE seq = ?",
-                (
-                    content,
-                    headline,
-                    _to_json(blocks),
-                    tool_call_id,
-                    name,
-                    tool_state,
-                    _to_json(tool_input),
-                    seq,
-                ),
+                "UPDATE conversation_history SET "
+                + ", ".join(assignments)
+                + " WHERE seq = ?",
+                values,
             )
             if fts_sync:
                 if old_content is not None:
@@ -420,6 +444,128 @@ class HistoryStore:
                 (session_id,),
             )
             return int(cur.fetchone()["n"])
+
+    def claim_session(self, session_id: str, agent_id: str | None) -> int:
+        """Assign legacy unowned rows in a canonical session to an agent."""
+        if not session_id or not agent_id:
+            return 0
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET agent_id = ? "
+                "WHERE session_id = ? AND agent_id IS NULL",
+                (agent_id, session_id),
+            )
+            return int(cur.rowcount)
+
+    def reconcile_session_rows(
+        self,
+        source_ids: set[str],
+        target_id: str,
+        dedup_keys: set[str],
+        *,
+        agent_id: str | None = None,
+    ) -> tuple[int, int, int]:
+        """Move rows proven to come from one file into its canonical session.
+
+        ``source_ids`` alone is not sufficient provenance because synthetic
+        IDs can collide across channel directories. Restricting the operation
+        to dedup keys recomputed from the source file prevents unrelated rows
+        from being swept into ``target_id``.
+
+        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
+        their original ``seq``; source duplicates are removed in favor of the
+        existing canonical row so the unique dedup contract remains valid.
+        """
+        sources = sorted(
+            source_id
+            for source_id in source_ids
+            if source_id and source_id != target_id
+        )
+        keys = sorted(str(key) for key in dedup_keys if key)
+        if not sources or not target_id or not keys:
+            return (0, 0, self.claim_session(target_id, agent_id))
+
+        moved = 0
+        deduplicated = 0
+        claimed = 0
+        with self._lock, self._conn:
+            for source_id in sources:
+                for start in range(0, len(keys), 400):
+                    chunk = keys[slice(start, start + 400)]
+                    placeholders = ", ".join("?" for _ in chunk)
+                    ownership = ""
+                    params: list[Any] = [source_id, *chunk]
+                    if agent_id:
+                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
+                        params.append(agent_id)
+                    rows = self._conn.execute(
+                        "SELECT seq, dedup_key, content "
+                        "FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + placeholders
+                        + ")"
+                        + ownership,
+                        params,
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    row_keys = [str(row["dedup_key"]) for row in rows]
+                    target_placeholders = ", ".join("?" for _ in row_keys)
+                    existing = self._conn.execute(
+                        "SELECT dedup_key FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + target_placeholders
+                        + ")",
+                        [target_id, *row_keys],
+                    ).fetchall()
+                    existing_keys = {str(row["dedup_key"]) for row in existing}
+                    duplicates = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) in existing_keys
+                    ]
+                    movable = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) not in existing_keys
+                    ]
+
+                    if self._fts:
+                        for row in duplicates:
+                            self._conn.execute(
+                                "INSERT INTO conversation_history_fts"
+                                "(conversation_history_fts, rowid, content) "
+                                "VALUES('delete', ?, ?)",
+                                (row["seq"], row["content"] or ""),
+                            )
+                    if duplicates:
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in duplicates],
+                        )
+                        deduplicated += len(duplicates)
+
+                    if movable:
+                        seqs = [int(row["seq"]) for row in movable]
+                        seq_placeholders = ", ".join("?" for _ in seqs)
+                        cur = self._conn.execute(
+                            "UPDATE conversation_history "
+                            "SET session_id = ?, "
+                            "agent_id = COALESCE(agent_id, ?) "
+                            "WHERE seq IN (" + seq_placeholders + ")",
+                            [target_id, agent_id, *seqs],
+                        )
+                        moved += int(cur.rowcount)
+
+            if agent_id:
+                cur = self._conn.execute(
+                    "UPDATE conversation_history SET agent_id = ? "
+                    "WHERE session_id = ? AND agent_id IS NULL",
+                    (agent_id, target_id),
+                )
+                claimed = int(cur.rowcount)
+        return (moved, deduplicated, claimed)
 
     def existing_seqs(self, seqs: set[int]) -> set[int]:
         """Return the subset of globally addressed history rows that exist."""

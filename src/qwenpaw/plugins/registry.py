@@ -72,6 +72,7 @@ class HookRegistration:
     hook_name: str
     callback: Callable
     priority: int = 100
+    reload_safe: bool = False
 
 
 @dataclass
@@ -593,6 +594,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        reload_safe: bool = False,
     ):
         """Register a hook that fires when a new workspace is created.
 
@@ -605,12 +607,16 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             callback: Sync or async callback function.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Priority (lower = earlier execution)
+            reload_safe: Whether the callback only restores in-memory state
+                and may run for a replacement workspace during reload. Such
+                callbacks must not perform workspace filesystem provisioning.
         """
         hook = HookRegistration(
             plugin_id=plugin_id,
             hook_name=hook_name,
             callback=callback,
             priority=priority,
+            reload_safe=reload_safe,
         )
         self._workspace_created_hooks.append(hook)
         self._workspace_created_hooks.sort(key=lambda h: h.priority)
@@ -626,6 +632,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             List of HookRegistration
         """
         return self._workspace_created_hooks.copy()
+
+    def get_workspace_setup_hooks(self) -> List[HookRegistration]:
+        """Get in-memory workspace setup hooks sorted by priority."""
+        return [
+            hook for hook in self._workspace_created_hooks if hook.reload_safe
+        ]
 
     def remove_hooks_by_name(
         self,
@@ -941,8 +953,27 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         Args:
             plugin_id: Plugin identifier to remove
         """
+        from qwenpaw.memory import memory_registry
+
+        self.assert_memory_backends_not_in_use(plugin_id)
+
         self._unregister_plugin_http_routes(plugin_id)
         self._unregister_plugin_channels(plugin_id)
+
+        try:
+            removed_memory = memory_registry.unregister_owner(plugin_id)
+            for backend_id in removed_memory:
+                logger.info(
+                    "Unregistered memory backend '%s' for plugin '%s'",
+                    backend_id,
+                    plugin_id,
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Memory backend ownership release skipped for plugin %s",
+                plugin_id,
+                exc_info=True,
+            )
 
         try:
             from .api import release_tool_ownership_for_plugin
@@ -1095,3 +1126,41 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         except Exception as e:
             logger.error(f"Failed to save tool config: {e}")
             raise
+
+    def assert_memory_backends_not_in_use(self, plugin_id: str) -> None:
+        """Protect selected, starting, and draining memory backends."""
+        from qwenpaw.memory import memory_registry
+
+        owned_memory = set(memory_registry.owned_by(plugin_id))
+        if not owned_memory:
+            return
+        selected_agent_ids: set[str] = set()
+        if self._workspace_manager is not None:
+            workspaces = getattr(
+                self._workspace_manager,
+                "agents",
+                getattr(self._workspace_manager, "workspaces", {}),
+            )
+            selected_agent_ids.update(
+                workspace.agent_id
+                for workspace in workspaces.values()
+                if getattr(
+                    getattr(
+                        getattr(workspace, "_config", None),
+                        "running",
+                        None,
+                    ),
+                    "memory_manager_backend",
+                    None,
+                )
+                in owned_memory
+            )
+        in_use = memory_registry.begin_owner_unload(
+            plugin_id,
+            tuple(selected_agent_ids),
+        )
+        if in_use:
+            raise RuntimeError(
+                f"Cannot unload plugin '{plugin_id}'; memory backend is "
+                f"in use by agents: {', '.join(sorted(in_use))}",
+            )

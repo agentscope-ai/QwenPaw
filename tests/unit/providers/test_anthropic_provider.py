@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import qwenpaw.providers.anthropic_provider as anthropic_provider_module
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
@@ -111,7 +114,8 @@ async def test_check_connection_success(monkeypatch) -> None:
             called["count"] += 1
             return SimpleNamespace(data=[])
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     ok, msg = await provider.check_connection(timeout=2.0)
@@ -119,6 +123,7 @@ async def test_check_connection_success(monkeypatch) -> None:
     assert ok is True
     assert msg == ""
     assert called["count"] == 1
+    close.assert_awaited_once()
 
 
 async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
@@ -128,7 +133,8 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
         async def list(self):
             raise RuntimeError("boom")
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
     monkeypatch.setattr(
         anthropic_provider_module.anthropic,
@@ -140,6 +146,7 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 
     assert ok is False
     assert msg == "Anthropic API error: boom"
+    close.assert_awaited_once()
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -155,7 +162,8 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         async def list(self):
             return SimpleNamespace(data=rows)
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     models = await provider.fetch_models(timeout=3.0)
@@ -169,6 +177,60 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         "claude-3-5-sonnet",
     ]
     assert not provider.models
+    close.assert_awaited_once()
+
+
+async def test_list_model_collects_all_async_pages(monkeypatch) -> None:
+    provider = _make_provider()
+    first_page = [
+        SimpleNamespace(id="claude-page-1", display_name="Page One"),
+        SimpleNamespace(id="claude-shared", display_name="Shared"),
+    ]
+    second_page = [
+        SimpleNamespace(id="claude-page-2", display_name="Page Two"),
+        SimpleNamespace(id="claude-shared", display_name="Duplicate"),
+    ]
+
+    class FakePage:
+        data = first_page
+
+        async def __aiter__(self):
+            for row in [*first_page, *second_page]:
+                yield row
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(list=AsyncMock(return_value=FakePage())),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models] == [
+        "claude-page-1",
+        "claude-shared",
+        "claude-page-2",
+    ]
+    close.assert_awaited_once()
+
+
+async def test_auth_token_discovery_keeps_shared_http_client_open(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.auth_mode = "auth_token"
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(
+            list=AsyncMock(return_value=SimpleNamespace(data=[])),
+        ),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    assert await provider.fetch_models() == []
+    close.assert_not_awaited()
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:
@@ -176,18 +238,27 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     captured: list[dict] = []
 
     class FakeStream:
+        def __init__(self):
+            self.closed = False
+
         def __aiter__(self):
             return self
 
         async def __anext__(self):
             raise StopAsyncIteration
 
+        async def close(self):
+            self.closed = True
+
+    stream = FakeStream()
+
     class FakeMessages:
         async def create(self, **kwargs):
             captured.append(kwargs)
-            return FakeStream()
+            return stream
 
-    fake_client = SimpleNamespace(messages=FakeMessages())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(messages=FakeMessages(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     ok, msg = await provider.check_model_connection(
@@ -204,6 +275,41 @@ async def test_check_model_connection_success(monkeypatch) -> None:
         {"role": "user", "content": [{"type": "text", "text": "ping"}]},
     ]
     assert captured[0]["stream"] is True
+    assert stream.closed is True
+    close.assert_awaited_once()
+
+
+async def test_check_model_connection_closes_stream_on_iteration_error(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FailingStream:
+        def __init__(self):
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("stream failed")
+
+        async def close(self):
+            self.closed = True
+
+    stream = FailingStream()
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(return_value=stream)),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.check_model_connection("claude-3-5-haiku")
+
+    assert result.success is False
+    assert stream.closed is True
+    close.assert_awaited_once()
 
 
 async def test_check_model_connection_empty_model_id_returns_false() -> None:
@@ -239,7 +345,7 @@ async def test_check_model_connection_api_error_returns_false(
     )
 
     assert ok is False
-    assert msg == "Model 'claude-3-5-haiku' is not reachable or usable"
+    assert msg == "Model 'claude-3-5-haiku' is not reachable or usable: failed"
 
 
 async def test_update_config_updates_only_non_none_values() -> None:
@@ -270,3 +376,195 @@ async def test_update_config_updates_only_non_none_values() -> None:
     assert provider_info.api_key_prefix == "sk-ant-"
     assert provider_info.is_custom
     assert not provider_info.support_connection_check
+
+
+# ---------------------------------------- _try_video_source
+
+
+def _make_text_block(text: str):
+    return SimpleNamespace(type="text", text=text)
+
+
+def _make_thinking_block(text: str):
+    return SimpleNamespace(type="thinking", thinking=text)
+
+
+def _make_response(*blocks):
+    return SimpleNamespace(content=list(blocks))
+
+
+async def test_try_video_source_color_match(monkeypatch) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("blue"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(messages=FakeMessages(), close=close)
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, msg = result
+    assert ok is True
+    assert "Video supported" in msg
+    close.assert_awaited_once()
+
+
+async def test_try_video_source_thinking_block_match(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    resp = _make_response(
+        _make_thinking_block("The video shows a blue color"),
+        _make_text_block("unknown"),
+    )
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, _ = result
+    assert ok is True
+
+
+async def test_try_video_source_no_match(monkeypatch) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("green"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is not None
+    ok, msg = result
+    assert ok is False
+    assert "did not recognise" in msg
+
+
+async def test_try_video_source_400_returns_none(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class Fake400Error(
+        anthropic_provider_module.anthropic.APIError,
+    ):
+        def __init__(self):
+            self.status_code = 400
+            self.message = "bad"
+            self.body = {}
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            raise Fake400Error()
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "base64", "media_type": "video/mp4", "data": "AA=="},
+        timeout=30,
+        start_time=time.monotonic(),
+    )
+    assert result is None
+
+
+async def test_try_video_source_http_fallback_accepts_any_answer(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    resp = _make_response(_make_text_block("green"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return resp
+
+    fake_client = SimpleNamespace(messages=FakeMessages())
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=30: fake_client,
+    )
+
+    result = await provider._try_video_source(
+        "test-model",
+        {"type": "url", "url": "https://example.com/v.mp4"},
+        timeout=30,
+        start_time=time.monotonic(),
+        is_http=True,
+    )
+    assert result is not None
+    ok, _ = result
+    assert ok is True
+
+
+async def test_image_probe_closes_client(monkeypatch) -> None:
+    provider = _make_provider()
+    response = _make_response(_make_text_block("red"))
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return response
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(messages=FakeMessages(), close=close)
+    monkeypatch.setattr(
+        provider,
+        "_client",
+        lambda timeout=10: fake_client,
+    )
+
+    result = await provider._probe_image_support("vision-model")
+
+    assert result[0] is True
+    close.assert_awaited_once()

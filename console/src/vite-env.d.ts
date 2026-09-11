@@ -13,6 +13,10 @@ declare module "*.less" {
 
 interface PyWebViewAPI {
   open_external_link?: (url: string) => void;
+  open_workspace_html?: (
+    url: string,
+    headers?: Record<string, string>,
+  ) => Promise<boolean>;
   save_file?: (
     url: string,
     filename: string,

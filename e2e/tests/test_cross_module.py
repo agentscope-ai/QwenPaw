@@ -13,6 +13,7 @@ Run with: pytest tests/test_cross_module.py -v
 from __future__ import annotations
 
 import logging
+import re
 import time
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
@@ -24,6 +25,68 @@ from utils.helpers import log_test_step, log_test_result
 logger = logging.getLogger(__name__)
 
 BASE_URL = config.base_url
+
+# -- Environments page anchors (rebuilt for #7538) -------------------------
+# The Environments page was rewritten by #7538 ("unify runtime environment
+# management"): rows are no longer table rows / inline inputs but
+# `styles.row` divs grouped into three sections.  The old selector list
+# (`tr.qwenpaw-table-row`, `[class*=envRow]`, `.qwenpaw-form-item`) matches
+# nothing on the new page, which would have made the before/after count
+# comparison below a vacuous `0 == 0`.
+#
+# Class names are CSS-module scoped as `[name]__[local]__[hash:base64:5]`, and
+# this stylesheet shares the `index.module.less` filename with PageHeader, so
+# every generated class starts with `index-module__`.  Matching `__row__`
+# (double-underscore bounded) hits `index-module__row__<hash>` without
+# matching neighbours such as `index-module__envRow__<hash>`.
+ENV_ROW_SELECTOR = 'div[class*="__row__"]'
+# `styles.sectionHeading` is rendered only in the loaded branch; the loading
+# and error branches render `styles.state` instead, so it doubles as a
+# "catalogue data has arrived" signal.
+ENV_SECTION_HEADING = 'div[class*="__sectionHeading__"]'
+
+
+def wait_for_environments_loaded(page: Page, timeout: int = 15000):
+    """Open the Environments page and wait for the catalogue to render."""
+    page.goto(f"{BASE_URL}/environments")
+    page.wait_for_load_state("domcontentloaded")
+    expect(page.locator(ENV_SECTION_HEADING).first).to_be_visible(timeout=timeout)
+
+
+def count_environment_rows(page: Page) -> int:
+    """Count variable rows across all three sections of the Environments page."""
+    return page.locator(ENV_ROW_SELECTOR).count()
+
+
+def sum_environment_section_counts(page: Page) -> int:
+    """Sum the three section-heading counts (Custom + Live + Read-only).
+
+    index.tsx renders `<span>{customVariables.length}</span>`,
+    `<span>{editableCatalog.length}</span>` and
+    `<span>{readonlyCatalog.length}</span>` inside each `styles.sectionHeading`,
+    and those three lists are exactly what produces the `styles.row` elements.
+    Their sum is therefore an independent measurement of the same quantity as
+    `count_environment_rows()`, derived from text rather than from the row
+    class name.
+
+    Comparing the two is a self-consistent invariant: it catches row-selector
+    drift (rows would count 0 while the headings still sum to the catalogue
+    size) without hard-coding the catalogue size, which upstream is free to
+    change — `src/qwenpaw/envs/registry.py` currently ships 17 `EnvVarSpec`
+    entries (2 hot_runtime + 15 startup_only), but a future entry would make a
+    literal `>= 17` assertion wrong in either direction.
+    """
+    total = 0
+    for heading_text in ("Custom variables", "Live settings", "Read-only settings"):
+        heading = page.locator(ENV_SECTION_HEADING).filter(has_text=heading_text).first
+        expect(heading).to_be_visible(timeout=10000)
+        raw = heading.locator("span").first.inner_text().strip()
+        if not raw.isdigit():
+            raise AssertionError(
+                f"'{heading_text}' section count is not an integer: {raw!r}"
+            )
+        total += int(raw)
+    return total
 
 
 def navigate_to_skills(page: Page):
@@ -49,7 +112,7 @@ def navigate_to_security(page: Page):
 
 def navigate_to_files(page: Page):
     """Navigate to the files management page."""
-    page.goto(f"{BASE_URL}/workspace")
+    page.goto(f"{BASE_URL}/files")
     page.wait_for_load_state("commit")
     page.wait_for_timeout(2000)
 
@@ -628,12 +691,32 @@ class TestWorkspaceFileChatFlow:
 @pytest.mark.cross_module
 class TestEnvAndRuntimeConfigFlow:
     """
-    CROSS-005: Environment variables and runtime config linkage verification.
+    CROSS-005: Environment variables and agent (runtime) config boundary.
 
-    Verify data consistency between the environments page and the runtime config page:
-    1. View configured environment variables on the Environments page
-    2. Verify config items on the RuntimeConfig page
-    3. Confirm the two pages do not interfere with each other
+    Verify the two pages that expose the same LLM settings at different layers:
+    1. Environments page renders the whole variable catalogue, and its row
+       anchor agrees with the sum of the three section-heading counts
+    2. Agent config page (/agent-config) renders the LLM Retry and LLM Rate
+       Limiter tabs — the persisted running-config counterparts of the
+       QWENPAW_LLM_* environment variables
+    3. Confirm the two pages do not interfere with each other: navigating
+       away and back leaves the Environments catalogue unchanged
+
+    SCOPE CHANGE (#7538): the Environments row anchor had to be rebuilt for the
+    unified page (rows are `styles.row` divs in three sections, not table rows),
+    and the old navigation target `/settings/runtime-config` has never existed
+    in console/src at any revision, so step 3 used to land on a blank page
+    while step 4 logged a message instead of asserting.  Both are fixed here.
+
+    What this case deliberately does NOT assert: that changing an environment
+    variable makes the agent config page show a new number.  #7538 does connect
+    the two layers — `AgentsRunningConfig` defaults now come from
+    `EnvVarLoader.get_int("QWENPAW_LLM_MAX_RETRIES", ...)` — but that default
+    is only consulted when an agent has no persisted running config
+    (`running = agent_config.running or AgentsRunningConfig()`), so for any
+    already-configured agent the page shows stored values and never follows
+    the environment.  Asserting a live env -> UI linkage would be flaky by
+    construction.
     """
 
     @pytest.mark.test_id("CROSS-005")
@@ -642,50 +725,156 @@ class TestEnvAndRuntimeConfigFlow:
         test_name = request.node.name
 
         log_test_step("1. Navigate to the environments page")
-        page.goto(f"{BASE_URL}/environments")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        wait_for_environments_loaded(page)
 
         log_test_step("2. Record the environment variable count")
-        env_rows = page.locator(
-            '.qwenpaw-table-tbody tr.qwenpaw-table-row, '
-            '[class*=envRow], '
-            '.qwenpaw-form-item'
-        ).all()
-        env_count = len(env_rows)
-        logger.info(f"Environment variable count: {env_count}")
+        env_count = count_environment_rows(page)
+        # Lower-bound guard: without it a selector that stopped matching would
+        # compare 0 == 0 and this case would stay green while testing nothing
+        # (the same silent-pass family as the shard-selection blind spots).
+        assert env_count > 0, (
+            "Environments page reported zero variable rows — the row selector "
+            "no longer matches the page, so this comparison would be vacuous"
+        )
+        # Self-consistency guard: the row count and the sum of the three
+        # section-heading counts measure the same thing two independent ways
+        # (class name vs. rendered text).  Agreeing means the row anchor is
+        # really pointing at variable rows, not at some unrelated element that
+        # happens to match, and it stays correct when upstream adds or removes
+        # catalogue entries.
+        section_sum = sum_environment_section_counts(page)
+        assert env_count == section_sum, (
+            f"Row count ({env_count}) disagrees with the sum of the section "
+            f"heading counts ({section_sum}) — one of the two anchors is wrong"
+        )
+        logger.info(
+            f"Environment variable count: {env_count} "
+            f"(section headings sum to the same {section_sum})"
+        )
 
-        log_test_step("3. Navigate to the runtime config page")
-        page.goto(f"{BASE_URL}/settings/runtime-config")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        log_test_step("3. Navigate to the agent config (runtime config) page")
+        # The authoritative route is /agent-config: console/src/layouts/registry/
+        # builtinRoutes.tsx maps core.agent-config -> /agent-config, and
+        # e2e/pages/runtime_config_page.py:31 plus e2e/tests/
+        # test_runtime_config.py:23 already use it.  "/settings/runtime-config"
+        # has never existed in console/src at any revision (zero hits across the
+        # whole history), so the previous navigation landed on a blank page and
+        # step 4 could not fail no matter what it found.
+        page.goto(f"{BASE_URL}/agent-config")
+        page.wait_for_load_state("domcontentloaded")
 
-        log_test_step("4. Verify the runtime config page loads")
-        config_area = page.locator(
-            '.qwenpaw-tabs, '
-            '.qwenpaw-form, '
-            '[class*=config], '
-            '[class*=setting]'
-        ).first
-        if config_area.is_visible(timeout=5000):
-            logger.info("Runtime config page loaded")
-        else:
-            logger.info("Runtime config page may have a different layout")
+        log_test_step("4. Verify the agent config page renders its LLM tabs")
+        # Hard assertions on the tab keys declared in
+        # console/src/pages/Agent/Config/index.tsx (key: "llmRetry" at line 165,
+        # key: "llmRateLimiter" at line 178).  These are the runtime-config
+        # counterparts of the QWENPAW_LLM_* environment variables, which is the
+        # actual boundary this cross-module case is about.  The same
+        # data-node-key anchors are already proven green in
+        # e2e/tests/test_runtime_config.py, so no new selector idiom is
+        # introduced here.
+        for tab_key in ("llmRetry", "llmRateLimiter"):
+            tab = page.locator(f'[data-node-key="{tab_key}"] .qwenpaw-tabs-tab-btn').first
+            expect(tab).to_be_visible(timeout=10000)
+            logger.info(f"Agent config tab present: {tab_key}")
+        # The two pages coexist as separate routes: #7538 unified how
+        # environment variables are read (EnvVarLoader + envs/registry.py as the
+        # single source of truth), it did not merge this page into Environments.
+        expect(page.locator('.qwenpaw-tabs').first).to_be_visible(timeout=5000)
 
         log_test_step("5. Return to the environments page and verify data unchanged")
-        page.goto(f"{BASE_URL}/environments")
-        page.wait_for_load_state("commit")
-        page.wait_for_timeout(2000)
+        wait_for_environments_loaded(page)
 
-        env_rows_after = page.locator(
-            '.qwenpaw-table-tbody tr.qwenpaw-table-row, '
-            '[class*=envRow], '
-            '.qwenpaw-form-item'
-        ).all()
-        env_count_after = len(env_rows_after)
+        env_count_after = count_environment_rows(page)
         assert env_count_after == env_count, \
             f"Environment variable count inconsistent: before={env_count}, after={env_count_after}"
-        logger.info(f"Environment variable count consistent: {env_count_after}")
+        # Re-check the invariant after the round trip: navigating away and back
+        # must not leave the two anchors disagreeing either.
+        section_sum_after = sum_environment_section_counts(page)
+        assert env_count_after == section_sum_after, (
+            f"After the round trip the row count ({env_count_after}) disagrees "
+            f"with the section heading sum ({section_sum_after})"
+        )
+        logger.info(
+            f"Environment variable count consistent: {env_count_after} "
+            f"(section headings sum to the same {section_sum_after})"
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - environment variable and runtime config linkage verified")
+
+
+# ============================================================================
+# MA-001 P1 — sidebar Agent switcher (Agents API -> Chat sidebar)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.cross_module
+class TestAgentSwitcherInChat:
+    """MA-001: seed an agent via API, switch to it in the sidebar
+    AgentSelector, assert the trigger reflects the selection; restore."""
+
+    @pytest.mark.test_id("MA-001")
+    def test_agent_switcher_in_chat(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        from pages.agents_page import AgentsPage
+
+        test_name = request.node.name
+        chat = ChatPage(page)
+        agents_page = AgentsPage(page)
+        agent_name = f"E2E Switcher {int(time.time())}"
+        agent_id = None
+
+        log_test_step("1. Seed a fresh agent via API")
+        created = agents_page.api_create_agent(
+            api_context, agent_name, description="switcher probe"
+        )
+        agent_id = (created or {}).get("id")
+        if not agent_id:
+            pytest.skip(f"agent seed failed: {created!r}")
+
+        try:
+            log_test_step("2. Open /chat — AgentSelector mounts and fetches")
+            chat.open()
+            switcher = page.locator(chat.AGENT_SWITCHER).first
+            expect(switcher).to_be_visible(timeout=chat.timeout)
+
+            log_test_step("3. Open the switcher; seeded agent is listed")
+            switcher.click()
+            option = page.locator(chat.AGENT_SWITCHER_OPTION).filter(
+                has_text=agent_name
+            ).first
+            expect(option).to_be_visible(timeout=chat.timeout)
+
+            log_test_step("4. Select it; trigger label shows the agent name")
+            option.click()
+            page.wait_for_timeout(800)
+            value = page.locator(chat.AGENT_SWITCHER_VALUE).first
+            expect(value).to_contain_text(
+                agent_name, timeout=chat.timeout
+            )
+
+            log_test_step("5. Switch back to the default agent")
+            switcher.click()
+            default_option = page.locator(
+                chat.AGENT_SWITCHER_OPTION
+            ).filter(has_text=re.compile("Default Agent|默认智能体")).first
+            expect(default_option).to_be_visible(timeout=chat.timeout)
+            default_option.click()
+            page.wait_for_timeout(800)
+            expect(
+                page.locator(chat.AGENT_SWITCHER_VALUE).first
+            ).not_to_contain_text(agent_name, timeout=chat.timeout)
+        finally:
+            if agent_id:
+                try:
+                    agents_page.api_delete_agent(api_context, agent_id)
+                except Exception:
+                    pass
+
+        log_test_result(test_name, True, 0)
+        logger.info(f"Test {test_name} passed")

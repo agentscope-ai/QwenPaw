@@ -3,7 +3,8 @@
 # pylint: disable=line-too-long
 """Web search and fetch tools.
 
-web_search uses Tavily keyless API.
+web_search delegates to a pluggable search provider (Tavily by
+default, AnySearch when the per-agent Console config selects it).
 web_fetch uses direct HTTP GET + html2text.
 """
 
@@ -21,24 +22,19 @@ from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...runtime.tool_registry import tool_descriptor
+from .websearch import format_search_results, get_search_provider
 
 logger = logging.getLogger(__name__)
 
-_TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 _DEFAULT_TIMEOUT = 30
-_DEFAULT_MAX_RESULTS = 5
 
 _SEARCH_FALLBACK_HINT = (
     "This tool uses a free API with rate limits. "
     "Try again later, or fall back to "
-    "execute_shell_command with curl, or browser_use "
-    "with action='open' as a last resort."
+    "execute_shell_command with curl as a last resort."
 )
 
-_FETCH_FALLBACK_HINT = (
-    "Try execute_shell_command with curl, or "
-    "browser_use with action='open' as a last resort."
-)
+_FETCH_FALLBACK_HINT = "Try execute_shell_command with curl as a last resort."
 
 _FETCH_HEADERS = {
     "User-Agent": (
@@ -68,57 +64,6 @@ def _is_ssl_error(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__
     return False
-
-
-async def _post(
-    url: str,
-    headers: dict,
-    payload: dict,
-) -> dict:
-    """Async HTTP POST with SSL-verification fallback."""
-    try:
-        async with httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-        ) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
-    except Exception as first_exc:
-        if not _is_ssl_error(first_exc):
-            raise
-        logger.warning(
-            f"SSL verify failed for {url}, retrying",
-        )
-        async with httpx.AsyncClient(
-            timeout=_DEFAULT_TIMEOUT,
-            verify=False,
-        ) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _format_search_results(results: list[dict]) -> str:
-    """Format Tavily search results into readable text."""
-    if not results:
-        return "No results found."
-    lines: list[str] = []
-    for i, r in enumerate(results, 1):
-        title = r.get("title", "")
-        url = r.get("url", "")
-        content = r.get("content", "")
-        lines.append(f"[{i}] {title}")
-        lines.append(f"    URL: {url}")
-        if content:
-            lines.append(f"    {content}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
 
 
 async def _fetch_html(url: str) -> str:
@@ -207,9 +152,7 @@ async def web_search(search_term: str) -> ToolChunk:
     - Current events or technology news.
     - Informational queries similar to what you might search on the web.
 
-    IMPORTANT - Prefer this tool over browser_use for simple information retrieval. browser_use should only be used when you need to interact with a page (click, fill forms, navigate through multi-step flows).
-
-    FALLBACK - This tool uses a free API with rate limits. If it returns an error due to network issues or quota limits, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
+    FALLBACK - This tool uses a free API with rate limits. If it returns an error due to network issues or quota limits, fall back to execute_shell_command with curl.
 
     Args:
         search_term: The search term to look up on the web. Be specific and include relevant keywords for better results. For technical queries, include version numbers or dates if relevant.
@@ -231,20 +174,12 @@ async def web_search(search_term: str) -> ToolChunk:
         )
 
     try:
-        data = await _post(
-            _TAVILY_SEARCH_URL,
-            headers={
-                "Content-Type": "application/json",
-                "X-Tavily-Access-Mode": "keyless",
-            },
-            payload={
-                "query": query,
-                "max_results": _DEFAULT_MAX_RESULTS,
-                "search_depth": "basic",
-            },
+        provider = get_search_provider()
+        results = await provider.search(
+            query,
+            max_results=5,
         )
-        results = data.get("results", [])
-        text = _format_search_results(results)
+        text = format_search_results(results)
         if not text:
             text = "No content searched."
         return ToolChunk(
@@ -282,9 +217,7 @@ async def web_fetch(url: str) -> ToolChunk:
     - This tool does not support fetching binary content, e.g. media or PDFs.
     - For static assets and non-webpage URLs, use execute_shell_command with curl instead.
 
-    IMPORTANT - Prefer this tool over browser_use when you have a direct URL and only need to read its content. Use browser_use only when the page requires JavaScript rendering or interactive operations.
-
-    FALLBACK - If this tool returns an error or empty content, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
+    FALLBACK - If this tool returns an error or empty content, fall back to execute_shell_command with curl.
 
     Args:
         url: The URL to fetch. The content will be converted to a readable text format.

@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """Tauri sidecar entry point for starting the Python backend."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
 import logging
 import multiprocessing as mp
 import os
 import socket
 import sys
+from collections.abc import Sequence
 
 import click
 
@@ -45,6 +46,28 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
         return True
     # Single-dash interpreter flags (-u, -E, -X ...), but not --options.
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
+
+
+def _abort_unhandled_multiprocessing_child(args: Sequence[str]) -> None:
+    """Stop a frozen multiprocessing child that escaped its runtime hook.
+
+    PyInstaller's multiprocessing runtime hook consumes this private flag and
+    dispatches ``spawn_main()`` before the application entry point runs.  If
+    the flag reaches this function, the packaged executable is missing or did
+    not execute that hook.  Never let such a child continue into backend
+    singleton reconciliation, where it could terminate its parent backend.
+    """
+    if not bool(getattr(sys, "frozen", False)):
+        return
+    if "--multiprocessing-fork" not in args:
+        return
+    if sys.stderr is not None:
+        print(
+            "qwenpaw-backend multiprocessing runtime hook did not handle "
+            "the child process",
+            file=sys.stderr,
+        )
+    raise SystemExit(2)
 
 
 def _bundled_python() -> str:
@@ -227,6 +250,11 @@ def _install_desktop_runtime() -> None:
     _ensure_qwenpaw_app_not_loaded()
     ensure_desktop_cors_origins()
     _sync_loaded_qwenpaw_constant_cors_origins()
+    from qwenpaw.browser.runtime.managed_playwright import (
+        configure_desktop_playwright_cache,
+    )
+
+    configure_desktop_playwright_cache()
 
 
 def _run_click_command(
@@ -260,6 +288,9 @@ def _emit_backend_ready(port: int) -> None:
 def _run_backend_server(log_level: str) -> None:
     import uvicorn
 
+    from qwenpaw.browser.control_link.chrome.protocol import (
+        NM_MAX_INBOUND_BYTES,
+    )
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (
@@ -318,6 +349,8 @@ def _run_backend_server(log_level: str) -> None:
         # /console/push-messages) cannot stall the lifespan shutdown that
         # flushes memory/index on exit.
         timeout_graceful_shutdown=5,
+        # Chrome Native Messaging inbound limit; this applies server-wide.
+        ws_max_size=NM_MAX_INBOUND_BYTES,
     )
 
     if reused_socket:
@@ -347,6 +380,11 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
+    # PyInstaller replaces this function on every platform. It must run before
+    # application initialization so multiprocessing workers and resource
+    # trackers do not re-enter the backend entry point.
+    mp.freeze_support()
+    _abort_unhandled_multiprocessing_child(sys.argv[1:])
     if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
         _reexec_as_bundled_python(sys.argv[1:])
         return
@@ -370,16 +408,14 @@ def main() -> None:
             label="initialization",
         )
 
-    # On Windows, auto-disable sandbox when not running as admin so the
-    # desktop backend starts without a half-broken sandbox layer (mirrors
-    # the same guard in cli/app_cmd.py for `qwenpaw app`).
-    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
+    # On Windows without admin, warn that sandbox runs in unelevated mode
+    # with limited isolation (mirrors the same guard in cli/app_cmd.py).
+    from qwenpaw.utils.platform import warn_unelevated_sandbox
 
-    auto_disable_sandbox_on_windows()
+    warn_unelevated_sandbox()
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 
 
 if __name__ == "__main__":
-    mp.freeze_support()
     main()

@@ -3,6 +3,7 @@
 
 `qwenpaw doctor fix` — conservative repairs with backup.
 """
+
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
@@ -26,16 +27,16 @@ from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
 )
-from ..utils.http import trust_env_for_url
+from ..utils.runtime_api import api_client
 from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
     api_target_mismatch_note,
-    browser_automation_notes,
     check_agent_json_profiles,
     check_agent_profile_workspaces,
     check_agent_workspace_writable,
     check_app_log_writable,
+    check_browser_readiness,
     check_cron_jobs_files,
     check_enabled_agents_load_agent_config,
     check_enabled_agents_model_connections,
@@ -85,8 +86,8 @@ def _same_python_executable(a: str, b: str) -> bool:
 
 
 def _http_get(url: str, **kwargs) -> httpx.Response:
-    kwargs.setdefault("trust_env", trust_env_for_url(url))
-    return httpx.get(url, **kwargs)
+    with api_client(url) as client:
+        return client.get(url, **kwargs)
 
 
 def _check_api_health(
@@ -276,7 +277,7 @@ def _check_web_auth(base: str) -> tuple[bool, str]:
             "        2) Complete registration (single user) on the login "
             "page.\n"
             "        For automation, set QWENPAW_AUTH_USERNAME and "
-            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
+            "QWENPAW_AUTH_PASSWORD — the "
             "server creates the user on startup.",
         )
     return (
@@ -627,17 +628,6 @@ def run_doctor_checks(
                 click.style("OK", fg="green") + " — no skill layout warnings",
             )
 
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_notes = browser_automation_notes(cfg)
-        if br_notes:
-            for line in br_notes:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
         click.echo("\n=== Security (baseline) ===")
         sec_notes = security_baseline_notes(cfg)
         if sec_notes:
@@ -714,17 +704,6 @@ def run_doctor_checks(
             + _skipped_when_cfg_invalid
             + ". Fix the config file, then re-run `qwenpaw doctor`.",
         )
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_skip = browser_automation_notes(None)
-        if br_skip:
-            for line in br_skip:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
     click.echo("\n=== Working directory ===")
     wd_ok, detail = _check_working_dir()
     if wd_ok:
@@ -733,8 +712,7 @@ def run_doctor_checks(
         failed = True
         click.echo(click.style("FAIL", fg="red") + f" — {detail}", err=True)
         _doctor_fix_hint(
-            "Fix: set `QWENPAW_WORKING_DIR` (or legacy `COPAW_WORKING_DIR`) "
-            "or run `qwenpaw init`. "
+            "Fix: set `QWENPAW_WORKING_DIR` or run `qwenpaw init`. "
             "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
             "--only ensure-working-dir` if the parent path exists and is "
             "writable. Apply: run the plan `without --dry-run` (add `-y` to "
@@ -768,6 +746,15 @@ def run_doctor_checks(
             )
         if config_ok:
             cfg_sp = load_config()
+            browser_ok, browser_detail = check_browser_readiness(cfg_sp)
+            click.echo(
+                click.style(
+                    "OK" if browser_ok else "FAIL",
+                    fg="green" if browser_ok else "red",
+                )
+                + f" — browser: {browser_detail}",
+            )
+            failed = failed or not browser_ok
             ws_w_ok, ws_w_detail = check_agent_workspace_writable(cfg_sp)
             if ws_w_ok:
                 click.echo(

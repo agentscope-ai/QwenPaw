@@ -26,7 +26,7 @@ qwenpaw .                     # use the current directory as the project
 qwenpaw tui /path/to/repo     # use an explicit directory
 ```
 
-This enables Coding-Mode prompt and tool behavior **for that TUI session only** — it does not change the project saved in `agent.json` or selected in the Console. See [Coding Mode](/docs/coding-mode) for what changes under the hood.
+This enables Coding-Mode prompt and tool behavior **for that TUI session only** — it does not change the project saved in `agent.json` or selected in the Console.
 
 > No separate install or server to manage: the TUI launches its own `qwenpaw acp` backend using the interpreter it ships in, so it always drives the same install/venv as your `qwenpaw` command.
 
@@ -133,7 +133,6 @@ Two practical consequences:
 
 ## See Also
 
-- [Coding Mode](/docs/coding-mode) — what changes when you launch the TUI inside a repo
 - [Magic Commands](/docs/commands) — the full list of agent slash commands
 - [ACP Integration](/docs/acp-integration) — the protocol the TUI speaks to the backend
 - [CLI](/docs/cli) — other `qwenpaw` subcommands

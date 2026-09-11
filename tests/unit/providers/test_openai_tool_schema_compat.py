@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import jsonschema
 import pytest
 from agentscope.tool import Toolkit
 
@@ -145,8 +146,14 @@ def test_sanitize_tool_schemas_removes_nullable_builtin_tool_branches() -> (
     assert read_file_params["required"] == ["file_path"]
     start_line = read_file_params["properties"]["start_line"]
     assert start_line == {
-        "type": "integer",
-        "description": "First line to read (1-based, inclusive).",
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "string"},
+        ],
+        "description": (
+            "First line to read (1-based, inclusive). Decimal strings are\n"
+            "accepted for tool-call compatibility."
+        ),
         "default": None,
     }
 
@@ -175,6 +182,24 @@ def test_sanitize_tool_schemas_removes_nullable_builtin_tool_branches() -> (
         ),
         "type": "object",
     }
+
+
+def test_read_file_schema_accepts_string_line_numbers() -> None:
+    """Numeric strings must survive AgentScope's pre-call validation."""
+    tool = PolicyGuardedTool(
+        read_file,
+        governor=None,
+        request_context={},
+    )
+
+    jsonschema.validate(
+        {
+            "file_path": "/tmp/tool-result.txt",
+            "start_line": "96",
+            "end_line": "300",
+        },
+        tool.input_schema,
+    )
 
 
 def test_sanitize_tool_schemas_removes_null_from_type_arrays() -> None:

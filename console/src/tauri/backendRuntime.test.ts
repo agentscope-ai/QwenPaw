@@ -26,6 +26,7 @@ describe("backendRuntime", () => {
     setViteBase("");
     tauriMocks.invoke.mockReset();
     tauriMocks.isTauri.mockReturnValue(false);
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     window.history.replaceState(null, "", "/");
   });
 
@@ -76,6 +77,14 @@ describe("backendRuntime", () => {
   it("uses the startup gate for the initial Tauri page", () => {
     tauriMocks.isTauri.mockReturnValue(true);
     window.history.replaceState(null, "", "/");
+
+    expect(shouldUseTauriStartupGate()).toBe(true);
+  });
+
+  it("uses the startup gate when only Tauri's invoke bridge is injected", () => {
+    (
+      window as { __TAURI_INTERNALS__?: { invoke: () => void } }
+    ).__TAURI_INTERNALS__ = { invoke: () => undefined };
 
     expect(shouldUseTauriStartupGate()).toBe(true);
   });

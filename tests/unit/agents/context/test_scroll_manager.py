@@ -11,17 +11,20 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import (
     HintBlock,
     Msg,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
-from agentscope.model import ChatResponse
+from agentscope.model import ChatModelBase, ChatResponse, FinishedReason
 
+from qwenpaw.agents.context.base import ContextManager
 from qwenpaw.agents.context.scroll import manager as scroll_manager_module
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
@@ -37,6 +40,10 @@ from qwenpaw.constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
+)
+from qwenpaw.utils.tool_call_extra import (
+    TOOL_CALL_EXTRAS_METADATA_KEY,
+    persist_tool_call_extras,
 )
 
 # -- fixtures ---------------------------------------------------------------
@@ -145,6 +152,49 @@ class HangingSummaryModel(FakeModel):
         await asyncio.Event().wait()
 
 
+class CancelConvertingSummaryModel(ChatModelBase):
+    """AgentScope model that converts stream cancellation into a response."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            credential=SimpleNamespace(),
+            model="test-model",
+            parameters=self.Parameters(),
+            max_retries=0,
+        )
+
+    async def _call_api(
+        self,
+        model_name,
+        messages,
+        tools=None,
+        tool_choice=None,
+        **kwargs,
+    ):
+        del model_name, messages, tools, tool_choice, kwargs
+
+        async def hanging_stream():
+            await asyncio.Event().wait()
+            yield ChatResponse(
+                content=[TextBlock(type="text", text="unreachable")],
+                is_last=False,
+            )
+
+        return hanging_stream()
+
+
+class InterruptedSummaryModel(FakeModel):
+    """Chat model returning AgentScope's non-stream cancellation marker."""
+
+    async def __call__(self, **kwargs):
+        del kwargs
+        return ChatResponse(
+            content=[],
+            is_last=True,
+            finished_reason=FinishedReason.INTERRUPTED,
+        )
+
+
 class FailingSummaryModel(FakeModel):
     """Chat model simulating a provider/transport failure."""
 
@@ -180,6 +230,7 @@ class FakeAgent:
         self.model = FakeModel(tokens)
         self.context_config = FakeConfig()
         self._split_return: tuple | None = None
+        self.omitted_thinking_ids: set[str] = set()
 
     async def _prepare_model_input(self) -> dict:
         return {"tools": []}
@@ -189,6 +240,10 @@ class FakeAgent:
             return self._split_return
         # Default: compress everything but the last msg.
         return (self.state.context[:-1], self.state.context[-1:])
+
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        self.omitted_thinking_ids = set(block_ids)
+        return True
 
 
 class AutoMemoryMsgBuilder(BaseMemoryManager):
@@ -203,8 +258,13 @@ class AutoMemoryMsgBuilder(BaseMemoryManager):
     def get_memory_prompt(self) -> str:
         return ""
 
-    def list_memory_tools(self) -> list:
-        return []
+    async def memory_search(self, query: str, **_kwargs):
+        del query
+        return None
+
+    async def auto_memory(self, messages: list[Msg], **_kwargs) -> str:
+        del messages
+        return ""
 
 
 @pytest.fixture
@@ -231,6 +291,18 @@ def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
     )
 
 
+def _persist_signature(msg: Msg, tool_id: str) -> None:
+    persist_tool_call_extras(
+        msg,
+        {
+            tool_id: {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+
+
 # -- write-through dedup -----------------------------------------------------
 
 
@@ -251,6 +323,47 @@ def test_persist_new_records_seq_and_headline_leaf(store: HistoryStore):
     assert a.id in mgr._leaf_by_id
     assert mgr._leaf_by_id[a.id].headline == "milestone"
     assert a.id in mgr._seq_by_id
+
+
+def test_persist_new_refreshes_late_tool_call_metadata(store: HistoryStore):
+    """A streamed assistant row must gain metadata when its tool call lands."""
+    mgr = make_manager(store)
+    turn = assistant("starting")
+    agent = FakeAgent([turn])
+    mgr._persist_new(agent)
+
+    turn.content.extend(
+        [
+            ToolCallBlock(
+                type="tool_call",
+                id="call-late",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call-late",
+                name="grep",
+                output="done",
+            ),
+        ],
+    )
+    _persist_signature(turn, "call-late")
+    mgr._persist_new(agent)
+
+    row = store._conn.execute(
+        "SELECT blocks, metadata FROM conversation_history "
+        "WHERE kind='model_turn' AND dedup_key = ?",
+        (turn.id,),
+    ).fetchone()
+    stored_blocks = json.loads(row["blocks"])
+    assert any(block["id"] == "call-late" for block in stored_blocks)
+    assert json.loads(row["metadata"])[TOOL_CALL_EXTRAS_METADATA_KEY] == {
+        "call-late": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
 
 
 def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
@@ -362,6 +475,34 @@ def test_checkpoint_round_trip_preserves_seen_tool_results(
     mgr2.load_state(mgr1.to_dict())
 
     assert mgr2._seen_tool_result_ids == {"call-seen"}
+
+
+def test_checkpoint_round_trip_preserves_active_thinking_fold_state(
+    store: HistoryStore,
+):
+    """Acknowledgement and request-only omission survive session resume."""
+    thought = ThinkingBlock(thinking="reasoning already consumed")
+    ctx = [
+        user("run it"),
+        Msg(
+            name="a",
+            role="assistant",
+            content=[thought, TextBlock(text="go")],
+        ),
+    ]
+    agent = FakeAgent(ctx)
+    mgr1 = make_manager(store)
+    captured = mgr1.model_input_thinking_block_ids(agent)
+    mgr1.acknowledge_model_input_thinking_blocks(captured)
+    mgr1._folded_thinking_block_ids.update(captured)
+
+    mgr2 = make_manager(store)
+    mgr2.load_state(mgr1.to_dict())
+    resumed = FakeAgent(ctx)
+
+    assert mgr2.model_input_thinking_block_ids(resumed) == set()
+    assert resumed.omitted_thinking_ids == {thought.id}
+    assert mgr2._seen_thinking_block_ids == {thought.id}
 
 
 def test_reappend_blocked_by_db_even_without_checkpoint(store: HistoryStore):
@@ -552,6 +693,7 @@ async def test_compress_restores_complete_non_active_tool_boundary(
     old_u = user("older question")
     old_a = assistant("older reply", headline="OLD")
     boundary = assistant_with_tool("call-boundary")
+    _persist_signature(boundary, "call-boundary")
     cur_u = user("current request")
     cur_a = assistant("current reply")
     ctx = [old_u, old_a, boundary, cur_u, cur_a]
@@ -579,6 +721,9 @@ async def test_compress_restores_complete_non_active_tool_boundary(
         "tool_call",
         "tool_result",
     ]
+    assert retained.metadata[TOOL_CALL_EXTRAS_METADATA_KEY] == (
+        boundary.metadata[TOOL_CALL_EXTRAS_METADATA_KEY]
+    )
 
 
 async def test_compress_keeps_active_turn_live(store: HistoryStore):
@@ -607,7 +752,7 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
-async def test_compress_does_not_evict_user_only_exchange_boundary(
+async def test_compress_does_not_evict_user_only_turn_boundary(
     store: HistoryStore,
 ):
     """If the split lands between an old user request and its assistant
@@ -742,6 +887,15 @@ def _completed_tool_history(
 class _RealisticScrollConfig:
     trigger_ratio = 0.8
     reserve_ratio = 0.1
+
+
+class _CopyableScrollConfig(_RealisticScrollConfig):
+    def model_copy(self, *, update):
+        """Return a config clone with the requested field updates."""
+        return SimpleNamespace(
+            trigger_ratio=update.get("trigger_ratio", self.trigger_ratio),
+            reserve_ratio=update.get("reserve_ratio", self.reserve_ratio),
+        )
 
 
 _VALID_CONTINUATION_SUMMARY = """## Active Task
@@ -1016,6 +1170,33 @@ async def test_summary_timeout_covers_prompt_fitting(
 
     assert agent.model.summary_calls == []
     assert mgr._summary_update_failed is True
+
+
+async def test_summary_timeout_survives_agentscope_stream_conversion():
+    mgr = object.__new__(ScrollContextManager)
+    agent = SimpleNamespace(model=CancelConvertingSummaryModel())
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            mgr._generate_plain_summary(
+                agent,
+                "summarize",
+                max_tokens=256,
+            ),
+            timeout=0.05,
+        )
+
+
+async def test_non_stream_interrupted_summary_propagates_cancellation():
+    mgr = object.__new__(ScrollContextManager)
+    agent = SimpleNamespace(model=InterruptedSummaryModel(1000))
+
+    with pytest.raises(asyncio.CancelledError):
+        await mgr._generate_plain_summary(
+            agent,
+            "summarize",
+            max_tokens=256,
+        )
 
 
 def test_summary_input_includes_timezone_safe_message_times(
@@ -1302,6 +1483,7 @@ async def test_pretrim_avoids_eviction_at_or_below_trigger(
         "pre_folded": 2,
         "live_folded": 0,
         "active_folded": 0,
+        "active_thinking_folded": 0,
         "folded": 2,
     }
     assert agent.model.calls == 2
@@ -1356,6 +1538,7 @@ async def test_pretrim_insufficient_then_continues_to_eviction(
         "pre_folded": 2,
         "live_folded": 0,
         "active_folded": 0,
+        "active_thinking_folded": 0,
         "folded": 2,
     }
     assert agent.model.calls == 3
@@ -1385,6 +1568,38 @@ async def test_manual_compact_skips_pretrim_and_performs_eviction(
     assert mgr.last_compress["pre_folded"] == 0
     assert mgr.last_compress["evicted"] == 4
     assert agent.state.context[-1].id == current.id
+
+
+@pytest.mark.parametrize(
+    ("compress_stats", "expected"),
+    [
+        ({"evicted": 1, "folded": 0}, True),
+        ({"evicted": 0, "folded": 1}, True),
+        ({"evicted": 0, "folded": 0}, False),
+    ],
+)
+async def test_overflow_recovery_forces_compaction_and_reports_change(
+    store: HistoryStore,
+    compress_stats: dict[str, int],
+    expected: bool,
+):
+    """Overflow recovery owns its force config and reports effective work."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")])
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        assert actual_agent is agent
+        mgr.last_compress.update(compress_stats)
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+
+    assert isinstance(mgr, ContextManager)
+    assert await mgr.recover_from_context_overflow(agent) is expected
+    mgr.compress.assert_awaited_once()
+    forced_config = mgr.compress.await_args.args[1]
+    assert forced_config.trigger_ratio == pytest.approx(1e-6)
+    assert forced_config.reserve_ratio == pytest.approx(0.1)
 
 
 async def test_fold_not_triggered_between_reserve_and_trigger(
@@ -1580,6 +1795,99 @@ async def test_hard_limit_folds_seen_old_active_results(
     assert mgr.last_compress["live_folded"] == 0
     assert mgr.last_compress["folded"] == 2
     assert agent.model.calls == 2
+
+
+async def test_pressure_folds_seen_active_thinking_request_only(
+    store: HistoryStore,
+):
+    """Consumed reasoning leaves the wire but stays live and durable."""
+    thought = ThinkingBlock(thinking="private chain " + "x" * 5000)
+    turn = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            thought,
+            ToolCallBlock(type="tool_call", id="c1", name="grep", input="{}"),
+        ],
+    )
+    ctx = [user("run the long workflow"), turn]
+    mgr = make_manager(store)
+    # Above the pressure target (500), but still below the effective hard
+    # limit (950): fold early enough to leave room for the next reasoning step.
+    agent = FakeAgent(ctx, tokens=[800, 100])
+    agent._split_return = (ctx, [])
+    mgr._persist_new(agent)
+    captured = mgr.model_input_thinking_block_ids(agent)
+    assert captured == {thought.id}
+    mgr.acknowledge_model_input_thinking_blocks(captured)
+
+    await mgr.compress(agent)
+
+    assert agent.omitted_thinking_ids == {thought.id}
+    assert thought.thinking.startswith("private chain ")
+    assert mgr.last_compress["active_thinking_folded"] == 1
+    assert mgr.last_compress["active_folded"] == 0
+    assert mgr.last_compress["folded"] == 1
+    durable = store._conn.execute(
+        "SELECT blocks FROM conversation_history "
+        "WHERE kind='model_turn' AND dedup_key = ?",
+        (turn.id,),
+    ).fetchone()
+    stored_blocks = json.loads(durable["blocks"])
+    assert stored_blocks[0]["thinking"] == thought.thinking
+
+
+async def test_hard_limit_keeps_unread_active_thinking(
+    store: HistoryStore,
+):
+    """A rejected request cannot make its reasoning eligible for omission."""
+    thought = ThinkingBlock(thinking="not consumed " + "x" * 5000)
+    turn = Msg(
+        name="a",
+        role="assistant",
+        content=[thought, TextBlock(text="continue")],
+    )
+    ctx = [user("run it"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=980)
+    agent._split_return = (ctx, [])
+
+    with pytest.raises(ContextWindowUnfitError):
+        await mgr.compress(agent)
+
+    assert agent.omitted_thinking_ids == set()
+    assert thought.thinking.startswith("not consumed ")
+    assert mgr.last_compress["active_thinking_folded"] == 0
+
+
+async def test_active_thinking_fold_rolls_back_when_recount_fails(
+    store: HistoryStore,
+):
+    """A failed exact recount must not leak request-time omission state."""
+    thought = ThinkingBlock(thinking="consumed reasoning " + "x" * 5000)
+    ctx = [
+        user("run it"),
+        Msg(
+            name="a",
+            role="assistant",
+            content=[thought, TextBlock(text="continue")],
+        ),
+    ]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=800)
+    agent._split_return = (ctx, [])
+    captured = mgr.model_input_thinking_block_ids(agent)
+    mgr.acknowledge_model_input_thinking_blocks(captured)
+    agent.model.count_tokens = AsyncMock(
+        side_effect=[800, RuntimeError("token recount failed")],
+    )
+
+    with pytest.raises(RuntimeError, match="token recount failed"):
+        await mgr.compress(agent)
+
+    assert mgr._folded_thinking_block_ids == set()
+    assert agent.omitted_thinking_ids == set()
+    assert thought.thinking.startswith("consumed reasoning ")
 
 
 async def test_hard_limit_keeps_unread_active_results_and_fails_closed(
@@ -2081,6 +2389,24 @@ def test_serialize_persists_runtime_tag():
     }
     (plain,) = msg_to_entries(user("hello"))
     assert not plain.metadata
+
+
+def test_serialize_persists_tool_call_extras():
+    """The exact Scroll archive retains provider tool-call protocol data."""
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = assistant_with_tool("call-signed")
+    _persist_signature(msg, "call-signed")
+
+    model_turn = next(
+        entry for entry in msg_to_entries(msg) if entry.kind == "model_turn"
+    )
+    assert model_turn.metadata[TOOL_CALL_EXTRAS_METADATA_KEY] == {
+        "call-signed": {
+            "provider_id": "example",
+            "extra_content": {"thought_signature": "signature-abc"},
+        },
+    }
 
 
 def test_serialize_captures_tool_input():

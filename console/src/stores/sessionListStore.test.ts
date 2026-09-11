@@ -4,6 +4,7 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "./sessionListStore";
+import { useAgentStore } from "./agentStore";
 
 function makeSession(
   id: string,
@@ -130,5 +131,28 @@ describe("sessionListStore", () => {
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith([expect.objectContaining({ id: "x" })]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Agent scoping — the shared list must not survive an agent switch
+  // ---------------------------------------------------------------------------
+
+  it("clears the shared list when the selected agent changes", () => {
+    useAgentStore.setState({ selectedAgent: "agent-a" });
+    syncSessionsGlobal([makeSession("chat-a")]);
+    expect(useSessionListStore.getState().sessions).toHaveLength(1);
+
+    useAgentStore.setState({ selectedAgent: "agent-b" });
+
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+  });
+
+  it("keeps the list on unrelated agent-store updates", () => {
+    useAgentStore.setState({ selectedAgent: "agent-a" });
+    syncSessionsGlobal([makeSession("chat-a")]);
+
+    useAgentStore.setState({ agents: [] });
+
+    expect(useSessionListStore.getState().sessions).toHaveLength(1);
   });
 });

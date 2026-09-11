@@ -29,6 +29,30 @@ export function useToolGuard() {
   const [sandboxEffective, setSandboxEffective] = useState(true);
   const [sandboxReason, setSandboxReason] = useState<string | null>(null);
 
+  // ── Deny Paths Protection state ──────────────────────────────
+  const [denyPathsActive, setDenyPathsActive] = useState(false);
+  const [denyPathsLoading, setDenyPathsLoading] = useState(false);
+  const [denyPathsProtectedPaths, setDenyPathsProtectedPaths] = useState<
+    string[]
+  >([]);
+  const [denyPathsPlatformSupported, setDenyPathsPlatformSupported] =
+    useState(false);
+
+  // Toggle deny paths protection: calls the backend immediately
+  const handleDenyPathsToggle = useCallback(async (val: boolean) => {
+    setDenyPathsLoading(true);
+    try {
+      const result = await api.updateDenyPathsProtection({ enabled: val });
+      setDenyPathsActive(result.active);
+      setDenyPathsProtectedPaths(result.protected_paths);
+      setDenyPathsPlatformSupported(result.platform_supported);
+    } catch {
+      // Revert on failure
+    } finally {
+      setDenyPathsLoading(false);
+    }
+  }, []);
+
   // Wrapped setter: when the sandbox toggle changes, immediately re-fetch
   // the effective status from the backend so the degradation warning
   // (enabled but not effective due to non-admin) appears right away,
@@ -53,10 +77,11 @@ export function useToolGuard() {
     setLoading(true);
     setError(null);
     try {
-      const [cfg, builtin, sandbox] = await Promise.all([
+      const [cfg, builtin, sandbox, denyPaths] = await Promise.all([
         api.getToolGuard(),
         api.getBuiltinRules(),
         api.getSandbox(),
+        api.getDenyPathsProtection(),
       ]);
       setConfig(cfg);
       setEnabled(cfg.enabled);
@@ -69,6 +94,10 @@ export function useToolGuard() {
       savedSandboxEnabledRef.current = sandbox.enabled;
       setSandboxEffective(sandbox.effective);
       setSandboxReason(sandbox.reason);
+      // Deny paths protection
+      setDenyPathsActive(denyPaths.active);
+      setDenyPathsProtectedPaths(denyPaths.protected_paths);
+      setDenyPathsPlatformSupported(denyPaths.platform_supported);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -195,6 +224,12 @@ export function useToolGuard() {
     setSandboxEnabled: handleSandboxToggle,
     sandboxEffective,
     sandboxReason,
+    // Deny paths protection
+    denyPathsActive,
+    denyPathsLoading,
+    denyPathsProtectedPaths,
+    denyPathsPlatformSupported,
+    toggleDenyPaths: handleDenyPathsToggle,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,

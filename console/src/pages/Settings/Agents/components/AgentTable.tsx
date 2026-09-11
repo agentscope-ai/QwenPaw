@@ -1,4 +1,5 @@
-import { Table, Button, Space, Popconfirm, Tooltip } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,7 +20,14 @@ import {
   RobotOutlined,
   CopyOutlined,
 } from "@ant-design/icons";
-import { EyeOff, Eye, Pin, PinOff } from "lucide-react";
+import {
+  EyeOff,
+  Eye,
+  PawPrint,
+  Pin,
+  PinOff,
+  SquareTerminal,
+} from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
@@ -27,6 +35,11 @@ import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import { providerIcon } from "../../Models/components/providerIcon";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import styles from "../index.module.less";
+
+const THIRD_PARTY_AGENT_NAMES: Record<string, string> = {
+  codex: "Codex",
+  qoder: "Qoder",
+};
 
 interface AgentTableProps {
   agents: AgentSummary[];
@@ -53,6 +66,22 @@ export function AgentTable({
 }: AgentTableProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  // Measure the table's container so the scroll body height follows the
+  // actual layout (classic page or OS window) instead of the viewport.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number>();
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const headerH =
+        el.querySelector("thead")?.getBoundingClientRect().height ?? 40;
+      const next = el.clientHeight - headerH;
+      setBodyHeight(next > 0 ? next : undefined);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -84,6 +113,7 @@ export function AgentTable({
       key: "sort",
       width: 56,
       align: "center",
+      fixed: "left",
       render: (_value: unknown, record: AgentSummary) => (
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
@@ -98,7 +128,8 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      width: 300,
+      width: 260,
+      fixed: "left",
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <AgentStatusIndicator
@@ -124,25 +155,73 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+      width: 180,
+    },
+    {
+      title: t("agent.backend.column"),
+      dataIndex: "backend",
+      key: "backend",
+      width: 180,
+      render: (backend: AgentSummary["backend"]) => {
+        const thirdParty = backend !== "qwenpaw";
+        const name = THIRD_PARTY_AGENT_NAMES[backend] ?? backend;
+        return (
+          <Tag
+            className={`${styles.backendTag} ${
+              thirdParty ? styles.backendTagThirdParty : ""
+            }`}
+            icon={
+              thirdParty ? <SquareTerminal size={12} /> : <PawPrint size={12} />
+            }
+          >
+            {thirdParty
+              ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
+              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+          </Tag>
+        );
+      },
     },
     {
       title: t("agent.description"),
       dataIndex: "description",
       key: "description",
+      width: 220,
       ellipsis: true,
     },
     {
       title: t("agent.workspace"),
       dataIndex: "workspace_dir",
       key: "workspace_dir",
+      width: 260,
       ellipsis: true,
     },
     {
       title: t("agent.modelColumn"),
       key: "active_model",
-      width: 260,
+      width: 220,
       ellipsis: true,
       render: (_value: unknown, record: AgentSummary) => {
+        if (record.backend !== "qwenpaw") {
+          const model = record.backend_model;
+          return model ? (
+            <Space size={6}>
+              <SquareTerminal size={15} />
+              <Tooltip
+                title={
+                  record.backend_reasoning_effort
+                    ? `${model} · ${record.backend_reasoning_effort}`
+                    : model
+                }
+              >
+                <span>{model}</span>
+              </Tooltip>
+            </Space>
+          ) : (
+            <span style={{ opacity: 0.45 }}>
+              {t("agent.backend.modelDefault")}
+            </span>
+          );
+        }
         if (!record.active_model) {
           return (
             <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
@@ -165,6 +244,8 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
+      width: 240,
+      fixed: "right",
       render: (_value: unknown, record: AgentSummary) => {
         const startupInProgress =
           record.startup_status === "pending" ||
@@ -283,15 +364,23 @@ export function AgentTable({
   ];
 
   return (
-    <div className={styles.tableCard}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext
+        items={agents.map((agent) => agent.id)}
+        strategy={verticalListSortingStrategy}
       >
-        <SortableContext
-          items={agents.map((agent) => agent.id)}
-          strategy={verticalListSortingStrategy}
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
         >
           <Table
             dataSource={agents}
@@ -304,9 +393,10 @@ export function AgentTable({
               },
             }}
             pagination={false}
+            scroll={{ x: 1620, y: bodyHeight }}
           />
-        </SortableContext>
-      </DndContext>
-    </div>
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }

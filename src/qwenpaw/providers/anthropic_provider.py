@@ -17,12 +17,20 @@ from pydantic import Field
 from qwenpaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
+    _PROBE_VIDEO_B64,
+    _PROBE_VIDEO_URL,
     _IMAGE_PROBE_PROMPT,
     _is_media_keyword_error,
     evaluate_image_probe_answer,
+    evaluate_video_probe_answer,
 )
-from qwenpaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers.provider import (
+    ModelConnectionResult,
+    ModelInfo,
+    Provider,
+)
 
+from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -117,6 +125,17 @@ class AnthropicProvider(Provider):
             timeout=timeout,
         )
 
+    async def _close_client(
+        self,
+        client: anthropic.AsyncAnthropic,
+    ) -> None:
+        """Close one SDK client without closing a shared HTTP client."""
+        if self.auth_mode == "auth_token":
+            return
+        close = getattr(client, "close", None)
+        if close is not None:
+            await close()
+
     @staticmethod
     def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
         if isinstance(payload, dict):
@@ -135,7 +154,16 @@ class AnthropicProvider(Provider):
 
             if not model_id:
                 continue
-            models.append(ModelInfo(id=model_id, name=model_name))
+            metadata: dict[str, int] = {}
+            context_window = getattr(row, "context_window", None)
+            if (
+                isinstance(context_window, (int, float))
+                and context_window >= 1000
+            ):
+                metadata["max_input_length_auto_detected"] = int(
+                    context_window,
+                )
+            models.append(ModelInfo(id=model_id, name=model_name, **metadata))
 
         deduped: List[ModelInfo] = []
         seen: set[str] = set()
@@ -172,6 +200,8 @@ class AnthropicProvider(Provider):
                 False,
                 f"Unknown exception when connecting to `{self.base_url}`",
             )
+        finally:
+            await self._close_client(client)
 
     async def _check_connection_via_messages(
         self,
@@ -201,19 +231,27 @@ class AnthropicProvider(Provider):
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
         client = self._client(timeout=timeout)
-        payload = await client.models.list()
-        models = self._normalize_models_payload(payload)
-        return models
+        try:
+            payload = await client.models.list()
+            if hasattr(payload, "__aiter__"):
+                rows = [row async for row in payload]
+                return self._normalize_models_payload(rows)
+            return self._normalize_models_payload(payload)
+        finally:
+            await self._close_client(client)
 
     async def check_model_connection(
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False, "Empty model ID"
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
 
         body = {
             "model": target,
@@ -231,20 +269,43 @@ class AnthropicProvider(Provider):
             ],
             "stream": True,
         }
+        client = self._client(timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             resp = await client.messages.create(**body)
-            # consume the stream to ensure the model is actually responsive
-            async for _ in resp:
-                break
-            return True, ""
-        except anthropic.APIError:
-            return False, f"Model '{model_id}' is not reachable or usable"
-        except Exception:
-            return (
-                False,
-                f"Unknown exception when connecting to model '{model_id}'",
+            try:
+                # Consume one event to ensure the model is responsive.
+                async for _ in resp:
+                    break
+            finally:
+                await resp.close()
+            return ModelConnectionResult(success=True)
+        except anthropic.APIError as exc:
+            status = getattr(exc, "status_code", None)
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Model '{model_id}' is not reachable or usable: "
+                    f"{self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
+                error_kind=(
+                    "permission_denied"
+                    if status in (401, 403)
+                    else "model_not_found"
+                    if status == 404
+                    else None
+                ),
             )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_client(client)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import AnthropicCredential
@@ -305,24 +366,199 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 60,
-        image_only: bool = False,  # pylint: disable=unused-argument
+        image_only: bool = False,
     ) -> ProbeResult:
-        """Probe multimodal support using Anthropic messages API format.
+        """Probe multimodal support via Anthropic messages API.
 
-        Anthropic does not support video input, so supports_video is
-        always False.  Image support is probed by sending a minimal 1x1
-        PNG via the Anthropic base64 image source format.
+        Image support is probed by sending a solid-red PNG.
+        Video support is probed by sending a solid-blue MP4
+        to cover third-party Anthropic-compatible providers
+        that accept video input (official Anthropic does not).
         """
         img_ok, img_msg = await self._probe_image_support(
             model_id,
             timeout,
         )
+        if not img_ok:
+            return ProbeResult(
+                supports_image=False,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image probe failed",
+            )
+        if image_only:
+            return ProbeResult(
+                supports_image=img_ok,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image_only=True",
+            )
+        vid_ok, vid_msg = await self._probe_video_support(
+            model_id,
+            timeout,
+        )
         return ProbeResult(
             supports_image=img_ok,
-            supports_video=False,
+            supports_video=vid_ok,
             image_message=img_msg,
-            video_message="Video not supported by Anthropic",
+            video_message=vid_msg,
         )
+
+    async def _probe_video_support(
+        self,
+        model_id: str,
+        timeout: float = 30,
+    ) -> tuple[bool, str]:
+        """Probe video support via Anthropic messages API.
+
+        Tries a base64 probe video first; if the provider
+        rejects it (400) falls back to an HTTP URL probe.
+        Official Anthropic endpoints reject ``video`` blocks
+        entirely; third-party providers may accept them.
+        """
+        log_model = sanitize_log_value(model_id)
+        logger.info(
+            "Video probe start: model=%s url=%s",
+            log_model,
+            self.base_url,
+        )
+        start_time = time.monotonic()
+        sources = [
+            {
+                "type": "base64",
+                "media_type": "video/mp4",
+                "data": _PROBE_VIDEO_B64,
+            },
+            {
+                "type": "url",
+                "url": _PROBE_VIDEO_URL,
+            },
+        ]
+        last_err = ""
+        last_400: list[str] = []
+        for source in sources:
+            is_http = source.get("type") == "url"
+            result = await self._try_video_source(
+                model_id,
+                source,
+                timeout=(timeout * 3 if is_http else timeout),
+                start_time=start_time,
+                is_http=is_http,
+                last_400=last_400,
+            )
+            if result is not None:
+                return result
+            detail = last_400[-1] if last_400 else ""
+            last_err = (
+                f"format rejected ({source['type']})"
+                f"{f': {detail}' if detail else ''}"
+            )
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Video probe: model=%s ok=False %.2fs",
+            log_model,
+            elapsed,
+        )
+        return False, f"Video not supported: {last_err}"
+
+    async def _try_video_source(
+        self,
+        model_id: str,
+        source: dict,
+        timeout: float,
+        *,
+        start_time: float,
+        is_http: bool = False,
+        last_400: list[str] | None = None,
+    ) -> tuple[bool, str] | None:
+        """Try one video source format. Return None to try next.
+
+        If a 400 error occurs and *last_400* is provided, the
+        error summary is appended to help callers log the
+        actual rejection reason.
+        """
+        log_model = sanitize_log_value(model_id)
+        client = self._client(timeout=timeout)
+        try:
+            resp = await client.messages.create(
+                model=model_id,
+                max_tokens=200,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "video",
+                                "source": source,
+                            },
+                            {
+                                "type": "text",
+                                "text": (
+                                    "What is the single "
+                                    "dominant color shown "
+                                    "in this video? Reply "
+                                    "with ONLY the color "
+                                    "name, nothing else."
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            )
+            answer = ""
+            thinking = ""
+            for block in resp.content:
+                btype = getattr(block, "type", "")
+                if btype == "thinking":
+                    thinking += getattr(
+                        block,
+                        "thinking",
+                        "",
+                    )
+                elif hasattr(block, "text"):
+                    answer += block.text
+            return evaluate_video_probe_answer(
+                answer,
+                model_id,
+                start_time,
+                reasoning=thinking,
+                is_http=is_http,
+            )
+        except anthropic.APIError as e:
+            status = getattr(e, "status_code", None)
+            if status == 400:
+                logger.debug(
+                    "Video probe format rejected (400): %s",
+                    e,
+                )
+                if last_400 is not None:
+                    last_400.append(str(e)[:200])
+                return None
+            elapsed = time.monotonic() - start_time
+            err_type = type(e).__name__
+            logger.warning(
+                "Video probe error: model=%s %s %s %.2fs",
+                log_model,
+                err_type,
+                sanitize_log_value(e),
+                elapsed,
+            )
+            if _is_media_keyword_error(e):
+                return False, f"Video not supported: {e}"
+            return False, f"Probe inconclusive: {e}"
+        except Exception as e:
+            elapsed = time.monotonic() - start_time
+            err_type = type(e).__name__
+            logger.warning(
+                "Video probe error: model=%s %s %s %.2fs",
+                log_model,
+                err_type,
+                sanitize_log_value(e),
+                elapsed,
+            )
+            return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     async def _probe_image_support(
         self,
@@ -340,9 +576,10 @@ class AnthropicProvider(Provider):
            processing them, so a pure API-error check would produce
            false positives.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -384,9 +621,9 @@ class AnthropicProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
@@ -397,12 +634,14 @@ class AnthropicProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
 
 class _AnthropicChatModelCompat:

@@ -63,42 +63,48 @@ Pool-side operations:
   built-ins, upload from a workspace, or place files on disk manually.
 - **Edit / rename:** Saving a normal shared skill under the same name edits
   that pool entry in place. Saving it under a new name creates a renamed
-  entry. Builtin skills cannot be customized in place under the same name. To
-  customize a builtin, save it under a new name and keep the builtin slot
-  untouched.
+  entry. Editing a built-in's `SKILL.md` converts that Pool entry to a custom
+  skill, so future packaged updates cannot overwrite the edit.
 - **Conflict handling:** If save, import, upload, or broadcast would land on a
   name that already exists, QwenPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
-- **Auto sync:** Once enabled for a skill, any change to its pool content is
-  pushed to the relevant workspaces automatically (see **Auto sync** below).
+- **Auto sync:** Once enabled for a skill, changes to its Pool `SKILL.md`
+  trigger a full copy to the relevant workspaces (see **Skill automation**
+  below).
+- **Auto update (built-ins only):** Once enabled, a different packaged
+  built-in version replaces its Skill Pool copy before optional workspace sync
+  runs (see **Skill automation** below).
 
 Adding skills to the pool:
 
 1. **Import built-ins**.
    Built-in skill IDs come from packaged skill directory names.
 
-   | Skill ID                      | Description                                                                                                                     | Source                                                         |
-   | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-   | **browser_cdp**               | Connect to or launch Chrome with CDP / remote-debugging enabled. Use only when the user explicitly wants CDP mode.              | Built-in                                                       |
-   | **browser_visible**           | Launch a real, visible (headed) browser window for demos, debugging, or scenarios requiring human interaction.                  | Built-in                                                       |
-   | **channel_message**           | Proactively send a one-way message to a session or channel after first locating the target session.                             | Built-in                                                       |
-   | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                            | Built-in                                                       |
-   | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.              | Built-in                                                       |
-   | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                | Built-in                                                       |
-   | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.         | https://github.com/anthropics/skills/tree/main/skills/docx     |
-   | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.  | Built-in                                                       |
-   | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                         | Built-in                                                       |
-   | **himalaya**                  | Manage emails via CLI (IMAP/SMTP). Use `himalaya` to list, read, search, and organize emails from the terminal.                 | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
-   | **multi_agent_collaboration** | Coordinate with another agent when the user explicitly asks for it or another agent's context is needed.                        | Built-in                                                       |
-   | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc. | Built-in                                                       |
-   | **pdf**                       | PDF operations: read, extract text/tables, merge/split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR, etc.       | https://github.com/anthropics/skills/tree/main/skills/pdf      |
-   | **pptx**                      | Create, read, and edit PowerPoint (.pptx), including templates, layouts, notes, and comments.                                   | https://github.com/anthropics/skills/tree/main/skills/pptx     |
-   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.               | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
+   | Skill ID                      | Description                                                                                                                                             | Source                                                     |
+   | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+   | **browser**                   | Drive a live browser through the Unified Browser SDK with async Python and a perceive → act → verify workflow. See [Browser](./browser).                | Built-in                                                   |
+   | **channel_message**           | Proactively send a one-way message to a session or channel after first locating the target session.                                                     | Built-in                                                   |
+   | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                                                    | Built-in                                                   |
+   | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.                                      | Built-in                                                   |
+   | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                                        | Built-in                                                   |
+   | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.                                 | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.                          | Built-in                                                   |
+   | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                                                 | Built-in                                                   |
+   | **mailbox**                   | Connect through qwenpawmail MCP to send, search, organize, safely automate new mail, and learn reusable workflows. See [Mailbox Management](./mailbox). | Built-in                                                   |
+   | **multi_agent_collaboration** | Coordinate with another agent when the user explicitly asks for it or another agent's context is needed.                                                | Built-in                                                   |
+   | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc.                         | Built-in                                                   |
+   | **pdf**                       | PDF operations: read, extract text/tables, merge/split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR, etc.                               | https://github.com/anthropics/skills/tree/main/skills/pdf  |
+   | **pptx**                      | Create, read, and edit PowerPoint (.pptx), including templates, layouts, notes, and comments.                                                           | https://github.com/anthropics/skills/tree/main/skills/pptx |
+   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.                                       | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
    **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
-   or refresh out-of-date ones from the packaged source.
+   or refresh out-of-date ones from the packaged source. For a built-in that
+   is already in the Pool, you can instead enable **Auto Update** in its
+   details. Successful automatic updates no longer remain in the update-dot
+   count. New or missing built-ins still need to be imported, and removed
+   built-ins remain part of the existing manual review flow.
 
    The **Cron** built-in provides scheduled job management. Use the
    [CLI](./cli) (`qwenpaw cron`) or Console **Control → Cron Jobs**:
@@ -225,15 +231,28 @@ CLI supports the same URL-based import flow:
 **Workspace targeting:** use `--agent-id` when targeting a single agent workspace; without it, `install` / `uninstall` act on the skill pool.
 
 ```bash
-qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --pool
 qwenpaw skills install <skill_url> --agent-id <agent_id>
 ```
 
 CLI also supports uninstalling from the shared pool or one workspace:
 
 ```bash
-qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --pool
 qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
+Workspace skills can be enabled or disabled directly by exact name, or managed
+in a checkbox UI with immediate text filtering. The Pool is a separate shared
+scope selected with `--pool` on commands that support it. Because Pool skills
+have no enabled state, `config`, `enable`, and `disable` are workspace-only:
+
+```bash
+qwenpaw skills enable <skill_name>... --agent-id <agent_id>
+qwenpaw skills disable <skill_name>... --agent-id <agent_id>
+qwenpaw skills list --status enabled --agent-id <agent_id>
+qwenpaw skills list --pool
+qwenpaw skills info <skill_name> --pool
 ```
 
 #### Steps
@@ -300,10 +319,8 @@ content before relying on it.
 
 Create a directory under `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
 `SKILL.md`, and make sure it includes YAML front matter with `name` and
-`description`. If the skill depends on external binaries or environment
-variables, declare them in `metadata.requires`; QwenPaw exposes them as
-`require_bins` and `require_envs` metadata, but does not disable the skill
-automatically.
+`description`. Declare CLI binaries, environment variables, and MCP server
+names in `metadata.requires` (or `metadata.qwenpaw.requires`).
 
 #### Example SKILL.md
 
@@ -312,9 +329,11 @@ automatically.
 name: my_skill
 description: My custom capability
 metadata:
+  version: "1.0"
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
+    mcp: [my-mcp-server]
 ---
 
 # Usage
@@ -324,53 +343,166 @@ This skill is used for…
 
 `name` and `description` are **required**. `metadata` is optional.
 
+The optional version is displayed in workspace and Pool cards and lists.
+QwenPaw reads `version`, `metadata.version`, or
+`metadata.builtin_skill_version`, in that order. It preserves the declared
+text without enforcing SemVer or automatically updating it. Authors maintain
+the field in `SKILL.md`; skills without it show no version label.
+
+`requires` declares mandatory prerequisites. In the example above, `my_skill`
+needs the `ffmpeg` executable, the `MY_SKILL_API_KEY` environment variable,
+and an enabled MCP server registered as `my-mcp-server` in the target workspace.
+Use the registered MCP name, not its package or executable name.
+
+The YAML lists declare names, not values: `env: [MY_SKILL_API_KEY]` is valid;
+`env: MY_SKILL_API_KEY` is not a valid dependency declaration. To provide the
+value, open the installed skill's configuration in the Console and enter a
+JSON object:
+
+```json
+{
+  "MY_SKILL_API_KEY": "replace-with-your-api-key"
+}
+```
+
+Dependency fields must be lists of non-empty names. Unknown dependency types
+are ignored; skill-to-skill dependencies and version constraints are not
+resolved. At load time, an enabled skill with a malformed supported declaration
+or an unmet dependency is skipped with an ERROR log; other skills and the agent
+continue running. The enabled setting and valid metadata fields are preserved.
+After fixing the declaration or dependency, the skill becomes available on the
+next load without enabling it again. Skills without declared dependencies load
+normally.
+
+Environment checks include this skill's workspace config using the same
+precedence as runtime injection: existing process values, including empty
+strings, are not overwritten. Binary checks use the effective PATH. MCP checks
+only verify a valid, enabled MCP configuration in the target workspace, not
+connectivity or tool permissions. Skipped skills are also omitted from
+`/skills`, preload, and explicit skill invocation.
+
+For a skill installed in the default workspace, validate it with:
+
+```bash
+qwenpaw skills test my_skill --agent-id default
+```
+
+Replace `default` with the target agent ID when needed. A missing API key,
+missing `ffmpeg`, or missing/disabled MCP configuration causes a nonzero exit
+code. For example, a missing key produces
+`Environment variable not set: MY_SKILL_API_KEY`. See [CLI](./cli) for checking
+local directories and Pool skills.
+
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
-### Create from current session via /make-skill (Beta)
+### Create from current session via /make-skill
 
-When you've just walked through a workflow in chat: tried tools, hit
-errors, found a working approach.
-Turn that session into a skill:
+Use `/make-skill <focus>` after a conversation has produced reusable guidance,
+a template, or a working procedure. Make the focus specific enough to identify
+what should be retained from the conversation:
 
 ```
-/make-skill cooking
+/make-skill weekly sales report workflow
 ```
 
-You'll see a short plan card with the proposed skill name and step
-outline. Approve, refine, or cancel in natural language. After approval
-the agent writes the skill based on the conversation and saves it to
-your workspace, **enabled by default**.
+The agent first proposes a plan with the skill's name, purpose, steps, files,
+and a few creation options. Approve, refine, or cancel it in natural language.
+The focus tells the agent which part of the conversation matters; the agent
+suggests a suitable skill name and content.
 
-`<focus>` becomes the skill name; internal spaces collapse to `-`
-(e.g. `view image debug` → `view-image-debug`). Other characters
-(Chinese, case, digits) are kept as-is.
+For a workflow, the plan also shows whether **Batch** is enabled. Batch lets a
+skill run a predictable series of tool actions in one go, which is useful for
+fixed, repeatable work. Leave it disabled when the agent needs to adapt each
+step based on what it finds. If you're unsure, keep the agent's recommendation.
+
+The plan also offers three testing levels. **No test** is fastest and still
+keeps the normal safety checks. **Smoke test** tries the new Skill once on a
+small end-to-end task. **Eval** compares the same representative task without
+and with the new Skill, giving stronger evidence that the Skill actually helps,
+but taking more time. Testing and Batch are separate choices.
+
+Review the proposed files and options before approving. For example, reply
+`change the name`, `disable Batch`, `use Eval`, or `approve`. After a
+change, review the revised plan before approving it.
+
+After approval, the agent creates and checks the skill, runs the selected test
+when requested, and saves it to your workspace, **enabled by default**. If a
+skill with the same name already exists, choose a different name.
 
 `/make-skill` is itself a built-in skill — make sure it's enabled in
 your workspace via `/skills` before invoking.
 
-### Auto sync (Skill Pool & Workspace)
+### Skill automation: Auto Update and Auto Sync
 
-Turn on **Auto sync** for a pool skill and any change to its pool content is
-synced to the relevant workspaces automatically — no manual broadcast needed.
+The two automation stages are configured independently in a skill's details:
 
-- **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**
-  (applies immediately), or enable it and pick associated agents in the skill
-  drawer (applies on save).
+```text
+packaged built-in -- Auto Update --> Skill Pool -- Auto Sync --> workspaces
+```
+
+- **Auto Update** is available only for built-in Pool skills. When its version
+  differs from the current packaged version, QwenPaw replaces the Pool copy
+  without a confirmation dialog. The Pool follows the installed package, so
+  this also applies after a package downgrade. It never automatically imports
+  a new or missing built-in, deletes a removed one, or overwrites a custom
+  skill.
+- **Auto Sync** is available for both built-in and custom Pool skills. A
+  `SKILL.md` change triggers a full copy to configured workspaces — no manual
+  broadcast is needed.
+- **Together:** if both are enabled, QwenPaw updates the Pool first and then
+  syncs the new version to workspaces. Auto Update alone changes only the Pool;
+  Auto Sync alone continues to propagate Pool edits without changing the
+  packaged version.
+- **Configuration names:** `auto_update` always means packaged built-in →
+  Skill Pool, while `auto_sync` always means Skill Pool → workspaces. New
+  settings are grouped under each skill's `automation` object in `skill.json`.
+  The former flat `auto_update` sync setting, targets, and synced hash remain
+  compatible and are normalized into `automation.auto_sync` on the next Pool
+  write. The new Auto Update switch remains off until the user enables it.
+
+  ```json
+  {
+    "automation": {
+      "auto_update": { "enabled": true },
+      "auto_sync": {
+        "enabled": true,
+        "targets": ["default"]
+      }
+    }
+  }
+  ```
+
+  Custom skills omit `auto_update`. Omitting `targets` keeps the default scope
+  of workspaces that already contain the skill.
+
+- **When checks run:** immediately after saving/enabling automation, at app
+  startup, and when you manually refresh the Skill Pool. Merely opening the
+  page is read-only and does not start polling or mutate skills.
 - **Sync scope:**
-  - **Default** (no associated agents configured): syncs only to workspaces that
-    **already have the skill**; agents that never had it are not installed.
-  - **Explicit agents:** syncs to exactly those agents; ones in the list that
-    lack the skill get it installed, while agents not listed are left untouched.
-- **Change detection:** based on the content of `SKILL.md`.
-- **Inbox notification:** each run posts one message to the [Inbox](./console)
-  listing which agents each skill was synced to (sender shown as "Skill Pool").
+  - **Default** (no associated agents configured): syncs only to workspaces
+    that **already have the skill**.
+  - **Explicit agents:** syncs exactly those agents; selected agents that lack
+    the skill get it installed. Turning Auto Sync off keeps this selection for
+    the next time it is enabled.
+- **Card shortcut:** custom skills use the existing card action to toggle Auto
+  Sync. For built-ins, the same single action turns both settings on or off.
+  If only one setting is on, the card shows a mixed state and opens the detail
+  drawer instead of guessing which setting to change.
+- **Status and notifications:** a successful automatic built-in update clears
+  that version's update dot. Failures and changes requiring manual review stay
+  visible. A built-in update run creates one combined [Inbox](./console)
+  message with the Pool version change and workspace sync results; standalone
+  Auto Sync runs keep their normal sync message.
 
 ---
 
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
+- **Preload / on demand:** Skills load on demand by default. In **Workspace →
+  Skills → Edit**, preload trusted core or frequently used Skills; their full
+  content is added to the system prompt as a structured, delimited Skill block.
 - **Delete:** Delete a workspace skill. If the skill is currently enabled, it
   is automatically disabled first.
 - **Sync to Skill Pool:** Publish a workspace skill to the shared pool for
@@ -514,7 +646,10 @@ When a skill runs, the effective config follows this priority (highest wins):
    `config` is copied as the initial workspace config. Subsequent workspace
    edits take precedence.
 
-For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.requires`. The first one found is used.
+For `requires` metadata, the parser checks keys in order:
+`metadata.openclaw.requires` → `metadata.qwenpaw.requires` →
+`metadata.clawdbot.requires` → `metadata.requires` → `requires`.
+The first one found is used.
 
 ---
 

@@ -134,3 +134,31 @@ async def test_put_language_preserves_other_settings(
     data = json.loads(_use_tmp_settings.read_text("utf-8"))
     assert data["language"] == "zh"
     assert data["theme"] == "dark"
+
+
+async def test_concurrent_language_and_offload_policy_updates(
+    api_client,
+    _use_tmp_settings,
+):
+    """Concurrent PUTs must not drop either key (path lock + atomic write)."""
+    import asyncio
+
+    async with api_client:
+        await asyncio.gather(
+            api_client.put(
+                "/api/settings/language",
+                json={"language": "zh"},
+            ),
+            api_client.put(
+                "/api/settings/offload-policy",
+                json={"default_action": "offload"},
+            ),
+        )
+        lang = await api_client.get("/api/settings/language")
+        policy = await api_client.get("/api/settings/offload-policy")
+
+    assert lang.json() == {"language": "zh"}
+    assert policy.json() == {"default_action": "offload"}
+    data = json.loads(_use_tmp_settings.read_text("utf-8"))
+    assert data["language"] == "zh"
+    assert data["offload_policy"] == "offload"

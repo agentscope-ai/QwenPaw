@@ -5,6 +5,7 @@
     "explore": "Explore",
     "more": "More",
     "releaseNotes": "Release Notes",
+    "discussion": "QwenPaw Discussion",
     "qwenpaw": "Qwenpaw",
     "download": "Download",
     "github": "GitHub",
@@ -28,9 +29,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v2.0.0: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
-    "sub1": "and TUI — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v2.0.0 is released",
+    "sub": "v2.2.0 expands agent applications and platform capabilities across the board:",
+    "sub1": "Introducing QwenPaw Hub, Mail, Data, and Creator 1.1, with better model routing, Extensions, and runtime experience.",
+    "releaseNote": "QwenPaw v2.2.0 is now available",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
     "quickTry": "Try Now"
@@ -65,21 +66,37 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "agentOs": {
-        "title": "Agent OS",
-        "desc": "QwenPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
+      "hub": {
+        "title": "QwenPaw Hub",
+        "desc": "Run QwenPaw for your team on infrastructure you control. Members share one sign-in address while keeping workspaces, settings, credentials, and conversations isolated, with local-process and Docker runtimes."
       },
-      "tui": {
-        "title": "Terminal UI",
-        "desc": "A full-screen terminal chat experience built with Textual, featuring streaming responses, rendered tool calls, and session management—with sessions and memory shared across the console and channels."
+      "mail": {
+        "title": "QwenPaw Mail",
+        "desc": "Let an agent monitor, search, summarize, reply to, forward, and organize email, while evolving triage rules around your preferences. Unknown recipients and sensitive actions remain under human approval."
       },
-      "scrollContext": {
-        "title": "Scroll Context",
-        "desc": "Every conversation turn is persisted to SQLite in real time. When the context window fills, indexed entries are evicted instead of summarized, while the original content remains available for on-demand recall."
+      "data": {
+        "title": "QwenPaw Data",
+        "desc": "Ask business questions in natural language and receive traceable answers grounded in real enterprise data. Semantic models, graph context, and governed SQL connect the full analysis workflow."
       },
-      "loopEngineering": {
-        "title": "Loop Engineering",
-        "desc": "Agent execution moves from hard-coded logic to composable orchestration. Workflows can already be assembled through plugin interfaces, with more loop-control patterns coming as official “Oh-My-Paw” plugins."
+      "creator": {
+        "title": "QwenPaw Creator 1.1",
+        "desc": "Create with more mainstream image and video models, with better dialogue handling for narrative videos. Record web and desktop operation, generate with Bailian Wan3, and automate quality checks."
+      },
+      "modelRouting": {
+        "title": "Unified Model Routing",
+        "desc": "Configure and select models consistently with unified provider discovery, capability-aware routing, fallback policies, thinking controls, and richer Prompt Cache insights."
+      },
+      "backgroundWork": {
+        "title": "Console & Background Work",
+        "desc": "Follow agent collaboration and long-running work more easily. Grouped subagent conversations surface status, while a unified task list tracks progress and generated artifacts."
+      },
+      "extensions": {
+        "title": "Unified Extensions",
+        "desc": "Discover and manage apps, plugins, and Skills in one place. Search Skills, manage them in batches, keep built-ins updated automatically, and launch newly installed PawApps instantly."
+      },
+      "reliability": {
+        "title": "Faster, Safer, More Reliable",
+        "desc": "Start workspaces faster, reduce streaming overhead, and keep long conversations responsive, with stronger model-stream recovery, configuration persistence, File Guard, sandboxing, and desktop reliability."
       }
     }
   },
@@ -240,7 +257,8 @@
       "dingtalk": "DingTalk",
       "xiaohongshu": "Xiaohongshu",
       "wechat": "WeChat",
-      "douyin": "Douyin"
+      "douyin": "Douyin",
+      "bilibili": "Bilibili"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
     "poweredBy": {
@@ -288,16 +306,21 @@
     "desktop": "Desktop App",
     "demo": "Feature Demos",
     "console": "Console",
+    "mailbox": "Mailbox Management",
     "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",
     "mcp": "MCP & Built-in Tools",
+    "browser": "Browser",
     "acpServer": "ACP Integration",
-    "memory": "Memory",
+    "memory": "Long-Term Memory",
+    "embedding": "Embedding Models",
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
-    "codingMode": "Coding Mode",
+    "computerUse": "Computer Use",
+    "chrome": "Chrome Extension",
+    "creator": "Creator: Agentic Video Creation Platform",
     "context": "Context",
     "loopEngineering": "Loop Engineering",
     "commands": "Magic commands",
@@ -309,6 +332,7 @@
     "cli": "CLI",
     "plugins": "Plugin System",
     "pluginsMigration": "Plugin Migration Guide",
+    "hub": "QwenPaw Hub Deployment and Management",
     "architecture": "Architecture",
     "faq": "FAQ",
     "apiTutorial": "RESTful API",
@@ -318,8 +342,10 @@
     "practiceAgentTeam": "Agent Team Practice",
     "groupWelcome": "Welcome",
     "groupControl": "Control",
+    "groupBrowserDesktop": "Browser & Desktop",
     "groupAgent": "Agent",
     "groupSettings": "Settings",
+    "groupHub": "Hub Deployment and Management",
     "groupPractice": "Practice",
     "groupOthers": "Others",
     "toggleSidebar": "Toggle sidebar",

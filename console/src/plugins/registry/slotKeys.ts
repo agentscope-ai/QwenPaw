@@ -48,6 +48,7 @@ export const ChatList = {
   requestActions: "requestActions",
   cards: "cards",
   customToolRender: "customToolRender",
+  approvalRenderers: "approval.renderers",
   requestPrepend: "request.prepend",
   requestAppend: "request.append",
   requestPayloadTransforms: "request.payloadTransforms",

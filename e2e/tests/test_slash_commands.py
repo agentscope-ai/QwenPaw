@@ -287,3 +287,99 @@ def test_slash_unknown_does_not_crash(clean_chat_page: ChatPage):
     assert page.locator('text=/Chat|Sessions|Channels/').first.count() > 0, (
         "sidebar disappeared after unknown command — UI crashed"
     )
+
+
+# ============================================================================
+# Sprint 5 additions
+# ============================================================================
+
+@pytest.mark.slash_commands
+@pytest.mark.p1
+@pytest.mark.test_id("SLASH-010")
+def test_slash_suggestion_popup_renders(clean_chat_page: ChatPage):
+    """Typing "/" opens the suggestion popup listing built-in commands.
+
+    Pure client-side (no send, no LLM): the popup is driven by the
+    sender's onChange while the value starts with "/" and contains no
+    whitespace. Built-ins are /new, /clear, /compact, /skills.
+    """
+    chat = clean_chat_page.open()
+    page = chat.page
+    page.wait_for_timeout(2000)
+    _wait_session_ready(page)
+
+    inp = page.locator("textarea").first
+    inp.click()
+    inp.fill("/")
+    page.wait_for_timeout(600)
+
+    popup = page.locator(chat.SUGGESTION_POPUP).first
+    assert popup.is_visible(), "suggestion popup did not open on '/'"
+
+    items_text = page.locator(chat.SUGGESTION_POPUP).inner_text()
+    for cmd in ("/new", "/clear", "/compact", "/skills"):
+        assert cmd in items_text, (
+            f"built-in {cmd} missing from suggestions: {items_text!r}"
+        )
+
+    # Typing a space after the command closes the popup.
+    inp.fill("/new ")
+    page.wait_for_timeout(600)
+    assert not page.locator(
+        chat.SUGGESTION_POPUP
+    ).first.is_visible(), "popup should close once whitespace is typed"
+
+    inp.fill("")
+
+
+def _warm_up_session(chat: ChatPage) -> None:
+    """Send one real message so the follow-up slash command is not the
+    session's first response (works around the known first-response
+    re-render flash on brand-new sessions)."""
+    _send_slash(chat, "Reply with the single word: pong", timeout=90000)
+
+
+@pytest.mark.slash_commands
+@pytest.mark.requires_llm
+@pytest.mark.p1
+@pytest.mark.test_id("CMD-001")
+def test_slash_new_starts_new_conversation(clean_chat_page: ChatPage):
+    """``/new`` responds with the New Conversation confirmation."""
+    chat = clean_chat_page.open()
+    _warm_up_session(chat)
+    text = _send_slash(chat, "/new")
+    _assert_any(
+        text,
+        "New Conversation Started",
+        "New Conversation",
+        "Ready for new conversation",
+    )
+
+
+@pytest.mark.slash_commands
+@pytest.mark.requires_llm
+@pytest.mark.p1
+@pytest.mark.test_id("CMD-003")
+def test_slash_model_list_shows_providers(clean_chat_page: ChatPage):
+    """``/model list`` renders the provider/model inventory."""
+    chat = clean_chat_page.open()
+    _warm_up_session(chat)
+    text = _send_slash(chat, "/model list")
+    _assert_any(text, "Available Models", "Provider", "Total:")
+
+
+@pytest.mark.slash_commands
+@pytest.mark.requires_llm
+@pytest.mark.p2
+@pytest.mark.test_id("CMD-007")
+def test_slash_stop_reports_task_state(clean_chat_page: ChatPage):
+    """``/stop`` with no running task reports the no-task state."""
+    chat = clean_chat_page.open()
+    _warm_up_session(chat)
+    text = _send_slash(chat, "/stop")
+    _assert_any(
+        text,
+        "No Active Task",
+        "Task Not Running",
+        "Task Stopped",
+    )

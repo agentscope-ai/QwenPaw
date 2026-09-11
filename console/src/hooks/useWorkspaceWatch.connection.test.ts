@@ -35,6 +35,7 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
 
   afterEach(() => {
     // 恢复原始 fetch（防止 mock 泄漏）
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -69,6 +70,54 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
     unmount();
   });
 
+  it("项目目录和配置目录使用独立连接", async () => {
+    const mockFetch = makePendingFetchMock();
+    vi.stubGlobal("fetch", mockFetch);
+    const { workspaceApi } = await import("../api/modules/workspace");
+
+    const project = renderHook(() =>
+      useWorkspaceWatch(vi.fn(), true, "chat-1", "project"),
+    );
+    const workspace = renderHook(() =>
+      useWorkspaceWatch(vi.fn(), true, "chat-1", "workspace"),
+    );
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(workspaceApi.getWatchUrl).toHaveBeenCalledWith("project");
+    expect(workspaceApi.getWatchUrl).toHaveBeenCalledWith("workspace");
+
+    project.unmount();
+    workspace.unmount();
+  });
+
+  it("新会话使用临时项目目录建立监听", async () => {
+    const mockFetch = makePendingFetchMock();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { unmount } = renderHook(() =>
+      useWorkspaceWatch(
+        vi.fn(),
+        true,
+        undefined,
+        "project",
+        "/projects/session",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://test/watch",
+        expect.objectContaining({
+          headers: {
+            "X-Session-Project-Dir": "/projects/session",
+          },
+        }),
+      );
+    });
+
+    unmount();
+  });
+
   // ─── 测试 7：最后一个 listener unmount 后断开连接（abort 被调用）──────────
   it("最后一个 listener unmount 后 AbortController.abort 被调用", async () => {
     const mockFetch = makePendingFetchMock();
@@ -85,6 +134,25 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
     });
 
     expect(abortSpy).toHaveBeenCalled();
+  });
+
+  it("unmount 会立即取消等待中的重试计时器", async () => {
+    vi.useFakeTimers();
+    const mockFetch = vi.fn().mockRejectedValue(new TypeError("offline"));
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { unmount } = renderHook(() => useWorkspaceWatch(vi.fn(), true));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => {
+      unmount();
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   // ─── 测试 8：enabled 从 false 变为 true 时启动连接 ────────────────────────

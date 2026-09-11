@@ -10,6 +10,15 @@ on:
         description: 'Pytest marker expression'
         type: string
         default: 'integration'
+      shard_suffix:
+        # Set when this reusable job is fanned out into parallel shards
+        # (nightly runs p0 / p1 / p2). upload-artifact@v4 rejects
+        # duplicate artifact names within one run, so every artifact of
+        # this job gets the suffix appended. Empty default keeps the
+        # single-shard callers (e.g. e2e-integration.yml) unchanged.
+        description: 'Suffix appended to every artifact name to disambiguate parallel shards'
+        type: string
+        default: ''
 
 jobs:
   e2e:
@@ -133,6 +142,8 @@ jobs:
       - name: Stop backend and collect coverage
         if: always()
         shell: bash
+        env:
+          SHARD_SUFFIX: ${{ inputs.shard_suffix }}
         run: |
           if [ -f /tmp/qwenpaw-e2e.pid ]; then
             PID=$(cat /tmp/qwenpaw-e2e.pid)
@@ -144,10 +155,15 @@ jobs:
             kill -9 "$PID" 2>/dev/null || true
           fi
 
+          # Shard-aware data file name: ".coverage.e2e" for single-shard
+          # callers (empty suffix, unchanged behaviour), ".coverage.e2e.<s>"
+          # for parallel shards so the nightly fan-out can merge them.
+          DATA_NAME=".coverage.e2e${SHARD_SUFFIX:+.$SHARD_SUFFIX}"
+
           cd .e2e_coverage
           if compgen -G "e2e_subproc*" > /dev/null 2>&1; then
             coverage combine --data-file=e2e_subproc
-            cp e2e_subproc ../.coverage.e2e
+            cp e2e_subproc "../$DATA_NAME"
             coverage xml  --data-file=e2e_subproc -o ../coverage.e2e.xml    || [ "$?" -eq 2 ]
             coverage html --data-file=e2e_subproc -d ../htmlcov-e2e         || [ "$?" -eq 2 ]
             echo "## E2E Backend Coverage"          >> "$GITHUB_STEP_SUMMARY"
@@ -161,9 +177,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-data-e2e
+          name: coverage-data-e2e${{ inputs.shard_suffix != '' && format('-{0}', inputs.shard_suffix) || '' }}
           path: |
-            .coverage.e2e
+            .coverage.e2e${{ inputs.shard_suffix != '' && format('.{0}', inputs.shard_suffix) || '' }}
             coverage.e2e.xml
           retention-days: 1
           include-hidden-files: true
@@ -172,7 +188,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-integration-report
+          name: e2e-integration-report${{ inputs.shard_suffix != '' && format('-{0}', inputs.shard_suffix) || '' }}
           path: e2e/reports/
           retention-days: 7
 
@@ -180,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-coverage-report
+          name: e2e-coverage-report${{ inputs.shard_suffix != '' && format('-{0}', inputs.shard_suffix) || '' }}
           path: |
             coverage.e2e.xml
             htmlcov-e2e/

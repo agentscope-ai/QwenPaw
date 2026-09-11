@@ -90,7 +90,8 @@ async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
     ):
         _, loop_dir = await start_mission(
             task_text="Implement the approved feature",
-            workspace_dir=tmp_path,
+            project_dir=tmp_path,
+            agent_workspace_dir=tmp_path / "agent-workspace",
             agent_id="agent",
             session_id="session",
             verify_commands="pytest -q",
@@ -106,3 +107,7 @@ async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
     assert config["verification_instructions"] == (
         "Check accessibility manually."
     )
+    assert loop_dir.parent == tmp_path / ".qwenpaw" / "missions"
+    assert config["source_project_dir"] == str(tmp_path)
+    assert config["workspace_dir"] == str(tmp_path / "agent-workspace")
+    assert config["mission_run_dir"] == str(tmp_path)

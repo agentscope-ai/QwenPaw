@@ -14,6 +14,7 @@ Contributors read configuration from ``ctx.extras``:
 * ``env_context``       — ``ctx.extras.get("env_context")``
 * ``agent_config``      — ``ctx.extras.get("agent_config")``
 * ``driver_prompt_hints`` — ``ctx.extras.get("driver_prompt_hints", [])``
+* ``preloaded_skills`` — successfully preloaded AgentScope Skills
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .prompt_manager import PromptManager, SyncPromptContributor
+from .protected_prompt import PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 if TYPE_CHECKING:
     from .hooks import HookContext
@@ -67,10 +69,15 @@ def _read_prompt_file(workspace_dir: Path, filename: str) -> str | None:
             return None
 
         from ..agents.utils.file_handling import (
-            read_text_file_with_encoding_fallback,
+            decode_text_bytes_with_encoding_fallback,
         )
+        from ..utils.file_snapshot_cache import get_file_snapshot_cache
 
-        content = read_text_file_with_encoding_fallback(path).strip()
+        snapshot = get_file_snapshot_cache().get_bytes(path)
+        content = decode_text_bytes_with_encoding_fallback(
+            snapshot.data,
+            file_name=path.name,
+        ).strip()
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
@@ -126,21 +133,14 @@ def _process_memory_section(
 # ---------------------------------------------------------------------------
 
 
-class AgentIdentityContributor(SyncPromptContributor):
-    """Prepend agent identity header when ``agent_id`` is set."""
+class ProtectedExecutionContractContributor(SyncPromptContributor):
+    """Inject the protected execution and authorization contract."""
 
-    name = "agent_identity"
+    name = "protected_execution_contract"
     priority = 5
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
-        agent_id = getattr(ctx, "agent_id", None)
-        if not agent_id:
-            return None
-        return (
-            f"# Agent Identity\n\n"
-            f"Your agent id is `{agent_id}`. "
-            f"This is your unique identifier in the multi-agent system."
-        )
+        return PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 
 class AgentsMdContributor(SyncPromptContributor):
@@ -263,8 +263,127 @@ class MultimodalHintContributor(SyncPromptContributor):
         return hint or None
 
 
+_DIRECTORY_CONTEXT_TEMPLATE = """\
+### Directories
+
+{project_dirs_block}
+Agent workspace: {workspace_dir}
+
+Relative file paths and shell commands resolve from the **primary
+project directory** — `read_file("src/main.py")` and a bare `pytest`
+both act on it, so you do not need to pass absolute paths or an
+explicit `cwd` for ordinary work there.{extra_dirs_guidance}
+
+The agent workspace holds internal QwenPaw state (config, memory,
+sessions, skills). Do not read or write there unless the user asks.
+"""
+
+_EXTRA_DIRS_GUIDANCE = """
+Other project directories are listed above. They are fully accessible,
+but only by ABSOLUTE path — relative paths never resolve there. When
+running shell commands in one, pass its path as the working directory."""
+
+_DIRECTORY_CONTEXT_MISSING_SUFFIX = """\
+WARNING: the configured primary project directory does not currently
+exist. Tell the user instead of writing files to a different location.
+"""
+
+
+def _format_project_dirs_block(entries: list[tuple]) -> str:
+    """Render the numbered directory list with a primary marker.
+
+    ``entries`` is ``[(path, label, is_missing), ...]``, primary first.
+    """
+    if len(entries) == 1:
+        path, label, _missing = entries[0]
+        suffix = f" — {label}" if label else ""
+        return f"Project directory (primary): {path}{suffix}"
+
+    lines = ["Project directories:"]
+    for index, (path, label, missing) in enumerate(entries, start=1):
+        marker = " (primary)" if index == 1 else ""
+        note = f" — {label}" if label else ""
+        missing_note = " [MISSING]" if missing else ""
+        lines.append(f"{index}. {path}{marker}{note}{missing_note}")
+    return "\n".join(lines)
+
+
+class DirectoryContextContributor(SyncPromptContributor):
+    """State the project dirs and agent workspace, in every mode.
+
+    Project directories are not a Coding Mode concept — normal chats
+    resolve relative paths the same way — so this block is unconditional
+    rather than gated on a mode being active.
+    """
+
+    name = "directory_context"
+    priority = 84
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        from ..config.context import (
+            get_current_project_dir,
+            get_current_project_dir_source,
+            get_current_project_dirs,
+        )
+
+        workspace_dir = getattr(ctx, "workspace_dir", None)
+        project_dir = get_current_project_dir()
+        dirs = get_current_project_dirs() or ()
+        if project_dir is None:
+            # Direct builder calls (tests, harnesses) skip the hook;
+            # fall back to the stamped config so the prompt still
+            # agrees with where the tools operate.
+            extras = getattr(ctx, "extras", {}) or {}
+            agent_config = extras.get("agent_config")
+            fallback = getattr(agent_config, "project_dir", None)
+            if fallback:
+                project_dir = fallback
+        if project_dir is None:
+            project_dir = workspace_dir
+        if project_dir is None:
+            return None
+
+        # When no project was ever configured the two paths are
+        # identical; printing the same path twice under two labels
+        # invites the model to treat internal state as project content.
+        if workspace_dir is not None and str(project_dir) == str(
+            workspace_dir,
+        ):
+            return (
+                "### Directories\n\n"
+                f"Working directory: {project_dir}\n\n"
+                "Relative file paths and shell commands resolve from "
+                "here. This directory also holds internal QwenPaw state "
+                "(config, memory, sessions, skills); leave those files "
+                "alone unless the user asks about them.\n"
+            )
+
+        entries = [
+            (str(entry.path), entry.label, not entry.exists) for entry in dirs
+        ]
+        if not entries:
+            entries = [(str(project_dir), None, False)]
+        block = _DIRECTORY_CONTEXT_TEMPLATE.format(
+            project_dirs_block=_format_project_dirs_block(entries),
+            workspace_dir=workspace_dir or "(unknown)",
+            extra_dirs_guidance=(
+                _EXTRA_DIRS_GUIDANCE if len(entries) > 1 else ""
+            ),
+        )
+        if get_current_project_dir_source() != "workspace_fallback" and not (
+            Path(project_dir).is_dir()
+        ):
+            block = f"{block}\n{_DIRECTORY_CONTEXT_MISSING_SUFFIX}"
+        return block
+
+
 class CodingModeContributor(SyncPromptContributor):
-    """Inject Coding Mode persona block when coding mode is active."""
+    """Inject Coding Mode persona block when coding mode is active.
+
+    Only code-specific guidance lives here. The project/workspace paths
+    themselves come from :class:`DirectoryContextContributor`, which
+    runs for every mode.
+    """
 
     name = "coding_mode"
     priority = 85
@@ -279,37 +398,7 @@ class CodingModeContributor(SyncPromptContributor):
             return None
         from ..modes.coding import _CODING_SYSTEM_PROMPT_TEMPLATE
 
-        workspace_dir = str(getattr(ctx, "workspace_dir", "") or "(unknown)")
-        project_dir = self._resolve_project_dir(agent_config) or workspace_dir
-        return _CODING_SYSTEM_PROMPT_TEMPLATE.format(
-            project_dir=project_dir,
-            workspace_dir=workspace_dir,
-        )
-
-    @staticmethod
-    def _resolve_project_dir(agent_config: Any) -> str | None:
-        """Prefer request config, then reload disk config for API switches."""
-        cm_obj = getattr(agent_config, "coding_mode", None)
-        project_dir = getattr(cm_obj, "project_dir", None)
-        if project_dir:
-            return project_dir
-
-        from ..config.config import load_agent_config
-
-        agent_id = getattr(agent_config, "id", None)
-        if not agent_id:
-            return None
-        try:
-            fresh = load_agent_config(agent_id)
-            cm = fresh.coding_mode
-            if cm and cm.project_dir:
-                return cm.project_dir
-        except Exception:
-            logger.debug(
-                "Failed to reload agent config for Coding Mode prompt",
-                exc_info=True,
-            )
-        return None
+        return _CODING_SYSTEM_PROMPT_TEMPLATE
 
 
 class ScrollContextContributor(SyncPromptContributor):
@@ -359,18 +448,57 @@ class DriverPolicyHintContributor(SyncPromptContributor):
         return rendered or None
 
 
+class PreloadedSkillsContributor(SyncPromptContributor):
+    """Add successfully preloaded Skill instructions to the system prompt."""
+
+    name = "preloaded_skills"
+    priority = 95
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        skills = extras.get("preloaded_skills") or []
+        if not skills:
+            return None
+
+        parts = [
+            "<preloaded-skills>",
+            (
+                "The following Skills are already loaded. Follow their "
+                "instructions directly when relevant, and do not load them "
+                "again with the Skill Viewer."
+            ),
+        ]
+        for skill in skills:
+            parts.extend(
+                [
+                    "",
+                    "<skill>",
+                    f"<name>{skill.name}</name>",
+                    f"<description>{skill.description}</description>",
+                    f"<dir>{skill.dir}</dir>",
+                    "",
+                    skill.markdown,
+                    "</skill>",
+                ],
+            )
+        parts.append("</preloaded-skills>")
+        return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _ALL_CONTRIBUTORS = (
-    AgentIdentityContributor,
+    ProtectedExecutionContractContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
+    DirectoryContextContributor,
     CodingModeContributor,
     ScrollContextContributor,
     DriverPolicyHintContributor,
     EnvContextContributor,
+    PreloadedSkillsContributor,
 )
 
 
@@ -383,15 +511,17 @@ def build_default_prompt_manager() -> PromptManager:
 
 
 __all__ = [
-    "AgentIdentityContributor",
+    "ProtectedExecutionContractContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",
     "WorkspacePromptFilesContributor",
     "MultimodalHintContributor",
+    "DirectoryContextContributor",
     "CodingModeContributor",
     "ScrollContextContributor",
     "DriverPolicyHintContributor",
     "EnvContextContributor",
+    "PreloadedSkillsContributor",
     "build_default_prompt_manager",
 ]

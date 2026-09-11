@@ -8,17 +8,32 @@ configuration, running config, and system prompt files.
 from __future__ import annotations
 
 import asyncio
+import copy
 import io
 import json
+import logging
+import mimetypes
+import secrets
 import shutil
 import stat
 import tempfile
 import os
 import zipfile
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, AsyncIterator, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
@@ -26,18 +41,57 @@ from pydantic import BaseModel, Field
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
     load_config,
-    save_config,
     AgentsRunningConfig,
 )
-from ...config.config import load_agent_config, save_agent_config
+from ...config.utils import mutate_config
+from ...config.config import (
+    AgentProfileConfig,
+    EmbeddingModelConfig,
+    load_agent_config,
+    save_agent_config,
+    update_agent_config_async,
+)
+from ...agents.memory.embedding_model import (
+    embedding_vector_space_fingerprint,
+    test_embedding_model,
+)
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
-from ..agent_context import get_agent_for_request, get_coding_dir
-
+from ...services.fs_name_rules import NameRules, probe_name_rules
+from ...services.workspace_files import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_PAGE_SIZE,
+    FileVersionConflict,
+    InvalidCursor,
+    InvalidWorkspacePath,
+    MAX_PAGE_SIZE,
+    file_etag,
+    get_file_metadata,
+    list_directory,
+    read_file_chunk,
+    resolve_workspace_path,
+    save_text_file,
+)
+from ...utils.io_utils import (
+    get_path_lock,
+    run_async_to_completion,
+    run_sync_io,
+)
+from ...utils.logging import sanitize_log_value
+from ..agent_context import (
+    get_agent_for_request,
+    get_agent_project_dir,
+    get_project_dir_for_request,
+    get_project_dirs_for_request,
+)
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+logger = logging.getLogger(__name__)
+_FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
+_WATCH_HEARTBEAT_SECONDS = 30.0
+_WATCH_POLL_TIMEOUT_MS = 1_000
 
 
 class MdFileInfo(BaseModel):
@@ -54,6 +108,16 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str = Field(..., description="File content")
+
+
+class EmbeddingTestResponse(BaseModel):
+    """Result of an AgentScope embedding connectivity request."""
+
+    success: bool
+    configured_dimensions: int
+    actual_dimensions: int | None = None
+    latency_ms: int
+    message: str
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -239,6 +303,582 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     return files
 
 
+# Prefix selecting a non-primary bound project directory by absolute path,
+# e.g. ``project:/Users/me/docs``. The path is carried rather than an index
+# because the bound list is reorderable ("make primary"): an index would let a
+# persisted editor tab silently start pointing at a different directory.
+_EXTRA_PROJECT_ROOT_PREFIX = "project:"
+
+
+async def _resolve_extra_project_root(
+    request: Request,
+    workspace: Any,
+    raw_path: str,
+) -> Path:
+    """Resolve one bound project directory selected by absolute path.
+
+    The membership check is the authorization boundary for the Files API: a
+    path is served only when it is one of the directories this chat actually
+    bound. Anything else is rejected outright — never silently downgraded to
+    the primary, which would make an out-of-bounds request look like it
+    succeeded against the wrong directory.
+
+    Membership is decided by :func:`dir_key`: the candidate is keyed in a
+    worker thread and the loop compares strings, touching the filesystem
+    not at all. Two things depend on that split.
+
+    The loop must do no I/O. The obvious spelling —
+    ``same_dir(candidate, entry.path)`` — resolves *both* sides on every
+    iteration, so ten bound directories cost twenty ``resolve()`` calls on
+    the event loop per Files request, half of them re-resolving
+    ``entry.path``, which ``ResolvedProjectDirs`` already canonicalized.
+    One stalled SMB or FUSE mount in the list would then stall every other
+    request the process is serving.
+
+    And the comparison must be by directory identity, not by path text. A
+    string comparison decides membership on spelling: fold case and an
+    unbound ``/srv/REPO`` is served as ``/srv/repo`` on a case-sensitive
+    volume; do not fold and a bound directory reached by a symlink, a
+    mount alias or a ``..`` detour is refused with 403. Identity is right
+    in both directions without knowing anything about the volume.
+
+    A configured directory that does not exist has no identity, so its key
+    is its path text and the comparison degrades to the old spelling-based
+    one — acceptable, because there is nothing there to serve either way.
+    """
+    from ...services.project_directory import dir_key
+
+    candidate = raw_path.strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="root path is empty")
+
+    resolved = await get_project_dirs_for_request(request, workspace)
+    candidate_key = await run_sync_io(dir_key, candidate)
+    for entry in resolved.dirs:
+        # An entry built without a key would otherwise match the empty
+        # string; only a real key can grant membership.
+        if entry.key and entry.key == candidate_key:
+            return entry.path
+    # The workspace is a legitimate root, but it has its own ``root=workspace``
+    # selector; accepting it here too would let one root be addressed two ways.
+    raise HTTPException(
+        status_code=403,
+        detail="Not a bound project directory",
+    )
+
+
+async def _resolve_files_root(
+    request: Request,
+    workspace: Any,
+    root: str,
+) -> Path:
+    """Resolve the selected project or agent configuration directory.
+
+    Accepted values:
+
+    * ``workspace`` — the agent's own storage root
+    * ``project`` — the PRIMARY bound project directory
+    * ``project:<absolute path>`` — any other directory bound to this chat
+    """
+    if root == "workspace":
+        return workspace.workspace_dir
+    if root == "project":
+        return await get_project_dir_for_request(request, workspace)
+    if root.startswith(_EXTRA_PROJECT_ROOT_PREFIX):
+        return await _resolve_extra_project_root(
+            request,
+            workspace,
+            root[len(_EXTRA_PROJECT_ROOT_PREFIX) :],
+        )
+    raise HTTPException(
+        status_code=400,
+        detail="root must be project, project:<path> or workspace",
+    )
+
+
+@router.get(
+    "/tree",
+    summary="List one workspace directory page",
+)
+async def list_workspace_tree(
+    request: Request,
+    path: str = Query(default=""),
+    cursor: str | None = Query(default=None),
+    root: str = Query(default="project"),
+    limit: int = Query(
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+    ),
+) -> dict:
+    """List immediate children without materializing the full project."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                list_directory,
+                files_root,
+                path,
+                cursor,
+                limit,
+            )
+    except InvalidCursor as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Directory not found",
+        ) from exc
+
+
+@router.get(
+    "/file-metadata",
+    summary="Read workspace file metadata",
+)
+async def read_workspace_file_metadata(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return file metadata before content is requested."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                get_file_metadata,
+                files_root,
+                path,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.get(
+    "/file-content",
+    summary="Read a bounded workspace text chunk",
+)
+async def read_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_CHUNK_SIZE, ge=1),
+) -> dict:
+    """Read text by byte range with UTF-8 boundary protection."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                read_file_chunk,
+                files_root,
+                path,
+                offset,
+                limit,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=416, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed while it was being read",
+        ) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.put(
+    "/file-content",
+    summary="Save workspace text with optimistic concurrency",
+)
+async def write_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    body: dict = Body(...),
+) -> dict:
+    """Atomically save text when the supplied ETag still matches."""
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                save_text_file,
+                files_root,
+                path,
+                content,
+                request.headers.get("if-match"),
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed on disk",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/file-download",
+    summary="Stream one workspace file",
+)
+async def download_workspace_file(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> StreamingResponse:
+    """Stream one safe workspace file without buffering it in memory."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_download() -> tuple[Path, os.stat_result, str, str]:
+        target = resolve_workspace_path(files_root, path)
+        info = target.stat()
+        filename = target.name.replace('"', "")
+        media_type = (
+            mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        )
+        return target, info, filename, media_type
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target, info, filename, media_type = await asyncio.to_thread(
+                _resolve_download,
+            )
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError(path)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    def _stream_file(chunk_size: int = 256 * 1024):
+        with target.open("rb") as handle:
+            while chunk := handle.read(chunk_size):
+                yield chunk
+
+    quoted_filename = quote(filename)
+    if quoted_filename == filename:
+        content_disposition = f'attachment; filename="{filename}"'
+    else:
+        content_disposition = f"attachment; filename*=utf-8''{quoted_filename}"
+    return StreamingResponse(
+        _stream_file(),
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": content_disposition,
+            "Content-Length": str(info.st_size),
+            "ETag": file_etag(info),
+        },
+    )
+
+
+@router.get(
+    "/html-file-uri",
+    summary="Resolve one workspace HTML file for the desktop browser",
+)
+async def resolve_workspace_html_file_uri(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return the URI of one validated HTML file in the selected workspace."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_html() -> Path:
+        target = resolve_workspace_path(files_root, path)
+        if target.suffix.lower() not in {".html", ".htm"}:
+            raise InvalidWorkspacePath("Path must reference an HTML file")
+        if not target.is_file():
+            raise FileNotFoundError(path)
+        return target
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target = await asyncio.to_thread(_resolve_html)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    return {"uri": target.as_uri()}
+
+
+def _reserve_path(target: Path) -> bool:
+    """Atomically reserve one upload target without truncating a file."""
+    try:
+        descriptor = os.open(
+            target,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    return True
+
+
+def _reserve_upload_targets(
+    upload_targets: list[tuple[UploadFile, str, Path]],
+    conflict: str | None,
+) -> tuple[list[tuple[UploadFile, str, Path | None, Path]], set[Path]]:
+    """Atomically allocate all non-overwrite upload destinations."""
+    allocated: list[tuple[UploadFile, str, Path | None, Path]] = []
+    reservations: set[Path] = set()
+    try:
+        for upload, filename, target in upload_targets:
+            if conflict == "overwrite":
+                allocated.append((upload, filename, target, target))
+                continue
+            if _reserve_path(target):
+                reservations.add(target)
+                allocated.append((upload, filename, target, target))
+                continue
+            if conflict == "skip":
+                allocated.append((upload, filename, None, target))
+                continue
+            if conflict != "rename":
+                raise FileExistsError(filename)
+            for index in range(1, 10_000):
+                candidate = target.with_name(
+                    f"{target.stem} ({index}){target.suffix}",
+                )
+                if _reserve_path(candidate):
+                    reservations.add(candidate)
+                    allocated.append((upload, filename, candidate, target))
+                    break
+            else:
+                raise OSError("Unable to allocate a conflict-free filename")
+    except BaseException:
+        for reservation in reservations:
+            reservation.unlink(missing_ok=True)
+        raise
+    return allocated, reservations
+
+
+def _write_reserved_upload(upload: UploadFile, target: Path) -> int:
+    """Copy one upload and atomically replace its reserved target."""
+    temporary = target.with_name(
+        f".{target.name}.{secrets.token_hex(6)}.qwenpaw.tmp",
+    )
+    size = 0
+    try:
+        upload.file.seek(0)
+        with temporary.open("wb") as handle:
+            while chunk := upload.file.read(256 * 1024):
+                size += len(chunk)
+                handle.write(chunk)
+            handle.flush()
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return size
+
+
+def _cleanup_upload_reservations(reservations: set[Path]) -> None:
+    """Remove placeholders that were not replaced by completed uploads."""
+    for reservation in reservations:
+        reservation.unlink(missing_ok=True)
+
+
+def _filesystem_name_rules(directory: Path) -> tuple[bool, bool]:
+    """Detect case and Unicode normalization sensitivity for a directory.
+
+    Thin wrapper over the shared probe: the temp-file technique this used
+    to implement inline now lives in
+    :mod:`qwenpaw.services.fs_name_rules`, unchanged in behaviour. It stays
+    a write probe because the question here is about names that do *not*
+    exist yet — would these two uploads collide? — which nothing that
+    inspects existing entries can answer.
+
+    Project-directory comparison deliberately does **not** use this. There
+    the directories exist, so ``dir_key`` asks which entry each path
+    reaches and gets an exact answer; a name-rules guess would be both
+    weaker and, for a mount point, wrong.
+    """
+    rules = probe_name_rules(directory)
+    return rules.case_sensitive, rules.normalization_sensitive
+
+
+def _upload_name_key(
+    filename: str,
+    *,
+    case_sensitive: bool,
+    normalization_sensitive: bool,
+) -> str:
+    """Build a filename comparison key matching the target filesystem."""
+    return NameRules(
+        case_sensitive=case_sensitive,
+        normalization_sensitive=normalization_sensitive,
+    ).key(filename)
+
+
+def _prepare_upload_targets(
+    directory: Path,
+    files: list[UploadFile],
+) -> tuple[list[tuple[UploadFile, str, Path]], list[str]]:
+    """Validate upload names and collect conflicts before writing files."""
+    upload_targets: list[tuple[UploadFile, str, Path]] = []
+    seen_names: set[str] = set()
+    conflicts: list[str] = []
+    case_sensitive, normalization_sensitive = _filesystem_name_rules(
+        directory,
+    )
+    for upload in files:
+        filename = upload.filename or ""
+        if "/" in filename or "\\" in filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Upload filename must not contain a path",
+            )
+        try:
+            target = resolve_workspace_path(
+                directory,
+                filename,
+                portable=True,
+            )
+        except InvalidWorkspacePath as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        comparable_name = _upload_name_key(
+            filename,
+            case_sensitive=case_sensitive,
+            normalization_sensitive=normalization_sensitive,
+        )
+        if target.exists() or comparable_name in seen_names:
+            conflicts.append(filename)
+        seen_names.add(comparable_name)
+        upload_targets.append((upload, filename, target))
+    return upload_targets, conflicts
+
+
+@router.post(
+    "/file-upload",
+    summary="Stream ordinary files into one workspace directory",
+)
+async def upload_workspace_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    path: str = Query(default=""),
+    root: str = Query(default="project"),
+    conflict: str | None = Query(default=None),
+) -> dict:
+    """Upload files, requesting a policy only when names conflict."""
+    if conflict is not None and conflict not in {
+        "overwrite",
+        "skip",
+        "rename",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="conflict must be overwrite, skip, or rename",
+        )
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_directory() -> Path:
+        directory = resolve_workspace_path(
+            files_root,
+            path,
+            allow_root=True,
+        )
+        if not directory.is_dir():
+            raise NotADirectoryError(path)
+        return directory
+
+    try:
+        directory = await asyncio.to_thread(_resolve_directory)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Upload directory not found",
+        ) from exc
+
+    upload_targets, conflicts = await asyncio.to_thread(
+        _prepare_upload_targets,
+        directory,
+        files,
+    )
+
+    if conflicts and conflict is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": conflicts,
+            },
+        )
+
+    try:
+        allocated, reservations = await asyncio.to_thread(
+            _reserve_upload_targets,
+            upload_targets,
+            conflict,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": [str(exc)],
+            },
+        ) from exc
+
+    results: list[dict] = []
+    try:
+        for upload, filename, target, requested_target in allocated:
+            if target is None:
+                results.append(
+                    {
+                        "name": filename,
+                        "path": requested_target.relative_to(
+                            files_root,
+                        ).as_posix(),
+                        "status": "skipped",
+                    },
+                )
+                continue
+            async with _FILESYSTEM_SEMAPHORE:
+                size = await asyncio.to_thread(
+                    _write_reserved_upload,
+                    upload,
+                    target,
+                )
+                reservations.discard(target)
+
+            results.append(
+                {
+                    "name": filename,
+                    "path": target.relative_to(files_root).as_posix(),
+                    "size": size,
+                    "status": "uploaded",
+                },
+            )
+    finally:
+        await asyncio.to_thread(
+            _cleanup_upload_reservations,
+            reservations,
+        )
+    return {"files": results}
+
+
 @router.get(
     "/code-files",
     summary="List all workspace files (Coding Mode)",
@@ -246,10 +886,8 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
 async def list_code_files(request: Request) -> list[dict]:
     """List every non-hidden file in the active coding project directory."""
     workspace = await get_agent_for_request(request)
-    return await asyncio.get_event_loop().run_in_executor(
-        None,
-        _list_all_files,
-        get_coding_dir(workspace),
+    return await asyncio.to_thread(
+        lambda: _list_all_files(get_agent_project_dir(workspace)),
     )
 
 
@@ -287,7 +925,9 @@ async def read_binary_file(
     Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     ext = target.suffix.lstrip(".").lower()
     mime = _MIME_MAP.get(ext)
@@ -346,7 +986,9 @@ async def read_code_file(file_path: str, request: Request):
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
 
     def _stat() -> os.stat_result:
         return target.stat()
@@ -403,14 +1045,16 @@ async def write_code_file(
         {"content": "<new file content>"}
     """
     workspace = await get_agent_for_request(request)
-    target = safe_join(get_coding_dir(workspace), file_path)
+    target = await asyncio.to_thread(
+        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+    )
     content = body.get("content", "")
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
 
     def _write() -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_bytes(content.encode("utf-8"))
         return target.stat().st_size
 
     try:
@@ -422,9 +1066,12 @@ async def write_code_file(
 
 @router.get(
     "/watch",
-    summary="SSE stream for workspace file changes (Coding Mode)",
+    summary="SSE stream for agent workspace file changes",
 )
-async def watch_workspace_files(request: Request) -> StreamingResponse:
+async def watch_workspace_files(
+    request: Request,
+    root: str = Query(default="project"),
+) -> StreamingResponse:
     """Server-Sent Events that emit file-change notifications.
 
     Each SSE payload has the form::
@@ -434,68 +1081,10 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
     A heartbeat comment (``": heartbeat"``) is sent every 30 s when idle.
     """
     workspace = await get_agent_for_request(request)
-    watch_dir = get_coding_dir(workspace)
-
-    async def event_generator():
-        yield 'data: {"type": "connected"}\n\n'
-        watcher = awatch(watch_dir)
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    raw_changes = await asyncio.wait_for(
-                        watcher.__anext__(),
-                        timeout=30.0,
-                    )
-                except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
-                    continue
-                except (
-                    StopAsyncIteration,
-                    asyncio.CancelledError,
-                    GeneratorExit,
-                ):
-                    # StopAsyncIteration  – watcher stopped naturally
-                    # CancelledError      – app shutdown cancelled the task
-                    # GeneratorExit       – streaming response closed
-                    break
-
-                events = []
-                for change_type, path in raw_changes:
-                    try:
-                        rel = Path(path).relative_to(watch_dir)
-                    except ValueError:
-                        continue
-                    if _should_skip(rel.parts):
-                        continue
-                    change_name = (
-                        "added"
-                        if change_type is Change.added
-                        else "deleted"
-                        if change_type is Change.deleted
-                        else "modified"
-                    )
-                    events.append(
-                        {"change": change_name, "path": rel.as_posix()},
-                    )
-
-                if events:
-                    payload = json.dumps(
-                        {"type": "file_change", "events": events},
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {payload}\n\n"
-        except (asyncio.CancelledError, GeneratorExit):
-            pass  # normal during app shutdown
-        finally:
-            try:
-                await watcher.aclose()
-            except Exception:
-                pass
+    watch_dir = await _resolve_files_root(request, workspace, root)
 
     return StreamingResponse(
-        event_generator(),
+        workspace_watch_events(request, watch_dir),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -503,6 +1092,70 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def workspace_watch_events(
+    request: Request,
+    watch_dir: Path,
+) -> AsyncIterator[str]:
+    """Yield workspace file changes without cancelling the watcher on idle."""
+    yield 'data: {"type": "connected"}\n\n'
+    watcher = awatch(
+        watch_dir,
+        rust_timeout=_WATCH_POLL_TIMEOUT_MS,
+        yield_on_timeout=True,
+    )
+    last_emit = asyncio.get_running_loop().time()
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                raw_changes = await watcher.__anext__()
+            except (
+                StopAsyncIteration,
+                asyncio.CancelledError,
+                GeneratorExit,
+            ):
+                break
+
+            events = []
+            for change_type, path in raw_changes:
+                try:
+                    rel = Path(path).relative_to(watch_dir)
+                except ValueError:
+                    continue
+                if _should_skip(rel.parts):
+                    continue
+                change_name = (
+                    "added"
+                    if change_type is Change.added
+                    else "deleted"
+                    if change_type is Change.deleted
+                    else "modified"
+                )
+                events.append(
+                    {"change": change_name, "path": rel.as_posix()},
+                )
+
+            now = asyncio.get_running_loop().time()
+            if events:
+                payload = json.dumps(
+                    {"type": "file_change", "events": events},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
+                last_emit = now
+            elif now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
+                yield ": heartbeat\n\n"
+                last_emit = now
+    except (asyncio.CancelledError, GeneratorExit):
+        pass
+    finally:
+        try:
+            await watcher.aclose()
+        except Exception:
+            pass
 
 
 @router.get(
@@ -513,6 +1166,7 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
 )
 async def list_memory_files(
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
@@ -521,7 +1175,10 @@ async def list_memory_files(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        raw_files = await asyncio.to_thread(workspace_manager.list_memory_mds)
+        raw_files = await asyncio.to_thread(
+            workspace_manager.list_memory_mds,
+            section,
+        )
         files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
     except Exception as exc:
@@ -537,6 +1194,7 @@ async def list_memory_files(
 async def read_memory_file(
     md_path: str,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
@@ -548,6 +1206,7 @@ async def read_memory_file(
         content = await asyncio.to_thread(
             workspace_manager.read_memory_md,
             md_path,
+            section,
         )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
@@ -566,6 +1225,7 @@ async def write_memory_file(
     md_path: str,
     body: MdFileContent,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
@@ -578,6 +1238,7 @@ async def write_memory_file(
             workspace_manager.write_memory_md,
             md_path,
             body.content,
+            section,
         )
         return {"written": True}
     except Exception as exc:
@@ -648,6 +1309,7 @@ async def put_agent_language(
             ),
             only_if_missing=False,
         )
+        schedule_agent_reload(request, agent_id)
 
     return {
         "language": language,
@@ -697,9 +1359,11 @@ async def put_audio_mode(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.audio_mode = audio_mode
-    save_config(config)
+
+    def apply_audio_mode(config: Any) -> None:
+        config.agents.audio_mode = audio_mode
+
+    await run_sync_io(mutate_config, apply_audio_mode)
     return {"audio_mode": audio_mode}
 
 
@@ -752,9 +1416,11 @@ async def put_transcription_provider_type(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.transcription_provider_type = provider_type
-    save_config(config)
+
+    def apply_provider_type(config: Any) -> None:
+        config.agents.transcription_provider_type = provider_type
+
+    await run_sync_io(mutate_config, apply_provider_type)
     return {"transcription_provider_type": provider_type}
 
 
@@ -815,9 +1481,11 @@ async def put_transcription_provider(
 ) -> dict:
     """Set the transcription provider."""
     provider_id = (body.get("provider_id") or "").strip()
-    config = load_config()
-    config.agents.transcription_provider_id = provider_id
-    save_config(config)
+
+    def apply_provider(config: Any) -> None:
+        config.agents.transcription_provider_id = provider_id
+
+    await run_sync_io(mutate_config, apply_provider)
     return {"provider_id": provider_id}
 
 
@@ -900,6 +1568,44 @@ async def post_transcribe_audio(
             pass
 
 
+@router.post(
+    "/embedding/test",
+    response_model=EmbeddingTestResponse,
+    summary="Test embedding configuration",
+    description=(
+        "Create an AgentScope embedding model, perform a real request, and "
+        "validate the returned dimensions"
+    ),
+)
+async def test_embedding_configuration(
+    embedding_config: EmbeddingModelConfig = Body(...),
+    request: Request = None,
+) -> EmbeddingTestResponse:
+    """Test unsaved embedding settings and stage the model for hot apply."""
+    workspace = await get_agent_for_request(request)
+    memory_manager = workspace.memory_manager
+    if memory_manager is not None and hasattr(
+        memory_manager,
+        "test_and_stage_embedding",
+    ):
+        result = await memory_manager.test_and_stage_embedding(
+            embedding_config,
+        )
+    else:
+        _model, result = await test_embedding_model(embedding_config)
+
+    message = result.message
+    if embedding_config.api_key:
+        message = message.replace(embedding_config.api_key, "***")
+    return EmbeddingTestResponse(
+        success=result.success,
+        configured_dimensions=result.configured_dimensions,
+        actual_dimensions=result.actual_dimensions,
+        latency_ms=result.latency_ms,
+        message=message,
+    )
+
+
 @router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
@@ -911,10 +1617,206 @@ async def get_agents_running_config(
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
-    running = agent_config.running or AgentsRunningConfig()
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
+    running = _mask_memory_backend_secrets(
+        agent_config.running or AgentsRunningConfig(),
+    )
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
+
+
+def _mask_memory_backend_secrets(
+    running: AgentsRunningConfig,
+) -> AgentsRunningConfig:
+    """Return a detached API-safe config with plugin secrets masked."""
+    from qwenpaw.memory import memory_registry
+
+    masked = running.model_copy(deep=True)
+    for backend_id, values in list(masked.memory_backend_configs.items()):
+        registration = memory_registry.get_registration(backend_id)
+        if registration is None:
+            # Core cannot distinguish secrets inside an unavailable plugin's
+            # opaque payload. Preserve it server-side, but expose no values.
+            del masked.memory_backend_configs[backend_id]
+            continue
+        for field_name in registration.metadata.get("secret_fields", []):
+            if values.get(field_name):
+                values[field_name] = "***"
+    return masked
+
+
+def _safe_memory_validation_error(
+    exc: Exception,
+    submitted: dict[str, Any],
+    secret_fields: list[str],
+) -> str:
+    """Render plugin validation failures without echoing submitted secrets."""
+    detail = str(exc)
+
+    def secret_fragments(value: Any) -> list[str]:
+        if isinstance(value, Mapping):
+            fragments = [str(value), repr(value)]
+            for nested in value.values():
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if isinstance(value, (list, tuple, set, frozenset)):
+            fragments = [str(value), repr(value)]
+            for nested in value:
+                fragments.extend(secret_fragments(nested))
+            return fragments
+        if value is None:
+            return []
+        return [str(value), repr(value)]
+
+    for field_name in secret_fields:
+        secret = submitted.get(field_name)
+        fragments = sorted(
+            {fragment for fragment in secret_fragments(secret) if fragment},
+            key=len,
+            reverse=True,
+        )
+        for fragment in fragments:
+            detail = detail.replace(fragment, "***")
+    return detail
+
+
+class _ConfigRollbackConflict(RuntimeError):
+    """Raised when a field changed again after this request persisted it."""
+
+    def __init__(self, paths: list[str]):
+        super().__init__("configuration changed concurrently")
+        self.paths = paths
+
+
+def _conditionally_restore_config_changes(
+    current: BaseModel,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Three-way rollback without overwriting unrelated concurrent edits."""
+    candidate = current.model_copy(deep=True)
+    conflicts: list[str] = []
+
+    def restore(
+        target: BaseModel,
+        old: BaseModel,
+        saved: BaseModel,
+        prefix: str,
+    ) -> None:
+        for name in type(saved).model_fields:
+            old_value = getattr(old, name)
+            saved_value = getattr(saved, name)
+            if old_value == saved_value:
+                continue
+            current_value = getattr(target, name)
+            path = f"{prefix}.{name}" if prefix else name
+            if (
+                isinstance(current_value, BaseModel)
+                and isinstance(old_value, BaseModel)
+                and isinstance(saved_value, BaseModel)
+                and type(current_value) is type(old_value) is type(saved_value)
+            ):
+                restore(current_value, old_value, saved_value, path)
+            elif current_value == saved_value:
+                setattr(target, name, copy.deepcopy(old_value))
+            else:
+                conflicts.append(path)
+
+    restore(candidate, before, submitted, "")
+    if conflicts:
+        raise _ConfigRollbackConflict(conflicts)
+    for field_name in type(current).model_fields:
+        setattr(current, field_name, getattr(candidate, field_name))
+
+
+async def _apply_embedding_runtime(
+    memory_manager: Any,
+    embedding_config: EmbeddingModelConfig,
+    agent_id: str,
+    *,
+    force_reload: bool = False,
+) -> bool:
+    """Apply an embedding config to a running memory manager."""
+    if not force_reload and hasattr(memory_manager, "apply_tested_embedding"):
+        try:
+            if await memory_manager.apply_tested_embedding(embedding_config):
+                return True
+        except Exception as exc:
+            logger.warning(
+                "Embedding hot update failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+            # An exception is an integration/runtime failure, not the normal
+            # "reload required" result.  Return failure so the caller rolls
+            # back the persisted config before restoring the old runtime.
+            return False
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            return bool(await memory_manager.reload_embedding_config())
+        except Exception as exc:
+            logger.warning(
+                "Embedding runtime reload failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    return False
+
+
+async def _rollback_embedding_update(
+    agent_id: str,
+    memory_manager: Any,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Roll back persistence and runtime after an embedding update fails."""
+    rollback_conflict: _ConfigRollbackConflict | None = None
+
+    def rollback_config(current_config: BaseModel) -> None:
+        _conditionally_restore_config_changes(
+            current_config,
+            before,
+            submitted,
+        )
+
+    try:
+        await update_agent_config_async(agent_id, rollback_config)
+    except _ConfigRollbackConflict as exc:
+        rollback_conflict = exc
+
+    runtime_restored = False
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            runtime_restored = bool(
+                await memory_manager.reload_embedding_config(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore the previous embedding runtime "
+                "for agent '%s'",
+                agent_id,
+            )
+
+    raise HTTPException(
+        status_code=409 if rollback_conflict else 503,
+        detail={
+            "message": (
+                "Embedding configuration was not applied; "
+                + (
+                    "rollback was skipped because the configuration "
+                    "changed concurrently"
+                    if rollback_conflict
+                    else "the persisted changes were rolled back"
+                )
+            ),
+            "persisted": rollback_conflict is not None,
+            "runtime_applied": False,
+            "runtime_restored": runtime_restored,
+            "conflicts": rollback_conflict.paths if rollback_conflict else [],
+        },
+    )
 
 
 @router.put(
@@ -923,6 +1825,7 @@ async def get_agents_running_config(
     summary="Update agent running config",
     description="Update running configuration for active agent",
 )
+# pylint: disable-next=R0915,R0912
 async def put_agents_running_config(
     running_config: AgentsRunningConfig = Body(
         ...,
@@ -932,19 +1835,262 @@ async def put_agents_running_config(
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    memory_manager = workspace.memory_manager
+    workspace_dir = getattr(workspace, "workspace_dir", ".")
+    config_path = Path(workspace_dir) / "agent.json"
+    async with get_path_lock(config_path):
+        from qwenpaw.memory import (
+            MemoryBackendUnavailableError,
+            memory_registry,
+        )
 
-    if running_config.approval_level is not None:
-        agent_config.approval_level = running_config.approval_level
+        backend_id = running_config.memory_manager_backend.strip().lower()
+        running_config.memory_manager_backend = backend_id
+        try:
+            selection_lease = memory_registry.reserve_selection(
+                backend_id,
+                workspace.agent_id,
+            )
+        except MemoryBackendUnavailableError:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "backend": running_config.memory_manager_backend,
+                    "reason": "plugin_not_installed",
+                },
+            ) from None
+        selected_registration = selection_lease.registration
+        if selected_registration.plugin_id != "core":
+            running_config.memory_backend_configs.setdefault(backend_id, {})
+        old_agent_config = None
+        embedding_changed = False
+        memory_manager_backend_changed = False
+        restores_indexed_space = False
+        lease_handed_off = False
+        new_embedding_config = (
+            running_config.reme_light_memory_config.embedding_model_config
+        )
+        new_memory_manager_backend = running_config.memory_manager_backend
 
-    running_config.approval_level = None
-    agent_config.running = running_config
-    save_agent_config(workspace.agent_id, agent_config)
+        # pylint: disable-next=R0912
+        def persist_running_config(agent_config):
+            nonlocal old_agent_config, embedding_changed
+            nonlocal memory_manager_backend_changed
+            nonlocal restores_indexed_space
+            old_agent_config = agent_config.model_copy(deep=True)
+            old_running_config = agent_config.running or AgentsRunningConfig()
+            old_backend_configs = old_running_config.memory_backend_configs
 
-    schedule_agent_reload(request, workspace.agent_id)
+            # Partial/redacted round trips must retain server-owned data.
+            # Unavailable plugins cannot validate or identify their secrets,
+            # so client-provided replacements for them are ignored as well.
+            for (
+                stored_backend_id,
+                current_config,
+            ) in old_backend_configs.items():
+                if (
+                    stored_backend_id
+                    not in running_config.memory_backend_configs
+                    or memory_registry.get_registration(stored_backend_id)
+                    is None
+                ):
+                    running_config.memory_backend_configs[
+                        stored_backend_id
+                    ] = copy.deepcopy(current_config)
+            for submitted_backend_id, submitted_config in list(
+                running_config.memory_backend_configs.items(),
+            ):
+                registration = memory_registry.get_registration(
+                    submitted_backend_id,
+                )
+                if registration is None:
+                    if submitted_backend_id not in old_backend_configs:
+                        del running_config.memory_backend_configs[
+                            submitted_backend_id
+                        ]
+                    continue
+                secret_fields = list(
+                    registration.metadata.get("secret_fields", []),
+                )
+                current_config = old_backend_configs.get(
+                    submitted_backend_id,
+                    {},
+                )
+                for field_name in secret_fields:
+                    if submitted_config.get(field_name) == "***":
+                        submitted_config[field_name] = current_config.get(
+                            field_name,
+                            "",
+                        )
+                if registration.config_schema is not None:
+                    try:
+                        validated = registration.config_schema.model_validate(
+                            submitted_config,
+                        )
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=_safe_memory_validation_error(
+                                exc,
+                                submitted_config,
+                                secret_fields,
+                            ),
+                        ) from exc
+                    running_config.memory_backend_configs[
+                        submitted_backend_id
+                    ] = validated.model_dump()
+            memory_manager_backend_changed = (
+                old_running_config.memory_manager_backend
+                != new_memory_manager_backend
+            )
+            old_memory_config = old_running_config.reme_light_memory_config
+            old_embedding_config = old_memory_config.embedding_model_config
+            vector_space_changed = embedding_vector_space_fingerprint(
+                old_embedding_config,
+            ) != embedding_vector_space_fingerprint(new_embedding_config)
+            new_memory_config = running_config.reme_light_memory_config
+            indexed_config = old_memory_config.pending_reindex_embedding_config
+            matches_existing_index = bool(
+                old_memory_config.needs_reindex
+                and indexed_config is not None
+                and embedding_vector_space_fingerprint(new_embedding_config)
+                == embedding_vector_space_fingerprint(indexed_config),
+            )
+            restores_indexed_space = matches_existing_index
+            if matches_existing_index:
+                new_memory_config.needs_reindex = False
+                new_memory_config.pending_reindex_embedding_config = None
+            else:
+                new_memory_config.needs_reindex = (
+                    old_memory_config.needs_reindex or vector_space_changed
+                )
+                new_memory_config.pending_reindex_embedding_config = (
+                    indexed_config
+                )
+            if vector_space_changed and not old_memory_config.needs_reindex:
+                new_memory_config.pending_reindex_embedding_config = (
+                    old_embedding_config.model_copy(deep=True)
+                )
+            embedding_changed = old_embedding_config != new_embedding_config
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+                and getattr(memory_manager, "is_reindexing", False) is True
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration cannot change while the "
+                        "memory index is rebuilding"
+                    ),
+                )
+            if running_config.approval_level is not None:
+                agent_config.approval_level = running_config.approval_level
+            running_config.approval_level = None
+            agent_config.running = running_config
+
+        async def persist_apply_and_schedule() -> AgentProfileConfig:
+            nonlocal lease_handed_off
+            agent_config = await update_agent_config_async(
+                workspace.agent_id,
+                persist_running_config,
+            )
+
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+            ):
+                embedding_updated = await _apply_embedding_runtime(
+                    memory_manager,
+                    new_embedding_config,
+                    workspace.agent_id,
+                    force_reload=restores_indexed_space,
+                )
+                if not embedding_updated:
+                    assert old_agent_config is not None
+                    await _rollback_embedding_update(
+                        workspace.agent_id,
+                        memory_manager,
+                        old_agent_config,
+                        agent_config,
+                    )
+
+            if (
+                not memory_manager_backend_changed
+                or selected_registration.plugin_id == "core"
+            ):
+                schedule_agent_reload(request, workspace.agent_id)
+                return agent_config
+
+            assert old_agent_config is not None
+
+            async def complete_backend_reload(reloaded: bool) -> None:
+                try:
+                    if not reloaded:
+
+                        def rollback_config(current_config: BaseModel) -> None:
+                            _conditionally_restore_config_changes(
+                                current_config,
+                                old_agent_config,
+                                agent_config,
+                            )
+
+                        try:
+                            await update_agent_config_async(
+                                workspace.agent_id,
+                                rollback_config,
+                            )
+                        except _ConfigRollbackConflict as exc:
+                            logger.error(
+                                "Backend reload failed for agent '%s' and "
+                                "config rollback conflicted at: %s",
+                                sanitize_log_value(workspace.agent_id),
+                                ", ".join(exc.paths),
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Backend reload failed and config rollback "
+                                "failed for agent '%s'",
+                                sanitize_log_value(workspace.agent_id),
+                            )
+                finally:
+                    selection_lease.release()
+
+            try:
+                reload_scheduled = schedule_agent_reload(
+                    request,
+                    workspace.agent_id,
+                    on_complete=complete_backend_reload,
+                )
+            except BaseException:
+                await run_async_to_completion(complete_backend_reload(False))
+                raise
+            if not reload_scheduled:
+                await complete_backend_reload(False)
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Agent reload could not be scheduled; "
+                        "config rolled back"
+                    ),
+                )
+            lease_handed_off = True
+            return agent_config
+
+        try:
+            agent_config = await run_async_to_completion(
+                persist_apply_and_schedule(),
+            )
+        finally:
+            if not lease_handed_off:
+                selection_lease.release()
 
     running_config.approval_level = agent_config.approval_level
-    return running_config
+    return _mask_memory_backend_secrets(running_config)
 
 
 @router.get(

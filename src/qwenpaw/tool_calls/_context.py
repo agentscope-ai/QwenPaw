@@ -31,9 +31,11 @@ class ToolCallContext:
     root_session_id: str
 
     started_at: float
-    deadline: float | None
+    offload_deadline: float | None
 
     cancel_event: asyncio.Event
+
+    kill_deadline: float | None = None
     cancel_reason: CancelReason | None = None
 
     deadline_changed_event: asyncio.Event = field(
@@ -49,7 +51,8 @@ class ToolCallContext:
         return self.cancel_event.is_set()
 
     def remaining(self) -> float | None:
-        if self.deadline is None:
+        """How much execution time remains before this tool is killed."""
+        if self.kill_deadline is None:
             return None
         loop = asyncio.get_running_loop()
-        return max(0.0, self.deadline - loop.time())
+        return max(0.0, self.kill_deadline - loop.time())

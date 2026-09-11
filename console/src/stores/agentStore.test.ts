@@ -22,6 +22,7 @@ describe("agentStore", () => {
     useAgentStore.setState({
       selectedAgent: "default",
       agents: [],
+      lastChatIdByAgent: {},
     });
   });
 
@@ -162,5 +163,42 @@ describe("agentStore", () => {
       useAgentStore.getState().updateAgent("999", { name: "Ghost" }),
     ).not.toThrow();
     expect(useAgentStore.getState().agents).toHaveLength(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // lastChatIdByAgent
+  // ---------------------------------------------------------------------------
+
+  it("setLastChatId stores chat id per agent", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBe("chat-1");
+  });
+
+  it("removeLastChatId removes the stored chat id for an agent", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    useAgentStore.getState().setLastChatId("agent-2", "chat-2");
+    useAgentStore.getState().removeLastChatId("agent-1");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+    expect(useAgentStore.getState().getLastChatId("agent-2")).toBe("chat-2");
+  });
+
+  it("removeLastChatId with non-existent id does not throw and leaves others", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    expect(() =>
+      useAgentStore.getState().removeLastChatId("agent-999"),
+    ).not.toThrow();
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBe("chat-1");
+  });
+
+  it("setLastChatId does not persist temporary local timestamp ids", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "1785114733908-0l0jmai");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+  });
+
+  it("setLastChatId removes existing entry when given a temporary local id", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    useAgentStore.getState().setLastChatId("agent-1", "1785114733908-0l0jmai");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+    expect(useAgentStore.getState().getLastChatId("agent-2")).toBeUndefined();
   });
 });

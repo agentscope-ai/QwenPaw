@@ -1,118 +1,67 @@
 import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
-import { SparkHistoryLine, SparkNewChatFill } from "@agentscope-ai/icons";
-import {
-  ExpandAltOutlined,
-  CompressOutlined,
-  MoreOutlined,
-} from "@ant-design/icons";
+import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
-import { Dropdown, Flex, Tooltip } from "antd";
-import type { MenuProps } from "antd";
+import { Flex, Tooltip } from "antd";
+import { Files } from "lucide-react";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
-import { useIsMobile } from "../../../../hooks/useIsMobile";
+import styles from "./ChatActionGroup.module.less";
 
 interface ChatActionGroupProps {
-  /** Callback to toggle the right-side history panel */
-  onToggleHistory?: () => void;
-  /** Whether the history panel is currently visible */
-  historyOpen?: boolean;
-  isWideMode?: boolean;
-  onToggleWideMode?: () => void;
+  onToggleWorkspace?: () => void;
+  workspaceOpen?: boolean;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
-  onToggleHistory,
-  historyOpen = false,
-  isWideMode = false,
-  onToggleWideMode,
+  onToggleWorkspace,
+  workspaceOpen = false,
 }) => {
   const { t } = useTranslation();
 
   const createNewSession = useCreateNewSession();
 
-  // Compact mode follows the viewport: collapse secondary actions only on
-  // mobile. This saves space on phones while keeping actions visible on desktop.
-  const isCompact = useIsMobile();
-
-  // Build "more" dropdown items for compact mode: History, WideMode.
-  const moreItems: MenuProps["items"] = [];
-  if (onToggleHistory) {
-    moreItems.push({
-      key: "history",
-      icon: <SparkHistoryLine />,
-      label: (
-        <div style={{ textAlign: "center" }}>
-          {t("chat.chatHistoryTooltip")}
-        </div>
-      ),
-      onClick: () => onToggleHistory(),
-    });
-  }
-  if (onToggleWideMode) {
-    moreItems.push({
-      key: "wideMode",
-      icon: isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />,
-      label: (
-        <div style={{ textAlign: "center" }}>
-          {isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")}
-        </div>
-      ),
-      onClick: () => onToggleWideMode(),
-    });
-  }
-
   return (
-    <Flex gap={8} align="center">
-      {/* Essential actions always visible */}
-      <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
+    <Flex className={styles.actionGroup} gap={8} align="center">
+      <Tooltip title={t("chat.newTask")} mouseEnterDelay={0.5}>
         <IconButton
           bordered={false}
-          icon={<SparkNewChatFill />}
+          aria-label={t("chat.newTask")}
+          icon={<SparkNewChatLine size={18} />}
+          style={{ width: 32, height: 32, padding: 0 }}
           onClick={createNewSession}
         />
       </Tooltip>
-
-      {/* History + WideMode: inline when NOT compact */}
-      {!isCompact && onToggleHistory && (
-        <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
-          <IconButton
-            bordered={false}
-            icon={<SparkHistoryLine />}
-            style={
-              historyOpen
-                ? { color: "var(--color-primary, #ff9d4d)" }
-                : undefined
-            }
-            onClick={onToggleHistory}
-          />
-        </Tooltip>
-      )}
-      {!isCompact && onToggleWideMode && (
+      {onToggleWorkspace && (
         <Tooltip
-          title={
-            isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")
-          }
+          title={t(
+            workspaceOpen ? "files.closeWorkspace" : "files.openWorkspace",
+          )}
           mouseEnterDelay={0.5}
         >
           <IconButton
+            className={styles.workspaceButton}
             bordered={false}
-            icon={isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />}
-            onClick={onToggleWideMode}
+            aria-label={t(
+              workspaceOpen ? "files.closeWorkspace" : "files.openWorkspace",
+            )}
+            aria-pressed={workspaceOpen}
+            icon={
+              <Files
+                size={16}
+                strokeWidth={2}
+                style={{ width: 16, height: 16 }}
+              />
+            }
+            style={{
+              width: 32,
+              height: 32,
+              padding: 0,
+              ...(workspaceOpen ? { color: "var(--app-accent)" } : {}),
+            }}
+            onClick={onToggleWorkspace}
           />
         </Tooltip>
-      )}
-
-      {/* Compact mode: collapse History/WideMode into more dropdown */}
-      {isCompact && moreItems.length > 0 && (
-        <Dropdown
-          menu={{ items: moreItems }}
-          trigger={["click"]}
-          placement="bottomRight"
-        >
-          <IconButton bordered={false} icon={<MoreOutlined />} />
-        </Dropdown>
       )}
     </Flex>
   );

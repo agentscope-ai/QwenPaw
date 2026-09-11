@@ -17,6 +17,11 @@ export interface DailyStats {
   completion_tokens: number;
   llm_calls: number;
   tool_calls: number;
+  /** Current-agent daily token totals from per-turn session metadata. */
+  agent_prompt_tokens?: number;
+  agent_completion_tokens?: number;
+  agent_llm_calls?: number;
+  agent_cache_read_tokens: number;
 }
 
 export interface AgentStatsSummary {
@@ -32,4 +37,11 @@ export interface AgentStatsSummary {
   channel_stats: ChannelStats[];
   start_date: string;
   end_date: string;
+  /** Current-agent token totals from per-turn session metadata. */
+  agent_prompt_tokens?: number;
+  agent_completion_tokens?: number;
+  agent_llm_calls?: number;
+  agent_cache_read_tokens: number;
+  agent_cache_eligible_input_tokens: number;
+  agent_cache_hit_rate: number | null;
 }

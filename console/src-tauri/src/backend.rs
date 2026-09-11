@@ -325,6 +325,10 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
             .build(),
     )?;
 
+    if let Err(err) = crate::computer_use_runtime::prepare(app.handle()) {
+        log::warn!("[computer-use] control endpoint unavailable: {err}");
+    }
+
     start(app.handle());
     Ok(())
 }

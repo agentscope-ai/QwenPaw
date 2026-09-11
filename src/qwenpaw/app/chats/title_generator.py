@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
 from .models import ChatUpdate
@@ -40,11 +42,25 @@ TITLE_PROMPT = (
 
 MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
+_LEADING_REASONING_BLOCK_RE = re.compile(
+    r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
+    + r".*?</(?P=tag)\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_LEADING_REASONING_TAG_RE = re.compile(
+    r"\A\s*<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _clean_title(raw: str) -> str:
     """Normalize model output into a single-line title."""
-    title = raw.strip().splitlines()[0] if raw.strip() else ""
+    answer = raw.strip()
+    while match := _LEADING_REASONING_BLOCK_RE.match(answer):
+        answer = answer[match.end() :].lstrip()
+    if _LEADING_REASONING_TAG_RE.match(answer):
+        return ""
+    title = answer.splitlines()[0] if answer else ""
     title = title.strip().strip("\"'`“”‘’")
     while title and title[-1] in ".,;:!?":
         title = title[:-1].rstrip()
@@ -68,17 +84,27 @@ async def generate_and_update_title(
     message = (user_message or "").strip()
     if not message:
         return
-    if len(message) > MAX_INPUT_CHARS:
-        message = message[:MAX_INPUT_CHARS]
+
+    # Check if this is a proactive session message
+    is_proactive = message.startswith("[Agent proactive_helper requesting]")
+    if is_proactive:
+        title = "[Proactive信息]"
+    else:
+        if len(message) > MAX_INPUT_CHARS:
+            message = message[:MAX_INPUT_CHARS]
 
     try:
         # Local imports keep this module's import cost low and avoid a
         # circular dependency between routers and the agents package.
-        from ...agents.model_factory import create_model_and_formatter
+        from ...agents.model_factory import create_model_and_formatter_async
         from ...config.config import load_agent_config
 
         try:
-            cfg = load_agent_config(workspace.agent_id).running
+            agent_config = await run_sync_io(
+                load_agent_config,
+                workspace.agent_id,
+            )
+            cfg = agent_config.running
         except (ValueError, AppBaseException) as exc:
             logger.debug(
                 "Title generation skipped: agent config unavailable (%s)",
@@ -86,54 +112,58 @@ async def generate_and_update_title(
             )
             return
 
-        title_cfg = cfg.auto_title_config
-        if not title_cfg.enabled:
-            logger.debug(
-                "Title generation disabled by config for chat %s",
-                chat_id,
-            )
-            return
-        timeout = title_cfg.timeout_seconds
+        if not is_proactive:
+            title_cfg = cfg.auto_title_config
+            if not title_cfg.enabled:
+                logger.debug(
+                    "Title generation disabled by config for chat %s",
+                    chat_id,
+                )
+                return
+            timeout = title_cfg.timeout_seconds
 
-        try:
-            model, _ = create_model_and_formatter(
-                agent_id=workspace.agent_id,
-            )
-        except (ValueError, AppBaseException) as exc:
-            # Same exception shape as ``skills_stream.get_model``: missing
-            # or misconfigured providers raise these and are non-fatal.
-            logger.debug(
-                "Title generation skipped: no model available (%s)",
-                exc,
-            )
-            return
+            try:
+                model, _ = await create_model_and_formatter_async(
+                    agent_id=workspace.agent_id,
+                    agent_config=agent_config,
+                )
+            except (ValueError, AppBaseException) as exc:
+                # Same exception shape as ``skills_stream.get_model``: missing
+                # or misconfigured providers raise these and are non-fatal.
+                logger.debug(
+                    "Title generation skipped: no model available (%s)",
+                    exc,
+                )
+                return
 
-        from agentscope.message import Msg, TextBlock
+            from agentscope.message import Msg, TextBlock
 
-        messages = [
-            Msg(
-                name="system",
-                role="system",
-                content=[TextBlock(type="text", text=TITLE_PROMPT)],
-            ),
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(type="text", text=message)],
-            ),
-        ]
+            messages = [
+                Msg(
+                    name="system",
+                    role="system",
+                    content=[TextBlock(type="text", text=TITLE_PROMPT)],
+                ),
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=message)],
+                ),
+            ]
 
-        raw_title = await asyncio.wait_for(
-            consume_model_response(model, messages),
-            timeout=timeout,
-        )
-        title = _clean_title(raw_title)
-        if not title:
-            logger.debug(
-                "Title generation produced empty output for %s",
-                chat_id,
+            raw_title = await asyncio.wait_for(
+                consume_model_response(model, messages),
+                timeout=timeout,
             )
-            return
+            title = _clean_title(raw_title)
+            if not title:
+                logger.debug(
+                    "Title generation produced empty output for %s",
+                    chat_id,
+                )
+                return
+        else:
+            logger.debug("Using fixed title for proactive chat %s", chat_id)
 
         # Compare-and-set on the chat name in a single locked critical
         # section so a concurrent user rename cannot slip in between a

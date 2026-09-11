@@ -342,6 +342,12 @@ button {
   word-break: break-word;
 }
 
+.blog-content p > img:only-child {
+  display: block;
+  margin-right: auto;
+  margin-left: auto;
+}
+
 .blog-content--sessions > p:first-child,
 .blog-content--sessions > hr:first-of-type {
   display: none;
@@ -748,6 +754,36 @@ pre code.hljs .hljs-attr {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+.docs-content p > img:only-child {
+  display: block;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.docs-content img.embedding-dialog {
+  display: block;
+  width: min(100%, 18rem);
+  max-height: none;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.docs-content img.blog-image--compact,
+.docs-content img.blog-image--medium {
+  display: block;
+  max-height: none;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.docs-content img.blog-image--compact {
+  width: min(100%, 9rem);
+}
+
+.docs-content img.blog-image--medium {
+  width: min(100%, 27rem);
+}
+
 .docs-content img.docs-title-banner {
   display: block;
   width: 100%;
@@ -755,6 +791,74 @@ pre code.hljs .hljs-attr {
   height: 270px;
   max-height: none;
   object-fit: cover;
+}
+
+.docs-content img.docs-title-banner.docs-title-banner--creator {
+  height: auto;
+  aspect-ratio: 8 / 3;
+  object-fit: contain;
+  background: #fffaf5;
+}
+
+.docs-content .creator-figure {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.docs-content .creator-figure img.creator-shot {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, #ff7a00 30%);
+  border-radius: 0.875rem;
+  background: #fff;
+  box-shadow:
+    0 12px 28px rgba(64, 42, 24, 0.1),
+    0 2px 6px rgba(64, 42, 24, 0.06);
+}
+
+.docs-content .creator-figure figcaption {
+  margin-top: 0.625rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.docs-content .creator-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 1.75rem;
+  align-items: start;
+}
+
+.docs-content .creator-media-grid .creator-figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.docs-content .creator-media-grid .creator-figure img.creator-shot {
+  width: 100%;
+}
+
+.docs-content .creator-figure img.creator-shot.creator-shot--compact {
+  width: min(100%, 24rem);
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+.docs-content .creator-lead {
+  margin: 0 0 1rem;
+  color: var(--text);
+  font-size: 1.075rem;
+  line-height: 1.75;
+}
+
+@media (max-width: 720px) {
+  .docs-content .creator-media-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .docs-content video {

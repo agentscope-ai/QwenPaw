@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Backup creation: sync and SSE streaming."""
+"""Synchronous backup creation used by the application job manager."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import zipfile
-from typing import Any, AsyncGenerator
+from typing import Any, Callable
 
 from .._utils.constants import META_FILE, zip_path
 from .._utils.meta import finalize_backup_meta
 from .._utils.signing import replace_meta_with_local_signature
-from ..models import BackupMeta, CreateBackupRequest
+from ..models import BackupMeta
 from ...config.utils import load_config
 from ...constant import BACKUP_DIR
 from .create_helpers import add_files_to_zip
@@ -19,66 +18,8 @@ from .create_helpers import add_files_to_zip
 logger = logging.getLogger(__name__)
 
 
-async def create_stream(
-    req: CreateBackupRequest,
-) -> AsyncGenerator[dict, None]:
-    """Create a backup and yield progress events for SSE streaming.
-
-    Compression runs in a background thread; events are delivered via an
-    ``asyncio.Queue`` using ``loop.call_soon_threadsafe`` so the event loop
-    is never blocked by a busy-wait.  When the client disconnects,
-    ``stop_event`` is set so the thread exits at the next cancellation point.
-
-    Event shapes:
-      {"type": "start",     "total_agents": N, "percent": 0}
-      {"type": "agent",     "agent_id": str, "index": int,
-                            "total": int, "percent": int}
-      {"type": "saving",    "percent": 90}
-      {"type": "done",      "meta": dict, "percent": 100}
-      {"type": "error",     "message": str}
-    """
-    meta = BackupMeta(
-        name=req.name,
-        description=req.description,
-        scope=req.scope,
-    )
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-
-    loop = asyncio.get_running_loop()
-    # asyncio.Queue is used for the consumer side (async); the background
-    # thread pushes events via loop.call_soon_threadsafe so no blocking occurs.
-    q: asyncio.Queue[dict | None] = asyncio.Queue()
-    stop_event = threading.Event()
-
-    def _put(event: dict | None) -> None:
-        loop.call_soon_threadsafe(q.put_nowait, event)
-
-    task = asyncio.create_task(
-        asyncio.to_thread(
-            _create_with_progress,
-            meta,
-            req.agents,
-            _put,
-            stop_event,
-        ),
-    )
-    try:
-        while True:
-            event = await q.get()
-            if event is None:  # sentinel – thread finished
-                break
-            yield event
-    except (asyncio.CancelledError, GeneratorExit):
-        # Client disconnected: signal thread to stop at next cancellation
-        # point.
-        stop_event.set()
-        raise
-    finally:
-        # Wait for thread to finish; shield prevents task from being abandoned.
-        try:
-            await asyncio.shield(task)
-        except (asyncio.CancelledError, Exception):
-            pass
+class BackupCancelled(Exception):
+    """Raised when cooperative cancellation stops archive creation."""
 
 
 def _compute_initial_agents(
@@ -106,51 +47,42 @@ def _write_meta_and_finalize(
     zf: zipfile.ZipFile,
     meta: BackupMeta,
     agent_count: int,
-    put: Any,
+    progress: Callable[[dict[str, Any]], None],
 ) -> None:
     """Finalize *meta*, emit a saving event, and write meta.json into *zf*."""
     finalize_backup_meta(meta, agent_count)
     meta.accepted_via_trust = False
     meta.signature = None
-    put({"type": "saving", "percent": 90})
+    progress({"type": "saving", "percent": 90})
     zf.writestr(META_FILE, meta.model_dump_json(indent=2))
 
 
-def _create_with_progress(
+def create_backup(
     meta: BackupMeta,
     req_agents: list[str],
-    put: Any,
+    progress: Callable[[dict[str, Any]], None],
     stop_event: threading.Event,
-) -> None:
-    """Run compression in a sync thread and emit progress events via *put*.
+) -> BackupMeta:
+    """Create one archive and return its finalized metadata.
 
-    *put* is a thread-safe callable that pushes an event (or ``None``
-    sentinel) into the async consumer queue via
-    ``loop.call_soon_threadsafe``.
-
-    Writes directly to a .tmp file (no in-memory accumulation), then
-    atomically replaces the final .zip on success. If stop_event is set
-    the thread exits at the next cancellation point without writing the file.
+    The caller owns the thread and task lifecycle.  This function only owns
+    compression, cooperative cancellation, and atomic archive publication.
     """
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    dest = zip_path(meta.id)
+    tmp = dest.with_suffix(".tmp")
     try:
-        dest = zip_path(meta.id)
-        tmp = dest.with_suffix(".tmp")
-        try:
-            _compress_to_tmp(meta, req_agents, put, stop_event, tmp, dest)
-        except BaseException:
-            tmp.unlink(missing_ok=True)
-            raise
-    except Exception as exc:
-        logger.exception("Backup creation failed for %s", meta.id)
-        put({"type": "error", "message": str(exc)})
-    finally:
-        put(None)  # sentinel – signals the generator loop to exit
+        _compress_to_tmp(meta, req_agents, progress, stop_event, tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return meta
 
 
 def _compress_to_tmp(
     meta: BackupMeta,
     req_agents: list[str],
-    put: Any,
+    progress: Callable[[dict[str, Any]], None],
     stop_event: threading.Event,
     tmp,
     dest,
@@ -161,7 +93,9 @@ def _compress_to_tmp(
     # open handle on this path would raise OSError here rather than
     # silently appending to a stale file.
     tmp.unlink(missing_ok=True)
-    cancelled = False
+    if stop_event.is_set():
+        raise BackupCancelled()
+
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
         config = load_config()
         if meta.scope.include_agents:
@@ -171,7 +105,7 @@ def _compress_to_tmp(
             )
         else:
             valid_agents, missing_agents = [], []
-        put(
+        progress(
             {"type": "start", "total_agents": len(valid_agents), "percent": 0},
         )
         if missing_agents:
@@ -182,7 +116,7 @@ def _compress_to_tmp(
 
         def progress_callback(current, total, agent_id):
             percent = int(10 + 75 * current / max(total, 1))
-            put(
+            progress(
                 {
                     "type": "agent",
                     "agent_id": agent_id,
@@ -201,24 +135,16 @@ def _compress_to_tmp(
         )
 
         if stop_event.is_set():
-            # Mark cancelled; unlink tmp after the with block closes the file
-            # (unlinking an open file fails on Windows).
-            cancelled = True
-        else:
-            _write_meta_and_finalize(zf, meta, len(backed_up_agents), put)
+            raise BackupCancelled()
+        _write_meta_and_finalize(zf, meta, len(backed_up_agents), progress)
 
-    if cancelled:
-        tmp.unlink(missing_ok=True)
-        logger.info(
-            "Backup creation cancelled by client (backup_id=%s)",
-            meta.id,
-        )
-        return
+    if stop_event.is_set():
+        raise BackupCancelled()
 
     signed_meta = replace_meta_with_local_signature(tmp, meta, dest_zip=dest)
+    if stop_event.is_set():
+        dest.unlink(missing_ok=True)
+        raise BackupCancelled()
     meta.signature = signed_meta.signature
     meta.accepted_via_trust = signed_meta.accepted_via_trust
     tmp.unlink(missing_ok=True)
-    put(
-        {"type": "done", "meta": meta.model_dump(mode="json"), "percent": 100},
-    )

@@ -1,7 +1,27 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsRunningConfig,
+  EmbeddingModelConfig,
+} from "../types";
+
+export interface EmbeddingTestResponse {
+  success: boolean;
+  configured_dimensions: number;
+  actual_dimensions: number | null;
+  latency_ms: number;
+  message: string;
+}
+
+export interface MemoryBackendDescriptor {
+  id: string;
+  label: string;
+  source: string;
+  available: boolean;
+  metadata?: Record<string, unknown>;
+}
 
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
@@ -46,10 +66,21 @@ export const agentApi = {
   getAgentRunningConfig: () =>
     request<AgentsRunningConfig>("/workspace/running-config"),
 
+  listMemoryBackends: () =>
+    request<MemoryBackendDescriptor[]>("/agents/memory/backends"),
+
   updateAgentRunningConfig: (config: AgentsRunningConfig) =>
     request<AgentsRunningConfig>("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      timeout: 10 * 60 * 1000,
+    }),
+
+  testEmbedding: (config: EmbeddingModelConfig) =>
+    request<EmbeddingTestResponse>("/workspace/embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
     }),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),

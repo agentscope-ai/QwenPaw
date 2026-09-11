@@ -39,3 +39,25 @@ export function setAuthToken(token: string): void {
 export function clearAuthToken(): void {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
+
+/**
+ * Get the backend API port number.
+ * Extracted from VITE_API_BASE_URL, then falls back to the current window
+ * port and finally the default desktop backend port.
+ */
+export function getApiPort(): number {
+  const base = VITE_API_BASE_URL || "";
+  if (base) {
+    try {
+      const url = new URL(base);
+      if (url.port) return parseInt(url.port, 10);
+    } catch {
+      // Fall through to runtime-derived defaults.
+    }
+  }
+
+  if (window.location.port) {
+    return parseInt(window.location.port, 10);
+  }
+  return 8088;
+}

@@ -37,13 +37,47 @@ function parseDoc(md) {
   const lines = md.split("\n");
   let title = "";
   const headings = [];
+  const idCounter = new Map();
   let body = [];
+  let fence = null;
+
+  const addHeading = (level, text) => {
+    const baseId = slugifyHeading(text);
+    const count = (idCounter.get(baseId) ?? 0) + 1;
+    idCounter.set(baseId, count);
+    const id = count === 1 ? baseId : `${baseId}-${count}`;
+    headings.push({ level, text, id });
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const h2 = /^##\s+(.+)$/.exec(line);
-    const h3 = /^###\s+(.+)$/.exec(line);
-    if (i === 0 && line.startsWith("# ")) {
+    if (fence) {
+      const closingFence = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+      if (
+        closingFence &&
+        closingFence[1][0] === fence.marker &&
+        closingFence[1].length >= fence.length
+      ) {
+        fence = null;
+      }
+      body.push(line);
+      continue;
+    }
+
+    const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1][0];
+      // CommonMark does not allow backticks in a backtick fence's info string.
+      if (marker === "~" || !openingFence[2].includes("`")) {
+        fence = { marker, length: openingFence[1].length };
+        body.push(line);
+        continue;
+      }
+    }
+
+    const h2 = !fence ? /^##\s+(.+)$/.exec(line) : null;
+    const h3 = !fence ? /^###\s+(.+)$/.exec(line) : null;
+    if (!fence && i === 0 && line.startsWith("# ")) {
       title = line
         .slice(2)
         .replace(/#+\s*$/, "")
@@ -52,12 +86,12 @@ function parseDoc(md) {
     }
     if (h2) {
       const text = h2[1].replace(/#+\s*$/, "").trim();
-      headings.push({ level: 2, text, id: slugifyHeading(text) });
+      addHeading(2, text);
       continue;
     }
     if (h3) {
       const text = h3[1].replace(/#+\s*$/, "").trim();
-      headings.push({ level: 3, text, id: slugifyHeading(text) });
+      addHeading(3, text);
       continue;
     }
     if (!title && line.trim()) title = line.replace(/#+\s*$/, "").trim();

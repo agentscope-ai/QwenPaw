@@ -1,15 +1,59 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-07-23
+date: 2026-09-03
 author: QwenPaw Team
 tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated July 23, 2026
+Last updated September 3, 2026
 
 ---
+
+**09-03 QwenPaw Community Meetup: QwenPaw Hub Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643433333230363031335f323034353035363233375f30
+
+**09-01 QwenPaw Community Meetup: Agent Mail Feature Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643432393639363238385f323034353035363233375f30
+
+**08-25 QwenPaw Community Meetup: Checkpoint Feature Deep Dive and Demo**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431393733353733385f323034353035363233375f30
+
+**08-20 QwenPaw Community Meetup: QwenPaw Cross-Harness Agent Integration Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431333735393339335f323034353035363233375f30
+
+**08-18 QwenPaw Community Meetup: QwenPaw's New Long-Term Memory Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431303630343433335f323034353035363233375f30
+
+**08-13 QwenPaw Community Meetup: QwenPaw Loop Engineering Introduction and OMP Plugin Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643430343338313333315f323034353035363233375f30
+
+**08-11 QwenPaw Community Meetup: QwenPaw Apps Module Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643430313131363531305f323034353035363233375f30
+
+**08-06 QwenPaw Community Meetup: QwenPaw All-New computer-use Module Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643339353131303638355f323034353035363233375f30
+
+**08-04 QwenPaw Community Meetup: QwenPaw All-New Browser-use Module Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643339313835313434355f323034353035363233375f30
+
+**07-30 QwenPaw Community Meetup: QwenPaw-Data Sharing**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643338353539353936355f323034353035363233375f30
+
+**07-28 QwenPaw Community Meetup: Agent Teams Sharing**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643338323538313732325f323034353035363233375f30
 
 **07-23 QwenPaw Developer Day: QwenPaw-TUI Deep Dive**
 

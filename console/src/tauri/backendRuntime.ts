@@ -8,7 +8,22 @@ const DESKTOP_SESSION_KEY = "qpDesktop";
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
 
 export function isTauriRuntime(): boolean {
-  return isTauri();
+  // The SDK helper only checks `window.isTauri`. That flag is not present in
+  // every WKWebView injection path, even though Tauri's invoke bridge is
+  // available. Treat the bridge as authoritative too, otherwise the
+  // bootstrap page thinks it is a browser and renders its intentionally empty
+  // browser fallback -- a permanent white window before it can poll or
+  // navigate to the backend console.
+  return isTauri() || hasTauriInvokeBridge();
+}
+
+function hasTauriInvokeBridge(): boolean {
+  if (typeof window === "undefined") return false;
+
+  return (
+    typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
+      .__TAURI_INTERNALS__?.invoke === "function"
+  );
 }
 
 /**

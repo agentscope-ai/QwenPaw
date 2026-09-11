@@ -11,6 +11,16 @@ from agentscope.model import FinishedReason
 
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
+from qwenpaw.providers.model_capability_cache import get_capability_cache
+
+
+_AUDIO_MODAL_ERROR = (
+    "Error code: 400 - {'error': {'message': '<400> "
+    "InternalError.Algo.InvalidParameter: An incorrect modal `audio` was "
+    "entered, which may not be supported by the model or was placed in the "
+    "wrong position (e.g., in system/assistant).', "
+    "'type': 'invalid_request_error'}}"
+)
 
 
 class SeenTracker:
@@ -18,6 +28,7 @@ class SeenTracker:
 
     def __init__(self) -> None:
         self.acknowledged: list[set[str]] = []
+        self.thinking_acknowledged: list[set[str]] = []
 
     @staticmethod
     def model_input_tool_result_ids(agent) -> set[str]:
@@ -25,6 +36,13 @@ class SeenTracker:
 
     def acknowledge_model_input_tool_results(self, ids: set[str]) -> None:
         self.acknowledged.append(set(ids))
+
+    @staticmethod
+    def model_input_thinking_block_ids(agent) -> set[str]:
+        return {"thinking-seen"}
+
+    def acknowledge_model_input_thinking_blocks(self, ids: set[str]) -> None:
+        self.thinking_acknowledged.append(set(ids))
 
 
 class CompressionTracker:
@@ -37,12 +55,28 @@ class CompressionTracker:
         self.calls.append((agent, context_config, instructions))
 
 
+class ThinkingOmissionModel:
+    """Record explicit thinking omission calls from the agent."""
+
+    def __init__(self) -> None:
+        self.ids: set[str] | None = None
+
+    def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        self.ids = set(block_ids)
+        return True
+
+
 def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     """Build only the attributes the reasoning wrapper reads."""
     agent = object.__new__(QwenPawAgent)
     agent._context_manager = tracker
     agent._gate_pending_stop = None
+    agent._request_context = {}
+    agent.state = SimpleNamespace(context=[], reply_id="reply")
+    agent.name = "agent"
     agent.model = SimpleNamespace(model_key=None)
+    agent._model_rejects_media = lambda: False
+    agent._uses_request_time_media_normalization = lambda: False
 
     async def stop_handlers(final_msg):
         return StopHandlerResult(
@@ -54,7 +88,30 @@ def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     return agent
 
 
+def _skip_media_strip(monkeypatch) -> None:
+    """Keep tests focused on seen-ack; avoid multimodal/env-dependent strip."""
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+
+def test_thinking_omissions_delegate_to_model_wrapper() -> None:
+    """Fallback-aware model interfaces take precedence over one formatter."""
+    agent = object.__new__(QwenPawAgent)
+    model = ThinkingOmissionModel()
+    agent.model = model
+    agent.formatter = SimpleNamespace()
+
+    applied = agent._set_formatter_thinking_omit_ids({"thinking-1"})
+
+    assert applied is True
+    assert model.ids == {"thinking-1"}
+    assert not hasattr(agent.formatter, "_qwenpaw_omit_thinking_ids")
+
+
 async def test_successful_model_call_acknowledges_input_results(monkeypatch):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -75,10 +132,12 @@ async def test_successful_model_call_acknowledges_input_results(monkeypatch):
     events = [event async for event in agent._reasoning()]
 
     assert tracker.acknowledged == [{"call-seen"}]
+    assert tracker.thinking_acknowledged == [{"thinking-seen"}]
     assert isinstance(events[-1], Msg)
 
 
 async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -94,11 +153,13 @@ async def test_failed_model_call_does_not_acknowledge_results(monkeypatch):
             pass
 
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_interrupted_model_call_does_not_acknowledge_results(
     monkeypatch,
 ):
+    _skip_media_strip(monkeypatch)
     tracker = SeenTracker()
     agent = make_agent(tracker)
 
@@ -115,12 +176,14 @@ async def test_interrupted_model_call_does_not_acknowledge_results(
 
     assert len(events) == 1
     assert not tracker.acknowledged
+    assert not tracker.thinking_acknowledged
 
 
 async def test_compress_context_forwards_one_shot_instructions():
     tracker = CompressionTracker()
     agent = object.__new__(QwenPawAgent)
     agent._context_manager = tracker
+    agent._compress_context_middlewares = []
     agent.state = SimpleNamespace(context=[])
     config = SimpleNamespace(trigger_ratio=0.1)
     instructions = HintBlock(hint="prioritize failures", source="user")
@@ -128,3 +191,57 @@ async def test_compress_context_forwards_one_shot_instructions():
     await agent.compress_context(config, instructions=instructions)
 
     assert tracker.calls == [(agent, config, instructions)]
+
+
+@pytest.mark.asyncio
+async def test_audio_modal_error_strips_audio_and_retries_once(
+    monkeypatch,
+) -> None:
+    _skip_media_strip(monkeypatch)
+    cache = get_capability_cache()
+    cache.clear()
+    agent = make_agent(SeenTracker())
+    agent.model = SimpleNamespace(model_key="dashscope:qwen3.7-plus")
+    agent._uses_request_time_media_normalization = lambda: True
+    agent.formatter = SimpleNamespace(
+        _qwenpaw_last_wire_media_count=1,
+        _qwenpaw_last_wire_audio_count=1,
+        _qwenpaw_force_strip_media=False,
+        _qwenpaw_force_strip_audio=False,
+    )
+    calls = 0
+
+    async def provider_reasoning(self, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError(_AUDIO_MODAL_ERROR)
+        assert agent.formatter._qwenpaw_force_strip_audio is True
+        assert agent.formatter._qwenpaw_force_strip_media is False
+        yield Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(type="text", text="done")],
+        )
+
+    monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
+
+    try:
+        events = [event async for event in agent._reasoning()]
+        next_events = [event async for event in agent._reasoning()]
+
+        assert calls == 3
+        assert isinstance(events[-1], Msg)
+        assert isinstance(next_events[-1], Msg)
+        assert (
+            cache.get(
+                "dashscope:qwen3.7-plus",
+                "rejects_audio",
+                False,
+            )
+            is True
+        )
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        assert agent.formatter._qwenpaw_force_strip_media is False
+    finally:
+        cache.clear()

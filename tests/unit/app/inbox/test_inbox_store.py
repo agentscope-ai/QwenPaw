@@ -200,6 +200,38 @@ async def test_list_events_pagination(inbox_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_query_events_returns_filtered_counts(inbox_path: Path):
+    await _seed_events(inbox_path)
+    newest = await inbox_store.list_events(limit=1)
+    await inbox_store.mark_read([newest[0]["id"]])
+
+    events, total, unread_count = await inbox_store.query_events(
+        source_types={"cron", "manual"},
+        limit=1,
+    )
+
+    assert len(events) == 1
+    assert total == 3
+    assert unread_count == 2
+
+
+@pytest.mark.asyncio
+async def test_query_events_total_respects_unread_filter(inbox_path: Path):
+    await _seed_events(inbox_path)
+    newest = await inbox_store.list_events(limit=1)
+    await inbox_store.mark_read([newest[0]["id"]])
+
+    events, total, unread_count = await inbox_store.query_events(
+        unread_only=True,
+        limit=1,
+    )
+
+    assert len(events) == 1
+    assert total == 2
+    assert unread_count == 2
+
+
+@pytest.mark.asyncio
 async def test_list_events_empty_when_no_file(inbox_path: Path):
     events = await inbox_store.list_events()
     assert events == []
@@ -264,6 +296,53 @@ async def test_mark_all_read(inbox_path: Path):
     assert updated == 3
     # Second call is idempotent.
     assert await inbox_store.mark_all_read() == 0
+
+
+@pytest.mark.asyncio
+async def test_mark_read_by_acl_sender_uses_agent_and_exact_address(
+    inbox_path: Path,
+):
+    cases = [
+        ("exact", "A", "a@example.com", "Alice <a@example.com>"),
+        ("other-agent", "B", "a@example.com", "Alice <a@example.com>"),
+        ("similar", "A", "ba@example.com", "BA <ba@example.com>"),
+        ("legacy-display-only", "A", None, "Alice <a@example.com>"),
+    ]
+    for case, agent_id, acl_sender, from_field in cases:
+        payload = {
+            "case": case,
+            "acl_status": "pending",
+            "from": from_field,
+        }
+        if acl_sender is not None:
+            payload["acl_sender_address"] = acl_sender
+        await inbox_store.append_event(
+            agent_id=agent_id,
+            source_type="mail",
+            source_id="_mail_monitor",
+            event_type="new_email",
+            status="success",
+            title="pending",
+            body="pending",
+            payload=payload,
+        )
+
+    updated = await inbox_store.mark_read_by_acl_sender(
+        "A",
+        " A@EXAMPLE.COM ",
+    )
+
+    assert updated == 1
+    events = await inbox_store.list_events(limit=10)
+    read_by_case = {
+        event["payload"]["case"]: event["read"] for event in events
+    }
+    assert read_by_case == {
+        "exact": True,
+        "other-agent": False,
+        "similar": False,
+        "legacy-display-only": False,
+    }
 
 
 # ---------------------------------------------------------------------------

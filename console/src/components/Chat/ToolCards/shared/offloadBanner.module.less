@@ -1,0 +1,412 @@
+// Offload banner — renders below the tool card when a tool is running.
+// Uses project semantic tokens for light/dark theme adaptation.
+
+.offloadBanner {
+  margin-top: 6px;
+  width: 100%;
+  // Wide enough for full EN labels; still capped so it doesn't dominate the chat column
+  max-width: min(100%, 520px);
+  box-sizing: border-box;
+  background: var(--app-surface-raised);
+  border: 1px solid var(--app-warning-border);
+  border-radius: 10px;
+  overflow: hidden;
+  animation: bannerIn 0.3s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+// keep_foreground → amber/warning; offload → blue/primary (matches OffloadPolicyCard)
+.offloadBanner.policyKeep {
+  border-color: var(--app-warning-border);
+}
+
+.offloadBanner.policyOffload {
+  border-color: var(--app-info-border);
+}
+
+.offloadBanner.bgMode {
+  border-color: var(--app-info-border);
+}
+
+.offloadBanner.collapsing {
+  animation: bannerOut 0.25s ease forwards;
+}
+
+@keyframes bannerIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scaleY(0.95);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    max-height: 400px;
+  }
+}
+
+@keyframes bannerOut {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+    max-height: 400px;
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.95);
+    max-height: 0;
+  }
+}
+
+.offloadBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 8px;
+  background: var(--app-warning-bg);
+}
+
+.policyKeep .offloadBar {
+  background: var(--app-warning-bg);
+}
+
+.policyOffload .offloadBar {
+  background: var(--app-info-bg);
+}
+
+.bgMode .offloadBar {
+  background: var(--app-info-bg);
+}
+
+.offloadInfo {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-warning-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policyKeep .offloadInfo {
+  color: var(--app-warning-text);
+}
+
+.policyOffload .offloadInfo {
+  color: var(--app-info-text);
+}
+
+.bgMode .offloadInfo {
+  color: var(--app-info-text);
+}
+
+// Single countdown: ring + short caption on the header right (light weight)
+.timerCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 48%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  line-height: 1;
+}
+
+.timerCluster.urgent {
+  border: none;
+  background: transparent;
+}
+
+.timerCaption {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--app-warning-text);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.policyOffload .timerCaption {
+  color: var(--app-info-text);
+}
+
+.timerCluster.urgent .timerCaption {
+  color: var(--app-error-text);
+}
+
+// Circular countdown ring
+.timerRing {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.timerRing svg {
+  transform: rotate(-90deg);
+  position: absolute;
+  inset: 0;
+}
+
+.ringBg {
+  fill: none;
+  stroke: var(--app-border-strong);
+  stroke-width: 2.5;
+}
+
+.ringProgress {
+  fill: none;
+  stroke: var(--app-warning-text);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 1s linear,
+    stroke 0.5s;
+}
+
+.policyOffload .ringProgress {
+  stroke: var(--app-info-text);
+}
+
+.ringProgress.urgent {
+  stroke: var(--app-error);
+}
+
+.timerCount {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--app-warning-text);
+}
+
+.policyOffload .timerCount {
+  color: var(--app-info-text);
+}
+
+.timerCount.urgent {
+  color: var(--app-error-text);
+}
+
+// Fixed columns (ZH layout): offload = 6-col (2+2+2 / 3+3), keep = 3-col.
+// EN keeps full copy and wraps inside the cell instead of changing the grid.
+.offloadActions {
+  padding: 8px 12px 12px;
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.actionsOffload {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.actionsOffload .offloadBtn:nth-child(-n + 3) {
+  grid-column: span 2;
+}
+
+.actionsOffload .offloadBtn:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
+.actionsKeep {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.offloadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  // Keep icon + label on one flex row; long EN text wraps inside .btnLabel
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-text);
+  line-height: 1.25;
+  box-sizing: border-box;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.primaryAct {
+  font-weight: 700;
+  border-color: var(--app-warning-border);
+  background: var(--app-warning-bg);
+}
+
+.policyOffload .primaryAct {
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
+}
+
+.offloadBtn .ico {
+  font-size: 12px;
+  flex-shrink: 0;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+.offloadBtn .btnLabel {
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+
+.offloadBtn:hover {
+  background: var(--app-fill-subtle);
+  border-color: var(--app-border-hover);
+}
+
+.cancelAct {
+  color: var(--app-text-secondary);
+
+  &:hover {
+    background: var(--app-error-bg);
+    border-color: var(--app-error-border);
+    color: var(--app-error-text);
+  }
+}
+
+.offloadNote {
+  padding: 0 12px 10px;
+  font-size: 10px;
+  color: var(--app-text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.noteDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--app-text-tertiary);
+}
+
+// Background status row (when tool is already in background)
+.bgStatusRow {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--app-info-text);
+}
+
+.bgPulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--app-info-text);
+  animation: pulseDot 1.4s infinite;
+}
+
+@keyframes pulseDot {
+  0% {
+    box-shadow: 0 0 0 0 var(--app-info-border);
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.bgElapsed {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 11px;
+  color: var(--app-info-text);
+  font-weight: 600;
+}
+
+// Gear button in tool card header
+.gearBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  transition: all 0.15s;
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 4px;
+
+  &:hover {
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
+  }
+
+  &.active {
+    background: var(--app-info-bg);
+    color: var(--app-info-text);
+  }
+}
+
+.gearDot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-warning);
+  display: none;
+  animation: pulseDotOrange 1.4s infinite;
+
+  &.show {
+    display: block;
+  }
+
+  &.bgDot {
+    background: var(--app-info-text);
+    animation: pulseDot 1.4s infinite;
+  }
+}
+
+@keyframes pulseDotOrange {
+  0% {
+    box-shadow: 0 0 0 0 var(--app-warning-border);
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}

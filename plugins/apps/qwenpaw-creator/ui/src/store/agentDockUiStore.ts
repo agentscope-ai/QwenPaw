@@ -1,0 +1,89 @@
+import { create } from "zustand";
+
+export interface SelectionAttachment {
+  text: string;
+  ref: string | null;
+  field: string | null;
+  /** Exact RFC 6901 pointer to the canonical project.json value, if any. */
+  path?: string | null;
+  start: number;
+  end: number;
+  label: string;
+  /** Timeline selections use ticks; text selections omit these fields. */
+  kind?: "text" | "timeline_point" | "timeline_range";
+  timelineId?: string;
+  startTick?: number;
+  endTick?: number;
+  elementIds?: string[];
+}
+
+export type AgentDockTab = "conversation" | "activity";
+
+export type WorkspaceSidebarTab = "assistant" | "episodes";
+
+interface AgentDockUiState {
+  open: boolean;
+  tab: AgentDockTab;
+  /** 创作助手/剧集列表 tab —— 跨页面保持用户的上一次选择。 */
+  sidebarTab: WorkspaceSidebarTab;
+  width: number;
+  height: number;
+  runFilter: string;
+  draft: string;
+  selection: SelectionAttachment | null;
+  allowExpandDetails: boolean;
+  /**
+   * Collapse preference of the inline decision tray; a new blocking item
+   * (production confirmation) forces it open.
+   */
+  decisionTrayCollapsed: boolean;
+  setOpen: (open: boolean) => void;
+  setTab: (tab: AgentDockTab) => void;
+  setSidebarTab: (tab: WorkspaceSidebarTab) => void;
+  setSize: (width: number, height: number) => void;
+  setRunFilter: (filter: string) => void;
+  setDraft: (draft: string) => void;
+  setSelection: (selection: SelectionAttachment | null) => void;
+  setAllowExpandDetails: (allow: boolean) => void;
+  setDecisionTrayCollapsed: (collapsed: boolean) => void;
+  reset: () => void;
+}
+
+export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
+  open: true,
+  tab: "conversation",
+  sidebarTab: "assistant",
+  width: 340,
+  height: 620,
+  runFilter: "all",
+  draft: "",
+  selection: null,
+  allowExpandDetails: false,
+  decisionTrayCollapsed: false,
+  setOpen: (open) => set({ open }),
+  setTab: (tab) => set({ tab, open: true }),
+  setSidebarTab: (sidebarTab) => set({ sidebarTab }),
+  setSize: (width, height) =>
+    // Floor must match AgentDock's DOCK_MIN_WIDTH so users can actually
+    // narrow the dock down to 240px on tight windows.
+    set({ width: Math.max(240, width), height: Math.max(320, height) }),
+  setRunFilter: (runFilter) => set({ runFilter }),
+  setDraft: (draft) => set({ draft }),
+  setSelection: (selection) =>
+    set({ selection, tab: "conversation", open: true }),
+  setAllowExpandDetails: (allowExpandDetails) => set({ allowExpandDetails }),
+  setDecisionTrayCollapsed: (decisionTrayCollapsed) =>
+    set({ decisionTrayCollapsed }),
+  reset: () =>
+    set({
+      open: true,
+      tab: "conversation",
+      width: 340,
+      height: 620,
+      runFilter: "all",
+      draft: "",
+      selection: null,
+      allowExpandDetails: false,
+      decisionTrayCollapsed: false,
+    }),
+}));

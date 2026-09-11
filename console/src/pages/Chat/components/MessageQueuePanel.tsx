@@ -34,6 +34,8 @@ interface MessageQueuePanelProps {
   onPauseResume: () => void;
   onRetry: (id: string) => void;
   onSkip: (id: string) => void;
+  /** When true, omit outer chrome/title (used inside ChatSenderTabsPanel). */
+  embedded?: boolean;
 }
 
 export default function MessageQueuePanel({
@@ -47,6 +49,7 @@ export default function MessageQueuePanel({
   onPauseResume,
   onRetry,
   onSkip,
+  embedded = false,
 }: MessageQueuePanelProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -136,109 +139,117 @@ export default function MessageQueuePanel({
         display: "flex",
         flexDirection: "column",
         gap: 3,
-        padding: "8px 12px",
+        padding: embedded ? 0 : "8px 12px",
         maxHeight: 220,
         overflowY: "auto",
-        borderRadius: 8,
-        background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.01)",
-        border: `1px solid ${borderColor}`,
+        borderRadius: embedded ? 0 : 8,
+        background: embedded
+          ? "transparent"
+          : isDark
+          ? "rgba(255,255,255,0.02)"
+          : "rgba(0,0,0,0.01)",
+        border: embedded ? "none" : `1px solid ${borderColor}`,
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 4,
-          position: "sticky",
-          top: 0,
-          zIndex: 1,
-          background: isDark ? "#1f1f1f" : "#fff",
-          paddingTop: 4,
-          paddingBottom: 6,
-          borderBottom: `1px solid ${borderColor}`,
-        }}
-      >
-        {/* Title + status badge */}
-        <span
+      {!embedded && (
+        <div
           style={{
-            display: "inline-flex",
+            display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            fontWeight: 500,
-            color: isDark ? "#bbb" : "#555",
-            userSelect: "none",
+            marginBottom: 4,
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            background: isDark ? "#1f1f1f" : "#fff",
+            paddingTop: 4,
+            paddingBottom: 6,
+            borderBottom: `1px solid ${borderColor}`,
           }}
         >
-          {t("chat.queue.title")} ({items.length})
-          {runState === "paused" && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 11,
-                color: "#faad14",
-                fontWeight: 400,
-              }}
-            >
-              {t("chat.queue.paused")}
-            </span>
-          )}
-          {runState === "error" && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 11,
-                color: "#ff4d4f",
-                fontWeight: 400,
-              }}
-            >
-              <SparkErrorCircleLine style={{ fontSize: 11 }} />
-              {t("chat.queue.sendFailed")}
-            </span>
-          )}
-        </span>
-
-        {/* Header actions */}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <Tooltip
-            title={
-              isPausedOrError ? t("chat.queue.resume") : t("chat.queue.pause")
-            }
-            mouseEnterDelay={0.5}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              color: isDark ? "#bbb" : "#555",
+              userSelect: "none",
+            }}
           >
-            <IconButton
-              bordered={false}
-              size="small"
-              icon={
-                isPausedOrError ? (
-                  <SparkPlayFill style={{ fontSize: 14, color: "#52c41a" }} />
-                ) : (
-                  <SparkPauseLine style={{ fontSize: 14, color: "#faad14" }} />
-                )
+            {t("chat.queue.title")} ({items.length})
+            {runState === "paused" && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  color: "#faad14",
+                  fontWeight: 400,
+                }}
+              >
+                {t("chat.queue.paused")}
+              </span>
+            )}
+            {runState === "error" && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  color: "#ff4d4f",
+                  fontWeight: 400,
+                }}
+              >
+                <SparkErrorCircleLine style={{ fontSize: 11 }} />
+                {t("chat.queue.sendFailed")}
+              </span>
+            )}
+          </span>
+          <span
+            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          >
+            <Tooltip
+              title={
+                isPausedOrError ? t("chat.queue.resume") : t("chat.queue.pause")
               }
-              onClick={onPauseResume}
-            />
-          </Tooltip>
-          {items.length > 1 && (
-            <Tooltip title={t("chat.queue.clear")} mouseEnterDelay={0.5}>
+              mouseEnterDelay={0.5}
+            >
               <IconButton
                 bordered={false}
                 size="small"
                 icon={
-                  <SparkClearLine style={{ fontSize: 14, color: mutedColor }} />
+                  isPausedOrError ? (
+                    <SparkPlayFill style={{ fontSize: 14, color: "#52c41a" }} />
+                  ) : (
+                    <SparkPauseLine
+                      style={{ fontSize: 14, color: "#faad14" }}
+                    />
+                  )
                 }
-                onClick={onClear}
+                onClick={onPauseResume}
               />
             </Tooltip>
-          )}
-        </span>
-      </div>
+            {items.length > 1 && (
+              <Tooltip title={t("chat.queue.clear")} mouseEnterDelay={0.5}>
+                <IconButton
+                  bordered={false}
+                  size="small"
+                  icon={
+                    <SparkClearLine
+                      style={{ fontSize: 14, color: mutedColor }}
+                    />
+                  }
+                  onClick={onClear}
+                />
+              </Tooltip>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Queue rows */}
       {items.map((item) => {

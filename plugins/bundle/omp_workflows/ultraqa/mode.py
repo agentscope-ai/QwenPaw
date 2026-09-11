@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 
 from ..shared.args import split_args
+from ..shared.loop_ui_i18n import loop_command_metadata, loop_help_text
 from ..shared.mode_base import OMPModeBase, info_msg, rewrite_user_msg
 from .gate import UltraQAGate
 
@@ -21,14 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_HELP = (
-    "**UltraQA** — automated QA cycle engine\n\n"
-    "Usage:\n"
-    '  `/ultraqa [--tests|--build|--lint|--typecheck|--custom "cmd"]'
-    " [--interactive]`\n\n"
-    "Runs repeated QA cycles: check → diagnose → fix → re-check.\n"
-    "Stops when all checks pass or max cycles reached."
-)
+_HELP = loop_help_text("ultraqa")
 
 
 class UltraQAMode(OMPModeBase):
@@ -47,7 +41,7 @@ class UltraQAMode(OMPModeBase):
                 handler=self._handler,
                 category="builtin",
                 help_text=_HELP,
-                metadata={"builtin": True},
+                metadata=loop_command_metadata("ultraqa"),
             ),
         ]
 

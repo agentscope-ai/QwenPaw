@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
 import { Tabs } from "antd";
-import { Plus } from "lucide-react";
+import { LockKeyhole, Plus, Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
@@ -76,6 +76,7 @@ function MCPPage() {
   const { t } = useTranslation();
   const {
     clients,
+    providerServers,
     loading,
     toggleEnabled,
     deleteClient,
@@ -282,23 +283,86 @@ function MCPPage() {
         <div className={styles.loading}>
           <p>{t("common.loading")}</p>
         </div>
-      ) : clients.length === 0 ? (
+      ) : clients.length === 0 && providerServers.length === 0 ? (
         <div className={styles.emptyState}>
           <Empty description={t("mcp.emptyState")} />
         </div>
       ) : (
-        <div className={styles.mcpGrid}>
-          {clients.map((client) => (
-            <MCPClientCard
-              key={client.key}
-              client={client}
-              onToggle={handleToggleEnabled}
-              onDelete={handleDelete}
-              onUpdate={updateClient}
-              onUpdatePolicy={updatePolicy}
-              onRefresh={refreshClients}
-            />
-          ))}
+        <div className={styles.mcpSections}>
+          <section className={styles.mcpSection}>
+            <div className={styles.sectionHeader}>
+              <div className={styles.sectionIcon}>
+                <Server size={17} />
+              </div>
+              <div>
+                <h2>{t("mcp.qwenpawManaged")}</h2>
+                <p>{t("mcp.qwenpawManagedHint")}</p>
+              </div>
+            </div>
+            {clients.length === 0 ? (
+              <div className={styles.sectionEmpty}>{t("mcp.emptyState")}</div>
+            ) : (
+              <div className={styles.mcpGrid}>
+                {clients.map((client) => (
+                  <MCPClientCard
+                    key={client.key}
+                    client={client}
+                    onToggle={handleToggleEnabled}
+                    onDelete={handleDelete}
+                    onUpdate={updateClient}
+                    onUpdatePolicy={updatePolicy}
+                    onRefresh={refreshClients}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {providerServers.length > 0 && (
+            <section className={styles.mcpSection}>
+              <div className={styles.sectionHeader}>
+                <div className={styles.sectionIcon}>
+                  <LockKeyhole size={17} />
+                </div>
+                <div>
+                  <h2>
+                    {t("mcp.providerManaged", {
+                      provider: providerServers[0].provider_id,
+                    })}
+                  </h2>
+                  <p>{t("mcp.providerManagedHint")}</p>
+                </div>
+              </div>
+              <div className={styles.providerGrid}>
+                {providerServers.map((server) => (
+                  <article
+                    className={styles.providerCard}
+                    key={`${server.provider_id}:${server.name}`}
+                  >
+                    <div className={styles.providerCardHeader}>
+                      <strong>{server.name}</strong>
+                      <span
+                        className={
+                          server.enabled
+                            ? styles.providerEnabled
+                            : styles.providerDisabled
+                        }
+                      >
+                        {server.enabled
+                          ? t("common.enabled")
+                          : t("common.disabled")}
+                      </span>
+                    </div>
+                    <div className={styles.providerMeta}>
+                      <span>{server.transport}</span>
+                      <span>{t("mcp.providerOnly")}</span>
+                      <span>{t("mcp.readOnly")}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
 

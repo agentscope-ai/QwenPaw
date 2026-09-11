@@ -331,7 +331,7 @@ def test_finalize_does_not_resurrect_pruned_fork(
 
 
 def test_matching_agent_dual_root_bind(tmp_path: Path, monkeypatch) -> None:
-    """Active agent may bind coding project only when workspace matches."""
+    """Active agent may bind its project only when workspace matches."""
     workspace = tmp_path / "agent_ws"
     project = tmp_path / "code_proj"
     workspace.mkdir()
@@ -343,10 +343,7 @@ def test_matching_agent_dual_root_bind(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _aid: SimpleNamespace(
-            coding_mode=SimpleNamespace(
-                enabled=True,
-                project_dir=str(project),
-            ),
+            project_dir=str(project),
             workspace_dir=str(workspace),
         ),
     )
@@ -850,6 +847,47 @@ def test_finalize_requires_matching_scope(tmp_path: Path) -> None:
     after2 = json.loads(registry.read_text(encoding="utf-8"))
     assert after2["forks"][branch]["status"] == "finalized"
     assert after2["forks"][branch]["scope_id"] == scope2
+
+
+def test_finalize_or_fail_marks_failed_when_commit_raises(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A raising finalize must not leave the registry stuck in finalizing."""
+    from qwenpaw.agents import fork_project as fp
+
+    project = tmp_path / "repo"
+    _init_repo(project)
+    scope = begin_fork_scope(project)
+    wt = project / ".qwenpaw" / "worktrees" / "w1"
+    branch = "fork/w1"
+    _git(project, "worktree", "add", str(wt), "-b", branch)
+    assert register_fork(
+        str(wt),
+        branch,
+        workspace_dir=project,
+        scope_id=scope,
+    )
+    (wt / "feat.txt").write_text("feat\n", encoding="utf-8")
+
+    def _raise(*_args, **_kwargs) -> bool:
+        raise OSError("simulated git failure")
+
+    monkeypatch.setattr(fp, "commit_dirty_worktree", _raise)
+    try:
+        finalize_fork_worktree_or_fail(
+            str(wt),
+            branch,
+            message="x",
+            expected_scope=scope,
+        )
+    except OSError:
+        pass
+    else:
+        raise AssertionError("expected OSError from finalize")
+
+    after = json.loads((project / REGISTRY_REL).read_text(encoding="utf-8"))
+    assert after["forks"][branch]["status"] == "failed"
 
 
 def test_mark_fork_failed_dirty_recovery_ignores_new_scope(

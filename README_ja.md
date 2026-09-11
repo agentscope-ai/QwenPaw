@@ -33,11 +33,11 @@
 
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、蒸留された知識。古いターンは退避されるが必要に応じていつでも呼び出し可能。要約で失われることはなく、情報は失われない。                                                                           |
+| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、そして [ReMe](https://github.com/agentscope-ai/ReMe) による自己進化型パーソナルナレッジベース。会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
 | **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
-| **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
+| **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
-| **Coding Mode**                               | 3 パネル Web IDE — ファイルツリー、Diff プレビュー、チャット。定義へジャンプ、参照検索、構造コード検索を内蔵。                                                                                                 |
+| **ファイルワークスペース**                     | プロジェクトと Agent のファイルに共通するナビゲーション、プレビュー、編集、Diff、アップロード、ダウンロード。                                                                      |
 | **拡張可能**                                | スケジューリング、ドキュメント、ブラウザ、ニュースなどの Skills。マーケット付きプラグインアーキテクチャ。MCP で外部ツールを統合。目的別ワークフローに自由に組み合わせ可能。                                                                    |
 | **どこでも届く**                        | DingTalk、Lark、WeChat、Discord、Telegram、iMessage、QQ — 1 インスタンス、全チャネル。Console、TUI、デスクトップアプリで直接アクセス。                                                                         |
 | **あなたのもの、私たちのものではない**          | ローカル展開 — データはあなたのマシンに留まる。サードパーティホスティングなし、データアップロードなし。                                                                                                         |
@@ -48,7 +48,7 @@
 > <br>
 >
 > - **自動化 & スケジューリング**: 定期タスクを設定 — ニュースダイジェスト、レポート生成、マルチチャネル配信 — すべてスケジュール通りに自動実行。
-> - **コード & 開発**: プロジェクト内でコードの読み取り、編集、レビュー、テスト；Coding Mode でコードを素早く見つけて理解。
+> - **コード & 開発**: 統合ファイルワークスペースでプロジェクト内のコードを読み取り、編集、レビュー、テスト。
 > - **ドキュメント処理**: PDF、Word、Excel、PowerPoint の読み取り、書き込み、変換。
 > - **情報収集**: Web 検索、購読情報のフォロー、動画要約、個人ナレッジベースからの検索。
 > - **マルチチャネル運用**: DingTalk、Lark、Discord、Telegram などへアラート、要約、AI 生成コンテンツをプッシュ — 同時またはチャネル別。
@@ -60,9 +60,13 @@
 
 ## ニュース
 
-- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、ReMe メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-09-03] **v2.2.0** | セルフホスト型マルチユーザー QwenPaw Hub、QwenPaw Mail、ネイティブ QwenPaw Data、統合モデルルーティング、Creator 1.1 に加え、マーケット、Console、Skills、チャネル、信頼性を大幅に改善。[v2.2.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe v0.4.0 Long-term Memory、組み込み TUI を提供。
+- [2026-08-13] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、Codex/Qoder エージェント連携、Browser-use、Computer-use、ワークスペースチェックポイント、長時間の対話タスク継続など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+
+- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース、組み込み TUI を提供。
 
   | ハイライト | 内容 |
   |-----------|------|
@@ -70,16 +74,10 @@
   | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
   | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
   | **Scroll Context** | 全ターンを永続化；退去ターンはインデックス付きでオンデマンド再生 — 要約なし、情報欠落なし。 |
-  | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
+  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自己進化型パーソナルナレッジベース** | 会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
   Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — 無料モデル OAuth、プラグインマーケット、MCP ツールホワイトリスト。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [すべてのリリースノート →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -334,7 +332,6 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 - [スキルを追加](https://qwenpaw.agentscope.io/docs/skills) して機能を拡張（PDF、Office、ブラウザ、ニュースなど）
 - [チャネルを設定](https://qwenpaw.agentscope.io/docs/channels) して DingTalk、Lark、Discord などに接続
 - [Cron を設定](https://qwenpaw.agentscope.io/docs/cron) してスケジュールタスクと自動化を実現
-- [Coding Mode を試す](https://qwenpaw.agentscope.io/docs/coding-mode) して IDE スタイルのコード協働
 - すべてのオプションと検証手順については、[クイックスタートガイド](https://qwenpaw.agentscope.io/docs/quickstart) を参照
 
 ---
@@ -385,12 +382,13 @@ QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナ
 
 ## セキュリティ機能
 
-QwenPaw には 4 つのコアセキュリティレイヤーが含まれています：
+QwenPaw には 5 つのコアセキュリティレイヤーが含まれています：
 
 - **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock、Windows では AppContainer によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。
+- **Access Policy** — 宣言型アクセスポリシー：各機能呼び出しに対し許可(allow)、拒否(deny)、または承認要求(ask)を裁定。ツールレベルの粒度とリクエスト元に応じたマッチングに対応。
 詳細は [セキュリティ](https://qwenpaw.agentscope.io/docs/security) を参照してください。
 
 ---
@@ -406,12 +404,12 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [デスクトップアプリ](https://qwenpaw.agentscope.io/docs/desktop)               | デスクトップアプリケーションのインストールと使用方法       |
 | [モデル](https://qwenpaw.agentscope.io/docs/models)                     | クラウド、ローカル、カスタムプロバイダーの設定    |
 | [チャネル](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk、Lark、QQ、Discord、iMessage など |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | コード中心タスク向け 3 パネル Web IDE       |
 | [スキル](https://qwenpaw.agentscope.io/docs/skills)                      | 機能の拡張とカスタマイズ               |
 | [プラグイン](https://qwenpaw.agentscope.io/docs/plugins)                    | プラグインシステムと Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | MCP クライアントの管理                               |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | エージェントのパーソナリティカスタマイズ（SOUL / PROFILE）  |
-| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | 長期セマンティックメモリ（ReMe）                 |
+| [メモリ](https://qwenpaw.agentscope.io/docs/memory)                     | ローカルで編集・検索可能かつ相互にリンクされた Markdown メモリによる自己進化型パーソナルナレッジベース。[ReMe](https://github.com/agentscope-ai/ReMe) を採用 |
+| [ReMe ドキュメント](https://docs.agentscope.io/reme/latest/en/overview) | ReMe の公式概要とドキュメント                    |
 | [記憶進化 & プロアクティブ](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | エージェントの記憶進化とプロアクティブインタラクション |
 | [コンテキスト](https://qwenpaw.agentscope.io/docs/context)                   | Scroll ベースのコンテキスト管理                  |
 | [魔法コマンド](https://qwenpaw.agentscope.io/docs/commands)           | AI の応答を待たずに会話状態を制御 |
@@ -439,20 +437,27 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 
 ## ロードマップ
 
-| 方向                     | 項目                                                                                         | 状態               |
-| ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
-| **横展開** | より多くのチャネル、モデル、スキル、MCP など — **コミュニティの貢献歓迎**                  | 貢献者募集中 |
-| **既存機能の拡張** | 表示の最適化、ダウンロードヒント、Windows パス互換など — **コミュニティの貢献歓迎** | 貢献者募集中 |
-| **モデル**               | マルチモデル切り替え                                                                         | 進行中          |
-| **Browser-use**   | Chrome 拡張機能のサポート                                                             | 進行中          |
-| **長期メモリ**   | 個人ナレッジベース                                                             | 進行中          |
-| **QwenPaw アプリケーション**   | QwenPaw Creator                                                             | 進行中          |
-|                          | QwenPaw Insight                                           | 進行中              |
-| **マルチエージェント**               | Claude Code など既存 Agent との互換                                        | 計画中              |
-|          | グループチャット                                                                                   | 計画中              |
-|                          | サブエージェントの可視化                                                                                 | 計画中              |
+| 方向                           | 項目                                          | 状態         |
+| ------------------------------ | --------------------------------------------- | ------------ |
+| **横展開**                     | チャネル、モデル、スキル、MCP の追加          | 貢献者募集中 |
+| **既存機能の拡張**             | 表示、ダウンロード、Windows 対応の改善        | 貢献者募集中 |
+| **モデル**                     | マルチモデル切り替え                          | 進行中       |
+| **安全と承認**                 | 操作の一括確認と承認                          | 進行中       |
+| **自動化**                     | 自動化タスク                                  | 進行中       |
+| **エージェント連携**           | エージェント間のタスク引き継ぎ                | 進行中       |
+|                                | 実行中タスクの調整                            | 進行中       |
+| **ワークスペース**             | マルチワークスペース                          | 進行中       |
+| **コンテキスト**               | システムプロンプト圧縮                        | 進行中       |
+| **ツールシステム**             | 複数箇所のファイル変更                        | 進行中       |
+|                                | 永続ターミナルとバックグラウンドタスク        | 進行中       |
+| **Computer-use**               | 画面上の対象特定と操作                        | 進行中       |
+| **音声対話**                   | リアルタイム音声タスク                        | 進行中       |
+| **コンテキスト管理とメモリ**   | ベクトルモデルと保存先のホット切り替え        | 進行中       |
+|                                | 個人ナレッジベース                            | 進行中       |
+| **QwenPaw アプリケーション**   | QwenPaw Insight                               | 進行中       |
+|                                | QwenPaw Mail                                  | 進行中       |
 
-_状態:_ **進行中** — 積極的に開発中；**計画中** — キューまたは設計段階、貢献も歓迎；**貢献者募集中** — コミュニティの参加を強く推奨。
+_状態:_ **進行中** — 積極的に開発中；**貢献者募集中** — コミュニティの参加を強く推奨。
 
 ---
 
@@ -485,7 +490,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **開発**（テスト、フォーマット）: `pip install -e ".[dev,full]"`
+- **開発**（テスト、フォーマット）: `pip install -e ".[dev,test,full]"`
 - **その後**: `qwenpaw init --defaults` を実行し、次に `qwenpaw app`。
 
 > **アップデート時の注意:** `git pull` 後に新しいメジャーバージョンにアップデートする場合は、フロントエンドの再ビルド、パッケージの再インストール（`pip install -e .`）、`qwenpaw app` の再起動、およびブラウザキャッシュの削除（`Ctrl+Shift+R` または macOS では `Cmd+Shift+R`）も行ってください。

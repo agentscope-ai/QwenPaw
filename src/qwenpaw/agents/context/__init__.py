@@ -209,8 +209,8 @@ def build_scroll_components(
         )
         # Structured front door for the common recall ops (expand / search /
         # recall_tool): in-process bound queries, no sandbox, no approval —
-        # so fold stubs and the eviction index stay readable even where the
-        # sandboxed REPL can't run (e.g. Windows without WSL2).
+        # so fold stubs and the eviction index stay readable even when the
+        # sandboxed REPL is unavailable.
         recall = make_recall_history(
             history_db_path=str(history.path),
             session_id=session_id,

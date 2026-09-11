@@ -243,7 +243,7 @@ class CronJobSpec(BaseModel):
 
 
 class JobsFile(BaseModel):
-    version: int = 1
+    version: int = 2
     jobs: list[CronJobSpec] = Field(default_factory=list)
 
 

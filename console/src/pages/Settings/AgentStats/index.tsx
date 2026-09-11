@@ -11,23 +11,24 @@ import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
+import { formatPercent } from "../../../utils/cacheUsage";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
 
 type ChartDataItem = {
   date: string;
-  displayDate: string;
   chats: number;
   activeSessions: number;
   userMessages: number;
   assistantMessages: number;
-  totalMessages: number;
-  promptTokens: number;
-  completionTokens: number;
-  llmCalls: number;
   toolCalls: number;
+  agentPromptTokens: number;
+  agentCompletionTokens: number;
+  agentCacheReadTokens: number;
+  agentLlmCalls: number;
 };
 
 interface ColumnSeries {
@@ -99,7 +100,11 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
+  const agentName = selectedAgentInfo
+    ? getAgentDisplayName(selectedAgentInfo, t)
+    : selectedAgent;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AgentStatsSummary | null>(null);
@@ -149,16 +154,15 @@ function AgentStatsPage() {
     if (!data?.by_date) return [];
     return data.by_date.map((d) => ({
       date: d.date,
-      displayDate: dayjs(d.date).format("MM-DD"),
       chats: d.chats,
       activeSessions: d.active_sessions,
       userMessages: d.user_messages,
       assistantMessages: d.assistant_messages,
-      totalMessages: d.total_messages,
-      promptTokens: d.prompt_tokens,
-      completionTokens: d.completion_tokens,
-      llmCalls: d.llm_calls,
       toolCalls: d.tool_calls,
+      agentPromptTokens: d.agent_prompt_tokens ?? 0,
+      agentCompletionTokens: d.agent_completion_tokens ?? 0,
+      agentCacheReadTokens: d.agent_cache_read_tokens,
+      agentLlmCalls: d.agent_llm_calls ?? 0,
     }));
   }, [data?.by_date]);
 
@@ -166,8 +170,8 @@ function AgentStatsPage() {
     data &&
     ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
-      (data.total_llm_calls ?? 0) > 0 ||
-      (data.total_tool_calls ?? 0) > 0);
+      (data.total_tool_calls ?? 0) > 0 ||
+      (data.agent_llm_calls ?? 0) > 0);
 
   const messageColumnConfig = useMemo(
     () =>
@@ -202,31 +206,87 @@ function AgentStatsPage() {
     [chartData, t, isDarkMode, crossesYear],
   );
 
-  const tokenColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "promptTokens", label: t("agentStats.promptTokens") },
-          { key: "completionTokens", label: t("agentStats.completionTokens") },
-        ],
-        ["#8b5cf6", "#10b981"],
-        isDarkMode,
-        crossesYear,
+  const agentTokenColumnConfig = useMemo(() => {
+    const inputLabel = t("agentStats.totalInputTokens");
+    const outputLabel = t("agentStats.completionTokens");
+    const cacheHitLabel = t("tokenUsage.cacheRead");
+    const tokenData = chartData.flatMap((day) => {
+      const cacheHit = Math.min(
+        Math.max(day.agentCacheReadTokens, 0),
+        day.agentPromptTokens,
+      );
+      return [
         {
-          yAxisFormatter: formatCompact,
-          tooltipFormatter: formatCompact,
+          date: day.date,
+          value: cacheHit,
+          displayValue: cacheHit,
+          barType: inputLabel,
+          segment: cacheHitLabel,
         },
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
+        {
+          date: day.date,
+          value: Math.max(day.agentPromptTokens - cacheHit, 0),
+          displayValue: day.agentPromptTokens,
+          barType: inputLabel,
+          segment: inputLabel,
+        },
+        {
+          date: day.date,
+          value: day.agentCompletionTokens,
+          displayValue: day.agentCompletionTokens,
+          barType: outputLabel,
+          segment: outputLabel,
+        },
+      ];
+    });
+
+    return {
+      data: tokenData,
+      xField: "date",
+      yField: "value",
+      seriesField: "barType",
+      colorField: "segment",
+      stack: {
+        groupBy: ["x", "series"],
+        series: false,
+      },
+      height: 150,
+      autoFit: true,
+      theme: isDarkMode ? "dark" : "light",
+      legend: { position: "bottom" as const },
+      scale: {
+        color: {
+          domain: [inputLabel, cacheHitLabel, outputLabel],
+          range: ["#b8b2c2", "#0f9f8f", "#64748b"],
+        },
+      },
+      axis: {
+        x: {
+          labelFormatter: (date: string) => formatDateLabel(date, crossesYear),
+        },
+        y: { labelFormatter: formatCompact },
+      },
+      tooltip: {
+        title: "date",
+        items: [
+          (datum: { displayValue: number; segment: string }) => ({
+            name: datum.segment,
+            value: formatCompact(datum.displayValue),
+          }),
+        ],
+      },
+    };
+  }, [chartData, t, isDarkMode, crossesYear]);
 
   const llmToolColumnConfig = useMemo(
     () =>
       getColumnConfig(
         chartData,
         [
-          { key: "llmCalls", label: t("agentStats.llmCalls") },
+          {
+            key: "agentLlmCalls",
+            label: t("agentStats.currentAgentLlmCalls"),
+          },
           { key: "toolCalls", label: t("agentStats.toolCalls") },
         ],
         ["#ec4899", "#14b8a6"],
@@ -315,6 +375,9 @@ function AgentStatsPage() {
 
             {hasData ? (
               <>
+                <div className={styles.currentAgentSectionTitle}>
+                  {agentName}
+                </div>
                 <div className={styles.summaryCards}>
                   <SummaryCard
                     value={data.total_active_sessions}
@@ -327,19 +390,27 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.totalMessagesTooltip")}
                   />
                   <SummaryCard
-                    value={data.total_prompt_tokens}
+                    value={data.agent_prompt_tokens ?? 0}
                     label={t("agentStats.promptTokens")}
-                    tooltip={t("agentStats.promptTokensTooltip")}
+                    tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
                   />
                   <SummaryCard
-                    value={data.total_completion_tokens}
+                    value={data.agent_cache_hit_rate}
+                    label={t("tokenUsage.cacheHitRate")}
+                    tooltip={t("agentStats.currentAgentCacheHitRateTooltip")}
+                    formatValue={(value) => formatPercent(value ?? null)}
+                  />
+                  <SummaryCard
+                    value={data.agent_completion_tokens ?? 0}
                     label={t("agentStats.completionTokens")}
-                    tooltip={t("agentStats.completionTokensTooltip")}
+                    tooltip={t(
+                      "agentStats.currentAgentCompletionTokensTooltip",
+                    )}
                   />
                   <SummaryCard
-                    value={data.total_llm_calls}
-                    label={t("agentStats.llmCalls")}
-                    tooltip={t("agentStats.llmCallsTooltip")}
+                    value={data.agent_llm_calls ?? 0}
+                    label={t("agentStats.currentAgentLlmCalls")}
+                    tooltip={t("agentStats.currentAgentLlmCallsTooltip")}
                   />
                   <SummaryCard
                     value={data.total_tool_calls}
@@ -389,7 +460,7 @@ function AgentStatsPage() {
                     className={styles.chartCard}
                     title={
                       <Tooltip
-                        title={t("agentStats.tokenTrendTooltip")}
+                        title={t("agentStats.currentAgentTokenTrendTooltip")}
                         placement="bottom"
                       >
                         <span className={styles.chartTitle}>
@@ -399,7 +470,7 @@ function AgentStatsPage() {
                     }
                   >
                     <div className={styles.chartContainerShort}>
-                      <Column {...tokenColumnConfig} />
+                      <Column {...agentTokenColumnConfig} />
                     </div>
                   </Card>
 

@@ -130,12 +130,22 @@ vi.mock("@/api/config", () => ({
   getApiToken: vi.fn(() => ""),
 }));
 
-vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
+vi.mock("@/stores/agentStore", () => {
+  const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
-  })),
-}));
+    agents: [],
+    setLastChatId: vi.fn(),
+    getLastChatId: vi.fn(() => null),
+    removeLastChatId: vi.fn(),
+  });
+  const store = Object.assign(vi.fn(makeState), {
+    subscribe: vi.fn(() => vi.fn()),
+    getState: vi.fn(makeState),
+    setState: vi.fn(),
+  });
+  return { useAgentStore: store };
+});
 
 vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
@@ -153,9 +163,24 @@ vi.mock("./sessionApi", () => ({
 }));
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
-  default: { theme: { leftHeader: {} }, api: {} },
+  default: {
+    theme: {
+      leftHeader: {},
+      bubbleList: {
+        userMessageAnchors: {},
+        assistantMessageAnchors: {},
+      },
+    },
+    api: {},
+  },
   getDefaultConfig: vi.fn(() => ({
-    theme: { leftHeader: {} },
+    theme: {
+      leftHeader: {},
+      bubbleList: {
+        userMessageAnchors: {},
+        assistantMessageAnchors: {},
+      },
+    },
     welcome: {},
     sender: {},
   })),
@@ -348,6 +373,86 @@ describe("ChatPage", () => {
       agent_id: "default",
       datasource_id: "ds-123",
     });
+  });
+
+  it("renders fallback metadata as an in-chat system message", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    const parsed = capturedOptions.api.responseParser(
+      JSON.stringify({
+        object: "response",
+        status: "completed",
+        metadata: {
+          qwenpaw_model_fallbacks: [
+            {
+              type: "model_fallback",
+              from_provider_id: "openai",
+              from_model_id: "gpt-primary",
+              to_provider_id: "anthropic",
+              to_model_id: "claude-fallback",
+              reason_kind: "rate_limited",
+            },
+          ],
+        },
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+          },
+        ],
+      }),
+    );
+
+    expect(parsed.output[0]).toMatchObject({
+      type: "message",
+      role: "system",
+      metadata: {
+        qwenpaw_model_fallbacks: [
+          expect.objectContaining({
+            from_model_id: "gpt-primary",
+            to_model_id: "claude-fallback",
+            reason_kind: "rate_limited",
+          }),
+        ],
+      },
+    });
+    expect(parsed.output[0].content[0].text).toContain("openai:gpt-primary");
+    expect(parsed.output[0].content[0].text).toContain(
+      "anthropic:claude-fallback",
+    );
+    expect(parsed.output[1].role).toBe("assistant");
+  });
+
+  it("deduplicates repeated fallback metadata across stream chunks", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const event = {
+      type: "model_fallback",
+      from_provider_id: "openai",
+      from_model_id: "gpt-primary",
+      to_provider_id: "anthropic",
+      to_model_id: "claude-fallback",
+      reason_kind: "rate_limited",
+    };
+
+    capturedOptions.api.responseParser(
+      JSON.stringify({
+        object: "response.delta",
+        metadata: { qwenpaw_model_fallbacks: [event] },
+      }),
+    );
+    const parsed = capturedOptions.api.responseParser(
+      JSON.stringify({
+        object: "response",
+        status: "completed",
+        metadata: { qwenpaw_model_fallbacks: [event] },
+        output: [],
+      }),
+    );
+
+    expect(parsed.output[0].metadata.qwenpaw_model_fallbacks).toHaveLength(1);
   });
 
   // ── handleFileUpload ──────────────────────────────────────────────────────

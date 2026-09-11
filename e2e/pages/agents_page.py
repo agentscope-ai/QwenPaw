@@ -46,13 +46,17 @@ class AgentsPage(BasePage):
     AGENT_TABLE = '.qwenpaw-table'
     AGENT_LIST = '.qwenpaw-table-tbody'
     AGENT_ITEM = '.qwenpaw-table-tbody tr.qwenpaw-table-row'
-    # Table column order: drag handle (1) | Name (2) | ID (3) | Description (4) | Workspace (5) | Model (6) | Actions (7)
+    # Column order: drag handle (1) | Name (2) | ID (3) | Backend (4) |
+    # Description (5) | Workspace (6) | Model (7) | Actions (8). Upstream
+    # #6397 inserted the Backend column after ID, shifting everything to
+    # its right. Actions is declared ``fixed: "right"``, so anchor it on
+    # the fixed-column class instead of a position that keeps drifting.
     AGENT_NAME_CELL = 'td.qwenpaw-table-cell:nth-child(2)'
     AGENT_ID_CELL = 'td.qwenpaw-table-cell:nth-child(3)'
-    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(4)'
-    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
-    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
-    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
+    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
+    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
+    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
+    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell-fix-right'
     # Post-#6198 the name cell shows an AgentStatusIndicator dot exposing a
     # ``data-status`` attribute (disabled/pending/starting/running/failed)
     # instead of a "Disabled" Tag.
@@ -60,16 +64,19 @@ class AgentsPage(BasePage):
 
     # Action buttons
     CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
-    # Inline action buttons in a table row. Post-redesign (upstream #6198) the
-    # actions are 4 icon buttons in order: Pin | Edit | Toggle | Delete. Anchor
-    # on the icon (not Space position) so the added Pin button can't shift us:
+    # Inline action buttons in a table row. Post v2.0.1 (#6262 added a Copy
+    # button at position 3) the actions are 5 icon buttons in order:
+    # Pin | Edit | Copy | Toggle | Delete. Anchor on icon semantics only —
+    # positional fallbacks like :nth-child(N) go stale whenever upstream
+    # inserts a button (exactly what broke AGENT-005 on v2.0.1):
     #   Edit   = antd EditOutlined    -> .anticon-edit
+    #   Copy   = antd CopyOutlined    -> .anticon-copy   (do not match)
     #   Toggle = lucide Eye/EyeOff    -> svg.lucide-eye / svg.lucide-eye-off
     #   Delete = antd DeleteOutlined  -> .anticon-delete (danger button)
     EDIT_BTN = 'button:has(.anticon-edit)'
-    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
+    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
     DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
+    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye)'
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form

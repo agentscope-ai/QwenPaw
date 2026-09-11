@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -709,6 +710,279 @@ def test_is_pid_running_uses_tasklist_on_windows(
     )
 
     assert command_runner._is_pid_running(4321, "nt") is True
+
+
+def test_is_pid_running_tasklist_probe_is_bounded_and_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_check_output(_args: list[str], **kwargs: object) -> str:
+        captured.update(kwargs)
+        return "llama-server.exe              4321 Console\n"
+
+    monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda *args, **kwargs: {"creationflags": 0x08000000},
+    )
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    assert command_runner._is_pid_running(4321, "nt") is True
+    # A wedged tasklist must not stall the shutdown poll loop.
+    assert captured["timeout"] == command_runner._PID_PROBE_TIMEOUT
+    # Undecodable bytes on non-UTF-8 consoles must not raise.
+    assert captured["errors"] == "replace"
+    # The probe runs every poll; it must not flash a console window.
+    assert captured["creationflags"] == 0x08000000
+
+
+def test_is_pid_running_assumes_alive_when_tasklist_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_check_output(args: list[str], **_kwargs: object) -> str:
+        raise subprocess.TimeoutExpired(
+            cmd=args,
+            timeout=command_runner._PID_PROBE_TIMEOUT,
+        )
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    # False means "confirmed gone"; a timed-out probe confirms nothing.
+    assert command_runner._is_pid_running(4321, "nt") is True
+
+
+def test_is_pid_running_assumes_alive_when_tasklist_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_check_output(_args: list[str], **_kwargs: object) -> str:
+        raise OSError("[WinError 193] not a valid Win32 application")
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    assert command_runner._is_pid_running(4321, "nt") is True
+
+
+def test_is_pid_running_reports_gone_when_tasklist_finds_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        lambda *args, **kwargs: (
+            "INFO: No tasks are running which match the specified criteria.\n"
+        ),
+    )
+
+    # Only a successful invocation may confirm the PID is absent.
+    assert command_runner._is_pid_running(4321, "nt") is False
+
+
+def test_shutdown_process_sync_escalates_when_pid_probe_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signals: list[int] = []
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.pid = 4321
+            self.stdout = None
+            self.returncode: int | None = None
+
+        def terminate(self) -> None:
+            signals.append(15)
+
+        def kill(self) -> None:
+            signals.append(9)
+
+        def is_alive(self) -> bool:
+            return True
+
+        def join(self, timeout: float | None = None) -> None:
+            del timeout
+
+    def fake_check_output(args: list[str], **_kwargs: object) -> str:
+        raise subprocess.TimeoutExpired(
+            cmd=args,
+            timeout=command_runner._PID_PROBE_TIMEOUT,
+        )
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+    monkeypatch.setattr(command_runner.time, "sleep", lambda _seconds: None)
+
+    managed = ManagedProcess(
+        _FakeProcess(),
+        command=["demo"],
+        owns_process_group=False,
+        creation_mode="asyncio",
+    )
+    managed.platform_name = "nt"
+
+    result = shutdown_process_sync(
+        managed,
+        graceful_timeout=0.2,
+        kill_timeout=0.2,
+    )
+
+    # A wedged probe must never be reported as a graceful exit.
+    assert result.exited is False
+    assert result.terminated_gracefully is False
+    assert result.killed is True
+    assert result.timed_out is True
+    assert signals == [15, 9]
+
+
+class _VirtualClock:
+    """Deterministic stand-in for ``time`` in the shutdown wait loop."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class _StuckProcess:
+    """A process whose local liveness never changes."""
+
+    def __init__(self, pid: int = 4321) -> None:
+        self.pid = pid
+        self.stdout = None
+        self.returncode: int | None = None
+        self.signals: list[int] = []
+
+    def terminate(self) -> None:
+        self.signals.append(15)
+
+    def kill(self) -> None:
+        self.signals.append(9)
+
+    def is_alive(self) -> bool:
+        return True
+
+    def join(self, timeout: float | None = None) -> None:
+        del timeout
+
+
+def test_is_pid_running_honours_caller_supplied_probe_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_check_output(_args: list[str], **kwargs: object) -> str:
+        captured.update(kwargs)
+        return "llama-server.exe              4321 Console\n"
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    running = command_runner._is_pid_running(4321, "nt", probe_timeout=0.25)
+
+    # The caller owns the deadline, so it also owns the probe budget.
+    assert running is True
+    assert captured["timeout"] == 0.25
+
+
+def test_wait_for_process_exit_bounds_probe_by_remaining_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _VirtualClock()
+    probe_timeouts: list[float] = []
+
+    def fake_check_output(_args: list[str], **kwargs: Any) -> str:
+        probe_timeouts.append(float(kwargs["timeout"]))
+        clock.sleep(0.05)
+        return "llama-server.exe              4321 Console\n"
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+    monkeypatch.setattr(command_runner, "time", clock)
+
+    managed = ManagedProcess(
+        _StuckProcess(),
+        command=["demo"],
+        owns_process_group=False,
+        creation_mode="asyncio",
+    )
+    managed.platform_name = "nt"
+
+    exited = command_runner._wait_for_process_exit(managed, timeout=0.3)
+
+    assert exited is False
+    assert probe_timeouts
+    # No single probe may outlive what is left of the caller's budget.
+    assert max(probe_timeouts) <= 0.3
+    # The wait itself must not overshoot the deadline it was given.
+    assert clock.now <= 0.3 + 1e-9
+
+
+def test_shutdown_process_sync_keeps_budget_when_probes_are_wedged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _VirtualClock()
+    probe_count = 0
+
+    def fake_check_output(args: list[str], **kwargs: Any) -> str:
+        nonlocal probe_count
+        probe_count += 1
+        # A wedged tasklist burns the whole budget it was handed.
+        clock.sleep(float(kwargs["timeout"]))
+        raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+    monkeypatch.setattr(command_runner, "time", clock)
+
+    inner = _StuckProcess()
+    managed = ManagedProcess(
+        inner,
+        command=["demo"],
+        owns_process_group=False,
+        creation_mode="asyncio",
+    )
+    managed.platform_name = "nt"
+
+    result = shutdown_process_sync(
+        managed,
+        graceful_timeout=5.0,
+        kill_timeout=1.0,
+    )
+
+    # Wedged probes must not stretch a 6s shutdown into ~26s.
+    assert clock.now <= 6.0 + 1e-9
+    # One bounded probe per phase, and none once the deadline has passed.
+    assert probe_count == 2
+    assert result.exited is False
+    assert result.timed_out is True
+    assert inner.signals == [15, 9]
 
 
 def test_is_pid_running_uses_os_kill_on_posix(

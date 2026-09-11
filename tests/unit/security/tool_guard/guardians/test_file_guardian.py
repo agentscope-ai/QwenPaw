@@ -7,6 +7,7 @@ Goal: push coverage from 38% to 78%+.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -266,6 +267,19 @@ class TestNormalizePath:
             assert "~" not in result
             assert "myfile" in result
 
+    @pytest.mark.parametrize("spelling", ["$HOME/secret", "${HOME}/secret"])
+    def test_home_environment_variable_expanded(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        spelling: str,
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        assert _normalize_path(spelling) == _normalize_path(
+            str(tmp_path / "secret"),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures for FilePathToolGuardian tests
@@ -522,6 +536,10 @@ class TestGuard:
         findings = guardian.guard("edit_file", {"file_path": path})
         assert len(findings) == 1
 
+
+class TestGuardShellCommand:
+    """guard() handles shell path extraction and normalization."""
+
     def test_guard_execute_shell_command_with_sensitive_path(
         self,
         guardian,
@@ -535,6 +553,53 @@ class TestGuard:
             {"command": f"cat {secret}"},
         )
         assert len(findings) >= 1
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
+    def test_guard_shell_posix_line_continuation_cannot_split_sensitive_path(
+        self,
+        guardian,
+        tmp_path,
+    ):
+        secret_dir = tmp_path / ".qwenpaw.secret"
+        secret_dir.mkdir()
+        guardian.add_sensitive_file(str(secret_dir) + "/")
+        command = f"cat {tmp_path}/.qwenpaw\\\n.secret/token.json"
+
+        findings = guardian.guard(
+            "execute_shell_command",
+            {"command": command},
+        )
+
+        assert len(findings) == 1
+        assert findings[0].rule_id == "SENSITIVE_FILE_BLOCK"
+
+    @pytest.mark.parametrize("home_spelling", ["$HOME", "${HOME}"])
+    def test_guard_shell_expands_home_before_sensitive_path_check(
+        self,
+        guardian,
+        tmp_path,
+        monkeypatch,
+        home_spelling,
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        secret_dir = tmp_path / ".qwenpaw.secret"
+        # Deliberately do not create the path: protection must not depend on
+        # whether the credential file currently exists.
+        guardian.add_sensitive_file(str(secret_dir) + "/")
+        command = f"cat {home_spelling}/.qwenpaw.secret/auth.json"
+
+        findings = guardian.guard(
+            "execute_shell_command",
+            {"command": command},
+        )
+
+        assert len(findings) == 1
+        assert findings[0].metadata["resolved_path"] == _normalize_path(
+            str(secret_dir / "auth.json"),
+        )
 
     def test_guard_execute_shell_command_safe(self, guardian, tmp_path):
         secret = str(tmp_path / "secret.key")
@@ -557,6 +622,10 @@ class TestGuard:
     def test_guard_execute_shell_command_missing_command(self, guardian):
         findings = guardian.guard("execute_shell_command", {})
         assert not findings
+
+
+class TestGuardOtherTools:
+    """guard() scans unknown tools and known non-shell file tools."""
 
     def test_guard_unknown_tool_scans_string_params(self, guardian, tmp_path):
         path = str(tmp_path / "secret.key")

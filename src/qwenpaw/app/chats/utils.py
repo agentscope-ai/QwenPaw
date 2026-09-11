@@ -30,9 +30,32 @@ from ...config import load_config
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``."""
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
+    """Normalize a Msg timestamp string into the user's timezone.
+
+    AgentScope writes ``Msg.created_at`` with ``datetime.now().isoformat()``,
+    so a naive value is a process-local wall clock — not UTC and not
+    ``user_timezone``. Aware values keep their encoded offset.
+    Unparseable inputs are returned unchanged.
+    """
+    try:
+        dt_obj = datetime.fromisoformat(ts_value)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
+        return dt_obj.astimezone(user_tz).isoformat()
+    except (ValueError, TypeError):
+        return ts_value
 
 
 def _is_scroll_memory_placeholder(msg: Msg) -> bool:
@@ -56,6 +79,35 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     return (
         text.lstrip().startswith("<system-info>")
         and "[context compressed]" in text
+    )
+
+
+# Visual compression collapses history/context ranges into user-role
+# messages with these names. They are model-only reconstructions.
+_VISUAL_PLACEHOLDER_NAMES = frozenset(
+    {"visual_context", "visual_history"},
+)
+
+
+def _is_synthetic_user_message(msg: Msg) -> bool:
+    """Return whether *msg* is a runtime-injected user-role message.
+
+    Loop gates, stop handlers, and rubric evaluation append tagged
+    ``role="user"`` stubs to keep a turn going; visual compression
+    collapses history into ``visual_history`` / ``visual_context``
+    user messages. None of them is user transcript — rendering them as
+    user cards made the original instruction appear rewritten after a
+    session switch.
+    """
+    if msg.role != "user":
+        return False
+    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+        return True
+    metadata = getattr(msg, "metadata", None)
+    return (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        in SYNTHETIC_USER_MESSAGE_TAGS
     )
 
 
@@ -93,10 +145,10 @@ def build_env_context(
     user_name: Optional[str] = None,
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
-    add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -108,16 +160,16 @@ def build_env_context(
             Only rendered when provided by the channel via channel_meta.
         channel: Current channel name
         working_dir: Working directory path
-        add_hint: Whether to add hint context
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
-        project_dir: When set (Coding Mode), the agent's "Working
+        project_dir: When set, the agent's "Working
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
         active_model_name: Current active model name for runtime
             identity (e.g. "qwen-max", "gpt-4o").
+        agent_id: Current agent identifier.
 
     Returns:
         Formatted environment context string
@@ -137,23 +189,6 @@ def build_env_context(
     parts.append(
         "- Docs: https://qwenpaw.agentscope.io/",
     )
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    if session_id is not None:
-        parts.append(f"- Session ID: {session_id}")
-    if user_id is not None:
-        parts.append(f"- User ID: {user_id}")
-    if user_name:
-        parts.append(f"- User Name: {user_name}")
-    if channel is not None:
-        parts.append(f"- Channel: {channel}")
-
     parts.append(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
@@ -164,8 +199,8 @@ def build_env_context(
 
     if project_dir:
         parts.append(
-            f"- Project directory (Coding Mode — operate here): "
-            f"{project_dir}",
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
         )
         if working_dir is not None and str(working_dir) != str(project_dir):
             parts.append(
@@ -174,25 +209,35 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
+
+    if agent_id:
+        parts.append(
+            f"- Agent Identity: Your agent id is "
+            f"{json.dumps(str(agent_id))}. "
+            f"This is your unique identifier in the multi-agent system.",
+        )
+
+    # Keep request-specific values after the reusable environment prefix.
+    if channel is not None:
+        parts.append(f"- Channel: {channel}")
+    if user_name:
+        parts.append(f"- User Name: {user_name}")
+    if user_id is not None:
+        parts.append(f"- User ID: {user_id}")
+    if session_id is not None:
+        parts.append(f"- Session ID: {session_id}")
+
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
         f"{user_tz} ({now.strftime('%A')})",
     )
-
-    if add_hint:
-        parts.append(
-            "- Important:\n"
-            "  1. Prefer using skills when completing tasks "
-            "(e.g. use the cron skill for scheduled tasks). "
-            "Consult the relevant skill documentation if unsure.\n"
-            "  2. When using write_file, if you want to avoid overwriting "
-            "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.\n"
-            "  3. Use tool calls to perform actions. A response without a "
-            "tool call indicates the task is complete. To continue a task, "
-            "you must generate a tool call or provide useful feedback if "
-            "you are blocked.\n",
-        )
 
     return (
         "====================\n" + "\n".join(parts) + "\n===================="
@@ -227,9 +272,18 @@ def _abspath_from_url(url: str) -> str:
     """
     s = url.strip()
     if s.lower().startswith("file:"):
-        s = s[5:]
-    s = "/" + s.lstrip("/")
-    return unquote(s)
+        parsed = urlparse(s)
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            if len(parsed.netloc) == 2 and parsed.netloc[1] == ":":
+                s = f"{parsed.netloc}{parsed.path}"
+            else:
+                s = f"//{parsed.netloc}{parsed.path}"
+        else:
+            s = parsed.path
+    s = unquote(s)
+    if re.match(r"^/[A-Za-z]:[/\\]", s):
+        return s[1:]
+    return s
 
 
 def _resolve_content_url(url: str) -> str:
@@ -417,7 +471,8 @@ def _build_media_message_from_block(
 
 
 # Matches the trailing <skill> block appended to a user message by
-# slash-command skill expansion (runner._maybe_inject_skill).
+# slash-command skill expansion
+# (runtime.builtin_commands._skill_fallback_handler).
 _INJECTED_SKILL_BLOCK_RE = re.compile(
     r"\s*<skill\b[^>]*>.*</skill>\s*$",
     re.DOTALL,
@@ -484,21 +539,31 @@ def agentscope_msg_to_message(
     for msg in msgs:
         if _is_scroll_memory_placeholder(msg):
             continue
+        if _is_synthetic_user_message(msg):
+            continue
         role = msg.role or "assistant"
 
         ts_value = msg.timestamp
         if ts_value:
-            try:
-                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
-                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
-            except ValueError:
-                pass
+            ts_value = _normalize_msg_timestamp(ts_value, user_tz)
+
+        # ``finished_at`` marks when the reply actually completed (stamped
+        # on REPLY_END by the runtime executor).  ``timestamp`` is the
+        # created_at alias — the first-segment save time — which can be
+        # far earlier for turns with long tool calls.  Expose both so the
+        # frontend can display the true completion time; ``finished_at``
+        # stays None for messages that never received a stamp (e.g. legacy
+        # sessions), letting consumers fall back to ``timestamp``.
+        finished_value = getattr(msg, "finished_at", None)
+        if finished_value:
+            finished_value = _normalize_msg_timestamp(finished_value, user_tz)
 
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
             "metadata": msg.metadata,
             "timestamp": ts_value,
+            "finished_at": finished_value or None,
         }
 
         if isinstance(msg.content, str):
@@ -562,6 +627,13 @@ def agentscope_msg_to_message(
                     ),
                 )
                 current_message.add_content(new_content=text_content)
+
+            elif btype == "hint":
+                # Hint blocks are runtime/model-facing state (for example,
+                # current-time reminders). They belong in the agent context,
+                # but never in a user-visible transcript restored by either
+                # the console chat UI or a PawApp.
+                continue
 
             elif btype == "thinking":
                 if current_type != MessageType.REASONING:
@@ -782,7 +854,7 @@ def agentscope_msg_to_message(
                     current_type = MessageType.MESSAGE
 
                 kwargs = {
-                    "filename": block.get("filename"),
+                    "filename": block.get("filename") or block.get("name"),
                 }
                 if (
                     isinstance(block.get("source"), dict)

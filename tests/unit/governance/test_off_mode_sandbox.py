@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from qwenpaw.governance import tool_adapter
 from qwenpaw.governance.resource_governor import ResourceGovernor
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
@@ -59,6 +61,23 @@ class TestRegistryFlag:
 
 
 class TestOffModeSandbox:
+    @pytest.mark.asyncio
+    async def test_off_allows_sensitive_call_without_policy_evaluation(self):
+        class _PolicyMustNotRun:
+            def assert_policy(self, _tc_spec):
+                raise AssertionError("OFF must not evaluate governance policy")
+
+        tool = _FakeTool("read_file")
+        tool._qp_governor = _PolicyMustNotRun()
+        tool._qp_request_context = {"approval_level": "off"}
+
+        decision = await tool_adapter._policy_tool_check_permissions(
+            tool,
+            {"file_path": "/home/user/.qwenpaw.secret/providers.json"},
+        )
+
+        assert decision.behavior.value == "allow"
+
     def test_repl_gets_sandbox_compiled(self):
         tool = _FakeTool("recall_history_python")
         gov = _FakeGovernor(sandbox_available=True)

@@ -26,10 +26,15 @@ export function createHeadingIdFactory() {
 interface DocMarkdownProps {
   content: string;
   bannerSrc: string;
+  isCreatorBanner?: boolean;
 }
 
 /** Renders a full doc article body from markdown. */
-export function DocMarkdown({ content, bannerSrc }: DocMarkdownProps) {
+export function DocMarkdown({
+  content,
+  bannerSrc,
+  isCreatorBanner = false,
+}: DocMarkdownProps) {
   const { t } = useTranslation();
   const getHeadingId = createHeadingIdFactory();
 
@@ -45,7 +50,11 @@ export function DocMarkdown({ content, bannerSrc }: DocMarkdownProps) {
               src={bannerSrc}
               alt=""
               aria-hidden="true"
-              className="docs-title-banner mt-3 mb-5 block h-[270px] w-full object-cover"
+              className={`docs-title-banner mt-3 mb-5 block w-full ${
+                isCreatorBanner
+                  ? "docs-title-banner--creator"
+                  : "h-[270px] object-cover"
+              }`}
             />
           </>
         ),
