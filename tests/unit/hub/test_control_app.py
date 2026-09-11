@@ -1302,6 +1302,140 @@ def test_operations_overview_and_audit_are_real_and_sanitized(
         }
 
 
+def test_login_attempts_are_audited_with_outcome_and_source(
+    tmp_path: Path,
+) -> None:
+    """Granted and rejected logins must both reach the audit log."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        granted = client.post(
+            "/api/auth/login",
+            json={"username": "owner", "password": "safe-password"},
+        )
+        rejected = client.post(
+            "/api/auth/login",
+            json={"username": "owner", "password": "wrong-password"},
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.login&page_size=10",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert granted.status_code == 200
+        assert rejected.status_code == 401
+        assert audit.json()["total"] == 2
+        assert {event["outcome"] for event in events} == {
+            "failure",
+            "success",
+        }
+        failure = next(
+            event for event in events if event["outcome"] == "failure"
+        )
+        success = next(
+            event for event in events if event["outcome"] == "success"
+        )
+        assert failure["actor_username"] == "owner"
+        assert failure["remote_address"]
+        assert failure["detail"]["reason"]
+        assert success["actor_user_id"]
+        assert "wrong-password" not in audit.text
+
+
+def test_rejected_registration_is_audited(tmp_path: Path) -> None:
+    """A denied registration attempt must leave an audit trail."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        duplicate = client.post(
+            "/api/auth/register",
+            json={"username": "owner", "password": "safe-password"},
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.register",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert duplicate.status_code in (403, 409)
+        assert audit.json()["total"] == 2
+        denied = next(
+            event for event in events if event["outcome"] == "failure"
+        )
+        assert denied["actor_username"] == "owner"
+        assert denied["detail"]["reason"]
+
+
+def test_failed_runtime_creation_is_audited(tmp_path: Path) -> None:
+    """A rejected runtime creation must be audited, not silently lost."""
+    with _client(tmp_path, provisioner_available=False) as client:
+        token = _register(client, "owner")
+        created = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "blocked-runtime"},
+            headers=_headers(token),
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=runtime.create",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert created.status_code == 503
+        assert audit.json()["total"] == 1
+        assert events[0]["outcome"] == "failure"
+        assert events[0]["resource_id"] == "blocked-runtime"
+        assert "sandbox unavailable" in events[0]["detail"]["reason"]
+
+
+def test_audit_store_failure_never_blocks_authentication(
+    tmp_path: Path,
+) -> None:
+    """Broken telemetry must not mask the real authentication result."""
+    with _client(tmp_path) as client:
+        _register(client, "owner")
+        with patch.object(
+            client.app.state.operations,
+            "record",
+            side_effect=RuntimeError("database is locked"),
+        ):
+            granted = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "safe-password"},
+            )
+            rejected = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "wrong-password"},
+            )
+
+        assert granted.status_code == 200
+        assert granted.json()["token"]
+        assert rejected.status_code == 401
+
+
+def test_audit_store_failure_keeps_runtime_error_status(
+    tmp_path: Path,
+) -> None:
+    """Broken telemetry must not replace the real runtime error status."""
+    with _client(tmp_path, provisioner_available=False) as client:
+        token = _register(client, "owner")
+        with patch.object(
+            client.app.state.operations,
+            "record",
+            side_effect=RuntimeError("database is locked"),
+        ):
+            created = client.post(
+                "/api/hub/runtimes",
+                json={"runtime_id": "blocked-runtime"},
+                headers=_headers(token),
+            )
+
+        assert created.status_code == 503
+        assert "sandbox unavailable" in created.json()["detail"]
+
+
 @pytest.mark.parametrize(
     ("start_path", "callback_path"),
     [
