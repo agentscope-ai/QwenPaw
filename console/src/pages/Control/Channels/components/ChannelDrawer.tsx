@@ -178,6 +178,7 @@ export function ChannelDrawer({
   const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
   const showToolCalls = Form.useWatch("show_tool_calls", form) ?? true;
   const showToolResults = Form.useWatch("show_tool_results", form) ?? true;
+  const streamingEnabled = Form.useWatch("streaming_enabled", form) ?? false;
   const onebotMediaBase64 = Form.useWatch("media_base64", form) ?? false;
   const onebotWsHost = (Form.useWatch("ws_host", form) as string) ?? "";
   // The backend falls back to loopback when ws_host is blank, and rejects
@@ -1791,20 +1792,32 @@ export function ChannelDrawer({
             activeKey === "discord" ||
             activeKey === "slack" ||
             activeKey === "matrix") && (
-            <Form.Item
-              name="streaming_enabled"
-              label={t("channels.streamingEnabled")}
-              valuePropName="checked"
-              tooltip={
-                activeKey === "dingtalk"
-                  ? t("channels.streamingEnabledDingtalkHint")
-                  : activeKey === "feishu"
-                  ? t("channels.streamingEnabledFeishuHint")
-                  : undefined
-              }
-            >
-              <Switch />
-            </Form.Item>
+            <>
+              <Form.Item
+                name="streaming_enabled"
+                label={t("channels.streamingEnabled")}
+                valuePropName="checked"
+                tooltip={
+                  activeKey === "dingtalk"
+                    ? t("channels.streamingEnabledDingtalkHint")
+                    : activeKey === "feishu"
+                    ? t("channels.streamingEnabledFeishuHint")
+                    : undefined
+                }
+              >
+                <Switch />
+              </Form.Item>
+              {activeKey === "feishu" && streamingEnabled && (
+                <Form.Item
+                  name="auto_collapse_thinking"
+                  label={t("channels.autoCollapseThinking")}
+                  valuePropName="checked"
+                  tooltip={t("channels.autoCollapseThinkingTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+              )}
+            </>
           )}
 
           {isBuiltin

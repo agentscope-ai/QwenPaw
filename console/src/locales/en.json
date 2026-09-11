@@ -1743,6 +1743,8 @@
     "streamingEnabled": "Streaming Output",
     "streamingEnabledDingtalkHint": "Only effective when message type is Card",
     "streamingEnabledFeishuHint": "Requires enabling cardkit:card:write permission in the Feishu Open Platform permission management page",
+    "autoCollapseThinking": "Collapse Thinking",
+    "autoCollapseThinkingTooltip": "Automatically collapse the thinking panel after it finishes streaming. The panel can still be expanded manually.",
     "ackMessage": "Acknowledgment Message",
     "ackMessageTooltip": "Send an instant reply when a message is received, before agent processing begins. Leave empty to disable.",
     "ackMessagePlaceholder": "⏳ Processing...",

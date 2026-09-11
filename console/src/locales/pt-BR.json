@@ -1491,6 +1491,8 @@
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",
+    "autoCollapseThinking": "Recolher Thinking",
+    "autoCollapseThinkingTooltip": "Recolher automaticamente o painel de Thinking após o término do streaming. O painel ainda pode ser expandido manualmente.",
     "ackMessage": "Acknowledgment Message",
     "ackMessageTooltip": "Send an instant reply when a message is received, before agent processing begins. Leave empty to disable.",
     "ackMessagePlaceholder": "⏳ Processing...",

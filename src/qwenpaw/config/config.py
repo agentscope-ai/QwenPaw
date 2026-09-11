@@ -349,6 +349,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    auto_collapse_thinking: collapse the reasoning panel when its stream
+    finishes (the panel stays manually collapsible either way).
     share_session_in_group: if True, all group members share one session;
     if False (default), each member gets an independent session.
     """
@@ -372,6 +374,9 @@ class FeishuConfig(BaseChannelConfig):
 
     streaming_enabled: bool = False
     share_session_in_group: bool = False
+    # Auto-collapse the reasoning panel once a stream finishes. The panel is
+    # always collapsible by hand; this only controls the automatic collapse.
+    auto_collapse_thinking: bool = False
 
 
 class QQConfig(BaseChannelConfig):

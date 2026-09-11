@@ -1268,6 +1268,8 @@
     "streamingEnabled": "ストリーミング出力",
     "streamingEnabledDingtalkHint": "メッセージタイプがCardの場合のみ有効",
     "streamingEnabledFeishuHint": "Feishuオープンプラットフォームの権限管理ページでcardkit:card:write権限を有効にする必要があります",
+    "autoCollapseThinking": "思考内容を折りたたむ",
+    "autoCollapseThinkingTooltip": "思考内容のストリーミング終了後に自動で折りたたみます。手動で展開することもできます。",
     "ackMessage": "即時確認メッセージ",
     "ackMessageTooltip": "メッセージ受信時にエージェント処理の前に即時返信を送信します。空欄で無効化。",
     "ackMessagePlaceholder": "⏳ 処理中...",
