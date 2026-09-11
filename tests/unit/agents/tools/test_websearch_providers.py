@@ -12,6 +12,7 @@ import pytest
 from qwenpaw.agents.tools.websearch import (
     AnySearchProvider,
     SearchProvider,
+    SerplyProvider,
     TavilyProvider,
     format_search_results,
     get_search_provider,
@@ -62,6 +63,20 @@ def test_get_search_provider_selects_anysearch(
     assert isinstance(get_search_provider(), AnySearchProvider)
 
 
+def test_get_search_provider_selects_serply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("serply"),
+    )
+    assert isinstance(get_search_provider(), SerplyProvider)
+
+
 def test_get_search_provider_selects_tavily_explicit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -93,8 +108,10 @@ def test_get_search_provider_rejects_unknown_value(
 
 def test_providers_are_search_provider_subclasses() -> None:
     assert issubclass(AnySearchProvider, SearchProvider)
+    assert issubclass(SerplyProvider, SearchProvider)
     assert issubclass(TavilyProvider, SearchProvider)
     assert AnySearchProvider.name == "anysearch"
+    assert SerplyProvider.name == "serply"
     assert TavilyProvider.name == "tavily"
 
 
@@ -159,6 +176,95 @@ async def test_anysearch_provider_sends_key_when_set(
     )
     provider = AnySearchProvider()
     assert await provider.search("qwen") == []
+
+
+@pytest.mark.asyncio
+async def test_serply_provider_parses_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get(url, headers, params):
+        assert url == "https://api.serply.io/v1/search"
+        assert headers == {"X-Api-Key": "sp-test"}
+        assert params == {"q": "qwen", "num": 2}
+        return {
+            "results": [
+                {
+                    "title": "T",
+                    "link": "https://example.com",
+                    "description": "D",
+                    "position": 1,
+                },
+                {"title": "no link", "description": "skipped"},
+                "not a dict",
+                {
+                    "title": "U",
+                    "link": "https://example.org",
+                    "description": "E",
+                },
+                {
+                    "title": "beyond num",
+                    "link": "https://example.net",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.serply._get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.serply._current_agent_serply_key",
+        AsyncMock(return_value="sp-test"),
+    )
+    provider = SerplyProvider()
+    results = await provider.search("qwen", max_results=2)
+    assert results == [
+        {
+            "title": "T",
+            "url": "https://example.com",
+            "snippet": "D",
+            "content": "D",
+        },
+        {
+            "title": "U",
+            "url": "https://example.org",
+            "snippet": "E",
+            "content": "E",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_serply_provider_requires_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_get = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.serply._get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.serply._current_agent_serply_key",
+        AsyncMock(return_value=""),
+    )
+    with pytest.raises(ValueError, match="Serply API key"):
+        await SerplyProvider().search("qwen")
+    fake_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_serply_key_is_empty_without_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from qwenpaw.agents.tools.websearch.serply import (
+        _current_agent_serply_key,
+    )
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.serply.get_current_workspace_dir",
+        lambda: None,
+    )
+    assert await _current_agent_serply_key() == ""
 
 
 @pytest.mark.asyncio
