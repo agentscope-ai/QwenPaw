@@ -35,6 +35,12 @@ class ProviderModelCheckResult(BaseModel):
     ] = "unverified"
 
 
+# Provider error text is remote-controlled and can be arbitrarily large,
+# so the status scan is bounded. When the marker is present it sits in
+# the opening of the message.
+_HTTP_STATUS_SCAN_LIMIT = 8_192
+
+
 def extract_http_status(message: str) -> int | None:
     """Extract an HTTP status code from provider error text."""
     patterns = (
@@ -43,8 +49,9 @@ def extract_http_status(message: str) -> int | None:
         r"\berror\s+code\s*:\s*(\d{3})\b",
         r"\bhttp\s+(\d{3})\b",
     )
+    bounded = message[:_HTTP_STATUS_SCAN_LIMIT]
     for pattern in patterns:
-        match = re.search(pattern, message, flags=re.IGNORECASE)
+        match = re.search(pattern, bounded, flags=re.IGNORECASE)
         if match:
             return int(match.group(1))
     return None
@@ -65,9 +72,14 @@ def classify_model_check(
 ) -> ProviderModelCheckResult:
     """Convert provider check output into stable availability states."""
     checked_at = datetime.now(timezone.utc).isoformat()
-    message = Provider.sanitize_connection_message((message or "").strip())
+    raw = (message or "").strip()
+    # Read the status from the raw text. Cleanup below can rewrite the
+    # body entirely (a challenge page collapses to a single canonical
+    # line), which would drop a "status=403" prefix and downgrade a
+    # non-retryable denial into a retryable transient error.
     if http_status is None:
-        http_status = extract_http_status(message)
+        http_status = extract_http_status(raw)
+    message = Provider.sanitize_connection_message(raw)
     normalized = message.lower()
 
     if success:
