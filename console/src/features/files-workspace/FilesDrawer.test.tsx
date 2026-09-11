@@ -246,6 +246,41 @@ describe("FilesDrawer", () => {
     });
   });
 
+  it("applies persisted widths when the drawer mode changes", () => {
+    localStorage.setItem("qwenpaw-files-preview-width", "480");
+    localStorage.setItem("qwenpaw-files-workspace-width", "720");
+    const dispatch = vi.fn();
+    const scope = {
+      kind: "session" as const,
+      agentId: "default",
+      sessionId: "session-1",
+    };
+    const target = {
+      source: "workspace" as const,
+      path: "hello.txt",
+      root: "project",
+    };
+    const { rerender } = renderWithProviders(
+      <FilesDrawer
+        state={{ kind: "preview", target, trigger: null }}
+        dispatch={dispatch}
+        scope={scope}
+      />,
+    );
+
+    expect(screen.getByRole("region")).toHaveStyle({ width: "480px" });
+
+    rerender(
+      <FilesDrawer
+        state={{ kind: "workspace", target, trigger: null }}
+        dispatch={dispatch}
+        scope={scope}
+      />,
+    );
+
+    expect(screen.getByRole("region")).toHaveStyle({ width: "720px" });
+  });
+
   // -------------------------------------------------------------------------
   // Download button — regression for #4670
   // Clicking the download button in the preview header must trigger the

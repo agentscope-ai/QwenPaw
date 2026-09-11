@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   lazy,
+  useLayoutEffect,
   useRef,
   useState,
   Suspense,
@@ -33,6 +34,12 @@ const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+
+function readStoredWidth(key: string): number {
+  if (typeof window === "undefined") return 0;
+  const stored = Number(localStorage.getItem(key));
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
 
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
@@ -81,11 +88,10 @@ export default function FilesDrawer({
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(widthStorageKey));
-    setWidth(Number.isFinite(stored) && stored > 0 ? stored : 0);
+  useLayoutEffect(() => {
+    setWidth(readStoredWidth(widthStorageKey));
   }, [widthStorageKey]);
 
   const close = useCallback(() => {
