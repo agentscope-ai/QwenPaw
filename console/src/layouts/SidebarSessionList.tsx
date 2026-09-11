@@ -77,7 +77,6 @@ type FlatRow =
       kind: "loadMore";
       groupId: string;
       remaining: number;
-      collapse: boolean;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
@@ -100,7 +99,7 @@ interface VirtualRowData {
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  loadMoreGroup: (groupId: string, collapse?: boolean) => void;
+  loadMoreGroup: (groupId: string) => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
@@ -178,24 +177,23 @@ const VirtualRow = React.memo(function VirtualRow({
   }
 
   if (row.kind === "loadMore") {
-    const label = row.collapse
-      ? data.t("chat.groups.collapseList", "Collapse list")
-      : data.t("chat.groups.loadMore", "Load more · {{count}} remaining", {
-          count: row.remaining,
-        });
+    const label = data.t(
+      "chat.groups.loadMore",
+      "Load more · {{count}} remaining",
+      {
+        count: row.remaining,
+      },
+    );
     return (
       <div className={styles.loadMoreRow} style={style}>
         <button
           type="button"
           className={styles.loadMoreButton}
           aria-label={label}
-          onClick={() => data.loadMoreGroup(row.groupId, row.collapse)}
+          onClick={() => data.loadMoreGroup(row.groupId)}
         >
           <span>{label}</span>
-          <ChevronDown
-            size={13}
-            style={{ transform: row.collapse ? "rotate(180deg)" : undefined }}
-          />
+          <ChevronDown size={13} />
         </button>
       </div>
     );
@@ -567,22 +565,12 @@ export default function SidebarSessionList({
     initializeCollapsedGroups(defaultCollapsedGroupIds);
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
-  const loadMoreGroup = useCallback(
-    (groupId: string, collapse = false) => {
-      setVisibleSessionCounts((previous) => ({
-        ...previous,
-        [groupId]: collapse
-          ? Math.max(
-              GROUP_PAGE_SIZE,
-              activeSessionPage?.groupId === groupId
-                ? activeSessionPage.requiredCount
-                : 0,
-            )
-          : (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
-      }));
-    },
-    [activeSessionPage],
-  );
+  const loadMoreGroup = useCallback((groupId: string) => {
+    setVisibleSessionCounts((previous) => ({
+      ...previous,
+      [groupId]: (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
+    }));
+  }, []);
 
   useEffect(() => {
     if (!activeSessionPage) return;
@@ -651,23 +639,6 @@ export default function SidebarSessionList({
             kind: "loadMore",
             groupId: group.group.id,
             remaining: group.sessions.length - visibleCount,
-            collapse: false,
-          });
-        } else if (
-          visibleCount > GROUP_PAGE_SIZE &&
-          visibleCount >
-            Math.min(
-              activeSessionPage?.groupId === group.group.id
-                ? activeSessionPage.requiredCount
-                : GROUP_PAGE_SIZE,
-              group.sessions.length,
-            )
-        ) {
-          rows.push({
-            kind: "loadMore",
-            groupId: group.group.id,
-            remaining: 0,
-            collapse: true,
           });
         }
       }
@@ -680,7 +651,6 @@ export default function SidebarSessionList({
     searchQuery,
     filteredSessions,
     visibleSessionCounts,
-    activeSessionPage,
     t,
   ]);
 

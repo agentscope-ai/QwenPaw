@@ -7,7 +7,6 @@ import {
   Bot,
   Clock3,
   FolderInput,
-  GripVertical,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -260,19 +259,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
           title={t("chat.group.pinned", "Pinned")}
         >
           <Pin size={11} />
-        </span>
-      )}
-
-      {!editing && (
-        <span
-          className={styles.dragHint}
-          title={t(
-            "chat.groups.dragSessionHint",
-            "Press and hold to move this conversation",
-          )}
-          aria-hidden
-        >
-          <GripVertical size={12} />
         </span>
       )}
 

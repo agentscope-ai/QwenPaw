@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import SessionItem from ".";
 
@@ -27,5 +27,28 @@ describe("SessionItem status indicator", () => {
     render(<SessionItem sessionId="chat-1" name="Chat" {...props} />);
 
     expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
+  });
+});
+
+describe("SessionItem actions", () => {
+  it("hides the drag hint while keeping the more actions menu", async () => {
+    const { container } = render(
+      <SessionItem sessionId="chat-1" name="Chat" />,
+    );
+
+    expect(
+      container.querySelector('[title="chat.groups.dragSessionHint"]'),
+    ).toBeNull();
+
+    const moreIcon = container.querySelector("svg.lucide-ellipsis");
+    expect(moreIcon).toBeInTheDocument();
+
+    fireEvent.click(moreIcon!.parentElement!);
+
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "chat.contextMenu.rename",
+      }),
+    ).toBeInTheDocument();
   });
 });

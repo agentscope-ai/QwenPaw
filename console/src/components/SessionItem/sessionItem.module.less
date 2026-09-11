@@ -151,33 +151,12 @@
   color: var(--app-accent);
 }
 
-.dragHint {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-quaternary);
-  cursor: grab;
-  opacity: 0;
-}
-
 .pinMark {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   color: var(--app-accent);
-}
-
-.item:hover .dragHint,
-.dropdownOpen .dragHint {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .dragHint {
-    opacity: 0.58;
-  }
 }
 
 /* ── More button ─────────────────────────────────────────────────────── */
@@ -201,11 +180,6 @@
     background: var(--app-fill);
     color: var(--app-text);
   }
-
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
 }
 
 /* ── Rename input ─────────────────────────────────────────────────────── */
