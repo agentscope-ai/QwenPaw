@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +23,7 @@ from uuid import uuid4
 
 from models.vlm_model import chat_completion, multimodal_media_part
 from schemas.render_review import RenderReviewReport
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.observability.tracing import trace_event
 from services.render_review.frames import (
     RenderReviewError,
@@ -92,7 +92,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    os.replace(staging, path)
+    atomic_replace_path(staging, path)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

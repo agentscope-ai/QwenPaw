@@ -140,6 +140,7 @@
     "agentConfig": "Configuration",
     "agents": "Agent Management",
     "settings": "Settings",
+    "moreSettings": "More settings",
     "models": "Models",
     "environments": "Environments",
     "offloadPolicy": "Tool Offload",
@@ -258,12 +259,86 @@
     "settings": {
       "language": "Language",
       "theme": "Theme",
-      "mode": "Mode",
       "desktopMode": "Desktop Mode"
     },
-    "simpleMode": "Simple Mode",
-    "fullMode": "Full Mode",
+    "quickMenu": {
+      "settings": "Settings",
+      "appearance": "Appearance",
+      "about": "About QwenPaw"
+    },
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "more": "More",
     "toggleAgentNavigation": "Expand or collapse agent navigation"
+  },
+  "settingsCenter": {
+    "backToApp": "Back to app",
+    "searchPlaceholder": "Search settings",
+    "noResults": "No matching settings",
+    "groups": {
+      "application": "Application",
+      "agentConfiguration": "Agent configuration",
+      "global": "Global settings",
+      "extensions": "Extensions"
+    },
+    "pages": {
+      "general": "General",
+      "navigation": "Sidebar"
+    },
+    "descriptions": {
+      "general": "Language, theme and application behavior",
+      "navigation": "Sidebar visibility",
+      "agents": "QwenPaw, Codex and Qoder profiles",
+      "models": "Providers, credentials and model catalog",
+      "skillPool": "Reusable skills and extensions",
+      "channels": "Connect IM and message channels",
+      "skills": "Manage agent skills",
+      "tools": "Configure available tools",
+      "mcp": "Configure MCP services",
+      "acp": "Configure ACP agents",
+      "agentConfig": "Configure agent runtime behavior",
+      "voice": "Speech input and transcription",
+      "heartbeat": "Agent availability and periodic wake-up",
+      "environments": "Runtime variables and secrets",
+      "security": "Execution policies and protection rules",
+      "offloadPolicy": "Background execution policy",
+      "tokenUsage": "Usage statistics and trends",
+      "backups": "Export, restore and migrate data",
+      "debug": "Logs and diagnostics",
+      "extension": "Settings provided by an extension"
+    },
+    "appearanceAndLanguage": "Appearance & language",
+    "desktopApplication": "Desktop app",
+    "languageHint": "Changes the interface language on this device.",
+    "themeHint": "Use a light, dark or system-matched appearance.",
+    "contentWidth": "Message width",
+    "contentWidthHint": "Use the standard width or expand conversations to the available width.",
+    "contentWidthStandard": "Standard",
+    "contentWidthWide": "Wide",
+    "chatDisplay": "Message display",
+    "thinkingDisplay": "Show thinking",
+    "thinkingDisplayHint": "Show model reasoning in conversations without changing model behavior.",
+    "toolDisplay": "Tool display",
+    "toolDisplayHint": "Choose what appears after opening a tool card.",
+    "toolDisplayCurrent": "Card view",
+    "toolDisplayRaw": "Raw parameters",
+    "assistantDisplay": "Assistant message collapse",
+    "assistantDisplayHint": "Control how intermediate text, reasoning and tools collapse.",
+    "displayExpanded": "Expanded",
+    "displayProcessCollapsed": "Collapse process",
+    "displayResultCollapsed": "Collapse results",
+    "closeBehaviorHint": "Choose what happens when the desktop window closes.",
+    "desktopModeHint": "Open the multi-window desktop workspace.",
+    "open": "Open",
+    "fixedEntries": "Fixed entries",
+    "selectAll": "Select all",
+    "invertSelection": "Invert",
+    "sidebarGroups": {
+      "agentConfiguration": "Agent configuration",
+      "global": "Global settings",
+      "plugins": "Plugin features"
+    },
+    "alwaysVisible": "Always visible"
   },
   "debug": {
     "title": "Debug",
@@ -1932,7 +2007,51 @@
     "variable": "variable",
     "variables": "variables",
     "showValue": "Show value",
-    "hideValue": "Hide value"
+    "hideValue": "Hide value",
+    "searchPlaceholder": "Search variables",
+    "qwenpawSettings": "QwenPaw settings",
+    "qwenpawSettingsDescription": "Known settings include defaults and locked startup values.",
+    "liveSettings": "Live settings",
+    "noLiveVariables": "No live settings match the current filter.",
+    "customSettings": "Custom variables",
+    "noCustomVariables": "No custom child-process variables yet.",
+    "editVariable": "Edit variable",
+    "applyNow": "Apply now",
+    "applyHint": "The current QwenPaw process updates immediately. Existing MCP processes must be reloaded.",
+    "applied": "Environment variable applied",
+    "appliedWithFailures": "Saved, but {{count}} MCP process could not be reloaded",
+    "resetVariable": "Reset variable",
+    "resetSuccess": "Variable reset to its system or default value",
+    "startupOnly": "Read only",
+    "readonlySettings": "Read-only settings",
+    "noReadonlyVariables": "No read-only settings match the current filter.",
+    "impactTitle": "Process impact",
+    "explicitConsumers": "{{count}} MCP process explicitly uses this variable",
+    "implicitConsumers": "{{count}} stdio MCP process may inherit it implicitly",
+    "restartMode": "Existing MCP processes",
+    "restartAffected": "Reload affected MCP processes",
+    "restartNone": "Do not reload",
+    "restartAllStdio": "Reload every stdio MCP process",
+    "readonlyReason": {
+      "startup": "Resolved when QwenPaw starts",
+      "agent_owned": "Managed by each Agent configuration",
+      "initial_default": "Used only as an Agent configuration default"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "Read from the current QwenPaw process at the start of each operation.",
+      "hot_process": "Available through os.getenv() and inherited by future child processes.",
+      "startup_only": "Displayed for reference; it cannot be changed while QwenPaw is running.",
+      "internal": "Managed internally by QwenPaw."
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Maximum wait for the first meaningful stream content; zero disables the watchdog.",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Maximum wait between meaningful stream chunks; zero disables the watchdog."
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "System",
+      "default": "Default"
+    }
   },
   "modelSelector": {
     "selectModel": "Select model",
@@ -2591,8 +2710,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Long-term Memory Management Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), PowerContext (remote memory service), or none (disable memory).",
-    "memoryManagerBackendRestartWarning": "Switching the long-term memory management backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Plugin backends appear here after their plugins are installed.",
+    "memoryManagerBackendRestartWarning": "Saving a backend change reloads this Agent so the new memory backend can take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
     "maxItersPlaceholder": "Enter max iterations",
@@ -3014,11 +3133,17 @@
     "memoryQueueIdleSummary": "Idle · no pending jobs",
     "memoryAutoRecordDisabledHint": "Automatic conversation memory is off",
     "memoryAutoMemoryEnabledSummary": "Auto-memory enabled · runs every {{interval}} turns",
-    "memoryRuntimeActivityDescription": "Memory capture jobs from automatic and manual actions run sequentially without blocking the current conversation",
+    "memoryRuntimeActivityDescription": "Auto-memory jobs from automatic and manual actions run sequentially without blocking the current conversation",
     "memoryLastError": "Most recent error",
     "memoryNeverRun": "No activity yet",
-    "memoryRecentTasks": "Recent memory capture jobs",
-    "memoryRecentTasksEmpty": "No memory capture jobs yet",
+    "autoMemoryRecentTasks": "Recent auto-memory jobs",
+    "autoMemoryRecentTasksEmpty": "No auto-memory jobs yet",
+    "autoMemoryTrigger": {
+      "periodic": "Periodic",
+      "manual": "Manual",
+      "compact": "Context compact",
+      "new": "New conversation"
+    },
     "memoryTaskMessages": "{{count}} messages processed",
     "memoryTaskNoResult": "The job has not returned content yet",
     "memoryTaskStatus": {
@@ -3040,7 +3165,7 @@
       "keyword_index": "Keyword index"
     },
     "memoryStatusDisabled": "Disabled",
-    "memoryJournalTitle": "Memory capture",
+    "memoryJournalTitle": "Auto-memory",
     "memoryJournalDescription": "Continuously extract searchable memories from conversations and external knowledge sources",
     "memoryConversationJournalTitle": "Conversation memory",
     "memoryExternalSourcesDevelopingLabel": "More coming",
@@ -3174,28 +3299,7 @@
     "contextStrategy": "Context Strategy",
     "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
-    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
-    "adbpgMemoryTitle": "ADBPG Long-term Memory",
-    "powercontextMemoryTitle": "PowerContext Memory",
-    "powercontextConfig": {
-      "title": "PowerContext Memory Configuration",
-      "baseUrl": "Server URL",
-      "token": "Bearer Token",
-      "scopeId": "Memory Scope",
-      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
-      "scopeIdInvalid": "Memory scope must not contain only whitespace.",
-      "timeout": "Request Timeout",
-      "maxContextBytes": "Maximum injected context (bytes)",
-      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
-    },
-    "adbpgConfig": {
-      "title": "ADBPG Memory Configuration",
-      "restBaseUrl": "REST Base URL",
-      "restApiKey": "REST API Key",
-      "memoryIsolation": "Memory Isolation (per-agent)",
-      "searchTimeout": "Search Timeout"
-    }
+    "contextStrategyNative": "Native"
   },
   "tools": {
     "title": "Built-in Tools",
@@ -3268,21 +3372,14 @@
       "codeSnippet_other": "Code snippet · {{count}} lines"
     },
     "modelSelectTooltip": "Select model",
-    "newChatTooltip": "New chat",
-    "searchTooltip": "Search all chats",
+    "newTask": "New task",
     "chatHistoryTooltip": "Chat history",
-    "wideModeTooltip": "Wide mode",
-    "normalModeTooltip": "Normal mode",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",
       "stepsFailed": "Failed · {{count}} steps",
       "stepsCompleted": "Completed {{count}} steps"
     },
-    "allChats": "All Chats",
-    "createNewChat": "Create New Chat",
-    "pinDrawer": "Pin",
-    "unpinDrawer": "Unpin",
     "statusIdle": "Idle",
     "statusInProgress": "In progress",
     "statusUnseenResult": "New result",
@@ -3442,19 +3539,9 @@
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
-      "noResults": "No results",
-      "noConversations": "No conversations yet",
-      "loadingConversations": "Loading…"
+      "noConversations": "No conversations yet"
     },
-    "conversationHistory": "Conversation History",
-    "history": {
-      "empty": "No chat history"
-    },
-    "sessionGroup": {
-      "today": "Today",
-      "recent": "Last 7 days",
-      "earlier": "Earlier"
-    }
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",
@@ -4139,6 +4226,13 @@
     "installing": "Installing...",
     "installSuccess": "Plugin installed successfully",
     "installFailed": "Plugin installation failed",
+    "update": "Update",
+    "updateAll": "Update all",
+    "updateSuccess": "Plugin updated successfully",
+    "updateAllSuccess": "All plugins updated successfully",
+    "updateAllResult": "{{succeeded}} plugins updated; {{failed}} failed: {{names}}",
+    "updateFailed": "Plugin update failed",
+    "checkingUpdates": "Checking for plugin updates...",
     "uninstall": "Uninstall",
     "uninstallConfirm": "Uninstall plugin \"{{name}}\"? This cannot be undone. Some plugins may require an app restart to be fully removed.",
     "uninstalling": "Uninstalling...",
@@ -4147,6 +4241,7 @@
     "statusLoaded": "Running",
     "statusUnloaded": "Not loaded",
     "type": "Type",
+    "typeMemory": "Memory",
     "version": "Version",
     "author": "Author",
     "unknown": "Unknown",
@@ -4163,6 +4258,8 @@
     "catalogUpgrade": "Upgrade available",
     "catalogUpgradeBtn": "Upgrade",
     "catalogInstalled": "Installed",
+    "catalogVersion": "Version",
+    "catalogCurrentVersion": "Current version",
     "catalogSha256": "SHA256",
     "kindBundle": "Bundle",
     "kindTool": "Tool",
@@ -4336,8 +4433,6 @@
     "checkAgentTaskDefault": "Check task",
     "delegateExternalAgent": "Delegate {{runner}}",
     "delegateExternalAgentDefault": "Delegate external agent",
-    "materializeSkill": "Create {{skill}}",
-    "materializeSkillDefault": "Create skill",
     "shell": "Run {{command}}",
     "shellDefault": "Run command",
     "runToolBatch": "Run workflow {{workflow}}",

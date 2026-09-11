@@ -27,7 +27,6 @@ export function ModelConfigEditor({
   onSaved,
   onProviderUpdated,
   onClose,
-  isDark,
   thinkingParamStyle,
   reasoningEffortOptions,
   thinkingBudgetRange = [1, 81920],
@@ -38,7 +37,6 @@ export function ModelConfigEditor({
   onSaved: () => void | Promise<void>;
   onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
-  isDark: boolean;
   thinkingParamStyle?: "budget" | "effort" | null;
   reasoningEffortOptions?: string[];
   thinkingBudgetRange?: [number, number];
@@ -169,7 +167,7 @@ export function ModelConfigEditor({
 
   const labelStyle: React.CSSProperties = {
     fontSize: 13,
-    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    color: "var(--app-text)",
     marginBottom: 4,
   };
 
@@ -208,7 +206,7 @@ export function ModelConfigEditor({
           <div
             style={{
               fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              color: "var(--app-text-quaternary)",
               marginTop: 2,
             }}
           >
@@ -238,7 +236,7 @@ export function ModelConfigEditor({
           <div
             style={{
               fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              color: "var(--app-text-quaternary)",
               marginTop: 2,
             }}
           >
@@ -265,7 +263,7 @@ export function ModelConfigEditor({
               <span
                 style={{
                   fontSize: 13,
-                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                  color: "var(--app-text)",
                 }}
               >
                 {t("models.thinkingModeLabel")}
@@ -273,7 +271,7 @@ export function ModelConfigEditor({
               <div
                 style={{
                   fontSize: 11,
-                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                  color: "var(--app-text-quaternary)",
                   marginTop: 2,
                 }}
               >
@@ -350,7 +348,7 @@ export function ModelConfigEditor({
                     <div
                       style={{
                         fontSize: 11,
-                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                        color: "var(--app-text-quaternary)",
                         marginTop: 2,
                       }}
                     >
@@ -411,7 +409,7 @@ export function ModelConfigEditor({
             <span
               style={{
                 fontSize: 13,
-                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                color: "var(--app-text)",
               }}
             >
               {t("models.relayReasoningLabel")}
@@ -419,7 +417,7 @@ export function ModelConfigEditor({
             <div
               style={{
                 fontSize: 11,
-                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                color: "var(--app-text-quaternary)",
                 marginTop: 2,
               }}
             >
@@ -439,7 +437,7 @@ export function ModelConfigEditor({
       <div
         style={{
           fontSize: 12,
-          color: isDark ? "rgba(255,255,255,0.45)" : "#888",
+          color: "var(--app-text-tertiary)",
           marginBottom: 4,
         }}
       >

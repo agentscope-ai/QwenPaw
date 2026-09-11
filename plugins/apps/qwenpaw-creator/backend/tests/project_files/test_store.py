@@ -281,3 +281,38 @@ def test_discovery_ignores_internal_incomplete_and_symlink_directories(
     os.symlink(outside, store.root / "project-link")
 
     assert store.discover_project_ids() == ("project-a", "project-b")
+
+
+def test_startup_gc_sweeps_legacy_locks_but_spares_project_assets(tmp_path):
+    """The sweep must never reach a Project's asset tree.
+
+    Users legitimately upload files named ``poetry.lock`` / ``Cargo.lock``
+    as Project assets; only the directories the retired flock
+    implementation used may be swept.
+    """
+
+    from services.project_files.facade import _startup_disk_gc
+
+    root = tmp_path / "data"
+    project = root / "project-1"
+    (project / "assets" / "sub").mkdir(parents=True)
+    (project / "runtime" / "locks").mkdir(parents=True)
+    (root / ".locks").mkdir()
+    assets = [
+        project / "assets" / "poetry.lock",
+        project / "assets" / "Cargo.lock",
+        project / "assets" / "sub" / "yarn.lock",
+    ]
+    legacy = [
+        root / ".locks" / "project-1.lock",
+        root / ".locks" / "project-1.lock.gate",
+        project / "runtime" / "locks" / "session-runtime.lock",
+        project / "runtime" / ".session.json.lock",
+    ]
+    for path in (*assets, *legacy):
+        path.write_text("x", encoding="utf-8")
+
+    _startup_disk_gc(root)
+
+    assert all(path.exists() for path in assets)
+    assert not any(path.exists() for path in legacy)

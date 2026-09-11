@@ -144,7 +144,8 @@
     "plugins": "プラグイン",
     "acp": "ACP",
     "backups": "バックアップ",
-    "pluginManager": "プラグインマネージャー"
+    "pluginManager": "プラグインマネージャー",
+    "moreSettings": "その他の設定"
   },
   "os": {
     "console": "コンソール",
@@ -1527,7 +1528,48 @@
     "variable": "変数",
     "variables": "変数",
     "showValue": "値を表示",
-    "hideValue": "値を非表示"
+    "hideValue": "値を非表示",
+    "searchPlaceholder": "変数を検索",
+    "liveSettings": "リアルタイム設定",
+    "noLiveVariables": "現在の条件に一致するリアルタイム設定はありません。",
+    "customSettings": "カスタム変数",
+    "noCustomVariables": "カスタム変数はまだありません。",
+    "editVariable": "変数を編集",
+    "applyNow": "今すぐ適用",
+    "applyHint": "現在の QwenPaw プロセスは即時更新されます。実行中の MCP には再読み込みが必要です。",
+    "applied": "環境変数を適用しました",
+    "appliedWithFailures": "保存しましたが、{{count}} 件の MCP を再読み込みできませんでした",
+    "resetVariable": "変数をリセット",
+    "resetSuccess": "システム値または既定値に戻しました",
+    "readonlySettings": "読み取り専用設定",
+    "noReadonlyVariables": "現在の条件に一致する読み取り専用設定はありません。",
+    "impactTitle": "プロセスへの影響",
+    "explicitConsumers": "{{count}} 件の MCP がこの変数を明示的に使用しています",
+    "implicitConsumers": "{{count}} 件の stdio MCP が暗黙的に継承する可能性があります",
+    "restartMode": "実行中の MCP",
+    "restartAffected": "影響を受ける MCP を再読み込み",
+    "restartNone": "再読み込みしない",
+    "restartAllStdio": "すべての stdio MCP を再読み込み",
+    "readonlyReason": {
+      "startup": "QwenPaw 起動時に確定",
+      "agent_owned": "各エージェント設定で管理",
+      "initial_default": "Agent 設定の初期値としてのみ使用"
+    },
+    "mutabilityDescription": {
+      "hot_runtime": "各操作の開始時に現在の QwenPaw プロセスから読み取ります。",
+      "hot_process": "os.getenv() で利用でき、今後の子プロセスに継承されます。",
+      "startup_only": "参照専用で、QwenPaw の実行中は変更できません。",
+      "internal": "QwenPaw が内部で管理します。"
+    },
+    "variableDescriptions": {
+      "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "最初の有効なストリーム内容を待つ最大時間です。0 で監視を無効化します。",
+      "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "有効なストリームチャンク間の最大待機時間です。0 で監視を無効化します。"
+    },
+    "source": {
+      "user": "QwenPaw",
+      "system": "システム",
+      "default": "既定値"
+    }
   },
   "tokenUsage": {
     "title": "Token 使用量",
@@ -2098,8 +2140,8 @@
     "llmAcquireTimeoutGtPauseJitter": "スロット取得タイムアウトはレート制限一時停止とジッターの合計より大きい必要があります",
     "contextManagementTitle": "コンテキスト管理",
     "memoryManagerBackend": "長期記憶管理バックエンド",
-    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）、adbpg（クラウドデータベース）、PowerContext（リモートメモリサービス）、または none（メモリを無効化）から選択できます。",
-    "memoryManagerBackendRestartWarning": "長期記憶管理バックエンドの切り替えはホットリロードに対応していません。変更を反映するには保存後に QwenPaw を再起動してください。",
+    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンド。プラグインをインストールすると、そのバックエンドがここに表示されます。",
+    "memoryManagerBackendRestartWarning": "バックエンドの変更を保存すると、この Agent が再読み込みされ、新しいメモリバックエンドが適用されます。",
     "maxIters": "最大反復回数",
     "maxItersTooltip": "ReActエージェントの推論・行動サイクルの最大反復回数",
     "maxItersPlaceholder": "最大反復回数を入力",
@@ -2518,27 +2560,7 @@
       "offDesc": "ツールとファイルの承認を無効にします"
     },
     "saveLevelSuccess": "ツール承認モードを保存しました",
-    "saveLevelFailed": "ツール承認モードの保存に失敗しました",
-    "adbpgMemoryTitle": "ADBPG Long-term Memory",
-    "powercontextMemoryTitle": "PowerContext メモリ",
-    "powercontextConfig": {
-      "title": "PowerContext メモリ設定",
-      "baseUrl": "サーバー URL",
-      "token": "Bearer トークン",
-      "scopeId": "メモリスコープ",
-      "scopeIdPlaceholder": "空欄の場合、このインストール固有のエージェントスコープを使用します",
-      "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
-      "timeout": "リクエストタイムアウト",
-      "maxContextBytes": "注入するコンテキストの最大量（バイト）",
-      "maxContextBytesTooltip": "1回のモデル呼び出しに追加される PowerContext 検索結果の合計量を制限します。"
-    },
-    "adbpgConfig": {
-      "title": "ADBPG Memory Configuration",
-      "restBaseUrl": "REST Base URL",
-      "restApiKey": "REST API Key",
-      "memoryIsolation": "Memory Isolation (per-agent)",
-      "searchTimeout": "Search Timeout"
-    }
+    "saveLevelFailed": "ツール承認モードの保存に失敗しました"
   },
   "tools": {
     "title": "ビルトインツール",
@@ -2641,14 +2663,86 @@
     "settings": {
       "language": "言語",
       "theme": "テーマ",
-      "mode": "モード",
       "desktopMode": "デスクトップモード"
     },
-    "simpleMode": "シンプルモード",
-    "fullMode": "フルモード",
+    "quickMenu": {
+      "settings": "設定",
+      "appearance": "外観",
+      "about": "QwenPaw について"
+    },
+    "collapse": "サイドバーを折りたたむ",
+    "expand": "サイドバーを展開する",
+    "more": "その他",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
+  "settingsCenter": {
+    "backToApp": "アプリに戻る",
+    "searchPlaceholder": "設定を検索",
+    "noResults": "一致する設定はありません",
+    "groups": {
+      "application": "アプリ設定",
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "extensions": "拡張機能"
+    },
+    "pages": { "general": "一般", "navigation": "サイドバー" },
+    "descriptions": {
+      "general": "言語、テーマ、アプリの動作",
+      "navigation": "サイドバーの表示項目",
+      "agents": "QwenPaw、Codex、Qoder のプロファイル",
+      "models": "プロバイダー、認証情報、モデルカタログ",
+      "skillPool": "再利用可能なスキルと拡張機能",
+      "channels": "IM とメッセージチャンネルを接続",
+      "skills": "エージェントのスキルを管理",
+      "tools": "利用可能なツールを設定",
+      "mcp": "MCP サービスを設定",
+      "acp": "ACP エージェントを設定",
+      "agentConfig": "エージェントの実行動作を設定",
+      "voice": "音声入力と文字起こし",
+      "heartbeat": "エージェントの稼働状況と定期起動",
+      "environments": "実行時変数とシークレット",
+      "security": "実行ポリシーと保護ルール",
+      "offloadPolicy": "バックグラウンド実行ポリシー",
+      "tokenUsage": "使用状況の統計と推移",
+      "backups": "データのエクスポート、復元、移行",
+      "debug": "ログと診断",
+      "extension": "拡張機能が提供する設定"
+    },
+    "appearanceAndLanguage": "外観と言語",
+    "desktopApplication": "デスクトップアプリ",
+    "languageHint": "このデバイスの表示言語を変更します。",
+    "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
+    "contentWidth": "メッセージ幅",
+    "contentWidthHint": "標準幅を使用するか、会話を利用可能な幅まで広げます。",
+    "contentWidthStandard": "標準",
+    "contentWidthWide": "ワイド",
+    "chatDisplay": "メッセージ表示",
+    "thinkingDisplay": "思考過程を表示",
+    "thinkingDisplayHint": "モデルの動作を変えずに、会話内の推論過程を表示します。",
+    "toolDisplay": "ツール表示",
+    "toolDisplayHint": "ツールカードを開いたときに表示する内容を選択します。",
+    "toolDisplayCurrent": "カード表示",
+    "toolDisplayRaw": "生のパラメータ",
+    "assistantDisplay": "アシスタントメッセージの折りたたみ",
+    "assistantDisplayHint": "中間テキスト、推論、ツールの折りたたみ方を設定します。",
+    "displayExpanded": "すべて展開",
+    "displayProcessCollapsed": "プロセスを折りたたむ",
+    "displayResultCollapsed": "結果を折りたたむ",
+    "closeBehaviorHint": "デスクトップウィンドウを閉じたときの動作を選択します。",
+    "desktopModeHint": "マルチウィンドウのデスクトップワークスペースを開きます。",
+    "open": "開く",
+    "fixedEntries": "固定項目",
+    "selectAll": "すべて選択",
+    "invertSelection": "選択を反転",
+    "sidebarGroups": {
+      "agentConfiguration": "エージェント設定",
+      "global": "グローバル設定",
+      "plugins": "プラグイン機能"
+    },
+    "alwaysVisible": "常に表示"
+  },
   "chat": {
+    "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント"
@@ -2657,21 +2751,13 @@
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
     "modelSelectTooltip": "モデルを選択",
-    "newChatTooltip": "新しいチャット",
-    "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
-    "wideModeTooltip": "ワイドモード",
-    "normalModeTooltip": "標準モード",
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",
       "stepsFailed": "実行失敗 · {{count}} ステップ",
       "stepsCompleted": "{{count}} ステップ完了"
     },
-    "allChats": "すべてのチャット",
-    "createNewChat": "新しいチャットを作成",
-    "pinDrawer": "固定",
-    "unpinDrawer": "固定解除",
     "statusIdle": "待機",
     "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
@@ -2799,19 +2885,9 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noResults": "結果なし",
-      "noConversations": "会話なし",
-      "loadingConversations": "読み込み中…"
+      "noConversations": "会話なし"
     },
-    "conversationHistory": "会話履歴",
-    "history": {
-      "empty": "チャット履歴なし"
-    },
-    "sessionGroup": {
-      "today": "今日",
-      "recent": "過去7日間",
-      "earlier": "それ以前"
-    }
+    "conversationHistory": "会話履歴"
   },
   "security": {
     "parent": "設定",
@@ -3632,6 +3708,13 @@
     "installing": "インストール中...",
     "installSuccess": "プラグインのインストールに成功しました",
     "installFailed": "プラグインのインストールに失敗しました",
+    "update": "更新",
+    "updateAll": "すべて更新",
+    "updateSuccess": "プラグインを更新しました",
+    "updateAllSuccess": "すべてのプラグインを更新しました",
+    "updateAllResult": "{{succeeded}}件を更新、{{failed}}件が失敗しました：{{names}}",
+    "updateFailed": "プラグインの更新に失敗しました",
+    "checkingUpdates": "プラグインの更新を確認しています...",
     "uninstall": "アンインストール",
     "uninstallConfirm": "プラグイン \"{{name}}\" をアンインストールしますか？この操作は取り消せません。一部のプラグインは、完全に削除するためにアプリの再起動が必要な場合があります。",
     "uninstalling": "アンインストール中...",
@@ -3640,6 +3723,7 @@
     "statusLoaded": "実行中",
     "statusUnloaded": "未ロード",
     "type": "タイプ",
+    "typeMemory": "メモリ",
     "version": "バージョン",
     "author": "作成者",
     "unknown": "不明",
@@ -3656,6 +3740,8 @@
     "catalogUpgrade": "アップグレード可能",
     "catalogUpgradeBtn": "アップグレード",
     "catalogInstalled": "インストール済み",
+    "catalogVersion": "バージョン",
+    "catalogCurrentVersion": "現在のバージョン",
     "catalogSha256": "SHA256",
     "kindBundle": "バンドル",
     "kindTool": "ツール",
@@ -3943,8 +4029,6 @@
     "checkAgentTaskDefault": "タスクを確認",
     "delegateExternalAgent": "{{runner}} に委任",
     "delegateExternalAgentDefault": "外部エージェントに委任",
-    "materializeSkill": "{{skill}} を作成",
-    "materializeSkillDefault": "スキルを作成",
     "shell": "{{command}} を実行",
     "shellDefault": "コマンドを実行",
     "formatTable": {

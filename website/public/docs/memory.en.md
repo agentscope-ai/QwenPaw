@@ -18,20 +18,31 @@ In plain language, it works like a research assistant that remembers how an anal
 ## Optional PowerContext Backend
 
 `remelight` remains the default long-term-memory backend. To use the optional
-`powercontext` backend, first deploy or start a PowerContext Server separately;
-QwenPaw does not download or start it automatically. For a local server, the
-default endpoint is `http://127.0.0.1:8000`. Install and start it with:
+`powercontext` backend, install the PowerContext memory plugin and deploy or
+start a PowerContext Server separately. QwenPaw does not download or start the
+server automatically. From a source checkout, build and install the plugin:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+cd plugins/memory/powercontext/frontend
+npm install
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/powercontext
+```
+
+For a local server, the default endpoint is `http://127.0.0.1:8000`. Install
+and start it with:
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
 powercontext server run
 ```
 
 In **Agent Config**, select **PowerContext**, then set its Server URL, optional
 Bearer token, memory scope, timeout, automatic-search result limit, and
-injected-context budget. Save
-and restart QwenPaw for the backend change to take effect. When selected,
-QwenPaw sends the current turn's bounded task state to that configured service
+injected-context budget. Saving schedules an Agent reload; a full QwenPaw
+process restart is not required. When selected, QwenPaw sends the current
+turn's bounded task state to that configured service
 and retrieves relevant memories before later turns. Treat the endpoint and
 scope as a data boundary: choose a service and scope that are appropriate for
 the conversation data you intend to persist. Leave the memory scope empty to
@@ -56,6 +67,47 @@ that transmission is not appropriate. In contrast, the Agent-visible
 PowerContext search tool is classified as network I/O, so strict governance can
 require approval before its query is sent; `memory_remember` is likewise a
 network write governed by the active policy.
+
+### PowerContext Configuration
+
+| Field                       | Description                                                       | Default                                                      |
+| --------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| `base_url`                  | PowerContext server URL                                           | `""`                                                         |
+| `token`                     | Optional bearer token                                             | `""`                                                         |
+| `scope_id`                  | Memory scope; empty selects the isolated installation/Agent scope | `""`                                                         |
+| `timeout`                   | Request timeout in seconds, from 1 to 60                          | `10.0`                                                       |
+| `auto_memory_search_config` | Automatic recall settings and injected-context byte budget        | `{"enabled":true,"max_results":3,"max_context_bytes":12000}` |
+
+The equivalent `agent.json` fragment is:
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "powercontext",
+    "memory_backend_configs": {
+      "powercontext": {
+        "base_url": "http://127.0.0.1:8000",
+        "token": "",
+        "scope_id": "",
+        "timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3,
+          "max_context_bytes": 12000
+        }
+      }
+    }
+  }
+}
+```
+
+Plugin configuration belongs under `memory_backend_configs.powercontext`; the
+former core-owned `powercontext_memory_config` field is no longer supported.
+On first start after an upgrade, the plugin adopts the former root
+`powercontext_installation_id` into
+`plugin-state/memory-powercontext/installation-id` under the canonical QwenPaw
+working directory. This preserves the default scope and existing remote
+memories even when an Agent uses a custom workspace path.
 
 ## Understand the Memory Loop First
 
@@ -418,6 +470,17 @@ Legacy `inbox_push_enabled` is migration input only. It initializes any missing 
 
 The long-term memory page shows background jobs, the waiting queue, resource use, and index-component status.
 
+Conversation capture uses one FIFO Auto-Memory worker per Agent. Periodic
+capture, `/memorize`, context compaction, and `/new` all submit work to this
+same queue; each status record identifies its `periodic`, `manual`, `compact`,
+or `new` trigger. Use `/auto_memory_status` to inspect these tasks from a
+conversation. Shutdown uses one five-second deadline to stop this worker,
+quiesce active ReMe jobs, and close ReMe; it reports failure instead of waiting
+indefinitely or replacing a backend that is still in use. ReMe maintenance
+operations such as status, graph snapshots, reindexing, and embedding rollback
+use the memory-action interface, validate arguments against each action's full
+JSON Schema, and do not enter the Auto-Memory queue.
+
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
 </p>
@@ -448,7 +511,14 @@ Undo restores the previous Embedding configuration that matches the existing vec
 
 ## Other Memory Backends
 
-QwenPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.
+QwenPaw's memory system uses a pluggable backend architecture. ReMeLight remains
+the built-in default; ADBPG and PowerContext are independently installable
+plugins. If the selected plugin is missing or fails to load when an Agent
+starts, the runtime temporarily uses ReMeLight while preserving the configured
+backend and its plugin settings. The fallback is recorded in the logs. Reload
+the Agent after the plugin becomes available to restore the configured backend.
+Select a backend via `memory_manager_backend`; plugin-owned per-Agent settings
+are stored under `memory_backend_configs.<backend_id>`.
 
 ### ADBPG (AnalyticDB for PostgreSQL)
 
@@ -456,23 +526,47 @@ A long-term memory backend backed by a cloud vector database. It is suitable for
 
 **Key features:**
 
-- **Cross-session persistence** — Memories are stored in a cloud database, retained across restarts, and shareable across devices.
-- **Server-side fact extraction** — Fact extraction is handled by the ADBPG memory service, with no extra client-side overhead.
+- **Cross-session persistence** — Extracted memories are stored remotely and can be retrieved across sessions and devices.
+- **Server-side fact extraction** — New user messages are submitted each normal conversation turn; the service extracts facts asynchronously.
 - **REST API access** — Calls the ADBPG memory service over HTTP.
 - **Graceful degradation** — When ADBPG is unreachable, the agent keeps running normally; only the long-term memory feature is temporarily disabled.
 
 **How to configure:**
 
-Open the agent's "Running Config" tab in the Console, locate the "Long-term Memory Management Backend" dropdown, choose `adbpg`, and fill in `REST Base URL` and `REST API Key` under the "ADBPG Long-term Memory" tab.
+From a source checkout, build and install the plugin first:
 
-![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+```bash
+cd plugins/memory/adbpg/frontend
+npm ci
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/adbpg
+```
 
-> ⚠️ Switching the backend does not support hot reload. After saving, restart QwenPaw for the change to take effect (the page also shows a yellow banner reminder).
+A published plugin ZIP includes the configuration UI, so no source build is
+needed. With QwenPaw running, upload it from the Console's plugin page or run
+`qwenpaw plugin install /path/to/memory-adbpg-1.0.0.zip`. For source-directory
+installation, start QwenPaw afterward if it was stopped; a running QwenPaw uses
+the hot-install API.
+
+Then open the agent's "Running Config" tab in the Console, locate the
+"Long-term Memory Management Backend" dropdown, choose `adbpg`, and fill in
+`REST Base URL` and `REST API Key` under the ADBPG configuration tab.
+
+> Saving a backend selection or plugin configuration schedules an Agent reload.
+> A changed backend or effective configuration creates a new backend instance;
+> unchanged backend context can reuse the existing instance. A full process
+> restart is not required.
+
+Before uninstalling or force-reinstalling the
+plugin, switch all Agents using it to another backend, such as `none`, and wait
+for their reloads and outstanding memory work to finish. An in-use memory
+backend cannot be uninstalled.
 
 > Migration note: ADBPG direct SQL mode has been removed. Old fields such as
 > `api_mode: "sql"`, `host`, `port`, `user`, `password`, `dbname`, and LLM /
 > Embedding settings are ignored; configure `rest_base_url` and `rest_api_key`
-> instead, then restart QwenPaw.
+> instead.
 
 | Field                       | Description                                                                              | Default                               |
 | --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |
@@ -482,22 +576,46 @@ Open the agent's "Running Config" tab in the Console, locate the "Long-term Memo
 | `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                |
 | `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
 
+**Submission, extraction, and failures:**
+
+The service extracts facts asynchronously by default. A `completed` auto-memory
+task describes client-side processing: for messages actually sent, it confirms
+only that the HTTP submission was accepted. Extraction may still be running,
+so a fact may not be immediately searchable. Ask the Agent to remember a fact,
+allow time for server-side processing, and retrieve it in a later turn. Check
+`/auto_memory_status` and logs for submission results. Backend shutdown attempts to drain
+queued submissions within its timeout; it does not wait for server-side
+extraction to finish.
+
+**Isolation scope:**
+
+With `memory_isolation: true`, remote `agent_id` is the current Agent ID; with
+`false`, it is `shared`. Both modes use `shared` for `user_id` and for `run_id`
+on writes. Search filters include only `agent_id` and `user_id`, so isolation
+is per Agent, not per chat user or session. Shared-mode Agents in the same
+service dataset share remote memories. Changing the setting switches the
+read/write namespace without migrating existing memories. Local Markdown
+files still belong to each Agent's workspace.
+
 **Configuration example:**
 
-The full configuration can be written into `running.adbpg_memory_config` of `agent.json`:
+The full configuration can be written into
+`running.memory_backend_configs.adbpg` in `agent.json`:
 
 ```json
 {
   "running": {
     "memory_manager_backend": "adbpg",
-    "adbpg_memory_config": {
-      "rest_base_url": "https://your-adbpg-memory-api.example.com",
-      "rest_api_key": "your-rest-api-key",
-      "memory_isolation": true,
-      "search_timeout": 10.0,
-      "auto_memory_search_config": {
-        "enabled": true,
-        "max_results": 3
+    "memory_backend_configs": {
+      "adbpg": {
+        "rest_base_url": "https://your-adbpg-memory-api.example.com",
+        "rest_api_key": "your-rest-api-key",
+        "memory_isolation": true,
+        "search_timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3
+        }
       }
     }
   }
@@ -505,6 +623,10 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
 ```
 
 > 💡 When you fill these fields in the Console "Running Config" page, the framework writes them into `agent.json` automatically — no need to edit the file by hand.
+
+The former core-owned `running.adbpg_memory_config` field is no longer
+supported. Install the plugin and move its values to
+`running.memory_backend_configs.adbpg` before starting the Agent.
 
 ---
 

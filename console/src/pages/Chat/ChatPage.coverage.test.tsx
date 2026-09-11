@@ -5,9 +5,14 @@
  * Strategy: render ChatPage with comprehensive mocks, exercise callbacks.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor, act } from "@testing-library/react";
+import { forwardRef, useEffect, useImperativeHandle } from "react";
+import { screen, waitFor, act, fireEvent } from "@testing-library/react";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
+import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
+import sessionApi from "./sessionApi";
+import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 
 // ---------------------------------------------------------------------------
@@ -18,6 +23,8 @@ const {
   mockGetActiveModels,
   mockUploadFile,
   mockFilePreviewUrl,
+  mockGetChatStatus,
+  mockRuntimeSubmit,
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
@@ -25,11 +32,18 @@ const {
   mockCopyText,
   mockBeginLoopModeSubmission,
   mockRequiresQwenPawModel,
+  mockHoldOwnershipLock,
+  mockRuntimeMount,
+  mockFetchActiveLoopMode,
+  mockSessionProjectDirectory,
+  mockHydrateBackgroundTasksForSession,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
+  mockGetChatStatus: vi.fn(),
+  mockRuntimeSubmit: vi.fn(),
   mockGetApiUrl: vi.fn((p: string) => `http://localhost:3000${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
@@ -37,6 +51,11 @@ const {
   mockCopyText: vi.fn().mockResolvedValue(undefined),
   mockBeginLoopModeSubmission: vi.fn((text: string) => text),
   mockRequiresQwenPawModel: vi.fn(() => true),
+  mockHoldOwnershipLock: vi.fn(),
+  mockRuntimeMount: vi.fn(),
+  mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
+  mockSessionProjectDirectory: vi.fn(),
+  mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
 }));
 
 let capturedOptions: any = null;
@@ -71,12 +90,20 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
-  AgentScopeRuntimeWebUI: vi.fn((props: any) => {
+  AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
+    useEffect(() => {
+      mockRuntimeMount();
+    }, []);
+    useImperativeHandle(ref, () => ({
+      input: { submit: mockRuntimeSubmit },
+      messages: { removeAllMessages: vi.fn() },
+    }));
     return (
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
+        {props.options?.sender?.actionAffix}
       </div>
     );
   }),
@@ -105,6 +132,7 @@ vi.mock("@/api/modules/chat", () => ({
   chatApi: {
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
+    getChatStatus: mockGetChatStatus,
     stopChat: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -148,6 +176,8 @@ vi.mock("./sessionApi", () => ({
     onSessionRemoved: null,
     onSessionSelected: null,
     onSessionCreated: null,
+    createSession: vi.fn(() => Promise.resolve([])),
+    userInitiatedCreate: false,
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
     setLastUserMessage: vi.fn(),
@@ -238,14 +268,10 @@ vi.mock("@/stores/loopStore", () => ({
     },
   ),
   beginLoopModeSubmission: mockBeginLoopModeSubmission,
-  fetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
+  fetchActiveLoopMode: mockFetchActiveLoopMode,
   fetchAvailableLoopModes: vi.fn(() => Promise.resolve([])),
   markLoopModeRunning: vi.fn(),
   prepareLoopModeMessage: vi.fn((text: string) => text),
-}));
-
-vi.mock("@/stores/sidebarModeStore", () => ({
-  useSidebarModeStore: vi.fn(() => ({ mode: "full" })),
 }));
 
 vi.mock("@/stores/uploadLimitStore", () => ({
@@ -268,7 +294,7 @@ vi.mock("@/stores/backgroundTasksStore", () => ({
 }));
 
 vi.mock("@/hooks/useBackgroundTaskWatcher", () => ({
-  hydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
+  hydrateBackgroundTasksForSession: mockHydrateBackgroundTasksForSession,
   stopBackgroundWatchersNotInSession: vi.fn(),
 }));
 
@@ -276,56 +302,16 @@ vi.mock("@/hooks/useAgentRunningConfigApprovalLevel", () => ({
   useAgentRunningConfigApprovalLevel: vi.fn(() => "standard"),
 }));
 
-vi.mock("@/stores/messageQueueStore", () => ({
-  useMessageQueueStore: Object.assign(
-    vi.fn((selector?: any) => {
-      const state = {
-        queues: {},
-        getQueue: vi.fn(() => []),
-        getRunState: vi.fn(() => "idle"),
-        setItemStatus: vi.fn(),
-        setCurrentSendingId: vi.fn(),
-        currentSendingId: null,
-        remove: vi.fn(),
-        loadFromStorage: vi.fn(),
-        consumeMigratedTo: vi.fn(() => undefined),
-        enqueue: vi.fn(),
-        edit: vi.fn(),
-        reorder: vi.fn(),
-        clear: vi.fn(),
-        setRunState: vi.fn(),
-        migrateQueue: vi.fn(),
-      };
-      return selector ? selector(state) : state;
-    }),
-    {
-      getState: vi.fn(() => ({
-        queues: {},
-        getQueue: vi.fn(() => []),
-        getRunState: vi.fn(() => "idle"),
-        setItemStatus: vi.fn(),
-        setCurrentSendingId: vi.fn(),
-        currentSendingId: null,
-        remove: vi.fn(),
-        loadFromStorage: vi.fn(),
-        consumeMigratedTo: vi.fn(() => undefined),
-        enqueue: vi.fn(),
-        edit: vi.fn(),
-        reorder: vi.fn(),
-        clear: vi.fn(),
-        setRunState: vi.fn(),
-        migrateQueue: vi.fn(),
-      })),
-    },
-  ),
-  MAX_QUEUE_SIZE: 100,
-  STORAGE_PREFIX: "chat.queue.",
-  withSendLock: vi.fn(async (_key: string, fn: () => any) => fn()),
-  holdOwnershipLock: vi.fn((_key: string, cb: () => void, _signal: any) => {
-    cb();
-    return Promise.resolve();
-  }),
-}));
+vi.mock("@/stores/messageQueueStore", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/stores/messageQueueStore")
+  >();
+  return {
+    ...actual,
+    withSendLock: vi.fn(async (_key: string, fn: () => unknown) => fn()),
+    holdOwnershipLock: mockHoldOwnershipLock,
+  };
+});
 
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
@@ -343,10 +329,6 @@ vi.mock("@/plugins/registry/useChatExtensions", () => ({
         },
       ),
   ),
-}));
-
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => <div data-testid="session-drawer" />,
 }));
 
 vi.mock("./components/ContextUsageIndicator", () => ({
@@ -383,6 +365,13 @@ vi.mock("./components/ChatSenderTabsPanel", () => ({
 
 vi.mock("./components/ApprovalLevelToggle", () => ({
   default: () => <div data-testid="approval-toggle" />,
+}));
+
+vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
+  default: (props: unknown) => {
+    mockSessionProjectDirectory(props);
+    return <div data-testid="session-project-directory" />;
+  },
 }));
 
 vi.mock("./components/HarnessApprovalToggle", () => ({
@@ -450,10 +439,6 @@ vi.mock("./HostBubbles", () => ({
   HostResponseCard: () => null,
 }));
 
-vi.mock("./components/ChatSessionDrawer", () => ({
-  default: () => null,
-}));
-
 vi.mock("../../plugins/registry/PluginSlotBoundary", () => ({
   PluginSlotBoundary: ({ children }: any) => children,
 }));
@@ -507,9 +492,43 @@ vi.mock("./utils", async () => {
 // ---------------------------------------------------------------------------
 describe("ChatPage coverage", () => {
   beforeEach(() => {
+    stopBackgroundQueue();
     chatExtensions.__resetForTests();
     capturedOptions = null;
     mockCopyText.mockClear();
+    mockGetChatStatus.mockReset();
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    mockRuntimeSubmit.mockReset();
+    mockRuntimeMount.mockReset();
+    mockSelectedAgent.mockReturnValue("default");
+    mockFetchActiveLoopMode.mockClear();
+    mockSessionProjectDirectory.mockClear();
+    mockHydrateBackgroundTasksForSession.mockClear();
+    mockHoldOwnershipLock.mockReset();
+    mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
+      cb();
+      return Promise.resolve();
+    });
+    vi.mocked(sessionApi.getSessionIdentity).mockImplementation(
+      (referenceId?: string | null) => ({
+        sessionId: "test-session",
+        sdkSessionId: referenceId || "test-session",
+        chatId: referenceId || "test-session",
+        userId: "test-user",
+        channel: "console",
+      }),
+    );
+    vi.mocked(sessionApi.createSession).mockClear();
+    sessionApi.userInitiatedCreate = false;
+    sessionApi.preferredChatId = null;
+    sessionApi.lastActiveChatId = "last-chat-1";
+    localStorage.clear();
+    useMessageQueueStore.setState({
+      queues: {},
+      runStates: {},
+      currentSendingId: null,
+      lastMigratedTo: null,
+    });
     mockBeginLoopModeSubmission.mockReset();
     mockBeginLoopModeSubmission.mockImplementation((text: string) => text);
     mockRequiresQwenPawModel.mockReset();
@@ -548,8 +567,32 @@ describe("ChatPage coverage", () => {
   });
 
   afterEach(() => {
+    stopBackgroundQueue();
     chatExtensions.__resetForTests();
     vi.clearAllMocks();
+  });
+
+  it("does not remount the chat SDK after delayed ownership acquisition", async () => {
+    let acquireOwnership: (() => void) | undefined;
+    mockHoldOwnershipLock.mockImplementation(
+      (_key: string, onAcquired: () => void, signal: AbortSignal) => {
+        acquireOwnership = onAcquired;
+        return new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 350)));
+    await act(async () => acquireOwnership?.());
+
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
   });
 
   it("renders ChatPage and captures options", async () => {
@@ -558,6 +601,81 @@ describe("ChatPage coverage", () => {
     });
     await screen.findByTestId("chat-ui");
     expect(capturedOptions).toBeTruthy();
+  });
+
+  it("does not bind an unresolved route chat to the current agent", async () => {
+    const staleChatId = "6c978596-76ca-4974-8a2a-d8109ef66315";
+    vi.mocked(sessionApi.getSessionIdentity).mockImplementation(
+      (referenceId?: string | null) => ({
+        sessionId: referenceId === staleChatId ? "" : "test-session",
+        sdkSessionId: referenceId || "test-session",
+        chatId: referenceId === staleChatId ? undefined : "test-session",
+        userId: "test-user",
+        channel: "console",
+      }),
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${staleChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    expect(mockFetchActiveLoopMode).not.toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: staleChatId }),
+    );
+    expect(mockSessionProjectDirectory).toHaveBeenCalled();
+    expect(
+      mockSessionProjectDirectory.mock.calls.some(
+        ([props]) =>
+          (props as { scope?: { chatId?: string } }).scope?.chatId ===
+          staleChatId,
+      ),
+    ).toBe(false);
+    expect(mockHydrateBackgroundTasksForSession).not.toHaveBeenCalled();
+  });
+
+  it("skips tool-call hydration until a blank session has a chat id", async () => {
+    const sdkSessionId = "1788939244396-ik9wz42";
+    sessionApi.lastActiveChatId = sdkSessionId;
+    vi.mocked(sessionApi.getSessionIdentity).mockImplementation(
+      (referenceId?: string | null) => ({
+        sessionId:
+          referenceId === sdkSessionId ? "stable-session-id" : "test-session",
+        sdkSessionId: referenceId || sdkSessionId,
+        chatId: undefined,
+        userId: "test-user",
+        channel: "console",
+      }),
+    );
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    expect(mockHydrateBackgroundTasksForSession).not.toHaveBeenCalled();
+  });
+
+  it("starts a blank session instead of restoring history after agent switch", async () => {
+    const localSessionId = "1785114733908-0l0jmai";
+    vi.mocked(sessionApi.createSession).mockImplementationOnce(
+      async (session) => {
+        session.id = localSessionId;
+        sessionApi.lastActiveChatId = localSessionId;
+        return [];
+      },
+    );
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/previous-agent-chat"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    mockSelectedAgent.mockReturnValue("agent-b");
+    view.rerender(<ChatPage />);
+
+    await waitFor(() => {
+      expect(sessionApi.createSession).toHaveBeenCalledTimes(1);
+    });
+    expect(sessionApi.preferredChatId).toBeNull();
+    expect(sessionApi.lastActiveChatId).toBe(localSessionId);
   });
 
   it("renders child components", async () => {
@@ -912,8 +1030,16 @@ describe("ChatPage coverage", () => {
   // ── cancel callback → calls stopChat ───────────────────────────────────
   it("cancel callback invokes stopChat", async () => {
     const { chatApi } = await import("@/api/modules/chat");
+    const chatId = "90000000-0000-4000-8000-000000000001";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 
@@ -926,8 +1052,16 @@ describe("ChatPage coverage", () => {
 
   // ── reconnect callback → calls fetch ───────────────────────────────────
   it("reconnect callback invokes fetch with reconnect body", async () => {
+    const chatId = "90000000-0000-4000-8000-000000000002";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 
@@ -1104,6 +1238,306 @@ describe("ChatPage coverage", () => {
 
     expect(result).toEqual({ proceed: true, query: "do the task" });
     expect(mockBeginLoopModeSubmission).not.toHaveBeenCalled();
+  });
+
+  it("queues an attachment submission while the backend chat is running", async () => {
+    const chatId = "11111111-1111-4111-8111-111111111111";
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const result = await beforeSubmit({
+      query: "inspect this file",
+      fileList: [
+        {
+          uid: "file-1",
+          name: "evidence.txt",
+          type: "text/plain",
+          size: 42,
+          response: { url: "/files/evidence.txt" },
+        },
+      ],
+    });
+
+    expect(result).toBe(false);
+    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+      agentId: "default",
+    });
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([
+      expect.objectContaining({
+        text: "inspect this file",
+        attachments: [
+          {
+            url: "/files/evidence.txt",
+            name: "evidence.txt",
+            type: "text/plain",
+            size: 42,
+          },
+        ],
+        bizParams: expect.objectContaining({
+          session_id: "test-session",
+          user_id: "test-user",
+          channel: "console",
+        }),
+      }),
+    ]);
+    act(() => useMessageQueueStore.getState().clear(chatId));
+  });
+
+  it("allows a submission when the backend chat is idle", async () => {
+    const chatId = "22222222-2222-4222-8222-222222222222";
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const result = await beforeSubmit({ query: "next turn" });
+
+    expect(result).toEqual({ proceed: true, query: "next turn" });
+    expect(mockGetChatStatus).toHaveBeenCalledWith(chatId, {
+      agentId: "default",
+    });
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([]);
+  });
+
+  it("serializes rapid admissions so a stale idle result cannot start two direct sends", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222222";
+    let resolveStatus: (value: { status: "idle" }) => void = () => {};
+    mockGetChatStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
+    const first = beforeSubmit({ query: "first" });
+    await waitFor(() => expect(mockGetChatStatus).toHaveBeenCalledTimes(1));
+    const second = beforeSubmit({ query: "second" });
+
+    resolveStatus({ status: "idle" });
+    let results: unknown[] = [];
+    await act(async () => {
+      results = await Promise.all([first, second]);
+    });
+
+    expect(results[0]).toEqual({ proceed: true, query: "first" });
+    expect(results[1]).toBe(false);
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(1);
+    expect(useMessageQueueStore.getState().getQueue(chatId)).toEqual([
+      expect.objectContaining({ text: "second" }),
+    ]);
+    act(() => useMessageQueueStore.getState().clear(chatId));
+  });
+
+  it("releases an unconsumed direct-send slot when switching sessions", async () => {
+    const sourceChatId = "33322222-2222-4222-8222-222222222224";
+    const targetChatId = "33322222-2222-4222-8222-222222222225";
+
+    function ChatHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${targetChatId}`)}>
+            Switch session
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    renderWithProviders(<ChatHarness />, {
+      initialEntries: [`/chat/${sourceChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const first = await capturedOptions.sender.beforeSubmit({
+      query: "abandoned direct send",
+    });
+    expect(first).toEqual({ proceed: true, query: "abandoned direct send" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+
+    let second: unknown;
+    await act(async () => {
+      second = await capturedOptions.sender.beforeSubmit({
+        query: "send after switch",
+      });
+    });
+
+    expect(second).toEqual({ proceed: true, query: "send after switch" });
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(2);
+    expect(useMessageQueueStore.getState().getQueue(targetChatId)).toEqual([]);
+  });
+
+  it("uses the admission-time session identity when direct send starts later", async () => {
+    const chatId = "33322222-2222-4222-8222-222222222223";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "source-session",
+      sdkSessionId: "source-session",
+      userId: "source-user",
+      channel: "console",
+    });
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "stay in source",
+    });
+    expect(result).toEqual({ proceed: true, query: "stay in source" });
+
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "target-session",
+      sdkSessionId: "target-session",
+      userId: "target-user",
+      channel: "console",
+    });
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "stay in source" }],
+        },
+      ],
+    });
+
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      session_id: "source-session",
+      user_id: "source-user",
+      channel: "console",
+    });
+    expect(post?.[1]?.headers).toMatchObject({ "X-Agent-Id": "default" });
+  });
+
+  it("issue 7559: persists the follow-up while backend cleanup is running and sends it once idle", async () => {
+    const chatId = "75590000-0000-4000-8000-000000000001";
+    const storageKey = `qwenpaw:message-queue:${chatId}`;
+    let statusChecks = 0;
+
+    mockGetChatStatus.mockImplementation(async () => {
+      statusChecks += 1;
+      return { status: statusChecks < 3 ? "running" : "idle" };
+    });
+    global.fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/console/chat") && init?.method === "POST") {
+          return { ok: true, status: 200, body: null } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        } as Response;
+      },
+    );
+    mockRuntimeSubmit.mockImplementation(
+      (data: { query: string; fileList?: unknown[] }) =>
+        capturedOptions.api.fetch({
+          input: [
+            {
+              role: "user",
+              content: data.query,
+              session: { session_id: "test-session" },
+            },
+          ],
+        }),
+    );
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    // This is the exact race from #7559: the SDK input is already enabled,
+    // while TaskTracker still reports the previous run as active.
+    let result: unknown;
+    await act(async () => {
+      result = await capturedOptions.sender.beforeSubmit({
+        query: "follow-up during cleanup",
+        fileList: [
+          {
+            uid: "race-file",
+            name: "race.txt",
+            type: "text/plain",
+            response: { url: "/files/race.txt" },
+          },
+        ],
+      });
+    });
+
+    expect(result).toBe(false);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([url, init]) =>
+            String(url).endsWith("/console/chat") && init?.method === "POST",
+        ),
+    ).toHaveLength(0);
+    expect(
+      JSON.parse(localStorage.getItem(storageKey) || "null"),
+    ).toMatchObject({
+      items: [
+        {
+          text: "follow-up during cleanup",
+          bizParams: expect.objectContaining({
+            session_id: "test-session",
+          }),
+          attachments: [{ url: "/files/race.txt", name: "race.txt" }],
+        },
+      ],
+    });
+
+    // The production Zustand store notifies ChatPage. The drain first sees
+    // running, polls again, then submits only after the backend becomes idle.
+
+    await waitFor(
+      () => {
+        const posts = vi
+          .mocked(fetch)
+          .mock.calls.filter(
+            ([url, init]) =>
+              String(url).endsWith("/console/chat") && init?.method === "POST",
+          );
+        expect(posts).toHaveLength(1);
+      },
+      { timeout: 4_000 },
+    );
+
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    const body = JSON.parse(String(post?.[1]?.body));
+    expect(statusChecks).toBeGreaterThanOrEqual(3);
+    expect(body).toMatchObject({
+      session_id: "test-session",
+      user_id: "test-user",
+      channel: "console",
+    });
+    expect(mockRuntimeSubmit).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(storageKey)).toBeNull();
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────
@@ -1867,8 +2301,16 @@ describe("ChatPage coverage", () => {
 
   // ── Reconnect callback with signal ─────────────────────────────────────
   it("reconnect callback handles abort signal", async () => {
+    const chatId = "90000000-0000-4000-8000-000000000003";
+    vi.mocked(sessionApi.getSessionIdentity).mockReturnValue({
+      sessionId: "test-session",
+      sdkSessionId: "test-session",
+      chatId,
+      userId: "test-user",
+      channel: "console",
+    });
     renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
+      initialEntries: [`/chat/${chatId}`],
     });
     await screen.findByTestId("chat-ui");
 

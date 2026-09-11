@@ -195,7 +195,11 @@ export default function SelectionToolbar() {
               latest?.y ?? rect.top,
             ),
           );
+          return;
         }
+        // Programmatic removeAllRanges (tour demo cleanup) emits no mouseup,
+        // so an empty selection must also dismiss the toolbar here.
+        setState(null);
       }, 0);
     };
     const close = () => setState(null);

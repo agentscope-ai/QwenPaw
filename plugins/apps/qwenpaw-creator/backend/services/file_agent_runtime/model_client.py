@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 import asyncio
 import inspect
 import json
+import os
+import re
 
 from typing import Any, Protocol
 
@@ -40,6 +42,11 @@ from .tool_protocol import (
     NativeToolTextStream,
     NonNativeToolMarkupError,
 )
+from .model_context import (
+    MODEL_INPUT_BYTES,
+    ModelContextBudgetError,
+    prepare_model_messages,
+)
 
 logger = setup_logger("creator.model_client")
 
@@ -66,11 +73,15 @@ class RateLimitExhaustedError(AgentModelError):
 
 @dataclass(frozen=True, slots=True)
 class RateLimitRetryNotice:
-    """One upcoming rate-limit retry, reported before the backoff sleep."""
+    """
+    One real upcoming model retry; the legacy callback also carries recovery
+    retries.
+    """
 
     attempt: int
     max_attempts: int
     delay_seconds: float
+    reason: str = "rate_limit"
 
 
 AgentRateLimitRetryCallback = Callable[
@@ -78,18 +89,18 @@ AgentRateLimitRetryCallback = Callable[
     Awaitable[None],
 ]
 
-# Provider-side throttling surfaces through several transports (DashScope
-# SDK status codes, OpenAI-compatible HTTP 429 bodies, upstream 503
-# overload pages). Match all of them so a throttled turn is retried
-# instead of killing the run.
+# Text is a fallback for SDKs that discard the structured HTTP response.
+# A request ID can contain any digits, so bare status substrings are unsafe.
 RATE_LIMIT_ERROR_SIGNATURES = (
-    "<503>",
-    "429",
     "throttl",
     "too many requests",
     "rate limit",
     "ratelimit",
-    "serviceunavailable",
+)
+_HTTP_STATUS_PATTERN = re.compile(
+    r"(?:\b(?:http(?:/\d(?:\.\d)?)?|status(?:[_ -]?code)?|error code)"
+    r"[\"']?\s*[:=]?\s*[\"']?|^\s*|<)([45]\d\d)(?=\b|>)",
+    re.IGNORECASE,
 )
 
 MAX_RATE_LIMIT_RETRIES = 5
@@ -97,9 +108,47 @@ MAX_TRANSIENT_MODEL_RETRIES = 4
 
 
 def is_rate_limit_error_text(exc_text: str) -> bool:
+    match = _HTTP_STATUS_PATTERN.search(exc_text)
+    if match is not None:
+        return int(match.group(1)) == 429
     lowered = exc_text.lower()
     return any(
         signature in lowered for signature in RATE_LIMIT_ERROR_SIGNATURES
+    )
+
+
+def _provider_http_status(exc: Exception) -> int | None:
+    """Prefer transport facts to arbitrary text in a provider error body."""
+    for source in (exc, getattr(exc, "response", None)):
+        for name in ("status_code", "status"):
+            value = getattr(source, name, None)
+            if isinstance(value, (int, str)) and str(value).isdigit():
+                status = int(value)
+                if 400 <= status <= 599:
+                    return status
+    match = _HTTP_STATUS_PATTERN.search(str(exc))
+    return int(match.group(1)) if match else None
+
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    status = _provider_http_status(exc)
+    if status is not None:
+        return status == 429
+    return is_rate_limit_error_text(str(exc))
+
+
+def is_context_length_error(exc: Exception) -> bool:
+    if _provider_http_status(exc) not in (None, 400, 413, 422):
+        return False
+    return any(
+        marker in str(exc).casefold()
+        for marker in (
+            "input length should be",
+            "context_length_exceeded",
+            "maximum context length",
+            "context window exceeded",
+            "prompt is too long",
+        )
     )
 
 
@@ -150,7 +199,9 @@ class AgentToolCall:
     provider_chunk_count: int = field(default=0, compare=False, repr=False)
 
     def history_dict(self) -> dict[str, Any]:
-        """Serialize the call for the driver's provider-independent turn history."""
+        """
+        Serialize the call for the driver's provider-independent turn history.
+        """
 
         return {
             "id": self.call_id,
@@ -622,6 +673,28 @@ def _build_chat_model(
     )
 
 
+def default_model_turn_timeout_seconds() -> float:
+    """Per-turn budget shared by the driver and the transport timeout.
+
+    Planning turns that emit a full Element structure in one response
+    legitimately exceed 300s on slower endpoints, so the floor is 600s;
+    ``CREATOR_MODEL_TURN_TIMEOUT_SECONDS`` raises it per deployment.
+    Invalid or non-positive overrides fall back to 600.
+    """
+    raw = os.environ.get("CREATOR_MODEL_TURN_TIMEOUT_SECONDS", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return 600.0
+
+
+DEFAULT_MODEL_TURN_TIMEOUT_SECONDS = default_model_turn_timeout_seconds()
+
+
 class AgentScopeAgentChatClient:
     """Direct AgentScope 2.0.4 model adapter for file Runtime turns.
 
@@ -635,9 +708,9 @@ class AgentScopeAgentChatClient:
         self,
         model: ChatModelBase | None = None,
         *,
-        # Keep in sync with driver.DEFAULT_MODEL_TURN_TIMEOUT_SECONDS so
-        # the transport timeout never undercuts the turn budget.
-        timeout_seconds: float = 300.0,
+        # Shares default_model_turn_timeout_seconds with the driver turn
+        # budget so the transport timeout never undercuts it.
+        timeout_seconds: float = DEFAULT_MODEL_TURN_TIMEOUT_SECONDS,
         # ``None`` omits the parameter entirely so the provider/model keeps
         # control over its own output budget.
         max_tokens: int | None = None,
@@ -734,6 +807,8 @@ class AgentScopeAgentChatClient:
             self._configuration = configuration
         return self.model
 
+    # Provider recovery paths return as soon as a complete turn is available.
+    # pylint: disable-next=too-many-return-statements
     async def complete(
         self,
         *,
@@ -747,7 +822,17 @@ class AgentScopeAgentChatClient:
         _rate_limit_retries_remaining: int = MAX_RATE_LIMIT_RETRIES,
         _transient_retries_remaining: int = MAX_TRANSIENT_MODEL_RETRIES,
         _markup_retries_remaining: int = 4,
+        _context_retries_remaining: int = 1,
+        _context_budget_bytes: int = MODEL_INPUT_BYTES,
     ) -> AgentModelTurn:
+        try:
+            messages = prepare_model_messages(
+                messages,
+                tools,
+                max_bytes=_context_budget_bytes,
+            )
+        except ModelContextBudgetError as exc:
+            raise AgentModelError(str(exc)) from exc
         native_messages = records_to_agentscope_messages(messages)
         allowed_names = {
             str((item.get("function") or {}).get("name") or "")
@@ -843,7 +928,8 @@ class AgentScopeAgentChatClient:
                                         ).append(
                                             block.input,
                                         )
-                        # Unknown provider blocks cannot represent a tool call and
+                        # Unknown provider blocks cannot represent a tool call
+                        # and
                         # are intentionally ignored at this transport boundary.
                     if final is None:
                         raise AgentModelError(
@@ -856,6 +942,15 @@ class AgentScopeAgentChatClient:
             # A fresh turn usually recovers; killing the run must be the
             # last resort, not the first response.
             if _markup_retries_remaining > 0:
+                if on_rate_limit_retry is not None:
+                    await on_rate_limit_retry(
+                        RateLimitRetryNotice(
+                            attempt=5 - _markup_retries_remaining,
+                            max_attempts=4,
+                            delay_seconds=0,
+                            reason="invalid_response",
+                        ),
+                    )
                 logger.warning(
                     "Model emitted textual tool-call markup in a TextBlock, "
                     "retrying (%d retries remaining)",
@@ -876,6 +971,8 @@ class AgentScopeAgentChatClient:
                         _transient_retries_remaining
                     ),
                     _markup_retries_remaining=_markup_retries_remaining - 1,
+                    _context_retries_remaining=_context_retries_remaining,
+                    _context_budget_bytes=_context_budget_bytes,
                 )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of "
@@ -895,7 +992,52 @@ class AgentScopeAgentChatClient:
             raise
         except Exception as exc:
             exc_text = str(exc)
-            is_rate_limit = is_rate_limit_error_text(exc_text)
+            if is_context_length_error(exc) and _context_retries_remaining:
+                # A context 400 is deterministic. Retry only after producing
+                # a strictly smaller valid context, never as rate limiting.
+                smaller_budget = min(
+                    _context_budget_bytes // 2,
+                    len(
+                        json.dumps(
+                            {"messages": messages, "tools": tools},
+                            ensure_ascii=False,
+                        ).encode("utf-8"),
+                    )
+                    // 2,
+                )
+                try:
+                    smaller = prepare_model_messages(
+                        messages,
+                        tools,
+                        max_bytes=smaller_budget,
+                    )
+                except ModelContextBudgetError:
+                    smaller = None
+                if smaller is not None and smaller != messages:
+                    if on_rate_limit_retry is not None:
+                        await on_rate_limit_retry(
+                            RateLimitRetryNotice(
+                                attempt=1,
+                                max_attempts=1,
+                                delay_seconds=0,
+                                reason="context_recovery",
+                            ),
+                        )
+                    return await self.complete(
+                        messages=smaller,
+                        tools=tools,
+                        on_text_delta=on_text_delta,
+                        on_thinking_delta=on_thinking_delta,
+                        on_tool_call_delta=on_tool_call_delta,
+                        on_rate_limit_retry=on_rate_limit_retry,
+                        _empty_retries_remaining=_empty_retries_remaining,
+                        _rate_limit_retries_remaining=_rate_limit_retries_remaining,
+                        _transient_retries_remaining=_transient_retries_remaining,
+                        _markup_retries_remaining=_markup_retries_remaining,
+                        _context_retries_remaining=0,
+                        _context_budget_bytes=smaller_budget,
+                    )
+            is_rate_limit = is_rate_limit_error(exc)
             if is_rate_limit and _rate_limit_retries_remaining > 0:
                 attempt = (
                     MAX_RATE_LIMIT_RETRIES - _rate_limit_retries_remaining
@@ -938,6 +1080,8 @@ class AgentScopeAgentChatClient:
                         _transient_retries_remaining
                     ),
                     _markup_retries_remaining=_markup_retries_remaining,
+                    _context_retries_remaining=_context_retries_remaining,
+                    _context_budget_bytes=_context_budget_bytes,
                 )
             if is_rate_limit:
                 model_name = (
@@ -956,6 +1100,7 @@ class AgentScopeAgentChatClient:
                     f"{MAX_RATE_LIMIT_RETRIES} retries: {exc_text}",
                     retries=MAX_RATE_LIMIT_RETRIES,
                 ) from exc
+            status = _provider_http_status(exc)
             is_transient = is_transient_error_message(exc_text) or any(
                 marker in exc_text.casefold()
                 for marker in (
@@ -966,6 +1111,10 @@ class AgentScopeAgentChatClient:
                     "download multimodal file timed out",
                 )
             )
+            if status is not None:
+                # Invalid input/auth errors cannot become retryable merely
+                # because their response body mentions throttling/timeouts.
+                is_transient = status == 408 or status >= 500
             if is_transient and _transient_retries_remaining > 0:
                 attempt = (
                     MAX_TRANSIENT_MODEL_RETRIES - _transient_retries_remaining
@@ -984,6 +1133,15 @@ class AgentScopeAgentChatClient:
                     type(exc).__name__,
                     exc_text,
                 )
+                if on_rate_limit_retry is not None:
+                    await on_rate_limit_retry(
+                        RateLimitRetryNotice(
+                            attempt=attempt + 1,
+                            max_attempts=MAX_TRANSIENT_MODEL_RETRIES,
+                            delay_seconds=delay,
+                            reason="transient",
+                        ),
+                    )
                 await asyncio.sleep(delay)
                 return await self.complete(
                     messages=messages,
@@ -998,6 +1156,8 @@ class AgentScopeAgentChatClient:
                         _transient_retries_remaining - 1
                     ),
                     _markup_retries_remaining=_markup_retries_remaining,
+                    _context_retries_remaining=_context_retries_remaining,
+                    _context_budget_bytes=_context_budget_bytes,
                 )
             logger.error(
                 "Model request failed with unexpected error: %s: %s",
@@ -1008,6 +1168,26 @@ class AgentScopeAgentChatClient:
             raise AgentModelError(
                 f"Creator AgentScope model request failed: {exc}",
             ) from exc
+
+        finish_reason = str(
+            getattr(
+                getattr(response, "finished_reason", None),
+                "value",
+                getattr(response, "finished_reason", "completed"),
+            ),
+        )
+        if finish_reason == "interrupted":
+            # AgentScope catches CancelledError and returns its accumulated
+            # stream. Restore cancellation so wait_for still enforces the
+            # driver's deadline, and never repair/execute partial calls.
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise asyncio.CancelledError
+            raise AgentModelError(
+                "Creator model response was interrupted; "
+                "no tool calls from this response were executed. Retry "
+                "with a smaller, complete project change.",
+            )
 
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -1064,6 +1244,15 @@ class AgentScopeAgentChatClient:
             await text_stream.finalize(text)
         except NonNativeToolMarkupError as exc:
             if _markup_retries_remaining > 0:
+                if on_rate_limit_retry is not None:
+                    await on_rate_limit_retry(
+                        RateLimitRetryNotice(
+                            attempt=5 - _markup_retries_remaining,
+                            max_attempts=4,
+                            delay_seconds=0,
+                            reason="invalid_response",
+                        ),
+                    )
                 logger.warning(
                     "Model emitted textual tool-call markup in final text, "
                     "retrying (%d retries remaining)",
@@ -1084,6 +1273,8 @@ class AgentScopeAgentChatClient:
                         _transient_retries_remaining
                     ),
                     _markup_retries_remaining=_markup_retries_remaining - 1,
+                    _context_retries_remaining=_context_retries_remaining,
+                    _context_budget_bytes=_context_budget_bytes,
                 )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of an "
@@ -1091,6 +1282,15 @@ class AgentScopeAgentChatClient:
             ) from exc
         if not text and not calls:
             if _empty_retries_remaining > 0:
+                if on_rate_limit_retry is not None:
+                    await on_rate_limit_retry(
+                        RateLimitRetryNotice(
+                            attempt=3 - _empty_retries_remaining,
+                            max_attempts=2,
+                            delay_seconds=0,
+                            reason="empty_response",
+                        ),
+                    )
                 return await self.complete(
                     messages=messages,
                     tools=tools,
@@ -1106,6 +1306,8 @@ class AgentScopeAgentChatClient:
                         _transient_retries_remaining
                     ),
                     _markup_retries_remaining=_markup_retries_remaining,
+                    _context_retries_remaining=_context_retries_remaining,
+                    _context_budget_bytes=_context_budget_bytes,
                 )
             raise AgentModelError(
                 "Creator AgentScope model returned empty text and no ToolCallBlock",
@@ -1138,13 +1340,7 @@ class AgentScopeAgentChatClient:
             provider_message_id=(
                 str(response.id) if getattr(response, "id", None) else None
             ),
-            finish_reason=str(
-                getattr(
-                    getattr(response, "finished_reason", None),
-                    "value",
-                    getattr(response, "finished_reason", "completed"),
-                ),
-            ),
+            finish_reason=finish_reason,
             usage=_usage_payload(getattr(response, "usage", None)),
         )
 

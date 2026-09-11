@@ -14,9 +14,24 @@ export interface TourStepBlueprint {
 }
 
 export function resolveTarget(selectors: string[]): HTMLElement | null {
+  // display:contents anchors report a 0x0 rect, which would pin the antd
+  // Tour spotlight to the viewport origin — only accept sized elements and
+  // as a last resort spotlight the first sized descendant.
+  const sized = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  let zeroSize: HTMLElement | null = null;
   for (const selector of selectors) {
     const element = document.querySelector<HTMLElement>(selector);
-    if (element) return element;
+    if (!element) continue;
+    if (sized(element)) return element;
+    zeroSize = zeroSize ?? element;
+  }
+  if (zeroSize) {
+    for (const descendant of zeroSize.querySelectorAll<HTMLElement>("*")) {
+      if (sized(descendant)) return descendant;
+    }
   }
   return null;
 }
@@ -36,7 +51,28 @@ export default function TourRunner({
 }: TourRunnerProps) {
   const [open, setOpen] = useState(false);
   const [anchorsReady, setAnchorsReady] = useState(false);
+  // Browser zoom / window resize invalidate the measured spotlight rect;
+  // bumping the tick rebuilds the steps so antd re-resolves and re-measures.
+  const [viewportTick, setViewportTick] = useState(0);
   const active = shouldRun && !open;
+
+  useEffect(() => {
+    if (!open) return;
+    let raf = 0;
+    const remeasure = () => {
+      window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() =>
+        setViewportTick((tick) => tick + 1),
+      );
+    };
+    window.addEventListener("resize", remeasure);
+    window.visualViewport?.addEventListener("resize", remeasure);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", remeasure);
+      window.visualViewport?.removeEventListener("resize", remeasure);
+    };
+  }, [open]);
 
   // Anchors may render asynchronously (snapshot polling + lazy loading), so
   // poll until the first anchor mounts.
@@ -62,8 +98,19 @@ export default function TourRunner({
     if (active && anchorsReady) setOpen(true);
   }, [active, anchorsReady]);
 
+  // Leaving the page mid-tour (route change) must dismiss the tour without
+  // marking it done, so it re-runs on the next visit instead of showing
+  // whichever step still resolves on the new page.
+  useEffect(() => {
+    if (!shouldRun && open) {
+      setOpen(false);
+      setAnchorsReady(false);
+    }
+  }, [shouldRun, open]);
+
   const tourSteps = useMemo<TourProps["steps"]>(() => {
     if (!open) return [];
+    void viewportTick;
     return steps
       .filter((step) => resolveTarget(step.selectors))
       .map((step) => ({
@@ -77,7 +124,7 @@ export default function TourRunner({
         ),
         target: () => resolveTarget(step.selectors) as HTMLElement,
       }));
-  }, [open, steps]);
+  }, [open, steps, viewportTick]);
 
   const finish = () => {
     setOpen(false);
@@ -88,6 +135,12 @@ export default function TourRunner({
   if (!open || !tourSteps || tourSteps.length === 0) return null;
 
   return (
-    <Tour open={open} steps={tourSteps} onClose={finish} onFinish={finish} />
+    <Tour
+      open={open}
+      steps={tourSteps}
+      scrollIntoViewOptions={{ block: "center", inline: "nearest" }}
+      onClose={finish}
+      onFinish={finish}
+    />
   );
 }

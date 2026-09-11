@@ -1,6 +1,7 @@
 .collapsedSteps {
   width: calc(100% + 8px);
   margin-left: -8px;
+  overflow-anchor: none;
 
   /* Closed headers add a 1px border; keep both content baselines equal. */
   :global([class$="-accordion-group-header-close"]) {
@@ -26,7 +27,7 @@
     :global(
         [class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"]
       ) {
-      color: #52c41a !important;
+      color: var(--app-success-text) !important;
     }
   }
 }

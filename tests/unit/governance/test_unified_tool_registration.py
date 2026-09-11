@@ -177,7 +177,6 @@ class TestBuiltinDescriptorGovernance:
             "RecallHistoryPython": "shell",
             "MemorySearch": "internal",
             "MemoryRemember": "network",
-            "PowerContextMemorySearch": "network",
         }
         for name, tool_type in expected.items():
             assert DEFAULT_REGISTRY.get_type(name) == tool_type, name
@@ -206,10 +205,7 @@ class TestBuiltinDescriptorGovernance:
             assert "Unregistered tool" not in (decision.reason or "")
 
         strict_policy = GovernancePolicy(execution_level="strict")
-        for policy_name in (
-            "MemoryRemember",
-            "PowerContextMemorySearch",
-        ):
+        for policy_name in ("MemoryRemember",):
             assert (
                 strict_policy.evaluate(_tc(policy_name)).action
                 is GovernanceAction.ASK

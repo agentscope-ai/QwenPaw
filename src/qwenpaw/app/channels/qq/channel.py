@@ -45,7 +45,12 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import file_url_to_local_path, split_text
+from ..utils import (
+    file_url_to_local_path,
+    materialize_data_url,
+    parse_data_url_async,
+    split_text,
+)
 
 if TYPE_CHECKING:
     import concurrent.futures
@@ -559,6 +564,7 @@ async def _send_guild_image_file_async(
     path: str,
     file_path: str,
     msg_id: Optional[str] = None,
+    filename: Optional[str] = None,
 ) -> None:
     """Send an image in guild/dm via form-data ``file_image`` upload.
 
@@ -578,7 +584,7 @@ async def _send_guild_image_file_async(
     data.add_field(
         "file_image",
         file_bytes,
-        filename=Path(file_path).name,
+        filename=filename or Path(file_path).name,
     )
     async with session.post(
         api_url,
@@ -2249,6 +2255,7 @@ class QQChannel(BaseChannel):
                 message_type,
             )
 
+    # pylint: disable=too-many-return-statements
     async def _send_media_c2c_or_group(
         self,
         *,
@@ -2301,6 +2308,20 @@ class QQChannel(BaseChannel):
                     local_path,
                 )
                 return
+        elif url and url.startswith("data:"):
+            try:
+                data_media = await parse_data_url_async(url)
+            except ValueError as exc:
+                logger.warning(f"qq: invalid media data URL: {exc}")
+                return
+            if data_media is None:
+                return
+            encoded = await asyncio.to_thread(
+                base64.b64encode,
+                data_media.data,
+            )
+            file_data = await asyncio.to_thread(encoded.decode, "ascii")
+            display_filename = f"file{data_media.suffix}"
         elif url:
             display_filename = Path(url.split("?")[0]).name
 
@@ -2379,7 +2400,23 @@ class QQChannel(BaseChannel):
             return
 
         try:
-            if url:
+            if url and url.startswith("data:"):
+                async with materialize_data_url(
+                    url,
+                    self._media_dir,
+                    filename_hint="image",
+                ) as media:
+                    if media is None:
+                        return
+                    await _send_guild_image_file_async(
+                        self._http,
+                        token,
+                        path,
+                        media.path,
+                        msg_id,
+                        filename=media.filename,
+                    )
+            elif url:
                 await _send_guild_image_async(
                     self._http,
                     token,

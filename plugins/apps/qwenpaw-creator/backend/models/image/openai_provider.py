@@ -68,18 +68,24 @@ RESPONSES_SUBMIT_TIMEOUT = 60
 _RESPONSES_PENDING = frozenset({"queued", "in_progress"})
 
 
+def _ordered_reference_urls(reference_image_urls: list[str]) -> list[str]:
+    """Validate positions without deduplicating or silently taking 16."""
+    if len(reference_image_urls) > 16 or any(
+        not url.strip() for url in reference_image_urls
+    ):
+        raise ModelError(
+            "Image references require 1–16 nonempty ordered inputs",
+            model_name=DEFAULT_MODEL_NAME,
+        )
+    return [url.strip() for url in reference_image_urls]
+
+
 async def build_reference_image_files(
     reference_image_urls: list[str],
 ) -> list[tuple[str, tuple[str, bytes, str]]]:
     files: list[tuple[str, tuple[str, bytes, str]]] = []
     total_bytes = 0
-    unique_urls = [
-        url
-        for url in dict.fromkeys(
-            raw.strip() for raw in reference_image_urls[:16]
-        )
-        if url
-    ]
+    unique_urls = _ordered_reference_urls(reference_image_urls)
     # The Images edits API takes one part named ``image``; multiple
     # references must be sent as ``image[]``. Some gateway deployments used
     # to tolerate a repeated ``image`` field, but enforcement now rejects
@@ -121,13 +127,7 @@ async def build_reference_image_data_urls(
 
     data_urls: list[str] = []
     total_bytes = 0
-    unique_urls = [
-        url
-        for url in dict.fromkeys(
-            raw.strip() for raw in reference_image_urls[:16]
-        )
-        if url
-    ]
+    unique_urls = _ordered_reference_urls(reference_image_urls)
     for raw_url in unique_urls:
         content, filename = await read_reference_media(raw_url)
         total_bytes += len(content)
@@ -147,7 +147,9 @@ async def build_reference_image_data_urls(
 
 
 class OpenAIImageModel(BaseImageModel):
-    """OpenAI Images API format: POST {base}[/v1]/images/generations[/edits]."""
+    """
+    OpenAI Images API format: POST {base}[/v1]/images/generations[/edits].
+    """
 
     backend_name = "openai"
 
@@ -288,7 +290,7 @@ class OpenAIImageModel(BaseImageModel):
             "model": self.model_name,
             "prompt": prompt,
             "n": 1,
-            "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1536x1024"),
+            "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1024x1024"),
             "quality": self.quality,
             "output_format": "png",
             "stream": False,
@@ -300,9 +302,11 @@ class OpenAIImageModel(BaseImageModel):
                 url,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 data={
-                    key: str(value).lower()
-                    if isinstance(value, bool)
-                    else value
+                    key: (
+                        str(value).lower()
+                        if isinstance(value, bool)
+                        else value
+                    )
                     for key, value in body.items()
                 },
                 files=files,
@@ -346,7 +350,7 @@ class OpenAIImageModel(BaseImageModel):
                 {
                     "type": "image_generation",
                     "model": self.model_name,
-                    "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1536x1024"),
+                    "size": OPENAI_SIZE_MAP.get(aspect_ratio, "1024x1024"),
                     "quality": self.quality,
                     "output_format": "png",
                 },

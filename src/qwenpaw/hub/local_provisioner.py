@@ -18,6 +18,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import IO
 
+from ..utils.http import probe_host_for_bind_host
 from .credentials import runtime_credential_name_allowed
 from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 from .models import RuntimeRecord, RuntimeState
@@ -168,9 +169,13 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             "--port",
             str(port),
         ]
+        runtime_host = record.host
+        runtime_port = port
         tunnel: WindowsReverseTunnelBroker | None = None
         if self._isolator.name == "windows-appcontainer":
             internal_port = allocate_loopback_port()
+            runtime_host = "127.0.0.1"
+            runtime_port = internal_port
             tunnel = WindowsReverseTunnelBroker(record.host, port)
             tunnel.start()
             command = [
@@ -194,7 +199,10 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 str(internal_port),
             ]
         launch_record = replace(record, port=port)
-        environment = self.runtime_environment(launch_record, credentials)
+        environment = self.runtime_environment(
+            replace(launch_record, host=runtime_host, port=runtime_port),
+            credentials,
+        )
         try:
             isolated = self._isolator.prepare(
                 launch_record,
@@ -396,6 +404,10 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         environment[
             "QWENPAW_KEYRING_ACCOUNT"
         ] = f"qwenpaw-hub-{record.runtime_id}"
+        host = probe_host_for_bind_host(record.host)
+        if ":" in host:
+            host = f"[{host}]"
+        environment["QWENPAW_RUNTIME_API_URL"] = f"http://{host}:{record.port}"
         environment["QWENPAW_RUNTIME_ID"] = record.runtime_id
         environment["QWENPAW_TENANT_ID"] = record.tenant_id
         runtime_token = credentials.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")

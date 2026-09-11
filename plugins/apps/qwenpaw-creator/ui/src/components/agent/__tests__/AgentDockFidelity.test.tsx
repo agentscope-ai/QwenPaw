@@ -90,41 +90,9 @@ const seedSession = (status: string, patch: Record<string, unknown> = {}) =>
       }) as never,
   );
 
-describe("AgentDock origin/main visible fidelity", () => {
+describe("AgentDock public output and interactions", () => {
   beforeEach(() => {
     seedCreatorSession();
-  });
-
-  it("matches the right-edge handle trigger and exact 440x620 floating shell", async () => {
-    useAgentDockUiStore.getState().setOpen(false);
-    renderDock();
-    const trigger = screen.getByRole("button", { name: "创作助手" });
-    expect(trigger).toHaveAttribute("data-agent-dock-handle");
-    expect(trigger).toHaveAttribute("data-state", "idle");
-
-    fireEvent.click(trigger);
-    const dock = document.querySelector<HTMLElement>("[data-agent-dock]")!;
-    await waitFor(() =>
-      expect(dock).toHaveStyle({ width: "440px", height: "620px" }),
-    );
-    expect(dock).toHaveAttribute("data-agent-dock-width", "440");
-    expect(dock).toHaveAttribute("data-agent-dock-height", "620");
-    expect(screen.getByText("创作助手")).toBeInTheDocument();
-    // Top-bar entries dropped from the redesigned shell:
-    for (const name of ["审阅与决策中心", "新对话", "历史聊天", "最大化面板"]) {
-      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
-    }
-    // With no pending decisions the tray takes up no space at all.
-    expect(
-      document.querySelector("[data-decision-tray]"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "工作区事实" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "收起 Agent 面板" }),
-    ).toBeInTheDocument();
-    expect(composerBox()).toHaveClass("min-h-[32px]", "max-h-24");
   });
 
   it("pops the dock open with the inline tray when a production confirmation arrives live", async () => {
@@ -162,8 +130,10 @@ describe("AgentDock origin/main visible fidelity", () => {
   });
 
   it("keeps workspace and collapse interactions, resizes and closes with Escape", async () => {
-    useAgentDockUiStore.getState().setOpen(true);
+    useAgentDockUiStore.getState().setOpen(false);
     renderDock();
+    fireEvent.click(screen.getByRole("button", { name: "创作助手" }));
+    expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "工作区事实" }));
     expect(screen.getByText("当前任务")).toBeInTheDocument();
@@ -175,6 +145,7 @@ describe("AgentDock origin/main visible fidelity", () => {
       screen.queryByRole("button", { name: "最大化面板" }),
     ).not.toBeInTheDocument();
 
+    const { width, height } = useAgentDockUiStore.getState();
     fireEvent.pointerDown(document.querySelector('[title="拖拽调整大小"]')!, {
       clientX: 440,
       clientY: 100,
@@ -182,8 +153,8 @@ describe("AgentDock origin/main visible fidelity", () => {
     fireEvent.pointerMove(window, { clientX: 380, clientY: 40 });
     fireEvent.pointerUp(window);
     await waitFor(() => {
-      expect(useAgentDockUiStore.getState().width).toBe(500);
-      expect(useAgentDockUiStore.getState().height).toBe(680);
+      expect(useAgentDockUiStore.getState().width).toBe(width + 60);
+      expect(useAgentDockUiStore.getState().height).toBe(height + 60);
     });
 
     fireEvent.keyDown(window, { key: "Escape" });
@@ -193,99 +164,59 @@ describe("AgentDock origin/main visible fidelity", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows streaming tool status without exposing internal JSON details", async () => {
+  it("streams public narration while keeping thinking and tool schemas out of every disclosure", () => {
     useAgentDockUiStore.getState().setOpen(true);
-    const user = msg({ messageId: "user-stream-tool", text: "读取计划" });
+    useAgentDockUiStore.getState().setAllowExpandDetails(true);
     seedSession("RUNNING", {
-      messages: [user],
       streamingAssistantMessages: {
-        "assistant-stream-tool": {
-          messageId: "assistant-stream-tool",
+        live: {
+          messageId: "live",
           firstEventSeq: 10,
           deltas: {
-            0: '我先读取计划。\n```json\n{"action":"tool_call","tool":"read_project_file",',
-            1: '"arguments":{"path":"plan',
+            0: '我先读取计划。\n```json\n{"action":"tool_call","tool":"read_project_file","arguments":{"path":"plan',
           },
-          thinkingDeltas: { 0: "确认需要读取的文件。" },
+          thinkingDeltas: { 0: "SECRET_THINKING" },
           createdAt: "now",
         },
       },
     });
     renderDock();
-
-    const streamingAction = document.querySelector<HTMLElement>(
-      '[data-agent-action="tool_call"]',
-    )!;
-    expect(streamingAction).toHaveAttribute("data-streaming-action", "true");
-    expect(streamingAction).toHaveAttribute("data-expanded", "false");
-    expect(streamingAction).toHaveTextContent("读取素材分析处理中");
+    expect(screen.getByText("我先读取计划。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SECRET_THINKING");
+    expect(document.body).not.toHaveTextContent('"arguments"');
     expect(
-      within(streamingAction).queryByText(/"path":"plan/),
+      screen.queryByRole("button", { name: "详情" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("我先读取计划。")).not.toBeInTheDocument();
-
     act(() =>
       useCreatorSessionStore.setState({
         streamingAssistantMessages: {},
         messages: [
-          user,
           asst({
-            messageId: "assistant-stream-tool",
-            text: '我先读取计划。\n```json\n{"action":"tool_call","tool":"read_project_file","arguments":{"path":"plan.json"}}\n```',
-            metadata: {
-              providerThinking: "确认需要读取的文件。",
-              actionId: "action-stream-tool",
-              parsedAction: {
-                action: "tool_call",
-                tool: "read_project_file",
-                arguments: { path: "plan.json" },
-              },
-            },
-          }),
-        ],
-        events: [
-          evt("agent.tool_started", 20, {
-            actionId: "action-stream-tool",
-            tool: "read_project_file",
+            messageId: "live",
+            text: "计划已读取。",
+            metadata: { providerThinking: "SECRET_THINKING" },
           }),
         ],
       }),
     );
-    const thinking = document.querySelector<HTMLElement>(
-      "[data-agent-thinking]",
-    )!;
-    const tool = document.querySelector<HTMLElement>(
-      '[data-agent-tool="action-stream-tool"]',
-    )!;
-    await waitFor(() =>
-      expect(thinking).toHaveAttribute("data-expanded", "false"),
-    );
-    expect(thinking).toHaveTextContent("思考完成");
-    expect(
-      thinking.querySelector("[data-agent-thinking-output]"),
-    ).not.toBeInTheDocument();
-    expect(tool).toHaveAttribute("data-expanded", "false");
-    expect(tool).toHaveTextContent("读取素材分析处理中");
-    expect(
-      within(tool).queryByText(/"path": "plan.json"/),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("计划已读取。")).toBeInTheDocument();
+    expect(document.querySelector("[data-agent-thinking]")).toBeNull();
+    expect(document.body).not.toHaveTextContent("SECRET_THINKING");
   });
 
-  it("renders yield_until_runtime_event as a collapsed waiting action", () => {
+  it("shows public waiting narration without internal wait reasons or identifiers", () => {
     useAgentDockUiStore.getState().setOpen(true);
-    useCreatorSessionStore.setState({
+    seedSession("WAITING_RUNTIME", {
       messages: [
-        msg({ messageId: "user-yield", text: "等待剪辑" }),
         asst({
-          messageId: "assistant-yield",
-          text: '剪辑任务仍在运行。\n```json\n{"action":"yield_until_runtime_event","arguments":{"waitForRunIds":["run-video-1"],"reason":"等待 Source Intelligence 完成素材分析，以便 Runtime 投影 Timeline 和 Element，然后委派 AI Editing Director 进行剪辑"}}\n```',
+          messageId: "wait",
+          text: '剪辑任务仍在运行。\n```json\n{"action":"yield_until_runtime_event","arguments":{"reason":"PRIVATE_RUNTIME","waitForRunIds":["run-secret"]}}\n```',
           metadata: {
             parsedAction: {
               action: "yield_until_runtime_event",
               arguments: {
-                waitForRunIds: ["run-video-1"],
-                reason:
-                  "等待 Source Intelligence 完成素材分析，以便 Runtime 投影 Timeline 和 Element，然后委派 AI Editing Director 进行剪辑",
+                reason: "PRIVATE_RUNTIME",
+                waitForRunIds: ["run-secret"],
               },
             },
           },
@@ -293,18 +224,9 @@ describe("AgentDock origin/main visible fidelity", () => {
       ],
     });
     renderDock();
-
-    const waiting = document.querySelector<HTMLElement>(
-      '[data-agent-action="yield_until_runtime_event"]',
-    )!;
-    expect(waiting).toHaveAttribute("data-expanded", "false");
-    expect(waiting).toHaveTextContent(
-      "等待 Source Intelligence 完成素材分析，以便 Runtime 投影 Timeline 和 Element，然后委派 AI Editing Director 进行剪辑中",
-    );
-    expect(waiting).not.toHaveTextContent("等待等待");
-    expect(
-      within(waiting).queryByText(/"run-video-1"/),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("剪辑任务仍在运行。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("PRIVATE_RUNTIME");
+    expect(document.body).not.toHaveTextContent("run-secret");
   });
 
   it("keeps the focused modification editor writable and submits at a live SSE boundary", async () => {
@@ -411,7 +333,7 @@ describe("AgentDock origin/main visible fidelity", () => {
 
     renderDock();
 
-    expect(screen.getByText("视频生成失败，请重试")).toBeInTheDocument();
+    expect(screen.getByText("发送未成功，请重新发送。")).toBeInTheDocument();
     expect(
       screen.queryByText(/internal\/path\/project\.json/),
     ).not.toBeInTheDocument();
@@ -455,7 +377,6 @@ describe("AgentDock origin/main visible fidelity", () => {
     textbox.textContent = "";
     fireEvent.input(textbox);
     const stop = screen.getByRole("button", { name: "停止所有 Agent" });
-    expect(stop).toHaveClass("agent-dock-stop-glow");
     expect(
       screen.queryByRole("button", { name: "发送" }),
     ).not.toBeInTheDocument();
@@ -564,7 +485,6 @@ describe("AgentDock origin/main visible fidelity", () => {
     const userBubble = screen
       .getByText("请检查当前计划")
       .closest("[data-agent-message]");
-    expect(userBubble).toHaveClass("bg-[var(--color-accent)]", "text-white");
     const responseFlow = userBubble
       ?.closest("[data-agent-turn]")
       ?.querySelector(":scope > [data-agent-response-flow]");
@@ -575,7 +495,12 @@ describe("AgentDock origin/main visible fidelity", () => {
       responseFlow?.querySelector("[data-agent-thinking]"),
     ).not.toBeInTheDocument();
 
-    const toolStatus = screen.getByText("读取素材分析完成");
+    const toolStatus = screen.getByText("读取素材分析");
+    expect(
+      toolStatus
+        .closest("[data-agent-tool]")
+        ?.querySelector(".agent-activity-indicator"),
+    ).toHaveAttribute("data-phase", "completed");
     expect(toolStatus.closest("[data-agent-tool]")?.parentElement).toBe(
       responseFlow,
     );
@@ -666,11 +591,16 @@ describe("AgentDock origin/main visible fidelity", () => {
     const tool = document.querySelector<HTMLElement>(
       '[data-agent-tool="delegate-review-wait"]',
     )!;
-    expect(tool).toHaveTextContent("等待审阅");
-    expect(tool).toHaveTextContent("视频尚未开始");
+    expect(tool).toHaveTextContent("待审阅");
+    expect(tool).toHaveTextContent("结果已准备好");
+    expect(tool).not.toHaveTextContent("element:ep22");
     expect(tool).not.toHaveTextContent("失败");
     const waitingNotice = tool.querySelector("[data-agent-waiting-review]");
     expect(waitingNotice).not.toBeNull();
+    expect(tool.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "attention",
+    );
     expect(
       useCreatorSessionStore.getState().subagentActivities[
         "delegate-review-wait"
@@ -678,244 +608,183 @@ describe("AgentDock origin/main visible fidelity", () => {
     ).toMatchObject({ waitingReview: true, terminalKind: "BLOCKED" });
   });
 
-  it("moves a streamed Sub-agent function call into its tool card and preserves detail scrolling", async () => {
+  it("keeps specialist tools private when expanded and alive after the main session becomes idle", () => {
     useAgentDockUiStore.getState().setOpen(true);
     useAgentDockUiStore.getState().setAllowExpandDetails(true);
     seedSession("RUNNING", {
       messages: [
-        msg({ messageId: "user-function", text: "读取故事文件" }),
         delegateMsg(
-          "assistant-function",
-          "delegate-function",
-          {
-            role: "visual_development_agent",
-            target_refs: ["timeline:main"],
-            task: "读取项目文件",
-          },
-          "委派故事规划。",
+          "asst",
+          "delegate",
+          { role: "ai_editing_director" },
+          "正在处理剪辑。",
         ),
       ],
     });
-    const sub = subFor("delegate-function", "run-function");
+    const sub = subFor("delegate", "child");
     act(() =>
       useCreatorSessionStore.getState().ingestEvents([
-        evt("agent.tool_started", 1, {
-          actionId: "delegate-function",
-          tool: "delegate_to_agent",
-          role: "visual_development_agent",
-          roleDisplayName: "故事规划",
-          delegationText: "读取项目文件",
-          targetRefs: ["timeline:main"],
-        }),
+        sub("subagent.started", 1, { role: "ai_editing_director" }),
         sub("subagent.message_delta", 2, {
-          messageId: "message-function",
+          messageId: "m",
           deltaIndex: 0,
           delta:
-            '<function=read_project_file><parameter=arguments>{"path":"story/',
+            '<function=read_project_file><parameter=arguments>{"path":"PRIVATE_FILE"}',
+        }),
+        sub("subagent.tool_progress", 3, {
+          toolCallId: "tool",
+          tool: "read_project_file",
+          receivedBytes: 64,
+          complete: true,
         }),
       ]),
     );
     renderDock();
-
-    const delegateTool = document.querySelector<HTMLElement>(
-      '[data-agent-tool="delegate-function"]',
-    )!;
-    fireEvent.click(within(delegateTool).getByRole("button", { name: "详情" }));
-    const subagentMessage = document.querySelector<HTMLElement>(
-      '[data-subagent-message="message-function"]',
-    )!;
-    const streamingFunction = subagentMessage.querySelector<HTMLElement>(
-      '[data-agent-action="tool_call"]',
-    )!;
-    expect(streamingFunction).toHaveAttribute("data-expanded", "false");
+    const card = document.querySelector('[data-agent-tool="delegate"]')!;
     fireEvent.click(
-      within(streamingFunction).getByRole("button", { name: "详情" }),
+      within(card as HTMLElement).getByRole("button", { name: "查看进展" }),
     );
-    expect(streamingFunction).toHaveAttribute("data-expanded", "true");
-    expect(streamingFunction).toHaveTextContent("读取素材分析处理中");
-    expect(streamingFunction).toHaveTextContent('"path":"story/');
-
-    act(() =>
-      useCreatorSessionStore.getState().ingestEvent(
-        sub("subagent.message_delta", 3, {
-          messageId: "message-function",
-          deltaIndex: 1,
-          delta: 'outline.md"}</parameter></function></tool_call>',
-        }),
-      ),
-    );
-    await waitFor(() =>
-      expect(streamingFunction).toHaveTextContent('"path": "story/outline.md"'),
-    );
-
-    // Duplicate started events for one toolCallId collapse into one card.
-    act(() =>
-      useCreatorSessionStore.getState().ingestEvents([
-        sub("subagent.message_completed", 4, {
-          messageId: "message-function",
-          text: '<function=read_project_file><parameter=arguments>{"path":"story/outline.md"}</parameter></function></tool_call>',
-          finishReason: "tool_call",
-        }),
-        ...[5, 6].map((seq) =>
-          sub("subagent.tool_started", seq, {
-            toolCallId: "function-tool",
-            tool: "read_project_file",
-            arguments: { path: "story/outline.md" },
-            state: "started",
-          }),
-        ),
-        evt("task.progress_updated", 7, {
-          specialistRunId: "run-function",
-          taskId: "task-function",
-          progress: 0.4,
-          detail: "已读取前 400 行",
-        }),
-      ]),
-    );
-    let nestedTool: HTMLElement | null = null;
-    await waitFor(() => {
-      nestedTool = document.querySelector<HTMLElement>(
-        '[data-subagent-tool="function-tool"]',
-      );
-      expect(nestedTool).toHaveAttribute("data-expanded", "false");
-    });
-    expect(nestedTool).not.toBeNull();
     expect(
-      document.querySelectorAll('[data-subagent-tool="function-tool"]'),
+      document.querySelectorAll('[data-subagent-tool="tool"]'),
     ).toHaveLength(1);
-    fireEvent.click(within(nestedTool!).getByRole("button", { name: "详情" }));
-    expect(nestedTool).toHaveAttribute("data-expanded", "true");
+    expect(document.body).not.toHaveTextContent("PRIVATE_FILE");
+    expect(document.body).not.toHaveTextContent("<function");
     expect(
-      nestedTool!.querySelector("[data-subagent-tool-arguments]"),
-    ).toHaveTextContent('"path": "story/outline.md"');
-    expect(
-      subagentMessage.querySelector('[data-agent-action="tool_call"]'),
-    ).not.toBeInTheDocument();
-    const toolOutput = nestedTool!.querySelector<HTMLElement>(
-      "[data-subagent-tool-stream]",
-    )!;
-    expect(toolOutput).toHaveTextContent("已读取前 400 行");
-    Object.defineProperties(toolOutput, {
-      scrollHeight: { configurable: true, value: 900 },
-      clientHeight: { configurable: true, value: 180 },
-    });
-    toolOutput.scrollTop = 420;
-
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "waiting");
     act(() =>
       useCreatorSessionStore.getState().ingestEvent(
-        evt("task.progress_updated", 8, {
-          specialistRunId: "run-function",
-          taskId: "task-function",
-          progress: 0.8,
-          detail: "已读取前 800 行",
+        sub("subagent.tool_started", 4, {
+          toolCallId: "tool",
+          tool: "read_project_file",
+          arguments: { path: "PRIVATE_FILE" },
         }),
       ),
     );
-    await waitFor(() =>
-      expect(toolOutput).toHaveTextContent("已读取前 800 行"),
+    expect(
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "running");
+    act(() =>
+      useCreatorSessionStore
+        .getState()
+        .ingestEvent(evt("session.status_changed", 5, { status: "IDLE" })),
     );
-    expect(toolOutput.scrollTop).toBe(420);
-
+    expect(card).toHaveAttribute("data-status", "started");
+    expect(
+      document.querySelector('[data-subagent-tool="tool"]'),
+    ).toHaveTextContent("进行中");
     act(() =>
       useCreatorSessionStore.getState().ingestEvent(
-        sub("subagent.tool_completed", 9, {
-          toolCallId: "function-tool",
+        sub("subagent.message_delta", 6, {
+          messageId: "public",
+          deltaIndex: 0,
+          delta: "片段顺序正在调整。",
+        }),
+      ),
+    );
+    expect(screen.getByText("片段顺序正在调整。")).toBeInTheDocument();
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.tool_completed", 7, {
+          toolCallId: "tool",
           tool: "read_project_file",
-          result: { lines: 800 },
+          result: { secret: "PRIVATE_RESULT" },
           state: "succeeded",
         }),
       ),
     );
-    await waitFor(() =>
-      expect(nestedTool).toHaveAttribute("data-expanded", "false"),
-    );
+    expect(document.body).not.toHaveTextContent("PRIVATE_RESULT");
     expect(
-      nestedTool!.querySelector("[data-subagent-tool-stream]"),
-    ).not.toBeInTheDocument();
+      document.querySelector('[data-subagent-tool="tool"]'),
+    ).toHaveTextContent("已完成");
+    expect(
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "completed");
   });
 
-  it("treats delegate acceptance as waiting and only a Sub-agent terminal event as finished", async () => {
+  it("treats delegation acceptance as active until its own terminal event", () => {
     useAgentDockUiStore.getState().setOpen(true);
-    useAgentDockUiStore.getState().setAllowExpandDetails(true);
     seedSession("RUNNING", {
       messages: [
-        msg({ messageId: "user-service", text: "执行剪辑" }),
         delegateMsg(
-          "assistant-service",
-          "delegate-service-action",
-          {
-            role: "ai_editing_director",
-            target_refs: ["timeline:main"],
-            task: "根据当前素材完成主 Timeline 的剪辑。",
-          },
-          "我会委派剪辑任务。",
+          "asst",
+          "delegate",
+          { role: "ai_editing_director" },
+          "我会处理剪辑任务。",
         ),
       ],
     });
-    const sub = subFor("delegate-service-action", "run-service-1");
+    const sub = subFor("delegate", "child");
     act(() =>
       useCreatorSessionStore.getState().ingestEvents([
         evt("agent.tool_started", 1, {
-          actionId: "delegate-service-action",
+          actionId: "delegate",
           tool: "delegate_to_agent",
-          role: "ai_editing_director",
-          roleDisplayName: "AI 剪辑导演",
-          delegationText: "根据当前素材完成主 Timeline 的剪辑。",
-          targetRefs: ["timeline:main"],
         }),
         evt("agent.tool_completed", 2, {
-          actionId: "delegate-service-action",
+          actionId: "delegate",
           tool: "delegate_to_agent",
           status: "succeeded",
         }),
-        sub("subagent.accepted", 3, {
-          role: "ai_editing_director",
-          roleDisplayName: "AI 剪辑导演",
-          delegationText: "根据当前素材完成主 Timeline 的剪辑。",
-          targetRefs: ["timeline:main"],
-        }),
+        sub("subagent.accepted", 3, { role: "ai_editing_director" }),
       ]),
     );
     renderDock();
-
-    const delegateTool = document.querySelector<HTMLElement>(
-      '[data-agent-tool="delegate-service-action"]',
-    )!;
-    expect(delegateTool).toHaveAttribute("data-expanded", "false");
-    fireEvent.click(within(delegateTool).getByRole("button", { name: "详情" }));
-    expect(delegateTool).toHaveAttribute("data-expanded", "true");
-    expect(screen.getByText("等待输出中")).toBeInTheDocument();
-    expect(screen.getByText("处理中")).toBeInTheDocument();
-    expect(screen.queryByText("Sub-agent 已结束")).not.toBeInTheDocument();
-
+    const card = document.querySelector('[data-agent-tool="delegate"]')!;
+    expect(card).toHaveAttribute("data-status", "started");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "waiting",
+    );
     act(() =>
-      useCreatorSessionStore.getState().ingestEvents([
-        sub("subagent.completed", 4, {
-          role: "ai_editing_director",
-          marker: "SUCCESS",
+      useCreatorSessionStore
+        .getState()
+        .ingestEvent(
+          sub("subagent.started", 4, { role: "ai_editing_director" }),
+        ),
+    );
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "running",
+    );
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.completed", 5, {
           status: "SUCCEEDED",
-          summary: "剪辑方案已生成并等待执行确认。",
+          summary: "PRIVATE_SUMMARY",
         }),
-        evt("agent.tool_completed", 5, {
-          actionId: "delegate-service-action",
-          runId: "parent-agent-run-1",
-          tool: "delegate_to_agent",
-          status: "succeeded",
-        }),
-      ]),
+      ),
     );
-    await waitFor(() =>
-      expect(delegateTool).toHaveAttribute("data-expanded", "false"),
+    expect(card).toHaveAttribute("data-status", "succeeded");
+    expect(card).toHaveTextContent("已完成");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "completed",
     );
-    expect(
-      screen.queryByText("剪辑方案已生成并等待执行确认"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(within(delegateTool).getByRole("button", { name: "详情" }));
-    expect(
-      screen.getByText("剪辑方案已生成并等待执行确认"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("完成")).toBeInTheDocument();
-    expect(screen.queryByText("等待输出中")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("PRIVATE_SUMMARY");
+    act(() =>
+      useCreatorSessionStore.setState((state) => ({
+        subagentActivities: {
+          ...state.subagentActivities,
+          delegate: {
+            ...state.subagentActivities.delegate,
+            terminalKind: undefined,
+          },
+        },
+      })),
+    );
+    expect(card).toHaveAttribute("data-status", "succeeded");
+    expect(card).toHaveTextContent("已完成");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "completed",
+    );
   });
 
   it("anchors the origin plan card after assistant narration inside the same human turn", () => {
@@ -953,16 +822,12 @@ describe("AgentDock origin/main visible fidelity", () => {
     const narration = screen
       .getByText("我会分两步推进。")
       .closest("[data-agent-message]")!;
-    const plan = screen.getByText("执行计划：先完成故事规划").closest("div")!;
     expect(narration.parentElement).toBe(responseFlow);
-    expect(plan.parentElement).toBe(responseFlow);
     expect(
-      narration.compareDocumentPosition(plan) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.getByText("建立 Element")).toBeInTheDocument();
-    expect(screen.getByText("安排重叠关系")).toBeInTheDocument();
-    expect(screen.queryByText("1. 建立 Element")).not.toBeInTheDocument();
+      screen.queryByText("执行计划：先完成故事规划"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("建立 Element")).not.toBeInTheDocument();
+    expect(screen.queryByText("安排重叠关系")).not.toBeInTheDocument();
     expect(screen.queryByText(/"action"/)).not.toBeInTheDocument();
     expect(
       responseFlow?.querySelector("[data-agent-thinking]"),
@@ -983,18 +848,18 @@ describe("AgentDock origin/main visible fidelity", () => {
       expect(found).not.toBeNull();
       return found!;
     });
-    expect(row.textContent).toContain("待命中");
+    expect(row.textContent).toContain("随时可以继续创作");
 
     try {
       await act(async () => {
         await i18n.changeLanguage("en");
       });
-      expect(row.textContent).toContain("Idle, ready");
+      expect(row.textContent).toContain("Ready to keep creating");
     } finally {
       await act(async () => {
         await i18n.changeLanguage("zh");
       });
     }
-    expect(row.textContent).toContain("待命中");
+    expect(row.textContent).toContain("随时可以继续创作");
   });
 });

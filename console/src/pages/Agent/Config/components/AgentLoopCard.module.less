@@ -1,17 +1,17 @@
 .loopCard,
 .createForm {
-  --loop-accent: #ff7f16;
-  --loop-accent-strong: #c65300;
-  --loop-accent-soft: rgba(255, 127, 22, 0.08);
-  --loop-accent-border: rgba(255, 127, 22, 0.32);
-  --loop-surface: #fff;
-  --loop-surface-subtle: #f9f8f4;
-  --loop-border: #eae8e7;
-  --loop-border-hover: #f0b07b;
-  --loop-text: rgba(26, 23, 22, 0.88);
-  --loop-text-secondary: rgba(26, 23, 22, 0.58);
-  --loop-text-tertiary: rgba(26, 23, 22, 0.42);
-  --loop-shadow: 0 5px 16px rgba(43, 18, 0, 0.06);
+  --loop-accent: var(--app-accent);
+  --loop-accent-strong: var(--app-accent-text);
+  --loop-accent-soft: var(--app-accent-faint);
+  --loop-accent-border: var(--app-accent-border);
+  --loop-surface: var(--app-surface);
+  --loop-surface-subtle: var(--app-surface-subtle);
+  --loop-border: var(--app-border);
+  --loop-border-hover: var(--app-accent-border);
+  --loop-text: var(--app-text);
+  --loop-text-secondary: var(--app-text-secondary);
+  --loop-text-tertiary: var(--app-text-tertiary);
+  --loop-shadow: var(--app-shadow-sm);
 }
 
 .loopCard {
@@ -447,7 +447,7 @@
 
 .fieldError {
   margin-top: -3px;
-  color: var(--error-color, #b54842);
+  color: var(--app-error-text);
   font-size: 11px;
 }
 
@@ -482,24 +482,6 @@
   background: var(--loop-surface);
   color: var(--loop-accent-strong);
   font-size: 10px;
-}
-
-:global(.dark-mode) {
-  .loopCard,
-  .createForm {
-    --loop-accent: #ff7f16;
-    --loop-accent-strong: #ff9d4d;
-    --loop-accent-soft: rgba(255, 127, 22, 0.14);
-    --loop-accent-border: rgba(255, 127, 22, 0.42);
-    --loop-surface: #1f1f1f;
-    --loop-surface-subtle: #262626;
-    --loop-border: rgba(255, 255, 255, 0.1);
-    --loop-border-hover: rgba(255, 127, 22, 0.5);
-    --loop-text: rgba(255, 255, 255, 0.85);
-    --loop-text-secondary: rgba(255, 255, 255, 0.58);
-    --loop-text-tertiary: rgba(255, 255, 255, 0.38);
-    --loop-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
-  }
 }
 
 @media (max-width: 720px) {

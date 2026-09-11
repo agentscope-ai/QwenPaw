@@ -57,7 +57,6 @@ function renderEditor(model: ModelInfo, thinkingParamStyle?: "budget") {
       onSaved={vi.fn()}
       onProviderUpdated={vi.fn()}
       onClose={vi.fn()}
-      isDark={false}
       thinkingParamStyle={thinkingParamStyle}
     />,
   );

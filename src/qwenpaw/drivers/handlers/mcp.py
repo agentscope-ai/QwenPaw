@@ -46,6 +46,8 @@ from ..errors import (
 )
 from ..handler import DriverHandler
 from ..policy import PolicyContext
+from ...envs import load_envs
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 _CAPABILITY_CACHE_TTL_SECONDS = 10.0
@@ -68,16 +70,19 @@ class MCPDriverHandler(DriverHandler):
         endpoint = self._card.endpoint
         transport = str(endpoint.get("transport") or "stdio")
         credentials = await self._resolve_credentials()
+        connect_kwargs: dict[str, float] = {}
 
         if transport == "stdio":
+            managed_env = await run_sync_io(load_envs)
+            card_env = resolve_binding(
+                endpoint.get("env") or {},
+                credentials,
+            )
             self._client = StdIOStatefulClient(
                 name=self._card.name,
                 command=str(endpoint.get("command") or ""),
                 args=list(endpoint.get("args") or []),
-                env=resolve_binding(
-                    endpoint.get("env") or {},
-                    credentials,
-                ),
+                env={**managed_env, **card_env},
                 cwd=endpoint.get("cwd") or None,
             )
         else:
@@ -92,15 +97,23 @@ class MCPDriverHandler(DriverHandler):
                 if transport == "streamable_http"
                 else HttpStatefulClient
             )
+            http_timeout = endpoint.get("http_timeout")
+            extra = (
+                {"timeout": float(http_timeout)}
+                if http_timeout is not None
+                else {}
+            )
+            connect_kwargs = extra
             self._client = client_cls(
                 name=self._card.name,
                 transport=transport,
                 url=str(endpoint.get("url") or ""),
                 headers=headers or None,
+                **extra,
             )
 
         try:
-            await self._client.connect()
+            await self._client.connect(**connect_kwargs)
         except asyncio.CancelledError:
             await self._client.close(ignore_errors=True)
             self._client = None

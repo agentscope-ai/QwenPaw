@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .prompt_manager import PromptManager, SyncPromptContributor
+from .protected_prompt import PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 if TYPE_CHECKING:
     from .hooks import HookContext
@@ -132,21 +133,14 @@ def _process_memory_section(
 # ---------------------------------------------------------------------------
 
 
-class AgentIdentityContributor(SyncPromptContributor):
-    """Prepend agent identity header when ``agent_id`` is set."""
+class ProtectedExecutionContractContributor(SyncPromptContributor):
+    """Inject the protected execution and authorization contract."""
 
-    name = "agent_identity"
+    name = "protected_execution_contract"
     priority = 5
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
-        agent_id = getattr(ctx, "agent_id", None)
-        if not agent_id:
-            return None
-        return (
-            f"# Agent Identity\n\n"
-            f"Your agent id is `{agent_id}`. "
-            f"This is your unique identifier in the multi-agent system."
-        )
+        return PROTECTED_EXECUTION_CONTRACT_PROMPT
 
 
 class AgentsMdContributor(SyncPromptContributor):
@@ -496,7 +490,7 @@ class PreloadedSkillsContributor(SyncPromptContributor):
 # ---------------------------------------------------------------------------
 
 _ALL_CONTRIBUTORS = (
-    AgentIdentityContributor,
+    ProtectedExecutionContractContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
     DirectoryContextContributor,
@@ -517,7 +511,7 @@ def build_default_prompt_manager() -> PromptManager:
 
 
 __all__ = [
-    "AgentIdentityContributor",
+    "ProtectedExecutionContractContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",

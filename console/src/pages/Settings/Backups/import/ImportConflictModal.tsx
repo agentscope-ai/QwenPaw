@@ -39,7 +39,7 @@ export default function ImportConflictModal({
       {conflictMeta && (
         <div
           style={{
-            background: "var(--ant-color-fill-quaternary)",
+            background: "var(--app-fill-faint)",
             padding: 12,
             borderRadius: 6,
             marginTop: 8,

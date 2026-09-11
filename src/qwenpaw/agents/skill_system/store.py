@@ -269,64 +269,47 @@ def _read_bounded_frontmatter_bytes(skill_md: Path) -> bytes | None:
     return raw_frontmatter
 
 
-def read_skill_frontmatter_from_dir(
-    skill_dir: Path,
-    skill_name: str = "",
-) -> dict[str, Any]:
-    """Read only the YAML header of ``SKILL.md`` with encoding fallback."""
-    if not skill_name:
-        skill_name = skill_dir.name
+def load_skill_frontmatter_from_dir(skill_dir: Path) -> dict[str, Any]:
+    """Read the bounded YAML header, preserving read and parse failures."""
     skill_md = skill_dir / "SKILL.md"
-    fallback = {"name": skill_name, "description": ""}
-
-    try:
-        raw_frontmatter = _read_bounded_frontmatter_bytes(skill_md)
-    except OSError as exc:
-        logger.warning(
-            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
-            "Using fallback values.",
-            single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-            single_line_log_value(exc),
-        )
-        return fallback
-
+    raw_frontmatter = _read_bounded_frontmatter_bytes(skill_md)
     if raw_frontmatter is None:
-        return fallback
+        raise SkillsError(
+            "SKILL.md is missing a bounded YAML frontmatter header",
+        )
 
-    metadata: dict[str, Any] | None = None
-    parse_error: Exception | None = None
     for encoding in _FRONTMATTER_ENCODINGS:
         try:
             text = raw_frontmatter.decode(encoding)
             post = frontmatter.loads(text)
-            metadata = dict(post.metadata)
-            break
+            return dict(post.metadata)
         except UnicodeDecodeError:
             continue
         except (LookupError, yaml.YAMLError, TypeError, ValueError) as exc:
-            parse_error = exc
-            break
+            raise SkillsError(
+                f"SKILL.md frontmatter is invalid: {exc}",
+            ) from exc
+    raise SkillsError("Failed to decode SKILL.md frontmatter")
 
-    if metadata is not None:
-        return metadata
 
-    if parse_error is not None:
+def read_skill_frontmatter_from_dir(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Read the YAML header with fallback values for metadata display."""
+    if not skill_name:
+        skill_name = skill_dir.name
+    try:
+        return load_skill_frontmatter_from_dir(skill_dir)
+    except (OSError, SkillsError) as exc:
         logger.warning(
-            "Failed to parse SKILL frontmatter for '%s' at %s: %s. "
+            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
             "Using fallback values.",
             single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-            single_line_log_value(parse_error),
+            single_line_log_value(skill_dir / "SKILL.md"),
+            single_line_log_value(exc),
         )
-    else:
-        logger.warning(
-            "Failed to decode SKILL frontmatter for '%s' at %s. "
-            "Using fallback values.",
-            single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-        )
-    return fallback
+        return {"name": skill_name, "description": ""}
 
 
 def get_skill_mtime(skill_dir: Path) -> str:
@@ -880,8 +863,10 @@ def _resolve_skill_name(skill_dir: Path) -> str:
     return skill_dir.name
 
 
-def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
-    """Extract requirements from a parsed frontmatter dict."""
+def parse_skill_requirements(
+    post: dict[str, Any],
+) -> tuple[SkillRequirements, list[str]]:
+    """Return valid requirement fields and all declaration errors."""
     metadata = post.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
@@ -899,27 +884,37 @@ def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
             post.get("requires", {}),
         )
 
-    try:
-        if isinstance(requires, list):
-            return SkillRequirements(
-                require_bins=list(requires),
-                require_envs=[],
+    if isinstance(requires, list):
+        requires = {"bins": requires}
+
+    if not isinstance(requires, dict):
+        return SkillRequirements(), [
+            "requires must be a mapping or a list of binaries",
+        ]
+
+    normalized = {}
+    errors = []
+    for key in ("bins", "env", "mcp"):
+        values = requires.get(key, [])
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            errors.append(
+                f"requires.{key} must be a list of non-empty strings",
             )
-
-        if not isinstance(requires, dict):
-            return SkillRequirements()
-
-        return SkillRequirements(
-            require_bins=list(requires.get("bins", [])),
-            require_envs=list(requires.get("env", [])),
+            values = []
+        normalized[key] = list(
+            dict.fromkeys(value.strip() for value in values),
         )
-    except Exception as e:
-        logger.warning(
-            "Failed to parse skill requirements: %s. "
-            "Falling back to empty requirements.",
-            e,
-        )
-        return SkillRequirements()
+
+    return (
+        SkillRequirements(
+            require_bins=normalized["bins"],
+            require_envs=normalized["env"],
+            require_mcps=normalized["mcp"],
+        ),
+        errors,
+    )
 
 
 def build_skill_metadata(
@@ -953,7 +948,13 @@ def _build_skill_metadata_from_post(
     source: str,
     protected: bool = False,
 ) -> dict[str, Any]:
-    requirements = _extract_requirements(post)
+    requirements, errors = parse_skill_requirements(post)
+    for error in errors:
+        logger.warning(
+            "Ignoring invalid requirements in skill '%s': %s",
+            single_line_log_value(skill_name),
+            error,
+        )
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),

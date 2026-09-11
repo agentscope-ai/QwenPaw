@@ -159,6 +159,29 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
   });
 
+  it("clears a persisted client id while status is still running", async () => {
+    seedSessionList("chat-running-confirmed");
+    sessionApi.setLastUserMessage(
+      "chat-running-confirmed",
+      "already persisted",
+      undefined,
+      "client-confirmed",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "already persisted", "client-confirmed"),
+        assistantMsg("a1", "reply"),
+      ],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-running-confirmed");
+    expect(userCardTexts(session)).toEqual(["already persisted"]);
+    expect(
+      sessionStorage.getItem(`${STORAGE_PREFIX}chat-running-confirmed`),
+    ).toBe(null);
+  });
+
   it("attaches the client id without dropping existing metadata", () => {
     expect(
       attachClientMessageId(
@@ -307,6 +330,34 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(userCardTexts(session)).toEqual(["continue"]);
     expect(
       sessionStorage.getItem(`${STORAGE_PREFIX}chat-repeat-confirmed`),
+    ).toBe(null);
+  });
+
+  it("finds the matching client id before a later user turn", async () => {
+    seedSessionList("chat-confirmed-earlier");
+    sessionApi.setLastUserMessage(
+      "chat-confirmed-earlier",
+      "persisted earlier",
+      undefined,
+      "client-earlier",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "persisted earlier", "client-earlier"),
+        assistantMsg("a1", "first answer"),
+        userMsg("u2", "later question", "client-later"),
+        assistantMsg("a2", "later answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-confirmed-earlier");
+    expect(userCardTexts(session)).toEqual([
+      "persisted earlier",
+      "later question",
+    ]);
+    expect(
+      sessionStorage.getItem(`${STORAGE_PREFIX}chat-confirmed-earlier`),
     ).toBe(null);
   });
 

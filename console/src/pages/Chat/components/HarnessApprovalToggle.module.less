@@ -4,22 +4,16 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--ant-color-warning-text);
-  border: 1px solid var(--ant-color-warning-border);
+  color: var(--app-warning-text);
+  border: 1px solid var(--app-warning-border);
   border-radius: 6px;
-  background: var(--ant-color-warning-bg);
+  background: var(--app-warning-bg);
   font: inherit;
   cursor: pointer;
   line-height: 22px;
 }
 
 .description {
-  color: #8b8179;
+  color: var(--app-text-secondary);
   font-size: 12px;
-}
-
-:global(.dark-mode) {
-  .description {
-    color: rgba(255, 255, 255, 0.58);
-  }
 }
