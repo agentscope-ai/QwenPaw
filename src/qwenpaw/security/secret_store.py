@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import secrets
+import stat
 import threading
 from pathlib import Path
 from typing import Optional
@@ -260,6 +261,31 @@ def _read_key_file() -> Optional[str]:
                     len(content),
                 )
                 return None
+            if os.name != "nt":
+                try:
+                    mode = stat.S_IMODE(path.stat().st_mode)
+                    if mode & 0o077:
+                        # Remove permissions granted to group/other without
+                        # making stricter owner permissions (for example
+                        # 0o400) more permissive.
+                        corrected_mode = mode & 0o600
+                        os.chmod(path, corrected_mode)
+                        logger.warning(
+                            "Master key file had insecure permissions %#o; "
+                            "corrected to %#o",
+                            mode,
+                            corrected_mode,
+                        )
+                except OSError:
+                    # Keep using the existing key: treating a permission
+                    # hardening failure as a missing key would make the
+                    # caller generate a replacement and strand all secrets
+                    # encrypted with the original key.
+                    logger.warning(
+                        "Could not verify or correct master key file "
+                        "permissions; continuing with the existing key",
+                        exc_info=True,
+                    )
             return content
         except (OSError, ValueError):
             logger.warning(
