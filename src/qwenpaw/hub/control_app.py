@@ -340,9 +340,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 ),
                 action=action,
                 resource_type="user",
-                resource_id=(
-                    user.user_id if user is not None else username
-                ),
+                resource_id=(user.user_id if user is not None else username),
                 detail={"reason": reason} if reason else None,
                 outcome=outcome,
                 remote_address=remote_address,
