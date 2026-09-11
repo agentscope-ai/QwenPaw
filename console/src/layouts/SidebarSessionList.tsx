@@ -565,6 +565,10 @@ export default function SidebarSessionList({
     initializeCollapsedGroups(defaultCollapsedGroupIds);
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
+  useEffect(() => {
+    setVisibleSessionCounts({});
+  }, [selectedAgent]);
+
   const loadMoreGroup = useCallback((groupId: string) => {
     setVisibleSessionCounts((previous) => ({
       ...previous,

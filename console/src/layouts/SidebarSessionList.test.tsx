@@ -21,6 +21,7 @@ import { renderWithProviders } from "@/test/common_setup";
 const mockSessionListData = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
+const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -167,8 +168,8 @@ vi.mock("../hooks/useAppMessage", () => ({
 vi.mock("../stores/agentStore", () => ({
   useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
     selector
-      ? selector({ selectedAgent: "agent-1" })
-      : { selectedAgent: "agent-1" },
+      ? selector({ selectedAgent: mockSelectedAgent.current })
+      : { selectedAgent: mockSelectedAgent.current },
 }));
 
 vi.mock("../stores/sessionListStore", () => ({
@@ -269,6 +270,7 @@ function NavigatingSessionList() {
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelectedAgent.current = "agent-1";
     // The virtual list only renders once the wrapper has a measured height.
     // jsdom reports clientHeight=0, so make ResizeObserver report one
     // immediately on observe. Must be a function (constructible), not an
@@ -537,6 +539,42 @@ describe("SidebarSessionList", () => {
       expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
       expect(screen.getByTestId("session-item-session-25")).toBeTruthy();
       expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+  });
+
+  it("resets pagination when switching agents", async () => {
+    const agentOneSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-one-${index + 1}`,
+      name: `Agent one ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    const agentTwoSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-two-${index + 1}`,
+      name: `Agent two ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+
+    mockData(agentOneSessions);
+    const { rerender } = renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-20")).toBeTruthy();
+    });
+
+    mockSelectedAgent.current = "agent-2";
+    mockData(agentTwoSessions);
+    rerender(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-two-10")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-agent-two-11")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
     });
   });
 

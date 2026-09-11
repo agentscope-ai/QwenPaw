@@ -167,8 +167,11 @@
   justify-content: center;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
   border-radius: 4px;
   font-size: 14px;
+  background: transparent;
   color: var(--app-text-tertiary);
   cursor: pointer;
   opacity: 0;
@@ -179,6 +182,23 @@
   &:hover {
     background: var(--app-fill);
     color: var(--app-text);
+  }
+
+  &:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .moreBtn {
+    width: 32px;
+    height: 32px;
+    margin: -5px;
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

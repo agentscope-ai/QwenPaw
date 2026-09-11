@@ -269,9 +269,14 @@ const SessionItem: React.FC<SessionItemProps> = ({
           placement="bottomRight"
           onOpenChange={setDropdownOpen}
         >
-          <span className={styles.moreBtn} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            aria-label={t("moreActions", "More actions")}
+            className={styles.moreBtn}
+            onClick={(e) => e.stopPropagation()}
+          >
             <MoreHorizontal size={14} />
-          </span>
+          </button>
         </Dropdown>
       )}
     </div>

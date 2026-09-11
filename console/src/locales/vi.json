@@ -710,8 +710,7 @@
     "groups": {
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con",
-      "loadMore": "Tải thêm · còn {{count}} mục",
-      "collapseList": "Thu gọn danh sách"
+      "loadMore": "Tải thêm · còn {{count}} mục"
     },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"

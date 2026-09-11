@@ -2761,8 +2761,7 @@
     "groups": {
       "cronShort": "Расписание",
       "subagentShort": "Субагент",
-      "loadMore": "Загрузить ещё · осталось {{count}}",
-      "collapseList": "Свернуть список"
+      "loadMore": "Загрузить ещё · осталось {{count}}"
     },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"

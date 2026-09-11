@@ -2746,8 +2746,7 @@
     "groups": {
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント",
-      "loadMore": "さらに読み込む · 残り {{count}} 件",
-      "collapseList": "リストを折りたたむ"
+      "loadMore": "さらに読み込む · 残り {{count}} 件"
     },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"

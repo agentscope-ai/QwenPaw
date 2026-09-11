@@ -2997,8 +2997,7 @@
     "groups": {
       "cronShort": "Agendado",
       "subagentShort": "Subagente",
-      "loadMore": "Carregar mais · {{count}} restantes",
-      "collapseList": "Recolher lista"
+      "loadMore": "Carregar mais · {{count}} restantes"
     },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"

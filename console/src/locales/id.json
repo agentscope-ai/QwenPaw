@@ -697,8 +697,7 @@
     "groups": {
       "cronShort": "Terjadwal",
       "subagentShort": "Subagen",
-      "loadMore": "Muat lebih banyak · {{count}} tersisa",
-      "collapseList": "Ciutkan daftar"
+      "loadMore": "Muat lebih banyak · {{count}} tersisa"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"

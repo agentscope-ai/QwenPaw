@@ -32,18 +32,13 @@ describe("SessionItem status indicator", () => {
 
 describe("SessionItem actions", () => {
   it("hides the drag hint while keeping the more actions menu", async () => {
-    const { container } = render(
-      <SessionItem sessionId="chat-1" name="Chat" />,
-    );
+    render(<SessionItem sessionId="chat-1" name="Chat" />);
 
-    expect(
-      container.querySelector('[title="chat.groups.dragSessionHint"]'),
-    ).toBeNull();
+    expect(document.querySelector("svg.lucide-grip-vertical")).toBeNull();
 
-    const moreIcon = container.querySelector("svg.lucide-ellipsis");
-    expect(moreIcon).toBeInTheDocument();
-
-    fireEvent.click(moreIcon!.parentElement!);
+    const moreButton = screen.getByRole("button", { name: "moreActions" });
+    expect(moreButton).toBeInTheDocument();
+    fireEvent.click(moreButton);
 
     expect(
       await screen.findByRole("menuitem", {
