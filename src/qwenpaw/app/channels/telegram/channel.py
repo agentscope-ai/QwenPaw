@@ -35,11 +35,7 @@ from qwenpaw.schemas import (
 
 from ....config.config import TelegramConfig as TelegramChannelConfig
 from ....constant import WORKING_DIR
-from .format_html import (
-    has_markdown_table,
-    markdown_table_column_count,
-    markdown_to_telegram_html,
-)
+from .format_html import markdown_to_telegram_html
 from ..utils import (
     MediaDataError,
     data_url_filename,
@@ -94,6 +90,42 @@ _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
 # Telegram rate-limits edits to ~1 msg/s per chat; use 1.5s for safety.
 _STREAM_EDIT_INTERVAL_S = 1.5
 _STREAM_PLACEHOLDER = "⏳"
+
+
+def _can_send_rich_message(text: str) -> bool:
+    """Check size and table candidates; leave Markdown parsing to Telegram."""
+    if (
+        len(text) > TELEGRAM_RICH_MESSAGE_MAX_BYTES
+        or "|" not in text
+        or "\n" not in text
+        or len(text.encode("utf-8")) > TELEGRAM_RICH_MESSAGE_MAX_BYTES
+    ):
+        return False
+
+    fence = ""
+    previous = ""
+    has_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if fence:
+            if stripped.startswith(fence) and not stripped.strip(fence[0]):
+                fence = ""
+            continue
+        if stripped.startswith(("```", "~~~")):
+            marker = stripped[0]
+            fence = marker * (len(stripped) - len(stripped.lstrip(marker)))
+            previous = ""
+            continue
+
+        # Only recognize delimiter rows; do not parse inline Markdown.
+        if "|" in previous and "|" in stripped:
+            cells = stripped.removeprefix("|").removesuffix("|").split("|")
+            if all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
+                if len(cells) > TELEGRAM_RICH_TABLE_MAX_COLUMNS:
+                    return False
+                has_table = True
+        previous = stripped
+    return has_table
 
 
 class _FileTooLargeError(Exception):
@@ -764,12 +796,7 @@ class TelegramChannel(BaseChannel):
         if self._is_processing.get(to_handle, False):
             self._start_typing(chat_id)
 
-        if (
-            has_markdown_table(text)
-            and len(text.encode("utf-8")) <= TELEGRAM_RICH_MESSAGE_MAX_BYTES
-            and markdown_table_column_count(text)
-            <= TELEGRAM_RICH_TABLE_MAX_COLUMNS
-        ):
+        if _can_send_rich_message(text):
             rich_result = await self._send_rich_message(
                 chat_id,
                 text,
@@ -1168,13 +1195,7 @@ class TelegramChannel(BaseChannel):
         elif len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
             # Text fits in a single message — edit in place.
             success = False
-            if (
-                has_markdown_table(final_text)
-                and len(final_text.encode("utf-8"))
-                <= TELEGRAM_RICH_MESSAGE_MAX_BYTES
-                and markdown_table_column_count(final_text)
-                <= TELEGRAM_RICH_TABLE_MAX_COLUMNS
-            ):
+            if _can_send_rich_message(final_text):
                 success = await self._edit_rich_stream_message(
                     chat_id,
                     msg_id,

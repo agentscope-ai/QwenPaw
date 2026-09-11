@@ -35,11 +35,6 @@ import pytest
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels import utils as channel_utils
 from qwenpaw.app.channels.telegram import channel as telegram_module
-from qwenpaw.app.channels.telegram.format_html import (
-    has_markdown_table,
-    markdown_table_column_count,
-    markdown_to_telegram_html,
-)
 
 from qwenpaw.schemas import (
     TextContent,
@@ -800,6 +795,7 @@ class TestTelegramSend:
 
         await telegram_channel.send("12345", "Hello world", {})
 
+        mock_telegram_bot.do_api_request.assert_not_awaited()
         mock_telegram_bot.send_message.assert_called_once()
         call_kwargs = mock_telegram_bot.send_message.call_args.kwargs
         assert call_kwargs["chat_id"] == "12345"
@@ -896,24 +892,70 @@ class TestTelegramSend:
 class TestTelegramRichMessages:
     """Tests for native table delivery and legacy fallback."""
 
-    def test_table_detection_ignores_fenced_code(self):
-        """A table-looking fenced code block must use the legacy path."""
-        assert has_markdown_table(_MARKDOWN_TABLE)
-        assert not has_markdown_table(f"```\n{_MARKDOWN_TABLE}\n```")
-        assert markdown_table_column_count(_MARKDOWN_TABLE) == 2
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("A | B\n:--- | ---:\n1 | 2", True),
+            ("| A | B |\n|---|---|", True),
+            ("| `a\\|b` | B |\n|---|---|\n| 1 | 2 |", True),
+            ("| [A](https://example.com/a|b) | B |\n|---|---|", True),
+            ("A | B\nnot a delimiter | row", False),
+            ("\n|---|---|\n1 | 2", False),
+            pytest.param(
+                f"{'[' * 32000}\n{_MARKDOWN_TABLE}",
+                True,
+                id="unclosed-brackets",
+            ),
+        ],
+    )
+    def test_rich_message_candidates(self, text, expected):
+        """Detect delimiters without interpreting inline Markdown."""
+        assert telegram_module._can_send_rich_message(text) is expected
 
-    def test_legacy_table_fallback_is_compact_and_escaped(self):
-        """Legacy HTML output must avoid width-induced message inflation."""
-        text = "| A | B |\n|---|---|\n| `<tag>` | **A & B** |"
+    @pytest.mark.parametrize("fence", ["```", "~~~", "````"])
+    def test_table_detection_ignores_fenced_code(self, fence):
+        """Only tables outside a matching code fence use the Rich API."""
+        text = f"{fence}markdown\n```\n{_MARKDOWN_TABLE}\n{fence}"
+        if fence == "```":
+            text = f"{fence}markdown\n{_MARKDOWN_TABLE}\n{fence}"
+        assert not telegram_module._can_send_rich_message(text)
+        assert telegram_module._can_send_rich_message(
+            f"{text}\n{_MARKDOWN_TABLE}",
+        )
 
-        output = markdown_to_telegram_html(text)
+    @pytest.mark.parametrize(
+        ("columns", "expected"),
+        [(20, True), (21, False)],
+    )
+    def test_rich_table_column_limit(self, columns, expected):
+        """A wider table anywhere in a message requires legacy delivery."""
+        header = " | ".join(["A"] * columns)
+        delimiter = " | ".join(["---"] * columns)
+        text = f"{_MARKDOWN_TABLE}\n\n{header}\n{delimiter}\n{header}"
 
-        assert output.startswith("<pre>")
-        assert "|---|---|" not in output
-        assert "&lt;tag&gt;" in output
-        assert "A &amp; B" in output
-        assert "&amp;lt;" not in output
-        assert "**A" not in output
+        assert telegram_module._can_send_rich_message(text) is expected
+
+    @pytest.mark.parametrize(
+        "suffix",
+        ["[" * 131072, "\u4e2d" * 11000],
+        ids=["oversized-ascii", "oversized-utf8"],
+    )
+    def test_size_limit_is_checked_before_table_detection(self, suffix):
+        """Reject oversized ASCII and UTF-8 input before delimiter scanning."""
+        text = f"{_MARKDOWN_TABLE}\n{suffix}"
+        with patch.object(
+            telegram_module.re,
+            "fullmatch",
+            side_effect=AssertionError("Unexpected delimiter scan"),
+        ):
+            assert not telegram_module._can_send_rich_message(text)
+
+    def test_rich_message_accepts_exact_byte_limit(self):
+        """A message at the Rich API byte limit remains eligible."""
+        padding = 32768 - len(_MARKDOWN_TABLE) - 1
+        text = f"{_MARKDOWN_TABLE}\n{'x' * padding}"
+
+        assert telegram_module._can_send_rich_message(text)
 
     @pytest.mark.asyncio
     async def test_send_rich_message_payload_and_thread(
@@ -941,6 +983,7 @@ class TestTelegramRichMessages:
         mock_telegram_bot.send_message.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("streaming", [False, True])
     @pytest.mark.parametrize(
         "error",
         [
@@ -953,31 +996,42 @@ class TestTelegramRichMessages:
         telegram_channel,
         mock_telegram_bot,
         error,
+        streaming,
     ):
-        """Unsupported Rich API responses use the legacy sender."""
+        """Legacy fallback preserves code, paths, links, and table syntax."""
         telegram_channel._application = MagicMock(bot=mock_telegram_bot)
         mock_telegram_bot.do_api_request.side_effect = error
+        text = (
+            "| Code | Value |\n|---|---|\n"
+            "| `__init__` | `C:\\my_project_dir` |\n"
+            "| Manual | [Manual](https://docs.python.org/3/) |"
+        )
 
-        await telegram_channel.send("chat", _MARKDOWN_TABLE)
+        if streaming:
+            await telegram_channel.on_streaming_end(
+                None,
+                "chat",
+                None,
+                {"_tg_stream": {"message_ids": {"message": 99}}},
+                "message",
+                text,
+            )
+            legacy_request = mock_telegram_bot.edit_message_text
+            mock_telegram_bot.send_message.assert_not_awaited()
+        else:
+            await telegram_channel.send("chat", text)
+            legacy_request = mock_telegram_bot.send_message
+            mock_telegram_bot.edit_message_text.assert_not_awaited()
 
         mock_telegram_bot.do_api_request.assert_awaited_once()
-        mock_telegram_bot.send_message.assert_awaited_once()
-        kwargs = mock_telegram_bot.send_message.call_args.kwargs
-        assert "<pre>" in kwargs["text"]
-
-    @pytest.mark.asyncio
-    async def test_non_table_message_does_not_call_rich_api(
-        self,
-        telegram_channel,
-        mock_telegram_bot,
-    ):
-        """Ordinary messages retain the existing HTML send path."""
-        telegram_channel._application = MagicMock(bot=mock_telegram_bot)
-
-        await telegram_channel.send("chat", "**bold**")
-
-        mock_telegram_bot.do_api_request.assert_not_awaited()
-        mock_telegram_bot.send_message.assert_awaited_once()
+        legacy_request.assert_awaited_once()
+        kwargs = legacy_request.call_args.kwargs
+        assert kwargs["parse_mode"] == telegram_module.ParseMode.HTML
+        assert "<pre>" not in kwargs["text"]
+        assert "|---|---|" in kwargs["text"]
+        assert "<code>__init__</code>" in kwargs["text"]
+        assert "<code>C:\\my_project_dir</code>" in kwargs["text"]
+        assert 'href="https://docs.python.org/3/"' in kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_table_over_rich_limit_uses_legacy_path(
@@ -987,7 +1041,7 @@ class TestTelegramRichMessages:
     ):
         """Messages above the Rich limit must use the legacy API."""
         telegram_channel._application = MagicMock(bot=mock_telegram_bot)
-        text = f"{_MARKDOWN_TABLE}{'x' * 32768}"
+        text = f"{'[' * 131072}\n{_MARKDOWN_TABLE}"
 
         await telegram_channel.send("chat", text)
 
