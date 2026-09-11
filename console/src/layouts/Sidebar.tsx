@@ -34,6 +34,10 @@ import {
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
 import { getOsRootHref } from "../utils/navigationMode";
+import {
+  getSidebarCollapsedPreference,
+  setSidebarCollapsedPreference,
+} from "../utils/sidebarCollapsedPreference";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
@@ -100,8 +104,11 @@ export default function Sidebar({
   const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
-  // the main content on narrow viewports.
-  const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
+  // the main content on narrow viewports. On desktop, restore the persisted
+  // preference so a reload keeps the last collapsed/expanded state.
+  const [collapsed, setCollapsed] = useState(
+    () => isMobileSidebarViewport() || getSidebarCollapsedPreference(),
+  );
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const navScrollRef = useRef<HTMLDivElement>(null);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
@@ -238,9 +245,10 @@ export default function Sidebar({
     const mediaQuery = window.matchMedia(MOBILE_SIDEBAR_QUERY);
     const syncMobileSidebar = () => {
       setIsMobile(mediaQuery.matches);
-      // Collapse on mobile to avoid covering the main content; expand again
-      // when the viewport returns to desktop width.
-      setCollapsed(mediaQuery.matches);
+      // Collapse on mobile to avoid covering the main content. This is a
+      // transient viewport override: it never writes the preference, and
+      // returning to desktop width restores what the user last chose.
+      setCollapsed(mediaQuery.matches || getSidebarCollapsedPreference());
     };
 
     syncMobileSidebar();
@@ -391,6 +399,16 @@ export default function Sidebar({
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Explicit user toggle: the only path that persists the collapsed state.
+   * Viewport-driven collapsing stays transient so a narrow window does not
+   * permanently pin the desktop sidebar.
+   */
+  const handleSetCollapsed = useCallback((nextCollapsed: boolean) => {
+    setCollapsed(nextCollapsed);
+    setSidebarCollapsedPreference(nextCollapsed);
+  }, []);
 
   /**
    * New chat: if we're already on the chat page, dispatch the event so
@@ -599,7 +617,7 @@ export default function Sidebar({
           <Button
             type="text"
             icon={<SparkOperateLeftLine size={18} />}
-            onClick={() => setCollapsed(true)}
+            onClick={() => handleSetCollapsed(true)}
             className={styles.brandCollapseToggle}
             aria-label={t("sidebar.collapse", "Collapse sidebar")}
           />
@@ -618,7 +636,7 @@ export default function Sidebar({
                 type="button"
                 className={styles.collapsedNavItem}
                 aria-label={t("sidebar.expand", "Expand sidebar")}
-                onClick={() => setCollapsed(false)}
+                onClick={() => handleSetCollapsed(false)}
               >
                 <SparkOperateRightLine size={18} />
               </button>

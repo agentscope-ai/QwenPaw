@@ -309,6 +309,7 @@ const modelsItem = {
 describe("Sidebar", () => {
   beforeEach(() => {
     mockMobileViewport(false);
+    localStorage.removeItem("qwenpaw_sidebar_collapsed");
     mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
     mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
@@ -583,5 +584,74 @@ describe("Sidebar", () => {
     // The inbox label is wrapped in a Badge span with a ref callback
     const inboxSpans = screen.getAllByText("Inbox");
     expect(inboxSpans.length).toBeGreaterThan(0);
+  });
+
+  // TC-CON-01 checkpoint 3: the collapsed/expanded state must survive a
+  // page reload through localStorage.
+  describe("collapsed state persistence", () => {
+    function renderedSider() {
+      return document.querySelector<HTMLElement>(".ant-layout-sider");
+    }
+
+    it("restores the collapsed state after a reload", async () => {
+      const view = renderSidebar();
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+      await waitFor(() => {
+        expect(screen.queryByText("Workspace")).toBeNull();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+      view.unmount();
+
+      // Remount simulates the reload: it must start collapsed (72px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+      expect(screen.queryByText("Workspace")).toBeNull();
+      expect(screen.getByTestId("app-brand")).not.toBeVisible();
+    });
+
+    it("restores the expanded state after a reload", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      const view = renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Expand sidebar" }),
+      );
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+      view.unmount();
+
+      // Remount simulates the reload: it must start expanded (280px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({
+        width: "280px",
+        minWidth: "280px",
+      });
+      expect(screen.getByText("Workspace")).toBeTruthy();
+    });
+
+    it("keeps the mobile collapse transient so desktop is not pinned", async () => {
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      // A viewport-driven collapse must not write the user preference.
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+    });
+
+    it("does not override the stored preference on mobile", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+    });
   });
 });
