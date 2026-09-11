@@ -30,6 +30,7 @@ from fastapi.responses import (
 from starlette.concurrency import run_in_threadpool
 
 from ..__version__ import __version__
+from ..app.exception_handlers import register_exception_handlers
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
@@ -203,6 +204,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             await run_in_threadpool(runtime_service.close)
 
     app = FastAPI(title="QwenPaw Hub", lifespan=lifespan)
+    register_exception_handlers(app)
     app.state.runtime_service = runtime_service
     app.state.auth_service = hub_auth
     app.state.hub_config = effective_config
