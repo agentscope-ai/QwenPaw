@@ -274,6 +274,7 @@
     "mailbox": "Gerenciamento de E-mail",
     "tui": "Interface de Terminal",
     "multiAgent": "Multi-Agente",
+    "advisorMode": "Modo Conselheiro",
     "models": "Modelos",
     "channels": "Canais",
     "skills": "Skills",

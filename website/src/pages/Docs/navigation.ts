@@ -48,6 +48,7 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "loop-engineering",
         titleKey: "docs.loopEngineering",
       },
+      { slug: "advisor-mode", titleKey: "docs.advisorMode" },
       { slug: "config", titleKey: "docs.config" },
     ],
   },

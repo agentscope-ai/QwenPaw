@@ -428,3 +428,48 @@ def test_create_rejects_unicode_casefold_name(client, workspace) -> None:
     assert response.json()["detail"] == "Mode name exists"
     save.assert_not_called()
     reload.assert_not_called()
+
+
+def test_loop_catalog_lists_advisor_mode(client, workspace) -> None:
+    """Advisor Mode is selectable from the composer like /goal once it is
+    switched on for the agent."""
+    from qwenpaw.config.config import AgentProfileConfig
+    from qwenpaw.modes.advisor import AdvisorMode
+
+    cfg = AgentProfileConfig(id="default", name="Agent")
+    cfg.running = workspace.config.running
+    cfg.advisor_mode.enabled = True
+    workspace.config = cfg
+    workspace.plugins.modes = [AdvisorMode()]
+
+    response = client[0].get("/api/loops")
+
+    assert response.status_code == 200
+    advisor = next(m for m in response.json() if m["id"] == "advisor")
+    assert advisor["slash_command"] == "advisor"
+    assert advisor["name"] == "advisor"
+    assert (
+        advisor["source"] == "builtin"
+    ), "bundled mode, listed with built-ins"
+
+
+def test_loop_catalog_hides_modes_switched_off_for_the_agent(
+    client,
+    workspace,
+) -> None:
+    """Advisor is offered in the composer only once it is switched on for
+    the agent."""
+    from qwenpaw.config.config import AgentProfileConfig
+    from qwenpaw.modes.advisor import AdvisorMode
+
+    cfg = AgentProfileConfig(id="default", name="Agent")
+    cfg.running = workspace.config.running  # keep the custom_modes stub
+    workspace.config = cfg
+    workspace.plugins.modes = [AdvisorMode()]
+
+    ids = [m["id"] for m in client[0].get("/api/loops").json()]
+    assert "advisor" not in ids, "off by default"
+
+    cfg.advisor_mode.enabled = True
+    ids = [m["id"] for m in client[0].get("/api/loops").json()]
+    assert "advisor" in ids

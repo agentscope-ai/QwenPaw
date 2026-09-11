@@ -70,6 +70,17 @@ BUILTIN_LOOPS = (
     ),
 )
 
+ADVISOR_LOOP = LoopModeInfo(
+    id="advisor",
+    name="advisor",
+    slash_command="advisor",
+    description=(
+        "Let a stronger model plan and step in while a cheaper one does "
+        "the work."
+    ),
+    source="builtin",
+)
+
 
 def _session_context_state(
     saved_state: dict[str, Any] | None,
@@ -343,6 +354,12 @@ def _build_loop_catalog(
         "goal": "goal",
         "mission": "mission",
     }
+    # Advisor is bundled like goal and mission but only offered once it is
+    # switched on for the agent.
+    advisor_mode = getattr(workspace.config, "advisor_mode", None)
+    if getattr(advisor_mode, "enabled", False) is True:
+        result.append(ADVISOR_LOOP)
+        runtime_modes["advisor"] = "advisor"
     for mode in workspace.config.running.loop.custom_modes:
         if not mode.enabled:
             continue
@@ -358,7 +375,7 @@ def _build_loop_catalog(
         )
         runtime_modes[descriptor_id] = descriptor_id
 
-    builtin_names = {"default", "goal", "mission"}
+    builtin_names = {"default", "goal", "mission", "advisor"}
     for mode in getattr(workspace.plugins, "modes", []):
         runtime_name = getattr(mode, "name", "")
         if (
