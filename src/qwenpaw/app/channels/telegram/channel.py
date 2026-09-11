@@ -16,6 +16,7 @@ from telegram import BotCommand, InputFile
 from telegram.constants import ParseMode
 from telegram.error import (
     BadRequest,
+    EndPointNotFound,
     Forbidden,
     InvalidToken,
     NetworkError,
@@ -34,7 +35,11 @@ from qwenpaw.schemas import (
 
 from ....config.config import TelegramConfig as TelegramChannelConfig
 from ....constant import WORKING_DIR
-from .format_html import markdown_to_telegram_html
+from .format_html import (
+    has_markdown_table,
+    markdown_table_column_count,
+    markdown_to_telegram_html,
+)
 from ..utils import (
     MediaDataError,
     data_url_filename,
@@ -53,6 +58,8 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
+TELEGRAM_RICH_MESSAGE_MAX_BYTES = 32768
+TELEGRAM_RICH_TABLE_MAX_COLUMNS = 20
 TELEGRAM_MAX_FILE_SIZE_BYTES = (
     50 * 1024 * 1024
 )  # 50 MB – Telegram bot upload limit
@@ -756,6 +763,21 @@ class TelegramChannel(BaseChannel):
         self._stop_typing(chat_id)
         if self._is_processing.get(to_handle, False):
             self._start_typing(chat_id)
+
+        if (
+            has_markdown_table(text)
+            and len(text.encode("utf-8")) <= TELEGRAM_RICH_MESSAGE_MAX_BYTES
+            and markdown_table_column_count(text)
+            <= TELEGRAM_RICH_TABLE_MAX_COLUMNS
+        ):
+            rich_result = await self._send_rich_message(
+                chat_id,
+                text,
+                message_thread_id,
+            )
+            if rich_result is not False:
+                return
+
         chunks = self._chunk_text(text)
         for chunk in chunks:
             html_chunk = markdown_to_telegram_html(chunk)
@@ -790,6 +812,39 @@ class TelegramChannel(BaseChannel):
             except Exception:
                 logger.exception("telegram send_message failed")
                 return
+
+    async def _send_rich_message(
+        self,
+        chat_id: Union[int, str],
+        text: str,
+        message_thread_id: Optional[int],
+    ) -> Optional[bool]:
+        """Send a Markdown table through Telegram's Rich Messages API."""
+        request = getattr(self._application.bot, "do_api_request", None)
+        if request is None or not callable(request):
+            return False
+        rich_message: Dict[str, Any] = {"markdown": text}
+        api_kwargs: Dict[str, Any] = {
+            "chat_id": chat_id,
+            "rich_message": rich_message,
+        }
+        if message_thread_id is not None:
+            api_kwargs["message_thread_id"] = message_thread_id
+        try:
+            await request("sendRichMessage", api_kwargs=api_kwargs)
+            return True
+        except (BadRequest, EndPointNotFound) as exc:
+            logger.info(
+                "telegram Rich Messages unavailable, using legacy send: %s",
+                exc,
+            )
+            return False
+        except Exception as exc:
+            logger.warning(
+                "telegram Rich Messages request failed; not retrying: %s",
+                exc,
+            )
+            return None
 
     async def send_media(  # pylint: disable=too-many-statements
         self,
@@ -1112,13 +1167,27 @@ class TelegramChannel(BaseChannel):
             await self.send(to_handle, final_text, send_meta)
         elif len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
             # Text fits in a single message — edit in place.
-            html_text = markdown_to_telegram_html(final_text)
-            success = await self._edit_stream_message(
-                chat_id,
-                msg_id,
-                html_text,
-                use_html=True,
-            )
+            success = False
+            if (
+                has_markdown_table(final_text)
+                and len(final_text.encode("utf-8"))
+                <= TELEGRAM_RICH_MESSAGE_MAX_BYTES
+                and markdown_table_column_count(final_text)
+                <= TELEGRAM_RICH_TABLE_MAX_COLUMNS
+            ):
+                success = await self._edit_rich_stream_message(
+                    chat_id,
+                    msg_id,
+                    final_text,
+                )
+            if not success:
+                html_text = markdown_to_telegram_html(final_text)
+                success = await self._edit_stream_message(
+                    chat_id,
+                    msg_id,
+                    html_text,
+                    use_html=True,
+                )
             if not success:
                 await self._edit_stream_message(
                     chat_id,
@@ -1131,6 +1200,40 @@ class TelegramChannel(BaseChannel):
             # use the normal chunked send path (same as non-streaming).
             await self._delete_message(chat_id, msg_id)
             await self.send(to_handle, final_text, send_meta)
+
+    async def _edit_rich_stream_message(
+        self,
+        chat_id: Union[int, str],
+        message_id: int,
+        text: str,
+    ) -> bool:
+        """Edit a streaming placeholder with a native Rich Message."""
+        request = getattr(self._application.bot, "do_api_request", None)
+        if request is None or not callable(request):
+            return False
+        try:
+            await request(
+                "editMessageText",
+                api_kwargs={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "rich_message": {"markdown": text},
+                },
+            )
+            return True
+        except (BadRequest, EndPointNotFound) as exc:
+            logger.info(
+                "telegram Rich Message edit unavailable, using legacy "
+                "HTML: %s",
+                exc,
+            )
+            return False
+        except Exception as exc:
+            logger.warning(
+                "telegram Rich Message edit failed; using legacy HTML: %s",
+                exc,
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Event hooks

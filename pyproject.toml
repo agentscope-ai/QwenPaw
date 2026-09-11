@@ -29,7 +29,7 @@ dependencies = [
     "python-socks>=2.5.3",
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
-    "python-telegram-bot>=20.0",
+    "python-telegram-bot>=20.8",
     "slack-bolt>=1.22.0",
     "twilio>=9.10.2",
     "pywebview>=4.0",
