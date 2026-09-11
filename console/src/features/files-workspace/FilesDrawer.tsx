@@ -1,5 +1,5 @@
 import {
-  ArrowLeft,
+  ArrowRight,
   Copy,
   Download,
   Expand,
@@ -352,7 +352,7 @@ export default function FilesDrawer({
             className={styles.secondaryButton}
             onClick={() => dispatch({ type: "COLLAPSE_TO_PREVIEW" })}
           >
-            <ArrowLeft size={15} />
+            <ArrowRight size={15} />
             {t("files.backToPreview")}
           </button>
         )}
@@ -411,13 +411,13 @@ export default function FilesDrawer({
           initial={
             prefersReducedMotion
               ? false
-              : { opacity: 0, x: isWorkspace ? 10 : -10 }
+              : { opacity: 0, x: isWorkspace ? -10 : 10 }
           }
           animate={{ opacity: 1, x: 0 }}
           exit={
             prefersReducedMotion
               ? { opacity: 0 }
-              : { opacity: 0, x: isWorkspace ? -8 : 8 }
+              : { opacity: 0, x: isWorkspace ? 8 : -8 }
           }
           transition={
             prefersReducedMotion

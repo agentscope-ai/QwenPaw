@@ -1,7 +1,7 @@
 import { renderWithProviders } from "@/test/common_setup";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -54,6 +54,11 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
 }));
 
 describe("FilesDrawer", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
   it("copies the complete text file content", async () => {
     clipboardMocks.copyText.mockClear();
     clipboardMocks.success.mockClear();
@@ -190,9 +195,9 @@ describe("FilesDrawer", () => {
 
     const drawer = screen.getByRole("region");
     const separator = screen.getByRole("separator");
-    vi.spyOn(drawer, "getBoundingClientRect").mockReturnValue({
-      width: 500,
-    } as DOMRect);
+    vi.spyOn(drawer, "getBoundingClientRect")
+      .mockReturnValueOnce({ width: 500 } as DOMRect)
+      .mockReturnValue({ width: 600 } as DOMRect);
     vi.spyOn(drawer.parentElement!, "getBoundingClientRect").mockReturnValue({
       width: 1200,
     } as DOMRect);
@@ -205,6 +210,40 @@ describe("FilesDrawer", () => {
       expect(drawer.className).not.toContain("drawerResizing");
     });
     expect(drawer).toHaveStyle({ width: "600px" });
+    expect(localStorage.getItem("qwenpaw-files-workspace-width")).toBe("600");
+  });
+
+  it("uses left and right arrow keys from the right-side resize edge", async () => {
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "workspace",
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    const drawer = screen.getByRole("region");
+    const separator = screen.getByRole("separator");
+    vi.spyOn(drawer.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+    } as DOMRect);
+
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    await waitFor(() => {
+      expect(drawer).toHaveStyle({ width: "664px" });
+    });
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    await waitFor(() => {
+      expect(drawer).toHaveStyle({ width: "640px" });
+    });
   });
 
   // -------------------------------------------------------------------------
