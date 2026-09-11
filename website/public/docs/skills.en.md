@@ -319,10 +319,8 @@ content before relying on it.
 
 Create a directory under `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
 `SKILL.md`, and make sure it includes YAML front matter with `name` and
-`description`. If the skill depends on external binaries or environment
-variables, declare them in `metadata.requires`; QwenPaw exposes them as
-`require_bins` and `require_envs` metadata, but does not disable the skill
-automatically.
+`description`. Declare CLI binaries, environment variables, and MCP server
+names in `metadata.requires` (or `metadata.qwenpaw.requires`).
 
 #### Example SKILL.md
 
@@ -331,9 +329,11 @@ automatically.
 name: my_skill
 description: My custom capability
 metadata:
+  version: "1.0"
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
+    mcp: [my-mcp-server]
 ---
 
 # Usage
@@ -342,6 +342,56 @@ This skill is used for…
 ```
 
 `name` and `description` are **required**. `metadata` is optional.
+
+The optional version is displayed in workspace and Pool cards and lists.
+QwenPaw reads `version`, `metadata.version`, or
+`metadata.builtin_skill_version`, in that order. It preserves the declared
+text without enforcing SemVer or automatically updating it. Authors maintain
+the field in `SKILL.md`; skills without it show no version label.
+
+`requires` declares mandatory prerequisites. In the example above, `my_skill`
+needs the `ffmpeg` executable, the `MY_SKILL_API_KEY` environment variable,
+and an enabled MCP server registered as `my-mcp-server` in the target workspace.
+Use the registered MCP name, not its package or executable name.
+
+The YAML lists declare names, not values: `env: [MY_SKILL_API_KEY]` is valid;
+`env: MY_SKILL_API_KEY` is not a valid dependency declaration. To provide the
+value, open the installed skill's configuration in the Console and enter a
+JSON object:
+
+```json
+{
+  "MY_SKILL_API_KEY": "replace-with-your-api-key"
+}
+```
+
+Dependency fields must be lists of non-empty names. Unknown dependency types
+are ignored; skill-to-skill dependencies and version constraints are not
+resolved. At load time, an enabled skill with a malformed supported declaration
+or an unmet dependency is skipped with an ERROR log; other skills and the agent
+continue running. The enabled setting and valid metadata fields are preserved.
+After fixing the declaration or dependency, the skill becomes available on the
+next load without enabling it again. Skills without declared dependencies load
+normally.
+
+Environment checks include this skill's workspace config using the same
+precedence as runtime injection: existing process values, including empty
+strings, are not overwritten. Binary checks use the effective PATH. MCP checks
+only verify a valid, enabled MCP configuration in the target workspace, not
+connectivity or tool permissions. Skipped skills are also omitted from
+`/skills`, preload, and explicit skill invocation.
+
+For a skill installed in the default workspace, validate it with:
+
+```bash
+qwenpaw skills test my_skill --agent-id default
+```
+
+Replace `default` with the target agent ID when needed. A missing API key,
+missing `ffmpeg`, or missing/disabled MCP configuration causes a nonzero exit
+code. For example, a missing key produces
+`Environment variable not set: MY_SKILL_API_KEY`. See [CLI](./cli) for checking
+local directories and Pool skills.
 
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
@@ -596,7 +646,10 @@ When a skill runs, the effective config follows this priority (highest wins):
    `config` is copied as the initial workspace config. Subsequent workspace
    edits take precedence.
 
-For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.requires`. The first one found is used.
+For `requires` metadata, the parser checks keys in order:
+`metadata.openclaw.requires` → `metadata.qwenpaw.requires` →
+`metadata.clawdbot.requires` → `metadata.requires` → `requires`.
+The first one found is used.
 
 ---
 

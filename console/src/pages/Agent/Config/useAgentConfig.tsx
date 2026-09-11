@@ -5,11 +5,7 @@ import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
-import {
-  CONTEXT_MANAGER_BACKEND_MAPPINGS,
-  MEMORY_MANAGER_BACKEND_MAPPINGS,
-  MEMORY_MANAGER_BACKEND_OPTIONS,
-} from "../../../constants/backendMappings";
+import { CONTEXT_MANAGER_BACKEND_MAPPINGS } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
 export function useAgentConfig(
@@ -56,13 +52,7 @@ export function useAgentConfig(
         config.context_manager_backend in CONTEXT_MANAGER_BACKEND_MAPPINGS
           ? config.context_manager_backend
           : "light";
-      const memoryBackend =
-        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS ||
-        MEMORY_MANAGER_BACKEND_OPTIONS.some(
-          (o) => o.value === config.memory_manager_backend,
-        )
-          ? config.memory_manager_backend
-          : "remelight";
+      const memoryBackend = config.memory_manager_backend || "remelight";
       form.setFieldsValue({
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
@@ -87,9 +77,8 @@ export function useAgentConfig(
         context_manager_backend: contextBackend,
         light_context_config: config.light_context_config,
         memory_manager_backend: memoryBackend,
+        memory_backend_configs: config.memory_backend_configs || {},
         reme_light_memory_config: config.reme_light_memory_config,
-        adbpg_memory_config: config.adbpg_memory_config,
-        powercontext_memory_config: config.powercontext_memory_config,
         auto_title_config: config.auto_title_config ?? {
           enabled: true,
           timeout_seconds: 30.0,
@@ -174,14 +163,11 @@ export function useAgentConfig(
           original.light_context_config,
           formValues.light_context_config,
         ) as typeof original.light_context_config,
-        adbpg_memory_config: deepMergeConfig(
-          original.adbpg_memory_config,
-          formValues.adbpg_memory_config,
-        ) as typeof original.adbpg_memory_config,
-        powercontext_memory_config: deepMergeConfig(
-          original.powercontext_memory_config,
-          formValues.powercontext_memory_config,
-        ) as typeof original.powercontext_memory_config,
+        memory_backend_configs:
+          deepMergeConfig(
+            original.memory_backend_configs,
+            formValues.memory_backend_configs,
+          ) || {},
         auto_title_config: deepMergeConfig(
           original.auto_title_config,
           formValues.auto_title_config,

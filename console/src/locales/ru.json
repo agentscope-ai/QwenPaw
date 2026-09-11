@@ -2155,8 +2155,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Таймаут получения слота должен быть больше суммы паузы и джиттера",
     "contextManagementTitle": "Управление контекстом",
     "memoryManagerBackend": "Бэкенд управления долговременной памятью",
-    "memoryManagerBackendTooltip": "Тип бэкенда менеджера памяти. Выберите remelight (локальные файлы), adbpg (облачная база данных), PowerContext (удалённый сервис памяти) или none (отключить память).",
-    "memoryManagerBackendRestartWarning": "Смена бэкенда управления долговременной памятью не поддерживает горячую перезагрузку. Сохраните и перезапустите QwenPaw для применения изменений.",
+    "memoryManagerBackendTooltip": "Бэкенд менеджера памяти. Бэкенды плагинов появятся здесь после установки соответствующих плагинов.",
+    "memoryManagerBackendRestartWarning": "Сохранение смены бэкенда перезагрузит этот Agent и применит новый бэкенд памяти.",
     "maxIters": "Макс. итераций",
     "maxItersTooltip": "Максимальное число итераций рассуждение-действие для агента ReAct",
     "maxItersPlaceholder": "Введите макс. число итераций",
@@ -2575,27 +2575,7 @@
       "offDesc": "Одобрение инструментов и файлов отключено"
     },
     "saveLevelSuccess": "Режим одобрения инструментов сохранён",
-    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов",
-    "adbpgMemoryTitle": "ADBPG Long-term Memory",
-    "powercontextMemoryTitle": "Память PowerContext",
-    "powercontextConfig": {
-      "title": "Конфигурация памяти PowerContext",
-      "baseUrl": "URL сервера",
-      "token": "Bearer-токен",
-      "scopeId": "Область памяти",
-      "scopeIdPlaceholder": "Оставьте пустым, чтобы использовать уникальную область агента для этой установки",
-      "scopeIdInvalid": "Область памяти не может состоять только из пробелов.",
-      "timeout": "Тайм-аут запроса",
-      "maxContextBytes": "Максимальный объём внедряемого контекста (байт)",
-      "maxContextBytesTooltip": "Ограничивает общий объём результатов поиска PowerContext, добавляемых за один ход модели."
-    },
-    "adbpgConfig": {
-      "title": "ADBPG Memory Configuration",
-      "restBaseUrl": "REST Base URL",
-      "restApiKey": "REST API Key",
-      "memoryIsolation": "Memory Isolation (per-agent)",
-      "searchTimeout": "Search Timeout"
-    }
+    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов"
   },
   "tools": {
     "title": "Встроенные инструменты",
@@ -2780,7 +2760,9 @@
     "newTask": "Новая задача",
     "groups": {
       "cronShort": "Расписание",
-      "subagentShort": "Субагент"
+      "subagentShort": "Субагент",
+      "loadMore": "Загрузить ещё · осталось {{count}}",
+      "collapseList": "Свернуть список"
     },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"
@@ -3758,6 +3740,7 @@
     "statusLoaded": "Работает",
     "statusUnloaded": "Не загружен",
     "type": "Тип",
+    "typeMemory": "Память",
     "version": "Версия",
     "author": "Автор",
     "unknown": "Неизвестно",

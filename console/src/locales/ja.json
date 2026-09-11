@@ -2140,8 +2140,8 @@
     "llmAcquireTimeoutGtPauseJitter": "スロット取得タイムアウトはレート制限一時停止とジッターの合計より大きい必要があります",
     "contextManagementTitle": "コンテキスト管理",
     "memoryManagerBackend": "長期記憶管理バックエンド",
-    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンドタイプ。remelight（ローカルファイル）、adbpg（クラウドデータベース）、PowerContext（リモートメモリサービス）、または none（メモリを無効化）から選択できます。",
-    "memoryManagerBackendRestartWarning": "長期記憶管理バックエンドの切り替えはホットリロードに対応していません。変更を反映するには保存後に QwenPaw を再起動してください。",
+    "memoryManagerBackendTooltip": "メモリマネージャーのバックエンド。プラグインをインストールすると、そのバックエンドがここに表示されます。",
+    "memoryManagerBackendRestartWarning": "バックエンドの変更を保存すると、この Agent が再読み込みされ、新しいメモリバックエンドが適用されます。",
     "maxIters": "最大反復回数",
     "maxItersTooltip": "ReActエージェントの推論・行動サイクルの最大反復回数",
     "maxItersPlaceholder": "最大反復回数を入力",
@@ -2560,27 +2560,7 @@
       "offDesc": "ツールとファイルの承認を無効にします"
     },
     "saveLevelSuccess": "ツール承認モードを保存しました",
-    "saveLevelFailed": "ツール承認モードの保存に失敗しました",
-    "adbpgMemoryTitle": "ADBPG Long-term Memory",
-    "powercontextMemoryTitle": "PowerContext メモリ",
-    "powercontextConfig": {
-      "title": "PowerContext メモリ設定",
-      "baseUrl": "サーバー URL",
-      "token": "Bearer トークン",
-      "scopeId": "メモリスコープ",
-      "scopeIdPlaceholder": "空欄の場合、このインストール固有のエージェントスコープを使用します",
-      "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
-      "timeout": "リクエストタイムアウト",
-      "maxContextBytes": "注入するコンテキストの最大量（バイト）",
-      "maxContextBytesTooltip": "1回のモデル呼び出しに追加される PowerContext 検索結果の合計量を制限します。"
-    },
-    "adbpgConfig": {
-      "title": "ADBPG Memory Configuration",
-      "restBaseUrl": "REST Base URL",
-      "restApiKey": "REST API Key",
-      "memoryIsolation": "Memory Isolation (per-agent)",
-      "searchTimeout": "Search Timeout"
-    }
+    "saveLevelFailed": "ツール承認モードの保存に失敗しました"
   },
   "tools": {
     "title": "ビルトインツール",
@@ -2765,7 +2745,9 @@
     "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
-      "subagentShort": "サブエージェント"
+      "subagentShort": "サブエージェント",
+      "loadMore": "さらに読み込む · 残り {{count}} 件",
+      "collapseList": "リストを折りたたむ"
     },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
@@ -3743,6 +3725,7 @@
     "statusLoaded": "実行中",
     "statusUnloaded": "未ロード",
     "type": "タイプ",
+    "typeMemory": "メモリ",
     "version": "バージョン",
     "author": "作成者",
     "unknown": "不明",

@@ -52,7 +52,7 @@ describe("market app state", () => {
     );
   });
 
-  it("matches unscoped app IDs only when the installed author agrees", () => {
+  it("matches unscoped app IDs even when the installed author differs", () => {
     const entry = makeEntry({
       id: "@owner/app",
       owner: "owner",
@@ -64,10 +64,10 @@ describe("market app state", () => {
       ]),
     ).toBe("installed");
     expect(
-      getMarketAppState(entry, new Map([["app", "1.0.0"]]), "app", [
-        { id: "app", author: "other", version: "1.0.0" },
+      getMarketAppState(entry, new Map(), "app", [
+        { id: "app", author: "QwenPaw Team", version: "1.0.0" },
       ]),
-    ).toBe("available");
+    ).toBe("installed");
   });
 
   it("marks a newer market version as an update", () => {

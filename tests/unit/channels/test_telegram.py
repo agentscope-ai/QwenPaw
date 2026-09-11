@@ -33,6 +33,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw.app.channels import utils as channel_utils
+from qwenpaw.app.channels.telegram import channel as telegram_module
 
 from qwenpaw.schemas import (
     TextContent,
@@ -42,6 +44,81 @@ from qwenpaw.schemas import (
     FileContent,
     ContentType,
 )
+
+
+@pytest.mark.parametrize("filename", [None, "report.pdf"])
+async def test_data_url_document_preserves_filename(
+    telegram_channel,
+    mock_telegram_bot,
+    filename,
+):
+    """Telegram receives named bytes without creating or reading files."""
+    telegram_channel._application = MagicMock(bot=mock_telegram_bot)
+    part = FileContent(
+        file_url="data:application/pdf;base64,cGRmLWRhdGE=",
+        filename=filename,
+    )
+    with (
+        patch.object(
+            channel_utils.tempfile,
+            "mkstemp",
+            side_effect=AssertionError("Unexpected temporary file"),
+        ),
+        patch.object(
+            Path,
+            "read_bytes",
+            side_effect=AssertionError("Unexpected file read"),
+        ),
+    ):
+        await telegram_channel.send_media("12345", part)
+
+    payload = mock_telegram_bot.send_document.call_args.kwargs["document"]
+    assert payload.filename == (filename or "document.pdf")
+    assert payload.input_file_content == b"pdf-data"
+    assert not telegram_channel._media_dir.exists()
+
+
+async def test_data_url_invalid_payload_is_unavailable(telegram_channel):
+    """Invalid Base64 retains the channel's existing media error behavior."""
+    bot = AsyncMock()
+    with pytest.raises(telegram_module._MediaFileUnavailableError):
+        await telegram_channel._send_media_value(
+            bot=bot,
+            chat_id="recipient",
+            value="data:application/pdf;base64,invalid!",
+            method_name="send_document",
+            payload_name="document",
+            message_thread_id=None,
+        )
+    bot.send_document.assert_not_awaited()
+    assert not telegram_channel._media_dir.exists()
+
+
+async def test_data_url_decode_cancellation_propagates(
+    telegram_channel,
+):
+    """Decode cancellation propagates without sending any media."""
+    bot = AsyncMock()
+
+    with (
+        patch.object(
+            telegram_module,
+            "parse_data_url_async",
+            side_effect=asyncio.CancelledError,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await telegram_channel._send_media_value(
+            bot=bot,
+            chat_id="recipient",
+            value="data:application/pdf;base64,cGRmLWRhdGE=",
+            method_name="send_document",
+            payload_name="document",
+            message_thread_id=None,
+        )
+
+    bot.send_document.assert_not_awaited()
+    assert not telegram_channel._media_dir.exists()
 
 
 # =============================================================================

@@ -18,7 +18,6 @@ from .config import (
 from .utils import (
     get_available_channels,
     get_config_path,
-    get_or_create_powercontext_installation_id,
     get_heartbeat_config,
     get_heartbeat_query_path,
     get_playwright_chromium_executable_path,
@@ -48,7 +47,6 @@ __all__ = [
     "VisualCompactConfig",
     "get_available_channels",
     "get_config_path",
-    "get_or_create_powercontext_installation_id",
     "get_heartbeat_config",
     "get_heartbeat_query_path",
     "get_playwright_chromium_executable_path",

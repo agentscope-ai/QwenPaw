@@ -237,11 +237,13 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 ### Auto-Dream 手动运行
 
 ```text
-/dream             # 立即执行一次 Auto-Dream
-/dream <提示信息>  # 带提示执行一次，例如指定关注方向
+/reme auto_dream                    # 立即执行一次 Auto-Dream
+/reme auto_dream hint="关注某个主题" # 带提示执行一次
 ```
 
 平时不需要手动跑：Auto-Dream 默认每天定时执行一次。
+手动运行需要发起请求的聊天身份先完成审批；经过身份验证的控制台可作为管理员审批。
+执行 `/reme help` 可查看当前可用且允许从聊天调用的全部 action。
 
 ### 与本页相关的配置项
 

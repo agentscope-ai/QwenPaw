@@ -893,19 +893,21 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => uploadRef.current?.click()}
-              aria-label={t("files.upload")}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <LoaderCircle className={styles.spin} size={15} />
-              ) : (
-                <Upload size={15} />
-              )}
-            </button>
+            {source === "workspace" && (
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => uploadRef.current?.click()}
+                aria-label={t("files.upload")}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <LoaderCircle className={styles.spin} size={15} />
+                ) : (
+                  <Upload size={15} />
+                )}
+              </button>
+            )}
           </div>
         </div>
         <input

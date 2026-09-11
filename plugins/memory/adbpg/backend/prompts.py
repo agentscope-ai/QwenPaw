@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-"""ADBPG memory guidance prompts."""
+"""ADBPG memory guidance prompts owned by the plugin."""
 
 ADBPG_MEMORY_GUIDANCE_ZH = """\
 ## 记忆

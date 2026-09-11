@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ADBPG Memory Manager for QwenPaw agents.
+"""ADBPG memory backend plugin implementation.
 
 Provides long-term memory backed by AnalyticDB for PostgreSQL (ADBPG).
 Context compaction is handled natively by AgentScope's
@@ -8,7 +8,10 @@ Context compaction is handled natively by AgentScope's
 memory storage and retrieval.
 """
 
+import asyncio
 import logging
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -16,25 +19,23 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
-from .adbpg_client import (
+from qwenpaw.memory import (
+    AutoMemorySearchOptions,
+    BaseMemoryManager,
+    MemoryBackendContext,
+    NO_RELEVANT_MEMORIES,
+)
+
+from .client import (
     ADBPGConfig,
     ADBPGMemoryClient,
 )
-from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
-from .base_memory_manager import (
-    AutoMemorySearchOptions,
-    BaseMemoryManager,
-    NO_RELEVANT_MEMORIES,
-    memory_registry,
-)
-from ...config.config import load_agent_config
-from ...exceptions import ConfigurationException as ConfigurationError
-from ...utils.io_utils import run_sync_io
+from .config import ADBPGMemoryConfig
+from .prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 
 logger = logging.getLogger(__name__)
 
 
-@memory_registry.register("adbpg")
 class ADBPGMemoryManager(BaseMemoryManager):
     """ADBPG-backed long-term memory manager.
 
@@ -43,9 +44,11 @@ class ADBPGMemoryManager(BaseMemoryManager):
     agent's native compression and ``ToolResultPruningMiddleware``.
     """
 
-    def __init__(self, working_dir: str, agent_id: str) -> None:
-        super().__init__(working_dir=working_dir, agent_id=agent_id)
-        self._adbpg_config = None
+    def __init__(self, context: MemoryBackendContext) -> None:
+        super().__init__(context=context)
+        self._adbpg_config = ADBPGMemoryConfig.model_validate(
+            context.backend_config,
+        )
         self._client: ADBPGMemoryClient | None = None
         self._effective_agent_id: str = "shared"
         self._effective_user_id: str = "shared"
@@ -58,22 +61,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def start(self) -> None:
         """Initialize ADBPGMemoryClient from agent config."""
-        agent_config = await run_sync_io(load_agent_config, self.agent_id)
-        self._adbpg_config = getattr(
-            agent_config.running,
-            "adbpg_memory_config",
-            None,
-        )
-
-        if not self._adbpg_config:
-            logger.warning(
-                "No adbpg_memory_config for agent '%s'. "
-                "Long-term memory DISABLED.",
-                self.agent_id,
-            )
-            self._client = None
-            return
-
         # Resolve isolation modes
         cfg = self._adbpg_config
         self._effective_agent_id = (
@@ -82,9 +69,9 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         try:
             if not cfg.rest_base_url.strip():
-                raise ConfigurationError("ADBPG REST base URL not configured.")
+                raise ValueError("ADBPG REST base URL not configured.")
             if not cfg.rest_api_key.strip():
-                raise ConfigurationError("ADBPG REST API key not configured.")
+                raise ValueError("ADBPG REST API key not configured.")
 
             config = ADBPGConfig(
                 search_timeout=cfg.search_timeout,
@@ -132,13 +119,34 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
-        agent_config = load_agent_config(self.agent_id)
-        language = getattr(agent_config, "language", "zh") or "zh"
+        language = self.context.language
         prompts = {
             "zh": ADBPG_MEMORY_GUIDANCE_ZH,
             "en": ADBPG_MEMORY_GUIDANCE_EN,
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
+
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
+        """Expose remote search under its network governance identity."""
+        if self._client is None:
+            return [self.memory_search]
+
+        @wraps(self.memory_search)
+        async def adbpg_memory_search(
+            query: str,
+            max_results: int = 5,
+            min_score: float = 0.1,
+        ) -> ToolChunk:
+            return await self.memory_search(query, max_results, min_score)
+
+        # Keep the agent-facing name ``memory_search`` while selecting the
+        # plugin-owned network policy whenever a remote call can occur.
+        setattr(
+            adbpg_memory_search,
+            "_qwenpaw_policy_name",
+            "ADBPGMemorySearch",
+        )
+        return [adbpg_memory_search]
 
     def get_auto_memory_interval(self) -> int:
         """Persist ADBPG user messages every turn."""
@@ -155,23 +163,14 @@ class ADBPGMemoryManager(BaseMemoryManager):
         if self._client is None:
             return None
 
-        memory_cfg, estimate_divisor = await run_sync_io(
-            self._load_auto_search_config,
-        )
+        memory_cfg = self._adbpg_config
+        estimate_divisor = self.context.token_estimate_divisor
         search_cfg = getattr(memory_cfg, "auto_memory_search_config", None)
         if not getattr(search_cfg, "enabled", False):
             return None
         return AutoMemorySearchOptions(
             max_results=max(1, int(getattr(search_cfg, "max_results", 3))),
             estimate_divisor=estimate_divisor,
-        )
-
-    def _load_auto_search_config(self) -> tuple[Any, float]:
-        """Load ADBPG search settings and token estimate configuration."""
-        agent_config = load_agent_config(self.agent_id)
-        return (
-            agent_config.running.adbpg_memory_config,
-            self._resolve_token_estimate_divisor(agent_config),
         )
 
     async def auto_memory(
@@ -212,6 +211,20 @@ class ADBPGMemoryManager(BaseMemoryManager):
             f"Processed {len(user_messages)} user message(s) "
             f"to ADBPG for agent '{self.agent_id}'."
         )
+
+    async def _search_for_auto_memory(
+        self,
+        *,
+        query: str,
+        options: AutoMemorySearchOptions,
+    ) -> ToolChunk | None:
+        result = await self.memory_search(
+            query=query,
+            max_results=options.max_results,
+        )
+        if self._tool_chunk_text(result).strip() == NO_RELEVANT_MEMORIES:
+            return None
+        return result
 
     # ------------------------------------------------------------------
     # Tool function
@@ -268,7 +281,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         # Source 2: Local memory files (keyword match)
         try:
-            local_hits = await run_sync_io(
+            local_hits = await asyncio.to_thread(
                 self._search_local_memory_files,
                 query,
                 max_results=max(max_results - len(parts), 3),

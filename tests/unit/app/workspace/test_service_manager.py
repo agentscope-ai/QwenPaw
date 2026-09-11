@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Cancellation-safe workspace service lifecycle tests."""
+
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
@@ -16,10 +17,8 @@ from qwenpaw.app.workspace.service_manager import (
 )
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
-from qwenpaw.config.config import PowerContextMemoryConfig
-from qwenpaw.agents.memory.powercontext_memory_manager import (
-    PowerContextMemoryManager,
-)
+from qwenpaw.constant import WORKING_DIR
+from qwenpaw.memory import MemoryBackendContext
 
 
 async def _wait_for(event: threading.Event) -> None:
@@ -73,6 +72,84 @@ async def test_required_clean_stop_failure_is_propagated():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("async_stop", [True, False])
+async def test_required_clean_stop_false_result_is_propagated(async_stop):
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+
+    if async_stop:
+        stop = AsyncMock(return_value=False)
+    else:
+
+        def stop():
+            return False
+
+    service = SimpleNamespace(stop=stop)
+    descriptor = ServiceDescriptor(
+        name="memory_manager",
+        stop_method="stop",
+        require_clean_stop=True,
+    )
+    manager.register(descriptor)
+    manager.services[descriptor.name] = service
+
+    with pytest.raises(RuntimeError, match="reported an incomplete stop"):
+        await manager.stop_all()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("async_stop", [True, False])
+async def test_stop_cancellation_is_propagated_after_siblings(async_stop):
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    sibling_stop = AsyncMock()
+
+    if async_stop:
+        cancelled_stop = AsyncMock(side_effect=asyncio.CancelledError)
+    else:
+
+        def cancelled_stop():
+            raise asyncio.CancelledError
+
+    services = {
+        "memory_manager": SimpleNamespace(close=cancelled_stop),
+        "sibling": SimpleNamespace(close=sibling_stop),
+    }
+    for name, service in services.items():
+        descriptor = ServiceDescriptor(
+            name=name,
+            stop_method="close",
+            require_clean_stop=name == "memory_manager",
+        )
+        manager.register(descriptor)
+        manager.services[name] = service
+
+    with pytest.raises(asyncio.CancelledError):
+        await manager.stop_all(final=True)
+
+    sibling_stop.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancellation_does_not_commit_workspace_stopped(workspace):
+    class CancelledMemory:
+        async def close(self):
+            raise asyncio.CancelledError
+
+    _register(
+        workspace,
+        "memory_manager",
+        stop_method="close",
+        require_clean_stop=True,
+    )
+    workspace._service_manager.services["memory_manager"] = CancelledMemory()
+    workspace._started = True
+
+    with pytest.raises(asyncio.CancelledError):
+        await workspace.stop()
+
+    assert workspace._started
+
+
+@pytest.mark.asyncio
 async def test_reused_service_can_be_rejected_by_configuration():
     workspace = SimpleNamespace(agent_id="agent-1", marker="new")
     manager = ServiceManager(workspace)
@@ -100,21 +177,71 @@ async def test_reused_service_can_be_rejected_by_configuration():
     assert manager.services["memory_manager"] is not service
 
 
-def test_powercontext_reuse_requires_identical_configuration():
-    config = PowerContextMemoryConfig(
-        base_url="http://old.example",
-        scope_id="agent:one",
+def test_memory_reuse_requires_identical_backend_configuration(tmp_path):
+    instance = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=WORKING_DIR,
+            backend_config={
+                "base_url": "http://old.example",
+                "scope_id": "agent:one",
+            },
+        ),
     )
-    instance = object.__new__(PowerContextMemoryManager)
-    instance._config = config
+    config = SimpleNamespace(
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": {
+                    "base_url": "http://new.example",
+                    "scope_id": "agent:one",
+                },
+            },
+        ),
+    )
     workspace = SimpleNamespace(
-        _config=SimpleNamespace(
-            running=SimpleNamespace(
-                powercontext_memory_config=config.model_copy(
-                    update={"base_url": "http://new.example"},
-                ),
+        agent_id="agent-1",
+        workspace_dir=tmp_path,
+        config=config,
+    )
+
+    assert not _memory_manager_reuse_compatible(workspace, instance)
+
+
+@pytest.mark.parametrize(
+    ("language", "token_estimate_divisor"),
+    [("zh", 4.0), ("en", 3.0)],
+)
+def test_memory_reuse_requires_identical_runtime_context(
+    tmp_path,
+    language,
+    token_estimate_divisor,
+):
+    instance = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=WORKING_DIR,
+            backend_config={},
+            language="en",
+            token_estimate_divisor=4.0,
+        ),
+    )
+    config = SimpleNamespace(
+        language=language,
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={"remote-memory": {}},
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=token_estimate_divisor,
             ),
         ),
+    )
+    workspace = SimpleNamespace(
+        agent_id="agent-1",
+        workspace_dir=tmp_path,
+        config=config,
     )
 
     assert not _memory_manager_reuse_compatible(workspace, instance)
@@ -350,6 +477,33 @@ async def test_optional_service_is_cleaned_before_removal():
 
     closed.assert_awaited_once_with()
     assert "optional" not in manager.services
+
+
+@pytest.mark.asyncio
+async def test_fatal_exception_from_optional_service_aborts_startup():
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+
+    class FatalConfigurationError(RuntimeError):
+        pass
+
+    class FailingService:
+        def __init__(self):
+            raise FatalConfigurationError("configured backend is unavailable")
+
+    manager.register(
+        ServiceDescriptor(
+            name="optional",
+            service_class=FailingService,
+            optional=True,
+            fatal_exceptions=(FatalConfigurationError,),
+        ),
+    )
+
+    with pytest.raises(
+        FatalConfigurationError,
+        match="configured backend is unavailable",
+    ):
+        await manager.start_all()
 
 
 @pytest.mark.asyncio

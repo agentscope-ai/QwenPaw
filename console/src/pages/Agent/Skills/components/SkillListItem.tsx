@@ -63,6 +63,11 @@ export function SkillListItem({
             <span className={styles.typeBadge}>
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
+            {skill.version_text && (
+              <span className={styles.typeBadge}>
+                {t("skillPool.version")}: {skill.version_text}
+              </span>
+            )}
             {skill.preload && (
               <span className={styles.preloadListTag}>
                 {t("skills.preload")}

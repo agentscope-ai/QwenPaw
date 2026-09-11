@@ -293,7 +293,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 2. Auto Memory 把当天关于宁德时代与锂价的 session 总结成一条日期子目录笔记，并刷新当天索引页；
 3. 如果启用了 Daily Paper，相关论文精读会进入同一个每日记忆与索引体系；
 4. 后台索引持续更新 Markdown 片段、BM25、可选向量索引与 Wikilink 文件图谱；
-5. 你主动运行 `/dream`，或启用定时任务后，Auto Dream 把多天记录整理为 `personal`、`procedure` 和 `wiki` 长期节点；
+5. 你主动运行 `/reme auto_dream`，或启用定时任务后，Auto Dream 把多天记录整理为 `personal`、`procedure` 和 `wiki` 长期节点；
 6. 下一次写研报时，`memory_search` 先返回最相关的片段，再沿出边、入边和文件路径读取必要的上下文；
 7. 你可以随时打开、检查和修正这些 Markdown，修正后的内容会继续成为后续协作的依据。
 
