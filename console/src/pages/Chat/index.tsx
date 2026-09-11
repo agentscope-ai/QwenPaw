@@ -3912,7 +3912,7 @@ export default function ChatPage() {
       {/* Main chat area */}
       <motion.div
         className={styles.chatMainArea}
-        layout={prefersReducedMotion ? false : "size"}
+        layout={prefersReducedMotion ? false : "position"}
         transition={
           prefersReducedMotion
             ? { duration: 0 }
