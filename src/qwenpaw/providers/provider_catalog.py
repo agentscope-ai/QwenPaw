@@ -45,6 +45,7 @@ AZURE_OPENAI_MODELS = _models("AZURE_OPENAI_MODELS")
 MINIMAX_MODELS = _models("MINIMAX_MODELS")
 KIMI_MODELS = _models("KIMI_MODELS")
 DEEPSEEK_MODELS = _models("DEEPSEEK_MODELS")
+ATLASCLOUD_MODELS = _models("ATLASCLOUD_MODELS")
 VOLCENGINE_MODELS = _models("VOLCENGINE_MODELS")
 VOLCENGINE_CODINGPLAN_MODELS = _models("VOLCENGINE_CODINGPLAN_MODELS")
 VOLCENGINE_AGENTPLAN_MODELS = _models("VOLCENGINE_AGENTPLAN_MODELS")
@@ -343,6 +344,16 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_ATLASCLOUD = OpenAIProvider(
+    id="atlascloud",
+    name="Atlas Cloud",
+    base_url="https://api.atlascloud.ai/v1",
+    api_key_prefix="",
+    models=ATLASCLOUD_MODELS,
+    support_model_discovery=True,
+    freeze_url=True,
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -537,6 +548,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
     PROVIDER_DEEPSEEK,
+    PROVIDER_ATLASCLOUD,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
     PROVIDER_KIMI_CODINGPLAN,
@@ -577,6 +589,7 @@ BUILTIN_PROVIDER_CATALOG_KEYS = {
     "kimi-intl": "KIMI_MODELS",
     "kimi-codingplan": "KIMI_CODINGPLAN_MODELS",
     "deepseek": "DEEPSEEK_MODELS",
+    "atlascloud": "ATLASCLOUD_MODELS",
     "anthropic": "ANTHROPIC_MODELS",
     "gemini": "GEMINI_MODELS",
     "github-models": "GITHUB_MODELS_MODELS",
@@ -599,6 +612,7 @@ __all__ = [
     "AZURE_OPENAI_MODELS",
     "BUILTIN_PROVIDERS",
     "DASHSCOPE_MODELS",
+    "ATLASCLOUD_MODELS",
     "DEEPSEEK_MODELS",
     "GEMINI_MODELS",
     "GITHUB_MODELS_MODELS",
@@ -618,6 +632,7 @@ __all__ = [
     "PROVIDER_ANTHROPIC",
     "PROVIDER_AZURE_OPENAI",
     "PROVIDER_DASHSCOPE",
+    "PROVIDER_ATLASCLOUD",
     "PROVIDER_DEEPSEEK",
     "PROVIDER_GEMINI",
     "PROVIDER_GITHUB_MODELS",

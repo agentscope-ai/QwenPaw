@@ -87,6 +87,7 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
         sync_mode="startup",
     ),
     "deepseek": _OPENAI_DYNAMIC,
+    "atlascloud": _OPENAI_DYNAMIC,
     "kimi-cn": _OPENAI_DYNAMIC,
     "kimi-intl": _OPENAI_DYNAMIC,
     "kimi-codingplan": _CATALOG_PLAN,
