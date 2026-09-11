@@ -1268,6 +1268,8 @@
     "streamingEnabled": "Потоковый вывод",
     "streamingEnabledDingtalkHint": "Действует только при типе сообщения Card",
     "streamingEnabledFeishuHint": "Необходимо включить разрешение cardkit:card:write на странице управления разрешениями открытой платформы Feishu",
+    "autoCollapseThinking": "Сворачивать рассуждения",
+    "autoCollapseThinkingTooltip": "Автоматически сворачивать панель рассуждений после завершения потока. Панель можно раскрыть вручную.",
     "ackMessage": "Сообщение подтверждения",
     "ackMessageTooltip": "Отправить мгновенный ответ при получении сообщения до начала обработки агентом. Оставьте пустым для отключения.",
     "ackMessagePlaceholder": "⏳ Обработка...",

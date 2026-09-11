@@ -1582,6 +1582,8 @@
     "streamingEnabled": "流式输出",
     "streamingEnabledDingtalkHint": "仅在消息类型为 Card 时生效",
     "streamingEnabledFeishuHint": "需要在飞书开放平台权限管理界面开通 cardkit:card:write 权限",
+    "autoCollapseThinking": "折叠思考内容",
+    "autoCollapseThinkingTooltip": "思考内容流式输出结束后自动折叠，仍可手动展开。",
     "ackMessage": "即时确认消息",
     "ackMessageTooltip": "收到消息后立即发送一条确认回复，在 Agent 处理之前。留空则禁用。",
     "ackMessagePlaceholder": "⏳ 正在处理中...",
