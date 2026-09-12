@@ -36,6 +36,10 @@ class ACPHostedClient:
         "yes",
         "approve",
     )
+    _ALLOW_OPTION_KIND_PREFERENCE = (
+        "allow_once",
+        "allow_always",
+    )
 
     def __init__(
         self,
@@ -111,7 +115,18 @@ class ACPHostedClient:
         self,
         options: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Select the most permissive allow option by preference order."""
+        """Select the preferred allow option from an ACP request."""
+        # ACP option ids are chosen by the agent and are not standardized.
+        # The protocol-defined kind carries the stable allow semantics.
+        for preferred_kind in self._ALLOW_OPTION_KIND_PREFERENCE:
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                kind = str(opt.get("kind") or "").lower()
+                if kind == preferred_kind:
+                    return opt
+
+        # Fall back to ids for clients that omit the protocol kind.
         option_ids = {
             str(opt.get("optionId") or opt.get("option_id") or "").lower(): opt
             for opt in options
