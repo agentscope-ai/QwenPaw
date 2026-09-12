@@ -114,6 +114,31 @@ class HostRuntimeProvider:
             return capability
 
     @classmethod
+    def restart_helper(cls) -> bool:
+        """Replace the live helper with a freshly started one.
+
+        macOS caches TCC decisions (Screen Recording, Accessibility) per
+        process. A helper that started before the user granted those
+        permissions keeps being denied even after the grant, so it must be
+        replaced before the authorization becomes visible to Computer Use.
+        """
+        with cls._lock:
+            control = _control_endpoint()
+            if control is None:
+                return False
+            response = _request_control(control, {"action": "restart"})
+            # Whatever the host managed to do, the old helper is gone now;
+            # neither the cached capability nor the environment bootstrap
+            # (which names the old helper's endpoint) may answer again.
+            cls._capability = None
+            cls._environment_spent = True
+            capability = _capability_from_response(response)
+            if capability is None:
+                return False
+            cls._capability = capability
+            return True
+
+    @classmethod
     def invalidate_capability(cls, capability: RuntimeCapability) -> None:
         """Forget a capability whose endpoint has gone away.
 
@@ -210,8 +235,9 @@ def _control_endpoint() -> _ControlEndpoint | None:
     return _ControlEndpoint(host, port, token)
 
 
-def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
-    response = _request_control(control, {"action": "acquire"})
+def _capability_from_response(
+    response: dict[str, object] | None,
+) -> RuntimeCapability | None:
     if response is None or response.get("ok") is not True:
         return None
     pipe_name = response.get("pipe_name")
@@ -221,6 +247,12 @@ def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
     if not pipe_name or not secret:
         return None
     return RuntimeCapability(pipe_name, secret, COMPUTER_USE_PROTOCOL_VERSION)
+
+
+def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
+    return _capability_from_response(
+        _request_control(control, {"action": "acquire"}),
+    )
 
 
 def _request_control(
