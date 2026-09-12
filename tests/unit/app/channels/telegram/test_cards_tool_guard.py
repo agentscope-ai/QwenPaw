@@ -9,6 +9,7 @@ CallbackQuery handling (toast, message edit, ``/approval`` injection).
 The channel and its python-telegram-bot application are stubbed, so
 nothing reaches the network.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
@@ -438,6 +439,7 @@ class TestRender:
         sent = channel._application.bot.sent[0]
         assert sent["chat_id"] == "chat-1"
         assert sent["text"] == "body text"
+        assert sent["parse_mode"] == ParseMode.HTML
         assert sent["reply_markup"].inline_keyboard[0][0].callback_data == (
             "tga:rid-1"
         )
@@ -638,8 +640,8 @@ class TestHandle:
         await tg.handle(channel, query)
 
         assert query.answers[0]["text"] == "✅ Approved: shell"
-        # A cached body keeps the edit in plain-text mode.
-        assert "parse_mode" not in query.edits[0]
+        # A cached body switches the edit to HTML-converted markdown.
+        assert query.edits[0]["parse_mode"] == ParseMode.HTML
         assert "raw body" in query.edits[0]["text"]
         payload = channel.enqueued[0]
         assert payload["sender_id"] == "ctx-sender"
@@ -654,6 +656,57 @@ class TestHandle:
         await tg.handle(channel, query)
 
         assert query.edits[0]["parse_mode"] == ParseMode.MARKDOWN_V2
+
+    async def test_body_edit_is_converted_to_html(self):
+        channel = _StubChannel()
+        tg._cache_request_context(
+            "rid-h",
+            "shell",
+            "high",
+            "**body**",
+            {},
+        )
+        query = _StubQuery(data="tga:rid-h")
+
+        await tg.handle(channel, query)
+
+        assert query.edits[0]["parse_mode"] == ParseMode.HTML
+        assert query.edits[0]["text"].startswith("<b>body</b>")
+
+    async def test_markdown_body_is_converted_and_sent_as_html(self):
+        channel = _StubChannel()
+
+        result = await tg.render(
+            channel,
+            "chat-1",
+            _event("**bold** `code`"),
+            _send_meta(),
+            {
+                "approval_request_id": "rid-md",
+                "tool_name": "shell",
+                "severity": "high",
+            },
+        )
+
+        assert result is True
+        sent = channel._application.bot.sent[0]
+        assert sent["parse_mode"] == ParseMode.HTML
+        assert sent["text"] == "<b>bold</b> <code>code</code>"
+
+    async def test_placeholder_card_without_body_stays_plain(self):
+        channel = _StubChannel()
+
+        await tg.render(
+            channel,
+            "chat-1",
+            _event(""),
+            _send_meta(),
+            {"approval_request_id": "rid-plain", "tool_name": "shell"},
+        )
+
+        sent = channel._application.bot.sent[0]
+        assert "parse_mode" not in sent
+        assert sent["text"] == "🛡️ Tool Approval Required"
 
     async def test_duplicate_click_only_toasts(self):
         channel = _StubChannel()
