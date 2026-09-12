@@ -345,8 +345,12 @@ export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
   turn?: TurnUsageToken,
+  onComplete?: () => void,
 ): Response {
-  if (!response.body) return response;
+  if (!response.body) {
+    onComplete?.();
+    return response;
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";
@@ -365,24 +369,28 @@ export function wrapChatResponseUsageStream(
         }
       },
       flush() {
-        buffer += decoder.decode();
-        const parsed = parseSseDataLines(`${buffer}\n\n`);
-        for (const raw of parsed.events) {
-          const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
-        }
-        if (pendingUsage) {
-          let accepted = true;
-          if (turn) {
-            accepted = useTurnUsageStore
-              .getState()
-              .setSnapshotForTurn(pendingUsage, turn);
-          } else {
-            useTurnUsageStore.getState().setSnapshot(pendingUsage);
+        try {
+          buffer += decoder.decode();
+          const parsed = parseSseDataLines(`${buffer}\n\n`);
+          for (const raw of parsed.events) {
+            const snap = snapshotFromSsePayload(raw);
+            if (snap) pendingUsage = snap;
           }
-          if (accepted) {
-            schedulePatchLastResponseCardUsage(chatRef, pendingUsage, turn);
+          if (pendingUsage) {
+            let accepted = true;
+            if (turn) {
+              accepted = useTurnUsageStore
+                .getState()
+                .setSnapshotForTurn(pendingUsage, turn);
+            } else {
+              useTurnUsageStore.getState().setSnapshot(pendingUsage);
+            }
+            if (accepted) {
+              schedulePatchLastResponseCardUsage(chatRef, pendingUsage, turn);
+            }
           }
+        } finally {
+          onComplete?.();
         }
       },
     }),

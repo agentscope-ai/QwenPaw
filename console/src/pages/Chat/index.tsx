@@ -41,7 +41,12 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import type {
+  ProviderInfo,
+  ModelInfo,
+  ModelSlotConfig,
+  SkillSpec,
+} from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -128,10 +133,21 @@ import {
   withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import {
+  getPersistedModelOverride,
+  migratePendingModelOverride,
+  modelSlotsEqual,
+  setPendingModelOverride,
+  withPendingModelOverride,
+} from "../../features/model-selection/pendingModelOverride";
+import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
 } from "../../stores/filesSurfaceStore";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
+import {
+  syncSessionsGlobal,
+  type ExtendedSession,
+} from "../../stores/sessionListStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import { scrollReverseMessageList } from "./messageScroll";
@@ -264,6 +280,26 @@ import {
 // Supports multiple concurrent sessions: each session has its own controller.
 // The controller registry lives in backgroundQueueRegistry (unit-tested).
 // ---------------------------------------------------------------------------
+
+async function clearConfirmedPendingModelOverride(
+  agentId: string,
+  pendingSessionId: string,
+  modelSlot: ModelSlotConfig,
+  ...sessionIds: Array<string | undefined>
+): Promise<void> {
+  if (useAgentStore.getState().selectedAgent !== agentId) return;
+  const nextSessions =
+    (await sessionApi.refreshSessionList()) as ExtendedSession[];
+  syncSessionsGlobal(nextSessions);
+  const persisted = getPersistedModelOverride(
+    nextSessions,
+    pendingSessionId,
+    ...sessionIds,
+  );
+  if (modelSlotsEqual(persisted, modelSlot)) {
+    setPendingModelOverride(agentId, pendingSessionId, null);
+  }
+}
 
 /**
  * Wait until the backend reports the chat is no longer generating
@@ -512,6 +548,12 @@ async function startBackgroundQueue(queueKey: string) {
             queueAgentId,
             conversationReference,
           );
+          const modelRequest = withPendingModelOverride(
+            pendingRequest.requestBody,
+            queueAgentId,
+            queueKey,
+            conversationReference,
+          );
           // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
           // HTTP connection alive even when the queue loop is aborted (e.g.
           // foreground takes over). The server finishes generating and
@@ -522,7 +564,7 @@ async function startBackgroundQueue(queueKey: string) {
               "Content-Type": "application/json",
               ...authHeaders,
             },
-            body: JSON.stringify(pendingRequest.requestBody),
+            body: JSON.stringify(modelRequest.requestBody),
           });
 
           if (!res.ok) {
@@ -549,6 +591,16 @@ async function startBackgroundQueue(queueKey: string) {
               const r = await reader.read();
               if (r.done) break;
             }
+          }
+          if (modelRequest.modelSlot) {
+            await clearConfirmedPendingModelOverride(
+              queueAgentId,
+              queueKey,
+              modelRequest.modelSlot,
+              conversationReference,
+              identity.sessionId,
+              resolveBackendChatId(conversationReference),
+            ).catch(() => {});
           }
           fetchSucceeded = true;
         } catch {
@@ -1220,6 +1272,7 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const [, setSessionResolutionVersion] = useState(0);
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
   const chatIdRef = useRef(chatId);
@@ -2510,6 +2563,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
       migratePendingProjectDirectory(agentId, tempId, realId);
+      migratePendingModelOverride(agentId, tempId, realId);
       const fromScopeKey = sessionFilesScopeKey(agentId, tempId);
       const toScopeKey = sessionFilesScopeKey(agentId, realId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
@@ -2530,6 +2584,7 @@ export default function ChatPage() {
         setLastChatIdRef.current,
         selectedAgentRef.current,
       );
+      setSessionResolutionVersion((version) => version + 1);
       navigateRef.current(buildCurrentSessionPath(realId), { replace: true });
     };
 
@@ -2649,6 +2704,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
       migratePendingProjectDirectory(agentId, "new", sessionId);
+      migratePendingModelOverride(agentId, "new", sessionId);
       const fromScopeKey = sessionFilesScopeKey(agentId, "new");
       const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
@@ -2662,6 +2718,7 @@ export default function ChatPage() {
       }
       lastSessionIdRef.current = sessionId;
       sessionApi.lastActiveChatId = sessionId;
+      setSessionResolutionVersion((version) => version + 1);
       // Do not persist a temporary local timestamp id. It would otherwise be
       // restored on agent switch and appear as an unknown id in the URL. The
       // real backend UUID is persisted by onSessionIdResolved after the first
@@ -2782,7 +2839,6 @@ export default function ChatPage() {
         ...buildAuthHeaders(),
         "X-Agent-Id": submissionAgentId,
       };
-      headers["X-Agent-Id"] = submissionAgentId;
 
       if (requestUsesQwenPawBackend) {
         try {
@@ -2832,6 +2888,12 @@ export default function ChatPage() {
           : rewrittenLastMsg
           ? [rewrittenLastMsg]
           : [];
+      const submittedText = rewrittenInput
+        .filter((message) => message.role === "user")
+        .map(extractUserMessageText)
+        .join("\n")
+        .trim();
+      const refreshModelAfterResponse = /^\/model(?:\s|$)/i.test(submittedText);
 
       const usageTurn = useTurnUsageStore
         .getState()
@@ -2860,6 +2922,13 @@ export default function ChatPage() {
 
       let projectSessionId: string | null = null;
       let appliedProjectDir: string | null = null;
+      let appliedModelOverride: ModelSlotConfig | null = null;
+      const submissionConversationReference =
+        getSubmissionConversationReference(biz_params, submissionSdkSessionId);
+      const requestChatId = submissionConversationReference
+        ? sessionApi.getRealIdForSession(submissionConversationReference) ??
+          submissionConversationReference
+        : directSubmission?.backendChatId ?? "";
 
       if (clientMessageId && Array.isArray(requestBody.input)) {
         const requestInput = [...requestBody.input] as Array<
@@ -2882,10 +2951,7 @@ export default function ChatPage() {
           runningConfigApprovalLevel,
         );
         projectSessionId =
-          getSubmissionConversationReference(
-            biz_params,
-            submissionSdkSessionId,
-          ) ??
+          submissionConversationReference ??
           directSubmission?.queueSessionId ??
           String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
@@ -2895,6 +2961,14 @@ export default function ChatPage() {
         );
         requestBody = pendingRequest.requestBody;
         appliedProjectDir = pendingRequest.projectDir ?? null;
+        const modelRequest = withPendingModelOverride(
+          requestBody,
+          submissionAgentId,
+          projectSessionId,
+          requestChatId || undefined,
+        );
+        requestBody = modelRequest.requestBody;
+        appliedModelOverride = modelRequest.modelSlot;
       } else if (Object.keys(backendControlsRef.current).length > 0) {
         const currentContext =
           requestBody.request_context &&
@@ -2913,19 +2987,8 @@ export default function ChatPage() {
         submissionIdentity,
       );
 
-      const submissionConversationReference =
-        getSubmissionConversationReference(biz_params, submissionSdkSessionId);
-      const backendChatId = submissionConversationReference
-        ? sessionApi.getRealIdForSession(submissionConversationReference) ??
-          submissionConversationReference
-        : directSubmission?.backendChatId ?? "";
-      if (backendChatId) {
-        const userText = rewrittenInput
-          .filter((m) => m.role === "user")
-          .map(extractUserMessageText)
-          .join("\n")
-          .trim();
-        if (userText) {
+      if (requestChatId) {
+        if (submittedText) {
           // Also pass the full content array so patchLastUserMessage can
           // rebuild user card with images/files when reconnecting.
           const lastUserMsg = rewrittenInput
@@ -2938,8 +3001,8 @@ export default function ChatPage() {
               }>)
             : undefined;
           sessionApi.setLastUserMessage(
-            backendChatId,
-            userText,
+            requestChatId,
+            submittedText,
             contentArr,
             clientMessageId,
           );
@@ -2955,8 +3018,8 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+      if (!response.ok && requestChatId) {
+        sessionApi.discardLastUserMessage(requestChatId, clientMessageId);
       }
 
       const localIdToResolve =
@@ -2974,7 +3037,29 @@ export default function ChatPage() {
         sessionApi.triggerResolve(submissionIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
+      return wrapChatResponseUsageStream(response, chatRef, usageTurn, () => {
+        if (
+          response.ok &&
+          !refreshModelAfterResponse &&
+          appliedModelOverride &&
+          projectSessionId
+        ) {
+          void clearConfirmedPendingModelOverride(
+            submissionAgentId,
+            projectSessionId,
+            appliedModelOverride,
+            requestChatId,
+            submissionConversationReference,
+          ).catch(() => {});
+        }
+        if (refreshModelAfterResponse) {
+          window.dispatchEvent(
+            new CustomEvent("session-model-command-completed", {
+              detail: { agentId: submissionAgentId },
+            }),
+          );
+        }
+      });
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -3443,7 +3528,10 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             {usesQwenPawBackend ? (
-              <ModelSelector />
+              <ModelSelector
+                sessionId={queueSessionId}
+                chatId={backendChatId}
+              />
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
@@ -3862,6 +3950,7 @@ export default function ChatPage() {
     usesQwenPawBackend,
     supportsAttachments,
     runningConfigApprovalLevel,
+    backendChatId,
     activeSessionId,
     queueSessionId,
     onFileCardClick,
@@ -3969,15 +4058,12 @@ export default function ChatPage() {
                   key={`${alt.provider_id}/${alt.model_id}`}
                   size="small"
                   type="default"
-                  onClick={async () => {
+                  onClick={() => {
                     try {
-                      await providerApi.setActiveLlm({
+                      setPendingModelOverride(selectedAgent, queueSessionId, {
                         provider_id: alt.provider_id,
                         model: alt.model_id,
-                        scope: "agent",
-                        agent_id: selectedAgent,
                       });
-                      window.dispatchEvent(new CustomEvent("model-switched"));
                       message.success(
                         t("chat.rateLimitSwitched", { model: alt.model_name }),
                       );
