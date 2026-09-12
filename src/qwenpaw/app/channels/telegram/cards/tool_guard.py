@@ -16,6 +16,7 @@ Telegram Bot API refs:
   https://core.telegram.org/bots/api#callbackquery
   https://core.telegram.org/bots/api#editmessagetext
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +27,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
+from ..format_html import markdown_to_telegram_html
 from . import context
 
 if TYPE_CHECKING:
@@ -152,10 +154,10 @@ def build_resolved_text(
 ) -> str:
     """Build the text shown after a button click.
 
-    When body_text is present (non-streaming), the body is kept as
-    plain text and the status line is appended without formatting
-    (parse_mode=None).  When body is empty (compact/streaming),
-    MarkdownV2 formatting is used.
+    When body_text is present (non-streaming), the raw body is kept and
+    the status line is appended; the caller HTML-converts the result.
+    When body is empty (compact/streaming), MarkdownV2 formatting is
+    used directly.
     """
     status_map = {
         "approve": ("✅", "Approved"),
@@ -230,6 +232,12 @@ async def render(
 
     keyboard = build_approval_keyboard(request_id)
     text = build_approval_text(body_text)
+    # The body arrives as markdown; convert it through the same
+    # Markdown -> HTML path normal replies use, otherwise **bold** and
+    # code fences show up verbatim (Telegram only parses markup when a
+    # parse_mode is set). A body-less placeholder card stays plain.
+    if body_text:
+        text = markdown_to_telegram_html(text)
 
     try:
         kwargs: Dict[str, Any] = {
@@ -237,6 +245,8 @@ async def render(
             "text": text,
             "reply_markup": keyboard,
         }
+        if body_text:
+            kwargs["parse_mode"] = ParseMode.HTML
         if message_thread_id is not None:
             kwargs["message_thread_id"] = message_thread_id
 
@@ -396,14 +406,18 @@ async def _update_message_resolved(
         operator_display=operator_display,
         body_text=body_text,
     )
-    # Use MarkdownV2 only for compact (no body) cards; plain text when
-    # body is present to avoid parse errors from raw body content.
+    # Compact (no body) cards use MarkdownV2; body cards keep the
+    # resolved markdown and are converted to HTML by the caller for
+    # consistent rendering with the original card.
     edit_kwargs: Dict[str, Any] = {
         "text": resolved_text,
         "reply_markup": None,
     }
     if not body_text:
         edit_kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
+    else:
+        edit_kwargs["text"] = markdown_to_telegram_html(resolved_text)
+        edit_kwargs["parse_mode"] = ParseMode.HTML
     try:
         await query.edit_message_text(**edit_kwargs)
         logger.info(
