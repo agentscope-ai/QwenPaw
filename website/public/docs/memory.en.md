@@ -409,7 +409,7 @@ These numbers do not represent every real-world workload, and they depend on the
 
 ## Configuration Reference
 
-The default `remelight` backend runs inside the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. Configure it in the Console or under `running.reme_light_memory_config` in `agent.json`.
+The default `remelight` backend runs inside the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation; a separate `memory_model` can be configured to run memory writing on a lighter model. Configure it in the Console or under `running.reme_light_memory_config` in `agent.json`.
 
 ### Common Configuration
 

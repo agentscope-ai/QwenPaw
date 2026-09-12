@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from qwenpaw.config.config import (
     AgentsRunningConfig,
     EmbeddingModelConfig,
+    ModelSlotConfig,
     ReMeLightMemoryConfig,
 )
 
@@ -116,6 +117,44 @@ def test_auto_fin_cron_is_disabled_by_default():
 def test_auto_fin_window_rejects_values_outside_boundaries(window_hours):
     with pytest.raises(ValidationError):
         ReMeLightMemoryConfig(auto_fin_window_hours=window_hours)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (
+            {"provider_id": "dashscope", "model": "qwenpaw-flash-4b"},
+            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
+        ),
+        (
+            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
+            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
+        ),
+        (
+            "dashscope:qwenpaw-flash-4b",
+            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
+        ),
+        (
+            "ollama:qwen2.5:7b",
+            ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
+        ),
+        (
+            "qwenpaw-flash-4b",
+            ModelSlotConfig(provider_id="", model="qwenpaw-flash-4b"),
+        ),
+    ],
+)
+def test_memory_model_accepts_slot_forms(value, expected):
+    assert ReMeLightMemoryConfig(memory_model=value).memory_model == expected
+
+
+def test_memory_model_survives_serialization_round_trip():
+    cfg = ReMeLightMemoryConfig(memory_model="dashscope:qwenpaw-flash-4b")
+
+    reloaded = ReMeLightMemoryConfig.model_validate(cfg.model_dump())
+
+    assert reloaded.memory_model == cfg.memory_model
 
 
 @pytest.mark.parametrize("window_hours", [1, 168])
