@@ -457,6 +457,11 @@ class MemorySpace:
         ``seq`` is globally unique, but rows from concurrent conversations can
         interleave inside a range. The eviction index belongs to this
         MemorySpace's conversation, so retain its session and agent lineage.
+
+        The current active turn is deliberately excluded. Besides already
+        being present in the live context, its assistant row grows in place as
+        later tool calls are appended. Returning that mutable row on page one
+        would invalidate the result-bound cursor before page two can run.
         """
         where = ["seq BETWEEN ? AND ?"]
         params: list = [int(lo), int(hi)]
@@ -469,6 +474,10 @@ class MemorySpace:
             # until startup reconciliation can claim the canonical session.
             where.append("(agent_id = ? OR agent_id IS NULL)")
             params.append(self._agent_id)
+        active_exclusion = self._active_turn_exclusion()
+        if active_exclusion:
+            where.append(active_exclusion[0])
+            params.extend(active_exclusion[1])
         return self._select(
             "SELECT seq, kind, role, name, content, headline, blocks, "
             "metadata, created_at "
