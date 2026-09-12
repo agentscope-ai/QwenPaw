@@ -212,6 +212,40 @@ async def _persist_pending_project_dirs(
     return updated
 
 
+async def _apply_spawn_whitelist(
+    workspace,
+    chat,
+    native_payload: dict[str, Any],
+):
+    """Persist spawn tool/skill whitelists into chat meta.
+
+    Spawn lineage (``source = "subagent"``, ``parent_session_id``,
+    ``root_session_id``) is already persisted as first-class ``ChatSpec``
+    fields by ``_chat_registration_fields``. The tool/skill whitelists
+    only travel in the request context, where the runtime builder
+    consumes them once — so merge them into ``meta`` here, letting
+    spawn-tree consumers read back (via the chat list API) exactly what
+    each subagent was allowed to use.
+    """
+    request_context = native_payload["meta"].get("request_context")
+    if not isinstance(request_context, dict):
+        return chat
+    if request_context.get("_spawn_subagent") is not True:
+        return chat
+    whitelist_meta: dict[str, Any] = {}
+    for key in ("subagent_allowed_tools", "subagent_skills"):
+        value = request_context.get(key)
+        if isinstance(value, list) and value:
+            whitelist_meta[key] = list(value)
+    if not whitelist_meta:
+        return chat
+    updated = await workspace.chat_manager.update_meta(
+        chat.id,
+        whitelist_meta,
+    )
+    return updated or chat
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -413,6 +447,11 @@ async def post_console_chat(
             return _empty_sse_response()
     else:
         chat = await _persist_pending_project_dirs(
+            workspace,
+            chat,
+            native_payload,
+        )
+        chat = await _apply_spawn_whitelist(
             workspace,
             chat,
             native_payload,
@@ -856,6 +895,11 @@ async def post_console_chat_task(
         **_chat_registration_fields(native_payload),
     )
     chat = await _persist_pending_project_dirs(
+        workspace,
+        chat,
+        native_payload,
+    )
+    chat = await _apply_spawn_whitelist(
         workspace,
         chat,
         native_payload,

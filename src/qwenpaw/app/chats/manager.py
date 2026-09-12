@@ -7,7 +7,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
-from typing import Optional
+from typing import Any, Optional
 
 from .models import (
     BatchArchiveResult,
@@ -507,6 +507,23 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             merged.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(merged)
             return merged
+
+    async def update_meta(
+        self,
+        chat_id: str,
+        meta: dict[str, Any],
+    ) -> Optional[ChatSpec]:
+        """Merge ``meta`` into the chat metadata, preserving other keys."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            merged_meta = dict(existing.meta)
+            merged_meta.update(meta)
+            updated = existing.model_copy(update={"meta": merged_meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
 
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.
