@@ -124,6 +124,18 @@ def _is_jsonrpc_envelope(data: Any) -> bool:
     return isinstance(data, dict) and data.get("jsonrpc") == "2.0"
 
 
+def _extract_jsonrpc_error_payload(data: Any) -> dict[str, Any] | None:
+    """Return an error object from standard or Java-sdk ``jsonRpcError`` bodies."""
+    if not isinstance(data, dict):
+        return None
+    if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
+        return data["error"]
+    alt = data.get("jsonRpcError")
+    if isinstance(alt, dict):
+        return alt
+    return None
+
+
 def _ids_match(left: Any, right: Any) -> bool:
     return left == right or str(left) == str(right)
 
@@ -406,9 +418,11 @@ def _unwrap_jsonrpc_result(
     """Unwrap a JSON-RPC response body, raising on HTTP / RPC errors."""
     # Require jsonrpc:"2.0" so platform 404 JSON is not misread as RPC.
     if status >= 400:
-        if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
+        error_payload = _extract_jsonrpc_error_payload(data)
+        if error_payload is not None:
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
-            raise _JsonRpcError.from_payload(data["error"], http_status=status)
+            # Java/Kotlin MCP SDK uses a non-standard ``jsonRpcError`` envelope.
+            raise _JsonRpcError.from_payload(error_payload, http_status=status)
         resp_kw: dict[str, Any] = {
             "headers": headers or {},
             "request": request,
