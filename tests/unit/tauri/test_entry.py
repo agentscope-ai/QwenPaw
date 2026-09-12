@@ -14,6 +14,40 @@ from qwenpaw.tauri import entry
 from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
 
 
+def _clear_bundle_env(monkeypatch):
+    for name in (
+        entry.EXTRA_CA_FILE_ENV,
+        entry.EXTRA_CA_DIR_ENV,
+        "SSL_CERT_FILE",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _use_certifi_bundle(monkeypatch, tmp_path, content=b"certifi root\n"):
+    cert_file = tmp_path / "cacert.pem"
+    cert_file.write_bytes(content)
+    monkeypatch.setitem(
+        sys.modules,
+        "certifi",
+        types.SimpleNamespace(where=lambda: str(cert_file)),
+    )
+    return cert_file
+
+
+def _use_working_dir(monkeypatch, tmp_path):
+    monkeypatch.setitem(
+        sys.modules,
+        "qwenpaw.constant",
+        types.SimpleNamespace(WORKING_DIR=tmp_path),
+    )
+
+
+def _bundle_path(tmp_path):
+    return tmp_path / "extra-ca" / entry.EXTRA_CA_BUNDLE_NAME
+
+
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
     monkeypatch.delitem(sys.modules, "qwenpaw.app._app", raising=False)
     monkeypatch.setenv(
@@ -49,9 +83,7 @@ def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
 def test_install_certifi_env_sets_bundle_paths(monkeypatch, tmp_path):
     cert_file = tmp_path / "cacert.pem"
     cert_file.write_text("test cert", encoding="utf-8")
-    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
-    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
-    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+    _clear_bundle_env(monkeypatch)
     monkeypatch.setitem(
         sys.modules,
         "certifi",
@@ -63,6 +95,133 @@ def test_install_certifi_env_sets_bundle_paths(monkeypatch, tmp_path):
     assert os.environ["SSL_CERT_FILE"] == str(cert_file)
     assert os.environ["REQUESTS_CA_BUNDLE"] == str(cert_file)
     assert os.environ["CURL_CA_BUNDLE"] == str(cert_file)
+
+
+def test_install_certifi_env_merges_extra_ca_file(monkeypatch, tmp_path):
+    extra_ca = tmp_path / "corp-root.pem"
+    extra_ca.write_bytes(b"corp root\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_FILE_ENV, str(extra_ca))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+
+    entry._install_certifi_env()
+
+    bundle = _bundle_path(tmp_path)
+    assert bundle.read_bytes() == b"certifi root\ncorp root\n"
+    assert os.environ["SSL_CERT_FILE"] == str(bundle)
+    assert os.environ["REQUESTS_CA_BUNDLE"] == str(bundle)
+    assert os.environ["CURL_CA_BUNDLE"] == str(bundle)
+
+
+def test_install_certifi_env_merges_extra_ca_dir(monkeypatch, tmp_path):
+    ca_dir = tmp_path / "ca"
+    ca_dir.mkdir()
+    (ca_dir / "b.crt").write_bytes(b"second root\n")
+    (ca_dir / "a.pem").write_bytes(b"first root\n")
+    (ca_dir / "c.cer").write_bytes(b"third root\n")
+    (ca_dir / "notes.txt").write_bytes(b"not a certificate\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_DIR_ENV, str(ca_dir))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+
+    entry._install_certifi_env()
+
+    assert _bundle_path(tmp_path).read_bytes() == (
+        b"certifi root\nfirst root\nsecond root\nthird root\n"
+    )
+
+
+def test_install_certifi_env_keeps_external_ssl_cert_file(
+    monkeypatch, tmp_path
+):
+    extra_ca = tmp_path / "corp-root.pem"
+    extra_ca.write_bytes(b"corp root\n")
+    external = tmp_path / "operator-bundle.pem"
+    external.write_bytes(b"operator roots\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_FILE_ENV, str(extra_ca))
+    monkeypatch.setenv("SSL_CERT_FILE", str(external))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+
+    entry._install_certifi_env()
+
+    assert os.environ["SSL_CERT_FILE"] == str(external)
+    assert "REQUESTS_CA_BUNDLE" not in os.environ
+    assert not _bundle_path(tmp_path).exists()
+
+
+def test_install_certifi_env_ignores_missing_extra_ca(monkeypatch, tmp_path):
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_FILE_ENV, str(tmp_path / "gone.pem"))
+    monkeypatch.setenv(entry.EXTRA_CA_DIR_ENV, str(tmp_path / "gone-dir"))
+    cert_file = _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+
+    entry._install_certifi_env()
+
+    assert os.environ["SSL_CERT_FILE"] == str(cert_file)
+    assert not _bundle_path(tmp_path).exists()
+
+
+def test_install_certifi_env_refreshes_bundle_when_inputs_change(
+    monkeypatch,
+    tmp_path,
+):
+    extra_ca = tmp_path / "corp-root.pem"
+    extra_ca.write_bytes(b"corp root\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_FILE_ENV, str(extra_ca))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+    entry._install_certifi_env()
+
+    extra_ca.write_bytes(b"rotated corp root\n")
+    entry._install_certifi_env()
+
+    assert _bundle_path(tmp_path).read_bytes() == (
+        b"certifi root\nrotated corp root\n"
+    )
+
+
+def test_install_certifi_env_skips_unchanged_bundle_write(
+    monkeypatch, tmp_path
+):
+    extra_ca = tmp_path / "corp-root.pem"
+    extra_ca.write_bytes(b"corp root\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(entry.EXTRA_CA_FILE_ENV, str(extra_ca))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+    entry._install_certifi_env()
+    bundle = _bundle_path(tmp_path)
+    written_at = bundle.stat().st_mtime_ns
+
+    entry._install_certifi_env()
+
+    assert bundle.stat().st_mtime_ns == written_at
+
+
+def test_install_certifi_env_deduplicates_ca_sources(monkeypatch, tmp_path):
+    extra_ca = tmp_path / "corp-root.pem"
+    extra_ca.write_bytes(b"corp root\n")
+    ca_dir = tmp_path / "ca"
+    ca_dir.mkdir()
+    (ca_dir / "copy.pem").write_bytes(b"corp root\n")
+    _clear_bundle_env(monkeypatch)
+    monkeypatch.setenv(
+        entry.EXTRA_CA_FILE_ENV,
+        os.pathsep.join([str(extra_ca), str(extra_ca)]),
+    )
+    monkeypatch.setenv(entry.EXTRA_CA_DIR_ENV, str(ca_dir))
+    _use_certifi_bundle(monkeypatch, tmp_path)
+    _use_working_dir(monkeypatch, tmp_path)
+
+    entry._install_certifi_env()
+
+    assert _bundle_path(tmp_path).read_bytes() == b"certifi root\ncorp root\n"
 
 
 def test_run_click_command_wraps_click_exception(capsys):
