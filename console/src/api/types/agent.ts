@@ -1,3 +1,5 @@
+import type { ModelSlotConfig } from "./provider";
+
 export interface AgentRequest {
   input: unknown;
   session_id?: string | null;
@@ -92,6 +94,7 @@ export interface ReMeLightMemoryConfig {
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
   reranker_config: RerankerConfig;
+  memory_model?: ModelSlotConfig | null;
 }
 
 export interface RerankerConfig {

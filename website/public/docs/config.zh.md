@@ -480,6 +480,7 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `memory_search_enabled`          | bool        | `true`                           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
 | `auto_memory_search_config`      | object      | _（见下方）_                     | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`         | object      | _（见下方）_                     | Embedding 模型配置                                                                                |
+| `memory_model`                   | object \| string \| null | `null`              | 记忆写入（auto-memory / auto-dream / Daily Paper / Auto Fin）使用的可选模型槽；支持 `{"provider_id": "...", "model": "..."}` 或 `"provider_id:model"` 字符串，纯模型名将继承主模型的 provider。未配置时使用 Agent 主模型 |
 | `needs_reindex`                  | bool        | `false`                          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见

@@ -67,9 +67,11 @@ from ...config.config import (
     update_agent_config_async,
     AgentProfileConfig,
     EmbeddingModelConfig,
+    ModelSlotConfig,
     RerankerConfig,
 )
 from ...exceptions import ProviderError
+from ...providers import ProviderManager
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -496,17 +498,76 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         )
 
     async def _update_qwenpaw_model(self) -> None:
-        """Reuse QwenPaw's active model in ReMe's default LLM component."""
+        """Inject the memory-writing model into ReMe's default LLM component.
+
+        Uses the optional ``memory_model`` slot when configured, so memory
+        jobs (auto-memory / auto-dream / daily-paper / auto-fin) can run on
+        a lighter model than the agent's chat model.  Falls back to the
+        agent's main model when the configured slot is unavailable.
+        """
         if self._reme is None:
             return
 
-        model, _formatter = await create_model_and_formatter_async(
-            self.agent_id,
-        )
+        memory_slot = await self._memory_model_slot()
+        model = None
+        if memory_slot is not None:
+            try:
+                model, _formatter = await create_model_and_formatter_async(
+                    self.agent_id,
+                    model_slot_override=memory_slot,
+                )
+            except ProviderError as exc:
+                logger.warning(
+                    "Memory model '%s:%s' unavailable; using the agent's "
+                    "main model for memory jobs: %s",
+                    memory_slot.provider_id,
+                    memory_slot.model,
+                    exc,
+                )
+        if model is None:
+            model, _formatter = await create_model_and_formatter_async(
+                self.agent_id,
+            )
         await self._reme.update_component(
             "as_llm",
             "default",
             model=model,
+        )
+
+    async def _memory_model_slot(self) -> ModelSlotConfig | None:
+        """Return the configured memory-writing model slot, if any.
+
+        A bare model name (empty ``provider_id``) inherits the provider of
+        the agent's main model.  Returns ``None`` when no usable slot is
+        configured.
+        """
+        agent_config = await load_agent_config_async(self.agent_id)
+        slot = agent_config.running.reme_light_memory_config.memory_model
+        if slot is None or not slot.model.strip():
+            if slot is not None:
+                logger.warning(
+                    "Ignoring unusable memory_model %r for agent '%s'",
+                    slot.model_dump(),
+                    self.agent_id,
+                )
+            return None
+        if slot.provider_id.strip():
+            return slot
+        active_model = getattr(agent_config, "active_model", None)
+        provider_id = getattr(active_model, "provider_id", "") or ""
+        if not provider_id:
+            global_model = ProviderManager.get_instance().get_active_model()
+            provider_id = str(getattr(global_model, "provider_id", "") or "")
+        if not provider_id:
+            logger.warning(
+                "Memory model '%s' has no provider and the agent's main "
+                "model does not resolve one; using the main model instead",
+                slot.model,
+            )
+            return None
+        return ModelSlotConfig(
+            provider_id=provider_id,
+            model=slot.model.strip(),
         )
 
     async def test_and_stage_embedding(
