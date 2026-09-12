@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from watchfiles import Change
 
 from qwenpaw.app.routers import workspace as workspace_router
 
@@ -338,55 +337,32 @@ async def test_watch_remains_open_after_idle_poll(
     watch_dir = tmp_path / "project"
     watch_dir.mkdir()
     target = watch_dir / "notes.md"
-    captured: dict[str, object] = {}
-
-    class FakeWatcher:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.closed = False
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            self.calls += 1
-            if self.calls == 1:
-                return set()
-            if self.calls == 2:
-                return {(Change.modified, str(target))}
-            raise StopAsyncIteration
-
-        async def aclose(self) -> None:
-            self.closed = True
-
-    watcher = FakeWatcher()
-
-    def fake_awatch(path: Path, **kwargs):
-        captured["path"] = path
-        captured.update(kwargs)
-        return watcher
+    target.write_text("v1")
+    monkeypatch.setattr(workspace_router, "_WATCH_POLL_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(workspace_router, "_WATCH_QUEUE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(workspace_router, "_WATCH_HEARTBEAT_SECONDS", 0.15)
 
     class ConnectedRequest:
         async def is_disconnected(self) -> bool:
             return False
 
-    monkeypatch.setattr(workspace_router, "awatch", fake_awatch)
-    messages = [
-        message
-        async for message in workspace_router.workspace_watch_events(
-            ConnectedRequest(),
-            watch_dir,
-        )
-    ]
+    agen = workspace_router.workspace_watch_events(
+        ConnectedRequest(),
+        watch_dir,
+    )
+    assert (await anext(agen)) == 'data: {"type": "connected"}\n\n'
+    assert (await anext(agen)) == 'data: {"type": "ready"}\n\n'
 
-    assert captured == {
-        "path": watch_dir,
-        "rust_timeout": 1_000,
-        "yield_on_timeout": True,
-    }
-    assert any('"path": "notes.md"' in message for message in messages)
-    assert watcher.calls == 3
-    assert watcher.closed is True
+    # Idle wake-up: the stream stays open and emits a heartbeat instead of
+    # closing the watcher.
+    assert (await anext(agen)) == ": heartbeat\n\n"
+
+    # A real change after the idle wake-up is still reported.
+    target.write_text("v2")
+    message = await anext(agen)
+    assert '"type": "file_change"' in message
+    assert '"modified"' in message and '"notes.md"' in message
+    await agen.aclose()
 
 
 @pytest.mark.asyncio
@@ -397,18 +373,9 @@ async def test_watch_checks_disconnect_after_idle_poll(
     """An idle wake-up must promptly observe a disconnected client."""
     watch_dir = tmp_path / "project"
     watch_dir.mkdir()
-
-    class IdleWatcher:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.closed = False
-
-        async def __anext__(self):
-            self.calls += 1
-            return set()
-
-        async def aclose(self) -> None:
-            self.closed = True
+    monkeypatch.setattr(workspace_router, "_WATCH_POLL_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(workspace_router, "_WATCH_QUEUE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(workspace_router, "_WATCH_HEARTBEAT_SECONDS", 0.15)
 
     class DisconnectingRequest:
         def __init__(self) -> None:
@@ -418,14 +385,7 @@ async def test_watch_checks_disconnect_after_idle_poll(
             self.calls += 1
             return self.calls > 1
 
-    watcher = IdleWatcher()
     request = DisconnectingRequest()
-    monkeypatch.setattr(
-        workspace_router,
-        "awatch",
-        lambda *_args, **_kwargs: watcher,
-    )
-
     messages = [
         message
         async for message in workspace_router.workspace_watch_events(
@@ -434,7 +394,9 @@ async def test_watch_checks_disconnect_after_idle_poll(
         )
     ]
 
-    assert messages == ['data: {"type": "connected"}\n\n']
-    assert watcher.calls == 1
-    assert request.calls == 2
-    assert watcher.closed is True
+    assert messages[0] == 'data: {"type": "connected"}\n\n'
+    # The stream ends promptly after an idle wake-up observes the disconnect
+    # (a "ready" event may or may not have landed first — either way the
+    # generator must stop, never spin forever).
+    assert len(messages) <= 2
+    assert request.calls >= 2
