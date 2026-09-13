@@ -1396,7 +1396,7 @@
       {
         "id": "deepseek-v4-flash",
         "name": "DeepSeek V4 Flash",
-        "supports_image": false,
+        "supports_image": true,
         "supports_video": false,
         "probe_source": "documentation",
         "is_free": false,
@@ -1404,10 +1404,12 @@
         "availability_status": "unverified",
         "availability_retryable": true,
         "config_overrides": [],
-        "max_input_length": 131072,
+        "max_input_length": 1000000,
         "max_input_length_configured": false,
         "generate_kwargs": {},
-        "relay_reasoning": true
+        "relay_reasoning": true,
+        "reasoning_effort": "high",
+        "reasoning_effort_options": ["off", "low", "high", "max"]
       },
       {
         "id": "deepseek-v4-pro",
