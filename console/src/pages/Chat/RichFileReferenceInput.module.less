@@ -6,6 +6,7 @@
   max-height: 128px;
   overflow: auto;
   color: inherit;
+  unicode-bidi: plaintext;
 }
 
 .richEditor {
@@ -18,6 +19,8 @@
   overflow-wrap: anywhere;
   line-height: 1.65;
   cursor: text;
+  /* Fix #2120: mixed Arabic/English (etc.) inside one line */
+  unicode-bidi: plaintext;
 }
 
 .paragraph {
@@ -73,6 +76,8 @@
   border: 1px solid var(--app-info-border);
   border-radius: 7px;
   cursor: pointer;
+  direction: ltr;
+  unicode-bidi: isolate;
 
   svg {
     flex: 0 0 auto;
@@ -100,6 +105,8 @@
   font-family: var(--ant-font-family-code);
   background: var(--app-info-bg);
   border-color: var(--app-info-border);
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .codePopover {
@@ -124,6 +131,8 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     background: var(--app-fill-faint);
+    direction: ltr;
+    unicode-bidi: isolate;
   }
 }
 
