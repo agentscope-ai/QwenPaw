@@ -176,19 +176,32 @@ def build_env_context(
     """
     parts = []
 
-    # Runtime identity
-    powered = f", powered by {active_model_name}" if active_model_name else ""
-    parts.append(
-        f"- About: You are a personal AI assistant{powered}. "
-        f"You operate in QwenPaw, an open-source agent "
-        f"framework built by AgentScope team from Qwen lab.",
+    # Runtime identity. The framework-attribution group (About / GitHub /
+    # Docs lines) can be omitted via config: env_context.show_about_line =
+    # False — for agents whose persona is fully defined in SOUL.md /
+    # PROFILE.md. Environment facts (OS / shell / dirs) always stay.
+    show_about_line = bool(
+        getattr(
+            getattr(load_config(), "env_context", None),
+            "show_about_line",
+            True,
+        ),
     )
-    parts.append(
-        "- GitHub: https://github.com/agentscope-ai/QwenPaw",
-    )
-    parts.append(
-        "- Docs: https://qwenpaw.agentscope.io/",
-    )
+    if show_about_line:
+        powered = (
+            f", powered by {active_model_name}" if active_model_name else ""
+        )
+        parts.append(
+            f"- About: You are a personal AI assistant{powered}. "
+            f"You operate in QwenPaw, an open-source agent "
+            f"framework built by AgentScope team from Qwen lab.",
+        )
+        parts.append(
+            "- GitHub: https://github.com/agentscope-ai/QwenPaw",
+        )
+        parts.append(
+            "- Docs: https://qwenpaw.agentscope.io/",
+        )
     parts.append(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",

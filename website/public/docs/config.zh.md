@@ -138,6 +138,9 @@ QwenPaw 会在单个服务进程内串行写入智能体配置，并拒绝基于
       }
     }
   },
+  "env_context": {
+    "show_about_line": true
+  },
   "last_api": {
     "host": "127.0.0.1",
     "port": 8088
@@ -149,14 +152,15 @@ QwenPaw 会在单个服务进程内串行写入智能体配置，并拒绝基于
 
 **全局 config.json 字段说明：**
 
-| 字段                  | 类型           | 默认值         | 说明                                  |
-| --------------------- | -------------- | -------------- | ------------------------------------- |
-| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                   |
-| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id） |
-| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址     |
-| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口         |
-| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情 |
-| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`） |
+| 字段                          | 类型           | 默认值         | 说明                                                               |
+| ----------------------------- | -------------- | -------------- | ------------------------------------------------------------------ |
+| `agents.active_agent`         | string         | `"default"`    | 当前激活的智能体 ID                                                |
+| `agents.profiles`             | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）                              |
+| `env_context.show_about_line` | bool           | `true`         | 是否在每条 system prompt 前拼接框架署名组（About / GitHub / Docs） |
+| `last_api.host`               | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址                                  |
+| `last_api.port`               | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口                                      |
+| `show_tool_details`           | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情                              |
+| `user_timezone`               | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）                              |
 
 **`agents.profiles[agent_id]`** 引用字段：
 
