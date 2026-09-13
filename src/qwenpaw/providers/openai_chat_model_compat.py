@@ -27,6 +27,69 @@ from qwenpaw.utils.tool_call_extra import (
 logger = logging.getLogger(__name__)
 
 
+# Valid parameters for openai.AsyncOpenAI().chat.completions.create()
+# Used to filter out unrecognized kwargs that cause TypeError.
+_OPENAI_COMPLETION_PARAMS: frozenset[str] = frozenset({
+    "audio",
+    "extra_body",
+    "extra_headers",
+    "extra_query",
+    "frequency_penalty",
+    "function_call",
+    "functions",
+    "logit_bias",
+    "logprobs",
+    "max_completion_tokens",
+    "max_tokens",
+    "messages",
+    "metadata",
+    "modalities",
+    "model",
+    "n",
+    "parallel_tool_calls",
+    "prediction",
+    "presence_penalty",
+    "prompt_cache_key",
+    "prompt_cache_retention",
+    "reasoning_effort",
+    "response_format",
+    "safety_identifier",
+    "seed",
+    "service_tier",
+    "stop",
+    "store",
+    "stream",
+    "stream_options",
+    "temperature",
+    "timeout",
+    "tool_choice",
+    "tools",
+    "top_logprobs",
+    "top_p",
+    "user",
+    "verbosity",
+    "web_search_options",
+})
+
+
+def _sanitize_openai_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Remove kwargs that the OpenAI SDK does not recognize.
+
+    Some middleware or provider layers inject custom params (e.g.
+    streamIdleTimeoutMs) that are valid for a proxy/gateway but
+    rejected by the upstream OpenAI SDK.  Drop them with a warning
+    so the request can still reach the provider.
+    """
+    unknown = set(kwargs) - _OPENAI_COMPLETION_PARAMS
+    if unknown:
+        logger.warning(
+            "Dropping unrecognized kwargs for OpenAI completions API: %s",
+            sorted(unknown),
+        )
+        return {k: v for k, v in kwargs.items() if k in _OPENAI_COMPLETION_PARAMS}
+    return kwargs
+
+
 def _battr(block: Any, key: str, default: Any = None) -> Any:
     """Read an attribute from a dict *or* Pydantic block."""
     if isinstance(block, dict):
@@ -790,6 +853,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
+        # Strip any unrecognized kwargs (e.g. streamIdleTimeoutMs) that
+        # some middleware or proxy layer may inject but the OpenAI SDK
+        # does not accept.
+        merged = _sanitize_openai_kwargs(merged)
         return await super()._call_api(
             model_name,
             messages,
