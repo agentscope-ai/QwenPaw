@@ -409,8 +409,16 @@ def _unwrap_jsonrpc_result(
         if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
             raise _JsonRpcError.from_payload(data["error"], http_status=status)
+        # The body is already decoded or freshly JSON-encoded. Retaining
+        # framing headers would make httpx decode the diagnostic response again.
+        safe_headers = {
+            key: value
+            for key, value in (headers or {}).items()
+            if key.casefold()
+            not in {"content-encoding", "content-length", "transfer-encoding"}
+        }
         resp_kw: dict[str, Any] = {
-            "headers": headers or {},
+            "headers": safe_headers,
             "request": request,
         }
         if isinstance(data, dict):

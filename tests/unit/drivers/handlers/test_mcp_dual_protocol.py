@@ -39,6 +39,7 @@ from qwenpaw.drivers.handlers.mcp_streamable_http import (
     _oauth_required_message,
     _same_origin,
     _supported_versions_from_payload,
+    _unwrap_jsonrpc_result,
 )
 
 
@@ -365,6 +366,26 @@ async def test_auto_does_not_fallback(monkeypatch, make, exc_type, match):
         await c.connect()
     assert not connected
     assert c._impl is None
+
+
+def test_http_error_response_drops_content_encoding_after_decoding():
+    request = httpx.Request("POST", "http://mcp.test/mcp")
+
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _unwrap_jsonrpc_result(
+            method="tools/list",
+            status=503,
+            data={"error": "upstream unavailable"},
+            request=request,
+            request_id=1,
+            headers={
+                "Content-Encoding": "gzip",
+                "Content-Type": "application/json",
+            },
+        )
+
+    assert caught.value.response.json() == {"error": "upstream unavailable"}
+    assert "content-encoding" not in caught.value.response.headers
 
 
 async def test_auto_still_reports_oauth_when_legacy_also_denies(monkeypatch):
