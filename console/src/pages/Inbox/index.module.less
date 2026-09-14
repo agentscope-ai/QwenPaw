@@ -294,6 +294,12 @@
   overflow-wrap: anywhere;
   word-break: normal;
 
+  // Match Chat: preserve source newlines within paragraphs, without
+  // preserving the renderer's whitespace between Markdown blocks.
+  :global(p) {
+    white-space: pre-wrap;
+  }
+
   :global(p),
   :global(ul),
   :global(ol),
