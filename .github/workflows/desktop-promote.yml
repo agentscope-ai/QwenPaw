@@ -19,7 +19,7 @@ on:
         type: string
         required: true
       ref:
-        description: "Git ref/SHA to checkout for the packaging scripts"
+        description: "Release target ref/SHA used for product source and version"
         type: string
         required: false
         default: ""
@@ -30,6 +30,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -39,11 +40,22 @@ jobs:
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
       OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     steps:
-      - name: Checkout (for scripts)
+      - name: Checkout release target
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          # Helpers must come from the revision that defined this workflow,
+          # even when the release target predates those helpers.
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,8 +69,13 @@ jobs:
         id: version
         uses: ./.github/actions/get-version
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download and verify desktop artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
+            --attempts 2 \
+            --include-updater-metadata
 
       - name: Install ossutil
         run: |
@@ -95,16 +112,12 @@ jobs:
             fi
 
             echo "Promoting ${platform} ${versioned_name} -> ${latest_name}"
-            ossutil cp \
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
               "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
-              --acl public-read \
-              --force
-            ossutil cp \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}"
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
               "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
-              --acl public-read \
-              --force
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json"
           }
 
           promote_latest \
@@ -151,7 +164,7 @@ jobs:
             exit 0
           fi
           NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
-          python scripts/pack-tauri/generate_update_manifest.py manifest \
+          python "$RELEASE_INFRA/scripts/pack-tauri/generate_update_manifest.py" manifest \
             --version "$VERSION" \
             --base-url "$OSS_BASE" \
             --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
@@ -159,10 +172,9 @@ jobs:
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
-          ossutil cp qwenpaw-tauri-latest-oss.json \
-            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
 
       - name: Update desktop index
         run: |
@@ -189,7 +201,7 @@ jobs:
             if [ -z "${artifact}" ]; then
               return 0
             fi
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "${artifact}" \
               --product desktop \
               --platform "${platform}" \
@@ -211,10 +223,9 @@ jobs:
             "mac-tauri"
 
           # Upload updated desktop/index.json
-          ossutil cp desktop-index.json \
-            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            desktop-index.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json"
 
           echo "✓ Desktop index updated"
 
@@ -254,9 +265,8 @@ jobs:
           PYTHON
 
           # Upload main index
-          ossutil cp main-index.json \
-            "oss://${OSS_BUCKET}/metadata/index.json" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json"
 
           echo "✓ Main index updated"

@@ -14,6 +14,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
@@ -477,6 +478,9 @@ async def _load_plugin_with_optional_force_reinstall(
     source_path: Path,
     *,
     force: bool,
+    reload_agents: bool = True,
+    pawport_owner: dict | None = None,
+    recover_incomplete: bool = False,
 ):
     """Load a plugin, optionally unloading first under one lifecycle lock.
 
@@ -493,7 +497,6 @@ async def _load_plugin_with_optional_force_reinstall(
     """
     from ...config.utils import get_plugins_dir
 
-    install_dir = get_plugins_dir()
     collected: dict = {
         "provider_ids": [],
         "command_names": [],
@@ -532,15 +535,18 @@ async def _load_plugin_with_optional_force_reinstall(
             record,
             force=force,
             old_tools=collected["old_tools"],
+            reload_agents=reload_agents,
         )
 
     return await loader.load_plugin_from_path(
         source_path=source_path,
-        install_dir=install_dir,
+        install_dir=get_plugins_dir(),
         force=force,
         before_force_unload=_before_force_unload if force else None,
         after_force_unload=_after_force_unload if force else None,
         after_load=_after_load,
+        pawport_owner=pawport_owner,
+        recover_incomplete=recover_incomplete,
     )
 
 
@@ -550,6 +556,7 @@ async def _finish_plugin_install_after_load(
     *,
     force: bool,
     old_tools: set,
+    reload_agents: bool = True,
 ) -> None:
     """Post-load setup with force-reinstall tool cleanup before reload.
 
@@ -570,7 +577,8 @@ async def _finish_plugin_install_after_load(
                 record.manifest.id,
                 removed_tools,
             )
-    await _schedule_all_agents_reload(request)
+    if reload_agents:
+        await _schedule_all_agents_reload(request)
 
 
 def _extract_plugin_zip_bytes(content: bytes, temp_dir: Path) -> Path:
@@ -656,6 +664,88 @@ class InstallPluginRequest(BaseModel):
     force: bool = False
 
 
+async def install_plugin_source(
+    source: str,
+    *,
+    app,
+    force: bool = False,
+    reload_agents: bool = True,
+    pawport_owner: dict | None = None,
+    recover_incomplete: bool = False,
+):
+    """Install through the native plugin lifecycle used by the HTTP route."""
+    request = SimpleNamespace(app=app)
+    loader = getattr(app.state, "plugin_loader", None)
+    if loader is None:
+        raise RuntimeError("Plugin loader is not ready yet.")
+
+    normalized = str(source or "").strip()
+    temp_dir: Optional[Path] = None
+    try:
+        if normalized.startswith(("http://", "https://")):
+            temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
+            zip_path = temp_dir / "plugin.zip"
+            logger.info("Downloading plugin from %s", _log_safe(normalized))
+            await _async_download(normalized, zip_path)
+            source_path = await asyncio.to_thread(
+                _extract_downloaded_plugin_zip,
+                zip_path,
+                temp_dir,
+            )
+        else:
+            source_path = await asyncio.to_thread(Path(normalized).resolve)
+            if not await asyncio.to_thread(source_path.exists):
+                raise FileNotFoundError(f"Path not found: {normalized}")
+        return await _load_plugin_with_optional_force_reinstall(
+            loader,
+            request,
+            source_path,
+            force=force,
+            reload_agents=reload_agents,
+            pawport_owner=pawport_owner,
+            recover_incomplete=recover_incomplete,
+        )
+    finally:
+        if temp_dir is not None:
+            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+
+
+async def uninstall_plugin_source(
+    plugin_id: str,
+    *,
+    app,
+    reload_agents: bool = True,
+) -> None:
+    """Uninstall through the native plugin lifecycle."""
+    request = SimpleNamespace(app=app)
+    loader = getattr(app.state, "plugin_loader", None)
+    if loader is None:
+        raise RuntimeError("Plugin loader is not ready yet.")
+    async with loader.plugin_lifecycle(plugin_id):
+        record = loader.get_loaded_plugin(plugin_id)
+        if record is None:
+            raise KeyError(f"Plugin '{plugin_id}' is not loaded.")
+        meta: dict = record.manifest.meta or {}
+        provider_ids, command_names = _collect_plugin_runtime_ids(
+            loader.registry,
+            plugin_id,
+        )
+        await loader.unload_plugin(plugin_id, delete_files=True)
+        _post_unload_cleanup(
+            request,
+            plugin_id,
+            provider_ids,
+            command_names,
+        )
+        await asyncio.to_thread(
+            _remove_plugin_tools_from_agents,
+            plugin_id,
+            meta,
+        )
+        if reload_agents:
+            await _schedule_all_agents_reload(request)
+
+
 @router.post(
     "/install",
     summary="Install plugin from path or URL",
@@ -675,42 +765,16 @@ async def install_plugin(
     reloaded in the background so that newly registered tools can be
     used without a server restart.
     """
-    loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is None:
+    if getattr(request.app.state, "plugin_loader", None) is None:
         raise HTTPException(
             status_code=503,
             detail="Plugin loader is not ready yet. Try again shortly.",
         )
 
-    source = body.source.strip()
-    is_url = source.startswith(("http://", "https://"))
-    temp_dir: Optional[Path] = None
-
     try:
-        if is_url:
-            # Download and extract the zip archive
-            temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
-            zip_path = temp_dir / "plugin.zip"
-            logger.info(f"Downloading plugin from {_log_safe(source)}")
-            await _async_download(source, zip_path)
-            source_path = await asyncio.to_thread(
-                _extract_downloaded_plugin_zip,
-                zip_path,
-                temp_dir,
-            )
-        else:
-            source_path = await asyncio.to_thread(Path(source).resolve)
-            if not await asyncio.to_thread(source_path.exists):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path not found: {source}",
-                )
-
-        # Load + post-load setup share one lifecycle lock.
-        record = await _load_plugin_with_optional_force_reinstall(
-            loader,
-            request,
-            source_path,
+        record = await install_plugin_source(
+            body.source,
+            app=request.app,
             force=body.force,
         )
     except HTTPException:
@@ -725,10 +789,6 @@ async def install_plugin(
             status_code=500,
             detail=f"Plugin installation failed: {exc}",
         ) from exc
-    finally:
-        if temp_dir is not None and await asyncio.to_thread(temp_dir.exists):
-            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
-
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
@@ -834,33 +894,11 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             detail="Plugin loader is not ready yet.",
         )
 
-    # Full uninstall transaction under one lifecycle lock so record/meta
-    # capture, unload, and agent-config cleanup cannot race a concurrent
-    # reinstall of the same id (stale meta must not delete the wrong tools).
     try:
-        async with loader.plugin_lifecycle(plugin_id):
-            record = loader.get_loaded_plugin(plugin_id)
-            if record is None:
-                raise KeyError(f"Plugin '{plugin_id}' is not loaded.")
-            meta: dict = record.manifest.meta or {}
-
-            provider_ids, command_names = _collect_plugin_runtime_ids(
-                loader.registry,
-                plugin_id,
-            )
-            await loader.unload_plugin(plugin_id, delete_files=True)
-            _post_unload_cleanup(
-                request,
-                plugin_id,
-                provider_ids,
-                command_names,
-            )
-            await asyncio.to_thread(
-                _remove_plugin_tools_from_agents,
-                plugin_id,
-                meta,
-            )
-            await _schedule_all_agents_reload(request)
+        await uninstall_plugin_source(
+            plugin_id,
+            app=request.app,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

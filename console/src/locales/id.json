@@ -66,6 +66,69 @@
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
     "reload": "Muat ulang"
   },
+  "portabilityImport": {
+    "title": "Impor",
+    "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
+    "steps": {
+      "sources": "Aplikasi",
+      "inventory": "Pilih konten",
+      "progress": "Impor"
+    },
+    "chooseSources": "Pilih aplikasi",
+    "chooseSourcesHint": "Pilih satu atau beberapa aplikasi yang terdeteksi.",
+    "detected": "Terdeteksi",
+    "notDetected": "Tidak terdeteksi",
+    "noSources": "Tidak ada aplikasi AI yang didukung terdeteksi di perangkat ini.",
+    "continue": "Lanjutkan",
+    "scanning": "Memeriksa percakapan dan pengaturan alat…",
+    "chooseContent": "Pilih yang akan diimpor",
+    "defaultSelected": "Percakapan dan alat dipilih secara default. Plugin memerlukan konfirmasi eksplisit Anda.",
+    "conversations": "Percakapan",
+    "toolsSetup": "Alat & pengaturan",
+    "heartbeatRequiresSessions": "Tugas terjadwal ini memerlukan percakapan untuk diimpor.",
+    "items": "{{count}} item",
+    "start": "Mulai impor",
+    "groups": {
+      "memory": "Memori",
+      "cron": "Jadwal",
+      "skill": "Skill",
+      "mcp": "MCP",
+      "plugin": "Plugin"
+    },
+    "states": {
+      "pending": "Menunggu",
+      "repairing": "Memperbaiki",
+      "ready": "Berhasil diperbaiki, menunggu impor",
+      "failed": "Gagal",
+      "succeeded": "Berhasil",
+      "existing": "Sudah ada"
+    },
+    "hints": {
+      "failed": "Sesuaikan konfigurasi terkait secara manual.",
+      "disabled": "Berhasil diimpor tetapi tetap nonaktif hingga Anda meninjau dan mengaktifkannya.",
+      "cronReview": "Diimpor dalam keadaan nonaktif dan tidak dapat dijalankan sampai Anda meninjaunya secara eksplisit di Tugas Cron; aktifkan secara terpisah setelahnya."
+    },
+    "sessionStates": {
+      "failed": "Impor gagal",
+      "succeeded": "{{count}}/{{total}} diimpor",
+      "importing": "Mengimpor {{count}}/{{total}}"
+    },
+    "finished": "Impor selesai",
+    "importing": "Impor sedang berjalan",
+    "cancelling": "Menghentikan impor",
+    "cancellingHint": "Menunggu Agent perbaikan kompatibilitas berhenti dengan aman.",
+    "keepOpen": "Tinjau status setiap item di bawah. Jangan tutup QwenPaw selama impor.",
+    "details": "Detail migrasi",
+    "targetAgent": "Agent tujuan: {{agent}}",
+    "selectAllFailed": "Pilih semua alat yang gagal",
+    "retrySelected": "Coba lagi yang dipilih ({{count}})",
+    "retryConfirm": "Coba lagi {{count}} alat gagal yang dipilih? Item QwenPaw yang sudah ada akan dipertahankan.",
+    "pluginWarningTitle": "Peringatan eksekusi plugin",
+    "pluginWarning": "Plugin ini dapat memasang dependensi Python, menjalankan kode dalam proses QwenPaw, serta mendaftarkan alat, Hook, rute, atau perintah global. Memilih plugin juga mengimpor konfigurasi dan kredensial MCP terikatnya dalam keadaan nonaktif untuk ditinjau. Impor hanya plugin dari sumber yang tepercaya.",
+    "pluginWarningConfirm": "Saya memercayai sumber plugin ini dan mengizinkan pemasangan dependensi serta eksekusi kode.",
+    "pluginWarningAction": "Konfirmasi dan impor",
+    "done": "Selesai"
+  },
   "appCenter": {
     "backToList": "Kembali",
     "subtitle": "Kelola aplikasi yang terpasang atau perluas workspace Anda dari pasar aplikasi.",
@@ -120,6 +183,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "import": "Impor",
     "files": "File",
     "control": "Kontrol",
     "channels": "Saluran",
@@ -696,7 +760,8 @@
     "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen"
+      "subagentShort": "Subagen",
+      "loadMore": "Muat lebih banyak · {{count}} tersisa"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
@@ -1816,6 +1881,7 @@
     "statusLoaded": "Berjalan",
     "statusUnloaded": "Tidak dimuat",
     "type": "Tipe",
+    "typeMemory": "Memori",
     "version": "Versi",
     "author": "Penulis",
     "unknown": "Tidak diketahui",
@@ -3043,8 +3109,8 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout perolehan slot harus lebih besar dari jeda batas kecepatan + jitter",
     "contextManagementTitle": "Manajemen Konteks",
     "memoryManagerBackend": "Backend Manajemen Memori Jangka Panjang",
-    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Pilih remelight (file lokal), adbpg (database cloud), PowerContext (layanan memori jarak jauh), atau none (nonaktifkan memori).",
-    "memoryManagerBackendRestartWarning": "Mengalihkan backend manajemen memori jangka panjang tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
+    "memoryManagerBackendTooltip": "Backend untuk manajer memori. Backend plugin muncul di sini setelah pluginnya dipasang.",
+    "memoryManagerBackendRestartWarning": "Menyimpan perubahan backend akan memuat ulang Agent ini agar backend memori baru diterapkan.",
     "maxIters": "Iterasi Maksimum",
     "maxItersTooltip": "Jumlah maksimum iterasi penalaran-tindakan untuk agen ReAct",
     "maxItersPlaceholder": "Masukkan iterasi maksimum",
@@ -3482,41 +3548,7 @@
     "contextStrategy": "Strategi Konteks",
     "contextStrategyTooltip": "Cara agen mengelola konteks panjang. Scroll (disarankan) menyimpan giliran yang dievakuasi ke penyimpanan riwayat permanen dan memanggilnya kembali sesuai kebutuhan; Native menggunakan kompresi di tempat. Mulai ulang QwenPaw agar perubahan diterapkan.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native",
-    "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
-    "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
-    "powercontextMemoryTitle": "Memori PowerContext",
-    "powercontextConfig": {
-      "title": "Konfigurasi Memori PowerContext",
-      "baseUrl": "URL Server",
-      "token": "Token Bearer",
-      "scopeId": "Ruang Lingkup Memori",
-      "scopeIdPlaceholder": "Kosongkan untuk menggunakan ruang lingkup agen unik untuk instalasi ini",
-      "scopeIdInvalid": "Ruang lingkup memori tidak boleh hanya berisi spasi.",
-      "timeout": "Batas Waktu Permintaan",
-      "maxContextBytes": "Konteks maksimum yang disisipkan (byte)",
-      "maxContextBytesTooltip": "Membatasi total hasil pencarian PowerContext yang ditambahkan ke satu giliran model."
-    },
-    "adbpgConfig": {
-      "title": "Konfigurasi Memori ADBPG",
-      "apiMode": "Mode API",
-      "host": "Host",
-      "port": "Port",
-      "user": "Nama Pengguna",
-      "password": "Kata Sandi",
-      "dbname": "Database",
-      "llmModel": "Model LLM",
-      "llmApiKey": "API Key LLM",
-      "llmBaseUrl": "URL Dasar LLM",
-      "embeddingModel": "Model Embedding",
-      "embeddingApiKey": "API Key Embedding",
-      "embeddingBaseUrl": "URL Dasar Embedding",
-      "embeddingDims": "Dimensi Embedding",
-      "restBaseUrl": "URL Dasar REST",
-      "restApiKey": "API Key REST",
-      "memoryIsolation": "Isolasi Memori (per-agen)",
-      "searchTimeout": "Timeout Pencarian"
-    }
+    "contextStrategyNative": "Native"
   },
   "loop": {
     "gotoSettings": "Pengaturan Loop Agen",

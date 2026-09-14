@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import re
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,8 +19,10 @@ class _Workspace:
     def __init__(self, events=None) -> None:
         self.events_consumed = 0
         self.events = events if events is not None else ("first", "second")
+        self.requests = []
 
-    async def stream_query(self, _request):
+    async def stream_query(self, request):
+        self.requests.append(request)
         for event in self.events:
             self.events_consumed += 1
             yield event
@@ -165,3 +169,50 @@ async def test_final_mode_no_completed_message_returns_no_content(monkeypatch):
     assert workspace.events_consumed == 1
     channel_manager.send_event.assert_not_awaited()
     assert result["delivery_status"] == "no_content"
+
+
+@pytest.mark.asyncio
+async def test_non_shared_job_reuses_its_dedicated_session(
+    monkeypatch,
+):
+    workspace = _Workspace()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.side_effect = [
+        SimpleNamespace(id="chat-1"),
+        SimpleNamespace(id="chat-2"),
+    ]
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(
+        job_id="imported/job id",
+        session_id="../unsafe/" + ("x" * 200),
+    )
+    job.runtime.share_session = False
+
+    _patch_trace_storage(monkeypatch)
+
+    executor = CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    )
+    first = await executor.execute(job)
+    second = await executor.execute(job)
+
+    first_session = workspace.requests[0]["session_id"]
+    second_session = workspace.requests[1]["session_id"]
+    assert first["run_id"] != second["run_id"]
+    assert first_session == second_session
+    assert first_session == first["session_id"]
+    assert second_session == second["session_id"]
+    assert first_session.startswith("cron:")
+    assert ":job:" in first_session
+    assert ":run:" not in first_session
+    assert len(first_session) <= 115
+    assert re.fullmatch(r"[A-Za-z0-9:._-]+", first_session)
+    assert workspace.requests[0]["session_source"] == "cron"
+
+    chat_calls = workspace.chat_manager.get_or_create_chat.await_args_list
+    assert [call.kwargs["session_id"] for call in chat_calls] == [
+        first_session,
+        second_session,
+    ]
+    assert all(call.kwargs["source"] == "cron" for call in chat_calls)

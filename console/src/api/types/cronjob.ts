@@ -41,7 +41,24 @@ export interface CronJobRequest {
   input: unknown;
   session_id?: string | null;
   user_id?: string | null;
+  request_context?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+export interface CronJobPortabilityMeta {
+  requires_review?: boolean;
+  safety?: "disabled_until_explicit_promotion" | "reviewed_disabled" | string;
+  source?: string;
+  source_id?: string;
+  source_cwd_remote_or_unverified?: boolean;
+  source_cwd_binding?: string;
+  promoted_at?: string;
+  promoted_by?: string;
+  [key: string]: unknown;
+}
+
+export interface CronJobMeta extends Record<string, unknown> {
+  portability?: CronJobPortabilityMeta;
 }
 
 export interface CronJobSpecInput {
@@ -55,10 +72,44 @@ export interface CronJobSpecInput {
   request?: CronJobRequest;
   dispatch: CronJobDispatch;
   runtime?: CronJobRuntime;
-  meta?: Record<string, unknown>;
+  meta?: CronJobMeta;
 }
 
 export type CronJobSpecOutput = CronJobSpecInput;
+
+/**
+ * Imported schedules are quarantined until the dedicated promotion endpoint
+ * clears either form of the review gate. Keep this check shared by the hook
+ * and every view so a stale or partially migrated record remains safe.
+ */
+export function requiresCronImportReview(
+  job: Pick<CronJobSpecInput, "meta">,
+): boolean {
+  const portability = job.meta?.portability;
+  return (
+    portability?.requires_review === true ||
+    portability?.safety === "disabled_until_explicit_promotion"
+  );
+}
+
+export function requiresCronLocalProjectMapping(
+  job: Pick<CronJobSpecInput, "meta">,
+): boolean {
+  const portability = job.meta?.portability;
+  return (
+    portability?.source_cwd_remote_or_unverified === true ||
+    portability?.source_cwd_binding === "omitted_remote_or_unverified"
+  );
+}
+
+export function getCronLocalProjectDir(
+  job: Pick<CronJobSpecInput, "request">,
+): string | undefined {
+  const projectDir = job.request?.request_context?.project_dir;
+  return typeof projectDir === "string" && projectDir.trim()
+    ? projectDir.trim()
+    : undefined;
+}
 
 export interface CronJobView extends CronJobSpecOutput {
   // Extended view with runtime state

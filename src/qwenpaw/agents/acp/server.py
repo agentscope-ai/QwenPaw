@@ -971,13 +971,23 @@ class QwenPawACPAgent(Agent):
         pending: Any,
     ) -> None:
         """Ask the ACP client to approve/deny a QwenPaw pending approval."""
-        from ...app.approvals import get_approval_service
+        from ...app.approvals import ApprovalActor, get_approval_service
         from ...security.tool_guard.approval import (
             ApprovalDecision,
             ApprovalScope,
         )
 
         svc = get_approval_service()
+        # The bridge only receives approvals discovered under this ACP
+        # session. Preserve the pending requester's full identity when the
+        # client's permission response is resolved by the shared service.
+        actor = ApprovalActor(
+            session_id=pending.session_id,
+            root_session_id=pending.root_session_id,
+            user_id=pending.user_id,
+            channel=pending.channel,
+            agent_id=pending.agent_id,
+        )
         try:
             permission_task = asyncio.create_task(
                 self._conn.request_permission(
@@ -1027,6 +1037,7 @@ class QwenPawACPAgent(Agent):
             await svc.resolve_request(
                 pending.request_id,
                 ApprovalDecision.DENIED,
+                actor=actor,
             )
             return
 
@@ -1040,7 +1051,12 @@ class QwenPawACPAgent(Agent):
         else:
             decision = ApprovalDecision.DENIED
             scope = None
-        await svc.resolve_request(pending.request_id, decision, scope=scope)
+        await svc.resolve_request(
+            pending.request_id,
+            decision,
+            scope=scope,
+            actor=actor,
+        )
 
     @staticmethod
     def _pending_cancel_reason(pending_future: asyncio.Future) -> str:

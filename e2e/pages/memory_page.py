@@ -12,7 +12,6 @@ Cases covered:
 - MEM-003 P1  test_memory_card_ui_renders
 - MEM-004 P1  test_workspace_memory_md_expand
 - MEM-005 P2  test_memory_search_recall_seeded         (xfail, requires_llm)
-- MEM-006 P2  test_memory_backend_select_switches_tabs
 - MEM-007 P2  test_auto_memory_search_toggle_and_max_results
 """
 from __future__ import annotations
@@ -68,21 +67,6 @@ class MemoryPage(BasePage):
     )
     AUTO_SEARCH_MAX_RESULTS_INPUT = (
         'input[id$="auto_memory_search_config_max_results"]'
-    )
-    # --- ReAct Agent tab: memory backend select (ReactAgentCard.tsx) ---
-    REACT_TAB = '[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn'
-    REME_MEMORY_TAB = '[data-node-key="remeLightMemory"]'
-    ADBPG_MEMORY_TAB = '[data-node-key="adbpgMemory"]'
-    BACKEND_SELECT = '#memory_manager_backend'
-    # antd Select: the inner input is readonly; clicks must land on the
-    # surrounding selector box, not on #memory_manager_backend itself.
-    BACKEND_SELECT_TRIGGER = (
-        '.qwenpaw-select:has(#memory_manager_backend) '
-        '.qwenpaw-select-selector'
-    )
-    BACKEND_OPTION = (
-        '.qwenpaw-select-dropdown:not(.qwenpaw-select-dropdown-hidden) '
-        '.qwenpaw-select-item-option'
     )
     # --- Save footer + toast ---
     SAVE_BTN = (
@@ -156,10 +140,6 @@ class MemoryPage(BasePage):
 
     def click_memory_tab(self) -> None:
         self.page.locator(self.MEMORY_TAB).first.click(timeout=self.timeout)
-
-    def click_react_tab(self) -> None:
-        self.page.locator(self.REACT_TAB).first.click(timeout=self.timeout)
-        self.page.wait_for_timeout(800)
 
     def click_save(self) -> None:
         """Click the footer Save button and wait for the request."""

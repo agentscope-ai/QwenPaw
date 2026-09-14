@@ -344,6 +344,54 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         """
         self._registry = registry
 
+    def register_memory_backend(
+        self,
+        *,
+        backend_id: str,
+        factory: Type,
+        label: str = "",
+        config_schema: Type | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Register a plugin-owned memory backend before workspaces start."""
+        from qwenpaw.memory import memory_registry
+
+        memory_registry.register_backend(
+            plugin_id=self.plugin_id,
+            backend_id=backend_id,
+            factory=factory,
+            label=label or backend_id,
+            config_schema=config_schema,
+            metadata=metadata,
+        )
+        for tool_name, governance in (metadata or {}).get("tools", {}).items():
+            if not isinstance(governance, dict):
+                continue
+            from qwenpaw.governance.tool_registry import (
+                DEFAULT_REGISTRY as GOVERNANCE_REGISTRY,
+                register_tool_governance,
+            )
+
+            register_tool_governance(
+                GOVERNANCE_REGISTRY,
+                python_name=governance.get(
+                    "python_name",
+                    f"{backend_id}_{tool_name}",
+                ),
+                policy_name=governance.get("policy_name", ""),
+                tool_type=governance.get("tool_type", "internal"),
+                target_param=governance.get("target_param", ""),
+                sandbox_required=bool(
+                    governance.get("sandbox_required", False),
+                ),
+                owner=self.plugin_id,
+            )
+        logger.info(
+            "Plugin '%s' registered memory backend '%s'",
+            self.plugin_id,
+            backend_id,
+        )
+
     def register_provider(
         self,
         provider_id: str,

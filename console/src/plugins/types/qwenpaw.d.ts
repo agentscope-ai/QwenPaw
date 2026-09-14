@@ -284,6 +284,19 @@ export interface QwenPawAuditNamespace {
   overrides(): OverrideRecord[];
 }
 
+export interface MemoryBackendExtension {
+  id: string;
+  label: string;
+  configPath?: string[];
+  tabKey?: string;
+  ConfigComponent?: React.ComponentType;
+  available?: boolean;
+}
+
+export interface QwenPawMemoryBackendsNamespace {
+  register(pluginId: string, extension: MemoryBackendExtension): Disposable;
+}
+
 export interface PluginRouteDeclaration {
   path: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,6 +310,7 @@ export interface QwenPawWindowNamespace {
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
+  memoryBackends: QwenPawMemoryBackendsNamespace;
   modules: Record<string, Record<string, unknown>>;
   paw?: {
     forApp(appId: string): import("../pawapp-sdk/types").PawSdk;

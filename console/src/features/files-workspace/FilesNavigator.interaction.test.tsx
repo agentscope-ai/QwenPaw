@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getSystemPromptFiles: vi.fn(),
   listDirectory: vi.fn(),
   listFiles: vi.fn(),
+  listMemoryFiles: vi.fn(),
   setSystemPromptFiles: vi.fn(),
 }));
 
@@ -14,7 +15,11 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: { name?: string }) => {
       const labels: Record<string, string> = {
+        "files.workspace": "Workspace",
         "files.profile": "Profile",
+        "files.daily": "Daily",
+        "files.digest": "Digest",
+        "files.upload": "Upload",
         "files.addSystemPrompt": "Add from workspace",
         "files.addSystemPromptTitle": "Add a system prompt file",
         "files.addSystemPromptDescription": "Choose a file",
@@ -33,6 +38,7 @@ vi.mock("../../api/modules/workspace", () => ({
     getSystemPromptFiles: mocks.getSystemPromptFiles,
     listDirectory: mocks.listDirectory,
     listFiles: mocks.listFiles,
+    listMemoryFiles: mocks.listMemoryFiles,
     setSystemPromptFiles: mocks.setSystemPromptFiles,
   },
 }));
@@ -91,7 +97,28 @@ describe("FilesNavigator system prompt interactions", () => {
       next_cursor: null,
       has_more: false,
     });
+    mocks.listMemoryFiles.mockResolvedValue([]);
     mocks.setSystemPromptFiles.mockImplementation(async (files) => files);
+  });
+
+  it("shows upload only in the workspace tab", async () => {
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+
+    renderNavigator();
+    expect(
+      await screen.findByRole("button", { name: "Upload" }),
+    ).toBeInTheDocument();
+
+    for (const tab of ["Profile", "Daily", "Digest"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      expect(
+        screen.queryByRole("button", { name: "Upload" }),
+      ).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
+    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
   });
 
   it("can add a custom prompt again after disabling it", async () => {

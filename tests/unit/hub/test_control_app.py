@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
 from dataclasses import replace
 import gzip
+import json
 from pathlib import Path
 import sqlite3
 import threading
@@ -717,6 +718,46 @@ def test_settings_apply_immediately_and_reject_stale_revision(
         assert "runtime limit reached" in blocked.json()["detail"]
         assert stale.status_code == 409
         assert "changed concurrently" in stale.json()["detail"]
+
+
+def test_settings_return_422_for_non_finite_proxy_timeout(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    """Hub validation errors use the shared JSON-safe response handler."""
+    client, admin_token = admin_client
+    current = client.get(
+        "/api/hub/admin/settings",
+        headers=_headers(admin_token),
+    )
+    payload = current.json()
+    payload["config"]["control_plane"]["proxy"][
+        "request_idle_timeout_seconds"
+    ] = float("nan")
+
+    response = client.put(
+        "/api/hub/admin/settings",
+        content=json.dumps(
+            {
+                "revision": payload["revision"],
+                "config": payload["config"],
+            },
+        ),
+        headers={
+            **_headers(admin_token),
+            "content-type": "application/json",
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == [
+        "body",
+        "config",
+        "control_plane",
+        "proxy",
+        "request_idle_timeout_seconds",
+    ]
+    assert error["input"] == "NaN"
 
 
 def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:

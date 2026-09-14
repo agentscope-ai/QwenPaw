@@ -402,8 +402,30 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `history_max_length`       | int    | `10000`         | `/history` 命令输出的最大长度（字符数）               |
 | `context_manager_backend`  | string | `"light"`       | 上下文管理器后端类型                                  |
 | `memory_manager_backend`   | string | `"remelight"`   | 记忆管理器后端类型                                    |
+| `memory_backend_configs`   | object | `{}`            | 已安装记忆后端插件拥有的每 Agent 配置映射             |
 | `light_context_config`     | object | _（见下方）_    | Light 上下文管理器配置                                |
 | `reme_light_memory_config` | object | _（见下方）_    | ReMeLight 记忆管理器配置                              |
+
+**插件记忆后端配置（`memory_backend_configs` 对象）：**
+
+每个 key 是规范化后的 memory backend ID，对应的 value 是该插件的配置对象。例如：
+
+```json
+{
+  "memory_manager_backend": "example-memory",
+  "memory_backend_configs": {
+    "example-memory": {
+      "endpoint": "https://memory.example.com",
+      "api_key": "secret"
+    }
+  }
+}
+```
+
+这些设置按 Agent 保存。对应插件已安装时，保存前会使用插件的 Pydantic schema 校验并
+规范化配置。插件声明为 secret 的字段会由运行配置 API 返回为 `"***"`，提交这一遮罩值会
+保留原有 secret。选择未注册的 backend 会被拒绝，不会回退到其他记忆存储。内置提供的
+ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 
 **Light 上下文配置（`light_context_config` 对象）：**
 

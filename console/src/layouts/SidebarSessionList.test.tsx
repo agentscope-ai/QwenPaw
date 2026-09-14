@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 
 // ---- Hoisted mocks ---------------------------------------------------------
@@ -20,6 +21,7 @@ import { renderWithProviders } from "@/test/common_setup";
 const mockSessionListData = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
+const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -116,7 +118,26 @@ vi.mock("../components/SessionItem", () => ({
 }));
 
 vi.mock("../components/SessionGroupHeader", () => ({
-  default: () => <div data-testid="group-header" />,
+  default: ({
+    group,
+    count,
+    collapsed,
+    onToggle,
+  }: {
+    group: { id: string; name: string };
+    count: number;
+    collapsed: boolean;
+    onToggle: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid={`group-header-${group.id}`}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+    >
+      {group.name} {count}
+    </button>
+  ),
 }));
 
 vi.mock("../components/SessionDateHeader", () => ({
@@ -147,8 +168,8 @@ vi.mock("../hooks/useAppMessage", () => ({
 vi.mock("../stores/agentStore", () => ({
   useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
     selector
-      ? selector({ selectedAgent: "agent-1" })
-      : { selectedAgent: "agent-1" },
+      ? selector({ selectedAgent: mockSelectedAgent.current })
+      : { selectedAgent: mockSelectedAgent.current },
 }));
 
 vi.mock("../stores/sessionListStore", () => ({
@@ -233,12 +254,23 @@ function mockData(
     collapsedGroups: new Set<string>(),
     toggleGroup: vi.fn(),
     expandGroup: vi.fn(),
+    initializeCollapsedGroups: vi.fn(),
   });
+}
+
+function NavigatingSessionList() {
+  const navigate = useNavigate();
+  return (
+    <SidebarSessionList
+      onSessionClick={(sessionId) => navigate(`/chat/${sessionId}`)}
+    />
+  );
 }
 
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelectedAgent.current = "agent-1";
     // The virtual list only renders once the wrapper has a measured height.
     // jsdom reports clientHeight=0, so make ResizeObserver report one
     // immediately on observe. Must be a function (constructible), not an
@@ -271,6 +303,333 @@ describe("SidebarSessionList", () => {
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("initializes older unpinned groups as collapsed", async () => {
+    const initializeCollapsedGroups = vi.fn();
+    mockData([sessionA, { ...sessionB, groupId: "work" }]);
+    mockCollapsedGroups.mockReturnValue({
+      collapsedGroups: new Set<string>(),
+      toggleGroup: vi.fn(),
+      expandGroup: vi.fn(),
+      initializeCollapsedGroups,
+    });
+    mockChatGroups.mockReturnValue({
+      groups: [
+        {
+          id: "default",
+          name: "Uncategorized",
+          order: 0,
+          kind: "default",
+          pinned: false,
+        },
+        {
+          id: "work",
+          name: "Work",
+          order: 1,
+          kind: "custom",
+          pinned: false,
+        },
+        {
+          id: "older",
+          name: "Older",
+          order: 2,
+          kind: "custom",
+          pinned: true,
+        },
+        {
+          id: "archive",
+          name: "Archive",
+          order: 3,
+          kind: "custom",
+          pinned: false,
+        },
+      ],
+      createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
+      renameGroup: vi.fn(),
+      pinGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+    });
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => expect(initializeCollapsedGroups).toHaveBeenCalled());
+    expect(initializeCollapsedGroups).toHaveBeenCalledWith(
+      new Set(["archive"]),
+    );
+  });
+
+  it("keeps the active group expanded during default initialization", async () => {
+    const initializeCollapsedGroups = vi.fn();
+    const now = Date.now();
+    mockData([
+      { ...sessionA, updatedAt: new Date(now).toISOString() },
+      {
+        ...sessionB,
+        groupId: "work",
+        updatedAt: new Date(now - 1000).toISOString(),
+      },
+      {
+        ...sessionA,
+        id: "older-active",
+        groupId: "older",
+        updatedAt: new Date(now - 2000).toISOString(),
+      },
+    ]);
+    mockCollapsedGroups.mockReturnValue({
+      collapsedGroups: new Set<string>(),
+      toggleGroup: vi.fn(),
+      expandGroup: vi.fn(),
+      initializeCollapsedGroups,
+    });
+    mockChatGroups.mockReturnValue({
+      groups: [
+        {
+          id: "default",
+          name: "Uncategorized",
+          order: 0,
+          kind: "default",
+          pinned: false,
+        },
+        {
+          id: "work",
+          name: "Work",
+          order: 1,
+          kind: "custom",
+          pinned: false,
+        },
+        {
+          id: "older",
+          name: "Older",
+          order: 2,
+          kind: "custom",
+          pinned: false,
+        },
+        {
+          id: "archive",
+          name: "Archive",
+          order: 3,
+          kind: "custom",
+          pinned: false,
+        },
+      ],
+      createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
+      renameGroup: vi.fn(),
+      pinGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
+    });
+
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/older-active"],
+    });
+
+    await waitFor(() => expect(initializeCollapsedGroups).toHaveBeenCalled());
+    expect(initializeCollapsedGroups).toHaveBeenCalledWith(
+      new Set(["archive"]),
+    );
+  });
+
+  it("loads more conversations and hides the button when all are visible", async () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
+    });
+    expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+  });
+
+  it("reveals an active unpinned conversation after ten pinned ones", async () => {
+    const pinnedSessions = Array.from({ length: 10 }, (_, index) => ({
+      ...sessionA,
+      id: `pinned-${index + 1}`,
+      name: `Pinned ${index + 1}`,
+      pinned: true,
+      updatedAt: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+    }));
+    const activeSession = {
+      ...sessionA,
+      id: "active-session",
+      name: "Active conversation",
+      pinned: false,
+      updatedAt: new Date().toISOString(),
+    };
+    mockData([activeSession, ...pinnedSessions]);
+
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/active-session"],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-active-session")).toBeTruthy();
+    });
+  });
+
+  it("keeps the active conversation visible when loading more", async () => {
+    const sessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<SidebarSessionList />, {
+      initialEntries: ["/chat/session-12"],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.getByTestId("session-item-session-21")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+  });
+
+  it("keeps the load more control after selecting a later conversation", async () => {
+    const sessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<NavigatingSessionList />, {
+      initialEntries: ["/chat/session-1"],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-session-21")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("session-item-session-12"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-session-21")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.getByTestId("session-item-session-25")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+  });
+
+  it("resets pagination when switching agents", async () => {
+    const agentOneSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-one-${index + 1}`,
+      name: `Agent one ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    const agentTwoSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-two-${index + 1}`,
+      name: `Agent two ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+
+    mockData(agentOneSessions);
+    const { rerender } = renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-20")).toBeTruthy();
+    });
+
+    mockSelectedAgent.current = "agent-2";
+    mockData(agentTwoSessions);
+    rerender(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-two-10")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-agent-two-11")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+  });
+
+  it("resets pagination after the list is remounted", async () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    const { unmount } = renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+
+    unmount();
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+  });
+
+  it("shows all matching conversations while searching", async () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByText("Search conversations"));
+    fireEvent.change(screen.getByPlaceholderText("Search…"), {
+      target: { value: "Conversation" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
   });
 
   it("routes session clicks through the injected callback", async () => {

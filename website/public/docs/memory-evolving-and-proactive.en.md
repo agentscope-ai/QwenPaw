@@ -237,11 +237,14 @@ Enabling it returns the current idle threshold together with the safety warning 
 ### Running Auto-Dream manually
 
 ```text
-/dream          # run one Auto-Dream pass now
-/dream <hint>   # run one pass with an additional hint, e.g. a focus area
+/reme auto_dream                         # run one Auto-Dream pass now
+/reme auto_dream hint="focus on a topic" # run with an additional hint
 ```
 
 You normally do not need this: Auto-Dream runs on a daily schedule by default.
+Manual runs require approval from the originating chat identity before the
+action starts; the authenticated Console can approve as an administrator.
+Run `/reme help` to see all currently available chat-allowed actions.
 
 ### Settings relevant to this page
 

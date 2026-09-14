@@ -572,9 +572,11 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
     expect(
       await screen.findByText("Not a directory: /nope"),
     ).toBeInTheDocument();
-    // Previously bound directories are still rendered.
-    expect(screen.getByTitle("/projects/alpha")).toBeInTheDocument();
-    expect(screen.getByTitle("/projects/beta")).toBeInTheDocument();
+    // Previously bound directories are still rendered. Ant Design may retain
+    // a frozen overlay copy while the live panel updates, so do not require
+    // these path labels to be unique in the document.
+    expect(screen.getAllByText("/projects/alpha").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("/projects/beta").length).toBeGreaterThan(0);
   });
 
   it("does nothing destructive on Enter with the current primary", async () => {
