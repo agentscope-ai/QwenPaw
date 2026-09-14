@@ -179,6 +179,18 @@ async def _resolve_telegram_file_url(
     return f"{base_file_url}{bot_token}/{file_path}"
 
 
+# The mandatory /start handshake carries no user intent and no QwenPaw
+# layer defines it; consume it locally instead of burning a model turn.
+# ``/start@bot`` is in scope (group clients broadcast it to member
+# bots); ``/start <param>`` deep links keep flowing.
+_START_HANDSHAKE_RE = re.compile(r"/start(?:@\w+)?", re.IGNORECASE)
+
+
+def _is_start_handshake(text: str) -> bool:
+    """True for the bare ``/start`` or ``/start@<bot>`` handshake."""
+    return bool(_START_HANDSHAKE_RE.fullmatch((text or "").strip()))
+
+
 async def _build_content_parts_from_message(
     update: Any,
     *,
@@ -470,6 +482,15 @@ class TelegramChannel(BaseChannel):
             is_group = meta.get("is_group", False)
 
             if not self._check_group_mention(is_group, meta):
+                return
+
+            # Consume the platform handshake: no agent turn, no reply.
+            if _is_start_handshake(getattr(content_parts[0], "text", "")):
+                logger.info(
+                    "telegram: consumed /start platform handshake "
+                    "(chat_id=%s), no agent turn",
+                    chat_id,
+                )
                 return
 
             native = {
@@ -1362,10 +1383,6 @@ class TelegramChannel(BaseChannel):
         await app.initialize()
 
         commands = [
-            BotCommand(
-                command="start",
-                description="Start a new conversation",
-            ),
             BotCommand(
                 command="new",
                 description="Start a new conversation (clear memory)",
