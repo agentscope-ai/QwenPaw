@@ -2564,6 +2564,7 @@
     "embeddingHealthCheckTimeout": "Тайм-аут инициализации",
     "embeddingHealthCheckTimeoutTooltip": "Тайм-аут каждой попытки проверки подключения и проверки embedding при запуске ReMe",
     "embeddingHealthCheckTimeoutRequired": "Укажите тайм-аут инициализации",
+    "embeddingHealthCheckTimeoutRange": "Тайм-аут инициализации должен быть больше 0 и не более 300 секунд",
     "embeddingMaxBatchSizeTooltip": "Максимальное количество элементов в одном пакетном запросе эмбеддинга",
     "embeddingMaxBatchSizeRequired": "Требуется указать макс. размер пакета",
     "maxContextLength": "Макс. длина контекста",

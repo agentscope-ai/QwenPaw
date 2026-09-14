@@ -29,6 +29,15 @@ const EMBEDDING_BACKEND_OPTIONS = [
   { value: "ollama", label: "Ollama" },
 ];
 
+function isValidHealthCheckTimeout(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= 300
+  );
+}
+
 export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { message, modal } = useAppMessage();
@@ -619,14 +628,22 @@ export function EmbeddingModelCard() {
                 required: true,
                 message: t("agentConfig.embeddingHealthCheckTimeoutRequired"),
               },
+              {
+                validator: (_, value) =>
+                  value == null || isValidHealthCheckTimeout(value)
+                    ? Promise.resolve()
+                    : Promise.reject(
+                        new Error(
+                          t("agentConfig.embeddingHealthCheckTimeoutRange"),
+                        ),
+                      ),
+              },
             ]}
             tooltip={t("agentConfig.embeddingHealthCheckTimeoutTooltip")}
           >
             <InputNumber
               style={{ width: "100%" }}
-              min={1}
-              max={300}
-              step={5}
+              step={0.001}
               addonAfter="s"
               disabled={reindexing || !embeddingEnabled}
             />

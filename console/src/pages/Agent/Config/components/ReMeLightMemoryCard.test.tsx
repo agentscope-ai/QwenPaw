@@ -722,6 +722,35 @@ describe("long-term memory defaults", () => {
 });
 
 describe("embedding card separation", () => {
+  it("allows fractional health check timeout input without clamping", () => {
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    const timeoutInput = screen.getByLabelText(
+      "agentConfig.embeddingHealthCheckTimeout",
+    );
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemin");
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemax");
+    expect(timeoutInput).toHaveAttribute("step", "0.001");
+  });
+
+  it.each(["0", "-1", "300.0001"])(
+    "reports invalid health check timeout %s without rewriting it",
+    async (value) => {
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+
+      expect(
+        await screen.findByText("agentConfig.embeddingHealthCheckTimeoutRange"),
+      ).toBeInTheDocument();
+      expect(Number(timeoutInput.value)).toBe(Number(value));
+    },
+  );
+
   it("keeps embedding settings out of the long-term memory card", async () => {
     renderWithProviders(<MemoryForm />);
 

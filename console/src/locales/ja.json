@@ -2549,6 +2549,7 @@
     "embeddingHealthCheckTimeout": "初期化タイムアウト",
     "embeddingHealthCheckTimeoutTooltip": "接続テストと ReMe 起動時の埋め込みヘルスチェックにおける各試行のタイムアウト",
     "embeddingHealthCheckTimeoutRequired": "初期化タイムアウトは必須です",
+    "embeddingHealthCheckTimeoutRange": "初期化タイムアウトは 0 秒より大きく 300 秒以下である必要があります",
     "embeddingMaxBatchSizeTooltip": "単一バッチ埋め込みリクエストの最大アイテム数",
     "embeddingMaxBatchSizeRequired": "最大バッチサイズは必須です",
     "maxContextLength": "最大コンテキスト長",

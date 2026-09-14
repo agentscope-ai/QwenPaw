@@ -3449,6 +3449,7 @@
     "embeddingHealthCheckTimeout": "Batas Waktu Inisialisasi",
     "embeddingHealthCheckTimeoutTooltip": "Batas waktu per percobaan untuk tes koneksi dan pemeriksaan embedding saat ReMe dimulai",
     "embeddingHealthCheckTimeoutRequired": "Batas waktu inisialisasi wajib diisi",
+    "embeddingHealthCheckTimeoutRange": "Batas waktu inisialisasi harus lebih besar dari 0 dan paling lama 300 detik",
     "embeddingMaxBatchSizeTooltip": "Jumlah item maksimum dalam satu permintaan embedding batch",
     "embeddingMaxBatchSizeRequired": "Ukuran batch maksimum wajib diisi",
     "toolExecutionLevelTitle": "Mode Persetujuan Alat",

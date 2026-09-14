@@ -3169,6 +3169,7 @@
     "embeddingHealthCheckTimeout": "Initialization Timeout",
     "embeddingHealthCheckTimeoutTooltip": "Per-attempt timeout for the real connection test and ReMe startup embedding health check",
     "embeddingHealthCheckTimeoutRequired": "Initialization timeout is required",
+    "embeddingHealthCheckTimeoutRange": "Initialization timeout must be greater than 0 and at most 300 seconds",
     "embeddingTestConnection": "Test Embedding Service",
     "embeddingTestSuccess": "Embedding service test succeeded",
     "embeddingTestSuccessDetail": "Actual dimensions: {{dimensions}}; latency: {{latency}} ms. Save to apply this model.",

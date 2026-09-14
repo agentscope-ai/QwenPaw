@@ -2202,6 +2202,7 @@
     "embeddingHealthCheckTimeout": "Thời gian chờ khởi tạo",
     "embeddingHealthCheckTimeoutTooltip": "Thời gian chờ cho mỗi lần kiểm tra kết nối và kiểm tra embedding khi ReMe khởi động",
     "embeddingHealthCheckTimeoutRequired": "Cần nhập thời gian chờ khởi tạo",
+    "embeddingHealthCheckTimeoutRange": "Thời gian chờ khởi tạo phải lớn hơn 0 và không quá 300 giây",
     "embeddingMaxBatchSizeTooltip": "Số mục tối đa trong một yêu cầu embedding theo batch",
     "embeddingMaxBatchSizeRequired": "Bắt buộc nhập kích thước batch tối đa",
     "embeddingActivationNote": "Embedding được bật khi các trường bắt buộc của backend đã chọn được điền đầy đủ.",

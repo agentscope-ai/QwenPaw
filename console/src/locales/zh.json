@@ -3027,6 +3027,7 @@
     "embeddingHealthCheckTimeout": "初始化超时时间",
     "embeddingHealthCheckTimeoutTooltip": "真实连接测试和 ReMe 启动时 Embedding 健康检查的单次超时时间",
     "embeddingHealthCheckTimeoutRequired": "初始化超时时间为必填项",
+    "embeddingHealthCheckTimeoutRange": "初始化超时时间必须大于 0 秒且不超过 300 秒",
     "embeddingTestConnection": "测试 Embedding 服务",
     "embeddingTestSuccess": "Embedding 服务测试成功",
     "embeddingTestSuccessDetail": "实际维度：{{dimensions}}，请求耗时：{{latency}} ms。保存后将应用该模型。",

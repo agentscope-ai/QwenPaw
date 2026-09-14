@@ -2778,6 +2778,7 @@
     "embeddingHealthCheckTimeout": "Tempo limite de inicialização",
     "embeddingHealthCheckTimeoutTooltip": "Tempo limite por tentativa para o teste de conexão e a verificação de embedding na inicialização do ReMe",
     "embeddingHealthCheckTimeoutRequired": "O tempo limite de inicialização é obrigatório",
+    "embeddingHealthCheckTimeoutRange": "O tempo limite de inicialização deve ser maior que 0 e no máximo 300 segundos",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
     "toolExecutionLevelTitle": "Modo de Aprovação de Ferramentas",
