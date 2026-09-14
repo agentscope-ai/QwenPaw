@@ -35,6 +35,7 @@ from ...config.config import (
     HeartbeatConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
+    ThemeConfig,
 )
 from ...utils.io_utils import run_sync_io
 from ...config.timezone import normalize_tz
@@ -57,6 +58,52 @@ from .schemas_config import (
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+
+@router.get(
+    "/theme",
+    response_model=dict,
+    summary="Get Console theme",
+)
+async def get_theme() -> dict:
+    """Return the sparse user theme, or an empty object for defaults."""
+    config = await run_sync_io(load_config)
+    if config.theme is None:
+        return {}
+    return config.theme.model_dump(exclude_none=True)
+
+
+@router.put(
+    "/theme",
+    response_model=ThemeConfig,
+    summary="Update Console theme",
+)
+async def put_theme(theme: ThemeConfig = Body(...)) -> ThemeConfig:
+    """Replace the sparse user theme without reloading agents."""
+
+    def apply_theme(config: Any) -> None:
+        config.theme = (
+            theme
+            if theme.model_dump(exclude_none=True)
+            else None
+        )
+
+    result = await run_sync_io(mutate_config, apply_theme)
+    return result.theme or ThemeConfig()
+
+
+@router.delete(
+    "/theme",
+    status_code=204,
+    summary="Reset Console theme",
+)
+async def delete_theme() -> None:
+    """Remove the user theme and restore built-in Console defaults."""
+
+    def clear_theme(config: Any) -> None:
+        config.theme = None
+
+    await run_sync_io(mutate_config, clear_theme)
 
 
 def _channel_config_class(name: str) -> Optional[type[BaseModel]]:

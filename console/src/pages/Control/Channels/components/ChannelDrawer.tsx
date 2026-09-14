@@ -1641,7 +1641,7 @@ export function ChannelDrawer({
               openExternalLink(finalUrl);
             }}
             className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
+            style={{ color: "var(--app-accent)" }}
           >
             {label} Doc
           </Button>
@@ -1662,7 +1662,7 @@ export function ChannelDrawer({
             icon={<LinkOutlined />}
             onClick={() => openExternalLink(url)}
             className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
+            style={{ color: "var(--app-accent)" }}
           >
             {label} Doc
           </Button>
@@ -1675,7 +1675,7 @@ export function ChannelDrawer({
           icon={<LinkOutlined />}
           onClick={() => openExternalLink(TWILIO_CONSOLE_URL)}
           className={styles.dingtalkDocBtn}
-          style={{ color: "#FF7F16" }}
+          style={{ color: "var(--app-accent)" }}
         >
           {t("channels.voiceSetupLink")}
         </Button>

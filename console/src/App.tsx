@@ -5,7 +5,7 @@ import {
   bailianTheme,
 } from "@agentscope-ai/design";
 import { App as AntdApp, theme as antdTheme } from "antd";
-import type { ThemeConfig } from "antd";
+import type { ThemeConfig as AntThemeConfig } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -310,7 +310,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
-  const { isDark } = useTheme();
+  const { isDark, previewTheme: userTheme } = useTheme();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
@@ -333,6 +333,25 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     }
     useUploadLimitStore.getState().fetch();
   }, []);
+
+  useEffect(() => {
+    const darkTheme = isDark ? userTheme.dark : undefined;
+    const accent = darkTheme?.accent ?? userTheme.accent;
+    const accentHover = userTheme.accent_hover;
+    const accentBg = darkTheme?.accent_bg ?? userTheme.accent_bg;
+    const root = document.documentElement;
+    const setOrRemove = (name: string, value: string | undefined) => {
+      if (value) root.style.setProperty(name, value);
+      else root.style.removeProperty(name);
+    };
+
+    setOrRemove("--app-accent", accent);
+    setOrRemove("--app-accent-hover", accentHover);
+    setOrRemove("--app-accent-soft", accentBg);
+    setOrRemove("--app-surface", darkTheme?.surface);
+    setOrRemove("--app-radius", userTheme.radius);
+    setOrRemove("--border-radius", userTheme.radius);
+  }, [isDark, userTheme]);
 
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
@@ -429,12 +448,18 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         prefixCls="qwenpaw"
         locale={antdLocale}
         theme={{
-          ...(selectedTheme as { theme?: ThemeConfig }).theme,
+          ...(selectedTheme as { theme?: AntThemeConfig }).theme,
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
           token: {
-            colorPrimary: "#FF7F16",
+            colorPrimary:
+              userTheme.dark?.accent && isDark
+                ? userTheme.dark.accent
+                : (userTheme.accent ?? "#FF7F16"),
+            borderRadius: userTheme.radius
+              ? Number.parseFloat(userTheme.radius)
+              : undefined,
           },
         }}
       >

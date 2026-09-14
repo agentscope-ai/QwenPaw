@@ -110,6 +110,38 @@ describe("SettingsCenter", () => {
     expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBeNull();
   });
 
+  it("offers color palettes without font controls", async () => {
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+
+    const palette = screen.getByRole("combobox", {
+      name: "Theme palette",
+    });
+    await userEvent.click(palette);
+
+    for (const name of [
+      "QwenPaw",
+      "Codex",
+      "Ayu",
+      "Catppuccin",
+      "Dracula",
+      "Everforest",
+    ]) {
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+    }
+    expect(screen.queryByText("Font family")).not.toBeInTheDocument();
+    expect(screen.queryByText("Monospace family")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Dracula"));
+
+    expect(
+      screen
+        .getAllByText("Dracula")
+        .some((element) => element.closest(".ant-select-selection-item")),
+    ).toBe(true);
+  });
+
   it("persists message display preferences", async () => {
     renderWithProviders(<SettingsCenter />, {
       initialEntries: ["/settings/general"],

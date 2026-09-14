@@ -29,13 +29,14 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.exception_handlers import register_exception_handlers
 from qwenpaw.app.routers.config import router as config_router
-from qwenpaw.config import get_available_channels
+from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
     TelegramConfig,
+    ThemeConfig,
     ToolGuardConfig,
 )
 from qwenpaw.constant import (
@@ -675,6 +676,76 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
     # The handler must flip the engine flag AND ask it to reload rules.
     assert engine_mock.enabled is True
     engine_mock.reload_rules.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /config/theme
+# ---------------------------------------------------------------------------
+
+
+def test_get_theme_returns_sparse_defaults(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = None
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/theme")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_put_theme_persists_without_agent_reload(client):
+    fake_cfg = MagicMock()
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put(
+            "/api/config/theme",
+            json={
+                "accent": "#0b57d0",
+                "radius": "12px",
+                "dark": {"surface": "#1a1a1a"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accent"] == "#0b57d0"
+    assert response.json()["dark"]["surface"] == "#1a1a1a"
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme.accent == "#0b57d0"
+
+
+def test_put_theme_rejects_invalid_css_values(client):
+    response = client.put(
+        "/api/config/theme",
+        json={"accent": "url(javascript:alert(1))"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_delete_theme_clears_persisted_config(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = ThemeConfig(accent="#0b57d0")
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.delete("/api/config/theme")
+
+    assert response.status_code == 204
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme is None
 
 
 # ---------------------------------------------------------------------------

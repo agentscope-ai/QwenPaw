@@ -52,6 +52,12 @@ logger = logging.getLogger(__name__)
 
 AUTO_FIN_MAX_WINDOW_HOURS = 168
 
+_CSS_COLOR_RE = re.compile(
+    r"^(?:#[0-9a-fA-F]{3,8}|"
+    r"(?:rgb|hsl)a?\([^;{}]+\))$",
+)
+_CSS_RADIUS_RE = re.compile(r"^(?:0|(?:0|[1-9]\d*)(?:\.\d+)?px)$")
+
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
 # lifetime.  The migration reminder is useful once, but repeating it for
@@ -3113,6 +3119,54 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class ThemeDarkConfig(BaseModel):
+    """Optional theme overrides used when the console is in dark mode."""
+
+    accent: Optional[str] = None
+    accent_bg: Optional[str] = None
+    surface: Optional[str] = None
+
+    @field_validator("accent", "accent_bg")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _CSS_COLOR_RE.fullmatch(value.strip()):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+    @field_validator("surface")
+    @classmethod
+    def _validate_surface(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _CSS_COLOR_RE.fullmatch(value.strip()):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+
+class ThemeConfig(BaseModel):
+    """User-configurable Console appearance tokens."""
+
+    accent: Optional[str] = None
+    accent_hover: Optional[str] = None
+    accent_bg: Optional[str] = None
+    radius: Optional[str] = None
+    dark: Optional[ThemeDarkConfig] = None
+
+    @field_validator("accent", "accent_hover", "accent_bg")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _CSS_COLOR_RE.fullmatch(value.strip()):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+    @field_validator("radius")
+    @classmethod
+    def _validate_radius(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            value = value.strip()
+            if not _CSS_RADIUS_RE.fullmatch(value):
+                raise ValueError("must be a pixel value or 0")
+        return value
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -3125,6 +3179,7 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    theme: Optional[ThemeConfig] = None
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
