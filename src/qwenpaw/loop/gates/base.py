@@ -40,9 +40,9 @@ class StopHandlerResult:
     continuation_message: str = ""
     reason: str = ""
     reset_peers: bool = False
-    inject_on_tool_call: bool = False
     continuation_metadata: dict[str, Any] | None = None
     final_message: Any = None
+    inject_on_tool_call: bool = False
 
 
 @dataclass
