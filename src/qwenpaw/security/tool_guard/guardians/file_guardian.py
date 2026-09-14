@@ -3,6 +3,7 @@
 
 Blocks tool calls that target files explicitly listed in a sensitive-file set.
 """
+
 from __future__ import annotations
 
 import ntpath
@@ -36,6 +37,22 @@ _TOOL_FILE_PARAMS: dict[str, tuple[str, ...]] = {
 _SECRET_DIR_CURRENT_NAME = ".qwenpaw.secret"
 _SECRET_DIR_LEGACY_NAME = ".copaw.secret"
 
+# System credentials need approval even when the process can read them
+# (e.g. root deployments). Keep public account databases such as passwd
+# readable; protect password hashes, their backups and authentication policy.
+SYSTEM_SENSITIVE_PATHS: tuple[str, ...] = (
+    "/etc/shadow",
+    "/etc/shadow-",
+    "/etc/gshadow",
+    "/etc/gshadow-",
+    "/etc/security/opasswd",
+    "/etc/master.passwd",
+    "/etc/spwd.db",
+    "/etc/sudoers",
+    "/etc/sudoers.d/",
+    "/etc/ssh/",
+)
+
 
 def _with_platform_trailing_sep(path: str | Path) -> str:
     """Return path string with a trailing separator for current platform."""
@@ -53,8 +70,14 @@ _COMPAT_SECRET_DIRS: tuple[str, ...] = (
 
 
 def ensure_file_guard_paths(paths: Iterable[str]) -> list[str]:
-    """Return *paths* plus compatibility secret dirs, de-duplicated."""
+    """Merge system credentials and compatibility secret dirs into *paths*.
+
+    Applied at resolution time so existing persisted policies also gain
+    system credential protection without overwriting user configuration.
+    """
     merged = [p for p in paths if p]
+    if os.name != "nt":
+        merged.extend(SYSTEM_SENSITIVE_PATHS)
     merged.extend(_COMPAT_SECRET_DIRS)
     # Keep order stable while removing duplicates.
     return list(dict.fromkeys(merged))
