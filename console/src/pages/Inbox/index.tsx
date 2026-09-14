@@ -641,6 +641,8 @@ export default function InboxPage() {
       </div>
       <Modal
         open={detailOpen}
+        className={styles.messageDetailModal}
+        styles={{ content: { padding: "20px 24px" } }}
         onCancel={closeDetail}
         footer={null}
         width={820}

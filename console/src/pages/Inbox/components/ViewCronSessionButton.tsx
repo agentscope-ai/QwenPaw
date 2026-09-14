@@ -62,7 +62,7 @@ export function ViewCronSessionButton({
   return (
     <Button
       type="link"
-      size="small"
+      style={{ fontSize: 15 }}
       loading={loading}
       disabled={typeof runId !== "string" || !runId}
       onClick={() => void openSession()}

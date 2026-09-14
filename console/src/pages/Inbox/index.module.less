@@ -576,11 +576,21 @@
     animation-play-state: paused;
   }
 }
+.messageDetailModal {
+  :global(.ant-modal-close),
+  :global(.qwenpaw-modal-close) {
+    top: 20px;
+    width: 32px;
+    height: 32px;
+  }
+}
+
 .messageDetailTitle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-height: 32px;
   padding-right: 28px;
 
   > button {
