@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 
 // ---- Hoisted mocks ---------------------------------------------------------
@@ -20,6 +21,7 @@ import { renderWithProviders } from "@/test/common_setup";
 const mockSessionListData = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
+const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -166,8 +168,8 @@ vi.mock("../hooks/useAppMessage", () => ({
 vi.mock("../stores/agentStore", () => ({
   useAgentStore: (selector?: (s: { selectedAgent: string }) => unknown) =>
     selector
-      ? selector({ selectedAgent: "agent-1" })
-      : { selectedAgent: "agent-1" },
+      ? selector({ selectedAgent: mockSelectedAgent.current })
+      : { selectedAgent: mockSelectedAgent.current },
 }));
 
 vi.mock("../stores/sessionListStore", () => ({
@@ -256,9 +258,19 @@ function mockData(
   });
 }
 
+function NavigatingSessionList() {
+  const navigate = useNavigate();
+  return (
+    <SidebarSessionList
+      onSessionClick={(sessionId) => navigate(`/chat/${sessionId}`)}
+    />
+  );
+}
+
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelectedAgent.current = "agent-1";
     // The virtual list only renders once the wrapper has a measured height.
     // jsdom reports clientHeight=0, so make ResizeObserver report one
     // immediately on observe. Must be a function (constructible), not an
@@ -418,7 +430,7 @@ describe("SidebarSessionList", () => {
     );
   });
 
-  it("loads ten more conversations within a group", async () => {
+  it("loads more conversations and hides the button when all are visible", async () => {
     const sessions = Array.from({ length: 12 }, (_, index) => ({
       ...sessionA,
       id: `session-${index + 1}`,
@@ -439,12 +451,7 @@ describe("SidebarSessionList", () => {
       expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
     });
     expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse list" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse list" }));
-    await waitFor(() => {
-      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
-    });
+    expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
   });
 
   it("reveals an active unpinned conversation after ten pinned ones", async () => {
@@ -473,7 +480,7 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("keeps the active conversation visible when collapsing the list", async () => {
+  it("keeps the active conversation visible when loading more", async () => {
     const sessions = Array.from({ length: 25 }, (_, index) => ({
       ...sessionA,
       id: `session-${index + 1}`,
@@ -489,13 +496,114 @@ describe("SidebarSessionList", () => {
       expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Collapse list" }),
-    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.getByTestId("session-item-session-21")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+  });
+
+  it("keeps the load more control after selecting a later conversation", async () => {
+    const sessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    renderWithProviders(<NavigatingSessionList />, {
+      initialEntries: ["/chat/session-1"],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-session-21")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("session-item-session-12"));
 
     await waitFor(() => {
       expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
       expect(screen.queryByTestId("session-item-session-21")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.getByTestId("session-item-session-25")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+  });
+
+  it("resets pagination when switching agents", async () => {
+    const agentOneSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-one-${index + 1}`,
+      name: `Agent one ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    const agentTwoSessions = Array.from({ length: 25 }, (_, index) => ({
+      ...sessionA,
+      id: `agent-two-${index + 1}`,
+      name: `Agent two ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+
+    mockData(agentOneSessions);
+    const { rerender } = renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-one-20")).toBeTruthy();
+    });
+
+    mockSelectedAgent.current = "agent-2";
+    mockData(agentTwoSessions);
+    rerender(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-agent-two-10")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-agent-two-11")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+    });
+  });
+
+  it("resets pagination after the list is remounted", async () => {
+    const sessions = Array.from({ length: 12 }, (_, index) => ({
+      ...sessionA,
+      id: `session-${index + 1}`,
+      name: `Conversation ${index + 1}`,
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+    }));
+    mockData(sessions);
+    const { unmount } = renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+    });
+
+    unmount();
+    renderWithProviders(<SidebarSessionList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
     });
   });
 

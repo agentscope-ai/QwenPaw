@@ -401,7 +401,7 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 ### 工具配置参考
 
-内置工具的配置存储在 `agent.json` 的 `tools.builtins` 字段中。
+内置工具的配置存储在 `agent.json` 的 `tools.builtin_tools` 字段中。
 
 **配置示例：**
 

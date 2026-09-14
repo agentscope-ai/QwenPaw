@@ -7,7 +7,6 @@ import {
   Bot,
   Clock3,
   FolderInput,
-  GripVertical,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -264,28 +263,20 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
 
       {!editing && (
-        <span
-          className={styles.dragHint}
-          title={t(
-            "chat.groups.dragSessionHint",
-            "Press and hold to move this conversation",
-          )}
-          aria-hidden
-        >
-          <GripVertical size={12} />
-        </span>
-      )}
-
-      {!editing && (
         <Dropdown
           menu={{ items: dropdownItems }}
           trigger={["click"]}
           placement="bottomRight"
           onOpenChange={setDropdownOpen}
         >
-          <span className={styles.moreBtn} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            aria-label={t("appCenter.moreActions", "More actions")}
+            className={styles.moreBtn}
+            onClick={(e) => e.stopPropagation()}
+          >
             <MoreHorizontal size={14} />
-          </span>
+          </button>
         </Dropdown>
       )}
     </div>

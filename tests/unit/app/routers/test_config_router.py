@@ -562,6 +562,60 @@ def test_put_heartbeat_rejects_timeout_above_max(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("non_finite_literal", "serialized_input"),
+    [
+        ("NaN", "NaN"),
+        ("Infinity", "Infinity"),
+        ("-Infinity", "-Infinity"),
+    ],
+)
+def test_put_heartbeat_serializes_non_finite_validation_input(
+    client,
+    patch_get_agent,
+    non_finite_literal,
+    serialized_input,
+):
+    """Non-finite rejected inputs remain observable in a valid 422 body."""
+    response = client.put(
+        "/api/config/heartbeat",
+        content=f'{{"timeoutSeconds": {non_finite_literal}}}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == serialized_input
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "constraint", "limit"),
+    [
+        (0, "ge", 1),
+        (3601, "le", 3600),
+    ],
+)
+def test_put_heartbeat_preserves_finite_validation_error_details(
+    client,
+    patch_get_agent,
+    timeout_seconds,
+    constraint,
+    limit,
+):
+    """The global handler preserves ordinary Pydantic error details."""
+    response = client.put(
+        "/api/config/heartbeat",
+        json={"timeoutSeconds": timeout_seconds},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == timeout_seconds
+    assert error["ctx"] == {constraint: limit}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("target", "last_dispatch"),
