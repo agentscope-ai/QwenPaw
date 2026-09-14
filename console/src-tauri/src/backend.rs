@@ -16,11 +16,17 @@ use uuid::Uuid;
 
 mod command;
 mod events;
+pub(crate) mod session;
+#[cfg(windows)]
+pub(crate) mod webview_auth;
+
+pub(crate) use session::{BackendScope, BackendSession, DESKTOP_SESSION_HEADER};
 
 /// Path of the desktop-only graceful shutdown endpoint on the backend.
 const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
 const DESKTOP_SHUTDOWN_TOKEN_ENV: &str = "QWENPAW_DESKTOP_SHUTDOWN_TOKEN";
 const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "X-QwenPaw-Desktop-Shutdown-Token";
+const DESKTOP_SESSION_ENV: &str = "QWENPAW_DESKTOP_SESSION";
 /// Upper bound for the shutdown HTTP request. The endpoint just flips
 /// uvicorn's `should_exit` and returns immediately, so the request is
 /// milliseconds in the happy path; this is only a fallback so a wedged
@@ -35,6 +41,9 @@ const FORCED_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct BackendState {
     inner: Mutex<BackendInner>,
     generation: AtomicU64,
+    lifecycle: tokio::sync::Mutex<()>,
+    #[cfg(windows)]
+    pub(crate) webview_auth: Mutex<Option<Result<(), String>>>,
 }
 
 #[derive(Default)]
@@ -42,6 +51,7 @@ struct BackendInner {
     child: Option<CommandChild>,
     port: Option<u16>,
     shutdown_token: Option<String>,
+    session_token: Option<String>,
     terminated: Option<watch::Receiver<bool>>,
     stopping: bool,
     error: Option<String>,
@@ -54,6 +64,7 @@ enum StopPlan {
         pid: u32,
         port: Option<u16>,
         shutdown_token: Option<String>,
+        session_token: Option<String>,
         terminated: watch::Receiver<bool>,
     },
 }
@@ -87,24 +98,27 @@ impl BackendState {
     }
 
     fn set_error_if_current(&self, generation: u64, message: String) {
-        if self.is_current(generation) {
-            self.set_error(message);
-        }
+        self.with_inner(|inner| {
+            if self.is_current(generation) {
+                inner.error = Some(message);
+            }
+        });
     }
 
     fn set_port_if_current(&self, generation: u64, port: u16) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if self.is_current(generation) && !inner.stopping {
                 inner.port = Some(port);
                 inner.error = None;
-            });
-        }
+            }
+        });
     }
 
     fn clear_startup_state(&self) {
         self.with_inner(|inner| {
             inner.port = None;
             inner.shutdown_token = None;
+            inner.session_token = None;
             inner.terminated = None;
             inner.stopping = false;
             inner.error = None;
@@ -112,14 +126,16 @@ impl BackendState {
     }
 
     fn clear_child_if_current(&self, generation: u64) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if self.is_current(generation) {
                 inner.child.take();
+                inner.port = None;
                 inner.shutdown_token = None;
+                inner.session_token = None;
                 inner.terminated = None;
                 inner.stopping = false;
-            });
-        }
+            }
+        });
     }
 
     fn begin_stop(&self) -> StopPlan {
@@ -131,6 +147,7 @@ impl BackendState {
                 inner.child.take();
                 inner.port = None;
                 inner.shutdown_token = None;
+                inner.session_token = None;
                 inner.terminated = None;
                 inner.stopping = false;
                 return StopPlan::NoProcess;
@@ -150,6 +167,7 @@ impl BackendState {
                 pid: child.pid(),
                 port: inner.port,
                 shutdown_token: inner.shutdown_token.clone(),
+                session_token: inner.session_token.take(),
                 terminated,
             }
         })
@@ -172,16 +190,25 @@ impl BackendState {
             inner.child.take();
             inner.port = None;
             inner.shutdown_token = None;
+            inner.session_token = None;
             inner.terminated = None;
             inner.stopping = false;
         });
     }
 
-    async fn request_stop(&self, pid: u32, port: Option<u16>, shutdown_token: Option<String>) {
+    async fn request_stop(
+        &self,
+        pid: u32,
+        port: Option<u16>,
+        shutdown_token: Option<String>,
+        session_token: Option<String>,
+    ) {
         log::info!("[backend] stopping process pid={pid}");
 
-        if let (Some(port), Some(shutdown_token)) = (port, shutdown_token) {
-            match request_graceful_shutdown(port, &shutdown_token).await {
+        if let (Some(port), Some(shutdown_token), Some(session_token)) =
+            (port, shutdown_token, session_token)
+        {
+            match request_graceful_shutdown(port, &shutdown_token, &session_token).await {
                 Ok(()) => {
                     log::info!("[backend] graceful shutdown requested pid={pid}");
                     return;
@@ -207,9 +234,11 @@ impl BackendState {
                 pid,
                 port,
                 shutdown_token,
+                session_token,
                 terminated,
             } => {
-                self.request_stop(pid, port, shutdown_token).await;
+                self.request_stop(pid, port, shutdown_token, session_token)
+                    .await;
                 terminated
             }
         };
@@ -224,7 +253,9 @@ impl BackendState {
                 self.force_kill();
                 match wait_for_termination(terminated, FORCED_SHUTDOWN_EXIT_TIMEOUT).await {
                     Ok(()) => {
-                        log::warn!("[backend] sidecar force-terminated after graceful shutdown failure");
+                        log::warn!(
+                            "[backend] sidecar force-terminated after graceful shutdown failure"
+                        );
                         self.finish_stop();
                         Ok(())
                     }
@@ -244,9 +275,15 @@ impl BackendState {
 ///
 /// The endpoint sets uvicorn's `should_exit`, letting the sidecar run its
 /// normal lifespan shutdown instead of being force-killed.
-async fn request_graceful_shutdown(port: u16, shutdown_token: &str) -> Result<(), String> {
+async fn request_graceful_shutdown(
+    port: u16,
+    shutdown_token: &str,
+    session_token: &str,
+) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}{DESKTOP_SHUTDOWN_PATH}");
     let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(GRACEFUL_SHUTDOWN_TIMEOUT)
         .build()
         .map_err(|err| format!("failed to create shutdown HTTP client: {err}"))?;
@@ -254,6 +291,7 @@ async fn request_graceful_shutdown(port: u16, shutdown_token: &str) -> Result<()
     let response = client
         .post(url)
         .header(DESKTOP_SHUTDOWN_TOKEN_HEADER, shutdown_token)
+        .header(DESKTOP_SESSION_HEADER, session_token)
         .send()
         .await
         .map_err(|err| format!("shutdown endpoint request failed: {err}"))?;
@@ -285,6 +323,10 @@ async fn wait_for_termination(
 
 #[tauri::command]
 pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16> {
+    #[cfg(windows)]
+    if !matches!(*state.webview_auth.lock().unwrap(), Some(Ok(()))) {
+        return None;
+    }
     state.port()
 }
 
@@ -294,16 +336,21 @@ pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16>
 /// the backend-hosted console.
 #[tauri::command]
 pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Option<String> {
+    #[cfg(windows)]
+    if let Some(Err(error)) = &*state.webview_auth.lock().unwrap() {
+        return Some(error.clone());
+    }
     state.error()
 }
 
 /// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
 pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop_and_wait(&app).await?;
+    let state = app.state::<BackendState>();
+    let _lifecycle = state.lifecycle.lock().await;
+    state.stop_and_wait().await?;
     start(&app);
 
-    let state = app.state::<BackendState>();
     match state.error() {
         Some(err) => Err(err),
         None => Ok(()),
@@ -335,7 +382,9 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
 /// Gracefully stops the current sidecar and waits for its process to exit.
 pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
-    app.state::<BackendState>().stop_and_wait().await
+    let state = app.state::<BackendState>();
+    let _lifecycle = state.lifecycle.lock().await;
+    state.stop_and_wait().await
 }
 
 fn desktop_log_level() -> log::LevelFilter {
@@ -357,6 +406,13 @@ fn start(app: &tauri::AppHandle) {
     let generation = state.next_generation();
     state.clear_startup_state();
     let shutdown_token = Uuid::new_v4().to_string();
+    let session_token = match session::new_token() {
+        Ok(token) => token,
+        Err(message) => {
+            state.set_error(message);
+            return;
+        }
+    };
 
     let command = match command::create(app) {
         Ok(command) => command,
@@ -370,6 +426,11 @@ fn start(app: &tauri::AppHandle) {
     .env("PYTHONUNBUFFERED", "1")
     .env("PYTHONFAULTHANDLER", "1")
     .env("QWENPAW_DESKTOP_APP", "1")
+    .env(
+        "QWENPAW_DESKTOP_AUTH",
+        if cfg!(windows) { "1" } else { "0" },
+    )
+    .env(DESKTOP_SESSION_ENV, &session_token)
     .env(DESKTOP_SHUTDOWN_TOKEN_ENV, &shutdown_token);
 
     log::info!("[backend] starting generation={generation}");
@@ -388,6 +449,7 @@ fn start(app: &tauri::AppHandle) {
     state.with_inner(|inner| {
         inner.child = Some(child);
         inner.shutdown_token = Some(shutdown_token);
+        inner.session_token = Some(session_token);
         inner.terminated = Some(terminated_receiver);
         inner.stopping = false;
     });

@@ -26,8 +26,8 @@ tauri-win / tauri-mac) end-to-end:
 UI flavours:
 - ``--ui-mode tauri-macos``    Playwright + headless WebKit (same engine as
                                the Tauri webview on macOS).
-- ``--ui-mode tauri-windows``  Playwright + headless Chromium (same engine
-                               family as Tauri's WebView2 on Windows).
+- ``--ui-mode tauri-windows``  Playwright connected to the real WebView2
+                               via CDP (also required for API checks).
 
 Designed to be invoked by ``.github/workflows/desktop-release.yml`` after the
 desktop server has been booted on ``--base-url``. The API layer uses only
@@ -51,6 +51,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_MODEL = "qwen3.6-plus"
@@ -128,9 +129,9 @@ def _http(
 # =============================================================================
 
 
-def health_check(base_url: str) -> str:
+def health_check(base_url: str, http=_http) -> str:
     """Verify ``/api/version`` and return the reported version string."""
-    body = _http("GET", f"{base_url}/api/version")
+    body = http("GET", f"{base_url}/api/version")
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -146,9 +147,9 @@ def health_check(base_url: str) -> str:
     return version
 
 
-def verify_frontend(base_url: str) -> None:
+def verify_frontend(base_url: str, http=_http) -> None:
     """Verify the bundled console frontend is served at ``/``."""
-    body = _http("GET", f"{base_url}/")
+    body = http("GET", f"{base_url}/")
     lower = body.lower()
     if "<html" not in lower:
         raise RuntimeError(
@@ -162,9 +163,9 @@ def verify_frontend(base_url: str) -> None:
     print("PASS  GET / -> frontend HTML served")
 
 
-def verify_reme_runtime(base_url: str) -> None:
+def verify_reme_runtime(base_url: str, http=_http) -> None:
     """Run a provider-free job against the packaged ReMe runtime."""
-    body = _http(
+    body = http(
         "POST",
         f"{base_url}/api/agents/default/memory/reindex?scope=bm25",
         timeout=120,
@@ -182,20 +183,21 @@ def verify_reme_runtime(base_url: str) -> None:
     print("PASS  packaged ReMe runtime completed BM25 reindex")
 
 
-def verify_packaged_api(base_url: str) -> None:
+def verify_packaged_api(base_url: str, http=_http) -> None:
     """Verify the desktop's basic API, frontend, and embedded ReMe runtime."""
-    health_check(base_url)
-    verify_frontend(base_url)
-    verify_reme_runtime(base_url)
+    health_check(base_url, http)
+    verify_frontend(base_url, http)
+    verify_reme_runtime(base_url, http)
 
 
 def configure_provider(
     base_url: str,
     provider_id: str,
     api_key: str,
+    http=_http,
 ) -> None:
     """Write the DashScope API key into ProviderManager."""
-    _http(
+    http(
         "PUT",
         f"{base_url}/api/models/{provider_id}/config",
         body={"api_key": api_key},
@@ -207,6 +209,7 @@ def ensure_model(
     base_url: str,
     provider_id: str,
     model: str,
+    http=_http,
 ) -> None:
     """Register ``model`` on ``provider_id`` if it isn't already known.
 
@@ -217,7 +220,7 @@ def ensure_model(
     already exists — both outcomes are fine for our purposes.
     """
     try:
-        _http(
+        http(
             "POST",
             f"{base_url}/api/models/{provider_id}/models",
             body={"id": model, "name": model},
@@ -245,9 +248,10 @@ def set_active_model(
     base_url: str,
     provider_id: str,
     model: str,
+    http=_http,
 ) -> None:
     """Mark ``provider_id/model`` as the global active LLM."""
-    _http(
+    http(
         "PUT",
         f"{base_url}/api/models/active",
         body={
@@ -359,6 +363,45 @@ class PlaywrightDriver(UIDriver):
             raise UIDriverInitError(
                 f"failed to start {browser}: {exc}",
             ) from exc
+
+    def http(self, method, url, body=None, timeout=30) -> str:
+        """Use the native WebView's HTTP path, including host authentication."""
+        try:
+            self._page.wait_for_url(
+                lambda current: urllib.parse.urlsplit(current)[:2]
+                == urllib.parse.urlsplit(url)[:2],
+                timeout=60_000,
+            )
+            result = self._page.evaluate(
+                """async ({method, url, body, timeout}) => {
+                  if (new URL(url).origin !== location.origin) {
+                    throw new Error('Verifier request must stay same-origin');
+                  }
+                  const headers = {Accept: 'application/json'};
+                  if (body !== null) headers['Content-Type'] = 'application/json';
+                  const response = await fetch(url, {
+                    method, headers, redirect: 'error',
+                    body: body === null ? undefined : JSON.stringify(body),
+                    signal: AbortSignal.timeout(timeout * 1000),
+                  });
+                  return {status: response.status, text: await response.text()};
+                }""",
+                {
+                    "method": method,
+                    "url": url,
+                    "body": body,
+                    "timeout": timeout,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"WebView request failed: {method} {url}",
+            ) from exc
+        if not 200 <= result["status"] < 300:
+            raise RuntimeError(
+                f"HTTP {result['status']} {method} {url}: {result['text'][:300]}",
+            )
+        return result["text"]
 
     def _screenshot(self, name: str) -> None:
         """Best-effort screenshot. Never raises."""
@@ -723,6 +766,8 @@ def make_driver(
     if ui_mode == "tauri-macos":
         return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
+        if not cdp_url:
+            raise UIDriverInitError("Windows verification requires --cdp-url")
         return PlaywrightDriver(
             "chromium",
             screenshot_dir,
@@ -838,7 +883,7 @@ def _run_llm_with_retry(
 # =============================================================================
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Verify a running QwenPaw desktop backend end-to-end: API "
@@ -883,9 +928,8 @@ def main() -> int:
     parser.add_argument(
         "--skip-ui",
         action="store_true",
-        help="Skip the UI driver portion entirely (no SPA load "
-        "check, no chat round). API-level checks still run. "
-        "Useful for environments without a browser.",
+        help="Skip SPA load and chat checks. API checks still run; "
+        "Windows still requires the native WebView through CDP.",
     )
     parser.add_argument(
         "--timeout",
@@ -929,7 +973,22 @@ def main() -> int:
         "should not block release. Release pipelines should NOT "
         "set this — they need the assertion.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def _verify_windows_boundary(base_url: str) -> None:
+    try:
+        _http("GET", f"{base_url}/api/version")
+    except RuntimeError as exc:
+        if not str(exc).startswith("HTTP 401 "):
+            raise
+    else:
+        raise RuntimeError("Windows API accepted an anonymous request")
+    print("PASS  Windows API rejects anonymous requests")
+
+
+def main() -> int:
+    args = _parse_args()
 
     base_url = args.base_url.rstrip("/")
     skip_chat = args.skip_chat or not args.api_key
@@ -937,15 +996,8 @@ def main() -> int:
     started = time.monotonic()
     driver: UIDriver | None = None
     try:
-        # ---- API-level checks (always run, no key needed) ----
-        verify_packaged_api(base_url)
-
-        # ---- UI load (always run unless --skip-ui, no key needed) ----
-        # This catches broken Vite bundles, missing assets, CSP issues,
-        # and Tauri webview load failures even without LLM credentials.
-        if args.skip_ui:
-            print("SKIP  UI verification (--skip-ui)")
-        else:
+        http = _http
+        if not args.skip_ui or args.ui_mode == "tauri-windows":
             try:
                 ss_dir = (
                     os.path.join(
@@ -964,6 +1016,20 @@ def main() -> int:
             except UIDriverInitError as exc:
                 print(f"FAIL  UI driver init: {exc}", file=sys.stderr)
                 return 3
+
+        if args.ui_mode == "tauri-windows":
+            assert isinstance(driver, PlaywrightDriver)
+            http = driver.http
+            _verify_windows_boundary(base_url)
+
+        # ---- API-level checks (always run, no key needed) ----
+        verify_packaged_api(base_url, http)
+
+        # ---- UI load (always run unless --skip-ui, no key needed) ----
+        if args.skip_ui:
+            print("SKIP  UI verification (--skip-ui)")
+        else:
+            assert driver is not None
             verify_ui_loaded(
                 driver,
                 base_url,
@@ -978,13 +1044,14 @@ def main() -> int:
                 else "no DashScope API key provided"
             )
             print(f"SKIP  LLM verification ({reason})")
-        elif driver is None:
+        elif args.skip_ui:
             # --skip-ui was set; nothing to drive.
             print("SKIP  LLM verification (--skip-ui)")
         else:
-            configure_provider(base_url, args.provider, args.api_key)
-            ensure_model(base_url, args.provider, args.model)
-            set_active_model(base_url, args.provider, args.model)
+            assert driver is not None
+            configure_provider(base_url, args.provider, args.api_key, http)
+            ensure_model(base_url, args.provider, args.model, http)
+            set_active_model(base_url, args.provider, args.model, http)
             rc = _run_llm_with_retry(
                 driver,
                 args.timeout,

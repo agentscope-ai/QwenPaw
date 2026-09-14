@@ -61,6 +61,9 @@ pub fn run() {
             tray::setup(app)?;
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
+                if let Err(err) = backend::webview_auth::install(&window) {
+                    log::error!("[backend] {err}");
+                }
                 if let Err(err) = webview_recovery::install(&window) {
                     log::error!("[webview] failed to install browser-process recovery: {err}");
                 }

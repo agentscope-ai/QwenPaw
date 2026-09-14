@@ -122,6 +122,12 @@ export async function request<T = unknown>(
 
       if (!response.ok) {
         if (response.status === 401) {
+          const body = await response.json().catch(() => null);
+          if (body?.code === "desktop_session_required") {
+            throw new Error(
+              "Desktop connection unavailable. Please try again.",
+            );
+          }
           clearAuthToken();
           if (!isLoginPath(window.location.pathname)) {
             window.location.href = getLoginHref(window.location);

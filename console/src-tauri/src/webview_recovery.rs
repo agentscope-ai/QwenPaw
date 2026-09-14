@@ -224,6 +224,10 @@ fn recreate_window(
     config: &WindowConfig,
     state: WindowState,
 ) -> Result<(), String> {
+    *app.state::<crate::backend::BackendState>()
+        .webview_auth
+        .lock()
+        .unwrap() = None;
     if let Some(window) = app.get_webview_window(label) {
         window.destroy().map_err(|err| err.to_string())?;
         wait_until_destroyed(app, label)?;
@@ -237,6 +241,7 @@ fn recreate_window(
         .fullscreen(false)
         .build()
         .map_err(|err| err.to_string())?;
+    crate::backend::webview_auth::install(&window)?;
     install(&window)?;
     restore_state(&window, state)?;
     Ok(())

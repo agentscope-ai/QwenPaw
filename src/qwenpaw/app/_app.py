@@ -42,9 +42,11 @@ from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
     RuntimeBoundaryMiddleware,
+    desktop_public,
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from ..tauri.env import desktop_auth_enabled
 from .exception_handlers import register_exception_handlers
 from .migration import (
     ensure_default_agent_exists,
@@ -734,7 +736,8 @@ register_exception_handlers(app)
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
-app.add_middleware(RuntimeBoundaryMiddleware)
+if not desktop_auth_enabled():
+    app.add_middleware(RuntimeBoundaryMiddleware)
 
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:
@@ -747,6 +750,10 @@ if CORS_ORIGINS:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+
+# Desktop requests, including preflights, must pass the native boundary.
+if desktop_auth_enabled():
+    app.add_middleware(RuntimeBoundaryMiddleware)
 
 
 _CONSOLE_STATIC_ENV = "QWENPAW_CONSOLE_STATIC_DIR"
@@ -805,6 +812,7 @@ _INDEX_NO_CACHE_HEADERS = {
 
 
 @app.get("/")
+@desktop_public
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
         return FileResponse(_CONSOLE_INDEX, headers=_INDEX_NO_CACHE_HEADERS)
@@ -933,13 +941,14 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     if _assets_dir.is_dir():
         app.mount(
             "/assets",
-            StaticFiles(directory=str(_assets_dir)),
+            desktop_public(StaticFiles(directory=str(_assets_dir))),
             name="assets",
         )
 
     @app.get("/console")
     @app.get("/console/")
     @app.get("/console/{full_path:path}")
+    @desktop_public
     def _console_spa_alias(full_path: str = ""):
         _ = full_path
         return _serve_console_index()
@@ -950,6 +959,7 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         "/{full_path:path}",
         name="qwenpaw_console_spa_catchall",
     )
+    @desktop_public
     def _console_spa(full_path: str):
         # Prevent catching common system/special paths
         if full_path in ("docs", "redoc", "openapi.json"):
