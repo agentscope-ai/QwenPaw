@@ -275,7 +275,9 @@ async def test_flush_task_is_settled_before_return(tmp_path: Path) -> None:
     """No dangling 1s flush task may outlive the turn."""
     before = len(_pending_tasks())
     await _collect(
-        tmp_path, _fragments(ANSWER), {"event": _text_event(ANSWER)}
+        tmp_path,
+        _fragments(ANSWER),
+        {"event": _text_event(ANSWER)},
     )
     await asyncio.sleep(0)
     assert len(_pending_tasks()) <= before
