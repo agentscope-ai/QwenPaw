@@ -22,6 +22,7 @@ from ..acp.tool_adapter import (
     format_final_assistant_response,
     format_permission_suspended_response,
     format_stream_snapshot_response,
+    render_assistant_text,
     render_event_text,
     response_text,
 )
@@ -494,6 +495,29 @@ async def _run_action(
     raise ValueError(f"unsupported action: {action_name}")
 
 
+def _text_already_streamed(
+    event: Optional[dict[str, Any]],
+    streamed_text: list[str],
+) -> bool:
+    """Return True when *event*'s text was already delivered incrementally.
+
+    A turn's assistant text reaches this tool twice: as streamed deltas, and
+    again as the complete text on the closing event.  Rendering the closing
+    event's body as well would hand the caller the same answer twice, so the
+    final block keeps only its header when the text is already out.  A partial
+    overlap (e.g. a cancelled turn) deliberately does not suppress, since
+    losing text is worse than repeating some of it.
+    """
+    if not isinstance(event, dict):
+        return False
+    if str(event.get("type") or "").lower() != "text":
+        return False
+    body = str(event.get("text") or "").strip()
+    if not body:
+        return False
+    return body in "".join(streamed_text)
+
+
 async def _stream_action_responses(
     *,
     service: Any,
@@ -509,13 +533,38 @@ async def _stream_action_responses(
     flush_interval = 1.0
     pending_items: list[str] = []
     seen_stream_items: set[str] = set()
+    text_buffer: list[str] = []
+    streamed_text: list[str] = []
     header_sent = False
     flush_task: Optional[asyncio.Task[None]] = None
     final_text_event: Optional[dict[str, Any]] = None
     final_fallback_event: Optional[dict[str, Any]] = None
 
+    def drain_text_buffer() -> None:
+        """Coalesce buffered text deltas into a single ``[assistant]`` item.
+
+        A runner's text arrives as deltas of one assistant message and chunk
+        sizes vary widely -- kimi-cli streams a few words per notification.
+        Emitting one item per delta repeated the ``[assistant]`` marker for
+        every fragment, so deltas are joined and rendered once per flush.
+        """
+        if not text_buffer:
+            return
+        raw = "".join(text_buffer)
+        text_buffer.clear()
+        streamed_text.append(raw)
+        rendered = render_assistant_text(raw)
+        if rendered is None:
+            return
+        normalized = rendered.strip()
+        if normalized in seen_stream_items:
+            return
+        seen_stream_items.add(normalized)
+        pending_items.append(rendered)
+
     async def flush_snapshot() -> None:
         nonlocal header_sent
+        drain_text_buffer()
         if not pending_items:
             return
         snapshot = [
@@ -568,6 +617,19 @@ async def _stream_action_responses(
             return
         event = dict(message)
         event_type = str(event.get("type") or "").lower()
+
+        if event_type == "text":
+            chunk = event.get("text")
+            if isinstance(chunk, str) and chunk:
+                text_buffer.append(chunk)
+                await ensure_flush_task()
+            final_text_event = event
+            return
+
+        # Any non-text event ends the current assistant message, so drain the
+        # buffer first to preserve the ordering the runner produced.
+        drain_text_buffer()
+
         text = render_event_text(event)
         if text:
             normalized = str(text).strip()
@@ -576,9 +638,7 @@ async def _stream_action_responses(
                 pending_items.append(text)
                 await ensure_flush_task()
 
-        if event_type == "text":
-            final_text_event = event
-        elif event_type == "error":
+        if event_type == "error":
             final_fallback_event = event
 
     run_task = asyncio.create_task(
@@ -698,11 +758,16 @@ async def _stream_action_responses(
         )
         return
 
-    event = final_text_event or final_fallback_event or run_result.get("event")
+    # ``finish_prompt`` returns the complete assistant text while
+    # ``final_text_event`` holds only the last streamed delta, so prefer the
+    # former: a runner that fragments its output must not end on a fragment.
+    complete_event = run_result.get("event") or final_text_event
+    event = complete_event or final_fallback_event
     yield format_final_assistant_response(
         runner_name=runner_name,
         execution_cwd=execution_cwd,
         final_event=event,
+        suppress_body=_text_already_streamed(event, streamed_text),
     )
 
 
