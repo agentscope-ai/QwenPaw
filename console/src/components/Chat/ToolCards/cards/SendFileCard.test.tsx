@@ -42,7 +42,7 @@ vi.mock("../shared/utils", () => ({
 import SendFileCard from "./SendFileCard";
 
 describe("SendFileCard", () => {
-  it("expands a text attachment by default and opens it", () => {
+  it("renders collapsed by default and opens the file preview", () => {
     const listener = vi.fn();
     window.addEventListener("qwenpaw:open-file-preview", listener);
 
@@ -61,7 +61,7 @@ describe("SendFileCard", () => {
 
     expect(screen.getByRole("button").parentElement).toHaveAttribute(
       "data-expanded",
-      "true",
+      "false",
     );
     expect(listener).toHaveBeenCalledTimes(1);
     const event = listener.mock.calls[0][0] as CustomEvent;
