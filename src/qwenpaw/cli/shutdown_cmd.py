@@ -22,6 +22,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
 _SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
+# Component shutdown deadlines can consume five seconds after
+# application-level cleanup starts, so the process needs extra headroom.
+_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
@@ -264,7 +267,10 @@ def _force_terminate_windows_process(pid: int) -> None:
             continue
 
 
-def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
+def _terminate_pid(
+    pid: int,
+    timeout_sec: float = _GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+) -> bool:
     """Terminate a process tree gracefully, then force kill if needed."""
     if not _pid_exists(pid):
         return True

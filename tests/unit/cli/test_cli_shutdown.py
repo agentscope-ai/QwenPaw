@@ -209,7 +209,12 @@ def test_find_windows_wrapper_ancestor_pids(monkeypatch) -> None:
 
 def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     calls: list[tuple[int, object]] = []
+    wait_calls: list[tuple[float, float]] = []
     waits = iter([False, True])
+
+    def wait_for_exit(_pid: int, timeout: float, interval: float) -> bool:
+        wait_calls.append((timeout, interval))
+        return next(waits)
 
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "darwin")
     monkeypatch.setattr(
@@ -222,7 +227,7 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
-        lambda _pid, _timeout, _interval: next(waits),
+        wait_for_exit,
     )
 
     assert _terminate_pid(4242) is True
@@ -236,3 +241,4 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
             shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
         ),
     ]
+    assert wait_calls == [(10.0, 0.2), (2.0, 0.1)]
