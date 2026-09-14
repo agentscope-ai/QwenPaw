@@ -2,6 +2,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+/**
+ * Models the real ToolCardShell lazy-mount semantics: children stay unmounted
+ * until the card is expanded (`ToolCardShell` gates them behind `bodyMounted`).
+ * Flipping this flag simulates the user opening the `<details>`.
+ */
+const userExpanded = vi.hoisted(() => ({ current: false }));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -15,7 +22,14 @@ vi.mock("../shared", () => ({
   }: {
     children?: React.ReactNode;
     defaultExpanded?: boolean;
-  }) => <div data-expanded={String(Boolean(defaultExpanded))}>{children}</div>,
+  }) => {
+    const open = Boolean(defaultExpanded) || userExpanded.current;
+    return (
+      <div data-testid="shell" data-expanded={String(open)}>
+        {open ? children : null}
+      </div>
+    );
+  },
   MediaPreview: ({
     onFileOpen,
   }: {
@@ -42,26 +56,37 @@ vi.mock("../shared/utils", () => ({
 import SendFileCard from "./SendFileCard";
 
 describe("SendFileCard", () => {
-  it("renders collapsed by default and opens the file preview", () => {
+  const sentFile = {
+    type: "tool_call" as const,
+    id: "send-file-1",
+    name: "send_file_to_user",
+    status: "done" as const,
+    params: { file_path: "hello.txt" },
+  };
+
+  it("stays collapsed by default and does not mount the preview", () => {
+    userExpanded.current = false;
+    render(<SendFileCard content={sentFile} />);
+
+    expect(screen.getByTestId("shell")).toHaveAttribute(
+      "data-expanded",
+      "false",
+    );
+    // The real shell lazy-mounts its body, so a collapsed card has no preview.
+    expect(screen.queryByRole("button", { name: "open file" })).toBeNull();
+  });
+
+  it("opens the file preview once the user expands the card", () => {
+    userExpanded.current = true;
     const listener = vi.fn();
     window.addEventListener("qwenpaw:open-file-preview", listener);
 
-    render(
-      <SendFileCard
-        content={{
-          type: "tool_call",
-          id: "send-file-1",
-          name: "send_file_to_user",
-          status: "done",
-          params: { file_path: "hello.txt" },
-        }}
-      />,
-    );
+    render(<SendFileCard content={sentFile} />);
     fireEvent.click(screen.getByRole("button", { name: "open file" }));
 
-    expect(screen.getByRole("button").parentElement).toHaveAttribute(
+    expect(screen.getByTestId("shell")).toHaveAttribute(
       "data-expanded",
-      "false",
+      "true",
     );
     expect(listener).toHaveBeenCalledTimes(1);
     const event = listener.mock.calls[0][0] as CustomEvent;
@@ -72,5 +97,6 @@ describe("SendFileCard", () => {
     });
 
     window.removeEventListener("qwenpaw:open-file-preview", listener);
+    userExpanded.current = false;
   });
 });
