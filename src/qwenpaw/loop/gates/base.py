@@ -32,13 +32,15 @@ class StopHandlerResult:
 
     When ``action`` is INTERRUPT_AND_CONTINUE,
     ``continuation_message`` is injected as the next
-    user turn to keep the agent running.
+    user turn to keep the agent running. Set ``inject_on_tool_call`` for
+    strategy warnings that must also reach naturally continuing tool turns.
     """
 
     action: StopAction = StopAction.TERMINATE
     continuation_message: str = ""
     reason: str = ""
     reset_peers: bool = False
+    inject_on_tool_call: bool = False
     continuation_metadata: dict[str, Any] | None = None
     final_message: Any = None
 

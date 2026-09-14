@@ -23,6 +23,8 @@ class _TokenBudgetState:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     last_iteration: int = -1
+    prompt_baseline: int = 0
+    completion_baseline: int = 0
 
 
 class TokenBudgetGate(LoopGate):
@@ -50,7 +52,13 @@ class TokenBudgetGate(LoopGate):
 
     def reset_turn(self) -> None:
         """Start a fresh per-turn usage accumulator."""
-        self.activate(_TokenBudgetState())
+        usage = self._current_usage()
+        self.activate(
+            _TokenBudgetState(
+                prompt_baseline=int(usage.get("prompt_tokens", 0)),
+                completion_baseline=int(usage.get("completion_tokens", 0)),
+            ),
+        )
 
     async def check(self, ctx: Any) -> StopHandlerResult:
         """Record the latest model usage and enforce every limit."""
@@ -62,9 +70,15 @@ class TokenBudgetGate(LoopGate):
         iteration = int(ctx.get("iteration", 0))
         if state.last_iteration != iteration:
             usage = self._current_usage()
-            state.prompt_tokens += int(usage.get("prompt_tokens", 0))
-            state.completion_tokens += int(
-                usage.get("completion_tokens", 0),
+            # The recording wrapper already accumulates usage for the turn.
+            state.prompt_tokens = max(
+                0,
+                int(usage.get("prompt_tokens", 0)) - state.prompt_baseline,
+            )
+            state.completion_tokens = max(
+                0,
+                int(usage.get("completion_tokens", 0))
+                - state.completion_baseline,
             )
             state.last_iteration = iteration
 

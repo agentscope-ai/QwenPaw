@@ -11,9 +11,11 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 import uuid
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -43,6 +45,7 @@ from ..constant import (
 )
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
+from ..providers.stream_progress import has_meaningful_stream_content
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..utils.tool_call_extra import (
@@ -694,53 +697,91 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """
         self._index_tool_schemas(tools)
         try:
-            return await super()._call_model(
+            response = await super()._call_model(
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
             )
         except Exception as exc:
-            context_manager = getattr(self, "_context_manager", None)
-            if not isinstance(
-                context_manager,
-                ContextManager,
-            ) or not self._is_context_overflow_error(exc):
-                raise
+            return await self._recover_model_overflow(exc, tool_choice)
+        if inspect.isasyncgen(response):
+            return self._stream_with_overflow_recovery(response, tool_choice)
+        return response
 
-            before = len(getattr(self.state, "context", []) or [])
+    async def _stream_with_overflow_recovery(
+        self,
+        stream: Any,
+        tool_choice: Any,
+    ) -> Any:
+        """Recover before visible output and close each stream we consume."""
+        emitted = False
+        try:
+            async with aclosing(stream):
+                async for chunk in stream:
+                    emitted = emitted or has_meaningful_stream_content(
+                        chunk.content,
+                    )
+                    yield chunk
+            return
+        except Exception as exc:
+            if emitted:
+                raise
+            response = await self._recover_model_overflow(exc, tool_choice)
+        # Consume the retry without another recovery wrapper.
+        if inspect.isasyncgen(response):
+            async with aclosing(response):
+                async for chunk in response:
+                    yield chunk
+        else:
+            yield response
+
+    async def _recover_model_overflow(
+        self,
+        exc: Exception,
+        tool_choice: Any,
+    ) -> Any:
+        """Compact rejected input and retry once through AgentScope."""
+        context_manager = getattr(self, "_context_manager", None)
+        if not isinstance(
+            context_manager,
+            ContextManager,
+        ) or not self._is_context_overflow_error(exc):
+            raise exc
+
+        before = len(getattr(self.state, "context", []) or [])
+        logger.warning(
+            "Model input exceeded the provider context limit; attempting "
+            "one context recovery.",
+        )
+        input_changed = await context_manager.recover_from_context_overflow(
+            self,
+        )
+        if not input_changed:
             logger.warning(
-                "Model input exceeded the provider context limit; attempting "
-                "one context recovery.",
+                "Context-overflow recovery did not change the model "
+                "input; skipping the retry.",
             )
-            input_changed = (
-                await context_manager.recover_from_context_overflow(self)
-            )
-            if not input_changed:
-                logger.warning(
-                    "Context-overflow recovery did not change the model "
-                    "input; skipping the retry.",
-                )
-                raise
-            after = len(getattr(self.state, "context", []) or [])
+            raise exc
+        after = len(getattr(self.state, "context", []) or [])
 
-            # The original `messages` list was prepared before compaction and
-            # can still reference evicted turns.  Always rebuild it from the
-            # updated agent state before retrying.
-            refreshed = await self._prepare_model_input()
-            refreshed_messages = refreshed["messages"]
-            refreshed_tools = refreshed.get("tools", [])
-            self._index_tool_schemas(refreshed_tools)
-            logger.info(
-                "Context-overflow recovery rebuilt model input "
-                "(messages %d -> %d).",
-                before,
-                after,
-            )
-            return await super()._call_model(
-                messages=refreshed_messages,
-                tools=refreshed_tools,
-                tool_choice=tool_choice,
-            )
+        # The original `messages` list was prepared before compaction and
+        # can still reference evicted turns.  Always rebuild it from the
+        # updated agent state before retrying.
+        refreshed = await self._prepare_model_input()
+        refreshed_messages = refreshed["messages"]
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        logger.info(
+            "Context-overflow recovery rebuilt model input "
+            "(messages %d -> %d).",
+            before,
+            after,
+        )
+        return await super()._call_model(
+            messages=refreshed_messages,
+            tools=refreshed_tools,
+            tool_choice=tool_choice,
+        )
 
     def _index_tool_schemas(self, tools: list[dict] | None) -> None:
         """Index ``tool name -> parameter schema`` for input coercion.

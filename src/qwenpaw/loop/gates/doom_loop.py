@@ -163,6 +163,7 @@ class DoomLoopGate(LoopGate):
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="doom_loop repetition warning",
+            inject_on_tool_call=True,
         )
 
     def build_continuation(self) -> str:

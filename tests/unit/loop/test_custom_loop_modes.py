@@ -524,11 +524,13 @@ def test_loader_registers_multiple_enabled_modes() -> None:
 async def test_token_budget_accumulates_each_iteration(monkeypatch) -> None:
     gate = TokenBudgetGate(max_total_tokens=10)
     gate.reset_turn()
-    monkeypatch.setattr(
-        gate,
-        "_current_usage",
-        lambda: {"prompt_tokens": 4, "completion_tokens": 2},
+    usage = iter(
+        [
+            {"prompt_tokens": 4, "completion_tokens": 2},
+            {"prompt_tokens": 8, "completion_tokens": 4},
+        ],
     )
+    monkeypatch.setattr(gate, "_current_usage", lambda: next(usage))
 
     first = await gate.check({"iteration": 1})
     second = await gate.check({"iteration": 2})
