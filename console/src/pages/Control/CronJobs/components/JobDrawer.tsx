@@ -19,6 +19,7 @@ import {
   type CronJobSpecOutput,
 } from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
+import { RequestInput } from "./RequestInput";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
@@ -634,17 +635,8 @@ export function JobDrawer({
                     },
                   ]}
                   tooltip={t("cronJobs.requestInputTooltip")}
-                  extra={
-                    <span className={styles.formExtraText}>
-                      {t("cronJobs.requestInputExample")}
-                    </span>
-                  }
                 >
-                  <Input.TextArea
-                    rows={6}
-                    placeholder='[{"role":"user","content":[{"text":"Hello","type":"text"}]}]'
-                    style={{ fontFamily: "monospace", fontSize: 12 }}
-                  />
+                  <RequestInput />
                 </Form.Item>
               </>
             );
