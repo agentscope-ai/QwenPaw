@@ -250,6 +250,22 @@ def create_hub_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=401, detail="Not authenticated")
         return user
 
+    def require_personal_runtime_user(
+        path: str,
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> HubUser:
+        # Native file previews cannot attach an Authorization header.
+        if (
+            authorization is None
+            and request.method in {"GET", "HEAD"}
+            and path.startswith("files/preview/")
+            and ".." not in path.split("/")
+        ):
+            token = request.query_params.get("token", "")
+            authorization = f"Bearer {token}"
+        return require_user(authorization)
+
     def require_admin(user: HubUser = Depends(require_user)) -> HubUser:
         if not user.is_admin:
             raise HTTPException(
@@ -1263,7 +1279,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     async def personal_runtime_proxy(
         path: str,
         request: Request,
-        user: HubUser = Depends(require_user),
+        user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
         record = await ensure_personal_runtime(user)
         target = runtime_url(
