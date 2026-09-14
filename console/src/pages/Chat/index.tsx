@@ -3267,7 +3267,7 @@ export default function ChatPage() {
     const extColorPrimary = extScalar[ChatScalar.themeColorPrimary]?.value;
     const configuredColorPrimary = toChatThemeHex(
       isDark
-        ? (previewTheme.dark?.accent ?? previewTheme.accent)
+        ? previewTheme.dark?.accent ?? previewTheme.accent
         : previewTheme.accent,
       defaultConfig.theme.colorPrimary ?? "#FF7F16",
     );

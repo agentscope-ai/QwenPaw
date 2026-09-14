@@ -76,17 +76,14 @@ async def get_theme() -> dict:
 @router.put(
     "/theme",
     response_model=ThemeConfig,
+    response_model_exclude_none=True,
     summary="Update Console theme",
 )
 async def put_theme(theme: ThemeConfig = Body(...)) -> ThemeConfig:
     """Replace the sparse user theme without reloading agents."""
 
     def apply_theme(config: Any) -> None:
-        config.theme = (
-            theme
-            if theme.model_dump(exclude_none=True)
-            else None
-        )
+        config.theme = theme if theme.model_dump(exclude_none=True) else None
 
     result = await run_sync_io(mutate_config, apply_theme)
     return result.theme or ThemeConfig()

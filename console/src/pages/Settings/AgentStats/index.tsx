@@ -107,11 +107,8 @@ function getColumnConfig(
 function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { isDark: isDarkMode, previewTheme } = useTheme();
-  const accentColor = useMemo(
-    () => readCssColor("--app-accent", "#ff7f16"),
-    [isDarkMode, previewTheme],
-  );
+  const { isDark: isDarkMode } = useTheme();
+  const accentColor = readCssColor("--app-accent", "#ff7f16");
   const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
   const agentName = selectedAgentInfo

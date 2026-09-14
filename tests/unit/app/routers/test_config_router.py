@@ -717,19 +717,47 @@ def test_put_theme_persists_without_agent_reload(client):
         )
 
     assert response.status_code == 200
-    assert response.json()["accent"] == "#0b57d0"
-    assert response.json()["dark"]["surface"] == "#1a1a1a"
+    assert response.json() == {
+        "accent": "#0b57d0",
+        "radius": "12px",
+        "dark": {"surface": "#1a1a1a"},
+    }
     assert calls == [fake_cfg]
     assert fake_cfg.theme.accent == "#0b57d0"
 
 
-def test_put_theme_rejects_invalid_css_values(client):
+@pytest.mark.parametrize(
+    "value",
+    [
+        "url(javascript:alert(1))",
+        "rgb(0,0,0) url(https://example.invalid/pixel)",
+        "rgb(not-a-color)",
+        "#12345",
+    ],
+)
+def test_put_theme_rejects_invalid_css_values(client, value):
     response = client.put(
         "/api/config/theme",
-        json={"accent": "url(javascript:alert(1))"},
+        json={"accent_bg": value},
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "#abc",
+        "#11223380",
+        "rgb(11, 87, 208)",
+        "rgb(11 87 208 / 50%)",
+        "rgba(11, 87, 208, 0.1)",
+        "hsl(210, 90%, 43%)",
+        "hsl(210deg 90% 43% / 50%)",
+    ],
+)
+def test_theme_config_accepts_supported_css_values(value):
+    assert ThemeConfig(accent=value).accent == value
 
 
 def test_delete_theme_clears_persisted_config(client):

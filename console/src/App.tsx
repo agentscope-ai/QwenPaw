@@ -456,7 +456,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
             colorPrimary:
               userTheme.dark?.accent && isDark
                 ? userTheme.dark.accent
-                : (userTheme.accent ?? "#FF7F16"),
+                : userTheme.accent ?? "#FF7F16",
             borderRadius: userTheme.radius
               ? Number.parseFloat(userTheme.radius)
               : undefined,
