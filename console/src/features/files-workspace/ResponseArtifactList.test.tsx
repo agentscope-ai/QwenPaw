@@ -347,4 +347,40 @@ describe("ResponseArtifactList", () => {
     expect(event.detail.target.path).toBe("~/reports/summary.md");
     window.removeEventListener("qwenpaw:open-file-preview", listener);
   });
+
+  it("surfaces a filename containing a literal #", () => {
+    // Tool paths are filesystem paths, not Markdown hrefs: `#` must stay part
+    // of the name instead of being parsed as a line-reference fragment.
+    const listener = vi.fn();
+    window.addEventListener("qwenpaw:open-file-preview", listener);
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/Report #3.pdf")}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Report #3.pdf reports/Report #3.pdf",
+      }),
+    );
+
+    const event = listener.mock.calls[0][0] as CustomEvent;
+    expect(event.detail.target).toEqual({
+      source: "workspace",
+      path: "reports/Report #3.pdf",
+      root: "project",
+    });
+    window.removeEventListener("qwenpaw:open-file-preview", listener);
+  });
+
+  it("still rejects parent-segment traversal", () => {
+    const { container } = render(
+      <ResponseArtifactList
+        messages={successfulSendFile("../shared/report.pdf")}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
 });

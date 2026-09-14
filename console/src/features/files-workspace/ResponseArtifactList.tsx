@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chatApi } from "../../api/modules/chat";
 import FileGlyph from "./FileGlyph";
-import { parseInternalFileLink } from "./internalFileLinks";
 import type { FileTarget } from "./types";
 import styles from "./ResponseArtifactList.module.less";
 
@@ -85,14 +84,8 @@ function normalizedToolName(name: string): string {
 
 function targetForPath(path: string): FileTarget | null {
   const normalized = path.trim().replace(/\\/g, "/");
-  // `~` must bypass parseInternalFileLink, which would otherwise treat it as
-  // a workspace-relative segment and resolve it under the project directory.
-  // The preview endpoint expanduser()s the path (app/routers/files.py), so
-  // routing `~` to the attachment target below is what makes it resolve.
-  const workspaceTarget = normalized.startsWith("~")
-    ? null
-    : parseInternalFileLink(normalized.replace(/^(?:\.\/)+/, ""));
-  if (workspaceTarget) return { ...workspaceTarget, root: "project" };
+  // Absolute, `~` and Windows drive paths are resolved by the preview
+  // endpoint, which expanduser()s and resolves them (app/routers/files.py).
   if (
     normalized.startsWith("/") ||
     normalized.startsWith("~") ||
@@ -104,7 +97,28 @@ function targetForPath(path: string): FileTarget | null {
       artifactUrl: chatApi.filePreviewUrl(normalized),
     };
   }
-  return null;
+
+  // Anything else is a project-relative *filesystem* path. Tool paths are not
+  // Markdown hrefs, so parseInternalFileLink must not be used here: it splits
+  // on `#`, which drops ordinary names such as "Report #3.pdf" and retargets
+  // `report#L12` onto a different file. The traversal guard it provided is
+  // preserved below.
+  let relative: string;
+  try {
+    relative = decodeURIComponent(normalized).replace(/^(?:\.\/)+/, "");
+  } catch {
+    return null;
+  }
+  if (
+    !relative ||
+    /^[a-z]:/i.test(relative) ||
+    relative
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return { source: "workspace", path: relative, root: "project" };
 }
 
 /**
