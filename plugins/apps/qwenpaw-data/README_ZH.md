@@ -55,15 +55,14 @@ QwenPaw-Data 通过三层协作架构实现这一目标：
 ## 运行时形态
 
 ```text
-QwenPaw-Data UI
-  -> app-scoped PawApp SDK
-  -> /api/qwenpaw-data/*
-  -> QwenPaw-Data PawApp backend
-  -> dependency status and typed lifecycle control
-  -> managed QwenPaw-Data context service
+Embedded QwenPaw-Data Console
+  -> /api/qwenpaw-data/engine/* -> analysis engine
+  -> /api/qwenpaw-data/config  -> DataBridge model and Neo4j settings
+  -> linked Context console
+     -> /api/qwenpaw-data/context/* -> DataBridge context service
 ```
 
-浏览器不感知服务端口或 bearer token，也不调用旧的 plugin 全局对象、固定端口或第二个请求客户端。QwenPaw-Data 显式启用 PawApp 标准能力；未选择加入的现有 PawApp 不会获得额外的 chat、storage、toast 或 notify 路由。
+PawApp 后端代理服务请求并注入服务 token。托管服务使用动态回环端口，外部服务使用配置的地址。QwenPaw-Data 显式启用 PawApp 标准能力；未选择加入的现有 PawApp 不会获得额外的 chat、storage、toast 或 notify 路由。
 
 ## 快速开始（推荐：PyPI）
 
@@ -79,7 +78,7 @@ pip install "qwenpaw[qwenpaw-data]"
 ./plugins/apps/qwenpaw-data/scripts/setup-pypi.sh
 ```
 
-然后启动 QwenPaw 并启用 QwenPaw-Data app。PawApp 生命周期会自动检测 PyPI 包，并在动态回环端口上启动托管 context service。
+然后启动 QwenPaw 并启用 QwenPaw-Data app。PawApp 生命周期会自动检测 PyPI 包，并在动态回环端口上启动托管 Context 服务和分析引擎。
 
 ```bash
 qwenpaw app
@@ -156,33 +155,50 @@ QWENPAW_DATA_CONTEXT_MODE=external QWENPAW_DATA_CONTEXT_URL=http://127.0.0.1:876
 
 ## 配置
 
-QwenPaw-Data 把所有运行时配置集中在 **Configure（配置）** 页面。在这里可以设置语言模型、向量模型、Neo4j 图数据库和可选的 SQL 数仓。每个区域都有 **Test connection（测试连接）** 按钮，保存前可以先验证配置是否正确。
+0.3 运行时集成使用内嵌的 **Data Console**。设置菜单提供两个配置页面，独立的 **数据语义配置中心（Data Bridge）** 入口打开 Context 控制台的数据源页面。请使用这些入口，替代旧版 PawApp 的 **Configure** 操作说明。
 
-保存后，应用会写入以下文件：
+| 配置内容 | 配置入口 |
+| --- | --- |
+| 分析智能体的模型服务商、凭证和激活模型 | Data Console 的 **设置 → 智能体配置（Agent Configuration）** |
+| DataBridge 语义服务的 LLM、Embedding 模型和 Neo4j 图存储 | Data Console 的 **设置 → 数据底座配置（DataBridge Configuration）** |
+| PostgreSQL、MySQL 等 SQL 数据源 | **数据语义配置中心 → 数据源**，进入关联的 Context 控制台 |
 
-- `~/.qwenpaw/apps/qwenpaw-data/config.json` —— Configure UI 编辑的唯一真相源。
-- `~/.qwenpaw/apps/qwenpaw-data/.env` —— 注入托管 context service 的运行时变量。
-- `~/.qwenpaw/apps/qwenpaw-data/models.json` —— 供 context service 使用的 LLM/向量模型配置。
+数据底座配置提供 **测试连接**、**保存** 和 **保存并重启 Context 服务**。这里的 LLM 用于语义织网和文档摄取；分析对话的模型在智能体配置中单独选择。
 
-下一次 context service 启动时，应用会重新加载 `config.json` 并生成上述文件，因此重启应用即可读取最新配置。点击 **保存并重启 Context service** 可以立即生效。
+在数据源页面登记 SQL 连接信息、测试连接，并在发起分析时选择已登记的数据源。DataBridge 通过 `/api/semantic-config/datasource` 管理这些凭证，将其保存在语义配置注册表（`semantic_config.db`）中。保存 Neo4j 或模型设置不会创建 SQL 数据源，也不会将 SQL 凭证写入 `.env`。
 
-嵌入的 Context 控制台中独立的模型配置页面（Manage → Model Configuration）已被 **Configure** 取代。所有 QwenPaw-Data 设置都请使用 **Configure**；旧页面仅保留给独立的 `qwenpaw-data-context` 部署以兼容。
+### 配置存储与运行时文件
 
-### 配置优先级
+保存 **数据底座配置** 时，应用在 QwenPaw 工作目录下写入以下文件（默认目录为 `~/.qwenpaw/apps/qwenpaw-data/`）：
 
-1. Shell 环境变量（最高，不会被覆盖）。
-2. `qwenpaw env set` 设置的值（`~/.qwenpaw/envs.json`）。
-3. `~/.qwenpaw/.env`。
-4. 由 `config.json` 生成的应用级 `.env`。
-5. 仓库根目录 `.env` 和 context service 默认值（最低）。
+- `config.json` —— PawApp 的 DataBridge 模型与 Neo4j 设置、宿主模型复用标记，以及 Context 服务选中的数据源 ID。SQL 凭证保存在 DataBridge 注册表中。
+- `.env` —— 为托管 Context 服务生成的 Neo4j 与模型变量（`NEO4J_*`、`OPENAI_*`、`LLM_MODEL`、`EMBED_*`）。
+- `models.json` —— Context 服务的 LLM 与 Embedding 设置。
 
-### 高级：手动 `.env` 覆盖
+这些文件不包含 Data Console 的全部设置：智能体配置通过分析引擎 API 保存引擎自身的模型偏好。每次启动托管 Context 服务时，PawApp 都会从 `config.json` 重新生成 `.env` 和 `models.json`。模型变更也会推送给运行中的 Context 服务；托管模式下修改 Neo4j 后，使用 **保存并重启 Context 服务** 生效。外部服务由部署维护者负责重启。
 
-如果你希望直接配置 context service，可以在 `~/.qwenpaw/.env` 或通过 `qwenpaw env set` 设置它读取的变量。应用首次启动时仍会生成默认的 `config.json`，但手动设置的环境变量优先级更高。
+DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启动托管 Context 服务会从宿主当前可用的激活模型刷新快照。Embedding 复用共享宿主服务商的地址和凭证，但保留所选的 Embedding 模型与维度。这与智能体配置中的分析模型选择分别管理。
+
+### 环境默认值与覆盖规则
+
+首次初始化时，PawApp 从环境变量填充空缺的 DataBridge 字段，也可以从 QwenPaw 获取兼容的默认模型。保存配置后，应用生成的 `.env` 决定其管理的变量值：继承的 Shell 或 QwenPaw 环境变量不会覆盖已保存值；清空受管字段也会移除先前的环境覆盖值。其他环境变量保持不变。
+
+请通过 **数据底座配置** 修改已保存值；直接编辑应用生成的 `.env` 会在下次保存或启动托管服务时被覆盖。外部 Context 服务的启动环境由该部署管理。两种模式下，SQL 数据源凭证都通过数据源注册表管理。
+
+### 配置验证（TC-DATA-04）
+
+验证 0.3 集成时，请使用当前配置契约：
+
+1. 保存 DataBridge 模型与 Neo4j 设置，检查 `config.json`、`.env` 中已填写的 Neo4j/模型变量，以及 `models.json` 中的 LLM/Embedding 设置。`.env` 不应被要求包含 SQL 数据源变量。
+2. 启用宿主模型复用，切换到另一个兼容的宿主激活模型，然后保存配置或重启托管 Context 服务。确认模型快照刷新，且已保存的设置在重启后仍然存在。
+3. 在数据源页面登记并测试 SQL 数据源。确认 Context 服务重启后注册信息仍然存在，再在 Data Console 中选择该数据源，对测试数据库执行一次只读查询。
+4. 在智能体配置中单独验证分析模型选择。
+
+旧用例中“保存 Neo4j/LLM 配置后，`.env` 同时生成 SQL 数据源变量”的预期不适用于当前配置契约。
 
 ## 运行时健康检查与本地服务
 
-- 在 QwenPaw 的 **Settings → Models** 中激活一个语言模型，以便 QwenPaw-Data 在首次运行时自动填充默认模型。之后可以在 **Configure** 中覆盖。
+- 在 QwenPaw 的 **Settings → Models** 中激活一个语言模型，以便 QwenPaw-Data 在首次运行时自动填充默认模型。之后可以在 **数据底座配置** 中覆盖；分析智能体的激活模型在 **智能体配置** 中选择。
 - QwenPaw-Data 通过 PawApp 依赖契约声明 Context API、Graph Store 和已发现数据源。Data sources 页面会显示就绪状态、能力影响、修复建议和可用的实际操作。
 - 本 app 不会调用 Docker 或供应 Graph Store / 数据源基础设施。这些资源是外部依赖，仅接受只读的就绪检查。本地生命周期和诊断属于 `qwenpaw-data-cli` 包；生产生命周期由部署的服务所有者负责。
 
@@ -196,9 +212,10 @@ QwenPaw-Data 把所有运行时配置集中在 **Configure（配置）** 页面�
 
 | 依赖 | 配置方式 | 本地默认值 |
 | --- | --- | --- |
-| Graph Store (Neo4j) | **Configure** 页面或环境变量 `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE` | `bolt://localhost:7687` |
+| Graph Store (Neo4j) | **数据底座配置**；外部部署管理 `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE` | `bolt://localhost:7687` |
 | 数据源 (PostgreSQL / MySQL / ODPS / ...) | 通过 DataBridge 语义配置层注册 (`/api/semantic-config/datasource`)，不从 `.env` 读取 | 无 |
-| LLM / Embedding | **Configure** 页面或环境变量 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`、`EMBED_*` | — |
+| DataBridge LLM / Embedding | **数据底座配置**；环境默认值使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`、`EMBED_*` | — |
+| 分析智能体模型 | Data Console 的 **智能体配置** | — |
 
 本地生命周期，按所有者划分：
 
@@ -215,6 +232,4 @@ QwenPaw-Data 把所有运行时配置集中在 **Configure（配置）** 页面�
 - `qwenpaw-data-skills`：app 提供的数据分析技能。
 - `qwenpaw-data-cli`：独立生命周期和诊断工具（`doctor`、`datasource`、`semantic`）；是唯一被设计为拥有本地基础设施命令的 QwenPaw Data 包。数据源服务器本身仍属于外部基础设施。
 
-QwenPaw 仍是用户唯一需要启动的 UI / 后端进程。在 managed mode 下，PawApp 生命周期会自动启动和停止 context service。
-
-第一阶段迁移使用 QwenPaw 的 app-scoped chat 配合 QwenPaw-Data context 工具，不会从 `qwenpaw-data-host-core` 启动第二个智能体。host-core 的任务图、工件和工具渲染适配器将在 chat 集成稳定后加入。
+托管模式下，用户只需启动 QwenPaw 这一个 UI / 后端入口。PawApp 生命周期会自动启动和停止 Context 服务及 `qwenpaw-data-host-core` 分析引擎。内嵌 Data Console 通过 PawApp 网关访问该引擎；`/data` 通过渠道桥接将 QwenPaw 渠道对话路由到同一引擎。
