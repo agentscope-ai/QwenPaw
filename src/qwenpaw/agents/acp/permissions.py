@@ -2,12 +2,81 @@
 """ACP permission handling."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from .core import SuspendedPermission
+
+# Argument keys that carry a filesystem path, most specific first.  Mirrors
+# the vocabulary already used for display parsing in
+# ``ACPHostedClient._tool_detail`` and in ``_TOOL_FILE_PARAMS``.
+_PATH_ARG_KEYS = (
+    "path",
+    "file_path",
+    "filePath",
+    "abs_path",
+    "absolute_path",
+    "target_file",
+    "notebook_path",
+    "old_path",
+    "new_path",
+)
+
+# Keys whose values a permission-time delta extends rather than replaces:
+# the update usually carries only what the user is being asked about, while
+# the tool arguments arrived earlier in the ToolCallStart.
+_MERGEABLE_LIST_KEYS = frozenset({"content", "locations"})
+
+
+def _is_blank(value: Any) -> bool:
+    """Return True for values that carry nothing worth merging."""
+    if value is None:
+        return True
+    return isinstance(value, (str, list, dict, tuple)) and not value
+
+
+def _content_block_text(content: Any) -> str | None:
+    """Return the text of a ``type == "content"`` tool-call content block."""
+    if not isinstance(content, dict) or content.get("type") != "content":
+        return None
+    block = content.get("content")
+    if not isinstance(block, dict):
+        return None
+    text = block.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    """Parse *text* as a JSON object, or return None.
+
+    The leading-``{`` guard keeps ordinary prose — such as a runner's
+    human-readable approval description — out of the JSON parser.
+    """
+    if not text.startswith("{"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _command_from_args(args: dict[str, Any]) -> str | None:
+    """Return the shell command described by tool arguments, if any."""
+    command = args.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip()
+    argv = args.get("args") or args.get("argv")
+    if isinstance(argv, list):
+        parts = [str(item).strip() for item in argv if str(item).strip()]
+        if parts:
+            return " ".join(parts)
+    return None
 
 
 class ACPPermissionAdapter:
@@ -21,8 +90,9 @@ class ACPPermissionAdapter:
         agent: str,
         tool_call: Any,
         options: list[Any],
+        prior_state: Any = None,
     ) -> SuspendedPermission:
-        tool_call_payload = self._tool_call_payload(tool_call)
+        tool_call_payload = self._merged_payload(tool_call, prior_state)
         option_payloads: list[dict[str, Any]] = []
         for option in options:
             payload = self._option_payload(option)
@@ -81,8 +151,75 @@ class ACPPermissionAdapter:
             outcome=DeniedOutcome(outcome="cancelled"),
         )
 
-    def is_hard_blocked(self, tool_call: Any) -> bool:
-        return self._is_hard_blocked(self._tool_call_payload(tool_call))
+    def is_hard_blocked(
+        self,
+        tool_call: Any,
+        *,
+        prior_state: Any = None,
+    ) -> bool:
+        return self._is_hard_blocked(
+            self._merged_payload(tool_call, prior_state),
+        )
+
+    def _merged_payload(
+        self,
+        tool_call: Any,
+        prior_state: Any = None,
+    ) -> dict[str, Any]:
+        """Return *tool_call* as a payload, filled in from *prior_state*.
+
+        ``session/request_permission`` carries a ``ToolCallUpdate``, whose
+        only required field is ``toolCallId``.  Runners that send the full
+        argument set once — in ``ToolCallStart`` — leave the permission-time
+        update with no path and no command to inspect, so the boundary check
+        would see nothing and pass.  *prior_state* is the accumulated
+        ``ToolCallView`` for the same id; its values fill only the gaps, and
+        list-valued ``content``/``locations`` are concatenated so arguments
+        and the approval prompt are both visible.
+        """
+        payload = self._tool_call_payload(tool_call)
+        if prior_state is None:
+            return payload
+        prior = self._tool_call_payload(prior_state)
+        if not prior:
+            return payload
+        merged = dict(prior)
+        for key, value in payload.items():
+            if _is_blank(value):
+                continue
+            existing = merged.get(key)
+            # ``ToolCallView`` keeps these as tuples, so accept both.
+            if key in _MERGEABLE_LIST_KEYS and isinstance(
+                existing,
+                (list, tuple),
+            ):
+                extra = value if isinstance(value, (list, tuple)) else [value]
+                merged[key] = [*existing, *extra]
+            else:
+                merged[key] = value
+        return merged
+
+    def _argument_dicts(
+        self,
+        tool_call: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Return tool arguments a runner embedded in content text blocks.
+
+        kimi-cli never populates ``rawInput``; it serialises the tool
+        arguments as a JSON string inside a ``type == "content"`` text block
+        (``kimi_cli/acp/session.py:387-398``).  Non-JSON text is skipped, so
+        a runner's prose approval description is never mistaken for
+        arguments.
+        """
+        args: list[dict[str, Any]] = []
+        for content in tool_call.get("content") or []:
+            text = _content_block_text(content)
+            if text is None:
+                continue
+            parsed = _json_object(text)
+            if parsed is not None:
+                args.append(parsed)
+        return args
 
     def _tool_call_payload(self, tool_call: Any) -> dict[str, Any]:
         if isinstance(tool_call, dict):
@@ -129,22 +266,21 @@ class ACPPermissionAdapter:
         return None
 
     def _command(self, tool_call: dict[str, Any]) -> str | None:
-        raw_input = tool_call.get("rawInput") or tool_call.get("raw_input")
+        raw_input = tool_call.get("rawInput")
+        if raw_input is None:
+            raw_input = tool_call.get("raw_input")
+        candidates: list[dict[str, Any]] = []
         if isinstance(raw_input, dict):
-            command = raw_input.get("command")
-            if isinstance(command, str) and command.strip():
-                return command.strip()
-            argv = raw_input.get("args") or raw_input.get("argv")
-            if isinstance(argv, list):
-                parts = [
-                    str(item).strip() for item in argv if str(item).strip()
-                ]
-                if parts:
-                    return " ".join(parts)
-        # Fallback: when rawInput has no command/argv, use title for
-        # execute-kind calls.  Title is human-readable text (e.g. "Shutdown
-        # the dev server") so hard-block regexes like \bshutdown\b may
-        # false-positive here.  This is an accepted trade-off: blocking a
+            candidates.append(raw_input)
+        candidates.extend(self._argument_dicts(tool_call))
+        for args in candidates:
+            command = _command_from_args(args)
+            if command is not None:
+                return command
+        # Fallback: when no argument source carries a command/argv, use title
+        # for execute-kind calls.  Title is human-readable text (e.g.
+        # "Shutdown the dev server") so hard-block regexes like \bshutdown\b
+        # may false-positive here.  This is an accepted trade-off: blocking a
         # benign title is safer than letting an unvetted command through.
         kind = tool_call.get("kind")
         title = tool_call.get("title")
@@ -170,6 +306,15 @@ class ACPPermissionAdapter:
             seen.add(text)
             paths.append(text)
 
+        def add_from_args(args: dict[str, Any]) -> None:
+            for key in _PATH_ARG_KEYS:
+                value = args.get(key)
+                if isinstance(value, list):
+                    for item in value:
+                        add_path(item)
+                else:
+                    add_path(value)
+
         for location in tool_call.get("locations") or []:
             if isinstance(location, dict):
                 add_path(location.get("path"))
@@ -182,7 +327,10 @@ class ACPPermissionAdapter:
         if raw_input is None:
             raw_input = tool_call.get("raw_input")
         if isinstance(raw_input, dict):
-            add_path(raw_input.get("path"))
+            add_from_args(raw_input)
+
+        for args in self._argument_dicts(tool_call):
+            add_from_args(args)
 
         return paths[:5]
 
