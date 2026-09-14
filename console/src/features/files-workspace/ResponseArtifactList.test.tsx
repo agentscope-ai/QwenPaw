@@ -324,16 +324,27 @@ describe("ResponseArtifactList", () => {
     expect(screen.getByText("已发送")).toBeInTheDocument();
   });
 
-  it("skips a ~ path the client cannot resolve", () => {
-    // The backend expands `~` and sends successfully, but the client cannot
-    // resolve it — rendering a card whose preview cannot open is worse than
-    // rendering none.
-    const { container } = render(
+  it("routes a ~ path to the attachment preview the backend expands", () => {
+    // parseInternalFileLink would treat `~` as a workspace-relative segment;
+    // the preview endpoint expanduser()s it instead, so it must reach the
+    // attachment branch.
+    const listener = vi.fn();
+    window.addEventListener("qwenpaw:open-file-preview", listener);
+    render(
       <ResponseArtifactList
         messages={successfulSendFile("~/reports/summary.md")}
       />,
     );
 
-    expect(container).toBeEmptyDOMElement();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "summary.md ~/reports/summary.md",
+      }),
+    );
+
+    const event = listener.mock.calls[0][0] as CustomEvent;
+    expect(event.detail.target.source).toBe("attachment");
+    expect(event.detail.target.path).toBe("~/reports/summary.md");
+    window.removeEventListener("qwenpaw:open-file-preview", listener);
   });
 });

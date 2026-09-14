@@ -85,16 +85,19 @@ function normalizedToolName(name: string): string {
 
 function targetForPath(path: string): FileTarget | null {
   const normalized = path.trim().replace(/\\/g, "/");
-  // The backend expands `~` before opening the file, but the client cannot
-  // resolve it — and parseInternalFileLink would accept `~/x` as a
-  // workspace-relative path. Skip the artifact rather than render a card
-  // whose preview target points at a file that does not exist.
-  if (normalized.startsWith("~")) return null;
-  const workspaceTarget = parseInternalFileLink(
-    normalized.replace(/^(?:\.\/)+/, ""),
-  );
+  // `~` must bypass parseInternalFileLink, which would otherwise treat it as
+  // a workspace-relative segment and resolve it under the project directory.
+  // The preview endpoint expanduser()s the path (app/routers/files.py), so
+  // routing `~` to the attachment target below is what makes it resolve.
+  const workspaceTarget = normalized.startsWith("~")
+    ? null
+    : parseInternalFileLink(normalized.replace(/^(?:\.\/)+/, ""));
   if (workspaceTarget) return { ...workspaceTarget, root: "project" };
-  if (normalized.startsWith("/") || /^[a-z]:\//i.test(normalized)) {
+  if (
+    normalized.startsWith("/") ||
+    normalized.startsWith("~") ||
+    /^[a-z]:\//i.test(normalized)
+  ) {
     return {
       source: "attachment",
       path: normalized,
