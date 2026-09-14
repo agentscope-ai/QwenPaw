@@ -1,4 +1,4 @@
-import { Popover } from "antd";
+import { Popover, message } from "antd";
 import {
   BookOpen,
   BrainCircuit,
@@ -218,7 +218,9 @@ export default function SidebarSettingsPanel({
     finishAction(() => {
       void i18n.changeLanguage(language);
       localStorage.setItem("language", language);
-      void settingsApi.updateLanguage(language).catch(() => {});
+      void settingsApi.updateLanguage(language).catch(() => {
+        message.error(t("agentConfig.languageSaveFailed"));
+      });
     });
   };
 
