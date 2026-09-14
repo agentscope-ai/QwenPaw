@@ -9,6 +9,7 @@ vi.mock("react-i18next", () => ({
       ({
         "files.artifactCreated": "已新增",
         "files.artifactModified": "已修改",
+        "files.artifactSent": "已发送",
         "files.artifactsCollapse": "收起",
         "files.artifactsExpand": "展开更多",
       })[key] ?? key,
@@ -32,6 +33,83 @@ function successfulFileIo(path: string, name = "write_file") {
           },
         },
         { data: { call_id: `call-${path}`, state: "success" } },
+      ],
+    },
+  ];
+}
+
+/**
+ * A successful ``send_file_to_user`` result, mirroring the shape observed in
+ * persisted console sessions.
+ *
+ * The DataBlock source shape varies with the delivery path: text files arrive
+ * as ``{type: "url", url: "file://…"}`` while images are inlined as
+ * ``{type: "base64", data: …}``. Detection keys on the block type, so the
+ * base64 shape is deliberately used here as the stricter fixture — it fails
+ * immediately if any ``source.url`` coupling is reintroduced.
+ */
+function successfulSendFile(path: string) {
+  const name = path.split("/").pop() ?? path;
+  return [
+    {
+      id: `result-send-${path}`,
+      type: "tool_call_output",
+      status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-send-${path}`,
+            name: "send_file_to_user",
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        {
+          data: {
+            call_id: `call-send-${path}`,
+            state: "success",
+            output: [
+              {
+                type: "data",
+                source: { type: "base64", data: "iVBORw0KGgoAAAANSUhEUg" },
+                name,
+              },
+              { type: "text", text: "File sent successfully." },
+            ],
+          },
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * A failed ``send_file_to_user`` result. The backend reports state=success
+ * even for errors, but the result carries only a TextBlock (no DataBlock),
+ * so ResponseArtifactList must not surface an artifact.
+ */
+function failedSendFile(path: string) {
+  return [
+    {
+      id: `result-sendfail-${path}`,
+      type: "tool_call_output",
+      status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-sendfail-${path}`,
+            name: "send_file_to_user",
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        {
+          data: {
+            call_id: `call-sendfail-${path}`,
+            state: "success",
+            output: [
+              { type: "text", text: `Error: The file ${path} does not exist.` },
+            ],
+          },
+        },
       ],
     },
   ];
@@ -205,6 +283,31 @@ describe("ResponseArtifactList", () => {
           },
         ]}
       />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("surfaces a successfully sent file as an artifact", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/summary.pdf")}
+      />,
+    );
+
+    expect(screen.getByText("summary.pdf")).toBeInTheDocument();
+    expect(screen.getByText("reports/summary.pdf")).toBeInTheDocument();
+  });
+
+  it("marks sent files with the sent status", () => {
+    render(<ResponseArtifactList messages={successfulSendFile("notes.txt")} />);
+
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
+  it("does not show send_file_to_user when the result has no DataBlock", () => {
+    const { container } = render(
+      <ResponseArtifactList messages={failedSendFile("missing.pdf")} />,
     );
 
     expect(container).toBeEmptyDOMElement();

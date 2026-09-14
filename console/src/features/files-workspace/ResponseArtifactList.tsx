@@ -11,7 +11,7 @@ interface ResponseArtifactListProps {
   messages: unknown;
 }
 
-type ArtifactChange = "created" | "modified";
+type ArtifactChange = "created" | "modified" | "sent";
 interface ResponseArtifact {
   id: string;
   name: string;
@@ -23,6 +23,7 @@ interface ResponseArtifact {
 const MIN_FILE_WIDTH = 320;
 const GRID_GAP = 8;
 const FILE_IO_TOOLS = new Set(["appendfile", "editfile", "writefile"]);
+const SEND_FILE_TOOL = "sendfiletouser";
 const TOOL_OUTPUT_TYPES = new Set([
   "tool_call_output",
   "plugin_call_output",
@@ -102,6 +103,35 @@ function targetForPath(path: string): FileTarget | null {
   return null;
 }
 
+/**
+ * Whether a ``send_file_to_user`` result actually delivered a file.
+ *
+ * The backend returns ``[DataBlock, TextBlock]`` on success and
+ * ``[TextBlock("Error: …")]`` on failure — both with ``state=success``, so
+ * the DataBlock's presence is the only reliable success signal.
+ *
+ * The DataBlock source shape varies with the delivery path: text files
+ * arrive as ``{type: "url", url: "file://…"}`` while images are inlined as
+ * ``{type: "base64", data: …}``. Keying on the block type rather than the
+ * source shape keeps both covered.
+ */
+function hasDeliveredFile(output: unknown): boolean {
+  let arr: unknown[] | null = null;
+  if (typeof output === "string") {
+    try {
+      const parsed = JSON.parse(output);
+      if (Array.isArray(parsed)) arr = parsed;
+    } catch {
+      return false;
+    }
+  } else if (Array.isArray(output)) {
+    arr = output;
+  }
+  if (!arr) return false;
+
+  return arr.some((block) => record(block)?.type === "data");
+}
+
 function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
   if (!Array.isArray(messages)) return [];
 
@@ -130,7 +160,14 @@ function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
 
     const toolName =
       firstString(callData, ["name"]) || firstString(item, ["name"]);
-    if (!FILE_IO_TOOLS.has(normalizedToolName(toolName))) continue;
+    const normalized = normalizedToolName(toolName);
+
+    if (normalized === SEND_FILE_TOOL) {
+      if (!hasDeliveredFile(resultData.output)) continue;
+    } else if (!FILE_IO_TOOLS.has(normalized)) {
+      continue;
+    }
+
     const params =
       parsedRecord(callData.arguments) ??
       parsedRecord(item.params) ??
@@ -153,8 +190,15 @@ function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
   return Array.from(artifacts.values()).reverse();
 }
 
+const CHANGE_LABEL_KEY: Record<ArtifactChange, string> = {
+  created: "files.artifactCreated",
+  modified: "files.artifactModified",
+  sent: "files.artifactSent",
+};
+
 function artifactChange(toolName?: string): ArtifactChange {
   const normalized = normalizedToolName(toolName ?? "");
+  if (normalized === SEND_FILE_TOOL) return "sent";
   return normalized === "writefile" ? "created" : "modified";
 }
 
@@ -231,11 +275,7 @@ export default function ResponseArtifactList({
                 <small title={artifact.path}>{artifact.path}</small>
               </span>
               <small className={styles.status} data-change={change}>
-                {t(
-                  change === "created"
-                    ? "files.artifactCreated"
-                    : "files.artifactModified",
-                )}
+                {t(CHANGE_LABEL_KEY[change])}
               </small>
             </button>
           );

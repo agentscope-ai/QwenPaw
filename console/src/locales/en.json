@@ -2692,6 +2692,7 @@
     "closeWorkspace": "Close workspace",
     "artifactCreated": "Created",
     "artifactModified": "Modified",
+    "artifactSent": "Sent",
     "artifactsExpand": "Show {{count}} more files",
     "artifactsCollapse": "Show fewer files"
   },
