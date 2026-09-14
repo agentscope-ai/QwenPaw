@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from qwenpaw.app.routers.settings import router
+from qwenpaw.app.routers.settings import _VALID_LANGUAGES, router
 
 app = FastAPI()
 app.include_router(router, prefix="/api")
@@ -55,7 +56,10 @@ async def test_get_language_persisted(api_client, _use_tmp_settings):
 # ── PUT /settings/language ───────────────────────────────────────────
 
 
-@pytest.mark.parametrize("lang", ["en", "zh", "ja", "ru", "pt-BR", "id"])
+@pytest.mark.parametrize(
+    "lang",
+    ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"],
+)
 async def test_put_language_valid(
     api_client,
     lang,
