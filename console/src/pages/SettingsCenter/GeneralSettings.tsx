@@ -64,14 +64,20 @@ const LANGUAGES = LANGUAGE_LIST.map(({ key, label }) => ({
 }));
 
 function ThemePresetLabel({ preset }: { preset: ThemePreset }) {
+  const { isDark } = useTheme();
+
   return (
     <span className={styles.themePresetOption}>
       <span
         aria-hidden="true"
         className={styles.themePresetSwatch}
         style={{
-          background: preset.theme.dark?.surface,
-          color: preset.theme.dark?.accent,
+          background: isDark
+            ? preset.theme.dark?.surface ?? "#1f1f1f"
+            : "#ffffff",
+          color: isDark
+            ? preset.theme.dark?.accent ?? preset.theme.accent
+            : preset.theme.accent,
         }}
       >
         Aa

@@ -58,7 +58,7 @@ describe("SettingsCenter", () => {
     });
   });
 
-  it("uses the dark settings surface when dark theme is active", () => {
+  it("uses dark preset swatches when dark theme is active", async () => {
     localStorage.setItem("qwenpaw-theme", "dark");
 
     const { container } = renderWithProviders(
@@ -69,6 +69,19 @@ describe("SettingsCenter", () => {
     );
 
     expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Theme palette" }),
+    );
+
+    const swatches = Array.from(
+      document.querySelectorAll<HTMLElement>('[aria-hidden="true"]'),
+    ).filter((element) => element.textContent === "Aa");
+    expect(swatches.length).toBeGreaterThanOrEqual(6);
+    expect(
+      swatches.every(
+        (swatch) => swatch.style.background !== "rgb(255, 255, 255)",
+      ),
+    ).toBe(true);
   });
 
   it("persists the standard and wide message widths", async () => {
@@ -119,6 +132,16 @@ describe("SettingsCenter", () => {
       name: "Theme palette",
     });
     await userEvent.click(palette);
+
+    const swatches = Array.from(
+      document.querySelectorAll<HTMLElement>('[aria-hidden="true"]'),
+    ).filter((element) => element.textContent === "Aa");
+    expect(swatches.length).toBeGreaterThanOrEqual(6);
+    expect(
+      swatches.every(
+        (swatch) => swatch.style.background === "rgb(255, 255, 255)",
+      ),
+    ).toBe(true);
 
     for (const name of [
       "QwenPaw",
