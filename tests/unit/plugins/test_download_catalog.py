@@ -30,7 +30,7 @@ def test_main_catalog_transport_failure_returns_fallback(
     ):
         result = build_plugin_catalog()
 
-    assert result["plugins"] == []
+    assert not result["plugins"]
     assert result["error"] == "Failed to fetch plugin catalog index"
 
 
@@ -51,7 +51,7 @@ def test_plugins_catalog_transport_failure_returns_fallback(
     ):
         result = build_plugin_catalog()
 
-    assert result["plugins"] == []
+    assert not result["plugins"]
     assert result["error"] == "Failed to fetch plugins metadata"
 
 
