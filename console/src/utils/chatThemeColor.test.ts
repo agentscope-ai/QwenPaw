@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { toChatThemeHex } from "./chatThemeColor";
+import { isSafeCssColor, toChatThemeHex } from "./chatThemeColor";
+
+describe("isSafeCssColor", () => {
+  it("accepts the color syntaxes supported by the theme API", () => {
+    expect(isSafeCssColor("#abc")).toBe(true);
+    expect(isSafeCssColor("rgba(255, 127, 22, 0.1)")).toBe(true);
+    expect(isSafeCssColor("hsl(30 100% 50% / 25%)")).toBe(true);
+  });
+
+  it("rejects incomplete values and external resource URLs", () => {
+    expect(isSafeCssColor("#12345")).toBe(false);
+    expect(isSafeCssColor("rgb(1")).toBe(false);
+    expect(isSafeCssColor("url(https://example.com/image.png)")).toBe(false);
+  });
+});
 
 describe("toChatThemeHex", () => {
   it("keeps six-digit hex values", () => {

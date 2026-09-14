@@ -1,6 +1,10 @@
 const HEX_COLOR_RE = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
 const RGB_COLOR_RE = /^rgba?\(([^)]+)\)$/i;
 const HSL_COLOR_RE = /^hsla?\(([^)]+)\)$/i;
+const CSS_COLOR_FUNCTION_RE = /^(rgb|rgba|hsl|hsla)\(([^()]*)\)$/i;
+const CSS_NUMBER_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+const CSS_PERCENT_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%$/;
+const CSS_HUE_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:deg|grad|rad|turn)?$/i;
 
 function channelToHex(channel: number): string {
   return Math.round(Math.max(0, Math.min(255, channel)))
@@ -62,6 +66,60 @@ function parseHsl(value: string): string | null {
   return `#${[h + 1 / 3, h, h - 1 / 3]
     .map((channel) => channelToHex(hueToRgb(p, q, channel) * 255))
     .join("")}`;
+}
+
+/** Return whether a value is a supported standalone CSS color. */
+export function isSafeCssColor(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim();
+  if (HEX_COLOR_RE.test(normalized)) return true;
+
+  const match = normalized.match(CSS_COLOR_FUNCTION_RE);
+  if (!match) return false;
+
+  const functionName = match[1].toLowerCase();
+  const body = match[2];
+  let channels: string[];
+  let alpha: string | undefined;
+  let validSyntax: boolean;
+
+  if (body.includes(",")) {
+    const parts = body.split(",").map((part) => part.trim());
+    channels = parts.slice(0, 3);
+    alpha = parts[3];
+    validSyntax =
+      !body.includes("/") &&
+      (parts.length === 3 || parts.length === 4) &&
+      parts.every(Boolean);
+  } else {
+    const slashParts = body.split("/");
+    channels = slashParts[0].trim().split(/\s+/).filter(Boolean);
+    alpha = slashParts[1]?.trim();
+    validSyntax =
+      slashParts.length <= 2 &&
+      channels.length === 3 &&
+      (alpha === undefined || Boolean(alpha));
+  }
+
+  if (!validSyntax) return false;
+  if (
+    alpha !== undefined &&
+    !CSS_NUMBER_RE.test(alpha) &&
+    !CSS_PERCENT_RE.test(alpha)
+  ) {
+    return false;
+  }
+
+  if (functionName.startsWith("rgb")) {
+    return channels.every(
+      (channel) => CSS_NUMBER_RE.test(channel) || CSS_PERCENT_RE.test(channel),
+    );
+  }
+  return (
+    CSS_HUE_RE.test(channels[0]) &&
+    CSS_PERCENT_RE.test(channels[1]) &&
+    CSS_PERCENT_RE.test(channels[2])
+  );
 }
 
 /** Return a six-digit HEX color accepted by the upstream chat theme parser. */

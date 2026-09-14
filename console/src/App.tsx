@@ -57,6 +57,8 @@ import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import { isSafeCssColor } from "./utils/chatThemeColor";
+import type { ThemeConfig } from "./api/modules/theme";
 import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
@@ -68,6 +70,21 @@ const antdLocaleMap: Record<string, Locale> = {
   ru: ruRU,
   id: idID,
 };
+
+export function getAppThemeToken(
+  userTheme: ThemeConfig,
+  isDark: boolean,
+): NonNullable<AntThemeConfig["token"]> {
+  return {
+    colorPrimary:
+      userTheme.dark?.accent && isDark
+        ? userTheme.dark.accent
+        : userTheme.accent ?? "#FF7F16",
+    ...(userTheme.radius
+      ? { borderRadius: Number.parseFloat(userTheme.radius) }
+      : {}),
+  };
+}
 
 const dayjsLocaleMap: Record<string, string> = {
   zh: "zh-cn",
@@ -340,15 +357,22 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     const accentHover = userTheme.accent_hover;
     const accentBg = darkTheme?.accent_bg ?? userTheme.accent_bg;
     const root = document.documentElement;
-    const setOrRemove = (name: string, value: string | undefined) => {
-      if (value) root.style.setProperty(name, value);
-      else root.style.removeProperty(name);
+    const setOrRemove = (
+      name: string,
+      value: string | undefined,
+      validateColor = false,
+    ) => {
+      if (value === undefined) {
+        root.style.removeProperty(name);
+      } else if (!validateColor || isSafeCssColor(value)) {
+        root.style.setProperty(name, value);
+      }
     };
 
     setOrRemove("--app-accent", accent);
     setOrRemove("--app-accent-hover", accentHover);
-    setOrRemove("--app-accent-soft", accentBg);
-    setOrRemove("--app-surface", darkTheme?.surface);
+    setOrRemove("--app-accent-soft", accentBg, true);
+    setOrRemove("--app-surface", darkTheme?.surface, true);
     setOrRemove("--app-radius", userTheme.radius);
     setOrRemove("--border-radius", userTheme.radius);
   }, [isDark, userTheme]);
@@ -452,15 +476,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
-          token: {
-            colorPrimary:
-              userTheme.dark?.accent && isDark
-                ? userTheme.dark.accent
-                : userTheme.accent ?? "#FF7F16",
-            borderRadius: userTheme.radius
-              ? Number.parseFloat(userTheme.radius)
-              : undefined,
-          },
+          token: getAppThemeToken(userTheme, isDark),
         }}
       >
         <AntdApp>
