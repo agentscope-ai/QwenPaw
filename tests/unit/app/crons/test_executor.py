@@ -216,3 +216,31 @@ async def test_non_shared_job_reuses_its_dedicated_session(
         second_session,
     ]
     assert all(call.kwargs["source"] == "cron" for call in chat_calls)
+
+
+@pytest.mark.asyncio
+async def test_timeout_preserves_run_reference(monkeypatch):
+    import asyncio
+
+    from qwenpaw.app.crons.executor import CronExecutionTimeout
+
+    class SlowWorkspace(_Workspace):
+        async def stream_query(self, request):
+            await asyncio.Event().wait()
+            yield
+
+    job = make_cron_job_spec(job_id="timeout-job")
+    job.runtime.timeout_seconds = 0.01
+    finalize = _patch_trace_storage(monkeypatch)
+    executor = CronExecutor(
+        workspace=SlowWorkspace(),
+        channel_manager=AsyncMock(),
+    )
+    with pytest.raises(CronExecutionTimeout) as error:
+        await executor.execute(job)
+    assert error.value.run_id
+    finalize.assert_awaited_once_with(
+        error.value.run_id,
+        status="timeout",
+        error="timed out after 0.01s",
+    )

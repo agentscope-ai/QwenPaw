@@ -35,7 +35,7 @@ export const DEFAULT_FORM_VALUES = {
     silent: false,
   },
   runtime: {
-    share_session: true,
+    share_session: false,
     max_concurrency: 1,
     timeout_seconds: 120,
     misfire_grace_seconds: 600,

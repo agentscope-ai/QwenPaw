@@ -61,6 +61,14 @@ def _bounded_trace_meta(value: str | None) -> str:
     return f"{raw[: _TRACE_META_MAX_LENGTH - len(digest) - 1]}-{digest}"
 
 
+class CronExecutionTimeout(asyncio.TimeoutError):
+    """Execution timeout carrying the run reference for inbox reporting."""
+
+    def __init__(self, *, run_id: str, timeout_seconds: float):
+        super().__init__(f"timed out after {timeout_seconds}s")
+        self.run_id = run_id
+
+
 class CronExecutor:
     def __init__(self, *, workspace: Any, channel_manager: Any):
         self._workspace = workspace
@@ -313,7 +321,10 @@ class CronExecutor:
                 status="timeout",
                 error=f"timed out after {job.runtime.timeout_seconds}s",
             )
-            raise
+            raise CronExecutionTimeout(
+                run_id=run_id,
+                timeout_seconds=job.runtime.timeout_seconds,
+            ) from None
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
             await append_trace_from_session_delta(
