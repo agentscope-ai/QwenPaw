@@ -493,8 +493,9 @@ def _poll_inbox_heartbeat(
     app_server,
     deadline,
     event_type=None,
+    min_count=1,
 ):
-    """Poll inbox until a heartbeat event appears or deadline."""
+    """Poll inbox until enough heartbeat events appear or deadline."""
     while time.time() < deadline:
         resp = app_server.api_request(
             "GET",
@@ -512,7 +513,7 @@ def _poll_inbox_heartbeat(
                 events = [
                     e for e in events if e.get("event_type") == event_type
                 ]
-            if events:
+            if len(events) >= min_count:
                 return events
         time.sleep(1.0)
     return []
@@ -698,6 +699,7 @@ def test_heartbeat_run_twice_creates_two_events(
             app_server,
             time.time() + 30.0,
             event_type="heartbeat_result",
+            min_count=2,
         )
         assert len(events) >= 2, (
             f"Expected >=2 events, got {len(events)}: "
