@@ -7,6 +7,12 @@ body {
   background: var(--app-bg);
 }
 
+/* Restore a keyboard-only focus indicator removed by the design reset. */
+a[href]:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
 .qwenpaw-layout {
   background: var(--app-bg);
 }
