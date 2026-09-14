@@ -1390,6 +1390,33 @@ def test_failed_runtime_creation_is_audited(tmp_path: Path) -> None:
         assert "sandbox unavailable" in events[0]["detail"]["reason"]
 
 
+def test_reserved_metadata_rejection_is_audited(tmp_path: Path) -> None:
+    """A denied backend override must be audited like other denials."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        rejected = client.post(
+            "/api/hub/runtimes",
+            json={
+                "runtime_id": "blocked",
+                "metadata": {"docker": {"image": "attacker/image"}},
+            },
+            headers=_headers(token),
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=runtime.create&outcome=failure",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert rejected.status_code == 400
+        assert audit.json()["total"] == 1
+        assert events[0]["resource_id"] == "blocked"
+        assert "administrator-controlled" in events[0]["detail"]["reason"]
+        assert "docker" in events[0]["detail"]["reason"]
+        assert "attacker/image" not in audit.text
+
+
 def test_audit_store_failure_never_blocks_authentication(
     tmp_path: Path,
 ) -> None:

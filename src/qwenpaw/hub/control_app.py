@@ -998,15 +998,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
         body: RuntimeCreateBody,
         user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
-        reserved_metadata = {"local", "docker"} & set(body.metadata)
-        if reserved_metadata:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Runtime backend settings are " "administrator-controlled."
-                ),
-            )
-
         async def audit_creation_failure(reason: str) -> None:
             """Audit one denied creation without masking its real status."""
             try:
@@ -1025,6 +1016,19 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 logging.getLogger(__name__).warning(
                     "Hub runtime.create failure audit was not persisted",
                 )
+
+        reserved_metadata = {"local", "docker"} & set(body.metadata)
+        if reserved_metadata:
+            await audit_creation_failure(
+                "Runtime backend settings are administrator-controlled."
+                f" rejected keys: {sorted(reserved_metadata)}",
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Runtime backend settings are " "administrator-controlled."
+                ),
+            )
 
         try:
             record = await run_in_threadpool(
