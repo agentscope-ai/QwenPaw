@@ -39,6 +39,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
+import { ViewCronSessionButton } from "./components/ViewCronSessionButton";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import type { PushMessage } from "./types";
@@ -643,7 +644,18 @@ export default function InboxPage() {
         onCancel={closeDetail}
         footer={null}
         width={820}
-        title={getDetailModalTitle(selectedMessage, t)}
+        title={
+          <div className={styles.messageDetailTitle}>
+            <span>{getDetailModalTitle(selectedMessage, t)}</span>
+            {selectedMessage && (
+              <ViewCronSessionButton
+                key={selectedMessage.id}
+                item={selectedMessage}
+                onNavigate={closeDetail}
+              />
+            )}
+          </div>
+        }
       >
         {selectedMessage ? (
           <div className={styles.messageDetail}>
