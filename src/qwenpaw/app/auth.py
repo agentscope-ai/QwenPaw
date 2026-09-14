@@ -725,10 +725,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         path = request.url.path
+        if path == "/api/config/theme" and request.method == "GET":
+            return True
         if (
             request.method == "OPTIONS"
             or path in _PUBLIC_PATHS
-            or (path == "/api/config/theme" and request.method == "GET")
             or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
             or not path.startswith("/api/")
         ):

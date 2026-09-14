@@ -112,7 +112,7 @@ def _is_safe_css_color(value: str) -> bool:
     return bool(
         _CSS_HUE_RE.fullmatch(channels[0])
         and _CSS_PERCENT_RE.fullmatch(channels[1])
-        and _CSS_PERCENT_RE.fullmatch(channels[2])
+        and _CSS_PERCENT_RE.fullmatch(channels[2]),
     )
 
 
