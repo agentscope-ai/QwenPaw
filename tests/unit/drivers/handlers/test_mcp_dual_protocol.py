@@ -129,6 +129,11 @@ _GATEWAY_401_CHALLENGE = (
 )
 
 
+_JAVA_DISCOVER_MISSING_HANDLER = (
+    "Missing handler for request type: server/discover"
+)
+
+
 def _java_jsonrpc_err(
     code: int,
     msg: str,
@@ -226,9 +231,23 @@ def test_supported_versions_from_payload(payload, expected):
             {"code": -32601, "message": "x"},
         ),
         (
+            {
+                "jsonRpcError": {
+                    "code": -32603,
+                    "message": _JAVA_DISCOVER_MISSING_HANDLER,
+                },
+            },
+            {
+                "code": -32603,
+                "message": _JAVA_DISCOVER_MISSING_HANDLER,
+            },
+        ),
+        (
             {"jsonRpcError": {"code": -32601, "message": "Method not found"}},
             {"code": -32601, "message": "Method not found"},
         ),
+        ({"jsonRpcError": {}}, None),
+        ({"jsonRpcError": {"message": "x"}}, None),
         ({"error": "not a dict"}, None),
         (None, None),
     ],
@@ -237,18 +256,55 @@ def test_extract_jsonrpc_error_payload(payload, expected):
     assert _extract_jsonrpc_error_payload(payload) == expected
 
 
-def test_unwrap_jsonrpc_result_java_jsonrpc_error_envelope():
+@pytest.mark.parametrize(
+    ("data", "code"),
+    [
+        (
+            {
+                "jsonRpcError": {
+                    "code": -32603,
+                    "message": _JAVA_DISCOVER_MISSING_HANDLER,
+                },
+            },
+            -32603,
+        ),
+        (
+            {"jsonRpcError": {"code": -32601, "message": "missing"}},
+            -32601,
+        ),
+    ],
+)
+def test_unwrap_jsonrpc_result_java_jsonrpc_error_envelope(data, code):
     req = httpx.Request("POST", "http://mcp.test/mcp")
     with pytest.raises(_JsonRpcError) as caught:
         _unwrap_jsonrpc_result(
             method="server/discover",
             status=500,
-            data={"jsonRpcError": {"code": -32601, "message": "missing"}},
+            data=data,
             request=req,
             request_id=1,
         )
-    assert caught.value.code == -32601
+    assert caught.value.code == code
     assert caught.value.http_status == 500
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"jsonRpcError": {}},
+        {"jsonRpcError": {"message": "x"}},
+    ],
+)
+def test_unwrap_jsonrpc_result_rejects_codeless_jsonrpc_error(data):
+    req = httpx.Request("POST", "http://mcp.test/mcp")
+    with pytest.raises(httpx.HTTPStatusError):
+        _unwrap_jsonrpc_result(
+            method="server/discover",
+            status=500,
+            data=data,
+            request=req,
+            request_id=1,
+        )
 
 
 def test_collect_tool_header_bindings_core_rules():
@@ -341,6 +397,10 @@ def test_normalize_call_tool_result_snake_case_aliases():
         # the legacy handshake arbitrates.
         lambda r: httpx.Response(401, text="u"),
         _gateway_401,
+        lambda _r: _java_jsonrpc_err(
+            -32603,
+            _JAVA_DISCOVER_MISSING_HANDLER,
+        ),
         lambda _r: _java_jsonrpc_err(
             -32601,
             "Method not found: server/discover",
@@ -477,6 +537,20 @@ async def test_auto_falls_back_on_gzip_plain_400(monkeypatch):
             lambda _r: _java_jsonrpc_err(-32000, "Internal error"),
             RuntimeError,
             "server/discover",
+        ),
+        (
+            lambda _r: _java_jsonrpc_err(-32603, "Internal error"),
+            RuntimeError,
+            "server/discover",
+        ),
+        (
+            lambda _r: httpx.Response(
+                500,
+                json={"jsonRpcError": {}},
+                headers={"content-type": "application/json"},
+            ),
+            httpx.HTTPStatusError,
+            None,
         ),
     ],
 )
