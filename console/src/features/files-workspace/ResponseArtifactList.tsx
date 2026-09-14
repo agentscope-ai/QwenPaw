@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chatApi } from "../../api/modules/chat";
 import FileGlyph from "./FileGlyph";
@@ -85,15 +85,16 @@ function normalizedToolName(name: string): string {
 
 function targetForPath(path: string): FileTarget | null {
   const normalized = path.trim().replace(/\\/g, "/");
+  // The backend expands `~` before opening the file, but the client cannot
+  // resolve it — and parseInternalFileLink would accept `~/x` as a
+  // workspace-relative path. Skip the artifact rather than render a card
+  // whose preview target points at a file that does not exist.
+  if (normalized.startsWith("~")) return null;
   const workspaceTarget = parseInternalFileLink(
     normalized.replace(/^(?:\.\/)+/, ""),
   );
   if (workspaceTarget) return { ...workspaceTarget, root: "project" };
-  if (
-    normalized.startsWith("/") ||
-    normalized.startsWith("~") ||
-    /^[a-z]:\//i.test(normalized)
-  ) {
+  if (normalized.startsWith("/") || /^[a-z]:\//i.test(normalized)) {
     return {
       source: "attachment",
       path: normalized,
@@ -114,22 +115,14 @@ function targetForPath(path: string): FileTarget | null {
  * arrive as ``{type: "url", url: "file://…"}`` while images are inlined as
  * ``{type: "base64", data: …}``. Keying on the block type rather than the
  * source shape keeps both covered.
+ *
+ * ``output`` is always a block array for this tool — the backend builds
+ * ``content=[DataBlock, TextBlock]`` — so no string/JSON parsing is needed
+ * and an inlined base64 payload is never parsed on the render path.
  */
 function hasDeliveredFile(output: unknown): boolean {
-  let arr: unknown[] | null = null;
-  if (typeof output === "string") {
-    try {
-      const parsed = JSON.parse(output);
-      if (Array.isArray(parsed)) arr = parsed;
-    } catch {
-      return false;
-    }
-  } else if (Array.isArray(output)) {
-    arr = output;
-  }
-  if (!arr) return false;
-
-  return arr.some((block) => record(block)?.type === "data");
+  if (!Array.isArray(output)) return false;
+  return output.some((block) => record(block)?.type === "data");
 }
 
 function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
@@ -206,7 +199,13 @@ export default function ResponseArtifactList({
   messages,
 }: ResponseArtifactListProps) {
   const { t } = useTranslation();
-  const artifacts = extractResponseArtifacts(messages);
+  // This bubble re-renders on every streamed token, so keep the extraction
+  // (which walks every tool output and parses each call's arguments) bound to
+  // message changes rather than to render count.
+  const artifacts = useMemo(
+    () => extractResponseArtifacts(messages),
+    [messages],
+  );
   const gridRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(2);

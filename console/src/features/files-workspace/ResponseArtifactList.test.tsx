@@ -312,4 +312,28 @@ describe("ResponseArtifactList", () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("surfaces an absolute path as an attachment artifact", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/workspace/export.csv")}
+      />,
+    );
+
+    expect(screen.getByText("export.csv")).toBeInTheDocument();
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
+  it("skips a ~ path the client cannot resolve", () => {
+    // The backend expands `~` and sends successfully, but the client cannot
+    // resolve it — rendering a card whose preview cannot open is worse than
+    // rendering none.
+    const { container } = render(
+      <ResponseArtifactList
+        messages={successfulSendFile("~/reports/summary.md")}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
 });
