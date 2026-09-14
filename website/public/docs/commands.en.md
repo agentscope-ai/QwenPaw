@@ -2,6 +2,10 @@
 
 Magic commands are special instructions prefixed with `/` that let you **directly control conversation state** without waiting for the AI to interpret your intent.
 
+With QwenPaw's built-in Agent in Console and message channels, `/help` provides command help when no registered command or available skill already owns that name; `/skills` lists skills available in the current channel. The TUI keeps its own local `/help`, and external Agent backends retain their own command handling. Unmatched command-like text such as `/mew` returns an "Unknown or unavailable command" message with up to three suggestions, without starting the Agent model or executing a suggestion.
+
+Explicit paths such as `/tmp/file`, `/tmp/`, `//server/share`, and `/` pass through, as do unmatched requests containing attachments. A single-segment input such as `/tmp` is treated as a command; write "read /tmp" or `/tmp/` to express a path. Existing registered commands and valid skill invocations retain their behavior, including `/[skill with spaces] input`.
+
 ---
 
 ## Conversation Management Commands

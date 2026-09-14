@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.approvals import ApprovalIdentityPolicy, ApprovalService
 from qwenpaw.runtime.commands.control import approval_handler as ah
 from qwenpaw.runtime.commands.control.base import ControlContext
 from qwenpaw.security.tool_guard.approval import (
@@ -53,6 +54,7 @@ def _pending(
         severity=severity,
         findings_count=findings_count,
         created_at=time.time() - 5,
+        identity_policy=ApprovalIdentityPolicy.AGENT,
     )
 
 
@@ -64,7 +66,8 @@ def handler():
 @pytest.fixture
 def mock_service(monkeypatch):
     svc = SimpleNamespace(
-        get_pending_by_session=AsyncMock(return_value=None),
+        get_all_pending_by_session=AsyncMock(return_value=[]),
+        actor_can_resolve=ApprovalService.actor_can_resolve,
         get_request=AsyncMock(return_value=None),
         resolve_request=AsyncMock(return_value=None),
         get_all_pending_by_agent=AsyncMock(return_value=[]),
@@ -162,7 +165,7 @@ class TestHandleApprove:
 
     async def test_queue_head_used_when_no_id(self, handler, mock_service):
         head = _pending(request_id="head-id")
-        mock_service.get_pending_by_session.return_value = head
+        mock_service.get_all_pending_by_session.return_value = [head]
         mock_service.get_request.return_value = head
         mock_service.resolve_request.return_value = head
         ctx = _context({"action": "approve"})
@@ -277,7 +280,7 @@ class TestHandleList:
         ]
         ctx = _context({"action": "list", "all": True})
         result = await handler._handle_list(ctx)
-        assert "所有会话" in result
+        assert "📋 **全局待审批工具列表** (当前调用者可见)" in result
         assert "Bash" in result
 
     async def test_subsession_annotated(self, handler, mock_service):
