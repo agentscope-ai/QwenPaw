@@ -14,6 +14,7 @@ may be unreachable. The catalog test asserts the graceful 200 +
 ``plugins`` contract that the server is supposed to fall back to,
 without depending on real CDN content.
 """
+
 from __future__ import annotations
 
 import io
@@ -32,7 +33,6 @@ from tests.integration.helpers import (
     PLUGIN_HTTP_TIMEOUT,
     wait_until_plugin_loader_ready,
 )
-
 
 # --------------------------------------------------------------------------- #
 # helpers
