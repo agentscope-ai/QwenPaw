@@ -11,11 +11,10 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
-import inspect
 import logging
 import re
 import uuid
-from contextlib import aclosing
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -32,6 +31,7 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
+from .context.overflow_recovery import call_with_overflow_recovery
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import _is_media_block
@@ -45,7 +45,6 @@ from ..constant import (
 )
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
-from ..providers.stream_progress import has_meaningful_stream_content
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..utils.tool_call_extra import (
@@ -696,44 +695,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         so a second overflow propagates instead of entering a recovery loop.
         """
         self._index_tool_schemas(tools)
-        try:
-            response = await super()._call_model(
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-            )
-        except Exception as exc:
-            return await self._recover_model_overflow(exc, tool_choice)
-        if inspect.isasyncgen(response):
-            return self._stream_with_overflow_recovery(response, tool_choice)
-        return response
-
-    async def _stream_with_overflow_recovery(
-        self,
-        stream: Any,
-        tool_choice: Any,
-    ) -> Any:
-        """Recover before visible output and close each stream we consume."""
-        emitted = False
-        try:
-            async with aclosing(stream):
-                async for chunk in stream:
-                    emitted = emitted or has_meaningful_stream_content(
-                        chunk.content,
-                    )
-                    yield chunk
-            return
-        except Exception as exc:
-            if emitted:
-                raise
-            response = await self._recover_model_overflow(exc, tool_choice)
-        # Consume the retry without another recovery wrapper.
-        if inspect.isasyncgen(response):
-            async with aclosing(response):
-                async for chunk in response:
-                    yield chunk
-        else:
-            yield response
+        return await call_with_overflow_recovery(
+            super()._call_model,
+            partial(self._recover_model_overflow, tool_choice=tool_choice),
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
 
     async def _recover_model_overflow(
         self,
