@@ -99,20 +99,17 @@ type FlatRow =
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
 /**
- * A header-delimited section of the session list: chat groups in
- * source mode, one flat recency list in none mode.
+ * A header-delimited section of the session list: date buckets in
+ * date mode, chat groups in source mode, one flat recency list in
+ * none mode, and the flat match list while searching.
  */
 interface ListSection {
-  id: string;
   header: FlatRow | null;
   sessions: ExtendedChatSession[];
   /** Group id stamped on session rows; null resolves per session. */
   groupId: string | null;
   collapsed: boolean;
 }
-
-/** Section id of the single flat section used by "none" mode. */
-const FLAT_SECTION_ID = "flat:all";
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -527,10 +524,19 @@ export default function SidebarSessionList({
    * histories cheap.
    */
   const sections = useMemo<ListSection[]>(() => {
-    if (searchQuery.trim()) return [];
+    if (searchQuery.trim()) {
+      if (filteredSessions.length === 0) return [];
+      return [
+        {
+          header: null,
+          sessions: filteredSessions,
+          groupId: null,
+          collapsed: false,
+        },
+      ];
+    }
     if (groupMode === "date") {
       return groupChatsByDate(sortedSessions).map((dateGroup) => ({
-        id: `date:${dateGroup.key}`,
         header: {
           kind: "dateHeader" as const,
           dateGroup: dateGroup.key,
@@ -548,7 +554,6 @@ export default function SidebarSessionList({
       if (ordered.length === 0) return [];
       return [
         {
-          id: FLAT_SECTION_ID,
           header: null,
           sessions: ordered,
           groupId: null,
@@ -564,7 +569,6 @@ export default function SidebarSessionList({
       .map(({ group, sessions }) => {
         const collapsed = isSessionDragging || collapsedGroups.has(group.id);
         return {
-          id: group.id,
           header: {
             kind: "groupHeader" as const,
             group,
@@ -582,6 +586,7 @@ export default function SidebarSessionList({
       });
   }, [
     collapsedGroups,
+    filteredSessions,
     groupMode,
     groups,
     isSessionDragging,
@@ -662,13 +667,6 @@ export default function SidebarSessionList({
 
   /** Flatten sections into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
-    if (searchQuery.trim()) {
-      return filteredSessions.map((s) => ({
-        kind: "session",
-        session: s,
-        groupId: resolveChatGroupId(s),
-      }));
-    }
     const rows: FlatRow[] = [];
     for (const section of sections) {
       if (section.header) rows.push(section.header);
@@ -682,7 +680,7 @@ export default function SidebarSessionList({
       }
     }
     return rows;
-  }, [sections, searchQuery, filteredSessions]);
+  }, [sections]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -963,37 +961,35 @@ export default function SidebarSessionList({
             </div>
           )}
 
-          {sortedSessions.length > 0 &&
-            flatRows.length > 0 &&
-            listHeight > 0 && (
-              <SessionGroupDndProvider
-                onMove={handleDragMove}
-                onDragStateChange={setIsSessionDragging}
+          {flatRows.length > 0 && listHeight > 0 && (
+            <SessionGroupDndProvider
+              onMove={handleDragMove}
+              onDragStateChange={setIsSessionDragging}
+            >
+              {stickyGroupRow && (
+                <div className={styles.stickyGroupHeader}>
+                  <GroupHeaderContent
+                    row={stickyGroupRow}
+                    data={virtualListData}
+                  />
+                </div>
+              )}
+              <VariableSizeList
+                ref={listRef}
+                height={listHeight}
+                width="100%"
+                itemCount={flatRows.length}
+                itemSize={getRowHeight}
+                itemData={virtualListData}
+                overscanCount={10}
+                onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                  setVisibleStartIndex(nextIndex)
+                }
               >
-                {stickyGroupRow && (
-                  <div className={styles.stickyGroupHeader}>
-                    <GroupHeaderContent
-                      row={stickyGroupRow}
-                      data={virtualListData}
-                    />
-                  </div>
-                )}
-                <VariableSizeList
-                  ref={listRef}
-                  height={listHeight}
-                  width="100%"
-                  itemCount={flatRows.length}
-                  itemSize={getRowHeight}
-                  itemData={virtualListData}
-                  overscanCount={10}
-                  onItemsRendered={({ visibleStartIndex: nextIndex }) =>
-                    setVisibleStartIndex(nextIndex)
-                  }
-                >
-                  {VirtualRow}
-                </VariableSizeList>
-              </SessionGroupDndProvider>
-            )}
+                {VirtualRow}
+              </VariableSizeList>
+            </SessionGroupDndProvider>
+          )}
         </div>
       )}
     </div>

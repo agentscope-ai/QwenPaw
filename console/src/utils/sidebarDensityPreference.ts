@@ -13,7 +13,7 @@ export type SidebarDensity = "auto" | "standard" | "compact";
 const SIDEBAR_DENSITY_STORAGE_KEY = "qwenpaw_sidebar_density";
 export const SIDEBAR_DENSITY_CHANGE_EVENT = "qwenpaw:sidebar-density-change";
 
-export const DEFAULT_SIDEBAR_DENSITY: SidebarDensity = "auto";
+const DEFAULT_SIDEBAR_DENSITY: SidebarDensity = "auto";
 
 function isSidebarDensity(value: string | null): value is SidebarDensity {
   return value === "auto" || value === "standard" || value === "compact";
