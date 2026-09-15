@@ -2040,6 +2040,16 @@
     "noMatchingProviders": "一致するプロバイダーがありません",
     "filterFreeOnly": "無料モデルのみ"
   },
+  "workbench": {
+    "navigation": "ワークベンチ",
+    "files": "ファイル",
+    "changes": "変更",
+    "terminal": "ターミナル",
+    "tools": "ツール",
+    "codingModeRequired": "変更を使用するにはコード機能を有効にしてください",
+    "sessionRequired": "最初のメッセージ送信後に変更を使用できます",
+    "phasePlaceholder": "この機能は次のワークベンチ段階で接続されます。"
+  },
   "files": {
     "title": "ファイル",
     "navigator": "ファイルナビゲーター",

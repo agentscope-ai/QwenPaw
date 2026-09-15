@@ -1771,6 +1771,16 @@
     "openDirRefresh": "Làm mới",
     "openDirHiddenFolders": "Thư mục ẩn"
   },
+  "workbench": {
+    "navigation": "Bàn làm việc",
+    "files": "Tệp",
+    "changes": "Thay đổi",
+    "terminal": "Thiết bị đầu cuối",
+    "tools": "Công cụ",
+    "codingModeRequired": "Bật khả năng lập trình nâng cao để dùng Thay đổi",
+    "sessionRequired": "Thay đổi sẽ có sau khi gửi tin nhắn đầu tiên",
+    "phasePlaceholder": "Tính năng này sẽ được kết nối trong giai đoạn tiếp theo."
+  },
   "files": {
     "title": "Tệp",
     "navigator": "Trình duyệt tệp",

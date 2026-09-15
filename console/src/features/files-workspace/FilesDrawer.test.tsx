@@ -37,17 +37,15 @@ vi.mock("../../api/modules/workspace", () => ({
       content: "hello",
       etag: "etag",
     }),
-    getFileDownloadUrl: vi.fn(
-      (path: string, _root: string) => `/api/files/download/${path}`,
-    ),
+    getFileDownloadUrl: vi.fn((path: string) => `/api/files/download/${path}`),
     loadFile: vi.fn().mockResolvedValue({
       content: "profile content",
     }),
   },
 }));
 
-vi.mock("./FilesWorkspace", () => ({
-  default: () => <div data-testid="files-workspace" />,
+vi.mock("../workbench/WorkbenchShell", () => ({
+  default: () => <div data-testid="workbench-shell" />,
 }));
 
 vi.mock("../../utils/downloadFileFromUrl", () => ({
@@ -104,7 +102,7 @@ describe("FilesDrawer", () => {
     });
   });
 
-  it("does not repeat the Workspace label in the expanded header", async () => {
+  it("replaces the preview header with the Workbench shell", async () => {
     renderWithProviders(
       <FilesDrawer
         state={{
@@ -125,7 +123,7 @@ describe("FilesDrawer", () => {
       />,
     );
 
-    expect(await screen.findByTestId("files-workspace")).toBeInTheDocument();
+    expect(await screen.findByTestId("workbench-shell")).toBeInTheDocument();
     expect(
       screen.queryByText((content) =>
         ["工作区", "Workspace", "files.workspace"].includes(content),
@@ -211,7 +209,9 @@ describe("FilesDrawer", () => {
       expect(drawer.className).not.toContain("drawerResizing");
     });
     expect(drawer).toHaveStyle({ width: "600px" });
-    expect(localStorage.getItem("qwenpaw-files-workspace-width")).toBe("600");
+    expect(
+      localStorage.getItem("qwenpaw-workbench-width:default:session-1"),
+    ).toBe("600");
   });
 
   it("uses left and right arrow keys from the right-side resize edge", async () => {
@@ -249,7 +249,7 @@ describe("FilesDrawer", () => {
 
   it("applies persisted widths when the drawer mode changes", () => {
     localStorage.setItem("qwenpaw-files-preview-width", "480");
-    localStorage.setItem("qwenpaw-files-workspace-width", "720");
+    localStorage.setItem("qwenpaw-workbench-width:default:session-1", "720");
     const dispatch = vi.fn();
     const scope = {
       kind: "session" as const,

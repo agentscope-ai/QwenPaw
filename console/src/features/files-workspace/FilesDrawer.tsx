@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   Copy,
   Download,
   Expand,
@@ -27,13 +26,13 @@ import { copyText } from "../../utils/clipboard";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import { workbenchWidthStorageKey } from "../workbench/workbenchPreferences";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
-const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
-const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+const WorkbenchShell = lazy(() => import("../workbench/WorkbenchShell"));
 
 function readStoredWidth(key: string): number {
   if (typeof window === "undefined") return 0;
@@ -85,8 +84,12 @@ export default function FilesDrawer({
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
+  const workspaceWidthKey = workbenchWidthStorageKey(
+    scope.agentId,
+    scope.sessionId,
+  );
   const widthStorageKey = isWorkspace
-    ? WORKSPACE_WIDTH_STORAGE_KEY
+    ? workspaceWidthKey
     : PREVIEW_WIDTH_STORAGE_KEY;
   const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 
@@ -275,7 +278,6 @@ export default function FilesDrawer({
         isWorkspace ? styles.drawerWorkspace : styles.drawerPreview
       } ${isResizing ? styles.drawerResizing : ""}`}
       style={drawerStyle}
-      layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
         prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.995 }
       }
@@ -289,19 +291,13 @@ export default function FilesDrawer({
         prefersReducedMotion
           ? { duration: 0 }
           : {
-              layout: {
-                type: "spring",
-                stiffness: 360,
-                damping: 38,
-                mass: 0.82,
-              },
               opacity: { duration: 0.2, ease: "easeOut" },
               x: { duration: 0.28, ease: [0.22, 0.78, 0.24, 1] },
               scale: { duration: 0.28, ease: [0.22, 0.78, 0.24, 1] },
             }
       }
       role="region"
-      aria-label={t("files.title")}
+      aria-label={t(isWorkspace ? "workbench.navigation" : "files.title")}
       tabIndex={-1}
     >
       <div
@@ -338,77 +334,69 @@ export default function FilesDrawer({
           });
         }}
       />
-      <header className={styles.drawerHeader}>
-        <div className={styles.fileMark}>
-          <FileText size={17} />
-        </div>
-        <div className={styles.drawerTitle}>
-          <strong>{filename}</strong>
-          {!isWorkspace && (
-            <span>
-              {metadata
-                ? t("files.previewSize", { size: metadata.size })
-                : t("files.preview")}
-            </span>
+      {!isWorkspace && (
+        <header className={styles.drawerHeader}>
+          <div className={styles.fileMark}>
+            <FileText size={17} />
+          </div>
+          <div className={styles.drawerTitle}>
+            <strong>{filename}</strong>
+            {!isWorkspace && (
+              <span>
+                {metadata
+                  ? t("files.previewSize", { size: metadata.size })
+                  : t("files.preview")}
+              </span>
+            )}
+          </div>
+          {target && canCopy && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={t("common.copy")}
+              onClick={() => void handleCopy()}
+            >
+              <Copy size={16} />
+            </button>
           )}
-        </div>
-        {isWorkspace && target && (
-          <button
-            type="button"
-            className={styles.secondaryButton}
-            onClick={() => dispatch({ type: "COLLAPSE_TO_PREVIEW" })}
-          >
-            <ArrowLeft size={15} />
-            {t("files.backToPreview")}
-          </button>
-        )}
-        {target && canCopy && (
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label={t("common.copy")}
-            onClick={() => void handleCopy()}
-          >
-            <Copy size={16} />
-          </button>
-        )}
-        {target && (target.source === "workspace" || target.artifactUrl) && (
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label={t("files.download")}
-            onClick={() =>
-              void downloadFileFromUrl(
-                target.artifactUrl ??
-                  workspaceApi.getFileDownloadUrl(target.path, target.root),
-                filename,
-                {
-                  headers: {
-                    ...buildAuthHeaders(),
-                    ...(chatId ? { "X-Chat-Id": chatId } : {}),
-                    ...(!chatId && projectDirOverride
-                      ? {
-                          "X-Session-Project-Dir": projectDirOverride,
-                        }
-                      : {}),
+          {target && (target.source === "workspace" || target.artifactUrl) && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={t("files.download")}
+              onClick={() =>
+                void downloadFileFromUrl(
+                  target.artifactUrl ??
+                    workspaceApi.getFileDownloadUrl(target.path, target.root),
+                  filename,
+                  {
+                    headers: {
+                      ...buildAuthHeaders(),
+                      ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                      ...(!chatId && projectDirOverride
+                        ? {
+                            "X-Session-Project-Dir": projectDirOverride,
+                          }
+                        : {}),
+                    },
+                    errorMessage: t("files.downloadFailed"),
                   },
-                  errorMessage: t("files.downloadFailed"),
-                },
-              )
-            }
+                )
+              }
+            >
+              <Download size={16} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label={t("common.close")}
+            onClick={close}
           >
-            <Download size={16} />
+            <X size={17} />
           </button>
-        )}
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label={t("common.close")}
-          onClick={close}
-        >
-          <X size={17} />
-        </button>
-      </header>
+        </header>
+      )}
 
       <AnimatePresence initial={false} mode="popLayout">
         <motion.div
@@ -437,7 +425,11 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace initialTarget={target} scope={scope} />
+              <WorkbenchShell
+                initialTarget={target}
+                scope={scope}
+                onClose={close}
+              />
             </Suspense>
           ) : (
             <>

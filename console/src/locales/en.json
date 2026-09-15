@@ -2623,6 +2623,16 @@
     "perMillionIn": "/1M in",
     "perMillionOut": "/1M out"
   },
+  "workbench": {
+    "navigation": "Workbench",
+    "files": "Files",
+    "changes": "Changes",
+    "terminal": "Terminal",
+    "tools": "Tools",
+    "codingModeRequired": "Enable enhanced coding capabilities to use Changes",
+    "sessionRequired": "Changes will be available after the first message",
+    "phasePlaceholder": "This capability will be connected in the next Workbench phase."
+  },
   "files": {
     "title": "Files",
     "navigator": "Files navigator",

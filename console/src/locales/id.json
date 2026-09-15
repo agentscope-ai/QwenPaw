@@ -2941,6 +2941,16 @@
     "perMillionIn": "/1 juta masuk",
     "perMillionOut": "/1 juta keluar"
   },
+  "workbench": {
+    "navigation": "Workbench",
+    "files": "File",
+    "changes": "Perubahan",
+    "terminal": "Terminal",
+    "tools": "Alat",
+    "codingModeRequired": "Aktifkan kemampuan coding lanjutan untuk menggunakan Perubahan",
+    "sessionRequired": "Perubahan tersedia setelah pesan pertama dikirim",
+    "phasePlaceholder": "Kemampuan ini akan dihubungkan pada tahap Workbench berikutnya."
+  },
   "files": {
     "title": "File",
     "navigator": "Navigator file",
