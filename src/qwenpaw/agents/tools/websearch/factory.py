@@ -9,6 +9,7 @@ from ....app.agent_context import get_current_agent_id
 from ....config.config import load_agent_config
 from .anysearch import AnySearchProvider
 from .base import SearchProvider
+from .serply import SerplyProvider
 from .tavily import TavilyProvider
 
 
@@ -38,9 +39,11 @@ def get_search_provider() -> SearchProvider:
         return TavilyProvider()
     if choice == "anysearch":
         return AnySearchProvider()
+    if choice == "serply":
+        return SerplyProvider()
     raise ValueError(
         f"Unknown web_search provider: {choice!r} "
-        "(expected 'tavily' or 'anysearch')",
+        "(expected 'tavily', 'anysearch' or 'serply')",
     )
 
 
