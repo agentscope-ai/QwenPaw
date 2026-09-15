@@ -852,6 +852,7 @@ class Workspace:
             for view in self._task_tracker.conversation_views.values():
                 await view.close()
             self._task_tracker.conversation_views.clear()
+            self._task_tracker.close_input_contexts()
 
         if self._harness_runtime is not None:
             await self._harness_runtime.stop()

@@ -65,7 +65,9 @@ def _missing_deleted_item(
     message = str(error.get("message") or "")
     if "cannot find item" not in message.lower():
         return None
-    return next((item_id for item_id in pending_item_ids if item_id in message), None)
+    return next(
+        (item_id for item_id in pending_item_ids if item_id in message), None
+    )
 
 
 def _endpoint(override: str | None, region: str, model: str) -> str:
@@ -81,6 +83,7 @@ def _endpoint(override: str | None, region: str, model: str) -> str:
 @dataclass
 class _InputTurnState:
     item_ids: set[str] = field(default_factory=set)
+    speech_started: bool = False
     transcript_final: bool = False
     auto_response_terminal: bool = False
     cleanup_scheduled: bool = False
@@ -177,13 +180,17 @@ class DashScopeRealtimeSession:
     async def _configure(self) -> None:
         session = self._session_config
         if session is None:
-            raise RuntimeError("Realtime Voice session configuration is missing")
+            raise RuntimeError(
+                "Realtime Voice session configuration is missing"
+            )
         turn_detection: dict[str, Any] = {"type": self._config.vad_mode}
         if self._config.vad_mode == "server_vad":
             turn_detection.update(
                 {
                     "threshold": self._config.vad_threshold,
-                    "silence_duration_ms": (self._config.vad_silence_duration_ms),
+                    "silence_duration_ms": (
+                        self._config.vad_silence_duration_ms
+                    ),
                 }
             )
         await self._send(
@@ -362,9 +369,8 @@ class DashScopeRealtimeSession:
         finally:
             self._idle.set()
             self._presentation_ready.set()
-            pending = (
-                tuple(self._pending_items.values())
-                + tuple(self._pending_deletions.values())
+            pending = tuple(self._pending_items.values()) + tuple(
+                self._pending_deletions.values()
             )
             for future in pending:
                 if not future.done():
@@ -392,16 +398,16 @@ class DashScopeRealtimeSession:
             return
         if kind == "conversation.item.created":
             item = payload.get("item")
-            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
+            item_id = (
+                str(item.get("id") or "") if isinstance(item, dict) else ""
+            )
             future = self._pending_items.get(item_id)
             if future is not None and not future.done():
                 future.set_result(None)
             elif isinstance(item, dict):
                 role = str(item.get("role") or "")
                 if role == "user" and item_id:
-                    turn_id, turn = self._current_input_turn()
-                    turn.item_ids.add(item_id)
-                    self._input_item_turns[item_id] = turn_id
+                    self._input_turn_for_item(item_id)
                 elif role == "assistant" and item_id:
                     self._active_response_items.add(item_id)
             return
@@ -412,25 +418,41 @@ class DashScopeRealtimeSession:
                 future.set_result(None)
             return
         if kind == "input_audio_buffer.speech_started":
+            item_id = str(payload.get("item_id") or "")
+            turn_id, turn = self._input_turn_for_item(item_id)
+            if turn is None or turn.speech_started or turn.transcript_final:
+                return
+            turn.speech_started = True
             self._presentation_ready.clear()
-            self._input_turn_sequence += 1
-            self._active_input_turn = self._input_turn_sequence
-            self._input_turns[self._active_input_turn] = _InputTurnState()
+            self._active_input_turn = turn_id
             response_id = self._active_response_id
             if self._response_requested or response_id:
                 self._drop_audio = True
-            await self._events.put(ProviderEvent("speech.started", event_id))
+            await self._events.put(
+                ProviderEvent(
+                    "speech.started",
+                    event_id,
+                    correlation_id=item_id or None,
+                )
+            )
             if self._response_requested or response_id:
                 self._schedule_barge_cancel(response_id)
             return
         if kind == "input_audio_buffer.speech_stopped":
-            await self._events.put(ProviderEvent("speech.stopped", event_id))
+            await self._events.put(
+                ProviderEvent(
+                    "speech.stopped",
+                    event_id,
+                    correlation_id=str(payload.get("item_id") or "") or None,
+                )
+            )
             return
         if kind in {
             "conversation.item.input_audio_transcription.delta",
             "conversation.item.input_audio_transcription.text",
         }:
-            # Both wire events carry a confirmed prefix plus a revisable suffix.
+            # Both wire events carry a confirmed prefix plus a revisable
+            # suffix.
             text = str(payload.get("text") or "") + str(
                 payload.get("stash") or "",
             )
@@ -443,33 +465,40 @@ class DashScopeRealtimeSession:
                 )
             )
             return
-        if kind == "conversation.item.input_audio_transcription.completed":
-            text = str(payload.get("transcript") or payload.get("text") or "").strip()
+        if kind in {
+            "conversation.item.input_audio_transcription.completed",
+            "conversation.item.input_audio_transcription.failed",
+        }:
+            text = str(
+                payload.get("transcript") or payload.get("text") or ""
+            ).strip()
             item_id = str(payload.get("item_id") or "")
-            turn_id = self._input_item_turns.get(item_id)
-            turn = self._input_turns.get(turn_id or -1)
-            if turn is None:
-                turn_id, turn = self._current_input_turn()
-            if item_id:
-                turn.item_ids.add(item_id)
-                self._input_item_turns[item_id] = turn_id
+            turn_id, turn = self._input_turn_for_item(item_id)
+            if turn is None or turn.transcript_final:
+                return
             turn.transcript_final = True
-            if text:
-                await self._events.put(
-                    ProviderEvent(
-                        "input_transcript.final",
-                        event_id,
-                        {"text": text},
-                        correlation_id=(item_id or None),
-                    )
+            failed = kind.endswith(".failed")
+            await self._events.put(
+                ProviderEvent(
+                    "input_transcript.failed"
+                    if failed
+                    else "input_transcript.final",
+                    event_id,
+                    {"code": "voice_transcription_failed"}
+                    if failed
+                    else {"text": text},
+                    correlation_id=item_id or None,
                 )
+            )
             self._schedule_input_cleanup_if_ready(turn_id)
             self._schedule_input_cleanup_fallback(turn_id)
             return
         if kind == "response.created":
             response = payload.get("response")
             response_id = (
-                str(response.get("id") or "") if isinstance(response, dict) else ""
+                str(response.get("id") or "")
+                if isinstance(response, dict)
+                else ""
             )
             origin = self._pending_response_origin or "provider_auto"
             self._response_requested = False
@@ -500,7 +529,9 @@ class DashScopeRealtimeSession:
             return
         if kind in {"response.output_item.added", "response.output_item.done"}:
             item = payload.get("item")
-            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
+            item_id = (
+                str(item.get("id") or "") if isinstance(item, dict) else ""
+            )
             if item_id:
                 self._active_response_items.add(item_id)
             return
@@ -528,7 +559,9 @@ class DashScopeRealtimeSession:
             "response.text.done",
             "response.output_text.done",
         }:
-            text = str(payload.get("transcript") or payload.get("text") or "").strip()
+            text = str(
+                payload.get("transcript") or payload.get("text") or ""
+            ).strip()
             if (
                 text
                 and not self._output_final_emitted
@@ -692,12 +725,9 @@ class DashScopeRealtimeSession:
     ) -> None:
         try:
             await asyncio.sleep(_BARGE_IN_CANCEL_FALLBACK_SECONDS)
-            if (
-                self._response_requested
-                or (
-                    response_id is not None
-                    and self._active_response_id == response_id
-                )
+            if self._response_requested or (
+                response_id is not None
+                and self._active_response_id == response_id
             ):
                 await self.interrupt_output()
         except asyncio.CancelledError:
@@ -714,6 +744,25 @@ class DashScopeRealtimeSession:
         turn = _InputTurnState()
         self._input_turns[turn_id] = turn
         self._presentation_ready.clear()
+        return turn_id, turn
+
+    def _input_turn_for_item(
+        self,
+        item_id: str,
+    ) -> tuple[int, _InputTurnState | None]:
+        if item_id in self._input_item_turns:
+            turn_id = self._input_item_turns[item_id]
+            return turn_id, self._input_turns.get(turn_id)
+        self._input_turn_sequence += 1
+        turn_id = self._input_turn_sequence
+        turn = _InputTurnState()
+        self._input_turns[turn_id] = turn
+        if item_id:
+            self._input_item_turns[item_id] = turn_id
+            turn.item_ids.add(item_id)
+        if self._active_input_turn not in self._input_turns:
+            self._active_input_turn = turn_id
+            self._presentation_ready.clear()
         return turn_id, turn
 
     def _schedule_input_cleanup_if_ready(self, turn_id: int) -> None:
@@ -769,13 +818,16 @@ class DashScopeRealtimeSession:
             await self._emit_exception(exc, "cleanup", True)
         finally:
             self._input_turns.pop(turn_id, None)
-            for item_id in item_ids:
-                self._input_item_turns.pop(item_id, None)
+            # Keep identity tombstones until close: a duplicate/late event
+            # must not recreate a cleaned input or attach it to newer speech.
             if turn_id == self._active_input_turn:
                 self._presentation_ready.set()
 
     async def _start_output(self, event_id: str) -> None:
-        if self._output_started or self._active_response_origin != "application":
+        if (
+            self._output_started
+            or self._active_response_origin != "application"
+        ):
             return
         self._output_started = True
         await self._events.put(

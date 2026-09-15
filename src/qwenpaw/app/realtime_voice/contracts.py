@@ -19,44 +19,15 @@ MAX_AUDIO_PAYLOAD_BYTES = 256 * 1024
 _AUDIO_MAGIC = b"QV"
 _AUDIO_HEADER = struct.Struct("!2sBBIIHI")
 VoiceAdmissionMode = Literal["queue", "steer"]
-VoiceActionType = Literal[
-    "DELEGATE",
-    "FOLLOW_UP",
-    "STATUS",
-    "CONVERSE",
-    "CLARIFY",
-]
+VoiceActionType = Literal["HANDOFF", "CONVERSE", "CLARIFY"]
 
 
 @dataclass(frozen=True)
-class DelegateVoiceAction:
-    """Submit one new request to the ordinary Agent."""
-
-    request: str
-    type: Literal["DELEGATE"] = field(default="DELEGATE", init=False)
-
-    def public_dict(self) -> dict[str, str]:
-        return {"type": self.type}
-
-
-@dataclass(frozen=True)
-class FollowUpVoiceAction:
-    """Add one instruction to an existing speakable task."""
-
-    task_ref: str
-    instruction: str
-    type: Literal["FOLLOW_UP"] = field(default="FOLLOW_UP", init=False)
-
-    def public_dict(self) -> dict[str, str]:
-        return {"type": self.type, "task_ref": self.task_ref}
-
-
-@dataclass(frozen=True)
-class StatusVoiceAction:
-    """Read authoritative state without starting Agent work."""
+class HandoffVoiceAction:
+    """Hand original speech to the current Chat's ordinary Agent."""
 
     task_ref: str = ""
-    type: Literal["STATUS"] = field(default="STATUS", init=False)
+    type: Literal["HANDOFF"] = field(default="HANDOFF", init=False)
 
     def public_dict(self) -> dict[str, str]:
         return {
@@ -86,13 +57,7 @@ class ClarifyVoiceAction:
         return {"type": self.type}
 
 
-VoiceAction = (
-    DelegateVoiceAction
-    | FollowUpVoiceAction
-    | StatusVoiceAction
-    | ConverseVoiceAction
-    | ClarifyVoiceAction
-)
+VoiceAction = HandoffVoiceAction | ConverseVoiceAction | ClarifyVoiceAction
 
 
 class AudioFrameKind(IntEnum):
@@ -304,12 +269,10 @@ __all__ = [
     "ClarifyVoiceAction",
     "ConverseVoiceAction",
     "CreateSessionRequest",
-    "DelegateVoiceAction",
-    "FollowUpVoiceAction",
+    "HandoffVoiceAction",
     "MediaConfig",
     "RealtimeVoiceServiceError",
     "SessionBootstrap",
-    "StatusVoiceAction",
     "VoiceAction",
     "VoiceActionType",
     "VoiceAdmissionMode",

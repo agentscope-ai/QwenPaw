@@ -146,6 +146,7 @@ def voice_exchange_messages(
     *,
     timeline_order: int,
     generation_status: str = "",
+    query_target_input_ids: tuple[str, ...] = (),
 ) -> list[Msg]:
     """One native record shape for generated context and durable history."""
     if not user_text.strip():
@@ -160,10 +161,17 @@ def voice_exchange_messages(
             id=turn_id,
             name="user",
             role="user",
-            content=[TextBlock(id=turn_id, type="text", text=user_text.strip())],
+            content=[
+                TextBlock(id=turn_id, type="text", text=user_text.strip())
+            ],
             metadata={
                 **metadata,
                 QWENPAW_MESSAGE_TAG_KEY: EXTERNAL_USER_QUERY_MESSAGE_TAG,
+                **(
+                    {"query_target_input_ids": list(query_target_input_ids)}
+                    if query_target_input_ids
+                    else {}
+                ),
             },
         )
     ]
@@ -175,7 +183,8 @@ def voice_exchange_messages(
                 role="assistant",
                 content=[
                     TextBlock(
-                        id=f"{turn_id}_assistant", type="text",
+                        id=f"{turn_id}_assistant",
+                        type="text",
                         text=assistant_text.strip(),
                     ),
                 ],
@@ -294,6 +303,7 @@ class ChatTimelineJournal:
         *,
         timeline_order: int,
         generation_status: str = "",
+        query_target_input_ids: tuple[str, ...] = (),
     ) -> list[Message]:
         """Durably append one user-visible Voice exchange."""
         messages = voice_exchange_messages(
@@ -302,6 +312,7 @@ class ChatTimelineJournal:
             assistant_text,
             timeline_order=timeline_order,
             generation_status=generation_status,
+            query_target_input_ids=query_target_input_ids,
         )
         if not messages:
             return []
@@ -361,7 +372,8 @@ class ChatTimelineJournal:
                     )
                 except ValidationError:
                     logger.exception(
-                        "Cannot reconcile Chat timeline into invalid Agent state"
+                        "Cannot reconcile Chat timeline into invalid "
+                        "Agent state"
                     )
                     return 0
                 before = len(agent_state.context)

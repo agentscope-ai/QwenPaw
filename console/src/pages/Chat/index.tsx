@@ -4391,47 +4391,39 @@ export default function ChatPage() {
         components: { input: LongTextPasteInput },
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: !isVoiceChat && whisperChecked && !whisperEnabled,
-        beforeUI: isVoiceChat ? (
-          <>
-            {isQueueOnlyTab && (
-              <Alert
-                type="info"
-                showIcon
-                banner
-                message={t("chat.queue.otherTabOwner")}
-              />
-            )}
-            <RealtimeVoiceControls
-              voice={realtimeVoice}
-              canStart={canStartRealtimeVoice}
-            />
-          </>
-        ) : showSenderBeforeUI ? (
-          <>
-            {!isVoiceChat && isQueueOnlyTab && (
-              <Alert
-                type="info"
-                showIcon
-                banner
-                message={t("chat.queue.otherTabOwner")}
-              />
-            )}
-            {!isVoiceChat && (
-              <ChatSenderTabsPanel
-                bgSessionId={bgBackendSessionId}
-                queueSessionId={queueKey}
-                onRemove={handleQueueRemove}
-                onEdit={handleQueueEdit}
-                onReorder={handleQueueReorder}
-                onInterruptAndSend={handleQueueInterruptAndSend}
-                onClear={handleQueueClear}
-                onPauseResume={handleQueuePauseResume}
-                onRetry={handleQueueRetry}
-                onSkip={handleQueueSkip}
-              />
-            )}
-          </>
-        ) : undefined,
+        beforeUI:
+          isVoiceChat || showSenderBeforeUI ? (
+            <>
+              {isQueueOnlyTab && (
+                <Alert
+                  type="info"
+                  showIcon
+                  banner
+                  message={t("chat.queue.otherTabOwner")}
+                />
+              )}
+              {isVoiceChat && (
+                <RealtimeVoiceControls
+                  voice={realtimeVoice}
+                  canStart={canStartRealtimeVoice}
+                />
+              )}
+              {showSenderBeforeUI && (
+                <ChatSenderTabsPanel
+                  bgSessionId={bgBackendSessionId}
+                  queueSessionId={queueKey}
+                  onRemove={handleQueueRemove}
+                  onEdit={handleQueueEdit}
+                  onReorder={handleQueueReorder}
+                  onInterruptAndSend={handleQueueInterruptAndSend}
+                  onClear={handleQueueClear}
+                  onPauseResume={handleQueuePauseResume}
+                  onRetry={handleQueueRetry}
+                  onSkip={handleQueueSkip}
+                />
+              )}
+            </>
+          ) : undefined,
         prefix: (
           <>
             {!isVoiceChat && whisperEnabled ? (

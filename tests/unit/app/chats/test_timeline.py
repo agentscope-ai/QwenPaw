@@ -33,18 +33,79 @@ def build_journal(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_early_voice_input_then_cancelled_generation_survives_reload(tmp_path):
+async def test_query_target_survives_duplicate_save_and_reconciliation(
+    tmp_path,
+):
     journal, workspace, chat = build_journal(tmp_path)
     order = await journal.reserve_order()
-    early = await journal.append_voice_exchange("spoken", "question", timeline_order=order)
+    for _ in range(2):
+        await journal.append_voice_exchange(
+            "query",
+            "旧工作怎么样了？",
+            timeline_order=order,
+            query_target_input_ids=("original-input",),
+        )
+    pending = pending_timeline_messages(
+        await workspace.session.get_session_state_dict(
+            chat.session_id,
+            chat.user_id,
+            chat.channel,
+        ),
+    )
+    assert len(pending) == 1
+    assert pending[0].id == "query"
+    assert pending[0].metadata["query_target_input_ids"] == ["original-input"]
+    assert await journal.reconcile() == 1
+    await journal.append_voice_exchange(
+        "query",
+        "旧工作怎么样了？",
+        "查询的部分回答",
+        timeline_order=order,
+        generation_status="cancelled",
+        query_target_input_ids=("original-input",),
+    )
+    assert await journal.reconcile() == 1
+    restored = SafeJSONSession(str(tmp_path))
+    state = await restored.get_session_state_dict(
+        chat.session_id,
+        chat.user_id,
+        chat.channel,
+    )
+    messages = AgentState.model_validate(state["agent"]["state"]).context
+    assert [message.id for message in messages] == ["query", "query_assistant"]
+    assert messages[0].metadata["query_target_input_ids"] == ["original-input"]
+    assert "query_target_input_ids" not in messages[1].metadata
+    assert messages[1].metadata["responds_to_input_ids"] == ["query"]
+    fresh, _, _ = build_journal(tmp_path)
+    live = await journal.read_context(max_turns=1, max_chars=2000)
+    cold = await fresh.read_context(max_turns=1, max_chars=2000)
+    assert cold == live
+    await journal.conversation_view().close()
+    await fresh.conversation_view().close()
+
+
+@pytest.mark.asyncio
+async def test_early_voice_input_then_cancelled_generation_survives_reload(
+    tmp_path,
+):
+    journal, workspace, chat = build_journal(tmp_path)
+    order = await journal.reserve_order()
+    early = await journal.append_voice_exchange(
+        "spoken", "question", timeline_order=order
+    )
     assert await journal.reconcile() == 1
     completed = await journal.append_voice_exchange(
-        "spoken", "question", "partial answer", timeline_order=order,
+        "spoken",
+        "question",
+        "partial answer",
+        timeline_order=order,
         generation_status="cancelled",
     )
     await journal.reconcile()
     reloaded = SafeJSONSession(str(tmp_path))
-    state = await reloaded.get_session_state_dict(chat.session_id, chat.user_id, chat.channel)
+    state = await reloaded.get_session_state_dict(
+        chat.session_id, chat.user_id, chat.channel
+    )
     messages = AgentState.model_validate(state["agent"]["state"]).context
     assert [msg.id for msg in messages] == ["spoken", "spoken_assistant"]
     assert messages[-1].metadata["voice_generation_status"] == "cancelled"
@@ -72,7 +133,8 @@ async def test_journal_reconciles_voice_exchange_into_agent_context(tmp_path):
         chat.channel,
     )
     assert [
-        msg.get_text_content() for msg in pending_timeline_messages(pending_state)
+        msg.get_text_content()
+        for msg in pending_timeline_messages(pending_state)
     ] == [
         "你好",
         "你好呀",
@@ -142,7 +204,9 @@ async def test_reconcile_waits_until_active_chat_run_finishes(tmp_path):
 async def test_order_reservations_are_atomic_and_monotonic(tmp_path):
     journal, _workspace, _chat = build_journal(tmp_path)
 
-    orders = await asyncio.gather(*(journal.reserve_order() for _ in range(20)))
+    orders = await asyncio.gather(
+        *(journal.reserve_order() for _ in range(20))
+    )
 
     assert sorted(orders) == list(range(1, 21))
 

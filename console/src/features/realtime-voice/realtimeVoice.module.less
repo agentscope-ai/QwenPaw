@@ -6,10 +6,10 @@
 
 .voiceDock {
   min-height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   padding: 11px 12px 11px 15px;
   border: 1px solid var(--ant-color-border-secondary);
   border-radius: 14px;
@@ -31,7 +31,6 @@
 
 .statusSummary {
   min-width: 0;
-  flex: 1 1 280px;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -113,7 +112,7 @@
 .actions {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
 }
@@ -137,10 +136,12 @@
 
 .deviceSelect {
   width: 168px;
+  max-width: 100%;
 }
 
 .admissionSelect {
   width: 124px;
+  max-width: 100%;
 }
 
 .alert {
@@ -148,20 +149,11 @@
 }
 
 @media (max-width: 720px) {
-  .statusSummary {
-    flex: 0 0 auto;
-    width: 100%;
-  }
-
   .voiceDock {
-    align-items: flex-start;
-    flex-direction: column;
     padding: 12px;
   }
 
   .actions {
-    width: 100%;
-    flex-wrap: wrap;
     justify-content: flex-start;
   }
 
@@ -172,13 +164,5 @@
 
   .primaryAction {
     flex: 1;
-  }
-
-  .deviceSelect {
-    width: min(168px, 100%);
-  }
-
-  .admissionSelect {
-    width: min(144px, 100%);
   }
 }

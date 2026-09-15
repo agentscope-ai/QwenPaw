@@ -9,9 +9,7 @@ from qwenpaw.app.chats.replies import ChatReply, ChatReplyView
 
 from qwenpaw.app.realtime_voice.contracts import (
     ConverseVoiceAction,
-    DelegateVoiceAction,
-    FollowUpVoiceAction,
-    StatusVoiceAction,
+    HandoffVoiceAction,
     VoiceRunEvent,
     VoiceTaskEvent,
     VoiceTaskReceipt,
@@ -24,6 +22,7 @@ from qwenpaw.app.realtime_voice.presentation import (
 )
 from qwenpaw.app.realtime_voice.task_bridge import VoiceAdmissionHandle
 from qwenpaw.app.realtime_voice.turn_commit import (
+    CommittedSpokenTurn,
     SpokenTurnCommitter,
     VoiceRouteDecision,
 )
@@ -67,8 +66,7 @@ class Bridge:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.submit = AsyncMock()
-        self.status = AsyncMock()
-        self.send_followup = AsyncMock()
+        self.status = AsyncMock(return_value=snapshot("task-1"))
         self.enqueue_action = AsyncMock()
         self.observe_input = Mock()
         self.routing_snapshots = AsyncMock(return_value=())
@@ -98,10 +96,64 @@ async def eventually(predicate) -> None:
 
 
 @pytest.mark.asyncio
+async def test_handoff_preserves_original_words_without_voice_history_write():
+    provider, bridge = Provider(), Bridge()
+    bridge.enqueue_action.side_effect = [
+        admission(receipt(task_id="a", task_ref="请求一")),
+        admission(receipt(task_id="b", task_ref="请求二")),
+    ]
+
+    async def route(_text, **_kwargs):
+        return replace(
+            VoiceRouteDecision.commit(HandoffVoiceAction()),
+            conversation_context=timeline.read_context.return_value,
+        )
+
+    coordinator, _, timeline = build_coordinator(provider, bridge, route)
+    timeline.read_context.return_value = "公开前文403；这是受控历史，不是重新执行授权"
+    await coordinator.start()
+    try:
+        for source, text in (
+            ("first", "之前为什么失败？不要重新执行。"),
+            ("second", "再告诉我对应文件名"),
+        ):
+            await provider.queue.put(input_segment(source, text))
+            await eventually(
+                lambda: bridge.enqueue_action.await_count
+                == (1 if source == "first" else 2)
+            )
+        calls = bridge.enqueue_action.await_args_list
+        assert [call.args[1] for call in calls] == [
+            "之前为什么失败？不要重新执行。",
+            "再告诉我对应文件名",
+        ]
+        assert (
+            calls[0].kwargs["idempotency_key"]
+            != calls[1].kwargs["idempotency_key"]
+        )
+        assert all(
+            call.kwargs["conversation_context"]
+            == timeline.read_context.return_value
+            for call in calls
+        )
+        timeline.append_voice_exchange.assert_not_awaited()
+        timeline.observe_voice_exchange.assert_not_called()
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
 async def test_commit_registration_does_not_wait_for_previous_history_save():
     provider, bridge = Provider(), Bridge()
+
     async def route(_text, **_kwargs):
-        return VoiceRouteDecision.commit(StatusVoiceAction("任务一"))
+        return VoiceRouteDecision.commit(
+            ConverseVoiceAction()
+            if _text == "What happened?"
+            else HandoffVoiceAction()
+        )
+
+    bridge.enqueue_action.return_value = admission(receipt())
     coordinator, _, timeline = build_coordinator(provider, bridge, route)
     saving, release = asyncio.Event(), asyncio.Event()
 
@@ -118,7 +170,9 @@ async def test_commit_registration_does_not_wait_for_previous_history_save():
         await provider.queue.put(input_segment("later", "Do not run again"))
         await eventually(lambda: bridge.observe_input.call_count == 2)
         assert bridge.observe_input.call_args.args[1] == "Do not run again"
-        bridge.enqueue_action.assert_not_awaited()
+        await eventually(lambda: bridge.enqueue_action.await_count == 1)
+        bridge.enqueue_action.assert_awaited_once()
+        assert bridge.enqueue_action.await_args.args[1] == "Do not run again"
     finally:
         release.set()
         await coordinator.close()
@@ -155,30 +209,32 @@ async def test_converse_purpose_does_not_assert_task_category_or_mutation():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("followup", [False, True])
-async def test_receipt_uses_accepted_words_without_waiting_for_task_state(followup):
-    from qwenpaw.app.realtime_voice.turn_commit import CommittedSpokenTurn
-
+@pytest.mark.parametrize("referenced", [False, True])
+async def test_receipt_uses_accepted_words_without_waiting_for_task_state(
+    referenced,
+):
     provider, bridge = Provider(), Bridge()
     coordinator, _, _ = build_coordinator(provider, bridge, [])
-    original = "更正报告的范围，只查询，不要重做。" if followup else "准备季度报告。"
+    original = "更正报告的范围，只查询，不要重做。" if referenced else "准备季度报告。"
     action = (
-        FollowUpVoiceAction("内部任务九", original)
-        if followup else DelegateVoiceAction(original)
+        HandoffVoiceAction("内部任务九") if referenced else HandoffVoiceAction()
     )
     turn = CommittedSpokenTurn(
-        turn_id="turn", text=original, source_ids=("source",),
-        origin="semantic", action=action,
+        turn_id="turn",
+        text=original,
+        source_ids=("source",),
+        origin="semantic",
+        action=action,
     )
     await coordinator._queue_receipt(turn, receipt(task_ref="内部任务九"))
     intent = await coordinator._presentation_queue.get()
-    assert intent.receipt_is_followup is followup
+    assert intent.kind == "receipt"
     assert intent.history_user_text == original
     await coordinator._present(intent)
     instruction = provider.created_messages[-2][2]
     assert original in instruction
     assert '"accepted": true' in instruction
-    assert f'"request_kind": "{"followup" if followup else "new_request"}"' in instruction
+    assert '"request_kind": "message"' in instruction
     assert "内部任务九" not in instruction
     assert "接收补充不代表已经修改、重新执行或取消了操作" in instruction
     bridge.presentation_snapshots.assert_not_awaited()
@@ -186,7 +242,7 @@ async def test_receipt_uses_accepted_words_without_waiting_for_task_state(follow
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["status", "update"])
+@pytest.mark.parametrize("kind", ["update"])
 async def test_speech_keeps_request_and_answer_without_fabricated_names(kind):
     provider, bridge = Provider(), Bridge()
     coordinator, _, _ = build_coordinator(provider, bridge, [])
@@ -204,11 +260,16 @@ async def test_speech_keeps_request_and_answer_without_fabricated_names(kind):
         replies=replies,
     )
     bridge.presentation_snapshots.return_value = (task,)
-    instruction = await coordinator._presentation_instruction(PresentationIntent(kind))
+    instruction = await coordinator._presentation_instruction(
+        PresentationIntent(kind)
+    )
     assert original in instruction and correction in instruction
     assert "内部任务九" not in instruction
     assert "第1条输入" not in instruction and "第2项要求" not in instruction
-    assert '"request_order": 1' in instruction and '"request_order": 2' in instruction
+    assert (
+        '"request_order": 1' in instruction
+        and '"request_order": 2' in instruction
+    )
     assert instruction.count('"text": "已有结果：42。"') == 2
     assert "补充要求的答复返回不代表按补充要求重新执行了操作" in instruction
     assert task.replies == replies
@@ -234,7 +295,6 @@ async def test_converse_keeps_current_words_without_submitting_work():
     ]
     bridge.enqueue_action.assert_not_awaited()
     bridge.submit.assert_not_awaited()
-    bridge.send_followup.assert_not_awaited()
     bridge.presentation_snapshots.assert_not_awaited()
     provider.delete_items.assert_awaited_once()
 
@@ -312,7 +372,7 @@ async def test_next_converse_receives_generated_context_before_disk_save(
 
 
 @pytest.mark.asyncio
-async def test_fresh_query_waits_for_ordered_seal_and_browser_credit():
+async def test_direct_converse_waits_for_ordered_seal_and_browser_credit():
     provider, bridge = Provider(), Bridge()
     coordinator, _, timeline = build_coordinator(provider, bridge, [])
     await coordinator.start()
@@ -329,7 +389,7 @@ async def test_fresh_query_waits_for_ordered_seal_and_browser_credit():
         persist_exchange=False,
     )
     await coordinator._queue_presentation(
-        PresentationIntent("status", "query", "how many"),
+        PresentationIntent("converse", "query", "hello again"),
         persist_exchange=True,
     )
     bridge.presentation_snapshots.return_value = tuple(
@@ -358,9 +418,9 @@ async def test_fresh_query_waits_for_ordered_seal_and_browser_credit():
     assert provider.request_response.await_count == 1
     coordinator.playback_feedback(credit.output_id, "drained")
     await eventually(lambda: provider.request_response.await_count == 2)
-    assert provider.created_messages[-1][2] == "how many"
-    assert "共25项" in provider.created_messages[-2][2]
-    assert "25项" in provider.created_messages[-2][2]
+    assert provider.created_messages[-1][2] == "hello again"
+    assert "共25项" not in provider.created_messages[-2][2]
+    assert "request task-" not in provider.created_messages[-2][2]
     # Late response events cannot be rebound to the new output.
     await provider.queue.put(
         ProviderEvent(
@@ -391,7 +451,7 @@ async def test_overload_preserves_text_without_resubmitting_admitted_work():
                 lambda: provider.request_response.await_count == 1
             )
     await coordinator._queue_presentation(
-        PresentationIntent("receipt", "admitted", task_ref="任务一"),
+        PresentationIntent("receipt", "admitted", task_ref="请求一"),
         persist_exchange=False,
     )
     rejected = [
@@ -400,6 +460,7 @@ async def test_overload_preserves_text_without_resubmitting_admitted_work():
         if e.kind == "presentation.rejected"
     ]
     assert [e.data["task_admitted"] for e in rejected] == [False, True]
+    await eventually(lambda: timeline.append_voice_exchange.await_count >= 3)
     assert any(
         c.args[:3] == ("rejected", "rejected", "")
         for c in timeline.append_voice_exchange.await_args_list
@@ -413,7 +474,7 @@ def snapshot(
     status="processing",
     run_id="run-1",
     *,
-    task_ref="任务一",
+    task_ref="请求一",
     version=2,
 ):
     return VoiceTaskSnapshot(
@@ -428,7 +489,7 @@ def snapshot(
 
 def receipt(
     task_id="task-1",
-    task_ref="任务一",
+    task_ref="请求一",
     status="processing",
 ):
     return VoiceTaskReceipt(
@@ -474,9 +535,7 @@ async def test_configured_reply_language_reaches_voice_session(language):
         assert f'"{language}"' in instructions
         assert "中文口语" not in instructions
         assert "不要执行任务" in instructions
-        for kind in (
-            "converse", "receipt", "update", "status", "clarify", "rejected"
-        ):
+        for kind in ("converse", "receipt", "update", "clarify", "rejected"):
             provider.created_messages.clear()
             await coordinator._present(PresentationIntent(kind))
             assert f'"{language}"' in provider.created_messages[0][2]
@@ -498,15 +557,68 @@ def input_segment(source_id: str, text: str) -> ProviderEvent:
 
 
 @pytest.mark.asyncio
-async def test_delegate_uses_ordinary_chat_bridge_and_speech_only_response():
+@pytest.mark.parametrize("failed", [False, True])
+async def test_provider_terminal_settles_only_its_source_before_admission(
+    failed,
+):
+    provider, bridge = Provider(), Bridge()
+    bridge.enqueue_action.return_value = admission(receipt())
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def route(text, **_kwargs):
+        entered.set()
+        await release.wait()
+        return VoiceRouteDecision.commit(HandoffVoiceAction())
+
+    coordinator, router, _ = build_coordinator(provider, bridge, route)
+    await coordinator.start()
+    events = coordinator.events()
+    try:
+        await provider.queue.put(input_segment("first", "输出301。"))
+        await asyncio.wait_for(entered.wait(), 1)
+        for kind in ("speech.started", "speech.stopped"):
+            await provider.queue.put(
+                ProviderEvent(kind, kind, correlation_id="later")
+            )
+        await next_kind(events, "speech.stopped")
+        release.set()
+        await eventually(lambda: coordinator._committer._routing_task is None)
+        bridge.enqueue_action.assert_not_awaited()
+        terminal = (
+            ProviderEvent(
+                "input_transcript.failed", "failed", correlation_id="later"
+            )
+            if failed
+            else input_segment("later", "")
+        )
+        await provider.queue.put(terminal)
+        if failed:
+            error = await next_kind(events, "error")
+            assert error.data["code"] == "voice_transcription_failed"
+            assert not coordinator._committer._unsettled
+            bridge.enqueue_action.assert_not_awaited()
+            assert router.route.await_count == 1
+        else:
+            await eventually(lambda: bridge.enqueue_action.await_count == 1)
+            assert bridge.observe_input.call_args.args[1] == "输出301。"
+            assert not coordinator._committer._unsettled
+    finally:
+        release.set()
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_handoff_uses_ordinary_chat_bridge_and_speech_only_response():
     provider = Provider()
     bridge = Bridge()
     bridge.enqueue_action.return_value = admission(receipt())
     bridge.status.return_value = snapshot("task-1")
 
-    async def route(text, *, force_commit=False):
+    async def route(text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision("COMMIT", DelegateVoiceAction(text), "quoted data")
+        return VoiceRouteDecision(
+            "COMMIT", HandoffVoiceAction(), "quoted data"
+        )
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
@@ -521,10 +633,11 @@ async def test_delegate_uses_ordinary_chat_bridge_and_speech_only_response():
     accepted = await next_kind(events, "agent.input.accepted")
     await eventually(lambda: provider.request_response.await_count == 1)
 
-    assert committed.data["action"] == {"type": "DELEGATE"}
-    assert accepted.data["task_ref"] == "任务一"
+    assert committed.data["action"] == {"type": "HANDOFF"}
+    assert accepted.data["task_ref"] == "请求一"
     bridge.enqueue_action.assert_awaited_once_with(
-        DelegateVoiceAction("run tests"),
+        HandoffVoiceAction(),
+        "run tests",
         idempotency_key=committed.data["turn_id"],
         admission_mode="queue",
         conversation_context="quoted data",
@@ -561,9 +674,9 @@ async def test_ten_long_tasks_are_admitted_while_first_speech_is_blocked():
         for index in range(1, 11)
     ]
 
-    async def route(text, *, force_commit=False):
+    async def route(text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision.commit(DelegateVoiceAction(text))
+        return VoiceRouteDecision.commit(HandoffVoiceAction())
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
@@ -600,7 +713,7 @@ async def test_conversation_is_persisted_without_task_submission():
     )
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -629,16 +742,16 @@ async def test_conversation_is_persisted_without_task_submission():
 
 
 @pytest.mark.asyncio
-async def test_followup_targets_speakable_task_reference():
+async def test_handoff_targets_speakable_task_reference():
     provider = Provider()
     bridge = Bridge()
     bridge.enqueue_action.return_value = admission(receipt())
     bridge.status.return_value = snapshot("task-1")
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision(
-            "COMMIT", FollowUpVoiceAction("任务一", "再运行一次静态检查"), "quoted data"
+            "COMMIT", HandoffVoiceAction("请求一"), "quoted data"
         )
 
     coordinator, _router, _timeline = build_coordinator(
@@ -653,43 +766,104 @@ async def test_followup_targets_speakable_task_reference():
     committed = await next_kind(events, "input_turn.committed")
     await next_kind(events, "agent.input.accepted")
     bridge.enqueue_action.assert_awaited_once_with(
-        FollowUpVoiceAction("任务一", "任务一再检查一下"),
+        HandoffVoiceAction("请求一"),
+        "任务一再检查一下",
         idempotency_key=committed.data["turn_id"],
         admission_mode="queue",
         conversation_context="quoted data",
     )
     bridge.observe_input.assert_called_once_with(
-        committed.data["turn_id"], "任务一再检查一下",
-        FollowUpVoiceAction("任务一", "再运行一次静态检查"),
+        committed.data["turn_id"],
+        "任务一再检查一下",
+        HandoffVoiceAction("请求一"),
     )
     await coordinator.close()
 
 
 @pytest.mark.asyncio
-async def test_status_uses_authoritative_snapshot_without_new_task():
+async def test_history_question_enters_agent_instead_of_voice_query_path():
     provider = Provider()
     bridge = Bridge()
     bridge.routing_snapshots.return_value = (
-        snapshot("task-1", task_ref="任务一"),
+        snapshot("task-1", task_ref="请求一"),
     )
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision.commit(StatusVoiceAction("任务一"))
+        return VoiceRouteDecision.commit(HandoffVoiceAction("请求一"))
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
         bridge,
         route,
     )
+    bridge.enqueue_action.return_value = admission(receipt())
     await coordinator.start()
     await provider.queue.put(input_segment("source-1", "任务一怎么样了"))
     await eventually(lambda: provider.request_response.await_count == 1)
 
-    bridge.submit.assert_not_awaited()
-    assert '"original_request": "request task-1"' in provider.created_messages[-2][2]
-    assert '"state": "请求仍在处理"' in provider.created_messages[-2][2]
+    bridge.enqueue_action.assert_awaited_once()
+    assert bridge.enqueue_action.await_args.args[1] == "任务一怎么样了"
+    assert '"accepted": true' in provider.created_messages[-2][2]
+    assert (
+        '"original_request": "request task-1"'
+        not in provider.created_messages[-2][2]
+    )
+    _timeline.append_voice_exchange.assert_not_awaited()
     await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["receipt", "update"])
+async def test_automatic_notices_do_not_read_history_or_replay_questions(kind):
+    provider, bridge = Provider(), Bridge()
+    coordinator, _, timeline = build_coordinator(provider, bridge, [])
+    timeline.read_context.return_value = "公开前文"
+    try:
+        await coordinator._present(PresentationIntent(kind, user_text="原问题"))
+        assert provider.created_messages[-1][2] == "请按本轮反馈目的，用自然口语向用户反馈以上信息。"
+        assert not any(
+            text == "公开前文" for _, _, text in provider.created_messages
+        )
+        timeline.read_context.assert_not_awaited()
+        timeline.append_voice_exchange.assert_not_awaited()
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["response", "cancel", "message"])
+async def test_converse_context_items_are_released_on_generation_failure(
+    failure,
+):
+    provider, bridge = Provider(), Bridge()
+    coordinator, _, timeline = build_coordinator(provider, bridge, [])
+    timeline.read_context.return_value = "公开前文"
+    exception = asyncio.CancelledError if failure == "cancel" else RuntimeError
+    if failure == "message":
+        create = provider.create_message
+
+        async def fail_question(role, text):
+            if text == "原问题":
+                raise RuntimeError("message failed")
+            return await create(role, text)
+
+        provider.create_message = fail_question
+    else:
+        provider.request_response.side_effect = exception("generation failed")
+    try:
+        with pytest.raises(exception):
+            await coordinator._present(
+                PresentationIntent(
+                    "converse",
+                    user_text="原问题",
+                )
+            )
+        expected = {item_id for item_id, _, _ in provider.created_messages}
+        assert "message-2" in expected
+        provider.delete_items.assert_awaited_once_with(expected)
+    finally:
+        await coordinator.close()
 
 
 @pytest.mark.asyncio
@@ -697,7 +871,7 @@ async def test_interrupt_only_cancels_current_speech_output():
     provider = Provider()
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -719,7 +893,7 @@ async def test_provider_auto_output_is_filtered():
     provider = Provider()
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -768,9 +942,9 @@ async def test_missing_source_identity_is_visible_and_not_submitted():
     provider = Provider()
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision.commit(DelegateVoiceAction("run tests"))
+        return VoiceRouteDecision.commit(HandoffVoiceAction())
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
@@ -794,7 +968,7 @@ async def test_task_completion_updates_ui_and_queues_speech():
     provider = Provider()
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -818,7 +992,10 @@ async def test_task_completion_updates_ui_and_queues_speech():
 
     assert updated.data["status"] == "responded"
     assert completed.data["status"] == "completed"
-    assert '"original_request": "request task-1"' in provider.created_messages[-2][2]
+    assert (
+        '"original_request": "request task-1"'
+        in provider.created_messages[-2][2]
+    )
     assert '"state": "本轮答复已返回"' in provider.created_messages[-2][2]
     assert "业务是否成功以对应正文为准" in provider.created_messages[-2][2]
     await coordinator.close()
@@ -875,10 +1052,6 @@ async def test_same_reply_phase_and_run_end_do_not_repeat_answer():
         )
         assert '"text": "42"' not in notice
         assert "本轮处理失败" in notice
-        query = await coordinator._presentation_instruction(
-            PresentationIntent("status")
-        )
-        assert '"text": "42"' in query
     finally:
         pump.cancel()
         await asyncio.gather(pump, return_exceptions=True)
@@ -886,7 +1059,9 @@ async def test_same_reply_phase_and_run_end_do_not_repeat_answer():
 
 
 @pytest.mark.parametrize("terminal_first", [False, True])
-async def test_reply_error_is_scoped_and_not_reannounced_on_save(terminal_first):
+async def test_reply_error_is_scoped_and_not_reannounced_on_save(
+    terminal_first,
+):
     from agentscope.message import Msg, TextBlock
     from qwenpaw.app.chats.replies import project_replies
 
@@ -894,25 +1069,46 @@ async def test_reply_error_is_scoped_and_not_reannounced_on_save(terminal_first)
     coordinator, _, _ = build_coordinator(Provider(), bridge, AsyncMock())
     events = coordinator.events()
     pump = asyncio.create_task(coordinator._pump_bridge_events())
-    msg = Msg(id="m", name="assistant", role="assistant", content=[TextBlock(
-        id="b", text="模型未生成可用答复，请稍后重试。", metadata={
-            "run_id": "run", "responds_to_input_ids": ["failed-input"],
-            "reply_phase": "final", "reply_error": "empty_response",
-        },
-    )])
+    msg = Msg(
+        id="m",
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(
+                id="b",
+                text="模型未生成可用答复，请稍后重试。",
+                metadata={
+                    "run_id": "run",
+                    "responds_to_input_ids": ["failed-input"],
+                    "reply_phase": "final",
+                    "reply_error": "empty_response",
+                },
+            )
+        ],
+    )
     [reply] = project_replies([msg]).values()
     first = replace(
         snapshot("task-1", "failed" if terminal_first else "processing"),
-        input_states=(("failed-input", "failed" if terminal_first else "processing"),),
-        input_requests=(("failed-input", "打印口令"),), run_id="run",
+        input_states=(
+            ("failed-input", "failed" if terminal_first else "processing"),
+        ),
+        input_requests=(("failed-input", "打印口令"),),
+        run_id="run",
     )
     try:
-        for version, current in enumerate((
-            first,
-            replace(first, replies=(reply,)),
-            replace(first, status="failed", input_states=(("failed-input", "failed"),),
-                    replies=(replace(reply, persisted=True),)),
-        ), 1):
+        for version, current in enumerate(
+            (
+                first,
+                replace(first, replies=(reply,)),
+                replace(
+                    first,
+                    status="failed",
+                    input_states=(("failed-input", "failed"),),
+                    replies=(replace(reply, persisted=True),),
+                ),
+            ),
+            1,
+        ):
             current = replace(current, version=version)
             await bridge.queue.put(VoiceTaskEvent(current))
             await next_kind(events, "agent.task.updated")
@@ -920,7 +1116,7 @@ async def test_reply_error_is_scoped_and_not_reannounced_on_save(terminal_first)
                 assert coordinator._announce_changes == {"m:b"}
             if version == 3:
                 assert not coordinator._announce_changes
-            facts = coordinator._snapshot_facts((current,), kind="update")
+            facts = coordinator._snapshot_facts((current,))
             assert '"state": "执行失败"' not in facts
             if version >= 2:
                 assert '"stage": "answer_generation"' in facts
@@ -946,19 +1142,39 @@ async def test_error_change_notifies_without_text_change():
     coordinator, _, _ = build_coordinator(Provider(), Bridge(), AsyncMock())
     events = coordinator.events()
     pump = asyncio.create_task(coordinator._pump_bridge_events())
-    msg = Msg(id="m", name="assistant", role="assistant", content=[TextBlock(
-        id="b", text="失败", metadata={"responds_to_input_ids": ["input"],
-                                    "reply_phase": "final"},
-    )])
+    msg = Msg(
+        id="m",
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(
+                id="b",
+                text="失败",
+                metadata={
+                    "responds_to_input_ids": ["input"],
+                    "reply_phase": "final",
+                },
+            )
+        ],
+    )
     try:
-        for version, code in enumerate(("empty_response", "future_error", "future_error"), 1):
+        for version, code in enumerate(
+            ("empty_response", "future_error", "future_error"), 1
+        ):
             msg.content[0].metadata["reply_error"] = code
             [reply] = project_replies([msg]).values()
-            await coordinator._bridge_events.put(VoiceTaskEvent(replace(
-                snapshot("task-1", "processing", version=version), replies=(reply,),
-            )))
+            await coordinator._bridge_events.put(
+                VoiceTaskEvent(
+                    replace(
+                        snapshot("task-1", "processing", version=version),
+                        replies=(reply,),
+                    )
+                )
+            )
             await next_kind(events, "agent.task.updated")
-            assert coordinator._announce_changes == ({"m:b"} if version < 3 else set())
+            assert coordinator._announce_changes == (
+                {"m:b"} if version < 3 else set()
+            )
             coordinator._announce_changes.clear()
     finally:
         pump.cancel()
@@ -1048,9 +1264,9 @@ async def test_committed_task_admission_outlives_voice_session_close():
     bridge.enqueue_action.return_value = VoiceAdmissionHandle(completion)
     bridge_admission = asyncio.create_task(complete_admission())
 
-    async def route(text, *, force_commit=False):
+    async def route(text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision.commit(DelegateVoiceAction(text))
+        return VoiceRouteDecision.commit(HandoffVoiceAction())
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
@@ -1080,7 +1296,7 @@ async def test_task_state_presentation_does_not_depend_on_provider_snapshot():
         snapshot("task-0", task_ref="任务零"),
     )
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -1094,25 +1310,28 @@ async def test_task_state_presentation_does_not_depend_on_provider_snapshot():
 
     await bridge.queue.put(
         VoiceTaskEvent(
-            snapshot("task-1", "responded", task_ref="任务一", version=1),
+            snapshot("task-1", "responded", task_ref="请求一", version=1),
         ),
     )
     await next_kind(events, "agent.task.updated")
     await eventually(lambda: provider.request_response.await_count == 1)
 
     bridge.routing_snapshots.return_value = (
-        snapshot("task-2", "responded", task_ref="任务二", version=1),
+        snapshot("task-2", "responded", task_ref="请求二", version=1),
     )
     await bridge.queue.put(
         VoiceTaskEvent(
-            snapshot("task-2", "responded", task_ref="任务二", version=1),
+            snapshot("task-2", "responded", task_ref="请求二", version=1),
         ),
     )
     await next_kind(events, "agent.task.updated")
     await acknowledge_fake_output(coordinator, provider)
     await eventually(lambda: provider.request_response.await_count == 2)
 
-    assert '"original_request": "request task-2"' in provider.created_messages[-2][2]
+    assert (
+        '"original_request": "request task-2"'
+        in provider.created_messages[-2][2]
+    )
     assert '"state": "本轮答复已返回"' in provider.created_messages[-2][2]
     await coordinator.close()
 
@@ -1130,7 +1349,7 @@ async def test_presentation_failure_revokes_output_but_preserves_later_input():
     ]
     bridge = Bridge()
 
-    async def route(_text, *, force_commit=False):
+    async def route(_text, *, force_commit=False, source_segments=()):
         del force_commit
         return VoiceRouteDecision.commit(ConverseVoiceAction())
 
@@ -1149,11 +1368,10 @@ async def test_presentation_failure_revokes_output_but_preserves_later_input():
 
     await provider.queue.put(input_segment("source-2", "第二轮"))
     await next_kind(events, "input_turn.committed")
-    updated = await next_kind(events, "chat.history.updated")
-
-    assert updated.data["turn_id"]
     rejected = await next_kind(events, "presentation.rejected")
     assert rejected.data["code"] == "voice_output_unavailable"
+    updated = await next_kind(events, "chat.history.updated")
+    assert updated.data["turn_id"]
     assert provider.request_response.await_count == 1
     assert timeline.append_voice_exchange.await_count == 2
     assert timeline.append_voice_exchange.await_args.args[1:3] == ("第二轮", "")
@@ -1166,9 +1384,9 @@ async def test_admission_backpressure_rejects_without_false_commit():
     bridge = Bridge()
     bridge.enqueue_action.side_effect = OverflowError("admission queue full")
 
-    async def route(text, *, force_commit=False):
+    async def route(text, *, force_commit=False, source_segments=()):
         del force_commit
-        return VoiceRouteDecision.commit(DelegateVoiceAction(text))
+        return VoiceRouteDecision.commit(HandoffVoiceAction())
 
     coordinator, _router, _timeline = build_coordinator(
         provider,
@@ -1189,7 +1407,7 @@ async def test_admission_backpressure_rejects_without_false_commit():
     await coordinator.close()
 
 
-def test_facts_keep_followup_scope_separate_from_old_reply_heading():
+def test_facts_keep_pending_inputs_separate_from_reply_source():
     from dataclasses import replace
     from qwenpaw.app.chats.replies import ChatReply
 
@@ -1210,22 +1428,17 @@ def test_facts_keep_followup_scope_separate_from_old_reply_heading():
         ),
     )
     facts = VoiceCoordinator._snapshot_facts([task])
-    assert '"responds_to": [{"request_order": 1, "request": "第一步201"}]' in facts
-    assert '"pending_inputs": [{"request_order": 2, "request": "第二步202"}, {"request_order": 3, "request": "第三步203"}]' in facts
-    assert '"all_known_inputs_ended": false' in facts
-    assert "第二步202" in facts and "第三步203" in facts
-    assert "正文中的完成不能扩大到其他输入" in facts
-
-    complete = replace(
-        task,
-        status="responded",
-        input_states=(("a", "completed"),),
+    scope, source = facts.split("对应请求的Agent原文", 1)
+    assert "第二步202" in scope and "第三步203" in scope
+    assert '"other_requests_pending"' in scope
+    assert '"text":' not in scope
+    assert '"request_order": 1, "request": "第一步201"' in source
+    assert (
+        '"request_order": 2' not in source
+        and '"request_order": 3' not in source
     )
-    finished = VoiceCoordinator._snapshot_facts([complete])
-    assert '"all_known_inputs_ended": true' in finished
-    assert '"background_work": []' in finished
-    assert "本轮答复已返回：1项" in finished
-    assert "这本身不能证明所有后台操作已完成" not in finished
+    assert "任务一完成，结果201" in source
+    assert "原文说完成只适用于其请求范围，不是整个任务完成" in facts
 
 
 def test_waiting_facts_do_not_imply_user_action():
@@ -1240,7 +1453,7 @@ def test_waiting_facts_do_not_imply_user_action():
     assert '"state": "请求正在等待后续处理"' in facts
     assert '"execution": "running", "delivery": "pending"' in facts
     assert "等待外部操作或用户处理" not in facts
-    assert "不能仅凭waiting推断需要用户操作" in facts
+    assert "只有正文明确请求用户处理时才能要求用户操作" in facts
 
 
 @pytest.mark.asyncio
@@ -1287,30 +1500,7 @@ async def test_feedback_purpose_respects_intent_and_reply_phase(
 
 
 @pytest.mark.asyncio
-async def test_query_without_reply_does_not_demand_an_actual_answer():
-    bridge = Bridge()
-    coordinator, _, _ = build_coordinator(Provider(), bridge, [])
-    bridge.presentation_snapshots.return_value = (
-        replace(
-            snapshot("task-1", "processing"),
-            input_states=(("a", "processing"),),
-            input_requests=(("a", "等待45秒后输出302"),),
-            replies=(),
-        ),
-    )
-    instruction = await coordinator._presentation_instruction(
-        PresentationIntent("status", task_ref="任务一")
-    )
-    assert '"replies": []' in instruction
-    assert '"reply_availability": "not_received"' in instruction
-    assert "正在运行，尚未完成" not in instruction
-    assert "询问答案时提供实际答案，不要只报状态" not in instruction
-    assert "原请求中的目标、参数和预期输出不是实际执行结果" in instruction
-    assert "没有对应回复材料时如实说明暂未取得" in instruction
-
-
-@pytest.mark.asyncio
-async def test_automatic_facts_are_scoped_but_queries_keep_full_lifecycle():
+async def test_automatic_facts_are_scoped_without_history_query_branch():
     bridge = Bridge()
     coordinator, _, _ = build_coordinator(Provider(), bridge, [])
     answer = ChatReply("m", "b", "run", ("a",), 1, "final", "结果201")
@@ -1321,39 +1511,31 @@ async def test_automatic_facts_are_scoped_but_queries_keep_full_lifecycle():
             input_requests=(("a", "计算第一项"), ("b", "计算第二项")),
             replies=(answer,),
         ),
-        snapshot("task-2", task_ref="任务二"),
+        snapshot("task-2", task_ref="请求二"),
     )
     notice = await coordinator._presentation_instruction(
         PresentationIntent("update", changed_ids=(answer.identity,))
     )
     assert '"text": "结果201"' in notice
-    assert (
-        '"responds_to": [{"request_order": 1, "request": "计算第一项"}]' in notice
-    )
+    assert '"request_order": 1, "request": "计算第一项"' in notice
     assert '"other_requests_pending"' in notice
     assert "计算第二项" in notice and "正在排队" in notice
     assert "正在运行，尚未完成" not in notice
-    assert "共2项" not in notice and "任务二" not in notice
+    assert "共2项" not in notice and "请求二" not in notice
     assert '"persisted"' not in notice and '"id": "m:b"' not in notice
 
     receipt_notice = await coordinator._presentation_instruction(
-        PresentationIntent("receipt", task_ref="任务一")
+        PresentationIntent("receipt", task_ref="请求一")
     )
     assert '"accepted": true' in receipt_notice
     assert "结果201" not in receipt_notice
     assert "计算第一项" not in receipt_notice
     assert "正在运行，尚未完成" not in receipt_notice
 
-    query = await coordinator._presentation_instruction(
-        PresentationIntent("status", task_ref="任务一")
-    )
-    assert "共2项" in query
-    assert '"inputs"' in query and "请求仍在处理" in query
-    assert "结果201" in query and "计算第二项" in query
-
     await coordinator.start()
     session = coordinator._provider.connect.call_args.args[0]
     assert "已接收不等于已经开始执行" in session.instructions
+    assert "检索未命中不证明请求不存在" in session.instructions
     assert "已接收只表示后台开始处理" not in session.instructions
     await coordinator.close()
 
@@ -1376,7 +1558,9 @@ async def test_scoped_speech_retains_background_and_failure_boundaries(state):
     )
     assert "请提供目标文件。" in notice
     assert '"execution": "running", "delivery": "pending"' in notice
-    assert "正文未取得的已接收请求" in notice
+    assert '"request_order": null, "request": null' in notice
+    assert "不是请求名称或用户主题" in notice
+    assert "正文未取得的已接收请求" not in notice
     if state != "waiting":
         expected = "本轮处理失败" if state == "failed" else "已经取消"
         assert f'"state": "{expected}"' in notice
@@ -1409,7 +1593,7 @@ async def test_scoped_speech_keeps_coalesced_media_and_independent_replies():
     assert '"text": "201"' in instruction
     assert '"/media/result.png"' in instruction
     assert "旧203" not in instruction
-    assert '"request_order": null, "request": "正文未取得的已接收请求"' in instruction
+    assert '"request_order": null' in instruction
 
 
 @pytest.mark.asyncio
@@ -1438,9 +1622,7 @@ async def test_speech_separates_current_scope_from_unchanged_reply_source(
     assert '"execution": "running"' in scope
     assert '"text":' not in scope
     assert '"text": "任务一已完成，结果201。"' in source
-    assert (
-        '"responds_to": [{"request_order": 1, "request": "先计算第一项"}]' in source
-    )
+    assert '"request_order": 1, "request": "先计算第一项"' in source
     assert reply.text == "任务一已完成，结果201。"
     assert "以下是唯一权威任务状态" not in notice
     if state != "processing":
@@ -1448,7 +1630,7 @@ async def test_speech_separates_current_scope_from_unchanged_reply_source(
 
 
 @pytest.mark.asyncio
-async def test_speech_keeps_each_tasks_reply_attributed_after_scope_separation():
+async def test_speech_keeps_reply_attributed_after_scope_separation():
     bridge = Bridge()
     coordinator, _, _ = build_coordinator(Provider(), bridge, [])
     reply = ChatReply("m", "b", "run", ("a",), 1, "final", "结果201")
@@ -1459,7 +1641,7 @@ async def test_speech_keeps_each_tasks_reply_attributed_after_scope_separation()
             input_requests=(("a", "计算第一项"),),
         ),
         replace(
-            snapshot("task-2", task_ref="任务二"),
+            snapshot("task-2", task_ref="请求二"),
             replies=(replace(reply, message_id="n", text="结果202"),),
             input_requests=(("a", "计算另一项"),),
         ),
@@ -1489,13 +1671,13 @@ async def test_automatic_scope_distinguishes_repeated_request_text():
     notice = await coordinator._presentation_instruction(
         PresentationIntent("update")
     )
-    assert '"request_order": 2, "request": "再算一次"' in notice
+    assert '"request_order": 2' in notice
     assert '"request_order": 1' not in notice
     assert '"text": "实际输出201"' in notice
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["receipt", "update", "status"])
+@pytest.mark.parametrize("kind", ["receipt", "update"])
 async def test_concise_automatic_feedback_preserves_answers_not_length_limits(
     kind,
 ):
@@ -1514,7 +1696,7 @@ async def test_concise_automatic_feedback_preserves_answers_not_length_limits(
     notice = await coordinator._presentation_instruction(
         PresentationIntent(kind)
     )
-    assert ("不减少用户所需信息" in notice) == (kind != "status")
+    assert "不减少用户所需信息" in notice
     if kind != "receipt":
         assert text in notice
     if kind == "update":
@@ -1542,10 +1724,6 @@ async def test_terminal_notice_excludes_past_progress_but_keeps_results(state):
     assert "第二步已开始执行" not in notice
     assert "已取得结果201" in notice
     assert '"execution": "running"' in notice
-    query = await coordinator._presentation_instruction(
-        PresentationIntent("status")
-    )
-    assert "第二步已开始执行" in query
     assert bridge.presentation_snapshots.return_value[0].replies == (
         result,
         progress,
@@ -1583,23 +1761,8 @@ async def test_automatic_result_feedback_is_not_a_status_only_question(
     if completed:
         assert "42" in instruction
         assert "回答状态问题" not in instruction
-    query = await coordinator._presentation_instruction(
-        PresentationIntent("status")
-    )
-    assert "请依据对应回复材料回答用户的问题" in query
-    assert "若事实包含已返回的实际答案，简短说出答案本身" in query
-    if completed:
-        assert '"text": "42"' in query
-    else:
-        assert '"replies": []' in query
-        assert "没有对应回复材料时如实说明暂未取得" in query
-
     # Exercise the actual request, not just its system instruction: a later
     # user-role status question used to override the intended result feedback.
     for kind in ("receipt", "update"):
         await coordinator._present(PresentationIntent(kind))
         assert provider.created_messages[-1][2] == ("请按本轮反馈目的，用自然口语向用户反馈以上信息。")
-    await coordinator._present(
-        PresentationIntent("status", user_text="还有几项没完成？")
-    )
-    assert provider.created_messages[-1][2] == "还有几项没完成？"

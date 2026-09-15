@@ -21,9 +21,7 @@ from ..chats.timeline import ChatTimelineJournal
 from .contracts import (
     ClarifyVoiceAction,
     ConverseVoiceAction,
-    DelegateVoiceAction,
-    FollowUpVoiceAction,
-    StatusVoiceAction,
+    HandoffVoiceAction,
     VoiceAdmissionMode,
     VoiceRunEvent,
     VoiceTaskEvent,
@@ -52,11 +50,13 @@ _TERMINAL_TASK_STATUSES = {"responded", "failed", "cancelled"}
 
 _VOICE_SESSION = RealtimeSessionConfig(
     instructions=(
-        "你是 QwenPaw 的实时语音表达助手。应用负责识别意图、接收任务和维护"
+        "你是 QwenPaw 的实时语音表达助手。应用负责组装语音输入、交接请求和维护"
         "权威状态；你只根据本轮提供的用户原话与权威事实，生成自然、简短的"
         "口语。不要执行任务，不调用工具，不猜测任务状态，不朗读 JSON、"
         "控制标记、日志、推理、内部 ID 或工具参数。已接收不等于已经开始执行，"
         "更不等于已经完成；只确认本轮事实明确提供的状态。"
+        "保留名称、检索范围和不确定性。检索未命中不证明请求不存在，"
+        "也不等于没有输出；无法确认对象时保留澄清，不自行认定。"
     )
 )
 
@@ -83,7 +83,8 @@ class VoiceCoordinator:
             "Response language (name or code): "
             + json.dumps(language, ensure_ascii=False)
             + ". Use this language for this reply unless the user explicitly "
-            "requests another. The language of quoted facts is not a language request."
+            "requests another. The language of quoted facts is not a "
+            "language request."
         )
         self._session_config = replace(
             _VOICE_SESSION,
@@ -94,7 +95,9 @@ class VoiceCoordinator:
         self._bridge = bridge
         self._committer = committer
         committer.on_commit = lambda turn: bridge.observe_input(
-            turn.turn_id, turn.text, turn.action,
+            turn.turn_id,
+            turn.text,
+            turn.action,
         )
         self._timeline = timeline
         self._admission_mode = admission_mode
@@ -170,10 +173,39 @@ class VoiceCoordinator:
     async def _pump_provider(self) -> None:
         try:
             async for event in self._provider.events():
+                if (
+                    event.kind
+                    in {
+                        "speech.started",
+                        "speech.stopped",
+                        "input_transcript.partial",
+                        "input_transcript.final",
+                        "input_transcript.failed",
+                    }
+                    and not event.correlation_id
+                ):
+                    await self._committer.input_failed("")
+                    await self._emit_error(
+                        "missing_turn_identity",
+                        "The speech provider did not supply a stable input "
+                        "item identifier. The request was not submitted.",
+                        source="coordinator",
+                    )
+                    continue
                 if event.kind == "speech.started":
-                    await self._committer.speech_started()
+                    await self._committer.speech_started(event.correlation_id)
                 elif event.kind == "speech.stopped":
-                    await self._committer.speech_stopped()
+                    await self._committer.speech_stopped(event.correlation_id)
+                elif event.kind == "input_transcript.partial":
+                    await self._committer.speech_started(event.correlation_id)
+                elif event.kind == "input_transcript.failed":
+                    await self._committer.input_failed(event.correlation_id)
+                    await self._emit_error(
+                        "voice_transcription_failed",
+                        "一段语音识别失败，未自动提交。请检查已识别的内容后手动提交，" "或重新开始语音会话说明完整请求。",
+                        source="coordinator",
+                    )
+                    continue
                 if event.kind == "input_transcript.final":
                     await self._handle_source_segment(event)
                     continue
@@ -226,16 +258,6 @@ class VoiceCoordinator:
     async def _handle_source_segment(self, event: ProviderEvent) -> None:
         text = str(event.data.get("text") or "").strip()
         source_id = str(event.correlation_id or "").strip()
-        if not text:
-            return
-        if not source_id:
-            await self._emit_error(
-                "missing_turn_identity",
-                "The speech provider did not supply a stable input item "
-                "identifier. The request was not submitted.",
-                source="coordinator",
-            )
-            return
         await self._committer.add_segment(source_id, text)
 
     async def _pump_committer(self) -> None:
@@ -259,15 +281,12 @@ class VoiceCoordinator:
                 admission: VoiceAdmissionHandle | None = None
                 if isinstance(
                     event.action,
-                    (DelegateVoiceAction, FollowUpVoiceAction),
+                    HandoffVoiceAction,
                 ):
                     try:
                         admission = await self._bridge.enqueue_action(
-                            replace(event.action, **(
-                                {"request": event.text}
-                                if isinstance(event.action, DelegateVoiceAction)
-                                else {"instruction": event.text}
-                            )),
+                            event.action,
+                            event.text,
                             idempotency_key=event.turn_id,
                             admission_mode=self._admission_mode,
                             conversation_context=event.conversation_context,
@@ -336,12 +355,6 @@ class VoiceCoordinator:
         turn: CommittedSpokenTurn,
     ) -> None:
         action = turn.action
-        if isinstance(action, StatusVoiceAction):
-            await self._queue_turn_presentation(
-                turn,
-                PresentationIntent("status", task_ref=action.task_ref),
-            )
-            return
         if isinstance(action, ClarifyVoiceAction):
             await self._queue_turn_presentation(
                 turn,
@@ -367,9 +380,8 @@ class VoiceCoordinator:
             PresentationIntent(
                 "receipt" if receipt.accepted else "rejected",
                 turn_id=turn.turn_id,
-                user_text="请告知用户本轮任务接收结果。" if not receipt.accepted else "",
+                user_text="请告知用户本轮请求接收结果。" if not receipt.accepted else "",
                 task_ref=receipt.task_ref,
-                receipt_is_followup=isinstance(turn.action, FollowUpVoiceAction),
             ),
             persist_exchange=not receipt.accepted,
             history_user_text=turn.text,
@@ -398,11 +410,11 @@ class VoiceCoordinator:
         if persist_exchange:
             timeline_order = await self._timeline.reserve_order()
             # User text survives generation failure, interruption and overload.
-            await self._save_exchange(
+            self._timeline.observe_voice_exchange(
                 intent.turn_id,
                 history_user_text or intent.user_text,
                 "",
-                timeline_order,
+                timeline_order=timeline_order,
             )
             completion = asyncio.get_running_loop().create_future()
             history_task = self._start(
@@ -492,6 +504,7 @@ class VoiceCoordinator:
                     + "\n"
                     + self._language_instruction
                 )
+                history = ""
                 owned_items.add(
                     await self._provider.create_message(
                         "system",
@@ -505,12 +518,10 @@ class VoiceCoordinator:
                         max_turns=self._max_history_turns,
                         max_chars=self._context_max_chars,
                     )
-                    if history:
-                        owned_items.add(
-                            await self._provider.create_message(
-                                "user", history
-                            )
-                        )
+                if history:
+                    owned_items.add(
+                        await self._provider.create_message("user", history)
+                    )
                 owned_items.add(
                     await self._provider.create_message(
                         "user",
@@ -525,7 +536,8 @@ class VoiceCoordinator:
                 response = await self._provider.request_response()
                 owned_items.update(response.item_ids)
                 if request.completion is not None:
-                    # Publish generated source text before resolving the future:
+                    # Publish generated source text before resolving the
+                    # future:
                     # the next reply must not depend on the disk/device clock.
                     self._timeline.observe_voice_exchange(
                         request.turn_id,
@@ -552,6 +564,7 @@ class VoiceCoordinator:
         completion: asyncio.Future[ProviderResponseResult],
         timeline_order: int,
     ) -> None:
+        await self._save_exchange(turn_id, user_text, "", timeline_order)
         try:
             response = await completion
         except asyncio.CancelledError:
@@ -642,8 +655,7 @@ class VoiceCoordinator:
                 + json.dumps(
                     {
                         "accepted": True,
-                        "request_kind": "followup"
-                        if intent.receipt_is_followup else "new_request",
+                        "request_kind": "message",
                         "received_request": intent.history_user_text,
                     },
                     ensure_ascii=False,
@@ -687,45 +699,36 @@ class VoiceCoordinator:
             for snapshot in focused
             for reply in snapshot.replies
         )
-        if intent.automatic and has_result:
+        if has_result:
             purpose = (
                 "本轮是结果反馈：请优先说出已返回的关键结果或答案，" "让用户听完就知道结果。不要仅说已完成、已回传或让用户去看页面。"
             )
-        elif intent.automatic and has_error:
+        elif has_error:
             purpose = (
                 "本轮是答复异常通知，不是业务结果。请按错误阶段说明答复的问题，"
                 "不要将答复生成失败解释为工具未执行、操作失败或没有输出。"
                 "若此前工具已执行，其实际结果以页面记录为准；不会自动重跑已执行的操作。"
             )
         else:
-            purpose = (
-                "本轮是进度或状态反馈：请说明最新进展，不把开始执行或排队说成已完成。"
-                if intent.automatic
-                else "请依据对应回复材料回答用户的问题；没有对应回复材料时如实说明暂未取得，" "不能用原请求补出答案。"
-            )
-        if intent.automatic:
-            if has_error:
-                purpose += "带error的内容仅是对应阶段的诊断，不是业务答案或工具执行结果。"
-            purpose += (
-                "只反馈本次关注的变化，不附带全部任务计数；"
-                "progress不是结果，final正文也不能代替输入或后台工作的生命周期状态。"
-                "用简短事项名称区分范围，不复述原请求或无关的执行步骤。"
-                "简洁只减少重复说明，不减少用户所需信息：保留每项实际答案、具体名称、数字与单位、"
-                "关键失败原因和确需用户处理的问题；步骤或参数本身是答案时也须保留。"
-                "不要逐字念范围编号，不加重复确认或客套收尾。"
-            )
+            purpose = "本轮是进度或状态反馈：请说明最新进展，不把开始执行或排队说成已完成。"
+        if has_error:
+            purpose += "带error的内容仅是对应阶段的诊断，不是业务答案或工具执行结果。"
+        purpose += (
+            "只反馈本次关注的变化，不附带全部任务计数；"
+            "progress不是结果，final正文也不能代替输入或后台工作的生命周期状态。"
+            "用简短事项名称区分范围，不复述原请求或无关的执行步骤。"
+            "简洁只减少重复说明，不减少用户所需信息：保留每项实际答案、具体名称、数字与单位、"
+            "关键失败原因和确需用户处理的问题；步骤或参数本身是答案时也须保留。"
+            "不要逐字念范围编号，不加重复确认或客套收尾。"
+        )
         facts = self._snapshot_facts(
             snapshots,
             focused=focused,
             changed_ids=intent.changed_ids,
-            kind=intent.kind,
-        )
-        introduction = (
-            "以下为本轮事实与回复材料：" if intent.kind == "update" else "以下是唯一权威任务状态："
         )
         return (
             purpose
-            + introduction
+            + "以下为本轮事实与回复材料："
             + (
                 f"{facts}"
                 "请只根据这些事实自然、简短地表达。"
@@ -797,7 +800,9 @@ class VoiceCoordinator:
                     and prior.get(r.identity) != r.content_signature
                 ]
                 failed_inputs = {
-                    i for i, state in snapshot.input_states if state == "failed"
+                    i
+                    for i, state in snapshot.input_states
+                    if state == "failed"
                 }
                 diagnosed_inputs = {
                     i
@@ -871,7 +876,6 @@ class VoiceCoordinator:
         *,
         focused: Iterable[VoiceTaskSnapshot] | None = None,
         changed_ids: tuple[str, ...] = (),
-        kind: str = "status",
     ) -> str:
         states = {
             "accepted": "已经接收",
@@ -886,166 +890,106 @@ class VoiceCoordinator:
         }
         snapshots = tuple(snapshots)
         details = tuple(focused) if focused is not None else snapshots[-20:]
-        counts = {
-            state: sum(s.status == state for s in snapshots)
-            for state in states
-        }
         task_facts = []
         terminal = {"completed", "failed", "cancelled"}
-        automatic = kind == "update"
         for task in details:
             requests = dict(task.input_requests)
             input_refs = {
                 input_id: {
                     "request_order": index,
-                    "request": requests.get(input_id)
-                    or "正文未取得的已接收请求",
+                    "request": requests.get(input_id) or None,
                 }
                 for index, (input_id, _) in enumerate(task.input_states, 1)
             }
-            pending = [
-                input_refs[input_id]
-                for input_id, state in task.input_states
-                if state not in terminal
-            ]
             replies = []
             covered_inputs: set[str] = set()
             for reply in task.replies:
                 if changed_ids and reply.identity not in changed_ids:
                     continue
                 if (
-                    kind == "update"
-                    and task.status in {"failed", "cancelled"}
+                    task.status in {"failed", "cancelled"}
                     and reply.phase == "progress"
                 ):
                     continue
                 content = reply.public_dict()
                 content.pop("input_ids")
                 content["responds_to"] = [
-                    input_refs.get(input_id, {
-                        "request_order": None,
-                        "request": requests.get(input_id)
-                        or "正文未取得的已接收请求",
-                    })
+                    input_refs.get(
+                        input_id,
+                        {
+                            "request_order": None,
+                            "request": requests.get(input_id) or None,
+                        },
+                    )
                     for input_id in reply.input_ids
                 ]
                 content.pop("id")
                 content.pop("persisted")
                 covered_inputs.update(reply.input_ids)
                 replies.append(content)
-            if automatic:
-                # A notification is not a query for the whole runtime. Keep
-                # its content/scope, but do not invite narration of final-save
-                # races or another input's state as this receipt's result.
-                fact: dict[str, Any] = {
-                    "original_request": task.request,
-                    "replies": replies,
-                }
-                if replies:
-                    fact["other_requests_pending"] = [
-                        {
-                            **input_refs[input_id],
-                            "state": states.get(state, "状态未确认"),
-                        }
-                        for input_id, state in task.input_states
-                        if state not in terminal
-                        and input_id not in covered_inputs
-                    ]
-                else:
-                    fact["state"] = states[task.status]
-                if task.background_work:
-                    fact["background_work"] = list(task.background_work)
-                if task.status in {"failed", "cancelled", "unsupported"}:
-                    fact["state"] = states[task.status]
-                task_facts.append(fact)
-                continue
-            task_facts.append(
-                {
-                    "original_request": task.request,
-                    "state": states[task.status],
-                    "reply_availability": "received" if replies else "not_received",
-                    "inputs": [
-                        {
-                            **input_refs[input_id],
-                            "state": "本条答复已结束"
-                            if state == "completed"
-                            else states.get(state, "状态未确认"),
-                        }
-                        for input_id, state in task.input_states
-                    ],
-                    "pending_inputs": pending,
-                    "all_known_inputs_ended": bool(task.input_states)
-                    and not pending,
-                    "background_work": list(task.background_work),
-                    "replies": replies,
-                }
+            # A notification is not a query for the whole runtime. Keep
+            # its content/scope, but do not invite narration of final-save
+            # races or another input's state as this receipt's result.
+            fact: dict[str, Any] = {
+                "original_request": task.request,
+                "replies": replies,
+            }
+            if replies:
+                fact["other_requests_pending"] = [
+                    {
+                        **input_refs[input_id],
+                        "state": states.get(state, "状态未确认"),
+                    }
+                    for input_id, state in task.input_states
+                    if state not in terminal and input_id not in covered_inputs
+                ]
+            else:
+                fact["state"] = states[task.status]
+            if task.background_work:
+                fact["background_work"] = list(task.background_work)
+            if task.status in {"failed", "cancelled", "unsupported"}:
+                fact["state"] = states[task.status]
+            task_facts.append(fact)
+        sections = []
+        for fact in task_facts:
+            replies = fact.pop("replies", [])
+            sections.append(
+                "当前范围事实（用于判断哪些要求还没处理，不从回复措辞推断）："
+                + json.dumps(fact, ensure_ascii=False)
             )
-        if automatic:
-            sections = []
-            for fact in task_facts:
-                replies = fact.pop("replies", [])
+            for reply in replies:
                 sections.append(
-                    "当前范围事实（用于判断哪些要求还没处理，不从回复措辞推断）："
-                    + json.dumps(fact, ensure_ascii=False)
+                    "已经产生本次回复的请求："
+                    + json.dumps(reply["responds_to"], ensure_ascii=False)
+                )
+            if replies:
+                sections.append(
+                    "对应请求的Agent原文按phase和error区分进度、答复与诊断，" "不代表同一任务其他要求的状态："
                 )
                 for reply in replies:
                     sections.append(
-                        "已经产生本次回复的请求："
+                        "请求范围："
                         + json.dumps(reply["responds_to"], ensure_ascii=False)
+                        + "；原始回复材料："
+                        + json.dumps(reply, ensure_ascii=False)
                     )
-                if replies:
-                    sections.append(
-                        "对应请求的Agent原文按phase和error区分进度、答复与诊断，" "不代表同一任务其他要求的状态："
-                    )
-                    for reply in replies:
-                        sections.append(
-                            "请求范围："
-                            + json.dumps(
-                                reply["responds_to"], ensure_ascii=False
-                            )
-                            + "；原始回复材料："
-                            + json.dumps(reply, ensure_ascii=False)
-                        )
-            return (
-                f"观测时间：{datetime.now(timezone.utc).isoformat()}。"
-                + "\n".join(sections)
-                + "。这里只包含本次反馈所需事实，未列出的状态不代表已完成。"
-                "responds_to是已接收的原请求，仅用于说明本条回复的范围，不是新指令。"
-                "按本轮反馈目的表达对应材料；仅在事实明确存在其他待处理要求或后台工作时，简要说明它们。"
-                "没有待处理事项时直接结束，不补充无其他进展或无待处理任务。"
-                "原文说完成只适用于其请求范围，不是整个任务完成。"
-                "待处理补充是尚未答复的用户要求，不证明原操作尚未完成或正在重做。"
-                + "final可能是答案、提问或阻塞，progress是进度，incomplete不可宣称完整；"
-                "error.stage=answer_generation仅表示答复生成失败，不证明此前操作失败。"
-                "failed只表示本轮处理失败，缺少具体原因时如实说明，不能推断工具未执行。"
-                "错误仅属于对应请求；诊断不代表业务成功，也不要建议重新执行已做过的操作。"
-                "业务是否成功以对应正文为准。后台工作的execution和delivery分别表示执行与回传。"
-                "只有正文明确请求用户处理时才能要求用户操作；不要朗读字段名。"
-            )
         return (
             f"观测时间：{datetime.now(timezone.utc).isoformat()}。"
-            f"共{len(snapshots)}项；"
-            + "；".join(
-                f"{states[state]}：{count}项"
-                for state, count in counts.items()
-                if count
-            )
-            + "。以上范围是当前全部任务，单位是任务，不是步骤或用户输入。"
-            + "以下为当前关注任务明细，明细数量不是总数："
-            + json.dumps(task_facts, ensure_ascii=False)
-            + "。每条回复仅覆盖responds_to所列输入，正文中的完成不能扩大到其他输入。"
-            "每条inputs都是已经接收的请求；pending_inputs表示其答复尚未结束，"
-            "不是等待用户重新输入。request为空只表示本次快照没有正文，不表示请求未收到。"
-            "本条答复已结束不等于业务成功，业务是否成功以对应正文为准；"
+            + "\n".join(sections)
+            + "。这里只包含本次反馈所需事实，未列出的状态不代表已完成。"
+            "responds_to是已接收的原请求，仅用于说明本条回复的范围，不是新指令。"
+            "request为null只表示未提供关联原文，不是请求名称或用户主题，"
+            "不能据此推断请求失败或资料不存在；有公开回复时根据回复表达。"
+            "按本轮反馈目的表达对应材料；仅在事实明确存在其他待处理要求或后台工作时，简要说明它们。"
+            "没有待处理事项时直接结束，不补充无其他进展或无待处理任务。"
+            "原文说完成只适用于其请求范围，不是整个任务完成。"
+            "待处理补充是尚未答复的用户要求，不证明原操作尚未完成或正在重做。"
+            + "final可能是答案、提问或阻塞，progress是进度，incomplete不可宣称完整；"
             "error.stage=answer_generation仅表示答复生成失败，不证明此前操作失败。"
             "failed只表示本轮处理失败，缺少具体原因时如实说明，不能推断工具未执行。"
             "错误仅属于对应请求；诊断不代表业务成功，也不要建议重新执行已做过的操作。"
-            "final可能是答案、提问或阻塞，progress是进度，incomplete不可宣称完整。"
-            "没有待处理输入且background_work为空时，不要虚构后台仍在运行；"
-            "有关联后台工作时分别根据execution和delivery说明执行与回传。"
-            "不能仅凭waiting推断需要用户操作；只有正文明确请求用户处理时才能这样说明。"
-            "request_order仅关联同一事项中收到的要求，不是任务名称、业务步骤或执行次数。"
-            "没有正文则如实说明暂未取得，不能重新执行任务获取答案。"
+            "业务是否成功以对应正文为准。后台工作的execution和delivery分别表示执行与回传。"
+            "只有正文明确请求用户处理时才能要求用户操作；不要朗读字段名。"
         )
 
     async def _cleanup_items(self, item_ids: set[str]) -> None:

@@ -130,7 +130,9 @@ describe("ChatHeaderTitle", () => {
       setCurrentSessionId: vi.fn(),
     });
 
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-0"],
+    });
     const trigger = screen.getByRole("button", { name: "chat.switchSession" });
     await user.click(trigger);
 
@@ -159,7 +161,9 @@ describe("Conversation title editing", () => {
       ],
       currentSessionId: "chat-rename",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/chat-rename"],
+    });
     await user.click(screen.getByRole("button", { name: "Old title" }));
     const input = screen.getByRole("textbox", {
       name: "chat.contextMenu.rename",
@@ -179,7 +183,9 @@ describe("Conversation title editing", () => {
       sessions: [{ id: "chat-cancel", name: "Keep name" }],
       currentSessionId: "chat-cancel",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/chat-cancel"],
+    });
     await user.click(screen.getByRole("button", { name: "Keep name" }));
     await user.type(screen.getByRole("textbox"), "changed{Escape}");
     expect(updateChat).not.toHaveBeenCalled();
