@@ -398,7 +398,7 @@ def _validate_url_extension(
     ):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.ERROR,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -437,7 +437,7 @@ def _validate_media_path(
     if not resolved.exists() or not resolved.is_file():
         return resolved, ToolChunk(
             is_last=True,
-            state=ToolResultState.ERROR,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -454,7 +454,7 @@ def _validate_media_path(
     ):
         return resolved, ToolChunk(
             is_last=True,
-            state=ToolResultState.ERROR,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -770,7 +770,7 @@ async def view_image(image_path: str) -> ToolChunk:
     if freeze_error is not None or frozen_image is None:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.ERROR,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",

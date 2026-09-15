@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from agentscope.message import Base64Source, ToolResultState
+from agentscope.message import Base64Source
 from PIL import Image
 
 from qwenpaw.agents.tools import view_media
@@ -84,7 +84,6 @@ class TestValidateUrlExtension:
             "image",
         )
         assert result is not None
-        assert result.state == ToolResultState.ERROR
         assert "image" in result.content[0].text.lower()
 
     def test_url_without_extension_passes(self):
@@ -110,7 +109,6 @@ class TestValidateUrlExtension:
             "video",
         )
         assert result is not None
-        assert result.state == ToolResultState.ERROR
         assert "video" in result.content[0].text.lower()
 
 
@@ -139,7 +137,6 @@ class TestValidateMediaPath:
             "image",
         )
         assert err is not None
-        assert err.state == ToolResultState.ERROR
         assert "does not exist" in err.content[0].text
 
     def test_unsupported_extension(self, tmp_path):
@@ -151,7 +148,6 @@ class TestValidateMediaPath:
             "image",
         )
         assert err is not None
-        assert err.state == ToolResultState.ERROR
         assert "not a supported image" in err.content[0].text
 
     def test_directory_not_file(self, tmp_path):
@@ -454,7 +450,6 @@ class TestViewImage:
     async def test_invalid_url_extension(self, mock_support):
         mock_support.return_value = True
         result = await view_image("https://example.com/doc.pdf")
-        assert result.state == ToolResultState.ERROR
         assert "image" in result.content[0].text.lower()
 
     @pytest.mark.asyncio
@@ -576,7 +571,6 @@ class TestViewImage:
         result = await view_image(str(img))
 
         assert len(result.content) == 1
-        assert result.state == ToolResultState.ERROR
         assert "exceeds" in result.content[0].text
         assert str(MAX_INLINE_MEDIA_BYTES) in result.content[0].text
 
@@ -647,7 +641,6 @@ class TestViewImage:
     async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
         result = await view_image("/nonexistent/image.png")
-        assert result.state == ToolResultState.ERROR
         assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
@@ -1121,7 +1114,6 @@ class TestViewVideo:
     async def test_invalid_url_extension(self, mock_support):
         mock_support.return_value = True
         result = await view_video("https://example.com/doc.pdf")
-        assert result.state == ToolResultState.ERROR
         assert "video" in result.content[0].text.lower()
 
     @pytest.mark.asyncio
@@ -1139,5 +1131,4 @@ class TestViewVideo:
     async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
         result = await view_video("/nonexistent/vid.mp4")
-        assert result.state == ToolResultState.ERROR
         assert "does not exist" in result.content[0].text

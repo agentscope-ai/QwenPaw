@@ -49,7 +49,7 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename.replace(/^\/+/, "");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 

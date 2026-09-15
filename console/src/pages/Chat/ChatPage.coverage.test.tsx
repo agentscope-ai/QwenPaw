@@ -90,7 +90,6 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
-  SESSION_TIMELINE_MODE_VERSION: 4,
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
     useEffect(() => {
@@ -883,7 +882,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── responseParser: replay_end → heartbeat ─────────────────────────────
-  it("responseParser preserves replay_end for session timeline mode", async () => {
+  it("responseParser preserves replay_end for the run lifecycle", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });

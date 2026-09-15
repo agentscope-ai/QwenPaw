@@ -614,16 +614,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await PORTABILITY_IMPORT_JOBS.shutdown()
 
-    logger.info("Stopping BackupManager...")
-    await backup_manager.shutdown()
+        realtime_voice_service = getattr(
+            app.state,
+            "realtime_voice_service",
+            None,
+        )
+        if realtime_voice_service is not None:
+            await realtime_voice_service.shutdown()
 
-    realtime_voice_service = getattr(
-        app.state,
-        "realtime_voice_service",
-        None,
-    )
-    if realtime_voice_service is not None:
-        await realtime_voice_service.shutdown()
+        logger.info("Stopping BackupManager...")
+        await backup_manager.shutdown()
 
         await _stop_browser_runtime(app)
         from ..agents.tools import shutdown_browser_runtime
