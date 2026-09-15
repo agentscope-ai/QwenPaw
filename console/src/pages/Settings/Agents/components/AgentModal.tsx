@@ -389,7 +389,6 @@ export function AgentModal({
         {selectedBackend === "qwenpaw" && (
           <Form.Item className={styles.agentRoutingFormItem}>
             <AgentModelSettings
-              agentId={editingAgent?.id}
               providers={eligibleProviders}
               activeProviderId={selectedProviderId}
               activeModelId={selectedModelId}

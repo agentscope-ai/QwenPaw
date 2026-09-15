@@ -10,6 +10,14 @@ on:
         description: 'Pytest marker expression'
         type: string
         default: 'integration'
+      node_ids_file:
+        description: >-
+          Repo-relative path to a file of explicit pytest node ids (one per
+          line). When set, the pytest step runs exactly those ids instead of
+          the marker expression. Used by the release gate/watch sets so the
+          blocking set is a reviewed, auditable list rather than a marker.
+        type: string
+        default: ''
       shard_suffix:
         # Set when this reusable job is fanned out into parallel shards
         # (nightly runs p0 / p1 / p2). upload-artifact@v4 rejects
@@ -35,6 +43,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Load explicit node id list
+        if: inputs.node_ids_file != ''
+        shell: bash
+        run: |
+          if [ ! -f "${{ inputs.node_ids_file }}" ]; then
+            echo "::error::node ids file missing: ${{ inputs.node_ids_file }}"
+            exit 1
+          fi
+          cp "${{ inputs.node_ids_file }}" /tmp/e2e_node_ids.txt
+          echo "Loaded $(wc -l < /tmp/e2e_node_ids.txt) explicit node ids from ${{ inputs.node_ids_file }}"
 
       # ---- Build frontend ----
       - uses: actions/setup-node@v4
@@ -136,7 +155,12 @@ jobs:
         shell: bash
         working-directory: e2e
         run: |
-          pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3
+          if [ -s /tmp/e2e_node_ids.txt ]; then
+            # Release gate/watch form: run exactly the reviewed node ids.
+            pytest $(tr '\n' ' ' < /tmp/e2e_node_ids.txt) -v --tb=short --reruns=1 --reruns-delay=3
+          else
+            pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3
+          fi
 
       # ---- Collect coverage ----
       - name: Stop backend and collect coverage
