@@ -7,7 +7,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import httpx
 import uvicorn
@@ -47,7 +47,10 @@ from .auth import HubAuthService, HubDatabaseBusyError, HubUser
 from .bootstrap import get_hub_root
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
-from .provisioner import RuntimeProvisionerUnavailableError
+from .provisioner import (
+    RuntimeProvisioner,
+    RuntimeProvisionerUnavailableError,
+)
 from .local_provisioner import LocalProcessRuntimeProvisioner
 from .docker_images import DockerImagePullStore
 from .docker_provisioner import (
@@ -79,6 +82,35 @@ from .static_files import (
 from . import websocket_proxy
 
 
+def _local_provisioner(_root_dir: Path) -> RuntimeProvisioner:
+    """Build the in-process provisioner, which needs no daemon."""
+    return LocalProcessRuntimeProvisioner()
+
+
+def _docker_provisioner(root_dir: Path) -> RuntimeProvisioner:
+    """Build the Docker provisioner rooted at the Hub data directory."""
+    return DockerRuntimeProvisioner(root_dir)
+
+
+# Single source of truth for the provisioners a Hub build registers: startup
+# validation reads the keys and builds nothing, while the runtime service
+# builds exactly one instance per entry.
+PROVISIONER_FACTORIES: dict[str, Callable[[Path], RuntimeProvisioner]] = {
+    LocalProcessRuntimeProvisioner.name: _local_provisioner,
+    DockerRuntimeProvisioner.name: _docker_provisioner,
+}
+
+
+def build_runtime_provisioners(
+    root_dir: Path,
+) -> dict[str, RuntimeProvisioner]:
+    """Build every provisioner registered by this Hub build, once."""
+    return {
+        name: factory(root_dir)
+        for name, factory in PROVISIONER_FACTORIES.items()
+    }
+
+
 def build_runtime_service(
     root_dir: Path | None = None,
     hub_config: HubConfig | None = None,
@@ -90,8 +122,6 @@ def build_runtime_service(
         registry.database_path,
         resolved_root / "secrets" / ".vault_key",
     )
-    local_provisioner = LocalProcessRuntimeProvisioner()
-    docker_provisioner = DockerRuntimeProvisioner(resolved_root)
 
     def runtime_environment(record: Any) -> dict[str, str]:
         environment = credential_vault.resolve_environment(
@@ -110,10 +140,7 @@ def build_runtime_service(
     return RuntimeService(
         root_dir=resolved_root,
         registry=registry,
-        provisioners={
-            local_provisioner.name: local_provisioner,
-            docker_provisioner.name: docker_provisioner,
-        },
+        provisioners=build_runtime_provisioners(resolved_root),
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -1556,7 +1583,10 @@ def run_hub_app(
     root_dir = get_hub_root()
     hub_config = HubConfigStore(
         root_dir / "control.db",
-    ).resolve(config_path, available_provisioners={"local", "docker"})
+    ).resolve(
+        config_path,
+        available_provisioners=set(PROVISIONER_FACTORIES),
+    )
     if public_bind:
         database_path = root_dir / "control.db"
         credential_vault = TenantCredentialVault(

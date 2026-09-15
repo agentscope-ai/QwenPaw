@@ -495,6 +495,75 @@ def test_public_bind_requires_public_base_url(
         )
 
 
+def _write_hub_config(tmp_path: Path, provisioner: str) -> Path:
+    """Write a minimal Hub config that selects one provisioner."""
+    config_path = tmp_path / "hub.yaml"
+    config_path.write_text(
+        f"version: 1\nruntime:\n  provisioner: {provisioner}\n",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_run_hub_app_validates_against_registered_provisioners(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup rejects a provisioner this build does not register."""
+
+    def explode(_root_dir: Path) -> RuntimeProvisioner:
+        raise AssertionError(
+            "startup validation must not build provisioners",
+        )
+
+    monkeypatch.setenv("QWENPAW_HUB_DIR", str(tmp_path))
+    config_path = _write_hub_config(tmp_path, "docker")
+
+    with (
+        patch(
+            "qwenpaw.hub.control_app.PROVISIONER_FACTORIES",
+            {"local": explode},
+        ),
+        patch("qwenpaw.hub.control_app.create_hub_app") as create_app,
+        patch("qwenpaw.hub.control_app.uvicorn.run"),
+        pytest.raises(
+            ValueError,
+            match="Unknown runtime provisioner: docker",
+        ),
+    ):
+        run_hub_app(
+            host="127.0.0.1",
+            port=8088,
+            log_level="info",
+            config_path=config_path,
+        )
+
+    create_app.assert_not_called()
+
+
+def test_run_hub_app_accepts_provisioner_registered_by_the_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup accepts a provisioner this build does register."""
+    monkeypatch.setenv("QWENPAW_HUB_DIR", str(tmp_path))
+    config_path = _write_hub_config(tmp_path, "docker")
+
+    with (
+        patch("qwenpaw.hub.control_app.create_hub_app") as create_app,
+        patch("qwenpaw.hub.control_app.uvicorn.run") as uvicorn_run,
+    ):
+        run_hub_app(
+            host="127.0.0.1",
+            port=8088,
+            log_level="info",
+            config_path=config_path,
+        )
+
+    uvicorn_run.assert_called_once()
+    create_app.assert_called_once()
+
+
 def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
     tmp_path: Path,
 ) -> None:
