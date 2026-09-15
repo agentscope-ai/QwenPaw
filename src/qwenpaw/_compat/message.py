@@ -199,7 +199,9 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
     from agentscope.message import Msg  # local import to ease shim usage
 
     payload: dict[str, Any] = dict(data)
-    legacy_identity = "timestamp" in data or isinstance(data.get("content"), str)
+    legacy_identity = "timestamp" in data or isinstance(
+        data.get("content"), str
+    )
 
     # Field rename: 1.x ``timestamp`` -> 2.0 ``created_at``.
     if "created_at" not in payload and "timestamp" in payload:
@@ -250,7 +252,8 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
         # Legacy message IDs identify messages, not replies. Generated block
         # IDs on this conversion must not turn a reload into a new occurrence.
         payload["metadata"] = {
-            **payload["metadata"], LEGACY_MESSAGE_ID_KEY: payload["id"],
+            **payload["metadata"],
+            LEGACY_MESSAGE_ID_KEY: payload["id"],
         }
 
     return Msg.model_validate(payload)

@@ -14,8 +14,8 @@ async def test_send_file_resolves_relative_path(tmp_path):
     file_path.write_text("content", encoding="utf-8")
 
     with patch(
-        "qwenpaw.agents.tools.file_io.get_current_project_dir",
-        return_value=tmp_path,
+        "qwenpaw.agents.tools.file_io.get_all_project_dir_paths",
+        return_value=[tmp_path],
     ):
         result = await send_file_to_user("report.txt")
 
@@ -30,8 +30,8 @@ async def test_send_file_resolves_relative_path(tmp_path):
 @pytest.mark.asyncio
 async def test_send_file_missing_path_is_error(tmp_path):
     with patch(
-        "qwenpaw.agents.tools.file_io.get_current_project_dir",
-        return_value=tmp_path,
+        "qwenpaw.agents.tools.file_io.get_all_project_dir_paths",
+        return_value=[tmp_path],
     ):
         result = await send_file_to_user("missing.txt")
 

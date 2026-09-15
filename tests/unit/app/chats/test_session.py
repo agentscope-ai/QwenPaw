@@ -38,7 +38,9 @@ from qwenpaw.exceptions import AgentStateError
 async def test_session_reader_excludes_writer_until_io_finishes(
     session, monkeypatch, load, cancel
 ):
-    await session.save_session_state("reader-race", agent=_StateModule({"v": 1}))
+    await session.save_session_state(
+        "reader-race", agent=_StateModule({"v": 1})
+    )
     loop = asyncio.get_running_loop()
     opened = asyncio.Event()
     release = threading.Event()
@@ -57,25 +59,32 @@ async def test_session_reader_excludes_writer_until_io_finishes(
 
     monkeypatch.setattr(session_mod, "_read_session_json", hold_read)
     monkeypatch.setattr(session_mod, "write_json_atomic_async", track_write)
-    operation = session.load_session_state if load else session.get_session_state_dict
+    operation = (
+        session.load_session_state if load else session.get_session_state_dict
+    )
     reader = asyncio.create_task(operation("reader-race"))
     await asyncio.wait_for(opened.wait(), 1)
-    # Only the already-open reader is held; a competing writer would get through
-    # immediately if the read lock were absent or released by cancellation.
+    # Only the already-open reader is held; a competing writer would get
+    # through immediately if the read lock were absent or released by
+    # cancellation.
     monkeypatch.setattr(session_mod, "_read_session_json", read)
     if cancel:
         reader.cancel()
     writer = asyncio.create_task(
-        session.mutate_session_state("reader-race", lambda state: state.update(done=True))
+        session.mutate_session_state(
+            "reader-race", lambda state: state.update(done=True)
+        )
     )
     try:
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(writing.wait(), .05)
+            await asyncio.wait_for(writing.wait(), 0.05)
     finally:
         release.set()
         await asyncio.gather(reader, writer, return_exceptions=True)
     assert writing.is_set()
-    assert (await session.get_session_state_dict("reader-race"))["done"] is True
+    assert (await session.get_session_state_dict("reader-race"))[
+        "done"
+    ] is True
     if cancel:
         assert reader.cancelled()
     else:

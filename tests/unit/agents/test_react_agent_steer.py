@@ -33,7 +33,11 @@ from qwenpaw.constant import (
     QWENPAW_CLIENT_MESSAGE_ID_KEY,
 )
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
-from qwenpaw.runtime.reply_cycle import InputStateEvent, ReplyCycleContext
+from qwenpaw.runtime.reply_cycle import (
+    InputStateEvent,
+    ReplyCycleContext,
+    reply_block_metadata,
+)
 from qwenpaw.schemas import TextContent
 
 
@@ -866,13 +870,20 @@ async def test_save_to_context_stamps_each_block_occurrence(monkeypatch):
         reserve_order,
     )
     agent._context_manager = None
-    agent._get_last_msg = lambda: None
+    saved = Msg(
+        id="reply",
+        name="assistant",
+        role="assistant",
+        content=[],
+    )
+    agent._get_last_msg = lambda: saved
     await agent._reply_cycle_context.start_occurrence()
     captured = []
 
     def save_blocks(_self, blocks, usage=None):
         del usage
         captured.extend(blocks)
+        saved.content.extend(blocks)
 
     monkeypatch.setattr(Agent, "_save_to_context", save_blocks)
     blocks = [
@@ -883,9 +894,13 @@ async def test_save_to_context_stamps_each_block_occurrence(monkeypatch):
     QwenPawAgent._save_to_context(agent, blocks)
 
     assert captured == blocks
-    assert all(block.metadata["timeline_order"] == 5 for block in blocks)
     assert all(
-        block.metadata["timeline_group_id"] == "input-a" for block in blocks
+        reply_block_metadata(saved, block)["timeline_order"] == 5
+        for block in blocks
+    )
+    assert all(
+        reply_block_metadata(saved, block)["timeline_group_id"] == "input-a"
+        for block in blocks
     )
 
 
@@ -903,13 +918,23 @@ async def test_save_to_context_does_not_leak_late_tool_owner(monkeypatch):
         reserve_order,
     )
     agent._context_manager = None
-    agent._get_last_msg = lambda: None
+    saved = Msg(
+        id="reply",
+        name="assistant",
+        role="assistant",
+        content=[],
+    )
+    agent._get_last_msg = lambda: saved
     await agent._reply_cycle_context.start_occurrence()
     agent._reply_cycle_context.bind_call("call-a")
     agent._reply_cycle_context.activate(["input-b"])
     await agent._reply_cycle_context.start_occurrence()
 
-    monkeypatch.setattr(Agent, "_save_to_context", lambda *_args, **_kw: None)
+    def save_blocks(_self, blocks, usage=None):
+        del usage
+        saved.content.extend(blocks)
+
+    monkeypatch.setattr(Agent, "_save_to_context", save_blocks)
     result = ToolResultBlock(
         id="call-a",
         name="slow_tool",
@@ -919,10 +944,12 @@ async def test_save_to_context_does_not_leak_late_tool_owner(monkeypatch):
 
     QwenPawAgent._save_to_context(agent, [result, current_text])
 
-    assert result.metadata["timeline_group_id"] == "input-a"
-    assert result.metadata["timeline_order"] == 5
-    assert current_text.metadata["timeline_group_id"] == "input-b"
-    assert current_text.metadata["timeline_order"] == 7
+    result_metadata = reply_block_metadata(saved, result)
+    current_metadata = reply_block_metadata(saved, current_text)
+    assert result_metadata["timeline_group_id"] == "input-a"
+    assert result_metadata["timeline_order"] == 5
+    assert current_metadata["timeline_group_id"] == "input-b"
+    assert current_metadata["timeline_order"] == 7
 
 
 def test_queue_waits_for_reply_while_steer_can_enter_reasoning():

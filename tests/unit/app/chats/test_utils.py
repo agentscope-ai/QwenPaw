@@ -17,21 +17,20 @@ from qwenpaw.app.chats.utils import (
     clean_display_text,
     strip_injected_skill_block,
 )
-
-
-def test_display_headline_cleanup_is_only_for_assistant_text():
-    from qwenpaw.app.chats.utils import clean_display_text
-
-    text = "literal document\n⟦ a quoted line ⟧"
-    for role in ("user", "tool", "system"):
-        assert clean_display_text(text, role) == text
-    assert clean_display_text("answer\n⟦ index ⟧", "assistant") == "answer"
 from qwenpaw.app.chats.title_generator import _clean_title
 from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
+
+
+def test_display_headline_cleanup_is_only_for_assistant_text():
+    text = "literal document\n⟦ a quoted line ⟧"
+    for role in ("user", "tool", "system"):
+        assert clean_display_text(text, role) == text
+    assert clean_display_text("answer\n⟦ index ⟧", "assistant") == "answer"
 
 
 # ---------------------------------------------------------------------------
@@ -497,8 +496,10 @@ def test_history_message_ids_are_stable_and_keep_distinct_occurrences():
         content=[
             {"type": "text", "text": "started"},
             {
-                "type": "tool_call", "id": "call-1",
-                "name": "shell", "input": "{}",
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "shell",
+                "input": "{}",
             },
             {"type": "text", "text": "finished"},
         ],
@@ -509,25 +510,38 @@ def test_history_message_ids_are_stable_and_keep_distinct_occurrences():
     )
     assert [item.id for item in before] == [item.id for item in replay]
     assert len({item.id for item in before}) == 3
-    msg.content.append(TextBlock(text="later", metadata={"timeline_order": 9}))
+    later = TextBlock(text="later")
+    msg.content.append(later)
+    set_reply_block_metadata(msg, later, {"timeline_order": 9})
     grown = agentscope_msg_to_message(msg)
     assert [item.id for item in grown[:3]] == [item.id for item in before]
     assert len({item.id for item in grown}) == 4
+    segment_block = TextBlock(text="another reply")
     segment = Msg(
-        id=msg.id, name="assistant", role="assistant",
-        content=[TextBlock(text="another reply", metadata={"timeline_order": 10})],
+        id=msg.id,
+        name="assistant",
+        role="assistant",
+        content=[segment_block],
     )
+    set_reply_block_metadata(segment, segment_block, {"timeline_order": 10})
     segmented = agentscope_msg_to_message([msg, segment])
     assert len({item.id for item in segmented}) == len(segmented)
     restored_segment = Msg(
-        id=msg.id, name="assistant", role="assistant", content=[msg.content[-1]],
+        id=msg.id,
+        name="assistant",
+        role="assistant",
+        content=[msg.content[-1]],
     )
     assert agentscope_msg_to_message(restored_segment)[0].id == grown[-1].id
     repeated_text = Msg(
-        name="user", role="user", content=[TextBlock(text="same words")],
+        name="user",
+        role="user",
+        content=[TextBlock(text="same words")],
     )
     other_turn = Msg(
-        name="user", role="user", content=[TextBlock(text="same words")],
+        name="user",
+        role="user",
+        content=[TextBlock(text="same words")],
     )
     assert (
         agentscope_msg_to_message(repeated_text)[0].id
@@ -536,26 +550,23 @@ def test_history_message_ids_are_stable_and_keep_distinct_occurrences():
 
 
 def test_agentscope_msg_to_message_preserves_each_block_metadata():
+    started = TextBlock(text="started")
+    finished = TextBlock(text="finished")
     msg = Msg(
         name="assistant",
         role="assistant",
         metadata={"run_id": "run-1"},
-        content=[
-            TextBlock(
-                text="started",
-                metadata={
-                    "timeline_group_id": "input-1",
-                    "timeline_order": 2,
-                },
-            ),
-            TextBlock(
-                text="finished",
-                metadata={
-                    "timeline_group_id": "input-1",
-                    "timeline_order": 5,
-                },
-            ),
-        ],
+        content=[started, finished],
+    )
+    set_reply_block_metadata(
+        msg,
+        started,
+        {"timeline_group_id": "input-1", "timeline_order": 2},
+    )
+    set_reply_block_metadata(
+        msg,
+        finished,
+        {"timeline_group_id": "input-1", "timeline_order": 5},
     )
 
     messages = agentscope_msg_to_message(msg)
@@ -565,8 +576,7 @@ def test_agentscope_msg_to_message_preserves_each_block_metadata():
         "finished",
     ]
     assert [
-        message.metadata["metadata"]["timeline_order"]
-        for message in messages
+        message.metadata["metadata"]["timeline_order"] for message in messages
     ] == [2, 5]
     assert all(
         message.metadata["metadata"]["run_id"] == "run-1"
@@ -650,7 +660,7 @@ def test_clean_title_keeps_long_title():
     assert result == long_title
 
 
-def test_termination_display_preserves_context_but_hides_internal_instructions():
+def test_termination_display_hides_internal_instructions():
     from qwenpaw.runtime.runtime import Runtime
     from qwenpaw.app.chats.replies import project_replies
 

@@ -731,10 +731,7 @@ class ScrollContextManager:
         return f"{text[:head]}{marker}{text[-tail:]}"
 
     def _evicted_span(self, messages: list[Msg]) -> tuple[int, int] | None:
-        ranges = [
-            self._seq_by_id.get(message_key(msg))
-            for msg in messages
-        ]
+        ranges = [self._seq_by_id.get(message_key(msg)) for msg in messages]
         known = [span for span in ranges if span is not None]
         if not known:
             return None
@@ -1721,7 +1718,11 @@ class ScrollContextManager:
         from ...memory.base_memory_manager import BaseMemoryManager
 
         assign_message_keys(
-            (m for m in agent.state.context if m.id not in self._synthetic_ids),
+            (
+                m
+                for m in agent.state.context
+                if m.id not in self._synthetic_ids
+            ),
             lambda mid: self._history.message_anchor(self._session_id, mid),
         )
         for raw_msg in agent.state.context:
