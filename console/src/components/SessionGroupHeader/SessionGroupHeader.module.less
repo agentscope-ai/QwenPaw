@@ -133,3 +133,12 @@
     }
   }
 }
+
+/* Compact density — driven by <html data-sidebar-compact> published
+   from useCompactDensity; keep in sync with GROUP_HEADER_HEIGHT_COMPACT
+   (32px = 28 + 2×2 margin) in layouts/SidebarSessionList.tsx. */
+:global(html[data-sidebar-compact="1"]) {
+  .header {
+    height: 28px;
+  }
+}

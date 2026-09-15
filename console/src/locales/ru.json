@@ -2767,6 +2767,11 @@
     "toggleAgentNavigation": "Развернуть или свернуть навигацию агента"
   },
   "settingsCenter": {
+    "sessionHeight": "Высота строк",
+    "sessionHeightHint": "Высота строк списка диалогов в боковой панели. «Авто» зависит от высоты окна.",
+    "densityAuto": "Авто",
+    "densityStandard": "Стандарт",
+    "densityCompact": "Компактно",
     "backToApp": "Вернуться в приложение",
     "searchPlaceholder": "Поиск настроек",
     "noResults": "Подходящие настройки не найдены",
@@ -2836,8 +2841,7 @@
     "newTask": "Новая задача",
     "groups": {
       "cronShort": "Расписание",
-      "subagentShort": "Субагент",
-      "loadMore": "Загрузить ещё · осталось {{count}}"
+      "subagentShort": "Субагент"
     },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"
@@ -2977,7 +2981,12 @@
     },
     "sessionPanel": {
       "searchConversations": "Поиск…",
-      "noConversations": "Нет диалогов"
+      "noConversations": "Нет диалогов",
+      "noMatchingConversations": "Нет подходящих диалогов",
+      "groupBy": "Группировка",
+      "groupByTime": "По времени",
+      "groupBySource": "По источнику",
+      "groupByNone": "Без группировки"
     },
     "conversationHistory": "История диалогов"
   },

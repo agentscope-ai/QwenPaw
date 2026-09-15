@@ -348,6 +348,11 @@
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
   "settingsCenter": {
+    "sessionHeight": "Tinggi baris",
+    "sessionHeightHint": "Tinggi baris daftar percakapan di sidebar. Otomatis mengikuti tinggi jendela.",
+    "densityAuto": "Otomatis",
+    "densityStandard": "Standar",
+    "densityCompact": "Ringkas",
     "backToApp": "Kembali ke aplikasi",
     "searchPlaceholder": "Cari pengaturan",
     "noResults": "Tidak ada pengaturan yang cocok",
@@ -761,8 +766,7 @@
     "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen",
-      "loadMore": "Muat lebih banyak · {{count}} tersisa"
+      "subagentShort": "Subagen"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"

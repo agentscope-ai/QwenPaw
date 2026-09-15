@@ -10,7 +10,16 @@ import type { InputRef } from "antd";
 import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { ChevronDown, Ellipsis, FolderPlus, Search } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Ellipsis,
+  FolderPlus,
+  FolderTree,
+  Layers,
+  List,
+  Search,
+} from "lucide-react";
 import { SparkNewChatLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../utils/channel";
 import {
@@ -26,6 +35,12 @@ import {
 } from "../stores/sessionListStore";
 import { findSessionRowIndex } from "../utils/sessionGrouping";
 import {
+  getSessionGroupModePreference,
+  setSessionGroupModePreference,
+  SESSION_GROUP_MODE_CHANGE_EVENT,
+  type SessionGroupMode,
+} from "../utils/sessionGroupModePreference";
+import {
   groupChats,
   groupChatsByDate,
   findStickyGroupHeaderIndex,
@@ -34,6 +49,7 @@ import {
   type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
+import { useCompactDensity } from "../hooks/useCompactDensity";
 import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
@@ -56,8 +72,16 @@ const SESSION_ROW_HEIGHT = 42;
 /** Fixed height of each group header row */
 const GROUP_HEADER_HEIGHT = 42;
 const DATE_HEADER_HEIGHT = 24;
-const LOAD_MORE_ROW_HEIGHT = 44;
-const GROUP_PAGE_SIZE = 10;
+
+/**
+ * Compact row metrics for short viewports (see useCompactDensity).
+ * Each value must match the `@media (max-height: 850px)` rules in the
+ * session list stylesheets so the virtualized allocation and the
+ * rendered rows stay in lockstep.
+ */
+const SESSION_ROW_HEIGHT_COMPACT = 30;
+const GROUP_HEADER_HEIGHT_COMPACT = 32;
+const DATE_HEADER_HEIGHT_COMPACT = 20;
 
 /** A flattened row rendered by the virtualized session list. */
 type FlatRow =
@@ -69,16 +93,23 @@ type FlatRow =
     }
   | {
       kind: "dateHeader";
-      groupId: string;
       dateGroup: ChatDateGroup;
       label: string;
     }
-  | {
-      kind: "loadMore";
-      groupId: string;
-      remaining: number;
-    }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
+
+/**
+ * A header-delimited section of the session list: date buckets in
+ * date mode, chat groups in source mode, one flat recency list in
+ * none mode, and the flat match list while searching.
+ */
+interface ListSection {
+  header: FlatRow | null;
+  sessions: ExtendedChatSession[];
+  /** Group id stamped on session rows; null resolves per session. */
+  groupId: string | null;
+  collapsed: boolean;
+}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -99,7 +130,6 @@ interface VirtualRowData {
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  loadMoreGroup: (groupId: string) => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
@@ -165,36 +195,11 @@ const VirtualRow = React.memo(function VirtualRow({
   }
 
   if (row.kind === "dateHeader") {
+    // Date headers carry no group semantics, so they are not
+    // drag-and-drop targets.
     return (
-      <SessionDropZone
-        id={`date:${row.groupId}:${row.dateGroup}`}
-        groupId={row.groupId}
-        style={style}
-      >
+      <div style={style}>
         <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
-      </SessionDropZone>
-    );
-  }
-
-  if (row.kind === "loadMore") {
-    const label = data.t(
-      "chat.groups.loadMore",
-      "Load more · {{count}} remaining",
-      {
-        count: row.remaining,
-      },
-    );
-    return (
-      <div className={styles.loadMoreRow} style={style}>
-        <button
-          type="button"
-          className={styles.loadMoreButton}
-          aria-label={label}
-          onClick={() => data.loadMoreGroup(row.groupId)}
-        >
-          <span>{label}</span>
-          <ChevronDown size={13} />
-        </button>
       </div>
     );
   }
@@ -274,6 +279,31 @@ export default function SidebarSessionList({
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
+  /** Sectioning mode — persisted and synced across mounted lists. */
+  const [groupMode, setGroupMode] = useState<SessionGroupMode>(
+    getSessionGroupModePreference,
+  );
+  /** Compact row metrics on short viewports (small laptops). */
+  const compact = useCompactDensity();
+
+  useEffect(() => {
+    const syncGroupMode = () => {
+      setGroupMode(getSessionGroupModePreference());
+    };
+
+    window.addEventListener(SESSION_GROUP_MODE_CHANGE_EVENT, syncGroupMode);
+    return () => {
+      window.removeEventListener(
+        SESSION_GROUP_MODE_CHANGE_EVENT,
+        syncGroupMode,
+      );
+    };
+  }, []);
+
+  const handleGroupModeChange = useCallback((mode: SessionGroupMode) => {
+    setGroupMode(mode);
+    setSessionGroupModePreference(mode);
+  }, []);
   /** Collapsed chat groups — persisted so remounts keep the user's state */
   const {
     collapsedGroups,
@@ -291,9 +321,6 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [visibleSessionCounts, setVisibleSessionCounts] = useState<
-    Record<string, number>
-  >({});
   const searchInputRef = useRef<InputRef>(null);
   const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
@@ -490,7 +517,91 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  const activeSessionPage = useMemo(() => {
+  /**
+   * Sections drive the virtual list: one per date bucket (date mode),
+   * one per chat group (source mode), or a single flat section (none
+   * mode). Every session renders — the virtualized list keeps large
+   * histories cheap.
+   */
+  const sections = useMemo<ListSection[]>(() => {
+    if (searchQuery.trim()) {
+      if (filteredSessions.length === 0) return [];
+      return [
+        {
+          header: null,
+          sessions: filteredSessions,
+          groupId: null,
+          collapsed: false,
+        },
+      ];
+    }
+    if (groupMode === "date") {
+      return groupChatsByDate(sortedSessions).map((dateGroup) => ({
+        header: {
+          kind: "dateHeader" as const,
+          dateGroup: dateGroup.key,
+          label: t(`chat.group.${dateGroup.key}`),
+        },
+        sessions: dateGroup.sessions,
+        groupId: null,
+        collapsed: false,
+      }));
+    }
+    if (groupMode === "none") {
+      const ordered = groupChatsByDate(sortedSessions).flatMap(
+        (dateGroup) => dateGroup.sessions,
+      );
+      if (ordered.length === 0) return [];
+      return [
+        {
+          header: null,
+          sessions: ordered,
+          groupId: null,
+          collapsed: false,
+        },
+      ];
+    }
+    if (!groups) return [];
+    // Empty groups carry nothing to scan — hide them entirely; they
+    // reappear as soon as a session lands in them.
+    return groups
+      .filter(({ sessions }) => sessions.length > 0)
+      .map(({ group, sessions }) => {
+        const collapsed = isSessionDragging || collapsedGroups.has(group.id);
+        return {
+          header: {
+            kind: "groupHeader" as const,
+            group,
+            count: sessions.length,
+            collapsed,
+          },
+          // Keep the pinned-first, recency-second order the nested date
+          // headers used to provide, without rendering the date rows.
+          sessions: groupChatsByDate(sessions).flatMap(
+            (dateGroup) => dateGroup.sessions,
+          ),
+          groupId: group.id,
+          collapsed,
+        };
+      });
+  }, [
+    collapsedGroups,
+    filteredSessions,
+    groupMode,
+    groups,
+    isSessionDragging,
+    searchQuery,
+    sortedSessions,
+    t,
+  ]);
+
+  /**
+   * Group that owns the active session, resolved through `groupChats`
+   * so sessions in deleted groups fall back to their source bucket.
+   * Mode-independent: it keeps source-mode collapse defaults stable
+   * while the list is displayed in none mode.
+   */
+  const activeGroupId = useMemo(() => {
     if (!currentSessionId || !groups) return null;
     const activeGroup = groups.find(({ sessions }) =>
       sessions.some(
@@ -499,20 +610,7 @@ export default function SidebarSessionList({
           session.realId === currentSessionId,
       ),
     );
-    if (!activeGroup) return null;
-    const orderedSessions = groupChatsByDate(activeGroup.sessions).flatMap(
-      (dateGroup) => dateGroup.sessions,
-    );
-    const sessionIndex = orderedSessions.findIndex(
-      (session) =>
-        session.id === currentSessionId || session.realId === currentSessionId,
-    );
-    if (sessionIndex < 0) return null;
-    return {
-      groupId: activeGroup.group.id,
-      requiredCount:
-        Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE,
-    };
+    return activeGroup?.group.id ?? null;
   }, [currentSessionId, groups]);
 
   const defaultCollapsedGroupIds = useMemo(() => {
@@ -532,8 +630,8 @@ export default function SidebarSessionList({
       recentGroupIds.add(groupId);
       if (recentGroupIds.size === 2) break;
     }
-    if (activeSessionPage) {
-      recentGroupIds.add(activeSessionPage.groupId);
+    if (activeGroupId) {
+      recentGroupIds.add(activeGroupId);
     }
 
     // If there are no conversations yet, keep the first two user groups
@@ -558,120 +656,48 @@ export default function SidebarSessionList({
         )
         .map(({ group }) => group.id),
     );
-  }, [activeSessionPage, groups, sortedSessions]);
+  }, [activeGroupId, groups, sortedSessions]);
 
   useEffect(() => {
     if (loading) return;
     initializeCollapsedGroups(defaultCollapsedGroupIds);
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
-  useEffect(() => {
-    setVisibleSessionCounts({});
-  }, [selectedAgent]);
-
-  const loadMoreGroup = useCallback((groupId: string) => {
-    setVisibleSessionCounts((previous) => ({
-      ...previous,
-      [groupId]: (previous[groupId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (!activeSessionPage) return;
-    setVisibleSessionCounts((previous) => {
-      const currentCount =
-        previous[activeSessionPage.groupId] ?? GROUP_PAGE_SIZE;
-      if (currentCount >= activeSessionPage.requiredCount) return previous;
-      return {
-        ...previous,
-        [activeSessionPage.groupId]: activeSessionPage.requiredCount,
-      };
-    });
-  }, [activeSessionPage]);
-
   useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
-  /** Flatten groups into a single array of rows for virtual list */
+  /** Flatten sections into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
-    if (searchQuery.trim()) {
-      return filteredSessions.map((s) => ({
-        kind: "session",
-        session: s,
-        groupId: resolveChatGroupId(s),
-      }));
-    }
-    if (!groups) return [];
     const rows: FlatRow[] = [];
-    for (const group of groups) {
-      const collapsed =
-        isSessionDragging || collapsedGroups.has(group.group.id);
-      rows.push({
-        kind: "groupHeader",
-        group: group.group,
-        count: group.sessions.length,
-        collapsed,
-      });
-      if (!collapsed) {
-        const visibleCount = Math.min(
-          visibleSessionCounts[group.group.id] ?? GROUP_PAGE_SIZE,
-          group.sessions.length,
-        );
-        let renderedCount = 0;
-        for (const dateGroup of groupChatsByDate(group.sessions)) {
-          const sessionsToRender = dateGroup.sessions.slice(
-            0,
-            visibleCount - renderedCount,
-          );
-          if (sessionsToRender.length === 0) break;
-          rows.push({
-            kind: "dateHeader",
-            groupId: group.group.id,
-            dateGroup: dateGroup.key,
-            label: t(`chat.group.${dateGroup.key}`),
-          });
-          for (const session of sessionsToRender) {
-            rows.push({
-              kind: "session",
-              session,
-              groupId: group.group.id,
-            });
-          }
-          renderedCount += sessionsToRender.length;
-        }
-        if (visibleCount < group.sessions.length) {
-          rows.push({
-            kind: "loadMore",
-            groupId: group.group.id,
-            remaining: group.sessions.length - visibleCount,
-          });
-        }
+    for (const section of sections) {
+      if (section.header) rows.push(section.header);
+      if (section.collapsed) continue;
+      for (const session of section.sessions) {
+        rows.push({
+          kind: "session",
+          session,
+          groupId: section.groupId ?? resolveChatGroupId(session),
+        });
       }
     }
     return rows;
-  }, [
-    groups,
-    collapsedGroups,
-    isSessionDragging,
-    searchQuery,
-    filteredSessions,
-    visibleSessionCounts,
-    t,
-  ]);
+  }, [sections]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
     (index: number) => {
       const row = flatRows[index];
-      if (!row) return SESSION_ROW_HEIGHT;
-      return row.kind === "groupHeader"
-        ? GROUP_HEADER_HEIGHT
-        : row.kind === "dateHeader"
-        ? DATE_HEADER_HEIGHT
-        : row.kind === "loadMore"
-        ? LOAD_MORE_ROW_HEIGHT
-        : SESSION_ROW_HEIGHT;
+      if (!row) {
+        return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
+      }
+      if (row.kind === "groupHeader") {
+        return compact ? GROUP_HEADER_HEIGHT_COMPACT : GROUP_HEADER_HEIGHT;
+      }
+      if (row.kind === "dateHeader") {
+        return compact ? DATE_HEADER_HEIGHT_COMPACT : DATE_HEADER_HEIGHT;
+      }
+      return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
     },
-    [flatRows],
+    [compact, flatRows],
   );
 
   /** Height of the virtual list container */
@@ -684,10 +710,10 @@ export default function SidebarSessionList({
     if (isSessionDragging) listRef.current?.scrollTo(0);
   }, [isSessionDragging]);
 
-  /** Reset virtual list cache when flatRows change */
+  /** Reset virtual list cache when flatRows or row density change */
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
-  }, [flatRows]);
+  }, [compact, flatRows]);
 
   // Bring the active conversation into view once its row is visible
   // (group expanded + list measured). Guarded by the last-scrolled id so
@@ -739,7 +765,6 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      loadMoreGroup,
       toggleGroup,
       groups: visibleChatGroups,
       renameGroup,
@@ -763,7 +788,6 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      loadMoreGroup,
       toggleGroup,
       visibleChatGroups,
       renameGroup,
@@ -817,6 +841,8 @@ export default function SidebarSessionList({
               trigger={["click"]}
               placement="bottomRight"
               menu={{
+                selectable: true,
+                selectedKeys: [`group-mode-${groupMode}`],
                 items: [
                   {
                     key: "search",
@@ -832,6 +858,38 @@ export default function SidebarSessionList({
                     icon: <FolderPlus size={15} />,
                     label: t("chat.groups.create", "New group"),
                     onClick: handleOpenCreateGroup,
+                  },
+                  { type: "divider" as const },
+                  {
+                    key: "group-mode",
+                    icon: <Layers size={15} />,
+                    label: t("chat.sessionPanel.groupBy", "Group by"),
+                    children: [
+                      {
+                        key: "group-mode-date",
+                        icon: <CalendarDays size={15} />,
+                        label: t("chat.sessionPanel.groupByTime", "By time"),
+                        onClick: () => handleGroupModeChange("date"),
+                      },
+                      {
+                        key: "group-mode-source",
+                        icon: <FolderTree size={15} />,
+                        label: t(
+                          "chat.sessionPanel.groupBySource",
+                          "By source",
+                        ),
+                        onClick: () => handleGroupModeChange("source"),
+                      },
+                      {
+                        key: "group-mode-none",
+                        icon: <List size={15} />,
+                        label: t(
+                          "chat.sessionPanel.groupByNone",
+                          "No grouping",
+                        ),
+                        onClick: () => handleGroupModeChange("none"),
+                      },
+                    ],
                   },
                 ],
               }}
@@ -894,8 +952,16 @@ export default function SidebarSessionList({
               {t("chat.sessionPanel.noConversations", "No conversations")}
             </div>
           )}
+          {!loading && sortedSessions.length > 0 && flatRows.length === 0 && (
+            <div className={styles.emptyState}>
+              {t(
+                "chat.sessionPanel.noMatchingConversations",
+                "No matching conversations",
+              )}
+            </div>
+          )}
 
-          {sortedSessions.length > 0 && listHeight > 0 && (
+          {flatRows.length > 0 && listHeight > 0 && (
             <SessionGroupDndProvider
               onMove={handleDragMove}
               onDragStateChange={setIsSessionDragging}

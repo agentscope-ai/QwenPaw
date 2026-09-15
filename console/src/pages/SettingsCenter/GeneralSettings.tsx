@@ -6,6 +6,7 @@ import {
   MessageSquareText,
   Monitor,
   Palette,
+  Rows3,
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
@@ -26,6 +27,11 @@ import {
   getChatWideModePreference,
   setChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
+import {
+  getSidebarDensityPreference,
+  setSidebarDensityPreference,
+  type SidebarDensity,
+} from "@/utils/sidebarDensityPreference";
 import {
   getAssistantMessageDisplayPreference,
   getShowThinkingPreference,
@@ -50,6 +56,9 @@ export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
+  const [sidebarDensity, setSidebarDensity] = useState(
+    getSidebarDensityPreference,
+  );
   const [toolDisplayMode, setToolDisplayMode] = useState(
     getToolDisplayPreference,
   );
@@ -82,6 +91,11 @@ export default function GeneralSettings() {
     const enabled = width === "wide";
     setChatWideModePreference(enabled);
     setWideMode(enabled);
+  };
+
+  const changeSidebarDensity = (density: SidebarDensity) => {
+    setSidebarDensityPreference(density);
+    setSidebarDensity(density);
   };
 
   const changeToolDisplayMode = (mode: ToolDisplayPreference) => {
@@ -155,6 +169,45 @@ export default function GeneralSettings() {
                 { value: "system", label: t("theme.system") },
               ]}
               onChange={setThemeMode}
+            />
+          </div>
+          <div className={styles.settingRow}>
+            <span className={styles.settingIcon}>
+              <Rows3 size={18} />
+            </span>
+            <span className={styles.settingCopy}>
+              <strong>
+                {t("settingsCenter.sessionHeight", "Conversation height")}
+              </strong>
+              <small>
+                {t(
+                  "settingsCenter.sessionHeightHint",
+                  "Row height of the sidebar conversation list. Auto follows the window height.",
+                )}
+              </small>
+            </span>
+            <Segmented<SidebarDensity>
+              className={styles.segmentedControl}
+              aria-label={t(
+                "settingsCenter.sessionHeight",
+                "Conversation height",
+              )}
+              value={sidebarDensity}
+              options={[
+                {
+                  value: "auto",
+                  label: t("settingsCenter.densityAuto", "Auto"),
+                },
+                {
+                  value: "standard",
+                  label: t("settingsCenter.densityStandard", "Standard"),
+                },
+                {
+                  value: "compact",
+                  label: t("settingsCenter.densityCompact", "Compact"),
+                },
+              ]}
+              onChange={changeSidebarDensity}
             />
           </div>
           <div className={styles.settingRow}>

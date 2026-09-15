@@ -337,6 +337,11 @@
     "toggleAgentNavigation": "Expand or collapse agent navigation"
   },
   "settingsCenter": {
+    "sessionHeight": "Conversation height",
+    "sessionHeightHint": "Row height of the sidebar conversation list. Auto follows the window height.",
+    "densityAuto": "Auto",
+    "densityStandard": "Standard",
+    "densityCompact": "Compact",
     "backToApp": "Back to app",
     "searchPlaceholder": "Search settings",
     "noResults": "No matching settings",
@@ -3628,7 +3633,6 @@
       "subagents": "Conversations with subagents",
       "subagentShort": "Subagent",
       "subagentsHint": "Separate conversations created for child-agent tasks; collapsed by default and fixed at the bottom",
-      "loadMore": "Load more · {{count}} remaining",
       "pin": "Pin group",
       "unpin": "Unpin group",
       "pinned": "Pinned group",
@@ -3645,7 +3649,12 @@
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
-      "noConversations": "No conversations yet"
+      "noConversations": "No conversations yet",
+      "noMatchingConversations": "No matching conversations",
+      "groupBy": "Group by",
+      "groupByTime": "By time",
+      "groupBySource": "By source",
+      "groupByNone": "No grouping"
     },
     "conversationHistory": "Conversation History"
   },
