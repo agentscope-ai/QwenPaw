@@ -1400,30 +1400,39 @@
 .projectDirectorySetting {
   color: var(--app-accent-hover);
 
-  > div {
+  .projectDirectoryPaths {
     min-width: 0;
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: 3px;
+    gap: 5px;
   }
 
-  strong,
-  span {
+  .projectDirectoryPaths strong {
     overflow: hidden;
+    color: var(--app-text);
+    font-size: 14px;
+    font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  strong {
-    color: var(--app-text);
-    font-size: 13px;
-  }
-
-  span {
+  .projectDirectoryPaths span {
+    overflow: hidden;
     color: var(--app-text-secondary);
     font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+}
+
+.projectDirectoryCount {
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
 }
 
 .switchSetting {

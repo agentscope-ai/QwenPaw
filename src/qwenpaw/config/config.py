@@ -2240,9 +2240,13 @@ class AgentProfileConfig(BaseModel):
     project_dir: Optional[str] = Field(
         default=None,
         description=(
-            "Default project directory for tools and project files. "
+            "Primary default project directory (legacy single-path view). "
             "None means use workspace_dir."
         ),
+    )
+    project_dirs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered default project directories, primary first.",
     )
     backend: str = Field(
         default="qwenpaw",
