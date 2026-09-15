@@ -32,7 +32,35 @@ jobs:
   e2e:
     name: E2E Playwright Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60 min, raised from 45. Measured on the nightly sweep (run 34771337734):
+    # the p1 shard took 37.9 min against the 45 min ceiling, leaving only 7.1
+    # min (16%) of headroom. The E2E suite is still growing, so the ceiling is
+    # lifted well past what today's distribution needs: 60 min gives 22.1 min
+    # (37%) of headroom.
+    #
+    # Deliberately NOT higher: at 75-90 min a genuinely hung shard would only be
+    # reported that late, which weakens the gate.
+    #
+    # Effect on overall sweep duration, stated as a measurement and NOT as a
+    # guarantee: the sweep runs as long as its slowest job, and that job is
+    # currently the Windows integration tier -- but its duration is volatile
+    # (59.8 and 76.7 minutes on two recent nightly runs), so 60 min sits INSIDE
+    # that range rather than safely below it. On a run where the Windows tier
+    # lands at the fast end, an E2E shard approaching this ceiling could become
+    # the slowest job. Today's shards are far from the ceiling (the slowest
+    # measured 39.4 min of job time on run 34941456787), so in practice the
+    # sweep duration is still set by the Windows tier.
+    #
+    # Still, 60 min is NOT sufficient for the pending expansion on its own: if
+    # the incoming E2E batch (this shard goes 105 -> 209 cases) lands WITHOUT
+    # rebalancing, the shard measures ~63 min -- 209 x 14.31s of test time plus
+    # ~13.6 min of fixed overhead, both read out of run artifacts -- i.e. past
+    # this ceiling. Rebalancing cases across shards by measured duration (a
+    # separate change, not in this PR) is projected to cut the slowest shard to
+    # ~29.3 min and would raise the headroom to ~51%; until that lands, 60 min
+    # is the operative figure and the numbers in this comment are the ones to
+    # trust.
+    timeout-minutes: 60
     environment: staging
 
     env:
