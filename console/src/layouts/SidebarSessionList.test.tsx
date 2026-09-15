@@ -270,6 +270,7 @@ function NavigatingSessionList() {
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockSelectedAgent.current = "agent-1";
     // The virtual list only renders once the wrapper has a measured height.
     // jsdom reports clientHeight=0, so make ResizeObserver report one
@@ -750,5 +751,82 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.queryByText("No conversations")).toBeNull();
     });
+  });
+
+  it("renders date sections without group headers by default", async () => {
+    const older = {
+      ...sessionA,
+      id: "sess-old",
+      name: "Older Chat",
+      updatedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    };
+    mockData([sessionA, older]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-old")).toBeTruthy();
+    });
+    // today + older buckets → two date headers, no group nesting
+    expect(screen.getAllByTestId("date-header")).toHaveLength(2);
+    expect(screen.queryByTestId("group-header-default")).toBeNull();
+  });
+
+  it("renders group sections without date nesting in source mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
+    mockData([sessionA, sessionB]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("group-header-default")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("date-header")).toBeNull();
+    expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("renders a flat list in none mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "none");
+    mockData([sessionA, sessionB]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("date-header")).toBeNull();
+    expect(screen.queryByTestId("group-header-default")).toBeNull();
+    expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("switches the grouping mode from the more menu and persists it", async () => {
+    mockData([sessionA, sessionB]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("date-header").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.mouseEnter(await screen.findByText("Group by"));
+    fireEvent.click(await screen.findByText("By source"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-header-default")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("date-header")).toBeNull();
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("source");
+  });
+
+  it("restores the chosen grouping mode after a remount", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "none");
+    mockData([sessionA]);
+    const { unmount } = renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+    unmount();
+
+    mockData([sessionA]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("date-header")).toBeNull();
+    expect(screen.queryByTestId("group-header-default")).toBeNull();
   });
 });

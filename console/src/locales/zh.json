@@ -3473,7 +3473,11 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
-      "noConversations": "暂无对话"
+      "noConversations": "暂无对话",
+      "groupBy": "分组方式",
+      "groupByDate": "按日期",
+      "groupBySource": "按来源",
+      "groupByNone": "不分组"
     },
     "conversationHistory": "历史对话"
   },

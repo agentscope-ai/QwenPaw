@@ -3201,7 +3201,11 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noConversations": "Sem conversas"
+      "noConversations": "Sem conversas",
+      "groupBy": "Agrupar por",
+      "groupByDate": "Por data",
+      "groupBySource": "Por origem",
+      "groupByNone": "Sem agrupamento"
     },
     "conversationHistory": "Histórico de conversas"
   },

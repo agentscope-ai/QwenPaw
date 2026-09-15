@@ -3616,7 +3616,11 @@
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
-      "noConversations": "No conversations yet"
+      "noConversations": "No conversations yet",
+      "groupBy": "Group by",
+      "groupByDate": "By date",
+      "groupBySource": "By source",
+      "groupByNone": "No grouping"
     },
     "conversationHistory": "Conversation History"
   },

@@ -2950,7 +2950,11 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noConversations": "会話なし"
+      "noConversations": "会話なし",
+      "groupBy": "グループ化",
+      "groupByDate": "日付順",
+      "groupBySource": "ソース順",
+      "groupByNone": "グループなし"
     },
     "conversationHistory": "会話履歴"
   },

@@ -2965,7 +2965,11 @@
     },
     "sessionPanel": {
       "searchConversations": "Поиск…",
-      "noConversations": "Нет диалогов"
+      "noConversations": "Нет диалогов",
+      "groupBy": "Группировка",
+      "groupByDate": "По дате",
+      "groupBySource": "По источнику",
+      "groupByNone": "Без группировки"
     },
     "conversationHistory": "История диалогов"
   },
