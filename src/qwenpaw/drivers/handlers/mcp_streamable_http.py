@@ -42,6 +42,7 @@ _CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities"
 _CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo"
 
 _JSONRPC_METHOD_NOT_FOUND = -32601
+_JSONRPC_INTERNAL_ERROR = -32603
 _JSONRPC_HEADER_MISMATCH = -32020
 _JSONRPC_MISSING_REQUIRED_CLIENT_CAPABILITY = -32021
 _JSONRPC_UNSUPPORTED_PROTOCOL_VERSION = -32022
@@ -122,6 +123,34 @@ class _JsonRpcError(Exception):
 
 def _is_jsonrpc_envelope(data: Any) -> bool:
     return isinstance(data, dict) and data.get("jsonrpc") == "2.0"
+
+
+def _parse_jsonrpc_error_code(payload: Any) -> int | None:
+    """Return an integer JSON-RPC code, or None if missing/unparseable."""
+    if not isinstance(payload, dict) or "code" not in payload:
+        return None
+    raw = payload["code"]
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and _INT_STRING.fullmatch(raw):
+        return int(raw)
+    return None
+
+
+def _extract_jsonrpc_error_payload(data: Any) -> dict[str, Any] | None:
+    """Error object from standard or Java-sdk ``jsonRpcError`` bodies."""
+    if not isinstance(data, dict):
+        return None
+    if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
+        return data["error"]
+    alt = data.get("jsonRpcError")
+    # Require a parseable integer code; empty / message-only objects
+    # must not become _JsonRpcError with a default -32000.
+    if isinstance(alt, dict) and _parse_jsonrpc_error_code(alt) is not None:
+        return alt
+    return None
 
 
 def _ids_match(left: Any, right: Any) -> bool:
@@ -205,7 +234,8 @@ def _is_legacy_protocol_evidence(
     supported_versions: list[str] | None = None,
 ) -> bool:
     # -32020/-32021/-32022 are modern errors, never handshake evidence.
-    # Discover -32601 is classified in _negotiate, not here.
+    # Discover -32601 and Java Missing-handler -32603 are classified
+    # in _negotiate, not here.
     if error_code in (
         _JSONRPC_HEADER_MISMATCH,
         _JSONRPC_MISSING_REQUIRED_CLIENT_CAPABILITY,
@@ -219,6 +249,19 @@ def _is_legacy_protocol_evidence(
         has_mod = _MODERN_PROTOCOL_VERSION in supported_versions
         return bool(supported_versions) and has_hs and not has_mod
     return status_code in {400, 404, 405}
+
+
+def _is_java_discover_missing_handler(exc: _JsonRpcError) -> bool:
+    """Java MCP SDK unknown ``server/discover`` shape (issue #7728).
+
+    Production payload is HTTP 500 + ``jsonRpcError`` ``-32603`` whose
+    message contains both "Missing handler" and "server/discover".
+    Every other 5xx and every other INTERNAL_ERROR stays a hard failure.
+    """
+    if exc.code != _JSONRPC_INTERNAL_ERROR or exc.http_status != 500:
+        return False
+    msg = str(exc).casefold()
+    return "missing handler" in msg and "server/discover" in msg
 
 
 class _ModernCallToolResult(mcp_types.CallToolResult):
@@ -404,11 +447,14 @@ def _unwrap_jsonrpc_result(
     headers: dict[str, str] | None = None,
 ) -> Any:
     """Unwrap a JSON-RPC response body, raising on HTTP / RPC errors."""
-    # Require jsonrpc:"2.0" so platform 404 JSON is not misread as RPC.
     if status >= 400:
-        if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
+        error_payload = _extract_jsonrpc_error_payload(data)
+        if error_payload is not None:
+            # Standard ``error`` still needs a JSON-RPC envelope
+            # (jsonrpc:"2.0") so platform 404 JSON is not misread as RPC.
+            # ``jsonRpcError`` is the Java/Kotlin MCP SDK exception path.
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
-            raise _JsonRpcError.from_payload(data["error"], http_status=status)
+            raise _JsonRpcError.from_payload(error_payload, http_status=status)
         resp_kw: dict[str, Any] = {
             "headers": headers or {},
             "request": request,
@@ -745,6 +791,8 @@ class HttpStatelessClient(_HttpClientBase):
                 # HTTP 404 + -32601 is the modern unknown-method shape.
                 if exc.http_status == 404:
                     raise _discover_rpc_error(exc) from exc
+                raise _LegacyProtocolError(str(exc)) from exc
+            if _is_java_discover_missing_handler(exc):
                 raise _LegacyProtocolError(str(exc)) from exc
             if _is_legacy_protocol_evidence(
                 status_code=exc.http_status,
