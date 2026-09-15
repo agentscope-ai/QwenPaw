@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import stat
 import sys
 import zipfile
 from pathlib import Path
@@ -634,7 +635,6 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
 
     def _copy() -> Path:
         import shutil
-        import stat
 
         _pattern_ignore = shutil.ignore_patterns(
             "node_modules",
@@ -783,17 +783,24 @@ async def upload_zip(
         dest.mkdir(parents=True, exist_ok=True)
         dest_resolved = dest.resolve()
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            for member in zf.namelist():
-                if Path(member).is_absolute():
+            for member in zf.infolist():
+                if stat.S_ISLNK(
+                    (member.external_attr >> 16) & 0xFFFF,
+                ):
                     raise ValueError(
-                        f"Absolute path in zip not allowed: {member}",
+                        f"Symlink in zip not allowed: {member.filename}",
                     )
-                member_path = (dest_resolved / member).resolve()
+                if Path(member.filename).is_absolute():
+                    raise ValueError(
+                        "Absolute path in zip not allowed: "
+                        f"{member.filename}",
+                    )
+                member_path = (dest_resolved / member.filename).resolve()
                 try:
                     member_path.relative_to(dest_resolved)
                 except ValueError as exc:
                     raise ValueError(
-                        f"Zip slip detected for member: {member}",
+                        f"Zip slip detected for member: {member.filename}",
                     ) from exc
             zf.extractall(str(dest))
         return dest

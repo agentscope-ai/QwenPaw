@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import stat
 import sys
 import zipfile
 from pathlib import Path
@@ -350,6 +351,16 @@ def _zip_bytes(entries: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
+def _symlink_zip_bytes(name: str, target: str) -> bytes:
+    buffer = io.BytesIO()
+    info = zipfile.ZipInfo(name)
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(info, target)
+    return buffer.getvalue()
+
+
 class TestUploadZip:
     def test_extracts_and_activates(
         self,
@@ -406,6 +417,15 @@ class TestUploadZip:
         )
         assert response.status_code == 400
         assert "Absolute path" in response.json()["detail"]
+
+    def test_symlink_member_returns_400(self, client):
+        data = _symlink_zip_bytes("link", "/etc")
+        response = client.post(
+            "/api/workspace/project-directory/upload-zip?name=symlink",
+            files={"file": ("proj.zip", data, "application/zip")},
+        )
+        assert response.status_code == 400
+        assert "Symlink in zip not allowed" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
