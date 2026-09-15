@@ -35,6 +35,8 @@ import styles from "./FilesWorkspace.module.less";
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
   scope: FilesWorkspaceScope;
+  /** Hide the legacy activity rail when hosted by the Workbench shell. */
+  embedded?: boolean;
 }
 
 function inferPreviewKind(
@@ -59,6 +61,7 @@ function inferPreviewKind(
 export default function FilesWorkspace({
   initialTarget,
   scope,
+  embedded = false,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
@@ -400,7 +403,7 @@ export default function FilesWorkspace({
         tabs.length === 0 && !memoryGraphRoot ? styles.workspaceEmpty : ""
       }`}
     >
-      {codingMode && (
+      {codingMode && !embedded && (
         <nav className={styles.activityRail} aria-label={t("files.workspace")}>
           <button
             type="button"

@@ -2278,6 +2278,16 @@
     "perMillionIn": "/1M in",
     "perMillionOut": "/1M out"
   },
+  "workbench": {
+    "navigation": "Área de trabalho",
+    "files": "Arquivos",
+    "changes": "Alterações",
+    "terminal": "Terminal",
+    "tools": "Ferramentas",
+    "codingModeRequired": "Ative os recursos avançados de código para usar Alterações",
+    "sessionRequired": "As alterações estarão disponíveis após a primeira mensagem",
+    "phasePlaceholder": "Este recurso será conectado na próxima etapa."
+  },
   "files": {
     "title": "Arquivos",
     "navigator": "Navegador de arquivos",

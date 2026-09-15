@@ -1,0 +1,135 @@
+.shell {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  color: var(--app-text);
+  background: var(--app-surface);
+}
+
+.header {
+  min-height: 58px;
+  padding: 8px 10px 8px 12px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.tabs {
+  min-width: 0;
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  gap: 4px;
+
+  button {
+    min-width: 0;
+    height: 38px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: var(--app-text-secondary);
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    transition:
+      color 150ms ease,
+      background 150ms ease;
+
+    span {
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 520;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &:hover:not(:disabled) {
+      color: var(--app-text);
+      background: var(--app-fill-subtle);
+    }
+
+    &:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+  }
+
+  .activeTab {
+    color: var(--app-text);
+    background: var(--app-surface-raised);
+    box-shadow: var(--app-shadow-sm);
+  }
+}
+
+.closeButton {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--app-text-secondary);
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-surface);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.empty {
+  min-height: 180px;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .header {
+    padding-inline: 8px;
+  }
+
+  .tabs {
+    grid-template-columns: repeat(4, minmax(42px, 1fr));
+
+    button {
+      padding-inline: 6px;
+
+      span {
+        display: none;
+      }
+    }
+  }
+}

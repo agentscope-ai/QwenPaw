@@ -2481,6 +2481,16 @@
     "perMillionIn": "/1M 输入",
     "perMillionOut": "/1M 输出"
   },
+  "workbench": {
+    "navigation": "工作台",
+    "files": "文件",
+    "changes": "变更",
+    "terminal": "终端",
+    "tools": "工具",
+    "codingModeRequired": "开启增强代码能力后可使用变更",
+    "sessionRequired": "发送第一条消息后可使用变更",
+    "phasePlaceholder": "此能力将在下一阶段接入工作台。"
+  },
   "files": {
     "title": "文件",
     "navigator": "文件导航器",
