@@ -173,6 +173,152 @@ def test_enterprise_provider_rejects_whitelisted_domain():
         assert "well-known domain" in exc_info.value.detail
 
 
+def _custom_mail() -> AgentMailConfig:
+    mail = _valid_mail()
+    mail.credential.provider = "custom"
+    mail.credential.domain = "mycompany.com"
+    mail.credential.auth_code = "login-password"
+    mail.credential.imap_host = "imap.mycompany.com"
+    mail.credential.smtp_host = "smtp.mycompany.com"
+    return mail
+
+
+def test_custom_provider_accepts_own_hosts():
+    _validate_mail_config(_custom_mail())
+
+
+def test_custom_provider_accepts_explicit_ports():
+    mail = _custom_mail()
+    mail.credential.imap_port = 143
+    mail.credential.smtp_port = 587
+    _validate_mail_config(mail)
+
+
+def test_custom_provider_requires_both_hosts():
+    for missing in ("imap_host", "smtp_host"):
+        mail = _custom_mail()
+        setattr(mail.credential, missing, "")
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_mail_config(mail)
+        assert exc_info.value.status_code == 400
+        assert missing in exc_info.value.detail
+
+
+def test_custom_provider_rejects_malformed_host():
+    for bad_host in ("imap host.com", "imap..com", "-imap.com", "evil.com;rm"):
+        mail = _custom_mail()
+        mail.credential.imap_host = bad_host
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_mail_config(mail)
+        assert exc_info.value.status_code == 400
+        assert "imap_host" in exc_info.value.detail
+
+
+def test_custom_provider_rejects_out_of_range_port():
+    for bad_port in (0, 65536, -1):
+        mail = _custom_mail()
+        mail.credential.smtp_port = bad_port
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_mail_config(mail)
+        assert exc_info.value.status_code == 400
+        assert "smtp_port" in exc_info.value.detail
+
+
+def test_custom_provider_rejects_whitelisted_domain():
+    mail = _custom_mail()
+    mail.credential.domain = "gmail.com"
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_mail_config(mail)
+    assert exc_info.value.status_code == 400
+    assert "well-known domain" in exc_info.value.detail
+
+
+def test_hosts_without_custom_provider_rejected():
+    """Host overrides only make sense for the custom provider."""
+    mail = _valid_mail()
+    mail.credential.imap_host = "imap.mycompany.com"
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_mail_config(mail)
+    assert exc_info.value.status_code == 400
+    assert "custom" in exc_info.value.detail
+
+
+def test_env_injects_custom_hosts_with_default_ports(tmp_path):
+    env = _build_qwenpawmail_env(_custom_mail(), tmp_path)
+    assert env["QWENPAWMAIL_EMAIL"] == "tester@mycompany.com"
+    assert env["QWENPAWMAIL_IMAP_HOST"] == "imap.mycompany.com"
+    assert env["QWENPAWMAIL_IMAP_PORT"] == "993"
+    assert env["QWENPAWMAIL_SMTP_HOST"] == "smtp.mycompany.com"
+    assert env["QWENPAWMAIL_SMTP_PORT"] == "465"
+
+
+def test_env_injects_custom_explicit_ports(tmp_path):
+    mail = _custom_mail()
+    mail.credential.imap_port = 143
+    mail.credential.smtp_port = 587
+    env = _build_qwenpawmail_env(mail, tmp_path)
+    assert env["QWENPAWMAIL_IMAP_PORT"] == "143"
+    assert env["QWENPAWMAIL_SMTP_PORT"] == "587"
+
+
+def test_update_changed_custom_host_requires_fresh_secret(tmp_path):
+    """Pointing the same address at another server is a new account."""
+    persisted_mail = _custom_mail()
+    incoming = _custom_mail()
+    incoming.credential.imap_host = "imap.other.example"
+    incoming.credential.auth_code = ""
+
+    persisted = [
+        AgentProfileConfig(
+            id="a1",
+            name="bot",
+            workspace_dir=str(tmp_path),
+            backend="qwenpaw",
+            mail=persisted_mail,
+        ),
+    ]
+    _generate_qwenpawmail_driver_card(tmp_path, persisted_mail)
+
+    async def _fake_update(_agent_id, apply_update):
+        updated = persisted[0].model_copy(deep=True)
+        apply_update(updated)
+        persisted[0] = updated
+        return updated
+
+    global_config = _fake_global_config("a1")
+    global_config.agents.profiles["a1"].workspace_dir = str(tmp_path)
+    global_config.agents.language = "en"
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=global_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            side_effect=lambda _agent_id: persisted[0],
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.update_agent_config_async",
+            new=_fake_update,
+        ),
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload"),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                update_agent(
+                    agentId="a1",
+                    agent_config=AgentProfileConfig(
+                        id="a1",
+                        name="bot",
+                        mail=incoming,
+                    ),
+                    request=None,
+                ),
+            )
+    assert exc_info.value.status_code == 400
+    assert "auth_code" in exc_info.value.detail
+
+
 def test_invalid_provider_rejected():
     mail = _valid_mail()
     mail.credential.provider = "unknown_provider"

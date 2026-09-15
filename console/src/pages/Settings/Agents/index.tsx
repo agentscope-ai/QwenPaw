@@ -287,6 +287,16 @@ export default function AgentsPage() {
                 )
                   ? ""
                   : mail_credential?.provider || "",
+                // Host overrides travel only with the custom provider; the
+                // server rejects them for any other provider.
+                ...(mail_credential?.provider === "custom"
+                  ? {
+                      imap_host: (mail_credential.imap_host ?? "").trim(),
+                      imap_port: mail_credential.imap_port ?? null,
+                      smtp_host: (mail_credential.smtp_host ?? "").trim(),
+                      smtp_port: mail_credential.smtp_port ?? null,
+                    }
+                  : {}),
                 auth_code: mail_credential?.auth_code || "",
               },
               ...(push ? { push } : {}),

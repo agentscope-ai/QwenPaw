@@ -26,6 +26,7 @@ from ...agents.memory.reme_embedding import (
 from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
+    CUSTOM_MAIL_PROVIDER as _CUSTOM_MAIL_PROVIDER,
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
     build_qwenpawmail_env as _build_qwenpawmail_env,
     generate_qwenpawmail_driver_card as _generate_qwenpawmail_driver_card,
@@ -35,6 +36,7 @@ from ..mail.driver_config import (
 from ..utils import safe_join, schedule_agent_reload
 from ...config.config import (
     AgentMailConfig,
+    AgentMailCredential,
     AgentProfileConfig,
     AgentProfileRef,
     EmbeddingModelConfig,
@@ -1919,13 +1921,17 @@ def _merge_unchanged_mail_secrets(
     if existing is None:
         return merged
 
-    def identity(mail: AgentMailConfig) -> tuple[bool, str, str, str]:
+    def identity(mail: AgentMailConfig) -> tuple[Any, ...]:
         credential = mail.credential
         return (
             mail.is_new_account,
             (credential.name or "").strip().lower(),
             (credential.domain or "").strip().lower(),
             (credential.provider or "").strip().lower(),
+            (credential.imap_host or "").strip().lower(),
+            credential.imap_port,
+            (credential.smtp_host or "").strip().lower(),
+            credential.smtp_port,
         )
 
     if identity(merged) != identity(existing):
@@ -1940,6 +1946,32 @@ def _merge_unchanged_mail_secrets(
     return merged
 
 
+def _validate_custom_mail_hosts(credential: AgentMailCredential) -> None:
+    """Require well-formed IMAP/SMTP endpoints for the custom provider."""
+    for field_name in ("imap_host", "smtp_host"):
+        host = (getattr(credential, field_name) or "").strip()
+        if not host:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{field_name} is required for mail provider "
+                    f"'{_CUSTOM_MAIL_PROVIDER}'"
+                ),
+            )
+        if not _MAIL_DOMAIN_RE.match(host):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid {field_name} '{host}'",
+            )
+    for field_name in ("imap_port", "smtp_port"):
+        port = getattr(credential, field_name)
+        if port is not None and not 1 <= port <= 65535:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} must be between 1 and 65535",
+            )
+
+
 def _validate_mail_config(mail: AgentMailConfig) -> None:
     # pylint: disable=too-many-branches
     """Validate the mailbox management configuration.
@@ -1948,13 +1980,34 @@ def _validate_mail_config(mail: AgentMailConfig) -> None:
     """
     credential = mail.credential
     provider = (credential.provider or "").strip()
-    if provider and provider not in _ENTERPRISE_MAIL_PROVIDERS:
+    if (
+        provider
+        and provider != _CUSTOM_MAIL_PROVIDER
+        and provider not in _ENTERPRISE_MAIL_PROVIDERS
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Unsupported mail provider '{provider}', allowed: "
-                f"'' (auto-detect) or "
+                f"'' (auto-detect), '{_CUSTOM_MAIL_PROVIDER}' or "
                 f"{sorted(_ENTERPRISE_MAIL_PROVIDERS)}"
+            ),
+        )
+    if provider == _CUSTOM_MAIL_PROVIDER:
+        _validate_custom_mail_hosts(credential)
+    elif any(
+        (
+            credential.imap_host,
+            credential.imap_port,
+            credential.smtp_host,
+            credential.smtp_port,
+        ),
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "imap_host/imap_port/smtp_host/smtp_port are only valid "
+                f"with mail provider '{_CUSTOM_MAIL_PROVIDER}'"
             ),
         )
     domain = (credential.domain or "").strip().lower()
