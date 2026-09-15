@@ -1244,6 +1244,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     for (let i = 0; i < prev.length; i++) {
       const a = prev[i] as ExtendedSession;
       const b = next[i] as ExtendedSession;
+      const aRuntimeContext = JSON.stringify(a.meta?.runtime_context ?? null);
+      const bRuntimeContext = JSON.stringify(b.meta?.runtime_context ?? null);
       if (
         a.id !== b.id ||
         a.name !== b.name ||
@@ -1254,6 +1256,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||
         a.realId !== b.realId ||
+        aRuntimeContext !== bRuntimeContext ||
         a.sessionId !== b.sessionId ||
         a.userId !== b.userId ||
         a.channel !== b.channel ||
@@ -1304,6 +1307,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionListRequest = entry;
 
     return entry.promise;
+  }
+
+  /** Fetch a fresh Chat list even when an older list request is in flight. */
+  async refreshSessionList() {
+    const inFlight = this.sessionListRequest;
+    if (inFlight) {
+      try {
+        await inFlight.promise;
+      } catch {
+        // A failed stale read must not prevent the explicit refresh.
+      }
+    }
+    this.sessionListRequest = null;
+    return this.getSessionList();
   }
 
   /**
