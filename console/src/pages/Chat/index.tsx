@@ -27,7 +27,7 @@ import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi, { toTimelineEvents } from "./sessionApi";
+import sessionApi, { convertMessages } from "./sessionApi";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -174,18 +174,13 @@ type IAgentScopeRuntimeWebUIOptions =
   import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIOptions;
 type IAgentScopeRuntimeWebUIRef =
   import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIRef;
+type ParsedChatResponse = ReturnType<
+  NonNullable<IAgentScopeRuntimeWebUIOptions["api"]["responseParser"]>
+>;
 type IAgentScopeRuntimeWebUISenderBeforeSubmitResult = {
   proceed: true;
   query: string;
 };
-const { AgentScopeRuntimeWebUI, useChatAnywhereInput } = AgentScopeChat;
-const sessionTimelineVersion =
-  "SESSION_TIMELINE_MODE_VERSION" in AgentScopeChat
-    ? Reflect.get(AgentScopeChat, "SESSION_TIMELINE_MODE_VERSION")
-    : undefined;
-const supportsSessionTimeline =
-  typeof sessionTimelineVersion === "number" && sessionTimelineVersion >= 4;
-
 interface ApprovalMessageData {
   requestId: string;
   sessionId: string;
@@ -2416,10 +2411,7 @@ export default function ChatPage() {
         setChatHistorySurface({
           agentId: selectedAgent,
           chatId: backendChatId,
-          status:
-            session.messages?.length || session.timelineEvents?.length
-              ? "populated"
-              : "empty",
+          status: session.messages?.length ? "populated" : "empty",
         });
       })
       .catch(() => {
@@ -2523,10 +2515,11 @@ export default function ChatPage() {
   const handleVoiceTimelineChanged = useCallback(
     (messages: unknown[]) => {
       if (!messages.length || !chatRef.current || !backendChatId) return;
-      chatRef.current.messages.appendTimelineEvents(
-        backendChatId,
-        toTimelineEvents(messages as Parameters<typeof toTimelineEvents>[0]),
-      );
+      for (const message of convertMessages(
+        messages as Parameters<typeof convertMessages>[0],
+      )) {
+        chatRef.current.messages.updateMessage(message);
+      }
     },
     [backendChatId],
   );
@@ -4572,15 +4565,7 @@ export default function ChatPage() {
       },
       api: {
         ...defaultConfig.api,
-        ...(supportsSessionTimeline ? { timelineMode: "session" } : {}),
         fetch: customFetch,
-        loadTimeline: ({
-          session_id,
-          signal,
-        }: {
-          session_id: string;
-          signal?: AbortSignal;
-        }) => sessionApi.loadTimeline(session_id, signal),
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
           if (
@@ -4588,7 +4573,7 @@ export default function ChatPage() {
               String(payload.type),
             )
           ) {
-            return payload as any;
+            return payload as ParsedChatResponse;
           }
           // CoPaw's wire enum uses "cancelled"; the SDK uses "canceled".
           // Preserve cancellation instead of fabricating a completed, empty

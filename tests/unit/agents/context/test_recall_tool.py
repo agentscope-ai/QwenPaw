@@ -24,7 +24,6 @@ from qwenpaw.agents.context.scroll.recall_tool import (
     RECALL_PAGE_METADATA_KEY,
     RecallLoopGuard,
     _render_page,
-    _render_rows,
     make_recall_history,
 )
 from qwenpaw.agents.context.types import LogEntry
@@ -851,46 +850,6 @@ def test_render_page_with_long_utf8_label_always_advances():
 
     assert first["next_cursor"] is not None
     assert second["next_cursor"] != first["next_cursor"]
-
-
-@pytest.mark.parametrize("remaining_bytes", [0, 1])
-def test_render_page_continues_after_a_complete_row_fills_page(
-    remaining_bytes,
-):
-    rows = [
-        {"seq": 1, "role": "user", "content": "FIRST " + "x" * 1000},
-        {"seq": 2, "role": "assistant", "content": "SECOND"},
-    ]
-    intro = "2 row(s) for expand; recall page:"
-    max_bytes = (
-        512
-        + len((intro + "\n\n" + _render_rows(rows[:1])).encode("utf-8"))
-        + remaining_bytes
-    )
-    first_text, first_page = _render_page(
-        rows,
-        label="expand",
-        cursor=None,
-        max_bytes=max_bytes,
-        request_fingerprint="same-request",
-    )
-    second_text, second_page = _render_page(
-        rows,
-        label="expand",
-        cursor=first_page["next_cursor"],
-        max_bytes=max_bytes,
-        request_fingerprint="same-request",
-    )
-    assert rows[0]["content"] in first_text
-    assert first_page["next_cursor"]
-    assert not first_page["complete"]
-    assert "SECOND" in second_text
-    assert "FIRST" not in second_text
-    assert second_page["complete"]
-    assert all(
-        len(text.encode("utf-8")) <= max_bytes
-        for text in (first_text, second_text)
-    )
 
 
 def test_render_page_fails_when_byte_limit_cannot_make_progress():

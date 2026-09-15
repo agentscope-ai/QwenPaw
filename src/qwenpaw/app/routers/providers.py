@@ -51,7 +51,6 @@ from ...providers.hub_managed import (
     managed_slot,
 )
 from ...utils.io_utils import run_sync_io
-from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...config.config import ModelSlotConfig
 

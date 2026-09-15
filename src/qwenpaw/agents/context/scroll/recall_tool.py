@@ -672,17 +672,9 @@ def _render_page(
         separator = "\n\n"
         available = content_limit - used - len(separator.encode("utf-8"))
         if available <= 0:
-            if len(parts) == 1:
-                raise ValueError(
-                    "recall page byte limit is too small to make progress",
-                )
-            next_cursor = _encode_cursor(
-                row_index,
-                char_offset,
-                request_fingerprint=request_fingerprint,
-                result_fingerprint=result_fingerprint,
+            raise ValueError(
+                "recall page byte limit is too small to make progress",
             )
-            break
         if len(rendered.encode("utf-8")) <= available:
             parts.append(separator + rendered)
             used += len((separator + rendered).encode("utf-8"))
