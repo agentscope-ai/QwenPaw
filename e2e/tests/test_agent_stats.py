@@ -268,23 +268,83 @@ class TestAgentStatsCharts:
             else:
                 logger.info("Chart area not displayed when no data (empty state)")
 
-            # 3. Verify chart titles (if any)
-            log_test_step("3. Verify chart titles")
-            page_text = page.locator("body").inner_text()
-            chart_keywords = [
-                ("Message", "消息"),
-                ("Session", "会话"),
-                ("Token", "Token"),
-                ("LLM", "LLM"),
-                ("Tool", "工具"),
+            # 3. Verify the chart cards themselves
+            log_test_step("3. Verify chart cards")
+            # This step used to read ``body.inner_text()`` and look for keywords
+            # such as Message / Session / Token / Tool anywhere on the page,
+            # then assert that at least two matched. That evidence came from the
+            # wrong object: those words are sidebar menu labels, not chart
+            # titles. The case therefore passed on a page rendering no chart at
+            # all, and only started failing once #7502 folded the sidebar menu
+            # behind "More settings" and the words stopped being on the page —
+            # i.e. the redesign exposed a false pass rather than causing a
+            # regression.
+            #
+            # Assert on the chart cards instead. Every chart in this page is an
+            # antd Card whose title is a ``chartTitle`` span; the four trend
+            # charts always render when there is data and the two pie charts
+            # render when their config exists. Titles come from the
+            # ``agentStats.*Trend`` / ``*ByChannel`` i18n keys.
+            #
+            # ``chartCard`` / ``chartTitle`` cannot be used as bare anchors: they
+            # are defined in ``pages/Settings/AgentStats/index.module.less`` *and*
+            # in ``pages/Settings/TokenUsage/index.module.less``, both files
+            # named ``index.module.less``, so both scope to
+            # ``index-module__chartCard__<hash>``. The label text is what keeps
+            # this unambiguous, and it is scoped inside a chart card rather than
+            # read off the whole page.
+            chart_titles = [
+                ("Message Trend", "消息趋势"),
+                ("Session Trend", "会话趋势"),
+                ("Token Trend", "Token 趋势"),
+                ("LLM & Tool Call Trend", "LLM & 工具调用趋势"),
             ]
-            found_keywords = []
-            for en_kw, zh_kw in chart_keywords:
-                if en_kw in page_text or zh_kw in page_text:
-                    found_keywords.append(en_kw)
-            logger.info(f"Chart keywords found in page: {found_keywords}")
-            assert len(found_keywords) >= 2, \
-                f"Page should contain at least 2 chart-related keywords, actual: {found_keywords}"
+            found_titles = []
+            for en_title, zh_title in chart_titles:
+                for title in (en_title, zh_title):
+                    card = page.locator(
+                        f'[class*="chartCard"]:has([class*="chartTitle"]'
+                        f':text-is("{title}"))'
+                    ).first
+                    if card.count() > 0:
+                        found_titles.append(en_title)
+                        break
+            logger.info(f"Chart cards found by title: {found_titles}")
+
+            # No data is a legitimate outcome on a fresh CI environment: the
+            # page's own ``hasData`` (defined inline in
+            # ``pages/Settings/AgentStats/index.tsx``) is false when every
+            # counter in the API response is zero, and then the page renders an
+            # antd Empty whose description is ``agentStats.noData``. Anchor on
+            # that description rather than the previous bare
+            # ``[class*="empty"]``, which also matches unrelated elements.
+            empty_state = page.locator(
+                '.qwenpaw-empty-description:has-text("No statistics data"), '
+                '.qwenpaw-empty-description:has-text("暂无统计数据")'
+            ).first
+            is_empty = empty_state.count() > 0 and empty_state.is_visible()
+
+            if is_empty:
+                logger.info(
+                    "Agent stats has no data in this period; the page renders "
+                    "the documented empty state. Chart cards are not expected."
+                )
+                assert len(canvas_elements) == 0, (
+                    "Empty state is shown but chart canvases are present "
+                    f"({len(canvas_elements)}): the page is in an inconsistent "
+                    "state"
+                )
+            else:
+                assert len(found_titles) >= 2, (
+                    "Page should render at least 2 chart cards (Message / "
+                    "Session / Token / LLM & Tool Call trend), actual: "
+                    f"{found_titles}. No empty state either, so data was "
+                    "expected to be charted."
+                )
+                logger.info(
+                    f"Found {len(found_titles)} chart cards: {found_titles}; "
+                    f"canvas elements rendered: {len(canvas_elements)}"
+                )
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed")
