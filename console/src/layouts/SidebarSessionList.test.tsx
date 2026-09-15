@@ -150,6 +150,12 @@ vi.mock("../components/SessionGroupHeader", () => ({
   ),
 }));
 
+vi.mock("../components/SessionDateHeader", () => ({
+  default: ({ label }: { label: string }) => (
+    <div data-testid="date-header">{label}</div>
+  ),
+}));
+
 vi.mock("../pages/Control/Channels/components", () => ({
   getChannelLabel: (key: string) => `channel:${key}`,
 }));
@@ -666,12 +672,31 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("renders group sections by default", async () => {
+  it("renders date sections by default", async () => {
+    const older = {
+      ...sessionA,
+      id: "sess-old",
+      name: "Older Chat",
+      updatedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    };
+    mockData([sessionA, older]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-old")).toBeTruthy();
+    });
+    // today + older buckets → two date headers, no group chrome
+    expect(screen.getAllByTestId("date-header")).toHaveLength(2);
+    expect(screen.queryByTestId("group-header-default")).toBeNull();
+  });
+
+  it("renders group sections in source mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
     mockData([sessionA, sessionB]);
     renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
       expect(screen.getByTestId("group-header-default")).toBeTruthy();
     });
+    expect(screen.queryByTestId("date-header")).toBeNull();
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
   });
@@ -683,6 +708,7 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
+    expect(screen.queryByTestId("date-header")).toBeNull();
     expect(screen.queryByTestId("group-header-default")).toBeNull();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
   });
@@ -691,7 +717,7 @@ describe("SidebarSessionList", () => {
     mockData([sessionA, sessionB]);
     renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
-      expect(screen.getByTestId("group-header-default")).toBeTruthy();
+      expect(screen.getAllByTestId("date-header").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
@@ -699,7 +725,7 @@ describe("SidebarSessionList", () => {
     fireEvent.click(await screen.findByText("No grouping"));
 
     await waitFor(() => {
-      expect(screen.queryByTestId("group-header-default")).toBeNull();
+      expect(screen.queryByTestId("date-header")).toBeNull();
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("none");
@@ -719,6 +745,7 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
+    expect(screen.queryByTestId("date-header")).toBeNull();
     expect(screen.queryByTestId("group-header-default")).toBeNull();
   });
 
@@ -791,6 +818,19 @@ describe("SidebarSessionList", () => {
       expect(list.itemSize(0)).toBe(30);
     });
 
+    it("compacts date headers in date mode on short viewports", async () => {
+      setCompactViewport(true);
+      mockData([sessionA]);
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("virtual-list")).toBeTruthy();
+      });
+      const list = mockListProps.current!;
+      // rows: dateHeader(today), session
+      expect(list.itemSize(0)).toBe(20);
+      expect(list.itemSize(1)).toBe(30);
+    });
+
     function addEmptyCronGroup() {
       mockChatGroups.mockReturnValue({
         groups: [
@@ -843,96 +883,6 @@ describe("SidebarSessionList", () => {
       const list = mockListProps.current!;
       expect(list.itemSize(0)).toBe(42);
       expect(list.itemSize(2)).toBe(42);
-    });
-  });
-
-  describe("activity range filter", () => {
-    function datedSession(id: string, daysAgo: number) {
-      return {
-        ...sessionA,
-        id,
-        name: `Session ${id}`,
-        updatedAt: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
-      };
-    }
-
-    async function pickActivityRange(optionText: string) {
-      fireEvent.click(screen.getByRole("button", { name: "More" }));
-      fireEvent.mouseEnter(await screen.findByText("Activity range"));
-      fireEvent.click(await screen.findByText(optionText));
-    }
-
-    it("narrows the list to today's conversations", async () => {
-      mockData([datedSession("s-today", 0), datedSession("s-old", 40)]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-old")).toBeTruthy();
-      });
-
-      await pickActivityRange("Today");
-
-      await waitFor(() => {
-        expect(screen.queryByTestId("session-item-s-old")).toBeNull();
-      });
-      expect(screen.getByTestId("session-item-s-today")).toBeTruthy();
-      expect(localStorage.getItem("qwenpaw_session_activity_filter")).toBe(
-        "today",
-      );
-    });
-
-    it("keeps conversations within 7 days", async () => {
-      mockData([datedSession("s-week", 3), datedSession("s-old", 40)]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-old")).toBeTruthy();
-      });
-
-      await pickActivityRange("7 days");
-
-      await waitFor(() => {
-        expect(screen.queryByTestId("session-item-s-old")).toBeNull();
-      });
-      expect(screen.getByTestId("session-item-s-week")).toBeTruthy();
-    });
-
-    it("widens back to all conversations", async () => {
-      localStorage.setItem("qwenpaw_session_activity_filter", "today");
-      mockData([datedSession("s-today", 0), datedSession("s-old", 40)]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-today")).toBeTruthy();
-      });
-      expect(screen.queryByTestId("session-item-s-old")).toBeNull();
-
-      await pickActivityRange("All");
-
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-old")).toBeTruthy();
-      });
-    });
-
-    it("restores the persisted range after a remount", async () => {
-      localStorage.setItem("qwenpaw_session_activity_filter", "today");
-      mockData([datedSession("s-today", 0), datedSession("s-old", 40)]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-today")).toBeTruthy();
-      });
-      expect(screen.queryByTestId("session-item-s-old")).toBeNull();
-    });
-
-    it("shows a no-matching state when the range excludes everything", async () => {
-      mockData([datedSession("s-old", 40)]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("session-item-s-old")).toBeTruthy();
-      });
-
-      await pickActivityRange("Today");
-
-      await waitFor(() => {
-        expect(screen.getByText("No matching conversations")).toBeTruthy();
-      });
     });
   });
 });

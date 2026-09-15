@@ -11,15 +11,11 @@ import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import {
-  CalendarCheck,
-  CalendarClock,
   CalendarDays,
-  CalendarRange,
   ChevronDown,
   Ellipsis,
   FolderPlus,
   FolderTree,
-  Infinity as InfinityIcon,
   Layers,
   List,
   Search,
@@ -45,20 +41,12 @@ import {
   type SessionGroupMode,
 } from "../utils/sessionGroupModePreference";
 import {
-  filterSessionsByActivity,
-  type SessionActivityFilter,
-} from "../utils/sessionActivityFilter";
-import {
-  getSessionActivityFilterPreference,
-  setSessionActivityFilterPreference,
-  SESSION_ACTIVITY_FILTER_CHANGE_EVENT,
-} from "../utils/sessionActivityFilterPreference";
-import {
   groupChats,
   groupChatsByDate,
   findStickyGroupHeaderIndex,
   localizeSystemGroups,
   resolveChatGroupId,
+  type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
 import { useCompactDensity } from "../hooks/useCompactDensity";
@@ -66,6 +54,7 @@ import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
 import SessionGroupHeader from "../components/SessionGroupHeader";
+import SessionDateHeader from "../components/SessionDateHeader";
 import {
   DraggableSession,
   SessionDropZone,
@@ -82,6 +71,7 @@ import styles from "./sidebarSessionList.module.less";
 const SESSION_ROW_HEIGHT = 42;
 /** Fixed height of each group header row */
 const GROUP_HEADER_HEIGHT = 42;
+const DATE_HEADER_HEIGHT = 24;
 
 /**
  * Compact row metrics for short viewports (see useCompactDensity).
@@ -93,6 +83,7 @@ const SESSION_ROW_HEIGHT_COMPACT = 30;
 const GROUP_HEADER_HEIGHT_COMPACT = 32;
 /** Empty groups carry no rows to scan, so their header slims further. */
 const EMPTY_GROUP_HEADER_HEIGHT_COMPACT = 24;
+const DATE_HEADER_HEIGHT_COMPACT = 20;
 
 /** A flattened row rendered by the virtualized session list. */
 type FlatRow =
@@ -101,6 +92,11 @@ type FlatRow =
       group: ChatGroup;
       count: number;
       collapsed: boolean;
+    }
+  | {
+      kind: "dateHeader";
+      dateGroup: ChatDateGroup;
+      label: string;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
@@ -203,6 +199,16 @@ const VirtualRow = React.memo(function VirtualRow({
     );
   }
 
+  if (row.kind === "dateHeader") {
+    // Date headers carry no group semantics, so they are not
+    // drag-and-drop targets.
+    return (
+      <div style={style}>
+        <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
+      </div>
+    );
+  }
+
   const session = row.session;
   const channelKey = session.channel?.trim() || "";
   const channelLabel = channelKey
@@ -284,35 +290,6 @@ export default function SidebarSessionList({
   );
   /** Compact row metrics on short viewports (small laptops). */
   const compact = useCompactDensity();
-  /** Activity-range filter — persisted and synced across mounted lists. */
-  const [activityFilter, setActivityFilter] = useState<SessionActivityFilter>(
-    getSessionActivityFilterPreference,
-  );
-
-  useEffect(() => {
-    const syncActivityFilter = () => {
-      setActivityFilter(getSessionActivityFilterPreference());
-    };
-
-    window.addEventListener(
-      SESSION_ACTIVITY_FILTER_CHANGE_EVENT,
-      syncActivityFilter,
-    );
-    return () => {
-      window.removeEventListener(
-        SESSION_ACTIVITY_FILTER_CHANGE_EVENT,
-        syncActivityFilter,
-      );
-    };
-  }, []);
-
-  const handleActivityFilterChange = useCallback(
-    (filter: SessionActivityFilter) => {
-      setActivityFilter(filter);
-      setSessionActivityFilterPreference(filter);
-    },
-    [],
-  );
 
   useEffect(() => {
     const syncGroupMode = () => {
@@ -530,42 +507,44 @@ export default function SidebarSessionList({
     window.setTimeout(() => groupInputRef.current?.focus(), 0);
   }, []);
 
-  /** Sessions within the selected activity range. */
-  const activityFilteredSessions = useMemo(
-    () => filterSessionsByActivity(sortedSessions, activityFilter),
-    [sortedSessions, activityFilter],
-  );
-
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return activityFilteredSessions;
-    return activityFilteredSessions.filter((s) =>
+    if (!q) return sortedSessions;
+    return sortedSessions.filter((s) =>
       (s.name || "New Chat").toLowerCase().includes(q),
     );
-  }, [activityFilteredSessions, searchQuery]);
+  }, [sortedSessions, searchQuery]);
 
   const groups = useMemo(
     () =>
-      searchQuery.trim()
-        ? null
-        : groupChats(activityFilteredSessions, visibleChatGroups),
-    [activityFilteredSessions, searchQuery, visibleChatGroups],
+      searchQuery.trim() ? null : groupChats(sortedSessions, visibleChatGroups),
+    [sortedSessions, searchQuery, visibleChatGroups],
   );
 
   /**
-   * Sections drive the virtual list: one per chat group (source mode)
-   * or a single flat section (none mode). Every session renders — the
-   * virtualized list keeps large histories cheap.
+   * Sections drive the virtual list: one per date bucket (date mode),
+   * one per chat group (source mode), or a single flat section (none
+   * mode). Every session renders — the virtualized list keeps large
+   * histories cheap.
    */
   const sections = useMemo<ListSection[]>(() => {
     if (searchQuery.trim()) return [];
-    // Nothing matched the activity range: skip section chrome entirely so
-    // the list shows its "no matching conversations" state instead of a
-    // stack of empty group headers.
-    if (activityFilteredSessions.length === 0) return [];
+    if (groupMode === "date") {
+      return groupChatsByDate(sortedSessions).map((dateGroup) => ({
+        id: `date:${dateGroup.key}`,
+        header: {
+          kind: "dateHeader" as const,
+          dateGroup: dateGroup.key,
+          label: t(`chat.group.${dateGroup.key}`),
+        },
+        sessions: dateGroup.sessions,
+        groupId: null,
+        collapsed: false,
+      }));
+    }
     if (groupMode === "none") {
-      const ordered = groupChatsByDate(activityFilteredSessions).flatMap(
+      const ordered = groupChatsByDate(sortedSessions).flatMap(
         (dateGroup) => dateGroup.sessions,
       );
       if (ordered.length === 0) return [];
@@ -600,12 +579,13 @@ export default function SidebarSessionList({
       };
     });
   }, [
-    activityFilteredSessions,
     collapsedGroups,
     groupMode,
     groups,
     isSessionDragging,
     searchQuery,
+    sortedSessions,
+    t,
   ]);
 
   /**
@@ -714,6 +694,9 @@ export default function SidebarSessionList({
         return row.count === 0
           ? EMPTY_GROUP_HEADER_HEIGHT_COMPACT
           : GROUP_HEADER_HEIGHT_COMPACT;
+      }
+      if (row.kind === "dateHeader") {
+        return compact ? DATE_HEADER_HEIGHT_COMPACT : DATE_HEADER_HEIGHT;
       }
       return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
     },
@@ -862,10 +845,7 @@ export default function SidebarSessionList({
               placement="bottomRight"
               menu={{
                 selectable: true,
-                selectedKeys: [
-                  `group-mode-${groupMode}`,
-                  `activity-range-${activityFilter}`,
-                ],
+                selectedKeys: [`group-mode-${groupMode}`],
                 items: [
                   {
                     key: "search",
@@ -889,6 +869,12 @@ export default function SidebarSessionList({
                     label: t("chat.sessionPanel.groupBy", "Group by"),
                     children: [
                       {
+                        key: "group-mode-date",
+                        icon: <CalendarDays size={15} />,
+                        label: t("chat.sessionPanel.groupByTime", "By time"),
+                        onClick: () => handleGroupModeChange("date"),
+                      },
+                      {
                         key: "group-mode-source",
                         icon: <FolderTree size={15} />,
                         label: t(
@@ -905,40 +891,6 @@ export default function SidebarSessionList({
                           "No grouping",
                         ),
                         onClick: () => handleGroupModeChange("none"),
-                      },
-                    ],
-                  },
-                  {
-                    key: "activity-range",
-                    icon: <CalendarDays size={15} />,
-                    label: t(
-                      "chat.sessionPanel.activityRange",
-                      "Activity range",
-                    ),
-                    children: [
-                      {
-                        key: "activity-range-all",
-                        icon: <InfinityIcon size={15} />,
-                        label: t("chat.sessionPanel.rangeAll", "All"),
-                        onClick: () => handleActivityFilterChange("all"),
-                      },
-                      {
-                        key: "activity-range-today",
-                        icon: <CalendarCheck size={15} />,
-                        label: t("chat.sessionPanel.rangeToday", "Today"),
-                        onClick: () => handleActivityFilterChange("today"),
-                      },
-                      {
-                        key: "activity-range-week",
-                        icon: <CalendarClock size={15} />,
-                        label: t("chat.sessionPanel.range7Days", "7 days"),
-                        onClick: () => handleActivityFilterChange("week"),
-                      },
-                      {
-                        key: "activity-range-month",
-                        icon: <CalendarRange size={15} />,
-                        label: t("chat.sessionPanel.range30Days", "30 days"),
-                        onClick: () => handleActivityFilterChange("month"),
                       },
                     ],
                   },
@@ -1012,35 +964,37 @@ export default function SidebarSessionList({
             </div>
           )}
 
-          {flatRows.length > 0 && listHeight > 0 && (
-            <SessionGroupDndProvider
-              onMove={handleDragMove}
-              onDragStateChange={setIsSessionDragging}
-            >
-              {stickyGroupRow && (
-                <div className={styles.stickyGroupHeader}>
-                  <GroupHeaderContent
-                    row={stickyGroupRow}
-                    data={virtualListData}
-                  />
-                </div>
-              )}
-              <VariableSizeList
-                ref={listRef}
-                height={listHeight}
-                width="100%"
-                itemCount={flatRows.length}
-                itemSize={getRowHeight}
-                itemData={virtualListData}
-                overscanCount={10}
-                onItemsRendered={({ visibleStartIndex: nextIndex }) =>
-                  setVisibleStartIndex(nextIndex)
-                }
+          {sortedSessions.length > 0 &&
+            flatRows.length > 0 &&
+            listHeight > 0 && (
+              <SessionGroupDndProvider
+                onMove={handleDragMove}
+                onDragStateChange={setIsSessionDragging}
               >
-                {VirtualRow}
-              </VariableSizeList>
-            </SessionGroupDndProvider>
-          )}
+                {stickyGroupRow && (
+                  <div className={styles.stickyGroupHeader}>
+                    <GroupHeaderContent
+                      row={stickyGroupRow}
+                      data={virtualListData}
+                    />
+                  </div>
+                )}
+                <VariableSizeList
+                  ref={listRef}
+                  height={listHeight}
+                  width="100%"
+                  itemCount={flatRows.length}
+                  itemSize={getRowHeight}
+                  itemData={virtualListData}
+                  overscanCount={10}
+                  onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                    setVisibleStartIndex(nextIndex)
+                  }
+                >
+                  {VirtualRow}
+                </VariableSizeList>
+              </SessionGroupDndProvider>
+            )}
         </div>
       )}
     </div>

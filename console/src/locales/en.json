@@ -3618,13 +3618,9 @@
       "noConversations": "No conversations yet",
       "noMatchingConversations": "No matching conversations",
       "groupBy": "Group by",
+      "groupByTime": "By time",
       "groupBySource": "By source",
-      "groupByNone": "No grouping",
-      "activityRange": "Activity range",
-      "rangeAll": "All",
-      "rangeToday": "Today",
-      "range7Days": "7 days",
-      "range30Days": "30 days"
+      "groupByNone": "No grouping"
     },
     "conversationHistory": "Conversation History"
   },

@@ -2967,13 +2967,9 @@
       "noConversations": "Нет диалогов",
       "noMatchingConversations": "Нет подходящих диалогов",
       "groupBy": "Группировка",
+      "groupByTime": "По времени",
       "groupBySource": "По источнику",
-      "groupByNone": "Без группировки",
-      "activityRange": "Период активности",
-      "rangeAll": "Все",
-      "rangeToday": "Сегодня",
-      "range7Days": "7 дней",
-      "range30Days": "30 дней"
+      "groupByNone": "Без группировки"
     },
     "conversationHistory": "История диалогов"
   },

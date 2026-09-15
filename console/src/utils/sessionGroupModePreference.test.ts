@@ -12,8 +12,8 @@ describe("sessionGroupModePreference", () => {
     vi.restoreAllMocks();
   });
 
-  it("defaults to source grouping", () => {
-    expect(getSessionGroupModePreference()).toBe("source");
+  it("defaults to date grouping", () => {
+    expect(getSessionGroupModePreference()).toBe("date");
   });
 
   it("persists each mode", () => {
@@ -22,17 +22,15 @@ describe("sessionGroupModePreference", () => {
 
     setSessionGroupModePreference("source");
     expect(getSessionGroupModePreference()).toBe("source");
-    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("source");
+
+    setSessionGroupModePreference("date");
+    expect(getSessionGroupModePreference()).toBe("date");
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("date");
   });
 
   it("ignores unknown stored values", () => {
     localStorage.setItem("qwenpaw_session_group_mode", "nested");
-    expect(getSessionGroupModePreference()).toBe("source");
-  });
-
-  it("migrates the retired date mode to the default", () => {
-    localStorage.setItem("qwenpaw_session_group_mode", "date");
-    expect(getSessionGroupModePreference()).toBe("source");
+    expect(getSessionGroupModePreference()).toBe("date");
   });
 
   it("notifies mounted lists when the preference changes", () => {

@@ -3203,13 +3203,9 @@
       "noConversations": "Sem conversas",
       "noMatchingConversations": "Nenhuma conversa correspondente",
       "groupBy": "Agrupar por",
+      "groupByTime": "Por tempo",
       "groupBySource": "Por origem",
-      "groupByNone": "Sem agrupamento",
-      "activityRange": "Período de atividade",
-      "rangeAll": "Tudo",
-      "rangeToday": "Hoje",
-      "range7Days": "7 dias",
-      "range30Days": "30 dias"
+      "groupByNone": "Sem agrupamento"
     },
     "conversationHistory": "Histórico de conversas"
   },

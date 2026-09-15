@@ -3475,13 +3475,9 @@
       "noConversations": "暂无对话",
       "noMatchingConversations": "无匹配对话",
       "groupBy": "分组方式",
+      "groupByTime": "按时间",
       "groupBySource": "按来源",
-      "groupByNone": "不分组",
-      "activityRange": "活跃时间",
-      "rangeAll": "全部",
-      "rangeToday": "今天",
-      "range7Days": "7天",
-      "range30Days": "30天"
+      "groupByNone": "不分组"
     },
     "conversationHistory": "历史对话"
   },
