@@ -2247,6 +2247,57 @@
         "generate_kwargs": {},
         "relay_reasoning": true
       }
+    ],
+    "ATLASCLOUD_MODELS": [
+      {
+        "id": "deepseek-ai/deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "supports_image": false,
+        "supports_video": false,
+        "probe_source": "probed",
+        "is_free": false,
+        "is_recommended": true,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_input_length": 131072,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": false
+      },
+      {
+        "id": "deepseek-ai/deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "supports_image": false,
+        "supports_video": false,
+        "probe_source": "probed",
+        "is_free": false,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_input_length": 131072,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": false
+      },
+      {
+        "id": "qwen/qwen3.5-flash",
+        "name": "Qwen3.5 Flash",
+        "supports_image": false,
+        "supports_video": false,
+        "probe_source": "probed",
+        "is_free": false,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_input_length": 131072,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": false
+      }
     ]
   }
 }
