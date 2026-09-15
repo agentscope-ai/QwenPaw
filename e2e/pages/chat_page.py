@@ -147,8 +147,29 @@ class ChatPage(BasePage):
     )
     # Inline rename input rendered when a SessionItem enters edit mode.
     SESSION_RENAME_INPUT = 'input[class*=renameInput]'
-    # Conversation search box inside the drawer (filters sessions by title).
+    # Conversation search box (filters sessions by title).
+    # Since #7502 this input is only mounted on demand — see
+    # ``open_session_search()`` for the two clicks that reveal it, and for why
+    # this selector alone is not enough any more.
     SESSION_SEARCH_INPUT = '[class*=searchContainer] input'
+    # The overflow button next to the history header that opens the dropdown
+    # holding "Search conversations" / "New group". Its accessible name comes
+    # from ``sidebar.more``. Named ``..._MORE_ACTIONS_BTN`` to keep it distinct
+    # from ``SESSION_MORE_BTN`` below, which is the per-session-item action
+    # button (Pin / Rename / Archive / Delete) and an unrelated element.
+    SESSION_MORE_ACTIONS_BTN = (
+        'button[aria-label="More"], button[aria-label="更多"]'
+    )
+    # The search entry inside that dropdown. Label comes from
+    # ``chat.sessionPanel.searchConversations`` ("Search conversations…" /
+    # "搜索对话…"); matched on the prefix so the trailing ellipsis cannot
+    # break it.
+    SESSION_SEARCH_MENU_ITEM = (
+        '.qwenpaw-dropdown-menu-item:has-text("Search conversations"), '
+        '.ant-dropdown-menu-item:has-text("Search conversations"), '
+        '.qwenpaw-dropdown-menu-item:has-text("搜索对话"), '
+        '.ant-dropdown-menu-item:has-text("搜索对话")'
+    )
     # Legacy hover-button selectors (kept for older builds / fallbacks).
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
@@ -1188,8 +1209,44 @@ class ChatPage(BasePage):
         self.wait(300)
         return result
 
+    def open_session_search(self) -> "ChatPage":
+        """Reveal the conversation search box in the sidebar session list.
+
+        Before #7502 the search input was always rendered inside the list
+        container. After #7502 it is mounted only on demand — see
+        ``console/src/layouts/SidebarSessionList.tsx``:
+
+            {!historyCollapsed && (searchOpen || creatingGroup) && (
+              <div className={styles.searchContainer}>
+                {searchOpen && <Input className={styles.searchInput} ... />}
+
+        so ``searchOpen`` has to be flipped first by opening the "More"
+        overflow dropdown (``aria-label`` from ``sidebar.more``) and picking the
+        "Search conversations" entry (``chat.sessionPanel.searchConversations``).
+        ``handleOpenSearch`` also focuses the input, so the box is ready to fill
+        by the time this returns.
+
+        Idempotent: if the box is already visible nothing is clicked, which
+        matters because the "More" dropdown toggles rather than opens.
+        """
+        existing = self.page.locator(self.SESSION_SEARCH_INPUT).first
+        if existing.count() > 0 and existing.is_visible():
+            return self
+
+        more_btn = self.page.locator(self.SESSION_MORE_ACTIONS_BTN).first
+        more_btn.wait_for(state="visible", timeout=5000)
+        more_btn.click()
+        self.wait(300)
+
+        search_item = self.page.locator(self.SESSION_SEARCH_MENU_ITEM).first
+        search_item.wait_for(state="visible", timeout=5000)
+        search_item.click()
+        self.wait(400)
+        return self
+
     def search_sessions(self, keyword: str) -> "ChatPage":
-        """Filter the drawer session list via the conversation search box."""
+        """Filter the session list via the conversation search box."""
+        self.open_session_search()
         box = self.page.locator(self.SESSION_SEARCH_INPUT).first
         box.wait_for(state="visible", timeout=5000)
         box.fill(keyword)
