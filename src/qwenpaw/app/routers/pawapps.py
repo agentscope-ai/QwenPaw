@@ -195,7 +195,13 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
     loader = getattr(request.app.state, "plugin_loader", None)
     if loader is not None and loader.get_loaded_plugin(app_id) is not None:
         try:
-            await loader.unload_plugin(app_id, delete_files=True)
+            from ...plugins.lifecycle import UnloadMode
+
+            await loader.unload_plugin(
+                app_id,
+                delete_files=True,
+                mode=UnloadMode.UNINSTALL,
+            )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=500,
