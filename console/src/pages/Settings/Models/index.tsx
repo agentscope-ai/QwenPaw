@@ -28,6 +28,7 @@ import {
 } from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
+import MemberModels from "../../Hub/governance/MemberModels";
 
 /* ------------------------------------------------------------------ */
 /* Main Page                                                           */
@@ -288,6 +289,9 @@ function ModelsPage() {
       />
     ));
 
+  if (providers.some((provider) => provider.id === "hub-managed")) {
+    return <MemberModels />;
+  }
   return (
     <div className={styles.settingsPage}>
       {loading ? (

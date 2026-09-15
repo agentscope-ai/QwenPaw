@@ -413,6 +413,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         runtime_token = credentials.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")
         if runtime_token:
             environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] = runtime_token
+        for name in ("QWENPAW_HUB_MODEL_URL", "QWENPAW_HUB_MODEL_TOKEN"):
+            if credentials.get(name):
+                environment[name] = credentials[name]
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment

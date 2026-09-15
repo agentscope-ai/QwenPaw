@@ -1,0 +1,86 @@
+.panel {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  h2,
+  p {
+    margin: 0;
+  }
+  p {
+    margin-top: 8px;
+    color: var(--app-text-secondary);
+  }
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.card {
+  padding: 20px;
+  border: 1px solid var(--app-border-color, #dededb);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  h3,
+  p {
+    margin: 0;
+  }
+  p {
+    color: var(--app-text-secondary);
+  }
+}
+.form {
+  max-width: 720px;
+  :global(.ant-input-number) {
+    width: 100%;
+  }
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.metric {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+.codes {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+  padding: 16px;
+  border: 1px solid var(--app-border-color, #dededb);
+  border-radius: 8px;
+}
+@media (max-width: 600px) {
+  .panel {
+    gap: 16px;
+  }
+  .card {
+    padding: 16px;
+  }
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--app-border-color, #dededb);
+  font-size: 12px;
+}

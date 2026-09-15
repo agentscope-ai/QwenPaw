@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit
 
 import httpx
 import uvicorn
@@ -77,6 +78,16 @@ from .static_files import (
     resolve_console_response,
     resolve_console_static_dir,
 )
+from .invitations import InvitationService
+from .model_service.storage import GovernanceStore
+from .model_service.catalog import ModelCatalog
+from .model_service.budget import TokenBudgetService
+from .model_service.gateway import ModelGateway
+from .model_service.routes import governance_router
+from .model_service.runtime_policy import (
+    require_model_route,
+    require_model_runtime,
+)
 from . import websocket_proxy
 
 
@@ -135,6 +146,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     hub_config: HubConfig | None = None,
     root_dir: Path | None = None,
     public_bind: bool = False,
+    model_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create a Hub control-plane app with an injectable runtime service."""
     runtime_service = service or build_runtime_service(
@@ -155,6 +167,46 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         credential_vault,
     )
+    governance = GovernanceStore(runtime_service.registry.database_path)
+    model_catalog = ModelCatalog(governance, credential_vault)
+    model_budgets = TokenBudgetService(governance)
+    model_gateway = ModelGateway(model_catalog, model_budgets, model_transport)
+    invitations = InvitationService(governance, hub_auth)
+    original_credentials = runtime_service.credential_provider
+
+    def managed_credentials(record):
+        values = dict(original_credentials(record))
+        if governance.settings()["enabled"]:
+            endpoint = (
+                os.environ.get("QWENPAW_HUB_MODEL_URL")
+                or runtime_service.hub_config.control_plane.public_base_url
+            )
+            if not endpoint:
+                raise ValueError("Configure QWENPAW_HUB_MODEL_URL first")
+            parsed = urlsplit(endpoint)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("Invalid QWENPAW_HUB_MODEL_URL")
+            if record.provisioner == "docker" and is_loopback_host(
+                parsed.hostname,
+            ):
+                raise ValueError(
+                    "Docker requires a container-reachable "
+                    "QWENPAW_HUB_MODEL_URL, not localhost",
+                )
+            values["QWENPAW_HUB_MODEL_URL"] = endpoint.rstrip("/")
+            values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(
+                record,
+            )
+        else:
+            with governance.connect() as db:
+                db.execute(
+                    "DELETE FROM hub_model_runtime_tokens "
+                    "WHERE runtime_id = ?",
+                    (record.runtime_id,),
+                )
+        return values
+
+    runtime_service.credential_provider = managed_credentials
     operations = HubOperationsStore(
         runtime_service.registry.database_path,
         runtime_service.root_dir,
@@ -196,6 +248,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        model_gateway.recover()
         try:
             yield
         finally:
@@ -421,6 +474,23 @@ def create_hub_app(  # pylint: disable=too-many-statements
         if record.owner_user_id != user.user_id:
             raise HTTPException(status_code=404, detail="Runtime not found")
 
+    app.include_router(
+        governance_router(
+            governance,
+            model_catalog,
+            model_budgets,
+            model_gateway,
+            invitations,
+            hub_auth,
+            require_user,
+            require_admin,
+            record_audit,
+        ),
+    )
+    app.state.model_catalog = model_catalog
+    app.state.model_budgets = model_budgets
+    app.state.model_gateway = model_gateway
+
     @app.get("/api/hub/healthz")
     async def healthz(
         user: HubUser = Depends(require_user),
@@ -487,7 +557,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
-        return await run_in_threadpool(hub_auth.status)
+        result = await run_in_threadpool(hub_auth.status)
+        policy = await run_in_threadpool(governance.settings)
+        if policy["invitation_enabled"]:
+            result["invitation_enabled"] = True
+            result["registration_enabled"] = True
+        return result
 
     @app.post("/api/auth/register")
     async def register(
@@ -497,11 +572,20 @@ def create_hub_app(  # pylint: disable=too-many-statements
         client_ip = require_auth_access(request, "registration")
         access_security.record_attempt("registration", client_ip)
         try:
-            user, token = await run_in_threadpool(
-                hub_auth.register,
-                body.username,
-                body.password,
-            )
+            policy = await run_in_threadpool(governance.settings)
+            if policy["invitation_enabled"] and hub_auth.user_count() > 0:
+                user, token = await run_in_threadpool(
+                    invitations.redeem,
+                    body.invite_code or "",
+                    body.username,
+                    body.password,
+                )
+            else:
+                user, token = await run_in_threadpool(
+                    hub_auth.register,
+                    body.username,
+                    body.password,
+                )
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1281,7 +1365,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
+        managed = governance.settings()["enabled"]
+        require_model_route(path, request.method, managed)
         record = await ensure_personal_runtime(user)
+        if managed:
+            require_model_runtime(governance, record.runtime_id)
         target = runtime_url(
             record,
             scheme="http",
@@ -1600,6 +1688,10 @@ def run_hub_app(
             "Use a trusted network or a TLS reverse proxy."
         )
         logging.getLogger(__name__).warning("%s", warning)
+    os.environ.setdefault(
+        "QWENPAW_HUB_MODEL_URL",
+        f"http://127.0.0.1:{port}",
+    )
     uvicorn.run(
         create_hub_app(
             hub_config=hub_config,

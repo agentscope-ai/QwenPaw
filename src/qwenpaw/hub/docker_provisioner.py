@@ -137,6 +137,9 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 "QWENPAW_RUNTIME_INTERNAL_TOKEN": runtime_token,
             },
         )
+        for name in ("QWENPAW_HUB_MODEL_URL", "QWENPAW_HUB_MODEL_TOKEN"):
+            if credentials.get(name):
+                environment[name] = credentials[name]
         labels = self._labels(record.runtime_id, record.owner_user_id)
         container = self._get_client().containers.run(
             launch_image,

@@ -47,6 +47,12 @@ from .utils.message_request_normalizer import (
 )
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
+from ..providers.hub_managed import (
+    PROVIDER_ID,
+    managed_mode,
+    managed_provider,
+    managed_slot,
+)
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
@@ -2225,6 +2231,19 @@ def create_model_and_formatter(
     slot = _resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
+
+    if managed_mode():
+        if slot is None and (
+            model_slot is None or model_slot.provider_id != PROVIDER_ID
+        ):
+            model_slot = ProviderManager.get_instance().active_model
+        selected, catalog = managed_slot(model_slot, explicit=slot is not None)
+        provider = managed_provider(catalog)
+        model = provider.get_chat_model_instance(selected.model)
+        if hasattr(model, "max_retries"):
+            model.max_retries = 0
+        formatter = _install_model_formatter(model, provider_id=PROVIDER_ID)
+        return TokenRecordingModelWrapper(PROVIDER_ID, model), formatter
 
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:

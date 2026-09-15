@@ -155,6 +155,29 @@ class HubAuthService:
         role: str = "user",
     ) -> HubUser:
         """Create an account with a stable ID and PBKDF2 password hash."""
+        try:
+            with self._connect() as connection:
+                user_id = self.insert_user(
+                    connection,
+                    username,
+                    password,
+                    role,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Username already exists: {username}") from exc
+        user = self.get_user(user_id)
+        if user is None:
+            raise RuntimeError(f"Failed to load created user: {user_id}")
+        return user
+
+    def insert_user(
+        self,
+        connection: sqlite3.Connection,
+        username: str,
+        password: str,
+        role: str = "user",
+    ) -> str:
+        """Insert an account inside the caller's transaction."""
         normalized_username = username.strip()
         self._validate_credentials(normalized_username, password)
         if role not in {"admin", "user"}:
@@ -163,45 +186,36 @@ class HubAuthService:
         password_hash = self._hash_password(password, salt)
         now = utc_now()
         user_id = uuid.uuid4().hex
-        try:
-            with self._connect() as connection:
-                tenant_id = f"personal-{user_id}"
-                ensure_tenant(
-                    connection,
-                    tenant_id,
-                    tenant_type="personal",
-                    display_name=normalized_username,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO hub_users(
-                        user_id, username, password_hash, password_salt,
-                        role, disabled, token_version, profile_json,
-                        preferences_json, metadata_json, revision,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 1, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        normalized_username,
-                        password_hash,
-                        salt.hex(),
-                        role,
-                        '{"schema_version":1}',
-                        '{"schema_version":1}',
-                        '{"schema_version":1}',
-                        now,
-                        now,
-                    ),
-                )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(
-                f"Username already exists: {normalized_username}",
-            ) from exc
-        user = self.get_user(user_id)
-        if user is None:
-            raise RuntimeError(f"Failed to load created user: {user_id}")
-        return user
+        tenant_id = f"personal-{user_id}"
+        ensure_tenant(
+            connection,
+            tenant_id,
+            tenant_type="personal",
+            display_name=normalized_username,
+        )
+        connection.execute(
+            """
+            INSERT INTO hub_users(
+                user_id, username, password_hash, password_salt,
+                role, disabled, token_version, profile_json,
+                preferences_json, metadata_json, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                user_id,
+                normalized_username,
+                password_hash,
+                salt.hex(),
+                role,
+                '{"schema_version":1}',
+                '{"schema_version":1}',
+                '{"schema_version":1}',
+                now,
+                now,
+            ),
+        )
+        return user_id
 
     def authenticate(
         self,

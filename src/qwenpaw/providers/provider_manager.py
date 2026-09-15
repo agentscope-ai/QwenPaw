@@ -31,6 +31,12 @@ from .provider import (
     validate_custom_provider_id,
 )
 from . import provider_catalog as _provider_catalog
+from .hub_managed import (
+    PROVIDER_ID,
+    managed_mode,
+    managed_provider,
+    managed_slot,
+)
 from . import model_catalog
 from .capability_baseline import ExpectedCapabilityRegistry
 from .provider_catalog import (
@@ -149,6 +155,9 @@ class ProviderManager(
         self.builtin_providers[provider_key] = provider.model_copy(deep=True)
 
     async def list_provider_info(self) -> List[ProviderInfo]:
+        if managed_mode():
+            provider = await run_sync_io(managed_provider)
+            return [await provider.get_info()]
         tasks = [
             provider.get_info() for provider in self.builtin_providers.values()
         ]
@@ -173,6 +182,8 @@ class ProviderManager(
         return provider_key
 
     def get_provider(self, provider_id: str) -> Provider | None:
+        if managed_mode():
+            return managed_provider() if provider_id == PROVIDER_ID else None
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
         # Normalize provider ID for backward compatibility
@@ -192,6 +203,8 @@ class ProviderManager(
 
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
+        if managed_mode():
+            return managed_slot(self.active_model)[0]
         return self.active_model
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
@@ -531,7 +544,11 @@ class ProviderManager(
         # agent creates chat model instances.
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
+        provider = (
+            await run_sync_io(managed_provider)
+            if managed_mode() and provider_id == PROVIDER_ID
+            else self.get_provider(provider_id)
+        )
         if not provider:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -574,7 +591,8 @@ class ProviderManager(
             "rejects_media",
         )
 
-        self.maybe_probe_multimodal(provider_id, model_id)
+        if not managed_mode():
+            self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
         """Schedule multimodal probing for a model if capability is unknown."""

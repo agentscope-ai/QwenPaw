@@ -62,6 +62,11 @@ import {
   type HubUser,
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
+import PasswordReset from "./governance/PasswordReset";
+import OrganizationModels from "./governance/OrganizationModels";
+import Invitations from "./governance/Invitations";
+import Budgets from "./governance/Budgets";
+import { useGovernanceText } from "./governance/shared";
 import {
   dockerReferenceParts,
   emptyPage,
@@ -77,6 +82,7 @@ import {
 export default function HubPage() {
   const { message, modal } = App.useApp();
   const { t, i18n } = useTranslation();
+  const governanceText = useGovernanceText();
   const { isDark, toggleTheme } = useTheme();
   const [me, setMe] = useState<HubUser | null>(null);
   const [health, setHealth] = useState<HubHealth | null>(null);
@@ -535,6 +541,25 @@ export default function HubPage() {
     ...(me?.role === "admin"
       ? [
           {
+            id: "models" as const,
+            label: governanceText("组织模型", "Organization models"),
+            icon: Boxes,
+          },
+          {
+            id: "invitations" as const,
+            label: governanceText("邀请码", "Invitations"),
+            icon: UserPlus,
+          },
+          {
+            id: "budgets" as const,
+            label: governanceText("用量与预算", "Usage and budgets"),
+            icon: Gauge,
+          },
+        ]
+      : []),
+    ...(me?.role === "admin"
+      ? [
+          {
             id: "overview" as const,
             label: t("hub.navigation.overview"),
             icon: Gauge,
@@ -662,7 +687,10 @@ export default function HubPage() {
       <main className={styles.main}>
         <header className={styles.topbar}>
           <span>
-            Hub / <strong>{t(`hub.navigation.${section}`)}</strong>
+            Hub /{" "}
+            <strong>
+              {navigation.find((item) => item.id === section)?.label}
+            </strong>
           </span>
           <div>
             <Tag color={runtimeAvailable ? "success" : "error"}>
@@ -966,6 +994,13 @@ export default function HubPage() {
                   </DataPanel>
                 </section>
               )}
+              {section === "models" && me?.role === "admin" && (
+                <OrganizationModels />
+              )}
+              {section === "invitations" && me?.role === "admin" && (
+                <Invitations />
+              )}
+              {section === "budgets" && me?.role === "admin" && <Budgets />}
               {section === "users" && me?.role === "admin" && (
                 <section>
                   <PageHeader
@@ -1095,6 +1130,7 @@ export default function HubPage() {
                                 </td>
                                 <td>
                                   {formatDate(user.created_at, i18n.language)}
+                                  <PasswordReset user={user} />
                                 </td>
                               </tr>
                             );

@@ -39,6 +39,7 @@ from ...providers.provider_discovery_policy import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...providers.hub_managed import managed_mode, managed_slot
 from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
@@ -78,6 +79,20 @@ async def get_provider_manager(request: Request) -> ProviderManager:
     Args:
         request: FastAPI request object
     """
+    if managed_mode():
+        path = request.url.path.rstrip("/")
+        allowed = request.method == "GET" and path in {
+            "/api/models",
+            "/api/models/active",
+        }
+        allowed = allowed or (
+            request.method == "PUT" and path == "/api/models/active"
+        )
+        if not allowed:
+            raise HTTPException(
+                403,
+                "Organization model configuration is locked",
+            )
     return request.app.state.provider_manager
 
 
@@ -789,6 +804,15 @@ async def get_active_models(
     - global: ProviderManager global model only
     - agent: a specific agent's configured model only
     """
+    if managed_mode():
+        selected = manager.active_model
+        if scope != "global":
+            if agent_id is None:
+                workspace = await get_agent_for_request(request)
+                agent_id = workspace.agent_id
+            selected = await _load_agent_model(request, agent_id) or selected
+        slot, _ = await run_sync_io(managed_slot, selected)
+        return await run_sync_io(_active_models_info, manager, slot)
     if scope == "global":
         return _active_models_info(manager, manager.get_active_model())
 
@@ -846,6 +870,12 @@ async def set_active_model(
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
     """Set active model by scope."""
+    if managed_mode():
+        await run_sync_io(
+            managed_slot,
+            ModelSlotConfig(provider_id=body.provider_id, model=body.model),
+            explicit=True,
+        )
     if body.scope == "global":
         try:
             await manager.activate_model(body.provider_id, body.model)

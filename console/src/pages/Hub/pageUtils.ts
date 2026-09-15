@@ -1,6 +1,9 @@
 import type { HubRuntime } from "../../api/modules/hub";
 
 export type Section =
+  | "models"
+  | "invitations"
+  | "budgets"
   | "overview"
   | "runtimes"
   | "users"
