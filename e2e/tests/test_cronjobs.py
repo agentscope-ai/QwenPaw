@@ -30,6 +30,36 @@ from utils.helpers import (
 
 logger = logging.getLogger(__name__)
 
+# The Cron Jobs page's own create button.
+#
+# The selector this replaces was ``button:has-text("Create"),
+# button:has-text("New")`` plus ``.first``. After #7502 the sidebar gained a
+# "New task" button whose label is real text (``<span>New task</span>`` in
+# ``layouts/Sidebar.tsx``), so ``has-text("New")`` matched it; the sidebar
+# precedes ``main`` in DOM order and ``.first`` picks DOM order, so the case
+# clicked "New task" and was navigated away from /cron-jobs before the create
+# drawer could open.
+#
+# Anchors, and why each one is needed:
+# - ``headerActions`` scopes to the PageHeader action row of this page
+#   (``pages/Control/CronJobs/index.tsx``). No sidebar component uses that
+#   class, which is what excludes the sidebar; the Cron Jobs page renders no
+#   ``<main>`` element, so the usual "limit to main" scoping is unavailable.
+# - ``btn-primary``: the button is ``<Button type="primary">``. Its sibling
+#   "Create From Template" has no type, so this separates the two. It is not
+#   unique on its own though — the account panel in ``layouts/Sidebar.tsx``
+#   also has a primary Save button — hence the headerActions scope.
+# - Label is ``cronJobs.createJob``: "+ Create Job" / "创建任务". Note the
+#   desktop button renders only when ``!isMobile`` (max-width: 768px media
+#   query) while the E2E viewport is 1920 wide, so the desktop branch is the
+#   one that applies; the mobile variant has no label at all.
+CRONJOB_CREATE_BUTTON = (
+    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("Create Job"), '
+    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("创建任务"), '
+    '[class*="headerActions"] button.ant-btn-primary:has-text("Create Job"), '
+    '[class*="headerActions"] button.ant-btn-primary:has-text("创建任务")'
+)
+
 # ============================================================================
 # CRON-001: Cron job lifecycle (create + list + edit + delete)
 # ============================================================================
@@ -617,7 +647,7 @@ class TestCronjobEditAndUpdate:
             page.wait_for_timeout(3000)
 
             log_test_step("Create a test job")
-            create_btn = page.locator('button:has-text("Create"), button:has-text("New")').first
+            create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
             expect(create_btn).to_be_visible(timeout=5000)
             create_btn.click()
             page.wait_for_timeout(1500)
@@ -751,7 +781,7 @@ class TestCronjobWeeklySchedule:
         page.wait_for_timeout(3000)
 
         log_test_step("Open the create dialog")
-        create_btn = page.locator('button:has-text("Create"), button:has-text("New")').first
+        create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
         if create_btn.count() > 0:
             create_btn.click()
             page.wait_for_timeout(1500)
@@ -819,7 +849,7 @@ class TestCronjobJsonParams:
         page.wait_for_timeout(3000)
 
         log_test_step("Open the create dialog")
-        create_btn = page.locator('button:has-text("Create"), button:has-text("New")').first
+        create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
         if create_btn.count() > 0:
             create_btn.click()
             page.wait_for_timeout(1500)
@@ -865,7 +895,7 @@ class TestCronjobTimezone:
         page.wait_for_timeout(3000)
 
         log_test_step("Open the create dialog")
-        create_btn = page.locator('button:has-text("Create"), button:has-text("New")').first
+        create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
         if create_btn.count() > 0:
             create_btn.click()
             page.wait_for_timeout(1500)
