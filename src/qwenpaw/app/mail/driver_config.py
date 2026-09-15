@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from qwenpawmail_mcp.providers import ENTERPRISE_PROVIDERS
+from qwenpawmail_mcp.providers import CUSTOM_PROVIDER, ENTERPRISE_PROVIDERS
 
 from ...config.config import (
     AGENT_MAIL_CREDENTIAL_REF,
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Compatibility alias used by the agent router for provider validation.
 ENTERPRISE_MAIL_PROVIDERS = ENTERPRISE_PROVIDERS
+CUSTOM_MAIL_PROVIDER = CUSTOM_PROVIDER
 
 _MAIL_MCP_MODULE_ARGS = ["-m", "qwenpawmail_mcp"]
 _INTERNAL_MAIL_MCP_ARGS = ["--internal-mail-mcp"]
@@ -116,7 +117,12 @@ def build_qwenpawmail_env(
     }
     provider = (credential.provider or "").strip()
     profile = ENTERPRISE_MAIL_PROVIDERS.get(provider)
-    if profile is not None:
+    if provider == CUSTOM_PROVIDER:
+        env["QWENPAWMAIL_IMAP_HOST"] = credential.imap_host.strip()
+        env["QWENPAWMAIL_IMAP_PORT"] = str(credential.imap_port or 993)
+        env["QWENPAWMAIL_SMTP_HOST"] = credential.smtp_host.strip()
+        env["QWENPAWMAIL_SMTP_PORT"] = str(credential.smtp_port or 465)
+    elif profile is not None:
         env["QWENPAWMAIL_IMAP_HOST"] = profile.imap_host
         env["QWENPAWMAIL_IMAP_PORT"] = str(profile.imap_port)
         env["QWENPAWMAIL_SMTP_HOST"] = profile.smtp_host
