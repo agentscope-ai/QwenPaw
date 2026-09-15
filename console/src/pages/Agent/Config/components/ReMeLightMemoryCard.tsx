@@ -97,6 +97,24 @@ export function ReMeLightMemoryCard() {
     field,
   ];
 
+  // base_url and model_name only become required once reranking is enabled, and
+  // the rules carrying that condition are re-created by the render that follows
+  // the Switch flip. Validating inside the onChange would run against the
+  // previous render's rules (required: false) and pass silently, so the same
+  // validation is re-run after that render commits instead.
+  useEffect(() => {
+    if (!rerankerEnabled) {
+      return;
+    }
+    void form
+      .validateFields([rerankerPath("base_url"), rerankerPath("model_name")])
+      .catch(() => {
+        // Rejection is the point: it records the field errors.
+      });
+    // rerankerPath is re-created every render, so only re-run on enablement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerankerEnabled]);
+
   const normalizeRerankerNumbersOnDisable = () => {
     const multiplier = form.getFieldValue(rerankerPath("candidate_multiplier"));
     const timeout = form.getFieldValue(rerankerPath("timeout"));
@@ -930,19 +948,10 @@ export function ReMeLightMemoryCard() {
               <Switch
                 onChange={(checked) => {
                   if (checked) {
+                    // Validation is driven by the rerankerEnabled effect above:
+                    // at this point the form still holds enabled: false, so the
+                    // required rules are still inactive.
                     setRerankerExpanded(true);
-                    void form.validateFields([
-                      [
-                        "reme_light_memory_config",
-                        "reranker_config",
-                        "base_url",
-                      ],
-                      [
-                        "reme_light_memory_config",
-                        "reranker_config",
-                        "model_name",
-                      ],
-                    ]);
                   } else {
                     // Normalize invalid/empty numeric values back to valid
                     // defaults and clear their errors. The backend schema

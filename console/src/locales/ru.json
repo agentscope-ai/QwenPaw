@@ -2502,7 +2502,6 @@
     "embeddingHealthCheckTimeoutRequired": "Укажите тайм-аут инициализации",
     "embeddingMaxBatchSizeTooltip": "Максимальное количество элементов в одном пакетном запросе эмбеддинга",
     "embeddingMaxBatchSizeRequired": "Требуется указать макс. размер пакета",
-    "embeddingRestartWarning": "Настройки модели эмбеддинга не поддерживают горячую перезагрузку. Сохраните и перезапустите сервис для применения изменений.",
     "rerankerConfigCollapseLabel": "Настройки Reranker",
     "rerankerExpandDetails": "Развернуть настройки Reranker",
     "rerankerCollapseDetails": "Свернуть настройки Reranker",

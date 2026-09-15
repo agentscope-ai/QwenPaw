@@ -2716,7 +2716,6 @@
     "embeddingHealthCheckTimeoutRequired": "O tempo limite de inicialização é obrigatório",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
-    "embeddingRestartWarning": "Embedding model config does not support hot reload. Save and restart the service for changes to take effect.",
     "rerankerConfigCollapseLabel": "Configurações do Reranker",
     "rerankerExpandDetails": "Expandir Configurações do Reranker",
     "rerankerCollapseDetails": "Recolher Configurações do Reranker",

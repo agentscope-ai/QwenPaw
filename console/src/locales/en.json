@@ -3193,7 +3193,6 @@
     "memoryMaintenanceEyebrow": "Maintenance & repair",
     "memoryMaintenanceTitle": "Rebuild memory index",
     "memoryMaintenanceDescription": "Clear and regenerate the search index. Recommended only when the index is damaged or search results are abnormal.",
-    "embeddingRestartWarning": "Embedding model config does not support hot reload. Save and restart the service for changes to take effect.",
     "rerankerConfigCollapseLabel": "Reranker Settings",
     "rerankerExpandDetails": "Expand Reranker Settings",
     "rerankerCollapseDetails": "Collapse Reranker Settings",

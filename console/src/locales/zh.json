@@ -3051,7 +3051,6 @@
     "memoryMaintenanceEyebrow": "维护与修复",
     "memoryMaintenanceTitle": "重建记忆索引",
     "memoryMaintenanceDescription": "清除并重新生成搜索索引。仅建议在索引损坏或搜索结果异常时使用。",
-    "embeddingRestartWarning": "向量模型配置不支持热更新，保存后需要重启服务才能生效",
     "rerankerConfigCollapseLabel": "重排序设置",
     "rerankerExpandDetails": "展开重排序设置",
     "rerankerCollapseDetails": "折叠重排序设置",

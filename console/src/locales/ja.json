@@ -2487,7 +2487,6 @@
     "embeddingHealthCheckTimeoutRequired": "初期化タイムアウトは必須です",
     "embeddingMaxBatchSizeTooltip": "単一バッチ埋め込みリクエストの最大アイテム数",
     "embeddingMaxBatchSizeRequired": "最大バッチサイズは必須です",
-    "embeddingRestartWarning": "埋め込みモデル設定はホットリロードに対応していません。変更を反映するには保存後にサービスを再起動してください",
     "rerankerConfigCollapseLabel": "リランカー設定",
     "rerankerExpandDetails": "リランカー設定を展開",
     "rerankerCollapseDetails": "リランカー設定を折りたたむ",

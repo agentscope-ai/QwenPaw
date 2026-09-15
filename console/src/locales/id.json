@@ -3386,7 +3386,6 @@
     "embeddingHealthCheckTimeoutRequired": "Batas waktu inisialisasi wajib diisi",
     "embeddingMaxBatchSizeTooltip": "Jumlah item maksimum dalam satu permintaan embedding batch",
     "embeddingMaxBatchSizeRequired": "Ukuran batch maksimum wajib diisi",
-    "embeddingRestartWarning": "Konfigurasi model embedding tidak mendukung hot reload. Simpan dan restart layanan agar perubahan berlaku.",
     "rerankerConfigCollapseLabel": "Pengaturan Reranker",
     "rerankerExpandDetails": "Perluas Pengaturan Reranker",
     "rerankerCollapseDetails": "Ciutkan Pengaturan Reranker",

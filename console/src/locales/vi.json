@@ -2139,7 +2139,6 @@
     "embeddingHealthCheckTimeoutRequired": "Cần nhập thời gian chờ khởi tạo",
     "embeddingMaxBatchSizeTooltip": "Số mục tối đa trong một yêu cầu embedding theo batch",
     "embeddingMaxBatchSizeRequired": "Bắt buộc nhập kích thước batch tối đa",
-    "embeddingRestartWarning": "Cấu hình mô hình embedding không hỗ trợ hot reload. Hãy lưu và khởi động lại dịch vụ để áp dụng thay đổi.",
     "rerankerConfigCollapseLabel": "Cài đặt Reranker",
     "rerankerExpandDetails": "Mở rộng Cài đặt Reranker",
     "rerankerCollapseDetails": "Thu gọn Cài đặt Reranker",

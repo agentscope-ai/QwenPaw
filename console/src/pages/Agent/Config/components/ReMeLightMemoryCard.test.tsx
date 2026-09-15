@@ -1221,15 +1221,17 @@ describe("reranker validation", () => {
     });
     expect(enableSwitch).toHaveAttribute("aria-checked", "true");
 
-    const errors = await form
-      .validateFields([
+    // Deliberately no explicit validateFields() call here: the card must
+    // surface these errors on its own once the switch flips, otherwise this
+    // regression would stay invisible.
+    await waitFor(() => {
+      const errors = form.getFieldsError([
         ["reme_light_memory_config", "reranker_config", "base_url"],
         ["reme_light_memory_config", "reranker_config", "model_name"],
-      ])
-      .then(() => [])
-      .catch((e) => e.errorFields ?? []);
-
-    expect(errors).toHaveLength(2);
+      ]);
+      expect(errors[0].errors.length).toBeGreaterThan(0);
+      expect(errors[1].errors.length).toBeGreaterThan(0);
+    });
   });
 
   it("rejects fractional candidate_multiplier values", async () => {
