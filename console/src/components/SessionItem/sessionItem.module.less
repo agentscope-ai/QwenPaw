@@ -210,10 +210,10 @@
   font-size: 13px;
 }
 
-/* Compact density on short viewports — keep in sync with
-   SESSION_ROW_HEIGHT_COMPACT (30px = 4 + 20 + 4 + 2 margin) and
-   COMPACT_DENSITY_MEDIA_QUERY in the TS sources. */
-@media (max-height: 850px) {
+/* Compact density — driven by <html data-sidebar-compact> published
+   from useCompactDensity; keep in sync with SESSION_ROW_HEIGHT_COMPACT
+   (30px = 4 + 20 + 4 + 2 margin) in the TS sources. */
+:global(html[data-sidebar-compact="1"]) {
   .sidebar {
     padding-top: 4px;
     padding-bottom: 4px;

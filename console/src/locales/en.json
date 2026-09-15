@@ -336,6 +336,11 @@
     "toggleAgentNavigation": "Expand or collapse agent navigation"
   },
   "settingsCenter": {
+    "sessionHeight": "Conversation height",
+    "sessionHeightHint": "Row height of the sidebar conversation list. Auto follows the window height.",
+    "densityAuto": "Auto",
+    "densityStandard": "Standard",
+    "densityCompact": "Compact",
     "backToApp": "Back to app",
     "searchPlaceholder": "Search settings",
     "noResults": "No matching settings",

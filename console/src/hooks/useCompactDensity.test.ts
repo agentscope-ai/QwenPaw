@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setSidebarDensityPreference } from "../utils/sidebarDensityPreference";
 import {
   COMPACT_DENSITY_MEDIA_QUERY,
   useCompactDensity,
@@ -38,23 +39,16 @@ function installMatchMedia(initialMatches: boolean) {
 }
 
 describe("useCompactDensity", () => {
+  beforeEach(() => {
+    localStorage.removeItem("qwenpaw_sidebar_density");
+    delete document.documentElement.dataset.sidebarCompact;
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("is false on tall viewports", () => {
-    installMatchMedia(false);
-    const { result } = renderHook(() => useCompactDensity());
-    expect(result.current).toBe(false);
-  });
-
-  it("is true on short viewports", () => {
-    installMatchMedia(true);
-    const { result } = renderHook(() => useCompactDensity());
-    expect(result.current).toBe(true);
-  });
-
-  it("follows live viewport changes", () => {
+  it("follows the viewport in auto mode", () => {
     const media = installMatchMedia(false);
     const { result } = renderHook(() => useCompactDensity());
     expect(result.current).toBe(false);
@@ -64,5 +58,39 @@ describe("useCompactDensity", () => {
 
     act(() => media.setMatches(false));
     expect(result.current).toBe(false);
+  });
+
+  it("forces compact regardless of the viewport", () => {
+    installMatchMedia(false);
+    localStorage.setItem("qwenpaw_sidebar_density", "compact");
+    const { result } = renderHook(() => useCompactDensity());
+    expect(result.current).toBe(true);
+  });
+
+  it("forces standard regardless of the viewport", () => {
+    installMatchMedia(true);
+    localStorage.setItem("qwenpaw_sidebar_density", "standard");
+    const { result } = renderHook(() => useCompactDensity());
+    expect(result.current).toBe(false);
+  });
+
+  it("reacts to preference changes while mounted", () => {
+    installMatchMedia(false);
+    const { result } = renderHook(() => useCompactDensity());
+    expect(result.current).toBe(false);
+
+    act(() => setSidebarDensityPreference("compact"));
+    expect(result.current).toBe(true);
+  });
+
+  it("publishes the effective density on the document element", () => {
+    installMatchMedia(true);
+    const { result } = renderHook(() => useCompactDensity());
+    expect(result.current).toBe(true);
+    expect(document.documentElement.dataset.sidebarCompact).toBe("1");
+
+    act(() => setSidebarDensityPreference("standard"));
+    expect(result.current).toBe(false);
+    expect(document.documentElement.dataset.sidebarCompact).toBeUndefined();
   });
 });

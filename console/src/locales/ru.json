@@ -2755,6 +2755,11 @@
     "toggleAgentNavigation": "Развернуть или свернуть навигацию агента"
   },
   "settingsCenter": {
+    "sessionHeight": "Высота строк",
+    "sessionHeightHint": "Высота строк списка диалогов в боковой панели. «Авто» зависит от высоты окна.",
+    "densityAuto": "Авто",
+    "densityStandard": "Стандарт",
+    "densityCompact": "Компактно",
     "backToApp": "Вернуться в приложение",
     "searchPlaceholder": "Поиск настроек",
     "noResults": "Подходящие настройки не найдены",

@@ -336,6 +336,11 @@
     "toggleAgentNavigation": "展开或收起智能体导航"
   },
   "settingsCenter": {
+    "sessionHeight": "会话高度",
+    "sessionHeightHint": "侧栏会话列表的行高密度，「自动」随窗口高度切换。",
+    "densityAuto": "自动",
+    "densityStandard": "标准",
+    "densityCompact": "紧凑",
     "backToApp": "返回应用",
     "searchPlaceholder": "搜索设置",
     "noResults": "没有匹配的设置",

@@ -17,9 +17,10 @@
   background: var(--app-border-subtle);
 }
 
-/* Compact density on short viewports — keep in sync with
-   DATE_HEADER_HEIGHT_COMPACT (20px) in layouts/SidebarSessionList.tsx. */
-@media (max-height: 850px) {
+/* Compact density — driven by <html data-sidebar-compact> published
+   from useCompactDensity; keep in sync with DATE_HEADER_HEIGHT_COMPACT
+   (20px) in layouts/SidebarSessionList.tsx. */
+:global(html[data-sidebar-compact="1"]) {
   .header {
     height: 20px;
     padding-top: 2px;
