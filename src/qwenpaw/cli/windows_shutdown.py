@@ -4,17 +4,56 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
+import threading
 
 
 _EVENT_MODIFY_STATE = 0x0002
 _INFINITE = 0xFFFFFFFF
 _WAIT_OBJECT_0 = 0x00000000
 _EVENT_NAME_PREFIX = "Local\\QwenPawGracefulShutdown-"
+_handlers_installed_pid: int | None = None
 
 
 def _event_name(pid: int) -> str:
     return f"{_EVENT_NAME_PREFIX}{pid}"
+
+
+def _sigbreak_to_sigint(_signum: int, _frame: object) -> None:
+    """Route Windows CTRL_BREAK_EVENT through Uvicorn's graceful exit."""
+    signal.raise_signal(signal.SIGINT)
+
+
+def _wait_and_raise_sigint(handle: int) -> None:
+    """Forward the named shutdown event to Uvicorn's SIGINT handler."""
+    if wait_for_shutdown_event(handle):
+        signal.raise_signal(signal.SIGINT)
+
+
+def install_shutdown_handlers() -> None:
+    """Install graceful shutdown handlers once in the current process."""
+    global _handlers_installed_pid  # pylint: disable=global-statement
+
+    if sys.platform != "win32":
+        return
+
+    pid = os.getpid()
+    if _handlers_installed_pid == pid:
+        return
+
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        signal.signal(sigbreak, _sigbreak_to_sigint)
+
+    handle = create_shutdown_event()
+    if handle is not None:
+        threading.Thread(
+            target=_wait_and_raise_sigint,
+            args=(handle,),
+            daemon=True,
+        ).start()
+    _handlers_installed_pid = pid
 
 
 def create_shutdown_event() -> int | None:

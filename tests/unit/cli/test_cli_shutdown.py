@@ -95,6 +95,12 @@ def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
 
 
 def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
+    termination_order: list[int] = []
+
+    def terminate_pid(pid: int) -> bool:
+        termination_order.append(pid)
+        return True
+
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "win32")
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._listening_pids_for_port",
@@ -114,7 +120,7 @@ def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_pid",
-        lambda _pid: True,
+        terminate_pid,
     )
 
     result = CliRunner().invoke(cli, ["shutdown"])
@@ -122,6 +128,7 @@ def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "1052" in result.output
     assert "24692" in result.output
+    assert termination_order == [24692, 1052]
 
 
 def test_terminate_pid_force_kills_on_windows(monkeypatch) -> None:

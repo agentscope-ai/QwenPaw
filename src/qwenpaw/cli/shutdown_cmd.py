@@ -380,20 +380,20 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             "No running QwenPaw backend/frontend process was found.",
         )
 
-    wrapper_stopped, wrapper_failed = _stop_pid_set(wrapper_pids)
+    # Stop listening server processes before their reload supervisors. On
+    # Windows the server owns the lifespan and its PID-scoped shutdown event;
+    # stopping the supervisor first can leave it waiting on the server until
+    # the graceful deadline expires and the whole tree is force-terminated.
+    backend_stopped, backend_failed = _stop_pid_set(backend_pids)
+    wrapper_stopped, wrapper_failed = _stop_pid_set(
+        wrapper_pids - set(backend_stopped),
+    )
     frontend_stopped, frontend_failed = _stop_pid_set(frontend_pids)
     desktop_stopped, desktop_failed = _stop_pid_set(
         desktop_pids - set(wrapper_stopped) - set(frontend_stopped),
     )
-    backend_stopped, backend_failed = _stop_pid_set(
-        backend_pids
-        - set(wrapper_stopped)
-        - set(frontend_stopped)
-        - set(desktop_stopped),
-    )
-
     stopped = (
-        wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
+        backend_stopped + wrapper_stopped + frontend_stopped + desktop_stopped
     )
     failed = list(
         set(
