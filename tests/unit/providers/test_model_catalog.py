@@ -48,6 +48,16 @@ def test_packaged_catalog_snapshot() -> None:
         "deepseek-v4-flash",
         "deepseek-v4-pro",
     ]
+    deepseek_flash = catalog["DEEPSEEK_MODELS"][2]
+    assert deepseek_flash.supports_image is True
+    assert deepseek_flash.max_input_length == 1_000_000
+    assert deepseek_flash.reasoning_effort == "high"
+    assert deepseek_flash.reasoning_effort_options == [
+        "off",
+        "low",
+        "high",
+        "max",
+    ]
     assert catalog["GEMINI_MODELS"][0].id == "gemini-3.1-pro-preview"
     assert [model.id for model in catalog["MINIMAX_MODELS"]] == [
         "MiniMax-M3",
