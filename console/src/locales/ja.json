@@ -1078,6 +1078,10 @@
     "runNowFailed": "ハートビートの実行に失敗しました"
   },
   "cronJobs": {
+    "executionModel": "実行モデル",
+    "executionModelDefault": "デフォルト",
+    "executionModelTooltip": "デフォルトでは実行時の Agent の既定モデルを使用します。モデルの指定はこのタスクにのみ適用されます。",
+    "executionModelsLoadFailed": "モデル一覧を読み込めませんでした。保存済みの選択は変更されていません。",
     "title": "定期実行",
     "description": "指定した時刻に自動実行されるスケジュールタスクを作成・管理します。",
     "createJob": "ジョブを作成",

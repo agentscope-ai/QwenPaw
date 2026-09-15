@@ -1408,6 +1408,10 @@
     "runNowFailed": "触发心跳执行失败"
   },
   "cronJobs": {
+    "executionModel": "执行模型",
+    "executionModelDefault": "默认",
+    "executionModelTooltip": "默认使用所属 Agent 执行时的默认模型。指定模型仅影响当前任务。",
+    "executionModelsLoadFailed": "模型列表加载失败，已保存的选择保持不变。",
     "title": "定时任务",
     "description": "创建和管理在指定时间自动执行的定时任务。",
     "createJob": "创建任务",

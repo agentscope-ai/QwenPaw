@@ -19,6 +19,7 @@ export const DEFAULT_FORM_VALUES = {
   cronTime: dayjs().hour(9).minute(0),
   task_type: "agent" as const,
   request: {
+    model_slot_override: undefined,
     input: "",
     session_id: "",
     user_id: "",

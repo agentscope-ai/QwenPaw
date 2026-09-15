@@ -61,6 +61,35 @@ def _bounded_trace_meta(value: str | None) -> str:
     return f"{raw[: _TRACE_META_MAX_LENGTH - len(digest) - 1]}-{digest}"
 
 
+def _validate_execution_model(req: dict[str, Any]) -> None:
+    """Fail explicitly for invalid per-task models."""
+    context = req.get("request_context") or {}
+    override = req.get("model_slot_override")
+    if "model_slot_override" not in req:
+        override = context.get("model_slot_override")
+    else:
+        # An explicit Default selection also clears a legacy nested override.
+        context.pop("model_slot_override", None)
+    if override is None:
+        return
+    from ...agents.model_factory import _resolve_model_slot_override
+    from ...providers import ProviderManager
+
+    slot = _resolve_model_slot_override(override)
+    if slot is None or not slot.provider_id or not slot.model:
+        raise ValueError("Invalid execution model selected for cron task")
+    provider = ProviderManager.get_instance().get_provider(slot.provider_id)
+    if provider is None:
+        raise ValueError(
+            f"Cron execution model provider not found: {slot.provider_id}",
+        )
+    if not any(model.id == slot.model for model in provider.all_models()):
+        raise ValueError(
+            f"Cron execution model not found: {slot.provider_id}/{slot.model}",
+        )
+    req["model_slot_override"] = slot.model_dump()
+
+
 class CronExecutionTimeout(asyncio.TimeoutError):
     """Execution timeout carrying the run reference for inbox reporting."""
 
@@ -249,6 +278,18 @@ class CronExecutor:
                             delivery_error,
                         )
 
+            _validate_execution_model(req)
+            if req.get("model_slot_override") is not None:
+                backend = getattr(
+                    getattr(self._workspace, "config", None),
+                    "backend",
+                    "qwenpaw",
+                )
+                if backend != "qwenpaw":
+                    raise ValueError(
+                        "Per-task execution models require the QwenPaw "
+                        "backend; select Default for this agent",
+                    )
             final_event: Any | None = None
             async for event in self._workspace.stream_query(req):
                 if job.dispatch.silent:

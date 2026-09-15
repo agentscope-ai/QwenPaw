@@ -1569,6 +1569,10 @@
     "runNowFailed": "Failed to trigger heartbeat run"
   },
   "cronJobs": {
+    "executionModel": "Execution model",
+    "executionModelDefault": "Default",
+    "executionModelTooltip": "Default uses this agent’s default model at execution time. Selecting a model applies only to this task.",
+    "executionModelsLoadFailed": "Unable to load models. The saved selection has not changed.",
     "title": "Cron Jobs",
     "description": "Create and manage scheduled tasks that automatically execute at specified times. ",
     "createJob": "Create Job",

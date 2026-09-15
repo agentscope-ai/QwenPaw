@@ -19,6 +19,7 @@ import {
   type CronJobSpecOutput,
 } from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
+import { ExecutionModelSelect } from "./ExecutionModelSelect";
 import { RequestInput } from "./RequestInput";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
@@ -716,6 +717,16 @@ export function JobDrawer({
             }
           />
         </Form.Item>
+
+        {selectedTaskType === "agent" && (
+          <Form.Item
+            name={["request", "model_slot_override"]}
+            label={t("cronJobs.executionModel")}
+            tooltip={t("cronJobs.executionModelTooltip")}
+          >
+            <ExecutionModelSelect />
+          </Form.Item>
+        )}
 
         <Form.Item
           name={["dispatch", "mode"]}

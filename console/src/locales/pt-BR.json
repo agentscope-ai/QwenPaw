@@ -1301,6 +1301,10 @@
     "runNowFailed": "Falha ao disparar execução do heartbeat"
   },
   "cronJobs": {
+    "executionModel": "Modelo de execução",
+    "executionModelDefault": "Padrão",
+    "executionModelTooltip": "Usa o modelo padrão do Agent no momento da execução. A seleção de um modelo se aplica apenas a esta tarefa.",
+    "executionModelsLoadFailed": "Não foi possível carregar os modelos. A seleção salva não foi alterada.",
     "title": "Tarefas Cron",
     "description": "Crie e gerencie tarefas agendadas executadas automaticamente nos horários definidos.",
     "createJob": "Criar job",

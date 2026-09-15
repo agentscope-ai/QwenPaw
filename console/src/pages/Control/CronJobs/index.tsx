@@ -221,6 +221,10 @@ function CronJobsPage() {
       ...job,
       request: {
         ...job.request,
+        model_slot_override:
+          job.request?.model_slot_override ??
+          job.request?.request_context?.model_slot_override ??
+          null,
         input: job.request?.input
           ? JSON.stringify(job.request.input, null, 2)
           : "",
@@ -406,6 +410,16 @@ function CronJobsPage() {
       //Ensure request object exists
       if (!processedValues.request) {
         processedValues.request = {};
+      }
+
+      if (processedValues.request.model_slot_override === null) {
+        delete processedValues.request.model_slot_override;
+        if (processedValues.request.request_context) {
+          processedValues.request.request_context = {
+            ...processedValues.request.request_context,
+          };
+          delete processedValues.request.request_context.model_slot_override;
+        }
       }
 
       // Parse request input JSON
