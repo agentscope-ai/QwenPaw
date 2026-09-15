@@ -25,8 +25,11 @@ from ..agent_context import get_agent_for_request, get_agent_project_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
 from ...services.project_directory import (
+    MAX_PROJECT_DIRS,
     agent_project_dirs_from_config,
     nested_root_pairs,
+    normalize_dir_entry,
+    normalize_dir_entry_list,
     normalize_project_dir_list,
     resolve_effective_project_dirs,
 )
@@ -74,17 +77,38 @@ def _projects_base(workspace_dir: Path) -> Path:
 
 
 def _save_project_dir(agent_id: str, project_dir: str | None) -> None:
-    """Persist the agent default project_dir to agent.json.
+    """Promote one directory to primary without dropping other defaults.
 
     Intended to run inside an executor thread.
     """
     from ...config.config import load_agent_config, save_agent_config
 
     config = load_agent_config(agent_id)
-    config.project_dir = project_dir
-    config.project_dirs = (
-        [{"path": project_dir, "label": None}] if project_dir else []
+    if project_dir is None:
+        config.project_dir = None
+        config.project_dirs = []
+        save_agent_config(config.id, config)
+        return
+
+    primary = normalize_dir_entry(project_dir)
+    if primary is None:
+        raise ValueError("project_dir must contain a valid directory")
+
+    existing = normalize_dir_entry_list(
+        getattr(config, "project_dirs", []),
     )
+    matched = next(
+        (entry for entry in existing if entry.key == primary.key),
+        None,
+    )
+    ordered = [matched or primary] + [
+        entry for entry in existing if entry.key != primary.key
+    ]
+    ordered = ordered[:MAX_PROJECT_DIRS]
+    config.project_dir = str(primary.path)
+    config.project_dirs = [
+        {"path": str(entry.path), "label": entry.label} for entry in ordered
+    ]
     save_agent_config(config.id, config)
 
 

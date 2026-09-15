@@ -164,7 +164,10 @@ class TestAgentDefaultDirs:
             json={"path": str(second)},
         )
         assert legacy.status_code == 200
-        assert config.project_dirs == [{"path": str(second), "label": None}]
+        assert config.project_dirs == [
+            {"path": str(second), "label": None},
+            {"path": str(first), "label": "primary"},
+        ]
 
         cleared = client.delete(endpoint)
         assert cleared.status_code == 200
