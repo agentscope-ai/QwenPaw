@@ -1734,6 +1734,7 @@
     "discoveryOriginCatalog": "公式カタログ",
     "discoveryOriginBoth": "API + カタログ",
     "availabilityAvailable": "利用可能",
+    "availabilityBlocked": "ブロック",
     "availabilityPermissionDenied": "権限なし",
     "availabilityNotFound": "見つかりません",
     "availabilityIncompatible": "チャット非対応",
