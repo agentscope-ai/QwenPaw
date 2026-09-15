@@ -33,8 +33,10 @@ pub(super) fn watch(
                     log::info!("[backend:{generation}] stdout: {}", text.trim_end());
                     if let Some(port) = ready_port_from_stdout(&text) {
                         log::info!("[backend:{generation}] ready port={port}");
-                        app.state::<BackendState>()
-                            .set_port_if_current(generation, port);
+                        if let Err(message) = super::session::ready(&app, generation, port) {
+                            app.state::<BackendState>()
+                                .set_error_if_current(generation, message);
+                        }
                     }
                 }
                 CommandEvent::Stderr(line) => {

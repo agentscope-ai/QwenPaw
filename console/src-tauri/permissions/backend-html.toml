@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "backend-html"
+description = "Allows the current backend console to resolve workspace HTML files."
+commands.allow = ["open_workspace_html"]

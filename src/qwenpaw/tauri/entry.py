@@ -17,7 +17,9 @@ from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_READY_PREFIX,
+    consume_desktop_session,
     ensure_desktop_cors_origins,
+    set_desktop_origin,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
@@ -325,6 +327,10 @@ def _run_backend_server(log_level: str) -> None:
 
         log_init_timings()
 
+    for logger_name in ("uvicorn.access", "uvicorn.error"):
+        logging.getLogger(logger_name).addFilter(
+            SuppressPathAccessLogFilter(["/oauth/callback/"]),
+        )
     logging.getLogger("uvicorn.access").addFilter(
         SuppressPathAccessLogFilter(["/console/push-messages"]),
     )
@@ -360,6 +366,7 @@ def _run_backend_server(log_level: str) -> None:
 
     try:
         port = _socket_port(backend_socket)
+        set_desktop_origin(port)
         write_port_file(port_file, port)
         write_last_api(host, port)
         server = uvicorn.Server(config)
@@ -388,6 +395,7 @@ def main() -> None:
     if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
         _reexec_as_bundled_python(sys.argv[1:])
         return
+    consume_desktop_session()
     _ensure_utf8_stdio()
     _install_subprocess_guard()
     _install_desktop_runtime()

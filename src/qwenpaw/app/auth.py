@@ -31,6 +31,9 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import HTTPConnection
+from starlette.routing import Match, Mount
+from starlette.staticfiles import StaticFiles
 
 from ..constant import SECRET_DIR, EnvVarLoader
 from ..security.secret_store import (
@@ -735,6 +738,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def _should_skip_auth(  # pylint: disable=too-many-return-statements
         request: Request,
     ) -> bool:
+        if getattr(request.state, "desktop_route_auth", False) is True:
+            return True
         if not is_auth_enabled() or not has_registered_users():
             return True
 
@@ -794,7 +799,7 @@ class RuntimeBoundaryMiddleware:
         send: Send,
     ) -> None:
         runtime_token = os.environ.get(_RUNTIME_TOKEN_ENV, "")
-        if not runtime_token or scope["type"] not in {"http", "websocket"}:
+        if scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
         headers = {
@@ -802,24 +807,173 @@ class RuntimeBoundaryMiddleware:
             for key, value in scope.get("headers", [])
         }
         supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
-        if hmac.compare_digest(runtime_token, supplied):
+        if runtime_token and not hmac.compare_digest(
+            runtime_token.encode(),
+            supplied.encode(),
+        ):
+            await _boundary_error(
+                scope,
+                receive,
+                send,
+                401,
+                "Invalid runtime boundary token",
+            )
+            return
+
+        from ..tauri.env import desktop_auth_enabled, get_desktop_session
+
+        enabled = desktop_auth_enabled()
+        session = get_desktop_session() if enabled else None
+        if not enabled:
             await self.app(scope, receive, send)
+        else:
+            await self._desktop_request(scope, receive, send, session)
+
+    async def _desktop_request(self, scope, receive, send, session) -> None:
+        if session is None:
+            await _boundary_error(
+                scope,
+                receive,
+                send,
+                401,
+                "Desktop session required",
+                "desktop_session_required",
+            )
             return
-        if scope["type"] == "websocket":
-            await send({"type": "websocket.close", "code": 4401})
-            return
-        body = b'{"detail":"Invalid runtime boundary token"}'
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 401,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode("ascii")),
-                ],
-            },
-        )
-        await send({"type": "http.response.body", "body": body})
+
+        route_kind = _desktop_route_kind(scope)
+        if route_kind == "authenticated":
+            # The selected, explicitly marked handler validates its own narrow
+            # protocol (OAuth state, Twilio signature, or one-use WS token).
+            scope.setdefault("state", {})["desktop_route_auth"] = True
+        else:
+            origin, token = session
+            connection = HTTPConnection(scope)
+            if connection.headers.get("host", "") != origin.removeprefix(
+                "http://",
+            ):
+                await _boundary_error(
+                    scope,
+                    receive,
+                    send,
+                    421,
+                    "Invalid desktop host",
+                )
+                return
+            if route_kind != "public":
+                request_origin = connection.headers.get("origin")
+                if (
+                    request_origin is not None and request_origin != origin
+                ) or connection.headers.get("sec-fetch-site") in {
+                    "cross-site",
+                    "same-site",
+                }:
+                    await _boundary_error(
+                        scope,
+                        receive,
+                        send,
+                        403,
+                        "Invalid desktop origin",
+                    )
+                    return
+                supplied = connection.headers.get("x-desktop-session", "")
+                authenticated = hmac.compare_digest(
+                    token.encode(),
+                    supplied.encode(),
+                )
+                if (
+                    not authenticated
+                    and scope["type"] == "http"
+                    and connection.headers.get(_RUNTIME_TOKEN_HEADER)
+                ):
+                    from ..utils.runtime_api import verify_tool_session
+
+                    authenticated = verify_tool_session(connection)
+                if not authenticated:
+                    await _boundary_error(
+                        scope,
+                        receive,
+                        send,
+                        401,
+                        "Desktop session required",
+                        "desktop_session_required",
+                    )
+                    return
+
+        async def send_private(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers = [
+                    (key, value)
+                    for key, value in headers
+                    if key.lower() != b"referrer-policy"
+                ]
+                headers.append((b"referrer-policy", b"no-referrer"))
+                if route_kind != "public":
+                    headers = [
+                        (key, value)
+                        for key, value in headers
+                        if key.lower() != b"cache-control"
+                    ]
+                    headers.append((b"cache-control", b"no-store"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_private)
+
+
+def desktop_public(endpoint):
+    """Mark a built-in static document handler, never a route prefix."""
+    setattr(endpoint, "_desktop_public", True)
+    return endpoint
+
+
+def desktop_route_auth(endpoint):
+    """The exact handler must validate its dedicated protocol before acting."""
+    setattr(endpoint, "_desktop_route_auth", True)
+    return endpoint
+
+
+def _desktop_route_kind(scope: Scope) -> str | None:
+    for route in getattr(scope.get("app"), "routes", []):
+        match, _ = route.matches(scope)
+        if match != Match.FULL:
+            continue
+        endpoint = getattr(route, "endpoint", None)
+        if getattr(endpoint, "_desktop_route_auth", False):
+            return "authenticated"
+        if scope["type"] == "http" and scope["method"] in {"GET", "HEAD"}:
+            if getattr(endpoint, "_desktop_public", False) or (
+                isinstance(route, Mount)
+                and isinstance(route.app, StaticFiles)
+                and getattr(route.app, "_desktop_public", False) is True
+            ):
+                return "public"
+        return None
+    return None
+
+
+async def _boundary_error(
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+    status: int,
+    detail: str,
+    code: str | None = None,
+) -> None:
+    if scope["type"] == "websocket":
+        await send({"type": "websocket.close", "code": 4401})
+        return
+    payload = {"detail": detail}
+    if code:
+        payload["code"] = code
+    response = Response(
+        json.dumps(payload),
+        status_code=status,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+    await response(scope, receive, send)
 
 
 def check_proxy_config_sanity() -> None:

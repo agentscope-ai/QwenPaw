@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -11,11 +12,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from ..auth import desktop_route_auth
+from ...tauri.env import desktop_auth_enabled
 from ...providers.oauth import (
     OAuthSessionStore,
     OpenRouterOAuthFlow,
 )
 from ...providers.oauth.base import OAuthFlow
+from ...providers.oauth.session_store import OAuthSession
 from ...providers.provider_manager import ProviderManager
 from ...utils.logging import sanitize_log_value
 from ...utils.oauth_callback import managed_oauth_callback_url
@@ -29,6 +33,7 @@ router = APIRouter(
 
 # Singleton session store (lives in process memory)
 _session_store = OAuthSessionStore()
+_callback_states: dict[str, str] = {}
 
 # Registry of OAuth flows by provider_id
 _OAUTH_FLOWS: dict[str, OAuthFlow] = {
@@ -129,6 +134,19 @@ async def start_oauth(
                 "deployments. Configure the Hub public_base_url with HTTPS."
             ),
         )
+    callback_ticket = ""
+    if desktop_auth_enabled():
+        # OpenRouter does not relay state. Put the one-use secret in the
+        # callback path, which the provider must preserve to reach this route.
+        callback_ticket = secrets.token_urlsafe(32)
+        base = str(request.base_url).rstrip("/")
+        callback_url = (
+            f"{base}/api/providers/{provider_id}/oauth/callback/desktop/"
+            f"{callback_ticket}"
+        )
+        for ticket, state in list(_callback_states.items()):
+            if _session_store.get(state) is None:
+                _callback_states.pop(ticket, None)
     result = flow.start(callback_url)
 
     _session_store.create(
@@ -137,6 +155,8 @@ async def start_oauth(
         code_verifier="",
         callback_url=callback_url,
     )
+    if callback_ticket:
+        _callback_states[callback_ticket] = result.state
 
     return OAuthStartResponse(
         authorize_url=result.authorize_url,
@@ -157,8 +177,13 @@ async def oauth_callback(
     manager: ProviderManager = Depends(_get_provider_manager),
 ) -> HTMLResponse:
     """OAuth callback. Exchanges code, saves key, closes popup."""
+    if desktop_auth_enabled():
+        return HTMLResponse(
+            content=_error_html("Desktop callback ticket required."),
+            status_code=400,
+        )
     session = _session_store.get(state) if state else None
-    if not session:
+    if not session and not state:
         # Fallback: providers like OpenRouter don't relay state
         session = _session_store.get_by_provider(provider_id)
     if not session:
@@ -173,6 +198,64 @@ async def oauth_callback(
             status_code=400,
         )
 
+    return await _complete_oauth(provider_id, code, session, manager)
+
+
+@router.get(
+    "/{provider_id}/oauth/callback/desktop/{ticket}",
+    response_class=HTMLResponse,
+    summary="One-use Desktop OAuth callback",
+)
+@desktop_route_auth
+async def desktop_oauth_callback(
+    provider_id: str,
+    ticket: str,
+    request: Request,
+    code: str = "",
+    state: str = "",
+    manager: ProviderManager = Depends(_get_provider_manager),
+) -> HTMLResponse:
+    """Authenticate a provider redirect independently of the Desktop header."""
+    session = None
+    if desktop_auth_enabled():
+        session = _session_store.get(_callback_states.get(ticket, ""))
+        if session and (
+            session.status != "pending"
+            or session.provider_id != provider_id
+            or urlsplit(session.callback_url).path != request.url.path
+        ):
+            session = None
+        if session and state and state != session.state:
+            session = None
+        if session:
+            # Claim before exchanging: polling keeps the existing session,
+            # while concurrent or repeated callbacks cannot reuse this ticket.
+            _callback_states.pop(ticket, None)
+    if session is None:
+        response = HTMLResponse(
+            content=_error_html("Session expired or invalid."),
+            status_code=400,
+        )
+    elif not code:
+        _session_store.fail(session.state, "No authorization code returned")
+        response = HTMLResponse(
+            content=_error_html("No authorization code returned."),
+            status_code=400,
+        )
+    else:
+        response = await _complete_oauth(provider_id, code, session, manager)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+async def _complete_oauth(
+    provider_id: str,
+    code: str,
+    session: OAuthSession,
+    manager: ProviderManager,
+) -> HTMLResponse:
+    """Exchange and persist credentials for an authenticated session."""
     flow = _get_flow(provider_id)
     session_state = session.state
 

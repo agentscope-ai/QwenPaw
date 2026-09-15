@@ -1,5 +1,7 @@
 # RESTful API
 
+> The local backend bundled with Windows Desktop is authenticated by the desktop host. External browsers and scripts cannot call protected endpoints anonymously; in-app plugins do not need to supply Desktop credentials. For external API integrations, run a standalone Web service and configure the Web authentication described below.
+
 This document will guide you through using the RESTful API to interact with QwenPaw Agents.
 
 > **Protocol Details**: QwenPaw's API is based on an extension of the AgentScope Runtime protocol. For more details, see:

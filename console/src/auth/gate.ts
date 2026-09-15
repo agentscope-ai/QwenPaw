@@ -41,6 +41,10 @@ export async function resolveAuthGate(
     return "ok";
   }
   if (response.status === 401 || response.status === 403) {
+    const body = await response.json().catch(() => null);
+    if (body?.code === "desktop_session_required") {
+      throw new Error("Desktop connection unavailable. Please try again.");
+    }
     clearAuthToken();
     return "auth-required";
   }

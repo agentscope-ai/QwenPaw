@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.responses import JSONResponse
 
+from ....app.auth import desktop_route_auth
 from ....utils.logging import sanitize_log_value
 from ....utils.io_utils import write_json_atomic
 from .bridge import get_nm_bridge, shutdown_nm_bridge as shutdown_global_bridge
@@ -170,6 +171,7 @@ def prime_bridge_token() -> None:
 
 
 @ws_router.websocket("/chrome")
+@desktop_route_auth
 async def nm_bridge_ws(websocket: WebSocket) -> None:
     """Accept the Native Messaging host WebSocket connection."""
     if not secrets.compare_digest(

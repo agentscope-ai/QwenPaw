@@ -30,6 +30,7 @@ from ...config.context import (
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
+from ...utils.runtime_api import TOOL_ENV_KEYS, tool_api_environment
 from ...utils.io_utils import run_sync_io
 from ...utils.shell_normalization import (
     normalize_posix_line_continuations,
@@ -951,6 +952,12 @@ async def _execute_in_sandbox(
     # Sandbox backends rebuild their environment from os.environ. Carry over
     # the PATH adjusted by the shell entrypoint unless policy set one itself.
     sandbox_env = dict(sandbox_config.env_vars)
+    # Only the authorized call's independent, revocable capability is copied.
+    # Backends pass env_vars at process creation, never in command/script text.
+    for name in TOOL_ENV_KEYS:
+        sandbox_env.pop(name, None)
+        if name in env:
+            sandbox_env[name] = env[name]
     if not any(key.upper() == "PATH" for key in sandbox_env):
         path_key = next(
             (key for key in env if key.upper() == "PATH"),
@@ -1370,13 +1377,14 @@ async def execute_shell_command(
             # kill_deadline is armed inside _execute_in_sandbox after setup,
             # so setup time does not consume the command timeout budget and
             # offload_deadline keeps the coordinator's offload semantics.
-            result = await _execute_in_sandbox(
-                cmd,
-                sandbox_config,
-                timeout,
-                str(working_dir),
-                env,
-            )
+            with tool_api_environment(env) as child_env:
+                result = await _execute_in_sandbox(
+                    cmd,
+                    sandbox_config,
+                    timeout,
+                    str(working_dir),
+                    child_env,
+                )
         except asyncio.CancelledError:
             stderr_msg = _cancel_stderr_message(timeout)
             return ToolChunk(
@@ -1434,30 +1442,31 @@ async def execute_shell_command(
     )
 
     try:
-        if sys.platform == "win32":
-            (
-                returncode,
-                stdout_str,
-                stderr_str,
-            ) = await _execute_windows_host(
-                cmd,
-                str(working_dir),
-                timeout,
-                env,
-                shell_executable,
-            )
-        else:
-            (
-                returncode,
-                stdout_str,
-                stderr_str,
-            ) = await _execute_posix_host(
-                cmd,
-                str(working_dir),
-                timeout,
-                env,
-                shell_executable,
-            )
+        with tool_api_environment(env) as child_env:
+            if sys.platform == "win32":
+                (
+                    returncode,
+                    stdout_str,
+                    stderr_str,
+                ) = await _execute_windows_host(
+                    cmd,
+                    str(working_dir),
+                    timeout,
+                    child_env,
+                    shell_executable,
+                )
+            else:
+                (
+                    returncode,
+                    stdout_str,
+                    stderr_str,
+                ) = await _execute_posix_host(
+                    cmd,
+                    str(working_dir),
+                    timeout,
+                    child_env,
+                    shell_executable,
+                )
 
         if returncode == 0:
             if stdout_str:
