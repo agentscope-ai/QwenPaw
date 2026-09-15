@@ -1,4 +1,4 @@
-import { Button, Segmented, Select, Switch } from "antd";
+import { Button, message, Segmented, Select, Switch } from "antd";
 import {
   BrainCircuit,
   Expand,
@@ -11,7 +11,6 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { settingsApi } from "@/api/modules/language";
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
 import { isTauriRuntime } from "@/tauri/backendRuntime";
@@ -21,6 +20,7 @@ import {
   setRememberedCloseAction,
   type CloseAction,
 } from "@/tauri/closeWindowPreference";
+import { applyLanguagePreference } from "@/utils/languagePreference";
 import { getOsRootHref } from "@/utils/navigationMode";
 import {
   getChatWideModePreference,
@@ -68,9 +68,9 @@ export default function GeneralSettings() {
     : "ask";
 
   const changeLanguage = (language: string) => {
-    void i18n.changeLanguage(language);
-    localStorage.setItem("language", language);
-    void settingsApi.updateLanguage(language).catch(() => {});
+    applyLanguagePreference(i18n, language, {
+      onPersistError: () => message.error(t("agentConfig.languageSaveFailed")),
+    });
   };
 
   const changeCloseBehavior = (value: CloseBehavior) => {

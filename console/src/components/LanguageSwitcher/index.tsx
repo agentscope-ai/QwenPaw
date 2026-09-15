@@ -1,8 +1,8 @@
 import { Dropdown } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { Button, type MenuProps } from "antd";
-import { settingsApi } from "../../api/modules/language";
+import { Button, message, type MenuProps } from "antd";
 import { LANGUAGE_LIST } from "../../constants/languageList";
+import { applyLanguagePreference } from "../../utils/languagePreference";
 import styles from "./index.module.less";
 export { LANGUAGE_LIST };
 
@@ -15,7 +15,7 @@ interface LanguageSwitcherProps {
 export default function LanguageSwitcher({
   persistRemotely = true,
 }: LanguageSwitcherProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
   const currentLangKey = KNOWN_LANG_KEYS.has(currentLanguage)
@@ -23,16 +23,10 @@ export default function LanguageSwitcher({
     : currentLanguage.split("-")[0];
 
   const changeLanguage = (lang: string) => {
-    i18n.changeLanguage(lang);
-    localStorage.setItem("language", lang);
-    if (!persistRemotely) {
-      return;
-    }
-    settingsApi
-      .updateLanguage(lang)
-      .catch((err) =>
-        console.error("Failed to save language preference:", err),
-      );
+    applyLanguagePreference(i18n, lang, {
+      persistRemotely,
+      onPersistError: () => message.error(t("agentConfig.languageSaveFailed")),
+    });
   };
 
   const items: MenuProps["items"] = LANGUAGE_LIST.map(({ key, label }) => ({
