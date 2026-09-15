@@ -209,3 +209,17 @@
   min-width: 0;
   font-size: 13px;
 }
+
+/* Compact density on short viewports — keep in sync with
+   SESSION_ROW_HEIGHT_COMPACT (30px = 4 + 20 + 4 + 2 margin) and
+   COMPACT_DENSITY_MEDIA_QUERY in the TS sources. */
+@media (max-height: 850px) {
+  .sidebar {
+    padding-top: 4px;
+    padding-bottom: 4px;
+
+    .name {
+      line-height: 20px;
+    }
+  }
+}

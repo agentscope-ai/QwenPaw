@@ -10,7 +10,7 @@
  * row-rendering logic (VirtualRow / GroupHeaderContent / date headers)
  * executes under test.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +22,13 @@ const mockSessionListData = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
 const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
+/** Captures the latest virtual-list props so tests can assert row heights. */
+const mockListProps = vi.hoisted(() => ({
+  current: null as null | {
+    itemCount: number;
+    itemSize: (index: number) => number;
+  },
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -51,6 +58,10 @@ vi.mock("react-window", () => ({
         scrollToItem: vi.fn(),
         resetAfterIndex: vi.fn(),
       }));
+      mockListProps.current = {
+        itemCount: props.itemCount,
+        itemSize: props.itemSize,
+      };
       const Row = props.children;
       return (
         <div data-testid="virtual-list">
@@ -828,5 +839,75 @@ describe("SidebarSessionList", () => {
     });
     expect(screen.queryByTestId("date-header")).toBeNull();
     expect(screen.queryByTestId("group-header-default")).toBeNull();
+  });
+
+  describe("compact density row heights", () => {
+    function setCompactViewport(compact: boolean) {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("max-height") ? compact : false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+    }
+
+    function conversationFixture(count: number) {
+      return Array.from({ length: count }, (_, index) => ({
+        ...sessionA,
+        id: `session-${index + 1}`,
+        name: `Conversation ${index + 1}`,
+        updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+      }));
+    }
+
+    afterEach(() => {
+      setCompactViewport(false);
+    });
+
+    it("keeps full row metrics on tall viewports", async () => {
+      localStorage.setItem("qwenpaw_session_group_mode", "source");
+      mockData(conversationFixture(12));
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("virtual-list")).toBeTruthy();
+      });
+      const list = mockListProps.current;
+      expect(list).toBeTruthy();
+      // rows: groupHeader(default, 12), 10 sessions, loadMore(2 remaining)
+      expect(list!.itemSize(0)).toBe(42);
+      expect(list!.itemSize(1)).toBe(42);
+      expect(list!.itemSize(11)).toBe(44);
+    });
+
+    it("compacts group headers, sessions, and load-more on short viewports", async () => {
+      setCompactViewport(true);
+      localStorage.setItem("qwenpaw_session_group_mode", "source");
+      mockData(conversationFixture(12));
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("virtual-list")).toBeTruthy();
+      });
+      const list = mockListProps.current!;
+      expect(list.itemSize(0)).toBe(32);
+      expect(list.itemSize(1)).toBe(30);
+      expect(list.itemSize(11)).toBe(36);
+    });
+
+    it("compacts date headers and sessions in date mode on short viewports", async () => {
+      setCompactViewport(true);
+      mockData([sessionA]);
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("virtual-list")).toBeTruthy();
+      });
+      const list = mockListProps.current!;
+      // rows: dateHeader(today), session
+      expect(list.itemSize(0)).toBe(20);
+      expect(list.itemSize(1)).toBe(30);
+    });
   });
 });

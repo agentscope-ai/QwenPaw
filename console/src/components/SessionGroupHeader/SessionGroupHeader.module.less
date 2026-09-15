@@ -133,3 +133,12 @@
     }
   }
 }
+
+/* Compact density on short viewports — keep in sync with
+   GROUP_HEADER_HEIGHT_COMPACT (32px = 28 + 2×2 margin) in
+   layouts/SidebarSessionList.tsx. */
+@media (max-height: 850px) {
+  .header {
+    height: 28px;
+  }
+}
