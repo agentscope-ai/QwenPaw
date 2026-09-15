@@ -1,4 +1,4 @@
-import { Suspense, useMemo, useState, useEffect } from "react";
+import { Suspense, useMemo } from "react";
 import { Layout, Spin } from "antd";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -13,8 +13,8 @@ import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
 import { pickSelectedKey } from "./routeSelection";
 
+import { HubModeContext } from "../../contexts/HubModeContext";
 import MemberModels from "../../pages/Hub/governance/MemberModels";
-import { governanceRequest } from "../../api/modules/hubGovernance";
 
 const { Content } = Layout;
 
@@ -23,13 +23,6 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const location = useLocation();
   const currentPath = location.pathname;
   const routes = useRoutes();
-  const [managed, setManaged] = useState(false);
-  useEffect(() => {
-    if (hubMode)
-      void governanceRequest<{ enabled: boolean }>("me/models")
-        .then((value) => setManaged(value.enabled))
-        .catch(() => {});
-  }, [hubMode]);
 
   // Backend is the source of truth for Coding Mode state — refill the
   // in-memory store every time the selected agent changes.
@@ -52,51 +45,47 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   );
 
   return (
-    <Layout className={styles.mainLayout}>
-      {!settingsCenterActive && (
-        <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
-      )}
-      <Layout className={styles.mainContentLayout}>
-        <Header showBrand={settingsCenterActive} />
-        {hubMode && managed && <MemberModels compact />}
-        <Content className="page-container">
-          <ConsolePollService />
-          <AgentStatusPollingController />
-          <Slot name="content.statusBar" kind="fill" />
-          <div className="page-content">
-            <ChunkErrorBoundary
-              resetKey={currentPath}
-              canRestartRuntime={hubMode}
-            >
-              <Suspense
-                fallback={
-                  <Spin
-                    tip={t("common.loading")}
-                    style={{ display: "block", margin: "20vh auto" }}
-                  />
-                }
+    <HubModeContext.Provider value={hubMode}>
+      <Layout className={styles.mainLayout}>
+        {!settingsCenterActive && (
+          <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
+        )}
+        <Layout className={styles.mainContentLayout}>
+          <Header showBrand={settingsCenterActive} />
+          {hubMode && <MemberModels compact />}
+          <Content className="page-container">
+            <ConsolePollService />
+            <AgentStatusPollingController />
+            <Slot name="content.statusBar" kind="fill" />
+            <div className="page-content">
+              <ChunkErrorBoundary
+                resetKey={currentPath}
+                canRestartRuntime={hubMode}
               >
-                <Routes>
-                  {renderableRoutes.map((r) => (
-                    <Route
-                      key={r.id}
-                      path={r.path}
-                      element={
-                        managed && r.path === "/models" ? (
-                          <MemberModels />
-                        ) : (
-                          <r.Component />
-                        )
-                      }
+                <Suspense
+                  fallback={
+                    <Spin
+                      tip={t("common.loading")}
+                      style={{ display: "block", margin: "20vh auto" }}
                     />
-                  ))}
-                </Routes>
-              </Suspense>
-            </ChunkErrorBoundary>
-          </div>
-        </Content>
+                  }
+                >
+                  <Routes>
+                    {renderableRoutes.map((r) => (
+                      <Route
+                        key={r.id}
+                        path={r.path}
+                        element={<r.Component />}
+                      />
+                    ))}
+                  </Routes>
+                </Suspense>
+              </ChunkErrorBoundary>
+            </div>
+          </Content>
+        </Layout>
+        <Slot name="overlay.global" kind="fill" />
       </Layout>
-      <Slot name="overlay.global" kind="fill" />
-    </Layout>
+    </HubModeContext.Provider>
   );
 }

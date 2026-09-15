@@ -48,7 +48,7 @@ def initialize_hub_database(database_path: Path) -> None:
             "INSERT OR IGNORE INTO hub_settings("
             "key, value_json, schema_version, revision, updated_at) "
             "VALUES (?, ?, 1, 1, ?)",
-            ("registration_enabled", "false", utc_now()),
+            ("registration_mode", '"closed"', utc_now()),
         )
         connection.execute(
             "INSERT OR IGNORE INTO hub_settings("

@@ -33,7 +33,7 @@ from .provider import (
 from . import provider_catalog as _provider_catalog
 from .hub_managed import (
     PROVIDER_ID,
-    managed_mode,
+    hub_mode,
     managed_provider,
     managed_slot,
 )
@@ -155,9 +155,6 @@ class ProviderManager(
         self.builtin_providers[provider_key] = provider.model_copy(deep=True)
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        if managed_mode():
-            provider = await run_sync_io(managed_provider)
-            return [await provider.get_info()]
         tasks = [
             provider.get_info() for provider in self.builtin_providers.values()
         ]
@@ -166,6 +163,9 @@ class ProviderManager(
         ]
 
         provider_infos = await asyncio.gather(*tasks)
+        if hub_mode():
+            provider = await run_sync_io(managed_provider)
+            provider_infos.insert(0, await provider.get_info())
         return list(provider_infos) + (
             self._plugin_registry.list_provider_infos()
         )
@@ -182,8 +182,8 @@ class ProviderManager(
         return provider_key
 
     def get_provider(self, provider_id: str) -> Provider | None:
-        if managed_mode():
-            return managed_provider() if provider_id == PROVIDER_ID else None
+        if hub_mode() and provider_id == PROVIDER_ID:
+            return managed_provider()
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
         # Normalize provider ID for backward compatibility
@@ -198,12 +198,15 @@ class ProviderManager(
         return None
 
     async def get_provider_info(self, provider_id: str) -> ProviderInfo | None:
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         return await provider.get_info() if provider else None
 
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
-        if managed_mode():
+        if hub_mode() and (
+            not self.active_model
+            or self.active_model.provider_id == PROVIDER_ID
+        ):
             return managed_slot(self.active_model)[0]
         return self.active_model
 
@@ -472,6 +475,8 @@ class ProviderManager(
             requested_id = validate_custom_provider_id(provider_data.id)
         except ValueError as exc:
             raise ProviderError(message=str(exc)) from exc
+        if provider_identity_key(requested_id) == PROVIDER_ID:
+            raise ProviderError(message="Organization provider is reserved")
         provider_payload = provider_data.model_dump()
         # ``max_input_length`` equal to the historical 128K default is only
         # distinguishable from an omitted value while the request model still
@@ -544,11 +549,7 @@ class ProviderManager(
         # agent creates chat model instances.
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
-        provider = (
-            await run_sync_io(managed_provider)
-            if managed_mode() and provider_id == PROVIDER_ID
-            else self.get_provider(provider_id)
-        )
+        provider = await run_sync_io(self.get_provider, provider_id)
         if not provider:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -591,7 +592,7 @@ class ProviderManager(
             "rejects_media",
         )
 
-        if not managed_mode():
+        if provider_id != PROVIDER_ID:
             self.maybe_probe_multimodal(provider_id, model_id)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:

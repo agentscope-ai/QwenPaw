@@ -9,6 +9,7 @@ import {
   Modal,
   Pagination,
   Progress,
+  Radio,
   Select,
   Skeleton,
   Switch,
@@ -17,9 +18,9 @@ import {
 } from "antd";
 import type { FormInstance } from "antd";
 import {
-  Activity,
   BellRing,
   Box,
+  BrainCircuit,
   Boxes,
   ChartNoAxesCombined,
   CircleStop,
@@ -28,7 +29,6 @@ import {
   House,
   KeyRound,
   ListFilter,
-  LockKeyhole,
   LogOut,
   MemoryStick,
   Moon,
@@ -62,10 +62,10 @@ import {
   type HubUser,
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
-import PasswordReset from "./governance/PasswordReset";
+import UserManagement from "./governance/UserManagement";
+import UsageDashboard from "./governance/UsageDashboard";
+import OrganizationBudget from "./governance/OrganizationBudget";
 import OrganizationModels from "./governance/OrganizationModels";
-import Invitations from "./governance/Invitations";
-import Budgets from "./governance/Budgets";
 import { useGovernanceText } from "./governance/shared";
 import {
   dockerReferenceParts,
@@ -88,6 +88,12 @@ export default function HubPage() {
   const [health, setHealth] = useState<HubHealth | null>(null);
   const [overview, setOverview] = useState<HubOverview | null>(null);
   const [section, setSection] = useState<Section>("overview");
+  const [sectionTarget, setSectionTarget] = useState<string>();
+  const navigate = (next: Section, target?: string) => {
+    setSectionTarget(target);
+    if (next === "users") setUserQuery(target ?? "");
+    setSection(next);
+  };
   const [runtimes, setRuntimes] = useState<PageData<HubRuntime>>(emptyPage);
   const [users, setUsers] = useState<PageData<HubUser>>(emptyPage);
   const [credentials, setCredentials] =
@@ -205,7 +211,8 @@ export default function HubPage() {
     setSettings(result);
     settingsForm.setFieldsValue({
       publicBaseUrl: result.config.control_plane.public_base_url || undefined,
-      registrationEnabled: result.config.control_plane.registration.enabled,
+      registrationMode:
+        result.config.control_plane.registration.mode ?? "closed",
       runtimeProvisioner: result.config.runtime.provisioner,
       dockerSource: result.config.runtime.docker.source,
       dockerImage: result.config.runtime.docker.image,
@@ -368,7 +375,7 @@ export default function HubPage() {
           ...settings.config.control_plane,
           public_base_url: values.publicBaseUrl?.trim() || null,
           registration: {
-            enabled: values.registrationEnabled,
+            mode: values.registrationMode,
             default_role: "user",
           },
           security: {
@@ -541,28 +548,19 @@ export default function HubPage() {
     ...(me?.role === "admin"
       ? [
           {
-            id: "models" as const,
-            label: governanceText("组织模型", "Organization models"),
-            icon: Boxes,
-          },
-          {
-            id: "invitations" as const,
-            label: governanceText("邀请码", "Invitations"),
-            icon: UserPlus,
-          },
-          {
-            id: "budgets" as const,
-            label: governanceText("用量与预算", "Usage and budgets"),
-            icon: Gauge,
-          },
-        ]
-      : []),
-    ...(me?.role === "admin"
-      ? [
-          {
             id: "overview" as const,
             label: t("hub.navigation.overview"),
             icon: Gauge,
+          },
+          {
+            id: "users" as const,
+            label: t("hub.navigation.users"),
+            icon: Users,
+          },
+          {
+            id: "models" as const,
+            label: governanceText("模型", "Models"),
+            icon: BrainCircuit,
           },
         ]
       : []),
@@ -571,15 +569,6 @@ export default function HubPage() {
       label: t("hub.navigation.runtimes"),
       icon: Boxes,
     },
-    ...(me?.role === "admin"
-      ? [
-          {
-            id: "users" as const,
-            label: t("hub.navigation.users"),
-            icon: Users,
-          },
-        ]
-      : []),
     {
       id: "credentials" as const,
       label: t("hub.navigation.credentials"),
@@ -588,14 +577,14 @@ export default function HubPage() {
     ...(me?.role === "admin"
       ? [
           {
-            id: "audit" as const,
-            label: t("hub.navigation.audit"),
-            icon: ScrollText,
-          },
-          {
             id: "settings" as const,
             label: t("hub.navigation.settings"),
             icon: Settings2,
+          },
+          {
+            id: "audit" as const,
+            label: t("hub.navigation.audit"),
+            icon: ScrollText,
           },
         ]
       : []),
@@ -632,8 +621,11 @@ export default function HubPage() {
             return (
               <button
                 key={item.id}
+                aria-label={item.label}
+                title={item.label}
+                aria-current={section === item.id ? "page" : undefined}
                 className={section === item.id ? styles.activeNav : styles.nav}
-                onClick={() => setSection(item.id)}
+                onClick={() => navigate(item.id)}
                 type="button"
               >
                 <Icon size={17} />
@@ -725,7 +717,11 @@ export default function HubPage() {
                 </div>
               )}
               {section === "overview" && overview && (
-                <OverviewPanel overview={overview} t={t} />
+                <OverviewPanel
+                  overview={overview}
+                  t={t}
+                  onNavigate={navigate}
+                />
               )}
               {section === "runtimes" && (
                 <section>
@@ -995,158 +991,26 @@ export default function HubPage() {
                 </section>
               )}
               {section === "models" && me?.role === "admin" && (
-                <OrganizationModels />
+                <OrganizationModels initialModel={sectionTarget} />
               )}
-              {section === "invitations" && me?.role === "admin" && (
-                <Invitations />
-              )}
-              {section === "budgets" && me?.role === "admin" && <Budgets />}
               {section === "users" && me?.role === "admin" && (
-                <section>
-                  <PageHeader
-                    eyebrow={t("hub.users.eyebrow")}
-                    title={t("hub.users.title")}
-                    description={t("hub.users.description")}
-                    action={
-                      <Button
-                        type="primary"
-                        icon={<UserPlus size={15} />}
-                        onClick={() => setUserModalOpen(true)}
-                      >
-                        {t("hub.users.addAccount")}
-                      </Button>
-                    }
-                  />
-                  <DataPanel
-                    search={userQuery}
-                    onSearch={setUserQuery}
-                    searchPlaceholder={t("hub.table.searchUsers")}
-                    filter={
-                      <>
-                        <Select
-                          allowClear
-                          value={userRole}
-                          placeholder={t("hub.table.allRoles")}
-                          className={styles.filterSelect}
-                          onChange={setUserRole}
-                          options={[
-                            { value: "admin", label: t("hub.roles.admin") },
-                            { value: "user", label: t("hub.roles.user") },
-                          ]}
-                        />
-                        <Select
-                          allowClear
-                          value={userDisabled}
-                          placeholder={t("hub.table.allUserStates")}
-                          className={styles.filterSelect}
-                          onChange={setUserDisabled}
-                          options={[
-                            {
-                              value: "active",
-                              label: t("hub.userStates.active"),
-                            },
-                            {
-                              value: "disabled",
-                              label: t("hub.userStates.disabled"),
-                            },
-                          ]}
-                        />
-                      </>
-                    }
-                  >
-                    <div className={styles.tableWrap}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("hub.table.user")}</th>
-                            <th>{t("hub.table.role")}</th>
-                            <th>{t("hub.table.status")}</th>
-                            <th>{t("hub.table.created")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {users.items.map((user) => {
-                            const currentAccount = user.user_id === me.user_id;
-                            return (
-                              <tr key={user.user_id}>
-                                <td>
-                                  <EntityCell
-                                    icon={<Users size={16} />}
-                                    title={user.username}
-                                    detail={user.user_id}
-                                  />
-                                </td>
-                                <td>
-                                  <div className={styles.protectedControl}>
-                                    <Select
-                                      size="small"
-                                      value={user.role}
-                                      disabled={
-                                        currentAccount ||
-                                        busyId === user.user_id
-                                      }
-                                      className={styles.roleSelect}
-                                      options={[
-                                        {
-                                          value: "admin",
-                                          label: t("hub.roles.admin"),
-                                        },
-                                        {
-                                          value: "user",
-                                          label: t("hub.roles.user"),
-                                        },
-                                      ]}
-                                      onChange={(role) =>
-                                        updateUser(user, { role })
-                                      }
-                                    />
-                                    {currentAccount && (
-                                      <span>
-                                        <LockKeyhole size={11} />
-                                        {t("hub.users.currentAccountProtected")}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>
-                                  <div className={styles.switchCell}>
-                                    <Switch
-                                      size="small"
-                                      checked={!user.disabled}
-                                      disabled={currentAccount}
-                                      loading={busyId === user.user_id}
-                                      onChange={(active) =>
-                                        updateUser(user, { disabled: !active })
-                                      }
-                                    />
-                                    <span>
-                                      {t(
-                                        `hub.userStates.${
-                                          user.disabled ? "disabled" : "active"
-                                        }`,
-                                      )}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td>
-                                  {formatDate(user.created_at, i18n.language)}
-                                  <PasswordReset user={user} />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {users.items.length === 0 && (
-                            <EmptyRow
-                              colSpan={4}
-                              message={t("hub.users.empty")}
-                            />
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    <PageFooter page={users} onChange={loadUsers} />
-                  </DataPanel>
-                </section>
+                <UserManagement
+                  initialUser={sectionTarget}
+                  users={users.items}
+                  me={me}
+                  total={users.total}
+                  page={users.page}
+                  pageSize={users.pageSize}
+                  query={userQuery}
+                  onQuery={setUserQuery}
+                  role={userRole}
+                  onRole={setUserRole}
+                  state={userDisabled}
+                  onState={setUserDisabled}
+                  onPage={loadUsers}
+                  onCreate={() => setUserModalOpen(true)}
+                  onUpdate={updateUser}
+                />
               )}
               {section === "credentials" && (
                 <section>
@@ -1309,6 +1173,7 @@ export default function HubPage() {
                 me?.role === "admin" &&
                 (settings ? (
                   <SettingsPanel
+                    initialTab={sectionTarget}
                     form={settingsForm}
                     settings={settings}
                     dockerImages={dockerImages}
@@ -1488,6 +1353,7 @@ function SettingsLoadingPanel({
 }
 
 function SettingsPanel({
+  initialTab,
   form,
   settings,
   dockerImages,
@@ -1500,6 +1366,7 @@ function SettingsPanel({
   onSave,
   t,
 }: {
+  initialTab?: string;
   form: FormInstance<SettingsFormValues>;
   settings: HubSettings;
   dockerImages: HubDockerImageCatalog | null;
@@ -1512,6 +1379,8 @@ function SettingsPanel({
   onSave: (values: SettingsFormValues) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
+  const [activeTab, setActiveTab] = useState(initialTab ?? "access");
+  const text = useGovernanceText();
   const runtimeProvisioner = Form.useWatch("runtimeProvisioner", form);
   const dockerSource = Form.useWatch("dockerSource", form);
   const dockerImage = Form.useWatch("dockerImage", form);
@@ -1557,14 +1426,16 @@ function SettingsPanel({
         title={t("hub.settings.title")}
         description={t("hub.settings.description")}
         action={
-          <Button
-            type="primary"
-            icon={<Save size={15} />}
-            loading={saving}
-            onClick={() => form.submit()}
-          >
-            {t("hub.settings.save")}
-          </Button>
+          activeTab !== "budget" && (
+            <Button
+              type="primary"
+              icon={<Save size={15} />}
+              loading={saving}
+              onClick={() => form.submit()}
+            >
+              {t("hub.settings.save")}
+            </Button>
+          )
         }
       />
       <Form
@@ -1574,14 +1445,16 @@ function SettingsPanel({
         onFinish={() => onSave(form.getFieldsValue(true))}
       >
         <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
           className={styles.settingsTabs}
           items={[
             {
               key: "access",
-              label: t("hub.settings.tabs.access"),
+              label: text("访问与注册", "Access & registration"),
               forceRender: true,
               children: (
-                <div className={styles.settingsGrid}>
+                <div className={styles.accessSettings}>
                   <article className={styles.settingsCard}>
                     <div className={styles.settingsCardHeader}>
                       <div>
@@ -1598,27 +1471,51 @@ function SettingsPanel({
                     >
                       <Input placeholder="https://hub.example.com" />
                     </Form.Item>
-                    <div className={styles.settingRow}>
-                      <div>
-                        <strong>{t("hub.settings.access.registration")}</strong>
-                        <span>{t("hub.settings.access.registrationHint")}</span>
-                      </div>
-                      <Form.Item
-                        name="registrationEnabled"
-                        valuePropName="checked"
-                        noStyle
-                      >
-                        <Switch />
-                      </Form.Item>
-                    </div>
                     <Form.Item
-                      label={t("hub.settings.access.defaultRole")}
-                      extra={t("hub.settings.access.defaultRoleHint")}
+                      name="registrationMode"
+                      label={text("注册方式", "Registration mode")}
                     >
-                      <Input value={t("hub.roles.user")} disabled />
+                      <Radio.Group className={styles.registrationChoices}>
+                        {[
+                          [
+                            "open",
+                            "开放注册",
+                            "Open registration",
+                            "任何人都可以创建账号",
+                            "Anyone can create an account",
+                          ],
+                          [
+                            "invite",
+                            "邀请注册",
+                            "Invitation only",
+                            "持有效邀请码才能创建账号",
+                            "A valid invitation code is required",
+                          ],
+                          [
+                            "closed",
+                            "关闭注册",
+                            "Registration closed",
+                            "仅管理员可以创建账号",
+                            "Only administrators can create accounts",
+                          ],
+                        ].map(([value, zh, en, hintZh, hintEn]) => (
+                          <Radio key={value} value={value}>
+                            <strong>{text(zh, en)}</strong>
+                            <span>{text(hintZh, hintEn)}</span>
+                          </Radio>
+                        ))}
+                      </Radio.Group>
                     </Form.Item>
                   </article>
-
+                </div>
+              ),
+            },
+            {
+              key: "security",
+              label: text("安全", "Security"),
+              forceRender: true,
+              children: (
+                <div className={styles.settingsGrid}>
                   <article
                     className={`${styles.settingsCard} ${styles.wideSettingsCard}`}
                   >
@@ -1668,6 +1565,11 @@ function SettingsPanel({
                   </article>
                 </div>
               ),
+            },
+            {
+              key: "budget",
+              label: text("组织预算", "Organization budget"),
+              children: <OrganizationBudget />,
             },
             {
               key: "runtime",
@@ -1966,6 +1868,7 @@ function RateLimitFields({
   prefix: "login" | "registration";
   title: string;
   description: string;
+  initialTab?: string;
   form: FormInstance<SettingsFormValues>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -2152,15 +2055,12 @@ function ImageSourceSelector({
 function OverviewPanel({
   overview,
   t,
+  onNavigate,
 }: {
+  onNavigate: (section: Section, target?: string) => void;
   overview: HubOverview;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
-  const running = overview.runtime_counts.running || 0;
-  const failed = overview.runtime_counts.failed || 0;
-  const availability = overview.total_runtimes
-    ? Math.round((running / overview.total_runtimes) * 1000) / 10
-    : 100;
   return (
     <section>
       <PageHeader
@@ -2168,32 +2068,7 @@ function OverviewPanel({
         title={t("hub.overview.title")}
         description={t("hub.overview.description")}
       />
-      <div className={styles.cockpit}>
-        <article className={styles.heroMetric}>
-          <span>{t("hub.overview.availability")}</span>
-          <strong>{availability}%</strong>
-          <p>
-            {t("hub.overview.availabilityDetail", {
-              running,
-              total: overview.total_runtimes,
-            })}
-          </p>
-          <Activity size={120} />
-        </article>
-        <MetricCard
-          icon={<Boxes size={18} />}
-          label={t("hub.overview.totalRuntimes")}
-          value={overview.total_runtimes}
-          detail={t("hub.overview.failedCount", { count: failed })}
-          warning={failed > 0}
-        />
-        <MetricCard
-          icon={<Users size={18} />}
-          label={t("hub.overview.totalUsers")}
-          value={overview.total_users}
-          detail={t("hub.overview.managedLocally")}
-        />
-      </div>
+      <UsageDashboard overview={overview} onNavigate={onNavigate} />
       <div className={styles.overviewGrid}>
         <article className={styles.surfacePanel}>
           <div className={styles.surfaceHeader}>
@@ -2254,31 +2129,6 @@ function OverviewPanel({
         </article>
       </div>
     </section>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-  warning = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  detail: string;
-  warning?: boolean;
-}) {
-  return (
-    <article className={styles.metricCard}>
-      <div>{icon}</div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small className={warning ? styles.warningText : undefined}>
-        {detail}
-      </small>
-    </article>
   );
 }
 

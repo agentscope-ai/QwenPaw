@@ -121,7 +121,7 @@ version: 1
 control_plane:
   public_base_url: https://qwenpaw.example.com
   registration:
-    enabled: false
+    mode: closed
     default_role: user
 
 runtime:

@@ -608,7 +608,7 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(admin_token),
         )
         payload = current_settings.json()
-        payload["config"]["control_plane"]["registration"]["enabled"] = True
+        payload["config"]["control_plane"]["registration"]["mode"] = "open"
         settings = client.put(
             "/api/hub/admin/settings",
             json={

@@ -13,7 +13,7 @@ export interface AuthStatusResponse {
   mode?: "hub";
   bootstrap_required?: boolean;
   registration_enabled?: boolean;
-  invitation_enabled?: boolean;
+  registration_mode?: "open" | "invite" | "closed";
 }
 
 export interface AuthUserResponse {

@@ -227,6 +227,7 @@ class TokenBudgetService:
     def report(self):
         """Return aggregate diagnostics without employee conversation text."""
         with self.store.connect() as db:
+            db.execute("BEGIN")
             period = self.period(db)
             users = [
                 dict(row)
@@ -235,11 +236,45 @@ class TokenBudgetService:
                     "WHERE deleted_at IS NULL ORDER BY username",
                 )
             ]
+            runtime_states = {}
+            for row in db.execute(
+                "SELECT owner_user_id, observed_state FROM runtimes "
+                "WHERE deleted_at IS NULL ORDER BY created_at DESC",
+            ):
+                runtime_states.setdefault(
+                    row["owner_user_id"],
+                    [],
+                ).append(row["observed_state"])
+            daily = {}
+            zone = ZoneInfo(self.store.settings(db)["timezone"])
+            for row in db.execute(
+                "SELECT created_at, charged FROM hub_model_requests "
+                "WHERE period = ? ORDER BY created_at",
+                (period,),
+            ):
+                day = datetime.fromisoformat(row["created_at"])
+                label = day.astimezone(zone).date().isoformat()
+                daily[label] = daily.get(label, 0) + row["charged"]
             return {
+                "timezone": str(zone),
+                "daily": [
+                    {"date": date, "tokens": tokens}
+                    for date, tokens in sorted(daily.items())
+                ],
                 "organization": self.usage(db, "organization", period),
                 "members": [
                     {
                         **user,
+                        "runtime_states": runtime_states.get(
+                            user["user_id"],
+                            [],
+                        ),
+                        "inherits_budget": db.execute(
+                            "SELECT 1 FROM hub_token_budgets "
+                            "WHERE subject = ?",
+                            (user["user_id"],),
+                        ).fetchone()
+                        is None,
                         **self.usage(
                             db,
                             user["user_id"],

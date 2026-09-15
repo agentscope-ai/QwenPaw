@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote
 
 import httpx
 import uvicorn
@@ -84,6 +83,7 @@ from .model_service.catalog import ModelCatalog
 from .model_service.budget import TokenBudgetService
 from .model_service.gateway import ModelGateway
 from .model_service.routes import governance_router
+from .model_service.listener import ModelListener
 from .model_service.runtime_policy import (
     require_model_route,
     require_model_runtime,
@@ -164,38 +164,16 @@ def create_hub_app(  # pylint: disable=too-many-statements
     model_budgets = TokenBudgetService(governance)
     model_gateway = ModelGateway(model_catalog, model_budgets, model_transport)
     invitations = InvitationService(governance, hub_auth)
+    model_listener = ModelListener(governance, model_catalog, model_gateway)
     original_credentials = runtime_service.credential_provider
 
     def managed_credentials(record):
         values = dict(original_credentials(record))
-        if governance.settings()["enabled"]:
-            endpoint = (
-                os.environ.get("QWENPAW_HUB_MODEL_URL")
-                or runtime_service.hub_config.control_plane.public_base_url
-            )
-            if not endpoint:
-                raise ValueError("Configure QWENPAW_HUB_MODEL_URL first")
-            parsed = urlsplit(endpoint)
-            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise ValueError("Invalid QWENPAW_HUB_MODEL_URL")
-            if record.provisioner == "docker" and is_loopback_host(
-                parsed.hostname,
-            ):
-                raise ValueError(
-                    "Docker requires a container-reachable "
-                    "QWENPAW_HUB_MODEL_URL, not localhost",
-                )
-            values["QWENPAW_HUB_MODEL_URL"] = endpoint.rstrip("/")
-            values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(
-                record,
-            )
-        else:
-            with governance.connect() as db:
-                db.execute(
-                    "DELETE FROM hub_model_runtime_tokens "
-                    "WHERE runtime_id = ?",
-                    (record.runtime_id,),
-                )
+        provisioner = runtime_service.provisioners[record.provisioner]
+        values["QWENPAW_HUB_MODEL_URL"] = provisioner.model_endpoint(
+            model_listener.port,
+        )
+        values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(record)
         return values
 
     runtime_service.credential_provider = managed_credentials
@@ -242,7 +220,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         model_gateway.recover()
         try:
-            yield
+            async with model_listener.serve():
+                yield
         finally:
             if docker_pulls is not None:
                 await run_in_threadpool(docker_pulls.close)
@@ -481,6 +460,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             record_audit,
         ),
     )
+    app.state.model_listener = model_listener
     app.state.model_catalog = model_catalog
     app.state.model_budgets = model_budgets
     app.state.model_gateway = model_gateway
@@ -552,10 +532,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
         result = await run_in_threadpool(hub_auth.status)
-        policy = await run_in_threadpool(governance.settings)
-        if policy["invitation_enabled"]:
-            result["invitation_enabled"] = True
-            result["registration_enabled"] = True
         return result
 
     @app.post("/api/auth/register")
@@ -566,8 +542,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
         client_ip = require_auth_access(request, "registration")
         access_security.record_attempt("registration", client_ip)
         try:
-            policy = await run_in_threadpool(governance.settings)
-            if policy["invitation_enabled"] and hub_auth.user_count() > 0:
+            mode = await run_in_threadpool(hub_auth.registration_mode)
+            if mode == "invite" and hub_auth.user_count() > 0:
                 user, token = await run_in_threadpool(
                     invitations.redeem,
                     body.invite_code or "",
@@ -1365,11 +1341,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
-        managed = governance.settings()["enabled"]
-        require_model_route(path, request.method, managed)
+        require_model_route(path)
         record = await ensure_personal_runtime(user)
-        if managed:
-            require_model_runtime(governance, record.runtime_id)
+        require_model_runtime(governance, record.runtime_id)
         target = runtime_url(
             record,
             scheme="http",
@@ -1688,10 +1662,6 @@ def run_hub_app(
             "Use a trusted network or a TLS reverse proxy."
         )
         logging.getLogger(__name__).warning("%s", warning)
-    os.environ.setdefault(
-        "QWENPAW_HUB_MODEL_URL",
-        f"http://127.0.0.1:{port}",
-    )
     uvicorn.run(
         create_hub_app(
             hub_config=hub_config,

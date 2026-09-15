@@ -1,5 +1,6 @@
 import { Form, Input, InputNumber, Select, Switch } from "antd";
 import type { ModelConnection } from "../../../api/modules/hubGovernance";
+import styles from "./governance.module.less";
 import { useGovernanceText } from "./shared";
 
 export function ConnectionFields() {
@@ -32,7 +33,12 @@ export function ConnectionFields() {
       >
         <Input maxLength={120} />
       </Form.Item>
-      <RateFields />
+      <details className={styles.help}>
+        <summary>
+          {text("速率与并发限制", "Rate and concurrency limits")}
+        </summary>
+        <RateFields />
+      </details>
       <Form.Item
         name="enabled"
         label={text("启用", "Enabled")}
@@ -161,7 +167,12 @@ export function ModelFields({
           options={users.map((u) => ({ value: u.user_id, label: u.username }))}
         />
       </Form.Item>
-      <RateFields />
+      <details className={styles.help}>
+        <summary>
+          {text("速率与并发限制", "Rate and concurrency limits")}
+        </summary>
+        <RateFields />
+      </details>
       <Form.Item
         name="enabled"
         label={text("发布启用", "Published and enabled")}

@@ -4024,7 +4024,18 @@
       },
       "auth": {
         "register": "注册 Hub 用户"
-      }
+      },
+      "model.policy_update": "更新模型设置",
+      "model.connection_create": "添加模型供应商",
+      "model.connection_update": "更新模型供应商",
+      "model.publish": "发布托管模型",
+      "model.create": "添加托管模型",
+      "model.update": "更新托管模型",
+      "model.test": "测试模型连接",
+      "invitation.create": "创建邀请",
+      "invitation.revoke": "撤销邀请",
+      "budget.update": "调整 Token 额度",
+      "user.password_reset": "重置用户密码"
     },
     "auditOutcomes": {
       "success": "成功",
@@ -4056,6 +4067,8 @@
     }
   },
   "login": {
+    "inviteTitle": "接受邀请，加入团队",
+    "acceptInvitation": "使用邀请码加入",
     "title": "登录 QwenPaw",
     "registerTitle": "创建账户",
     "firstUserHint": "创建管理员账户以开始使用",

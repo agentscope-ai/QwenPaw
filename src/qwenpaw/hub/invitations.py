@@ -111,9 +111,7 @@ class InvitationService:
                     "AND expires_at > ?",
                     (secret_digest(code), utc_now()),
                 ).fetchone()
-                if not self.store.settings(db)["invitation_enabled"] or (
-                    row is None
-                ):
+                if self.auth.registration_mode(db) != "invite" or row is None:
                     raise PermissionError("Invalid or unavailable invitation")
                 user_id = self.auth.insert_user(db, username, password)
                 policy = json.loads(row["policy_json"])

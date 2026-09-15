@@ -49,7 +49,7 @@ from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.hub_managed import (
     PROVIDER_ID,
-    managed_mode,
+    hub_mode,
     managed_provider,
     managed_slot,
 )
@@ -2232,16 +2232,16 @@ def create_model_and_formatter(
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 
-    if managed_mode():
-        if slot is None and (
-            model_slot is None or model_slot.provider_id != PROVIDER_ID
-        ):
-            model_slot = ProviderManager.get_instance().active_model
+    if hub_mode() and model_slot is None:
+        model_slot = ProviderManager.get_instance().active_model
+    if hub_mode() and (
+        model_slot is None or model_slot.provider_id == PROVIDER_ID
+    ):
         selected, catalog = managed_slot(model_slot, explicit=slot is not None)
+        if selected is None:
+            raise ProviderError(message="No organization model available")
         provider = managed_provider(catalog)
         model = provider.get_chat_model_instance(selected.model)
-        if hasattr(model, "max_retries"):
-            model.max_retries = 0
         formatter = _install_model_formatter(model, provider_id=PROVIDER_ID)
         return TokenRecordingModelWrapper(PROVIDER_ID, model), formatter
 

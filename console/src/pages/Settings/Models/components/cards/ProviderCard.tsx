@@ -1,5 +1,6 @@
 import React from "react";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
+import { HubProviderCard } from "./HubProviderCard";
 import { LocalProviderCard } from "./LocalProviderCard";
 import { RemoteProviderCard } from "./RemoteProviderCard";
 
@@ -17,6 +18,9 @@ export const ProviderCard = React.memo(function ProviderCard({
   onOpenConfig,
   onOpenModels,
 }: ProviderCardProps) {
+  if (provider.id === "hub-managed") {
+    return <HubProviderCard provider={provider} onSaved={onSaved} />;
+  }
   if (provider.id === "qwenpaw-local") {
     return (
       <LocalProviderCard provider={provider} onOpenModels={onOpenModels} />

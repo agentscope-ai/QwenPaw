@@ -226,6 +226,14 @@ def governance_router(
         result["organization_blocked"] = organization["remaining"] == 0
         return result
 
+    router.include_router(runtime_model_router(catalog, gateway))
+    return router
+
+
+def runtime_model_router(catalog, gateway):
+    """Expose only capability-authenticated model traffic to runtimes."""
+    router = APIRouter()
+
     def require_runtime(authorization: str = Header(default="")):
         prefix = "Bearer "
         try:

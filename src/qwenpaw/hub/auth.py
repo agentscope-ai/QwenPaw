@@ -102,11 +102,13 @@ class HubAuthService:
     def status(self) -> dict[str, object]:
         """Return public bootstrap and registration state."""
         has_users = self.user_count() > 0
+        mode = self.registration_mode()
         return {
             "enabled": True,
             "has_users": has_users,
             "bootstrap_required": not has_users,
-            "registration_enabled": self.registration_enabled(),
+            "registration_enabled": mode != "closed",
+            "registration_mode": mode,
             "mode": "hub",
         }
 
@@ -123,6 +125,16 @@ class HubAuthService:
                 "AND deleted_at IS NULL LIMIT 1",
             ).fetchone()
         return row is not None
+
+    def registration_mode(
+        self,
+        connection: sqlite3.Connection | None = None,
+    ) -> str:
+        """Return the single authoritative self-registration policy."""
+        if connection is not None:
+            return self._registration_mode(connection)
+        with self._connect() as current:
+            return self._registration_mode(current)
 
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
@@ -291,11 +303,15 @@ class HubAuthService:
 
     @staticmethod
     def _registration_enabled(connection: sqlite3.Connection) -> bool:
+        return HubAuthService._registration_mode(connection) == "open"
+
+    @staticmethod
+    def _registration_mode(connection: sqlite3.Connection) -> str:
         row = connection.execute(
             "SELECT value_json FROM hub_settings WHERE key = ?",
-            ("registration_enabled",),
+            ("registration_mode",),
         ).fetchone()
-        return row is not None and bool(json.loads(str(row["value_json"])))
+        return json.loads(row["value_json"]) if row else "closed"
 
     @staticmethod
     def _raise_database_busy(exc: sqlite3.OperationalError) -> NoReturn:

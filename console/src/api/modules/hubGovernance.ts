@@ -20,8 +20,6 @@ export async function governanceRequest<T>(
 }
 
 export interface ModelPolicy {
-  enabled: boolean;
-  invitation_enabled: boolean;
   default_model_id: string | null;
   member_token_limit: number | null;
   timezone: string;
@@ -68,8 +66,15 @@ export interface BudgetUsage {
   requests: number;
 }
 export interface UsageReport {
+  timezone: string;
+  daily: { date: string; tokens: number }[];
   organization: BudgetUsage;
-  members: (BudgetUsage & { user_id: string; username: string })[];
+  members: (BudgetUsage & {
+    user_id: string;
+    username: string;
+    inherits_budget: boolean;
+    runtime_states: string[];
+  })[];
   models: {
     model_id: string;
     requests: number;
@@ -84,4 +89,17 @@ export interface InviteBatch {
   redeemed: number;
   revoked: number;
   expires_at: string;
+}
+
+export interface MemberModelCatalog {
+  revision: number;
+  default_model_id: string | null;
+  models: {
+    id: string;
+    name: string;
+    description: string;
+    supports_image: boolean;
+    input_token_limit: number;
+    output_token_limit: number;
+  }[];
 }

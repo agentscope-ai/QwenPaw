@@ -66,7 +66,7 @@ export default function LoginPage() {
         setHasUsers(res.has_users);
         setRegistrationEnabled(Boolean(res.registration_enabled));
         setIsHub(res.mode === "hub");
-        setInvitationEnabled(Boolean(res.invitation_enabled));
+        setInvitationEnabled(res.registration_mode === "invite");
         if (!res.has_users) {
           setIsRegister(true);
         }
@@ -196,7 +196,13 @@ export default function LoginPage() {
             style={{ height: 48, marginBottom: 12 }}
           />
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
-            {isRegister ? t("login.registerTitle") : t("login.title")}
+            {isRegister
+              ? t(
+                  invitationEnabled && hasUsers
+                    ? "login.inviteTitle"
+                    : "login.registerTitle",
+                )
+              : t("login.title")}
           </h2>
           {!hasUsers && (
             <p
@@ -302,7 +308,13 @@ export default function LoginPage() {
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >
-              {isRegister ? t("login.register") : t("login.submit")}
+              {isRegister
+                ? t(
+                    invitationEnabled && hasUsers
+                      ? "login.acceptInvitation"
+                      : "login.register",
+                  )
+                : t("login.submit")}
             </Button>
           </Form.Item>
         </Form>
@@ -313,7 +325,13 @@ export default function LoginPage() {
             onClick={() => setIsRegister((current) => !current)}
             style={{ marginTop: 14 }}
           >
-            {isRegister ? t("login.returnToSignIn") : t("login.createAccount")}
+            {isRegister
+              ? t("login.returnToSignIn")
+              : t(
+                  invitationEnabled
+                    ? "login.acceptInvitation"
+                    : "login.createAccount",
+                )}
           </Button>
         )}
         {isHub && (

@@ -44,13 +44,13 @@ class RegistrationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool | None = None
+    mode: Literal["open", "invite", "closed"] | None = None
     default_role: Literal["user"] | None = None
 
     @model_validator(mode="after")
     def validate_explicit_values(self) -> RegistrationConfig:
         """Reject null for settings that cannot be cleared in SQLite."""
-        for field_name in ("enabled", "default_role"):
+        for field_name in ("mode", "default_role"):
             if (
                 field_name in self.model_fields_set
                 and getattr(self, field_name) is None
@@ -434,11 +434,11 @@ class HubConfigStore:
         config: HubConfig,
     ) -> None:
         registration = config.control_plane.registration
-        if registration.enabled is not None:
+        if registration.mode is not None:
             self._write_setting(
                 connection,
-                "registration_enabled",
-                registration.enabled,
+                "registration_mode",
+                registration.mode,
             )
         if registration.default_role is not None:
             self._write_setting(
@@ -455,7 +455,7 @@ class HubConfigStore:
         registration = config.control_plane.registration
         values: dict[str, object] = {}
         for field_name, key in (
-            ("enabled", "registration_enabled"),
+            ("mode", "registration_mode"),
             ("default_role", "registration_default_role"),
         ):
             row = connection.execute(

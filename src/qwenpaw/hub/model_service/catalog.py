@@ -88,14 +88,10 @@ class ModelCatalog:
                 )
             policy = self.store.settings(db)
             models = self.rows("hub_managed_models", db)
-            if (
-                not body.enabled
-                and any(
-                    m["id"] == policy["default_model_id"]
-                    and m["connection_id"] == connection_id
-                    for m in models
-                )
-                and policy["enabled"]
+            if not body.enabled and any(
+                m["id"] == policy["default_model_id"]
+                and m["connection_id"] == connection_id
+                for m in models
             ):
                 raise ValueError("Replace the default model first")
             db.execute(
@@ -145,10 +141,8 @@ class ModelCatalog:
                 ).fetchone():
                     raise ValueError("Unknown member")
             policy = self.store.settings(db)
-            if (
-                policy["enabled"]
-                and model_id == policy["default_model_id"]
-                and (not body.enabled or not body.all_members)
+            if model_id == policy["default_model_id"] and (
+                not body.enabled or not body.all_members
             ):
                 raise ValueError("The default must be enabled for everyone")
             db.execute(
@@ -177,7 +171,7 @@ class ModelCatalog:
                 ).fetchone()
             ):
                 raise ValueError("Budget timezone is fixed after first use")
-            if body.enabled:
+            if body.default_model_id is not None:
                 model = next(
                     (
                         m
@@ -215,8 +209,6 @@ class ModelCatalog:
             with self.store.connect() as connection:
                 return self.resolve(user_id, model_id, connection, test=test)
         policy = self.store.settings(db)
-        if not policy["enabled"] and not test:
-            raise PermissionError("Organization models are not enabled")
         for model in self.rows("hub_managed_models", db):
             if model["id"] != model_id or (not model["enabled"] and not test):
                 continue
@@ -246,30 +238,31 @@ class ModelCatalog:
         with self.store.connect() as db:
             policy = self.store.settings(db)
             items = []
-            if policy["enabled"]:
-                for model in self.rows("hub_managed_models", db):
-                    try:
-                        self.resolve(user_id, model["id"], db)
-                    except PermissionError:
-                        continue
-                    items.append(
-                        {
-                            k: model[k]
-                            for k in (
-                                "id",
-                                "name",
-                                "description",
-                                "supports_image",
-                                "input_token_limit",
-                                "output_token_limit",
-                            )
-                        },
-                    )
+            for model in self.rows("hub_managed_models", db):
+                try:
+                    self.resolve(user_id, model["id"], db)
+                except PermissionError:
+                    continue
+                items.append(
+                    {
+                        k: model[k]
+                        for k in (
+                            "id",
+                            "name",
+                            "description",
+                            "supports_image",
+                            "input_token_limit",
+                            "output_token_limit",
+                        )
+                    },
+                )
         return {
-            "enabled": policy["enabled"],
             "revision": policy["revision"],
             "models": items,
-            "default_model_id": policy["default_model_id"],
+            "default_model_id": (
+                policy["default_model_id"]
+                or (items[0]["id"] if items else None)
+            ),
         }
 
     def issue_token(self, record) -> str:

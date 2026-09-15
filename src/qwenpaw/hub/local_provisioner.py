@@ -246,6 +246,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                     "",
                 ),
             )
+            self.verify_model_connection(starting, isolated.environment)
         except Exception as exc:
             self._terminate(record.runtime_id, process)
             raise RuntimeError(

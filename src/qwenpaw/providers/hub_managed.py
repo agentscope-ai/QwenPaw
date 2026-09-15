@@ -15,13 +15,13 @@ from .provider import ModelInfo, ProviderInfo
 PROVIDER_ID = "hub-managed"
 
 
-def managed_mode() -> bool:
-    """Detect a control-plane-provisioned model capability."""
+def hub_mode() -> bool:
+    """Detect the model capability provisioned for every Hub runtime."""
     return bool(os.environ.get("QWENPAW_HUB_MODEL_TOKEN"))
 
 
 def directory() -> dict:
-    """Refresh grants from Hub; never fall back to personal credentials."""
+    """Refresh organization grants without exposing upstream credentials."""
     endpoint = os.environ.get("QWENPAW_HUB_MODEL_URL", "")
     token = os.environ.get("QWENPAW_HUB_MODEL_TOKEN", "")
     try:
@@ -32,8 +32,6 @@ def directory() -> dict:
             )
             response.raise_for_status()
             result = response.json()
-        if not result["enabled"]:
-            raise ValueError("Organization models are unavailable")
         return result
     except Exception as exc:
         raise ProviderError(
@@ -57,7 +55,7 @@ class ManagedProvider(OpenAIProvider):
         """Never expose even the runtime capability through model APIs."""
         return ProviderInfo(
             id=PROVIDER_ID,
-            name="Organization models",
+            name="Hub",
             models=self.models,
             api_key="",
             base_url="",
@@ -71,7 +69,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
     endpoint = os.environ["QWENPAW_HUB_MODEL_URL"]
     return ManagedProvider(
         id=PROVIDER_ID,
-        name="Organization models",
+        name="Hub",
         base_url=f"{endpoint}/api/hub/model-runtime/v1",
         api_key=os.environ["QWENPAW_HUB_MODEL_TOKEN"],
         models=[
@@ -88,15 +86,17 @@ def managed_provider(catalog=None) -> ManagedProvider:
     )
 
 
-def managed_slot(selected=None, *, explicit=False):
-    """Resolve defaults while rejecting explicit personal model overrides."""
-    catalog = directory()
+def managed_slot(selected=None, *, explicit=False, catalog=None):
+    """Resolve and validate a selection within the organization catalog."""
+    catalog = catalog if catalog is not None else directory()
     if selected and selected.provider_id != PROVIDER_ID:
         if explicit:
             raise ProviderError(
                 message="Only organization models are allowed",
             )
         selected = None
+    if not catalog["models"] and not explicit:
+        return None, catalog
     model_id = selected.model if selected else catalog["default_model_id"]
     if model_id not in {m["id"] for m in catalog["models"]}:
         raise ProviderError(

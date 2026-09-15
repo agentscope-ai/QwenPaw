@@ -91,6 +91,26 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         digest = hashlib.sha256(str(self._root_dir).encode("utf-8"))
         self._instance_id = digest.hexdigest()[:12]
 
+    def model_endpoint(self, port: int) -> str:
+        """Use Desktop DNS or the Engine host-gateway mapping."""
+        super().model_endpoint(port)
+        return f"http://host.docker.internal:{port}"
+
+    def _model_network(self, credentials: Mapping[str, str]) -> dict:
+        if not credentials.get("QWENPAW_HUB_MODEL_TOKEN"):
+            return {}
+        operating_system = (
+            self._get_client()
+            .info()
+            .get(
+                "OperatingSystem",
+                "",
+            )
+        )
+        if "docker desktop" in operating_system.lower():
+            return {}
+        return {"extra_hosts": {"host.docker.internal": "host-gateway"}}
+
     def configure(self, config: Mapping[str, object]) -> None:
         """Apply validated Docker defaults and resource limits."""
         previous = self._policy
@@ -206,6 +226,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 },
             },
             **self._resource_limits(),
+            **self._model_network(credentials),
         )
         try:
             port = self._published_port(container)
@@ -219,6 +240,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 metadata=self._runtime_metadata(record, container),
             )
             boundary_mode = self._wait_until_ready(starting, runtime_token)
+            self.verify_model_connection(starting, environment)
             container.reload()
             return replace(
                 starting,

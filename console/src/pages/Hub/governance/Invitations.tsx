@@ -7,14 +7,17 @@ import {
   Input,
   InputNumber,
   Modal,
-  Switch,
+  Tag,
   Select,
 } from "antd";
-import { Download, Plus, X } from "lucide-react";
+import { Download, Plus, X, Ticket, Info } from "lucide-react";
 import {
   governanceRequest as request,
   type InviteBatch,
 } from "../../../api/modules/hubGovernance";
+import BudgetEditor from "./BudgetEditor";
+import { budgetLimit, type BudgetMode } from "./budgetUtils";
+import { hubApi } from "../../../api/modules/hub";
 import { useGovernanceText } from "./shared";
 import styles from "./governance.module.less";
 
@@ -27,13 +30,18 @@ export default function Invitations() {
   const [busy, setBusy] = useState(false);
   const [codes, setCodes] = useState<string[]>([]);
   const [form] = Form.useForm();
+  const [budgetMode, setBudgetMode] = useState<BudgetMode>("inherit");
+  const [amount, setAmount] = useState<number | null>(null);
+  const [registrationMode, setRegistrationMode] = useState<string>();
   const [requestId, setRequestId] = useState("");
   const load = useCallback(async () => {
     try {
-      const [items, directory] = await Promise.all([
+      const [items, directory, settings] = await Promise.all([
         request<InviteBatch[]>("admin/invite-batches"),
         request<{ id: string; name: string }[]>("admin/models"),
+        hubApi.getSettings(),
       ]);
+      setRegistrationMode(settings.config.control_plane.registration.mode);
       setBatches(items);
       setModels(directory);
     } catch (e) {
@@ -47,11 +55,11 @@ export default function Invitations() {
     <div className={styles.panel}>
       <div className={styles.heading}>
         <div>
-          <h2>{text("邀请码", "Invitations")}</h2>
+          <h3>{text("邀请成员加入", "Invite members")}</h3>
           <p>
             {text(
-              "每码开通一位成员，自动继承组织模型。请先在组织模型中开启邀请注册。",
-              "Each code creates one member with organization models. Enable invitation registration under Organization models first.",
+              "每个邀请码可创建一个成员账号，自动继承组织默认权限和额度。",
+              "Each code creates one member with the organization’s default access and budget.",
             )}
           </p>
         </div>
@@ -66,10 +74,44 @@ export default function Invitations() {
           {text("生成邀请码", "Generate invitations")}
         </Button>
       </div>
+      {registrationMode && registrationMode !== "invite" && (
+        <div className={styles.notice}>
+          <Info size={16} />
+          <span>
+            {text(
+              "当前未启用邀请注册。可先创建邀请码，前往系统设置 → 访问与注册切换模式后即可使用。",
+              "Invitation registration is not active. Prepare codes now, then enable invitation mode in Settings → Access & registration.",
+            )}
+          </span>
+        </div>
+      )}
+      {!batches.length && (
+        <div className={styles.tablePanel}>
+          <div className={styles.empty}>
+            <Ticket size={28} />
+            <strong>{text("邀请下一位成员", "Invite your next member")}</strong>
+            <p>
+              {text(
+                "批量创建邀请码，统一设置有效期，再将邀请码交给成员。",
+                "Create a batch, set an expiry date, and share the codes with your members.",
+              )}
+            </p>
+          </div>
+        </div>
+      )}
       <div className={styles.grid}>
         {batches.map((batch) => (
           <div className={styles.card} key={batch.id}>
-            <h3>{batch.note || batch.id.slice(0, 8)}</h3>
+            <div className={styles.heading}>
+              <h3>{batch.note || text("成员邀请", "Member invitation")}</h3>
+              <Tag bordered={false}>
+                {new Date(batch.expires_at).getTime() < Date.now()
+                  ? text("已过期", "Expired")
+                  : batch.redeemed + batch.revoked >= batch.total
+                  ? text("已结束", "Completed")
+                  : text("有效", "Active")}
+              </Tag>
+            </div>
             <div className={styles.metric}>
               {batch.redeemed} / {batch.total}
             </div>
@@ -83,7 +125,10 @@ export default function Invitations() {
             </p>
             <Button
               icon={<X size={14} />}
-              disabled={batch.redeemed + batch.revoked >= batch.total}
+              disabled={
+                batch.redeemed + batch.revoked >= batch.total ||
+                new Date(batch.expires_at).getTime() < Date.now()
+              }
               onClick={() =>
                 modal.confirm({
                   title: text(
@@ -111,6 +156,7 @@ export default function Invitations() {
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={busy}
+        closeIcon={<X size={18} />}
         destroyOnHidden
       >
         <Form
@@ -125,12 +171,23 @@ export default function Invitations() {
             note: "",
           }}
           onFinish={async (values) => {
+            if (budgetMode === "limited" && !amount) {
+              message.error(
+                text("请输入大于 0 的额度", "Enter a limit greater than zero"),
+              );
+              return;
+            }
             setBusy(true);
             try {
               const result = await request<{ codes: { code: string }[] }>(
                 "admin/invite-batches",
                 "POST",
-                { ...values, request_id: requestId },
+                {
+                  ...values,
+                  request_id: requestId,
+                  inherit_budget: budgetMode === "inherit",
+                  token_limit: budgetLimit(budgetMode, amount),
+                },
               );
               setCodes(result.codes.map((c) => c.code));
               setOpen(false);
@@ -142,21 +199,6 @@ export default function Invitations() {
             }
           }}
         >
-          <Form.Item
-            name="model_ids"
-            label={text(
-              "额外模型授权（自动继承全员模型）",
-              "Additional grants (all-member models are inherited)",
-            )}
-          >
-            <Select
-              mode="multiple"
-              options={models.map((model) => ({
-                value: model.id,
-                label: model.name,
-              }))}
-            />
-          </Form.Item>
           <Form.Item name="note" label={text("批次备注", "Batch note")}>
             <Input maxLength={256} />
           </Form.Item>
@@ -174,22 +216,36 @@ export default function Invitations() {
           >
             <InputNumber min={1} max={90} precision={0} />
           </Form.Item>
-          <Form.Item
-            name="inherit_budget"
-            label={text("继承成员默认额度", "Inherit member budget")}
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item
-            name="token_limit"
-            label={text(
-              "个人月 Token 额度（空为不限）",
-              "Monthly tokens (empty means unlimited)",
-            )}
-          >
-            <InputNumber min={0} precision={0} />
-          </Form.Item>
+          <details className={styles.help}>
+            <summary>
+              {text(
+                "自定义权限与额度（可选）",
+                "Customize access and budget (optional)",
+              )}
+            </summary>
+            <Form.Item
+              name="model_ids"
+              label={text(
+                "额外模型授权（自动继承全员模型）",
+                "Additional grants (all-member models are inherited)",
+              )}
+            >
+              <Select
+                mode="multiple"
+                options={models.map((model) => ({
+                  value: model.id,
+                  label: model.name,
+                }))}
+              />
+            </Form.Item>
+            <BudgetEditor
+              mode={budgetMode}
+              amount={amount}
+              onMode={setBudgetMode}
+              onAmount={setAmount}
+              allowInherit
+            />
+          </details>
         </Form>
       </Modal>
       <Modal
@@ -202,6 +258,7 @@ export default function Invitations() {
         <Alert
           type="info"
           showIcon
+          icon={<Info size={16} />}
           message={text(
             "关闭前请保存。后续无法回读原码。",
             "Save before closing. Codes cannot be retrieved later.",

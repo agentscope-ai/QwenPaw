@@ -78,8 +78,6 @@ CREATE INDEX IF NOT EXISTS idx_invites_batch ON hub_invites(batch_id);
 """
 
 DEFAULTS = {
-    "enabled": False,
-    "invitation_enabled": False,
     "default_model_id": None,
     "member_token_limit": None,
     "timezone": "UTC",

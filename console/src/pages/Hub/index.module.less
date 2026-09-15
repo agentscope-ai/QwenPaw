@@ -1355,3 +1355,35 @@
     }
   }
 }
+
+.registrationChoices {
+  display: grid;
+  gap: 10px;
+  :global(.qwenpaw-radio-wrapper) {
+    align-items: flex-start;
+    margin: 0;
+    padding: 14px;
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    background: var(--app-surface);
+    strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    span span {
+      display: block;
+      margin-top: 5px;
+      color: var(--app-text-secondary);
+      font-size: 11px;
+    }
+  }
+  :global(.qwenpaw-radio-wrapper-checked) {
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+  }
+}
+
+.accessSettings {
+  max-width: 740px;
+}

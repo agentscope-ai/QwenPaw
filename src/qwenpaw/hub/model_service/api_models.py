@@ -20,8 +20,6 @@ class PolicyBody(StrictBody):
     """Revision-checked organization defaults."""
 
     revision: int = Field(ge=1)
-    enabled: bool = False
-    invitation_enabled: bool = False
     default_model_id: str | None = None
     member_token_limit: int | None = Field(default=None, ge=0)
     timezone: str = "UTC"
