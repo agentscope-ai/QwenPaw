@@ -8,6 +8,7 @@ agent state back to session storage after the response completes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ..base import LifecycleHook
@@ -81,7 +82,10 @@ class SessionLoadHook(LifecycleHook):
         if ctx.session_state:
             prepare_console_regeneration(ctx.session_state, ctx.request)
             if getattr(ctx.request, "channel", None) == "console":
-                repair_invalid_history_images(ctx.session_state)
+                await asyncio.to_thread(
+                    repair_invalid_history_images,
+                    ctx.session_state,
+                )
         return HookResult()
 
 

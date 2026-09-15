@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 CLIENT_ID = "qwenpaw_client_message_id"
 TURN_STATE = "qwenpaw_turn_state"
@@ -33,7 +34,12 @@ def repair_invalid_history_images(data: dict) -> None:
             parsed = urlparse(str(source.get("url", "")))
             if parsed.scheme != "file":
                 continue
-            path = Path(unquote(parsed.path))
+            # Preserve UNC authorities and let the host platform handle drive
+            # letters and percent escapes (decode exactly once).
+            uri_path = parsed.path
+            if parsed.netloc and parsed.netloc.lower() != "localhost":
+                uri_path = f"//{parsed.netloc}{uri_path}"
+            path = Path(url2pathname(uri_path))
             if not path.is_file():
                 continue
             try:
