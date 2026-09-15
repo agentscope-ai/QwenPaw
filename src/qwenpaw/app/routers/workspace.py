@@ -13,11 +13,13 @@ import io
 import json
 import logging
 import mimetypes
+import os
+import queue
 import secrets
 import shutil
 import stat
 import tempfile
-import os
+import threading
 import zipfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -35,7 +37,6 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
-from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
@@ -91,7 +92,8 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 logger = logging.getLogger(__name__)
 _FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
 _WATCH_HEARTBEAT_SECONDS = 30.0
-_WATCH_POLL_TIMEOUT_MS = 1_000
+_WATCH_POLL_INTERVAL_SECONDS = 2.0
+_WATCH_QUEUE_TIMEOUT_SECONDS = 1.0
 
 
 class MdFileInfo(BaseModel):
@@ -245,10 +247,6 @@ _SKIP_NAMES: frozenset[str] = frozenset(
         ".hypothesis",
     },
 )
-
-
-def _should_skip(rel_parts: tuple[str, ...]) -> bool:
-    return any(p.startswith(".") or p in _SKIP_NAMES for p in rel_parts)
 
 
 def _is_skipped_name(name: str) -> bool:
@@ -1064,6 +1062,84 @@ async def write_code_file(
     return {"path": file_path, "size": size}
 
 
+def _scan_snapshot(watch_dir: Path) -> dict[str, tuple[int, int]]:
+    """Walk ``watch_dir`` and snapshot every non-ignored file.
+
+    Returns ``{rel_posix_path: (mtime_ns, size)}``. Dotfiles and
+    ``_SKIP_NAMES`` entries (``node_modules``, ``.venv``, ``.git``, ...) are
+    pruned while walking so huge dependency trees never get scanned. Runs as
+    plain Python, so it releases the GIL at bytecode boundaries and is safe
+    to call from a background thread.
+    """
+    snapshot: dict[str, tuple[int, int]] = {}
+    stack: list[tuple[Path, str]] = [(watch_dir, "")]
+    while stack:
+        dir_path, rel = stack.pop()
+        try:
+            with os.scandir(dir_path) as it:
+                for entry in it:
+                    if _is_skipped_name(entry.name):
+                        continue
+                    rel_path = f"{rel}/{entry.name}" if rel else entry.name
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append((Path(entry.path), rel_path))
+                        else:
+                            st = entry.stat(follow_symlinks=False)
+                            snapshot[rel_path] = (st.st_mtime_ns, st.st_size)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return snapshot
+
+
+def _diff_events(
+    prev: dict[str, tuple[int, int]],
+    cur: dict[str, tuple[int, int]],
+) -> list[dict[str, str]]:
+    """Diff two snapshots into ``{"change": ..., "path": ...}`` events."""
+    events: list[dict[str, str]] = []
+    for path in sorted(cur.keys() - prev.keys()):
+        events.append({"change": "added", "path": path})
+    for path in sorted(prev.keys() - cur.keys()):
+        events.append({"change": "deleted", "path": path})
+    for path in sorted(prev.keys() & cur.keys()):
+        if cur[path] != prev[path]:
+            events.append({"change": "modified", "path": path})
+    return events
+
+
+def _poll_watch_worker(
+    watch_dir: Path,
+    out: queue.Queue[tuple[str, object]],
+    stop: threading.Event,
+    interval: float,
+) -> None:
+    """Background poller: baseline snapshot, then periodic diff.
+
+    Emits ``("ready", None)`` after the initial scan, ``("changes", events)``
+    for each poll that observed file changes, and ``("done", None)`` when
+    stopped. Runs entirely off the event loop — the initial baseline scan is
+    the expensive part on large workspaces and must never block the loop
+    (see https://github.com/agentscope-ai/QwenPaw/issues/7721).
+    """
+    try:
+        prev = _scan_snapshot(watch_dir)
+        out.put(("ready", None))
+        while not stop.wait(interval):
+            try:
+                cur = _scan_snapshot(watch_dir)
+            except Exception:
+                continue
+            events = _diff_events(prev, cur)
+            prev = cur
+            if events:
+                out.put(("changes", events))
+    finally:
+        out.put(("done", None))
+
+
 @router.get(
     "/watch",
     summary="SSE stream for agent workspace file changes",
@@ -1098,64 +1174,65 @@ async def workspace_watch_events(
     request: Request,
     watch_dir: Path,
 ) -> AsyncIterator[str]:
-    """Yield workspace file changes without cancelling the watcher on idle."""
+    """Yield workspace file changes without cancelling the watcher on idle.
+
+    A background thread owns all filesystem scanning: the initial baseline
+    scan (the expensive part on large workspaces) and every poll run off the
+    event loop, so opening the file browser on a huge tree can never freeze
+    the server (see https://github.com/agentscope-ai/QwenPaw/issues/7721).
+    """
     yield 'data: {"type": "connected"}\n\n'
-    watcher = awatch(
-        watch_dir,
-        rust_timeout=_WATCH_POLL_TIMEOUT_MS,
-        yield_on_timeout=True,
+    loop = asyncio.get_running_loop()
+    stop = threading.Event()
+    out: queue.Queue[tuple[str, object]] = queue.Queue()
+    thread = threading.Thread(
+        target=_poll_watch_worker,
+        args=(watch_dir, out, stop, _WATCH_POLL_INTERVAL_SECONDS),
+        name="workspace-watch",
+        daemon=True,
     )
-    last_emit = asyncio.get_running_loop().time()
+    thread.start()
+    last_emit = loop.time()
     try:
         while True:
             if await request.is_disconnected():
                 break
             try:
-                raw_changes = await watcher.__anext__()
-            except (
-                StopAsyncIteration,
-                asyncio.CancelledError,
-                GeneratorExit,
-            ):
+                kind, payload = await asyncio.to_thread(
+                    out.get,
+                    True,
+                    _WATCH_QUEUE_TIMEOUT_SECONDS,
+                )
+            except queue.Empty:
+                kind, payload = None, None
+
+            now = loop.time()
+            if kind == "ready":
+                # Initial baseline scan finished; incremental events follow.
+                yield 'data: {"type": "ready"}\n\n'
+                last_emit = now
+            elif kind == "changes":
+                events = payload
+                if events:
+                    payload_json = json.dumps(
+                        {"type": "file_change", "events": events},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {payload_json}\n\n"
+                    last_emit = now
+            elif kind == "done":
                 break
 
-            events = []
-            for change_type, path in raw_changes:
-                try:
-                    rel = Path(path).relative_to(watch_dir)
-                except ValueError:
-                    continue
-                if _should_skip(rel.parts):
-                    continue
-                change_name = (
-                    "added"
-                    if change_type is Change.added
-                    else "deleted"
-                    if change_type is Change.deleted
-                    else "modified"
-                )
-                events.append(
-                    {"change": change_name, "path": rel.as_posix()},
-                )
-
-            now = asyncio.get_running_loop().time()
-            if events:
-                payload = json.dumps(
-                    {"type": "file_change", "events": events},
-                    ensure_ascii=False,
-                )
-                yield f"data: {payload}\n\n"
-                last_emit = now
-            elif now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
+            # Heartbeat also fires during a long initial scan (the loop is
+            # never blocked waiting for it), keeping proxies from timing out.
+            if now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
                 yield ": heartbeat\n\n"
                 last_emit = now
     except (asyncio.CancelledError, GeneratorExit):
         pass
     finally:
-        try:
-            await watcher.aclose()
-        except Exception:
-            pass
+        stop.set()
+        thread.join(timeout=_WATCH_POLL_INTERVAL_SECONDS + 1.0)
 
 
 @router.get(
