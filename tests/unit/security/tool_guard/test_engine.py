@@ -629,3 +629,35 @@ class TestSharedSafetyAutoDenyIntegration:
         )
         assert result is not None
         assert eng.should_auto_deny_result(result) is True
+
+
+class TestShellEvasionChecksDefault:
+    """Regression: shell-evasion checks must be ON by default.
+
+    Enabling them by default hardens the out-of-the-box posture so common
+    obfuscation patterns (command substitution, flag obfuscation, hidden
+    newlines, ...) are surfaced without the user having to opt in.
+    """
+
+    def test_default_shell_evasion_checks_all_enabled(self):
+        from qwenpaw.config.config import _default_shell_evasion_checks
+
+        defaults = _default_shell_evasion_checks()
+        assert defaults, "expected at least one check to be configured"
+        disabled = [name for name, on in defaults.items() if not on]
+        assert (
+            not disabled
+        ), f"shell-evasion checks disabled by default: {disabled}"
+
+    def test_shell_evasion_guardian_fires_when_enabled(self):
+        """A command-substitution pattern is flagged with default config."""
+        eng = ToolGuardEngine()
+        result = eng.guard(
+            "execute_shell_command",
+            {"command": "echo $(cat /etc/passwd)"},
+        )
+        assert result is not None
+        assert any(
+            "COMMAND_SUBSTITUTION" in (f.rule_id or "")
+            for f in result.findings
+        )
