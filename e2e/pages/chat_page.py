@@ -40,7 +40,23 @@ class ChatPage(BasePage):
 
     # Navigation and new chat (compatible with both spark-icon and anticon icon sets)
     NEW_CHAT_BTN = 'button:has(.spark-icon-spark-newChat-fill), button:has(.anticon-plus), button:has([class*="newChat"])'
-    SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
+    # Conversation-history disclosure button in the sidebar.
+    #
+    # The previous value ended with a very broad ``button:has([class*="history"])``
+    # which, after #7502, matches *two different* buttons: the
+    # ``sidebarSessionList-module__historyHeader`` disclosure toggle (onClick =
+    # ``setHistoryCollapsed(c => !c)``) and, when the sidebar is collapsed, the
+    # ``collapsedNavItem`` history button in ``Sidebar.tsx`` whose onClick opens a
+    # Popover instead of expanding the inline list. Playwright resolves a
+    # comma-separated selector as a union and ``.first`` picks the *first match in
+    # DOM order* — not the first alternative written — so listing a precise
+    # anchor before a broad one does **not** create a preference order. Anchor on
+    # the module-scoped ``historyHeader`` class instead: it exists in the same
+    # ``sidebarSessionList.module.less`` both before and after #7502, and the
+    # element is a ``<button>`` in both, so one selector covers both generations.
+    # ``button`` also excludes the sibling ``historyHeaderRow`` container (a
+    # ``<div>``) whose scoped name contains ``historyHeader`` as a substring.
+    SESSION_LIST_BTN = 'button[class*="historyHeader"]'
 
     # Input area
     CHAT_INPUT = (
@@ -61,21 +77,52 @@ class ChatPage(BasePage):
     WELCOME_TEXT = CHAT_INPUT
     QUICK_ACTIONS = '.quick-action'
 
-    # Session management (right-side "All Chats" drawer).
-    # Post v2.0.0 redesign the SessionItem container is a hashed CSS-Module
-    # class (``styles.item``) carrying ``role="button"``; the legacy
-    # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
-    # role, keeping the old class as a fallback for older builds.
+    # Session management.
+    #
+    # Upstream #7502 ("redesign sidebar and settings experience") removed the
+    # right-side "All Chats" drawer entirely: ``ChatSessionDrawer`` is gone
+    # (upstream now asserts it is not even referenced — see
+    # ``console/src/pages/Chat/index.module.test.ts``) and the session list
+    # lives only in ``console/src/layouts/SidebarSessionList.tsx``. The list
+    # container changed from ``styles.listWrapper`` to ``styles.scroll``
+    # (``listWrapper`` survives only as the *ref variable name*
+    # ``listWrapperRef``), so the ancestor prefix ``[class*=listWrapper]`` used
+    # to scope these selectors no longer matches anything and every session
+    # lookup silently returned 0 items.
+    #
+    # The ``SessionItem`` component itself did *not* change shape: both before
+    # and after #7502 its root element is
+    # ``<div className={cls} role="button">`` where ``cls`` is built from
+    # ``styles.item`` of ``sessionItem.module.less``. With the build's
+    # ``generateScopedName: "[name]__[local]__[hash:base64:5]"`` that renders as
+    # ``sessionItem-module__item__<hash>``. So the module-scoped class name plus
+    # ``role="button"`` is a stable two-anchor handle across both generations,
+    # and — because ``SessionItem`` has exactly one render site in the whole
+    # console — it needs no ancestor prefix to stay unambiguous.
+    #
+    # ``[class*="chatSessionItem"]`` is kept as a fallback for builds older than
+    # the v2.0.0 redesign.
     SESSION_ITEM = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"], '
+        'div[role="button"][class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
+    # Active item: ``.active`` is nested (``&.active``) inside ``.item`` in the
+    # same module, so its scoped name carries the ``sessionItem-module__``
+    # prefix too. Matching the prefixed name rather than a bare
+    # ``[class*=active]`` keeps the selector from latching onto unrelated
+    # active-looking classes.
     SESSION_ACTIVE = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"][class*=active], '
+        'div[role="button"][class*="sessionItem-module__item"]'
+        '[class*="sessionItem-module__active"], '
         '[class*=chatSessionItem][class*=active]'
     )
+    # Session title element: ``<div className={styles.name}>``. Scoped to
+    # ``sessionItem-module__name`` on purpose — a bare ``[class*=name]`` also
+    # matches the sibling ``styles.renameInput`` element ("re**name**Input"),
+    # which would return the edit box instead of the title.
     SESSION_NAME = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"] [class*=name], '
+        'div[role="button"][class*="sessionItem-module__item"] '
+        '[class*="sessionItem-module__name"], '
         '[class*=chatSessionItem] [class*=name]'
     )
     # SessionItem actions now live behind a "more" button (SparkMoreLine)
