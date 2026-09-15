@@ -1,0 +1,164 @@
+{
+  "$comment": "PROPOSAL EXAMPLE ONLY. Limited Direct project-opening and configuration fragment; not the complete P2 delegated execution manifest. The current QwenPaw loader does not implement this schema. API schema version is independent from the document version.",
+  "schema_version": "pawapp/2",
+  "id": "qwenpaw-creator",
+  "name": "QwenPaw Creator",
+  "version": "1.0.0",
+  "type": "app",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/dist/index.js"
+  },
+  "pawapp": {
+    "summary": "Develop a confirmed script into an editable video project.",
+    "entry_page": "/apps/qwenpaw-creator",
+    "actions": [
+      {
+        "id": "qwenpaw-creator:create-video",
+        "description": "Open a video project from a confirmed script. Opening does not start generation.",
+        "engagements": [
+          "direct"
+        ],
+        "default_engagement": "direct",
+        "surfaces": [
+          {
+            "kind": "workbench",
+            "engagements": [
+              "direct"
+            ],
+            "entry_ref": "creator-registered-project-page"
+          }
+        ],
+        "transitions": [],
+        "accepts": [
+          {
+            "role": "script",
+            "type": "qwenpaw:script-draft",
+            "schema_version": "1",
+            "required": true
+          },
+          {
+            "role": "reference",
+            "type": "qwenpaw:research-bundle",
+            "schema_version": "1",
+            "required": false
+          }
+        ],
+        "produces": [
+          {
+            "type": "qwenpaw:video-asset",
+            "schema_version": "1"
+          }
+        ],
+        "effects": {
+          "open": [
+            "project:create-or-open"
+          ],
+          "generate": [
+            "provider:billable-generation"
+          ]
+        },
+        "hooks": {
+          "prepare": "creator.prepare_video",
+          "handoff": "creator.open_video_project",
+          "task_status": "creator.task_status"
+        },
+        "setup_requirements": [
+          {
+            "required_for": "generate",
+            "when": "plan.uses_image_generation",
+            "requirement_ref": "storyboard-image"
+          },
+          {
+            "required_for": "generate",
+            "when": "plan.uses_video_generation",
+            "requirement_ref": "shot-video"
+          }
+        ]
+      }
+    ],
+    "task_contract": "qwenpaw:task-envelope@1",
+    "configuration": {
+      "version": 1,
+      "authorities": [
+        "HostBinding",
+        "AppLocal"
+      ],
+      "models": [
+        {
+          "id": "storyboard-image",
+          "capability": "image.generate",
+          "required_for": [
+            "generate-storyboard"
+          ],
+          "binding_scopes": [
+            "project",
+            "app-default"
+          ],
+          "delivery": "model_handle",
+          "setup_entry": "creator-image-model"
+        },
+        {
+          "id": "shot-video",
+          "capability": "video.generate",
+          "required_for": [
+            "generate-video"
+          ],
+          "binding_scopes": [
+            "project",
+            "app-default"
+          ],
+          "delivery": "backend_adapter",
+          "setup_entry": "creator-video-model"
+        }
+      ],
+      "setup_entries": [
+        {
+          "id": "creator-image-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "image-generation",
+          "presentations": [
+            "app_entry"
+          ],
+          "context_schema_version": "pawapp:setup-context@1",
+          "ui_owner": "app",
+          "fallback": {
+            "entry_ref": "creator-registered-project-page",
+            "behavior": "open-project-with-unresolved-setup-notice"
+          }
+        },
+        {
+          "id": "creator-video-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "video-generation",
+          "presentations": [
+            "app_entry"
+          ],
+          "context_schema_version": "pawapp:setup-context@1",
+          "ui_owner": "app",
+          "fallback": {
+            "entry_ref": "creator-registered-project-page",
+            "behavior": "open-project-with-unresolved-setup-notice"
+          }
+        }
+      ]
+    }
+  },
+  "permissions": [
+    {
+      "resource": "artifact",
+      "operations": [
+        "read-selected",
+        "publish"
+      ],
+      "scope": "current-task"
+    },
+    {
+      "resource": "provider",
+      "operations": [
+        "generate"
+      ],
+      "scope": "explicit-binding"
+    }
+  ]
+}
