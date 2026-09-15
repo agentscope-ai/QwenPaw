@@ -157,10 +157,10 @@ qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
 qwenpaw-data = [
-    "qwenpaw-data-context>=0.1,<0.2",
-    "qwenpaw-data-host-core>=0.1,<0.2",
-    "qwenpaw-data-cli>=0.1,<0.2",
-    "qwenpaw-data-skills>=0.1,<0.2",
+    "qwenpaw-data-context>=0.3,<0.4",
+    "qwenpaw-data-host-core[service]>=0.3,<0.4",
+    "qwenpaw-data-cli>=0.3,<0.4",
+    "qwenpaw-data-skills>=0.3,<0.4",
 ]
 full = [
     "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",

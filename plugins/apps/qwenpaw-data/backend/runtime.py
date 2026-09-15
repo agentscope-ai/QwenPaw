@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
+import stat
 import sys
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -15,8 +17,11 @@ DEV_DIR = PLUGIN_DIR / ".qwenpaw-data-dev"
 
 
 def runtime_packages_available() -> bool:
-    """Return True when the current interpreter can run the context sidecar."""
-    for module in ("context_manager", "qwenpaw_data.host.core"):
+    """Return True when the current interpreter can run both sidecars."""
+    for module in (
+        "context_manager.api.server",
+        "qwenpaw_data.host.core.api.app",
+    ):
         try:
             importlib.import_module(module)
         except ImportError:
@@ -115,3 +120,72 @@ def skill_layers(root: Path) -> list[Path]:
         ):
             layers.append(candidate)
     return layers
+
+
+DATABRIDGE_MCP_NAME = "databridge"
+
+
+def provision_engine_mcp(
+    engine_home: Path,
+    cm_url: str,
+    cm_token: str,
+) -> Path | None:
+    """Upsert the DataBridge MCP entry in the engine workspace ``.mcp``.
+
+    The engine only exposes CM tools to the sandboxed agent through the
+    AgentScope ``.mcp`` file; the CLI provisions it via ``qwenpaw-data mcp
+    import`` but a managed engine has no such step, leaving agents without
+    any datasource. The entry is rewritten on every start because a managed
+    context sidecar may come up on a different port, while entries under
+    other names are preserved as user configuration.
+    """
+    if not cm_url:
+        return None
+    workspace = engine_home / "host" / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    mcp_path = workspace / ".mcp"
+
+    flags = os.O_RDWR | os.O_CREAT
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(mcp_path, flags, 0o600)
+    with os.fdopen(fd, "r+", encoding="utf-8") as mcp_file:
+        if not stat.S_ISREG(os.fstat(mcp_file.fileno()).st_mode):
+            raise OSError(f"MCP target is not a regular file: {mcp_path}")
+        os.fchmod(mcp_file.fileno(), 0o600)
+
+        entries: list[dict] = []
+        try:
+            existing = json.load(mcp_file)
+        except (OSError, ValueError):
+            existing = []
+        if isinstance(existing, list):
+            entries = [
+                item
+                for item in existing
+                if isinstance(item, dict)
+                and item.get("name") != DATABRIDGE_MCP_NAME
+            ]
+
+        headers: dict[str, str] = {}
+        if cm_token:
+            headers["Authorization"] = f"Bearer {cm_token}"
+        entries.insert(
+            0,
+            {
+                "name": DATABRIDGE_MCP_NAME,
+                "is_stateful": False,
+                "mcp_config": {
+                    "type": "http_mcp",
+                    "url": f"{cm_url.rstrip('/')}/mcp/v1/cm",
+                    "headers": headers,
+                    "timeout": 2400.0,
+                },
+                "enable_tools": None,
+                "disable_tools": None,
+                "execution_timeout": 2400.0,
+            },
+        )
+        mcp_file.seek(0)
+        json.dump(entries, mcp_file, indent=2)
+        mcp_file.truncate()
+    return mcp_path
