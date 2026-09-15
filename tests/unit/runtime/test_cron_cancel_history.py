@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 """Cron cancellation must preserve persisted history, not just the new turn."""
+# pylint: disable=protected-access
 
 import asyncio
 from types import SimpleNamespace
@@ -34,7 +36,9 @@ class Agent:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ending", ["success", "timeout", "stop"])
 async def test_runtime_keeps_old_history_on_disk(
-    tmp_path, monkeypatch, ending
+    tmp_path,
+    monkeypatch,
+    ending,
 ):
     """Use the real lifecycle and JSON store; replace only model execution."""
     old = [
@@ -44,11 +48,16 @@ async def test_runtime_keeps_old_history_on_disk(
         message("2", "assistant"),
     ]
     state = AgentState(
-        session_id="cron:test", context=old, summary="old summary"
+        session_id="cron:test",
+        context=old,
+        summary="old summary",
     )
     session = SafeJSONSession(save_dir=str(tmp_path))
     await session.save_session_state(
-        "cron:test", "user", "console", agent=Agent(state)
+        "cron:test",
+        "user",
+        "console",
+        agent=Agent(state),
     )
     hooks = HookRegistry()
     for hook in [
@@ -65,7 +74,7 @@ async def test_runtime_keeps_old_history_on_disk(
             hook_registry=hooks,
             modes=[],
             slash_command_registry=SimpleNamespace(
-                dispatch=AsyncMock(return_value=None)
+                dispatch=AsyncMock(return_value=None),
             ),
         ),
     )
@@ -79,7 +88,7 @@ async def test_runtime_keeps_old_history_on_disk(
             return Agent(AgentState.model_validate(ctx.session_state["state"]))
 
     class Executor:
-        def __init__(self, agent, envelope):
+        def __init__(self, agent, _envelope):
             self.agent = agent
 
         async def run(self, inputs):
@@ -87,12 +96,13 @@ async def test_runtime_keeps_old_history_on_disk(
             assert not self.agent.state.context
             self.agent.state.context.extend(inputs)
             self.agent.state.context.append(
-                message("本次已产生的内容", "assistant")
+                message("本次已产生的内容", "assistant"),
             )
             started.set()
             if ending != "success":
                 await asyncio.Event().wait()
-            if False:
+            # Keep this no-output executor an async generator.
+            if False:  # pylint: disable=using-constant-test
                 yield
 
     monkeypatch.setattr("qwenpaw.runtime.runtime.AgentBuilder", Builder)
@@ -110,9 +120,9 @@ async def test_runtime_keeps_old_history_on_disk(
                     {
                         "role": "user",
                         "content": [{"type": "text", "text": "长任务"}],
-                    }
+                    },
                 ],
-            }
+            },
         ):
             pass
 
@@ -129,7 +139,9 @@ async def test_runtime_keeps_old_history_on_disk(
         await task
 
     saved = await session.get_session_state_dict(
-        "cron:test", "user", "console"
+        "cron:test",
+        "user",
+        "console",
     )
     result = saved["agent"]["state"]
     assert [m["id"] for m in result["context"][:4]] == [m.id for m in old]
@@ -141,7 +153,8 @@ async def test_runtime_keeps_old_history_on_disk(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("previous_count", [0, 2])
 async def test_restoration_is_not_duplicated_on_cancel(
-    tmp_path, previous_count
+    tmp_path,
+    previous_count,
 ):
     old = [message(str(i)) for i in range(previous_count)]
     agent = Agent(AgentState(context=old, summary="old summary"))
@@ -161,7 +174,9 @@ async def test_restoration_is_not_duplicated_on_cancel(
     runtime = Runtime(workspace=ctx.workspace, app_services=None)
     await runtime._try_save_on_cancel(ctx)
     saved = await session.get_session_state_dict(
-        "cron:test", "user", "console"
+        "cron:test",
+        "user",
+        "console",
     )
     assert [m["id"] for m in saved["agent"]["state"]["context"]] == [
         m.id for m in [*old, new]
@@ -176,7 +191,10 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
     agent = Agent(AgentState(context=[old]))
     session = SafeJSONSession(save_dir=str(tmp_path))
     await session.save_session_state(
-        "cron:test", "user", "console", agent=agent
+        "cron:test",
+        "user",
+        "console",
+        agent=agent,
     )
     ctx = SimpleNamespace(
         extras={"is_cron": True},
@@ -209,7 +227,9 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
     else:
         await SessionSaveHook().run(ctx)
     saved = await session.get_session_state_dict(
-        "cron:test", "user", "console"
+        "cron:test",
+        "user",
+        "console",
     )
     assert [m["id"] for m in saved["agent"]["state"]["context"]] == [old.id]
     # A failed restore must retain the snapshot for a possible retry.
