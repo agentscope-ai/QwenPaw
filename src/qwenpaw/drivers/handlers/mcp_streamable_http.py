@@ -140,7 +140,7 @@ def _parse_jsonrpc_error_code(payload: Any) -> int | None:
 
 
 def _extract_jsonrpc_error_payload(data: Any) -> dict[str, Any] | None:
-    """Return an error object from standard or Java-sdk ``jsonRpcError`` bodies."""
+    """Error object from standard or Java-sdk ``jsonRpcError`` bodies."""
     if not isinstance(data, dict):
         return None
     if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
