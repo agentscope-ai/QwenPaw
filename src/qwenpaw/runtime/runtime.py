@@ -255,13 +255,12 @@ class Runtime:
            This runs *outside* the ``try/except`` that wraps
            ``hooks.run(Phase.ON_ERROR)``, so it executes even when
            re-cancellation skips all ON_ERROR hooks.  The synchronous
-           parts (inject + state_dict) complete before any ``await``,
+           parts (inject + restore + state_dict) complete before any ``await``,
            and ``asyncio.shield`` protects the I/O — guarantees that a
            generic hook framework cannot provide.
 
-        TODO: Currently only ``SessionSaveHook`` has a cancel-path
-         equivalent here.  Other ``POST_RESPONSE`` hooks (e.g.
-         ``CronMemoryRestoreHook``) and plugin-registered hooks are
+        TODO: Session saving and cron history restoration have cancel-path
+         equivalents here. Other ``POST_RESPONSE`` and plugin hooks are
          skipped on /stop.  A future improvement should unify the
          cancel and normal paths — e.g. via a dedicated ``ON_CANCEL``
          phase with per-hook shield execution — so plugins can
@@ -290,8 +289,10 @@ class Runtime:
             if envelope is not None:
                 self._inject_partial_response(agent, envelope)
 
+            from ..hooks.cron.cron_hook import restore_cron_context
             from ._state_utils import StateProxy
 
+            restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = agent.state_dict()
             request = ctx.request
