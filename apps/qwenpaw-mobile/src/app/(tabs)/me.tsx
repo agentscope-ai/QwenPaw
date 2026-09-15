@@ -37,6 +37,7 @@ import {
 } from "../../api/platform";
 import type { PlatformRelayStatus } from "../../api/types";
 import { AgentAvatar } from "../../features/agents/AgentAvatar";
+import { RelayNodesSheet } from "../../features/platform/RelayNodesSheet";
 import { workspaceName } from "../../features/workspaces/WorkspaceSwitcher";
 import { resolveAgentAppearance } from "../../storage/agentAppearance";
 import { connectionKey } from "../../storage/connection";
@@ -72,6 +73,7 @@ export default function MeScreen() {
   const handledRelayReturn = useRef(false);
   const relayRequestId = useRef(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [relayNodesOpen, setRelayNodesOpen] = useState(false);
   const activeAgent = agents.find((agent) => agent.id === connection?.agentId);
   const activeAppearance = resolveAgentAppearance(
     appearances,
@@ -414,13 +416,21 @@ export default function MeScreen() {
             trailing={platformSession ? "已登录" : "未登录"}
           />
           {platformSession ? (
-            <IosRow
-              destructive
-              icon={LogOut}
-              iconTone="ink"
-              label="退出 Platform"
-              onPress={confirmPlatformLogout}
-            />
+            <>
+              <IosRow
+                icon={Server}
+                label="自部署连接"
+                onPress={() => setRelayNodesOpen(true)}
+                subtitle="查看额度、解除绑定和清理离线连接"
+              />
+              <IosRow
+                destructive
+                icon={LogOut}
+                iconTone="ink"
+                label="退出 Platform"
+                onPress={confirmPlatformLogout}
+              />
+            </>
           ) : (
             <IosRow
               icon={LogIn}
@@ -496,6 +506,16 @@ export default function MeScreen() {
       <AppearanceSheet
         onClose={() => setAppearanceOpen(false)}
         visible={appearanceOpen}
+      />
+      <RelayNodesSheet
+        currentNodeId={relayStatus?.node_id}
+        onClose={() => setRelayNodesOpen(false)}
+        onRevoked={(nodeId) => {
+          if (nodeId === relayStatus?.node_id) {
+            setRelayStatus({ status: "not_connected" });
+          }
+        }}
+        visible={relayNodesOpen}
       />
     </SafeAreaView>
   );
