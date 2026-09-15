@@ -161,6 +161,7 @@ vi.mock("@/api/modules/chat", () => ({
     resolveChat: mockResolveChat,
     uploadFile: mockUploadFile,
     getChatStatus: mockGetChatStatus,
+    getChatSpec: vi.fn(async (id: string) => ({ id, meta: {} })),
     filePreviewUrl: mockFilePreviewUrl,
     stopChat: vi.fn(() => Promise.resolve()),
   },
@@ -231,6 +232,10 @@ vi.mock("./sessionApi", () => ({
     })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
+    preloadSession: vi.fn(async () => ({
+      session: { id: "test-session", messages: [] },
+      realId: null,
+    })),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
     setVisibleSession: vi.fn(),

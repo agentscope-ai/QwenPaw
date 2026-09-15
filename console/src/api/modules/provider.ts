@@ -10,6 +10,7 @@ import type {
   CreateCustomProviderRequest,
   AddModelRequest,
   ModelConfigRequest,
+  RealtimeVoiceModelConfig,
   LocalActionResponse,
   LocalModelConfig,
   LocalModelConfigRequest,
@@ -118,6 +119,39 @@ export const providerApi = {
       activeModelPromises.clear();
       return result;
     }),
+
+  setActiveRealtimeVoice: (body: ModelSlotRequest) =>
+    request<ActiveModelsInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify({ ...body, slot: "realtime_voice" }),
+    }).then((result) => {
+      activeModelPromises.clear();
+      return result;
+    }),
+
+  setActiveVoiceRouter: (body: ModelSlotRequest) =>
+    request<ActiveModelsInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify({ ...body, slot: "voice_router" }),
+    }).then((result) => {
+      activeModelPromises.clear();
+      return result;
+    }),
+
+  configureRealtimeVoiceModel: (
+    providerId: string,
+    modelId: string,
+    body: Omit<RealtimeVoiceModelConfig, "id" | "name">,
+  ) =>
+    request<RealtimeVoiceModelConfig>(
+      `/models/${encodeURIComponent(
+        providerId,
+      )}/realtime-models/${encodeURIComponent(modelId)}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
 
   /* ---- Custom provider CRUD ---- */
 

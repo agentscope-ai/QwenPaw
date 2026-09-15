@@ -17,6 +17,7 @@ export const SparkCopyLine = makeIcon("SparkCopyLine");
 export const SparkAttachmentLine = makeIcon("SparkAttachmentLine");
 export const SparkNewChatFill = makeIcon("SparkNewChatFill");
 export const SparkNewChatLine = makeIcon("SparkNewChatLine");
+export const SparkVoiceChat01Line = makeIcon("SparkVoiceChat01Line");
 export const SparkHistoryLine = makeIcon("SparkHistoryLine");
 export const SparkOperateLeftLine = makeIcon("SparkOperateLeftLine");
 export const SparkOperateRightLine = makeIcon("SparkOperateRightLine");

@@ -1,9 +1,13 @@
 import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
+import { SparkNewChatLine, SparkVoiceChat01Line } from "@agentscope-ai/icons";
+import { DownOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { Flex, Tooltip, message } from "antd";
+import { Dropdown, Flex, Tooltip, message } from "antd";
+import type { MenuProps } from "antd";
 import { Files, Terminal } from "lucide-react";
+import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import styles from "./ChatActionGroup.module.less";
 
 interface ChatActionGroupProps {
@@ -11,6 +15,10 @@ interface ChatActionGroupProps {
   terminalOpen?: boolean;
   terminalEnabled?: boolean;
   terminalDisabledReason?: string;
+  /** Start a new dedicated realtime Voice Chat. */
+  onCreateVoiceChat?: () => void;
+  /** Voice Chat is unavailable while capability discovery or startup runs. */
+  voiceChatDisabled?: boolean;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
 }
@@ -20,13 +28,62 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   terminalOpen = false,
   terminalEnabled = false,
   terminalDisabledReason = "",
+  onCreateVoiceChat,
+  voiceChatDisabled = false,
   onToggleWorkspace,
   workspaceOpen = false,
 }) => {
   const { t } = useTranslation();
 
+  const createNewSession = useCreateNewSession();
+
+  const newChatItems: MenuProps["items"] = onCreateVoiceChat
+    ? [
+        {
+          key: "chat",
+          icon: <SparkNewChatLine size={18} />,
+          label: t("chat.newTask"),
+          onClick: createNewSession,
+        },
+        {
+          key: "voice",
+          icon: <SparkVoiceChat01Line />,
+          label: t("realtimeVoice.newChat"),
+          disabled: voiceChatDisabled,
+          onClick: onCreateVoiceChat,
+        },
+      ]
+    : [];
+
   return (
     <Flex className={styles.actionGroup} gap={8} align="center">
+      <Flex gap={0} className={styles.newChatSplitButton}>
+        <Tooltip title={t("chat.newTask")} mouseEnterDelay={0.5}>
+          <IconButton
+            className={onCreateVoiceChat ? styles.newChatPrimary : undefined}
+            bordered={false}
+            aria-label={t("chat.newTask")}
+            icon={<SparkNewChatLine size={18} />}
+            style={{ width: 32, height: 32, padding: 0 }}
+            onClick={createNewSession}
+          />
+        </Tooltip>
+        {onCreateVoiceChat && (
+          <Dropdown
+            menu={{ items: newChatItems }}
+            trigger={["click"]}
+            placement="bottomRight"
+          >
+            <IconButton
+              className={styles.newChatMenu}
+              bordered={false}
+              aria-label={t("chat.newChatMenu")}
+              icon={<DownOutlined />}
+              style={{ height: 32 }}
+            />
+          </Dropdown>
+        )}
+      </Flex>
       {onToggleTerminal && (
         <Tooltip title={t("terminal.title")} mouseEnterDelay={0.5}>
           <IconButton

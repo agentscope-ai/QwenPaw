@@ -31,7 +31,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Alert, Button, Modal, Result, Tooltip } from "antd";
+import { Alert, Button, Modal, Result, Spin, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import {
@@ -44,10 +44,10 @@ import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
 import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi from "./sessionApi";
+import sessionApi, { toTimelineEvents } from "./sessionApi";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -63,6 +63,8 @@ import {
 import {
   attachClientMessageId,
   createClientMessageId,
+  extractClientMessageId,
+  latestUserMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
@@ -173,6 +175,7 @@ import type {
   FilesDrawerEvent,
   FileTarget,
 } from "../../features/files-workspace/types";
+
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
@@ -195,6 +198,22 @@ import { scrollReverseMessageList } from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
+
+type IAgentScopeRuntimeWebUIOptions =
+  import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIOptions;
+type IAgentScopeRuntimeWebUIRef =
+  import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIRef;
+type IAgentScopeRuntimeWebUISenderBeforeSubmitResult = {
+  proceed: true;
+  query: string;
+};
+const { AgentScopeRuntimeWebUI, useChatAnywhereInput } = AgentScopeChat;
+const sessionTimelineVersion =
+  "SESSION_TIMELINE_MODE_VERSION" in AgentScopeChat
+    ? Reflect.get(AgentScopeChat, "SESSION_TIMELINE_MODE_VERSION")
+    : undefined;
+const supportsSessionTimeline =
+  typeof sessionTimelineVersion === "number" && sessionTimelineVersion >= 4;
 
 interface ApprovalMessageData {
   requestId: string;
@@ -233,6 +252,34 @@ function resolveBackendChatId(chatId?: string | null): string | undefined {
     ? chatId
     : undefined;
 }
+
+// The SDK treats this partial message as a stream no-op before reading any
+// other message fields, while its public type still requires a full message.
+type ParsedRuntimeChunk = ReturnType<
+  NonNullable<IAgentScopeRuntimeWebUIOptions["api"]["responseParser"]>
+>;
+const STREAM_HEARTBEAT = {
+  object: "message",
+  type: "heartbeat",
+} as ParsedRuntimeChunk;
+
+type ChatSurfaceState =
+  | {
+      status: "resolving";
+      agentId: string;
+      chatId: string;
+    }
+  | {
+      status: "ready";
+      agentId: string;
+      chatId: string | null;
+      kind: "ordinary" | "voice";
+    }
+  | {
+      status: "error";
+      agentId: string;
+      chatId: string;
+    };
 
 import WhisperSpeechButton, {
   WhisperSpeechButtonRef,
@@ -274,6 +321,15 @@ import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
 import HarnessModelSelector from "./components/HarnessModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
+import {
+  RealtimeVoiceControls,
+  RealtimeVoiceConflictModal,
+} from "../../features/realtime-voice/RealtimeVoicePanel";
+import {
+  isRealtimeVoiceActive,
+  isRealtimeVoiceReady,
+  useRealtimeVoice,
+} from "../../features/realtime-voice/useRealtimeVoice";
 import {
   useMessageQueueStore,
   getQueueKey,
@@ -1498,6 +1554,51 @@ export default function ChatPage() {
     setRefreshKey((version) => version + 1);
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const [chatSourceAttempt, setChatSourceAttempt] = useState(0);
+  const [chatHistorySurface, setChatHistorySurface] = useState<{
+    agentId: string;
+    chatId: string;
+    status: "empty" | "populated" | "error";
+  } | null>(null);
+  const historySurface =
+    chatHistorySurface?.agentId === selectedAgent &&
+    chatHistorySurface.chatId === backendChatId
+      ? chatHistorySurface.status
+      : "loading";
+  const [chatSurface, setChatSurface] = useState<ChatSurfaceState>(() =>
+    backendChatId
+      ? {
+          status: "resolving",
+          agentId: selectedAgent,
+          chatId: backendChatId,
+        }
+      : {
+          status: "ready",
+          agentId: selectedAgent,
+          chatId: null,
+          kind: "ordinary",
+        },
+  );
+  const effectiveChatSurface: ChatSurfaceState =
+    chatSurface.agentId === selectedAgent &&
+    chatSurface.chatId === (backendChatId ?? null)
+      ? chatSurface
+      : backendChatId
+      ? {
+          status: "resolving",
+          agentId: selectedAgent,
+          chatId: backendChatId,
+        }
+      : {
+          status: "ready",
+          agentId: selectedAgent,
+          chatId: null,
+          kind: "ordinary",
+        };
+  const chatSurfaceReady = effectiveChatSurface.status === "ready";
+  const isVoiceChat =
+    effectiveChatSurface.status === "ready" &&
+    effectiveChatSurface.kind === "voice";
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
@@ -2053,6 +2154,7 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const isMobile = useIsMobile();
+  const prefersReducedMotion = useReducedMotion();
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -2360,11 +2462,200 @@ export default function ChatPage() {
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
 
+  useEffect(() => {
+    setChatHistorySurface(null);
+    if (!backendChatId) {
+      setChatSurface({
+        status: "ready",
+        agentId: selectedAgent,
+        chatId: null,
+        kind: "ordinary",
+      });
+      return;
+    }
+    const controller = new AbortController();
+    setChatSurface((current) =>
+      current.status === "ready" &&
+      current.agentId === selectedAgent &&
+      current.chatId === backendChatId
+        ? current
+        : {
+            status: "resolving",
+            agentId: selectedAgent,
+            chatId: backendChatId,
+          },
+    );
+    // History can be large, so warm it independently while the lightweight
+    // Chat spec decides which surface to mount. AgentScope reuses the existing
+    // in-flight/result caches when it mounts.
+    void sessionApi
+      .preloadSession(backendChatId, controller.signal)
+      .then(({ session }) => {
+        if (controller.signal.aborted) return;
+        setChatHistorySurface({
+          agentId: selectedAgent,
+          chatId: backendChatId,
+          status:
+            session.messages?.length || session.timelineEvents?.length
+              ? "populated"
+              : "empty",
+        });
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setChatHistorySurface({
+          agentId: selectedAgent,
+          chatId: backendChatId,
+          status: "error",
+        });
+      });
+    void chatApi
+      .getChatSpec(backendChatId, {
+        signal: controller.signal,
+        include_app_owned: false,
+      })
+      .then((chat) => {
+        if (controller.signal.aborted) return;
+        setChatSurface({
+          status: "ready",
+          agentId: selectedAgent,
+          chatId: backendChatId,
+          kind: chat.source === "realtime_voice" ? "voice" : "ordinary",
+        });
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setChatSurface({
+          status: "error",
+          agentId: selectedAgent,
+          chatId: backendChatId,
+        });
+        controller.abort();
+      });
+    return () => controller.abort();
+  }, [backendChatId, chatSourceAttempt, selectedAgent]);
+
+  const retryChatSource = useCallback(() => {
+    if (!backendChatId) return;
+    setChatSurface({
+      status: "resolving",
+      agentId: selectedAgent,
+      chatId: backendChatId,
+    });
+    setChatSourceAttempt((current) => current + 1);
+  }, [backendChatId, selectedAgent]);
+
+  const renderChatPlaceholder = useCallback(
+    (failed = false) => (
+      <div
+        className={styles.chatSurfaceState}
+        role={failed ? undefined : "status"}
+      >
+        {failed ? (
+          <Result
+            status="error"
+            title={t("chunkError.title")}
+            subTitle={t("chunkError.subTitle")}
+            extra={
+              <Button type="primary" onClick={retryChatSource}>
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <Spin size="large" />
+            <span>{t("common.loading")}</span>
+          </>
+        )}
+      </div>
+    ),
+    [retryChatSource, t],
+  );
+
+  const handleVoiceChatCreated = useCallback(
+    (createdChatId: string) => {
+      setChatSurface({
+        status: "ready",
+        agentId: selectedAgent,
+        chatId: createdChatId,
+        kind: "voice",
+      });
+      sessionApi.preferredChatId = createdChatId;
+      sessionApi.lastActiveChatId = createdChatId;
+      setLastChatId(selectedAgent, createdChatId);
+      navigate(buildChatPath(createdChatId), { replace: true });
+      setRefreshKey((current) => current + 1);
+    },
+    [navigate, selectedAgent, setLastChatId],
+  );
+
+  const handleVoiceAgentRunStarted = useCallback(() => {
+    if (!backendChatId) return;
+    document.dispatchEvent(
+      new CustomEvent("handleReconnect", {
+        detail: { session_id: backendChatId },
+      }),
+    );
+  }, [backendChatId]);
+
+  const handleVoiceTimelineChanged = useCallback(
+    (messages: unknown[]) => {
+      if (!messages.length || !chatRef.current || !backendChatId) return;
+      chatRef.current.messages.appendTimelineEvents(
+        backendChatId,
+        toTimelineEvents(messages as Parameters<typeof toTimelineEvents>[0]),
+      );
+    },
+    [backendChatId],
+  );
+
+  const voiceEnabled = usesQwenPawBackend && chatSurfaceReady;
+  const realtimeVoice = useRealtimeVoice({
+    enabled: voiceEnabled,
+    chatId: isVoiceChat ? backendChatId : undefined,
+    onChatCreated: handleVoiceChatCreated,
+    onAgentRunStarted: handleVoiceAgentRunStarted,
+    onTimelineChanged: handleVoiceTimelineChanged,
+  });
+  const canStartRealtimeVoice = !isVoiceChat || (ownershipResolved && isOwner);
+  const realtimeVoiceStatus = realtimeVoice.status;
+  const stopRealtimeVoice = realtimeVoice.stop;
+  useEffect(() => {
+    if (
+      !isVoiceChat ||
+      !isQueueOnlyTab ||
+      !isRealtimeVoiceActive(realtimeVoiceStatus)
+    ) {
+      return;
+    }
+    void stopRealtimeVoice();
+  }, [isQueueOnlyTab, isVoiceChat, realtimeVoiceStatus, stopRealtimeVoice]);
+  const handleCreateVoiceChat = useCallback(async () => {
+    let capabilities = realtimeVoice.capabilities;
+    if (!capabilities) {
+      try {
+        capabilities = await realtimeVoice.reloadCapabilities();
+      } catch (reason) {
+        message.error(
+          reason instanceof Error ? reason.message : String(reason),
+        );
+        return;
+      }
+    }
+    if (!isRealtimeVoiceReady(capabilities)) {
+      navigate("/models?realtimeVoice=1");
+      return;
+    }
+    void realtimeVoice.start();
+  }, [message, navigate, realtimeVoice]);
+
   const lastSessionIdRef = useRef<string | null>(null);
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+  const pendingSenderClearRef = useRef<string | null>(null);
 
   useEffect(() => {
     const handler = () => {
@@ -3103,6 +3394,12 @@ export default function ChatPage() {
       const agentId = selectedAgentRef.current;
       migratePendingSessionSettings(agentId, "new", sessionId);
       migrateTerminalGroup(agentId, "new", sessionId);
+      setChatSurface({
+        status: "ready",
+        agentId,
+        chatId: null,
+        kind: "ordinary",
+      });
       migrateChatSessionPreferences(
         getQueueKey(agentId),
         sessionId,
@@ -3323,6 +3620,7 @@ export default function ChatPage() {
         lastMsg?.role === "user"
           ? data.clientRequestId ||
             data.submission?.queueItemId ||
+            latestUserMessageId(chatRef.current?.messages?.getMessages?.()) ||
             createClientMessageId()
           : undefined;
       const rewrittenLastMsg: Record<string, unknown> | undefined = lastMsg
@@ -3460,6 +3758,10 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
+      if (response.ok && isVoiceChat) {
+        realtimeVoice.observeAgentRun();
+      }
+
       if (!response.ok && backendChatId) {
         sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
       }
@@ -3481,7 +3783,14 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef, usageTurn);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+      isVoiceChat,
+      realtimeVoice,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -4042,30 +4351,34 @@ export default function ChatPage() {
               terminalEnabled={terminalEnabled}
               terminalDisabledReason={terminalDisabledReason}
               terminalOpen={terminalOpen}
-              onToggleWorkspace={toggleFilesWorkspace}
+              onCreateVoiceChat={
+                !isVoiceChat && usesQwenPawBackend
+                  ? handleCreateVoiceChat
+                  : undefined
+              }
+              voiceChatDisabled={isRealtimeVoiceActive(realtimeVoice.status)}
+              onToggleWorkspace={isVoiceChat ? undefined : toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
             />
-            {pluginRightHeader}
+            {!isVoiceChat && pluginRightHeader}
           </>
         ),
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
-        ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
-        ...(extDescription !== undefined
+        nick: isVoiceChat ? "QwenPaw" : extNick ?? "QwenPaw",
+        avatar: (!isVoiceChat && extAvatar) || `${import.meta.env.BASE_URL}qwenpaw.png`,
+        ...(!isVoiceChat && extGreeting !== undefined ? { greeting: extGreeting } : {}),
+        ...(!isVoiceChat && extDescription !== undefined
           ? { description: extDescription }
           : {}),
-        ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
-        // SDK uses `render` if present and ignores the other fields.
         render: (props: WelcomeRenderProps) => (
           <ReadyChatWelcome
             adapter={sdkSessionAdapter}
             sessionId={chatId}
             pending={isSessionTransition}
           >
-            {wrappedWelcomeRender ? (
+            {!isVoiceChat && wrappedWelcomeRender ? (
               wrappedWelcomeRender(props)
             ) : (
               <ChatWelcome {...props} />
@@ -4077,8 +4390,8 @@ export default function ChatPage() {
         ...i18nConfig?.sender,
         components: { input: LongTextPasteInput },
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: whisperChecked && !whisperEnabled,
-        beforeUI: showSenderBeforeUI ? (
+        allowSpeech: !isVoiceChat && whisperChecked && !whisperEnabled,
+        beforeUI: isVoiceChat ? (
           <>
             {isQueueOnlyTab && (
               <Alert
@@ -4088,29 +4401,46 @@ export default function ChatPage() {
                 message={t("chat.queue.otherTabOwner")}
               />
             )}
-            <ChatSenderTabsPanel
-              bgSessionId={bgBackendSessionId}
-              queueSessionId={queueKey}
-              onRemove={handleQueueRemove}
-              onEdit={handleQueueEdit}
-              onReorder={handleQueueReorder}
-              onInterruptAndSend={handleQueueInterruptAndSend}
-              onClear={handleQueueClear}
-              onPauseResume={handleQueuePauseResume}
-              onRetry={handleQueueRetry}
-              onSkip={handleQueueSkip}
+            <RealtimeVoiceControls
+              voice={realtimeVoice}
+              canStart={canStartRealtimeVoice}
             />
+          </>
+        ) : showSenderBeforeUI ? (
+          <>
+            {!isVoiceChat && isQueueOnlyTab && (
+              <Alert
+                type="info"
+                showIcon
+                banner
+                message={t("chat.queue.otherTabOwner")}
+              />
+            )}
+            {!isVoiceChat && (
+              <ChatSenderTabsPanel
+                bgSessionId={bgBackendSessionId}
+                queueSessionId={queueKey}
+                onRemove={handleQueueRemove}
+                onEdit={handleQueueEdit}
+                onReorder={handleQueueReorder}
+                onInterruptAndSend={handleQueueInterruptAndSend}
+                onClear={handleQueueClear}
+                onPauseResume={handleQueuePauseResume}
+                onRetry={handleQueueRetry}
+                onSkip={handleQueueSkip}
+              />
+            )}
           </>
         ) : undefined,
         prefix: (
           <>
-            {whisperEnabled ? (
+            {!isVoiceChat && whisperEnabled ? (
               <WhisperSpeechButton
                 ref={whisperSpeechRef}
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            {usesQwenPawBackend && (
+            {!isVoiceChat && usesQwenPawBackend && (
               <LoopModeSelector
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}
@@ -4118,7 +4448,7 @@ export default function ChatPage() {
                 agentId={selectedAgent}
               />
             )}
-            {usesQwenPawBackend && !isSessionTransition ? (
+            {!isVoiceChat && (usesQwenPawBackend && !isSessionTransition ? (
               advisorConversation ? (
                 <AdvisorModelsPill />
               ) : (
@@ -4130,8 +4460,8 @@ export default function ChatPage() {
               )
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
-            ) : null}
-            {pluginSenderPrefix}
+            ) : null)}
+            {!isVoiceChat && pluginSenderPrefix}
           </>
         ),
         actionAffix: (
@@ -4140,15 +4470,16 @@ export default function ChatPage() {
               compactSender ? styles.compactSenderAffix : ""
             }`}
           >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
-                />
-              </span>
-            )}
-            {usesQwenPawBackend && !isSessionTransition && (
+            {!isVoiceChat &&
+              (usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span className={styles.senderContextAffix}>
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+            {!isVoiceChat && usesQwenPawBackend && !isSessionTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={isMobile || compactSender}
@@ -4162,38 +4493,43 @@ export default function ChatPage() {
                   .join(" ")}
               />
             )}
-            {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
-            ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
-                backend={selectedAgentBackend}
-                sessionId={queueKey}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
-            ) : null}
+            {!isVoiceChat &&
+              (usesQwenPawBackend ? (
+                <ApprovalLevelToggle
+                  sessionId={queueKey}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  compact={isMobile || compactSender}
+                  className={[
+                    !isMobile && !compactSender
+                      ? styles.senderApprovalControl
+                      : "",
+                    isMobile || compactSender
+                      ? styles.mobileComposerControl
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+              ) : approvalPresets.length > 0 ? (
+                <HarnessApprovalToggle
+                  backend={selectedAgentBackend}
+                  sessionId={queueKey}
+                  presets={approvalPresets}
+                  className={
+                    isMobile ? styles.mobileComposerControl : undefined
+                  }
+                  compact={isMobile}
+                  onChange={(settings) => {
+                    backendControlsRef.current = settings;
+                  }}
+                />
+              ) : null)}
           </span>
         ),
-        ...(supportsAttachments
+        ...(!isVoiceChat && supportsAttachments
           ? {
               attachments: {
                 multiple: true,
@@ -4229,9 +4565,13 @@ export default function ChatPage() {
               },
             }
           : {}),
-        placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
+        placeholder: isVoiceChat
+          ? t("realtimeVoice.typePlaceholder")
+          : extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
-        suggestions: [...baseSuggestions, ...activePluginSuggestions],
+        suggestions: isVoiceChat
+          ? []
+          : [...baseSuggestions, ...activePluginSuggestions],
       },
       session: {
         multiple: true,
@@ -4248,9 +4588,24 @@ export default function ChatPage() {
       },
       api: {
         ...defaultConfig.api,
+        ...(supportsSessionTimeline ? { timelineMode: "session" } : {}),
         fetch: customFetch,
+        loadTimeline: ({
+          session_id,
+          signal,
+        }: {
+          session_id: string;
+          signal?: AbortSignal;
+        }) => sessionApi.loadTimeline(session_id, signal),
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          if (
+            ["run_started", "replay_end", "run_sealed"].includes(
+              String(payload.type),
+            )
+          ) {
+            return payload as any;
+          }
           // CoPaw's wire enum uses "cancelled"; the SDK uses "canceled".
           // Preserve cancellation instead of fabricating a completed, empty
           // assistant reply, including unfinished tool/content statuses.
@@ -4331,22 +4686,11 @@ export default function ChatPage() {
           }
 
           if (payload.type === "turn_usage") {
-            return null;
+            return STREAM_HEARTBEAT;
           }
 
-          // Replay boundary marker from the reconnect stream. The
-          // fast-forward wrapper strips it at the byte level; if one
-          // still slips through, map it to the SDK's heartbeat no-op —
-          // returning null here would crash the response builder
-          // mid-stream and drop every subsequent live token.
           if (payload.type === "replay_end") {
-            return { object: "message", type: "heartbeat" } as ReturnType<
-              NonNullable<
-                NonNullable<
-                  IAgentScopeRuntimeWebUIOptions["api"]
-                >["responseParser"]
-              >
-            >;
+            return STREAM_HEARTBEAT;
           }
 
           if (payload.type === "rate_limited") {
@@ -4354,7 +4698,7 @@ export default function ChatPage() {
               (payload.alternatives as typeof rateLimitAlternatives) || [];
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
-            return null;
+            return STREAM_HEARTBEAT;
           }
 
           if (payloadRequestsHistoryClear(payload)) {
@@ -4551,6 +4895,7 @@ export default function ChatPage() {
     approvalPresets,
     usesQwenPawBackend,
     supportsAttachments,
+    isVoiceChat,
     runningConfigApprovalLevel,
     captureRequestContext,
     queueSessionId,
@@ -4590,6 +4935,12 @@ export default function ChatPage() {
     sdkSessionAdapter,
     isSessionTransition,
     queueKey,
+    backendChatId,
+    historySurface,
+    renderChatPlaceholder,
+    realtimeVoice,
+    canStartRealtimeVoice,
+    handleCreateVoiceChat,
   ]);
 
   const filesDrawerClass =
@@ -4610,8 +4961,24 @@ export default function ChatPage() {
         className={`${styles.chatPageRoot} ${filesDrawerClass}`}
         onClickCapture={handleInternalFileLink}
       >
+        <RealtimeVoiceConflictModal voice={realtimeVoice} />
         {/* Main chat area */}
-        <div className={styles.chatMainArea}>
+        <motion.div
+          className={styles.chatMainArea}
+          layout={prefersReducedMotion ? false : "size"}
+          transition={
+            prefersReducedMotion
+              ? { duration: 0 }
+              : {
+                  layout: {
+                    type: "spring",
+                    stiffness: 360,
+                    damping: 38,
+                    mass: 0.82,
+                  },
+                }
+          }
+        >
           <div
             ref={chatMessagesAreaRef}
             className={[
@@ -4623,7 +4990,7 @@ export default function ChatPage() {
               .join(" ")}
           >
             <LongTextPasteProvider
-              enabled={supportsAttachments}
+              enabled={!isVoiceChat && supportsAttachments}
               scopeKey={queueKey}
             >
               <RichFileReferenceInputProvider
@@ -4651,50 +5018,54 @@ export default function ChatPage() {
           </div>
 
           {/* Rate-limit guidance banner */}
-          {usesQwenPawBackend && rateLimitAlternatives.length > 0 && (
-            <div className={styles.rateLimitBanner}>
-              <span className={styles.rateLimitText}>
-                {t("chat.rateLimitMessage")}
-              </span>
-              <div className={styles.rateLimitActions}>
-                {rateLimitAlternatives.slice(0, 3).map((alt) => (
+          {chatSurfaceReady &&
+            usesQwenPawBackend &&
+            rateLimitAlternatives.length > 0 && (
+              <div className={styles.rateLimitBanner}>
+                <span className={styles.rateLimitText}>
+                  {t("chat.rateLimitMessage")}
+                </span>
+                <div className={styles.rateLimitActions}>
+                  {rateLimitAlternatives.slice(0, 3).map((alt) => (
+                    <Button
+                      key={`${alt.provider_id}/${alt.model_id}`}
+                      size="small"
+                      type="default"
+                      onClick={async () => {
+                        try {
+                          await providerApi.setActiveLlm({
+                            provider_id: alt.provider_id,
+                            model: alt.model_id,
+                            scope: "agent",
+                            agent_id: selectedAgent,
+                          });
+                          window.dispatchEvent(
+                            new CustomEvent("model-switched"),
+                          );
+                          message.success(
+                            t("chat.rateLimitSwitched", {
+                              model: alt.model_name,
+                            }),
+                          );
+                          setRateLimitAlternatives([]);
+                        } catch {
+                          message.error(t("modelSelector.switchFailed"));
+                        }
+                      }}
+                    >
+                      {alt.model_name}
+                    </Button>
+                  ))}
                   <Button
-                    key={`${alt.provider_id}/${alt.model_id}`}
                     size="small"
-                    type="default"
-                    onClick={async () => {
-                      try {
-                        await providerApi.setActiveLlm({
-                          provider_id: alt.provider_id,
-                          model: alt.model_id,
-                          scope: "agent",
-                          agent_id: selectedAgent,
-                        });
-                        window.dispatchEvent(new CustomEvent("model-switched"));
-                        message.success(
-                          t("chat.rateLimitSwitched", {
-                            model: alt.model_name,
-                          }),
-                        );
-                        setRateLimitAlternatives([]);
-                      } catch {
-                        message.error(t("modelSelector.switchFailed"));
-                      }
-                    }}
+                    type="link"
+                    onClick={() => setRateLimitAlternatives([])}
                   >
-                    {alt.model_name}
+                    {t("common.close")}
                   </Button>
-                ))}
-                <Button
-                  size="small"
-                  type="link"
-                  onClick={() => setRateLimitAlternatives([])}
-                >
-                  {t("common.close")}
-                </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Render approval cards as overlays */}
           {Array.from(
@@ -4794,7 +5165,7 @@ export default function ChatPage() {
           })}
 
           <Modal
-            open={usesQwenPawBackend && showModelPrompt}
+            open={chatSurfaceReady && usesQwenPawBackend && showModelPrompt}
             closable={false}
             footer={null}
             width={480}
@@ -4850,7 +5221,7 @@ export default function ChatPage() {
               ]}
             />
           </Modal>
-        </div>
+        </motion.div>
         {/* End of main chat area */}
         <AnimatePresence initial={false} mode="popLayout">
           {!isSessionTransition && filesDrawerState.kind !== "closed" ? (

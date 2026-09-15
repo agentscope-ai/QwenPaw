@@ -49,6 +49,26 @@ describe("ChatActionGroup", () => {
     expect(onToggleTerminal).toHaveBeenCalledOnce();
   });
 
+  it("offers normal and Voice Chat from the new-chat split menu", async () => {
+    const onCreateVoiceChat = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup onCreateVoiceChat={onCreateVoiceChat} />,
+    );
+
+    expect(
+      document.querySelector('[data-icon="SparkVoiceChat01Line"]'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.newChatMenu" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "realtimeVoice.newChat",
+      }),
+    );
+
+    expect(onCreateVoiceChat).toHaveBeenCalledOnce();
+  });
+
   it("renders the Session workspace toggle next to essential actions", () => {
     const onToggleWorkspace = vi.fn();
     renderWithProviders(

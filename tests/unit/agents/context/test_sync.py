@@ -135,6 +135,68 @@ def store(tmp_path: Path) -> HistoryStore:
     h.close()
 
 
+@pytest.mark.parametrize("legacy_row", [False, True])
+def test_same_id_occurrences_import_and_live_writer_agree(store, tmp_path, legacy_row):
+    from qwenpaw.agents.context.scroll.manager import ScrollContextManager
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    first = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="FIRST")])
+    second = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="SECOND")])
+    if legacy_row:
+        store.append(session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id)
+    sessions = tmp_path / "sessions"
+    path = _write_session_2x(sessions, "s.json", "s", [first, second])
+    original = path.read_bytes()
+    _sync_registered(store, sessions, [_chat("s")])
+    assert [r["content"] for r in store._conn.execute(
+        "SELECT content FROM conversation_history ORDER BY seq",
+    ).fetchall()] == ["FIRST", "SECOND"]
+    assert _sync_registered(store, sessions, [_chat("s")]).rows_inserted == 0
+    mgr = ScrollContextManager(history=store, session_id="s", agent_id="a")
+    mgr.on_save(SimpleNamespace(state=SimpleNamespace(context=[first, second])), [])
+    assert store.count("s") == 2
+    assert path.read_bytes() == original
+
+
+def test_v2_manifest_does_not_hide_previously_skipped_occurrence(store, tmp_path):
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    first = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="FIRST")])
+    second = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="SECOND")])
+    store.append(session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id)
+    sessions = tmp_path / "sessions"
+    path = _write_session_2x(sessions, "s.json", "s", [first, second])
+    (sessions / MANIFEST_NAME).write_text(json.dumps({
+        "version": 2, "files": {"s.json": {
+            "sha256": sync_mod._sha256(path), "session_id": "s",
+            "rows_processed": 2, "rows_inserted": 1,
+        }},
+    }), encoding="utf-8")
+    report = _sync_registered(store, sessions, [_chat("s")])
+    assert report.rows_inserted == 1
+    assert store.count("s") == 2
+    assert _sync_registered(store, sessions, [_chat("s")]).skipped_files == 1
+
+
+def test_legacy_generated_block_ids_do_not_duplicate_existing_history(store, tmp_path):
+    from qwenpaw.agents.context.scroll.manager import ScrollContextManager
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    raw = {"id": "legacy", "name": "a", "role": "assistant", "content": "OLD"}
+    old_msg = Msg(id="legacy", name="a", role="assistant", content=[TextBlock(text="OLD")])
+    store.append(session_id="s", entry=msg_to_entries(old_msg)[0], dedup_key="legacy")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "s.json").write_text(json.dumps({
+        "agent": {"memory": {"content": [[raw, []]]}},
+    }), encoding="utf-8")
+    for _ in range(2):
+        assert _sync_registered(store, sessions, [_chat("s")], use_manifest=False).rows_inserted == 0
+        mgr = ScrollContextManager(history=store, session_id="s", agent_id="a")
+        mgr.on_save(SimpleNamespace(state=SimpleNamespace(context=[Msg.from_dict(raw)])), [])
+    assert store.count("s") == 1
+
+
 def test_syncs_session_under_registered_id(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     _write_session_2x(
@@ -286,7 +348,7 @@ def test_existing_synthetic_manifest_is_rekeyed_to_canonical_session(
     )
 
     assert second.rows_inserted == 0
-    # A v1 manifest is deliberately re-read once under manifest v2 so the
+    # A v1 manifest is deliberately re-read once under the current version so the
     # source can be imported under the canonical registry ID.
     assert not any(result.skipped for result in second.files)
     assert store.count("sync:default_legacy-session") == 0
@@ -303,7 +365,7 @@ def test_existing_synthetic_manifest_is_rekeyed_to_canonical_session(
         manifest["files"]["console/default_legacy-session.json"]["session_id"]
         == "legacy-session"
     )
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
 
 
 def test_changed_synthetic_manifest_rekeys_then_adds_new_history(
@@ -662,7 +724,7 @@ def test_v1_manifest_rekeys_arbitrary_legacy_id(store, tmp_path: Path):
     manifest = json.loads(
         (sessions / MANIFEST_NAME).read_text(encoding="utf-8"),
     )
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
 
 
 def test_manifest_skip_claims_legacy_null_agent_rows(

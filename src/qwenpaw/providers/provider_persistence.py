@@ -42,7 +42,7 @@ def write_provider_snapshot(
     provider_path: Path,
 ) -> None:
     """Encrypt and atomically write one provider snapshot."""
-    data = provider.model_dump(exclude={"models_syncing"})
+    data = provider.model_dump(exclude={"models_syncing", "realtime_voice"})
     data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
     data = encrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
     write_snapshot_payload(data, provider_path)

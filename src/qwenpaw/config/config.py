@@ -214,6 +214,9 @@ class ActiveModelsInfo(BaseModel):
     default_models: Dict[ModelType, ModelSlotConfig | None] = Field(
         default_factory=dict,
     )
+    active_realtime_voice: ModelSlotConfig | None = None
+    active_voice_router: ModelSlotConfig | None = None
+    effective_voice_router: ModelSlotConfig | None = None
     effective_max_input_length: int | None = None
 
 
@@ -2519,7 +2522,10 @@ class AgentProfileConfig(BaseModel):
         "xhigh",
         "max",
         "budget",
-    ] = f"inherit"
+    ] = Field(
+        default="inherit",
+        description="Provider-independent agent reasoning level",
+    )
     thinking_budget: int | None = Field(default=None, ge=1)
 
     @model_validator(mode=f"after")
@@ -2531,6 +2537,14 @@ class AgentProfileConfig(BaseModel):
             raise ValueError(f"Budget mode requires thinking_budget")
         return self
 
+    active_realtime_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Active realtime voice model for this agent",
+    )
+    active_voice_router_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional semantic voice router model for this agent",
+    )
     language: str = Field(
         default="zh",
         description="Language setting for this agent",

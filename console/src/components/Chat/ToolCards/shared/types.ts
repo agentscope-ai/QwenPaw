@@ -4,7 +4,7 @@
  * has zero imports from outside ToolCards/.
  */
 
-export type ToolCallStatus = "calling" | "done" | "error";
+export type ToolCallStatus = "calling" | "done" | "error" | "interrupted";
 
 export interface ToolInputProgress {
   preview: string;

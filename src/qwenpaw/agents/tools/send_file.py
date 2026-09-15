@@ -60,7 +60,7 @@ async def send_file_to_user(
     if not os.path.exists(file_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     text=f"Error: The file {file_path} does not exist.",
@@ -71,7 +71,7 @@ async def send_file_to_user(
     if not os.path.isfile(file_path):
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     text=f"Error: The path {file_path} is not a file.",
@@ -106,7 +106,7 @@ async def send_file_to_user(
     except Exception as e:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     text=f"Error: Send file failed due to \n{e}",

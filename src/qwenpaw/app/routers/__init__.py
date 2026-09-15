@@ -38,6 +38,7 @@ from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
 from .terminal import router as terminal_router
+from .realtime_voice import router as realtime_voice_router
 
 router = APIRouter()
 
@@ -76,6 +77,7 @@ router.include_router(pawapps_router)
 router.include_router(harnesses_router)
 router.include_router(checkpoints_router)
 router.include_router(terminal_router)
+router.include_router(realtime_voice_router)
 
 
 def create_agent_scoped_router() -> APIRouter:
