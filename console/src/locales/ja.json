@@ -2951,10 +2951,15 @@
     "sessionPanel": {
       "searchConversations": "会話を検索…",
       "noConversations": "会話なし",
+      "noMatchingConversations": "一致する会話がありません",
       "groupBy": "グループ化",
-      "groupByDate": "日付順",
       "groupBySource": "ソース順",
-      "groupByNone": "グループなし"
+      "groupByNone": "グループなし",
+      "activityRange": "活動期間",
+      "rangeAll": "すべて",
+      "rangeToday": "今日",
+      "range7Days": "7日",
+      "range30Days": "30日"
     },
     "conversationHistory": "会話履歴"
   },

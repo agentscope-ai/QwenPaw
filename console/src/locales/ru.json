@@ -2966,10 +2966,15 @@
     "sessionPanel": {
       "searchConversations": "Поиск…",
       "noConversations": "Нет диалогов",
+      "noMatchingConversations": "Нет подходящих диалогов",
       "groupBy": "Группировка",
-      "groupByDate": "По дате",
       "groupBySource": "По источнику",
-      "groupByNone": "Без группировки"
+      "groupByNone": "Без группировки",
+      "activityRange": "Период активности",
+      "rangeAll": "Все",
+      "rangeToday": "Сегодня",
+      "range7Days": "7 дней",
+      "range30Days": "30 дней"
     },
     "conversationHistory": "История диалогов"
   },

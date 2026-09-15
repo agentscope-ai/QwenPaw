@@ -3474,10 +3474,15 @@
     "sessionPanel": {
       "searchConversations": "搜索对话…",
       "noConversations": "暂无对话",
+      "noMatchingConversations": "无匹配对话",
       "groupBy": "分组方式",
-      "groupByDate": "按日期",
       "groupBySource": "按来源",
-      "groupByNone": "不分组"
+      "groupByNone": "不分组",
+      "activityRange": "活跃时间",
+      "rangeAll": "全部",
+      "rangeToday": "今天",
+      "range7Days": "7天",
+      "range30Days": "30天"
     },
     "conversationHistory": "历史对话"
   },

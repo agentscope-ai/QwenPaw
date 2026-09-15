@@ -12,29 +12,34 @@ describe("sessionGroupModePreference", () => {
     vi.restoreAllMocks();
   });
 
-  it("defaults to date grouping", () => {
-    expect(getSessionGroupModePreference()).toBe("date");
+  it("defaults to source grouping", () => {
+    expect(getSessionGroupModePreference()).toBe("source");
   });
 
   it("persists each mode", () => {
-    setSessionGroupModePreference("source");
-    expect(getSessionGroupModePreference()).toBe("source");
-
     setSessionGroupModePreference("none");
     expect(getSessionGroupModePreference()).toBe("none");
-    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("none");
+
+    setSessionGroupModePreference("source");
+    expect(getSessionGroupModePreference()).toBe("source");
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("source");
   });
 
   it("ignores unknown stored values", () => {
     localStorage.setItem("qwenpaw_session_group_mode", "nested");
-    expect(getSessionGroupModePreference()).toBe("date");
+    expect(getSessionGroupModePreference()).toBe("source");
+  });
+
+  it("migrates the retired date mode to the default", () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
+    expect(getSessionGroupModePreference()).toBe("source");
   });
 
   it("notifies mounted lists when the preference changes", () => {
     const listener = vi.fn();
     window.addEventListener(SESSION_GROUP_MODE_CHANGE_EVENT, listener);
 
-    setSessionGroupModePreference("source");
+    setSessionGroupModePreference("none");
 
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener(SESSION_GROUP_MODE_CHANGE_EVENT, listener);

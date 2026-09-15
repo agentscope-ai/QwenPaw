@@ -3202,10 +3202,15 @@
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
       "noConversations": "Sem conversas",
+      "noMatchingConversations": "Nenhuma conversa correspondente",
       "groupBy": "Agrupar por",
-      "groupByDate": "Por data",
       "groupBySource": "Por origem",
-      "groupByNone": "Sem agrupamento"
+      "groupByNone": "Sem agrupamento",
+      "activityRange": "Período de atividade",
+      "rangeAll": "Tudo",
+      "rangeToday": "Hoje",
+      "range7Days": "7 dias",
+      "range30Days": "30 dias"
     },
     "conversationHistory": "Histórico de conversas"
   },

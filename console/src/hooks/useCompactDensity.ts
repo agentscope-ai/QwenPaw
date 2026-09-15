@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
  * metrics (small laptops, split-screen windows).
  *
  * Keep in sync with the `@media (max-height: 850px)` blocks in
- * sessionItem / SessionGroupHeader / SessionDateHeader /
- * sidebarSessionList stylesheets: the virtualized list allocates the
- * JS height constants while the media queries render the matching CSS.
+ * sessionItem / SessionGroupHeader / sidebarSessionList stylesheets:
+ * the virtualized list allocates the JS height constants while the
+ * media queries render the matching CSS.
  */
 export const COMPACT_DENSITY_MEDIA_QUERY = "(max-height: 850px)";
 

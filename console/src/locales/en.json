@@ -3617,10 +3617,15 @@
     "sessionPanel": {
       "searchConversations": "Search conversations…",
       "noConversations": "No conversations yet",
+      "noMatchingConversations": "No matching conversations",
       "groupBy": "Group by",
-      "groupByDate": "By date",
       "groupBySource": "By source",
-      "groupByNone": "No grouping"
+      "groupByNone": "No grouping",
+      "activityRange": "Activity range",
+      "rangeAll": "All",
+      "rangeToday": "Today",
+      "range7Days": "7 days",
+      "range30Days": "30 days"
     },
     "conversationHistory": "Conversation History"
   },
