@@ -151,3 +151,172 @@ def test_legacy_shots_can_be_read_but_cannot_be_written(services):
     assert creation == R2VCreation(narrative="当前片段内容")
     with pytest.raises(ValidationError, match="不再支持写入"):
         edit(services, "shots", {"items": {}, "order": []})
+
+
+def test_storyboard_readiness_does_not_wait_for_video_rewrite(services):
+    from fastapi import FastAPI
+    import httpx
+    from api.dependencies import project_file_services
+    from api.prompt_sync_routes import router
+    from services.project_files.prompt_sync import prompt_sync_status
+    from services.file_agent_runtime.work_graph import derive_work_graph
+
+    edit(services, "narrative", "女子把钥匙放入包内。")
+    before = services.projects.read(PID).project
+    assert (
+        prompt_sync_status(before, TID, EID, stage="storyboard")["status"]
+        == "needs_update"
+    )
+    edit(services, "storyboard_prompt", SB + "女子把钥匙放入包内。")
+    project = services.projects.read(PID).project
+    assert (
+        prompt_sync_status(project, TID, EID, stage="storyboard")["status"]
+        == "current"
+    )
+    assert (
+        prompt_sync_status(project, TID, EID, stage="video")["status"]
+        == "needs_update"
+    )
+    graph = derive_work_graph(project)
+    assert (
+        next(
+            node for node in graph.nodes if node.kind == "storyboard"
+        ).status.value
+        == "ready"
+    )
+
+    # The actual workbench HTTP preflight must agree with the graph's
+    # ready storyboard, while retaining the pending video/global sync.
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[project_file_services] = lambda: services
+
+    async def preflight():
+        path = f"/projects/{PID}/timelines/{TID}/elements/{EID}/prompt-sync"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            assert (await client.get(path)).json()["status"] != "current"
+            for stage, expected in (
+                ("storyboard", "current"),
+                ("video", "needs_update"),
+            ):
+                response = await client.get(path, params={"stage": stage})
+                assert response.status_code == 200
+                assert response.json()["status"] == expected
+            assert (
+                await client.get(path, params={"stage": "invalid"})
+            ).status_code == 422
+
+    asyncio.run(preflight())
+
+    edit(services, "video_prompt", VD + "摄影机缓慢推进。")
+    project = services.projects.read(PID).project
+    assert all(
+        prompt_sync_status(project, TID, EID, stage=stage)["status"]
+        == "current"
+        for stage in ("storyboard", "video")
+    )
+    edit(services, "storyboard_prompt", SB + "结束时女子转身离开。")
+    project = services.projects.read(PID).project
+    assert (
+        prompt_sync_status(project, TID, EID, stage="storyboard")["status"]
+        == "current"
+    )
+    assert (
+        prompt_sync_status(project, TID, EID, stage="video")["status"]
+        == "needs_update"
+    )
+
+
+def test_all_authored_bodies_confirm_without_discarded_model_call(services):
+    for field, key in (
+        ("narrative", "narrative"),
+        ("storyboard_prompt", "storyboardPrompt"),
+        ("video_prompt", "videoPrompt"),
+    ):
+        edit(services, field, UPDATED[key])
+
+    async def forbidden(_messages, _tools):
+        raise AssertionError(
+            "Nothing needs generating when all bodies are authoritative",
+        )
+
+    service = PromptSyncService(
+        services,
+        client=CallbackAgentChatClient(forbidden),
+    )
+
+    async def run():
+        proposal = await service.propose(PID, TID, EID, source="mixed")
+        await service.accept(PID, TID, EID, proposal["proposalId"])
+        assert service.status(PID, TID, EID)["status"] == "current"
+
+    asyncio.run(run())
+
+
+def test_first_prompt_pair_publishes_with_existing_narrative(services):
+    """Incremental creation is not an edit of a previously authored prompt."""
+    first_id = "first-publication"
+    base = services.projects.read(PID)
+    candidate = base.project.model_dump(mode="json")
+    element = candidate["timelines"]["items"][TID]["elements_by_id"][EID]
+    first = json.loads(json.dumps(element))
+    first["element_id"] = first_id
+    first["creation"].update(storyboard_prompt="", video_prompt="")
+    candidate["timelines"]["items"][TID]["elements_by_id"][first_id] = first
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin="agentdock_idle_goal",
+    )
+
+    base = services.projects.read(PID)
+    candidate = base.project.model_dump(mode="json")
+    creation = candidate["timelines"]["items"][TID]["elements_by_id"][
+        first_id
+    ]["creation"]
+    creation.update(storyboard_prompt=SB, video_prompt=VD)
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin="agentdock_idle_goal",
+    )
+    service = sync_service(services)
+    assert service.status(PID, TID, first_id)["status"] == "current"
+
+    # An actual subsequent prompt edit still needs reconciliation.
+    base = services.projects.read(PID)
+    candidate = base.project.model_dump(mode="json")
+    candidate["timelines"]["items"][TID]["elements_by_id"][first_id][
+        "creation"
+    ]["video_prompt"] = UPDATED["videoPrompt"]
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin="frontend_edit",
+    )
+    current = service.status(PID, TID, first_id)
+    assert current["status"] == "needs_confirmation"
+    assert current["changedSources"] == ["videoPrompt"]
+
+    # Clearing old prompts cannot disguise a later rewrite as first creation.
+    for fields in (
+        {"storyboard_prompt": "", "video_prompt": ""},
+        {
+            "storyboard_prompt": UPDATED["storyboardPrompt"],
+            "video_prompt": UPDATED["videoPrompt"],
+        },
+    ):
+        base = services.projects.read(PID)
+        candidate = base.project.model_dump(mode="json")
+        candidate["timelines"]["items"][TID]["elements_by_id"][first_id][
+            "creation"
+        ].update(fields)
+        services.commits.commit(
+            base=base,
+            candidate=candidate,
+            origin="frontend_edit",
+        )
+    assert service.status(PID, TID, first_id)["status"] == "needs_confirmation"

@@ -29,7 +29,7 @@ from utils.logger import setup_logger
 
 logger = setup_logger("creator.run_review.script")
 
-_TEXT_MODEL_TIMEOUT_SECONDS = 120.0
+_TEXT_MODEL_TIMEOUT_SECONDS = 30.0
 _MAX_ENTRIES_PER_LIST = 6
 _ENTRY_TEXT_LIMIT = 200
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -137,7 +137,7 @@ async def run_script_check(
     strategy_payload: str,
     content_payload: str,
 ) -> dict[str, Any] | None:
-    """One script-to-content check round; fail-open (None on any failure)."""
+    """Fail-open, but distinguish unavailable review from an empty verdict."""
     try:
         from models.text_model import chat_completion
 
@@ -155,9 +155,9 @@ async def run_script_check(
             timeout=_TEXT_MODEL_TIMEOUT_SECONDS,
         )
         return parse_script_check(response)
-    except Exception:  # noqa: BLE001 - advisory-only
+    except Exception as exc:  # noqa: BLE001 - advisory-only
         logger.exception("script-to-content check failed")
-        return None
+        return {"status": "unavailable", "reason": type(exc).__name__}
 
 
 __all__ = [

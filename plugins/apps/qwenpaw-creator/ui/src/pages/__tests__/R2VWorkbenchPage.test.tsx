@@ -96,7 +96,7 @@ function modelRoutes(model: string): Parameters<typeof installMockFetch>[0] {
       },
     },
     {
-      match: "/prompt-sync",
+      match: "/prompt-sync?stage=",
       method: "GET",
       response: {
         json: {
@@ -279,6 +279,63 @@ describe("R2V Workbench page", () => {
     },
   );
 
+  it("keeps production reference diagnostics quiet and reports manual save failures", async () => {
+    const project = cloneProject();
+    const creation =
+      project.timelines.items["timeline:main"].elements_by_id["r2v-window"]
+        .creation;
+    if (creation.type !== "r2v") throw new Error("Expected R2V fixture");
+    creation.storyboard_prompt = "[Image 3] 中的橘猫扒着窗台";
+    seedProject(project);
+    const saveError = "参考图片编号超出了当前参考图列表，请修正后保存。";
+    const { calls } = installMockFetch([
+      ...modelRoutes("wan2.7-r2v"),
+      {
+        match: "/r2v-references",
+        response: {
+          json: {
+            elementId: "r2v-window",
+            stage: "storyboard",
+            storyboardSelected: false,
+            ready: false,
+            invalidMarkerIndices: [3],
+            references: [],
+          },
+        },
+      },
+      {
+        match: "/projects/p1/project",
+        method: "PATCH",
+        response: { status: 422, ok: false, json: { message: saveError } },
+      },
+    ]);
+    const { container } = renderWorkbench();
+    const regenerate = container.querySelector(
+      '[data-prompt-regenerate="element:r2v-window/creation/storyboard_prompt"]',
+    );
+    await waitFor(() => expect(regenerate).toBeDisabled());
+    expect(
+      screen.queryByText(/参考图缺失、数量超限或引用编号不匹配/),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-prompt-token-missing="3"]'),
+    ).toHaveTextContent("IMG 3");
+    expect(screen.queryByText(/未绑定/)).toBeNull();
+    expect(screen.queryByText(saveError, { exact: false })).toBeNull();
+    expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+
+    const input = screen.getByDisplayValue(creation.storyboard_prompt);
+    fireEvent.change(input, {
+      target: { value: "[Image 8] 中的橘猫扒着窗台" },
+    });
+    expect(screen.queryByText(saveError, { exact: false })).toBeNull();
+    fireEvent.blur(input);
+    expect(
+      await screen.findByText(saveError, { exact: false }),
+    ).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: creation.storyboard_prompt } });
+  });
+
   it("dispatches the video node from the prompt-card regenerate button", async () => {
     const { calls } = installMockFetch([
       ...modelRoutes("wan2.7-r2v"),
@@ -311,6 +368,12 @@ describe("R2V Workbench page", () => {
     );
     // Clean draft: regenerate must not fire a project PATCH.
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+    expect(
+      calls.some((call) => call.url.endsWith("/prompt-sync?stage=video")),
+    ).toBe(true);
+    expect(calls.some((call) => call.url.includes("/prompt-proposals"))).toBe(
+      false,
+    );
   });
 
   it("applies a dirty prompt draft before dispatching regeneration", async () => {
@@ -370,6 +433,9 @@ describe("R2V Workbench page", () => {
     );
     expect(patchIndex).toBeGreaterThanOrEqual(0);
     expect(patchIndex).toBeLessThan(dispatchIndex);
+    expect(
+      calls.some((call) => call.url.endsWith("/prompt-sync?stage=storyboard")),
+    ).toBe(true);
     expect(calls[patchIndex].body).toMatchObject({
       operations: [
         {
@@ -494,6 +560,83 @@ describe("R2V Workbench page", () => {
       ),
     ).toHaveLength(0);
   });
+
+  it.each(["startup404", "server", "network", "timeout"])(
+    "recovers reference images after %s without an edit",
+    async (failure) => {
+      let ready = false;
+      const { calls } = installMockFetch([
+        ...modelRoutes("wan3.0-video-prime"),
+        {
+          match: "/r2v-references",
+          response: {
+            get ok() {
+              if (!ready && failure === "network")
+                throw new TypeError("offline");
+              if (!ready && failure === "timeout")
+                throw new DOMException("timed out", "AbortError");
+              return ready;
+            },
+            get status() {
+              return ready ? 200 : failure === "server" ? 503 : 404;
+            },
+            get json() {
+              return ready
+                ? {
+                    elementId: "r2v-window",
+                    stage: "storyboard",
+                    storyboardSelected: true,
+                    references: [
+                      {
+                        index: 1,
+                        versionId: "cat-anchor-v1",
+                        kind: "artifact",
+                        name: "已恢复分镜引用",
+                        available: true,
+                      },
+                    ],
+                  }
+                : { detail: "Not Found" };
+            },
+          },
+        },
+      ]);
+      const project = cloneProject();
+      const creation =
+        project.timelines.items["timeline:main"].elements_by_id["r2v-window"]
+          .creation;
+      if (creation.type === "r2v") {
+        creation.storyboard_prompt = "[Image 1] 保持已有角色身份";
+        creation.video_prompt = "[Image 1] 保持已有角色身份";
+      }
+      seedProject(project);
+      const { container } = renderWorkbench();
+      await waitFor(() =>
+        expect(
+          calls.filter((call) => call.url.includes("/r2v-references")),
+        ).toHaveLength(2),
+      );
+      ready = true;
+      await waitFor(
+        () =>
+          expect(
+            calls.filter((call) => call.url.includes("/r2v-references")),
+          ).toHaveLength(4),
+        { timeout: 3000 },
+      );
+      await waitFor(
+        () =>
+          expect(
+            container.querySelector('[data-prompt-token="1"]'),
+          ).toHaveTextContent("已恢复分镜引用"),
+        { timeout: 3000 },
+      );
+      expect(useProjectSnapshotStore.getState().generation).toBe(
+        project.generation,
+      );
+      expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+    },
+  );
 
   it("adds assets through the thumbnail asset picker", async () => {
     const calls = patchRoutes(cloneProject());

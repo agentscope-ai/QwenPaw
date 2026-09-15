@@ -6,8 +6,13 @@ import WorkspaceEmptyState from "@/components/WorkspaceEmptyState";
 import type {
   ProjectDocument,
   VisualEntityDocument,
+  AssetUnderstandingView,
 } from "@/contracts/creator";
-import { getArtifactVersionMediaUrl } from "@/api/creator";
+import {
+  getArtifactVersionMediaUrl,
+  getAssetUnderstanding,
+  getAssetVersionMediaUrl,
+} from "@/api/creator";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import {
@@ -17,6 +22,7 @@ import {
 } from "@/selectors/blueprintSelectors";
 import { visualVariantLabel } from "@/lib/visualVariants";
 import { dispatchWorkGraphNode } from "@/api/creator/workGraph";
+import { nodeGenerating } from "@/lib/generationActivity";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import {
   GenerationPromptEditor,
@@ -26,6 +32,8 @@ import {
   type PromptTarget,
 } from "@/pages/AssetsPage";
 import { TONE_CHIP } from "./tones";
+import PreviewImage from "@/components/assets/PreviewImage";
+import { projectJsonPointer } from "@/lib/projectJsonPointer";
 
 export type PreproductionTab = "visual" | "research";
 
@@ -91,34 +99,65 @@ function VisualDetail({
   const { t } = useTranslation();
   const patchProject = useProjectSnapshotStore((state) => state.patch);
   const patching = useProjectSnapshotStore((state) => state.patching);
-  const primaryVariantId = entity.variants.order[0] ?? null;
-  const primaryVariant = primaryVariantId
-    ? entity.variants.items[primaryVariantId]
+  const [viewedVariantId, setViewedVariantId] = useState<string | null>(null);
+  const variantIds = entity.variants.order.filter(
+    (id) => entity.variants.items[id],
+  );
+  const variantId =
+    (viewedVariantId && variantIds.includes(viewedVariantId)
+      ? viewedVariantId
+      : null) ??
+    (entity.canonical_variant_id &&
+    variantIds.includes(entity.canonical_variant_id)
+      ? entity.canonical_variant_id
+      : variantIds[0]);
+  const variant = variantId ? entity.variants.items[variantId] : null;
+  const selectedVersionId = variant
+    ? variant.selected_artifact_version_id
+    : entitySelectedVersionId(entity);
+  const [viewedVersionId, setViewedVersionId] = useState<string | null>(null);
+  useEffect(() => {
+    setViewedVariantId(null);
+    setViewedVersionId(null);
+  }, [entity.entity_id]);
+  const versionIds = Array.from(
+    new Set([
+      ...(variant?.generated_artifact_version_ids ?? []),
+      ...(selectedVersionId ? [selectedVersionId] : []),
+    ]),
+  );
+  const displayedVersionId =
+    viewedVersionId && versionIds.includes(viewedVersionId)
+      ? viewedVersionId
+      : selectedVersionId;
+  const imageUrl = displayedVersionId
+    ? getArtifactVersionMediaUrl(displayedVersionId)
     : null;
-  const selectedVersionId = entitySelectedVersionId(entity);
-  const imageUrl = selectedVersionId
-    ? getArtifactVersionMediaUrl(selectedVersionId)
-    : null;
-  const versionIds = primaryVariant?.generated_artifact_version_ids ?? [];
   // Same editing surface as the asset library detail: fullscreen prompt
   // editor with pickable reference images, plus the DAG regenerate pill.
   const promptTarget = useMemo(
-    () => visualEntityPromptTarget(project, entity, selectedVersionId),
-    [project, entity, selectedVersionId],
+    () =>
+      visualEntityPromptTarget(project, entity, selectedVersionId, variantId),
+    [project, entity, selectedVersionId, variantId],
   );
   const regenerateNodeId = promptTarget
     ? dispatchNodeIdForPrompt(promptTarget.pointer)
     : null;
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
+  const tasks = useCreatorTaskViewStore((state) => state.tasks);
   const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
 
   const regenerate = () => {
     if (!regenerateNodeId) return;
     void dispatchWorkGraphNode(projectId, regenerateNodeId)
       .then((result) => {
-        message.success(
-          result.dispatched ? t("r2v.regenQueued") : t("r2v.regenUpToDate"),
-        );
+        if (result.dispatched) {
+          message.success(t("r2v.regenQueued"));
+        } else if (result.status === "running") {
+          message.info(t("r2v.regenRunning"));
+        } else {
+          message.info(t("r2v.regenUpToDate"));
+        }
         void refreshTasks(projectId);
         void pollOnce(projectId);
       })
@@ -158,11 +197,37 @@ function VisualDetail({
         {t("blueprint.backToList")}
       </button>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
-        <div className="flex min-h-[220px] items-center justify-center overflow-hidden rounded-[10px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-0">
+        {variantIds.length > 1 && (
+          <div>
+            <FieldLabel>{t("blueprint.variantSelector")}</FieldLabel>
+            <div className="flex flex-wrap gap-1.5">
+              {variantIds.map((id) => (
+                <button
+                  type="button"
+                  key={id}
+                  aria-pressed={id === variantId}
+                  title={entity.variants.items[id].requirements}
+                  onClick={() => {
+                    setViewedVariantId(id);
+                    setViewedVersionId(null);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-left text-xs ${
+                    id === variantId
+                      ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                      : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+                  }`}
+                >
+                  {visualVariantLabel(entity.variants.items[id])}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex min-h-[220px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-0">
           {imageUrl ? (
             // Full-frame portrait designs must show the whole figure —
             // cover-cropping cut the character's head off.
-            <img
+            <PreviewImage
               src={imageUrl}
               alt={entity.name}
               className="mx-auto max-h-[48vh] w-auto max-w-full object-contain"
@@ -178,16 +243,22 @@ function VisualDetail({
             <FieldLabel>{t("blueprint.versions")}</FieldLabel>
             <div className="flex flex-wrap gap-1.5">
               {versionIds.map((versionId, index) => (
-                <span
+                <button
+                  type="button"
                   key={versionId}
+                  onClick={() => setViewedVersionId(versionId)}
+                  aria-pressed={versionId === displayedVersionId}
                   className={`inline-flex h-[26px] items-center rounded-full border px-3 text-[11px] font-semibold ${
-                    versionId === selectedVersionId
+                    versionId === displayedVersionId
                       ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
                       : "border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)]"
                   }`}
                 >
                   v{index + 1}
-                </span>
+                  {versionId === selectedVersionId
+                    ? ` · ${t("assets.currentVersion")}`
+                    : ""}
+                </button>
               ))}
             </div>
           </div>
@@ -200,19 +271,38 @@ function VisualDetail({
                 t("blueprint.entityKind"),
                 t(`blueprint.entityKinds.${entity.kind}`),
               ],
-              [t("blueprint.continuity"), entity.continuity || "—"],
               [
                 t("blueprint.variantCount"),
                 String(entity.variants.order.length),
               ],
             ]}
           />
+          <FieldLabel>{t("blueprint.continuity")}</FieldLabel>
+          <p
+            data-creator-field={`asset:${entity.entity_id}/continuity`}
+            data-creator-path={projectJsonPointer(
+              "visual",
+              "entities",
+              "items",
+              entity.entity_id,
+              "continuity",
+            )}
+            data-creator-field-label={t("blueprint.continuity")}
+            className="select-text whitespace-pre-wrap text-xs leading-5"
+          >
+            {entity.continuity || "—"}
+          </p>
         </div>
         {promptTarget && (
           <GenerationPromptEditor
             key={promptTarget.pointer}
-            target={promptTarget}
+            target={
+              displayedVersionId !== selectedVersionId
+                ? { ...promptTarget, label: t("assets.currentPrompt") }
+                : promptTarget
+            }
             saving={patching}
+            regenerating={nodeGenerating(tasks, regenerateNodeId)}
             regenerateLabel={t("r2v.regenerateImage")}
             onRegenerate={regenerateNodeId ? regenerate : undefined}
             onSave={savePromptTarget}
@@ -314,6 +404,19 @@ function ResearchDetail({
 /* Source understanding detail                                          */
 /* ------------------------------------------------------------------ */
 
+function currentSourceIntelligence(project: ProjectDocument, sourceId: string) {
+  const source = project.sources.sources.items[sourceId];
+  const intelligence = source?.current_intelligence_version_id
+    ? project.assets.intelligence_versions_by_id[
+        source.current_intelligence_version_id
+      ]
+    : null;
+  return intelligence?.source_asset_version_id ===
+    source?.selected_asset_version_id
+    ? intelligence
+    : null;
+}
+
 function SourceDetail({
   project,
   sourceId,
@@ -325,14 +428,41 @@ function SourceDetail({
 }) {
   const { t } = useTranslation();
   const source = project.sources.sources.items[sourceId];
-  const intelligence = source?.current_intelligence_version_id
-    ? project.assets.intelligence_versions_by_id[
-        source.current_intelligence_version_id
-      ]
-    : null;
+  const intelligence = currentSourceIntelligence(project, sourceId);
   const version = source
     ? project.assets.source_versions_by_id[source.selected_asset_version_id]
     : null;
+  const [result, setResult] = useState<AssetUnderstandingView | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setResult(null);
+    setLoadError(false);
+    if (source && intelligence) {
+      void getAssetUnderstanding(
+        project.project_id,
+        source.logical_asset_id,
+        intelligence.intelligence_version_id,
+      )
+        .then((value) => {
+          if (active) setResult(value);
+        })
+        .catch(() => {
+          if (active) setLoadError(true);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [
+    project.project_id,
+    source?.logical_asset_id,
+    intelligence?.intelligence_version_id,
+  ]);
+  const rows = (value: unknown): Array<Record<string, unknown>> =>
+    Array.isArray(value)
+      ? value.filter((item) => item && typeof item === "object")
+      : [];
   if (!source) return null;
   return (
     <div className="panel-enter flex h-full min-h-0 flex-col">
@@ -345,6 +475,13 @@ function SourceDetail({
         {t("blueprint.backToList")}
       </button>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
+        {version?.media_kind === "image" && (
+          <PreviewImage
+            src={getAssetVersionMediaUrl(version.version_id)}
+            alt={source.display_name}
+            className="max-h-64 w-full shrink-0 rounded-lg object-contain"
+          />
+        )}
         <div>
           <FieldLabel>{t("blueprint.sourceSummary")}</FieldLabel>
           <KvLines
@@ -366,6 +503,63 @@ function SourceDetail({
             ]}
           />
         </div>
+        {intelligence && (
+          <section className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 p-3">
+            <h3 className="text-sm font-semibold">
+              {t("blueprint.sourceFindings")}
+            </h3>
+            <div
+              data-creator-field={`asset:${source.logical_asset_id}/understanding`}
+              data-creator-field-label={t("blueprint.sourceFindings")}
+              className="select-text space-y-4 text-xs leading-6"
+            >
+              {result ? (
+                <>
+                  <p className="whitespace-pre-wrap">{result.summary}</p>
+                  {rows(result.entities).length > 0 && (
+                    <div>
+                      <FieldLabel>{t("blueprint.sourceEntities")}</FieldLabel>
+                      {rows(result.entities).map((entity, index) => (
+                        <p key={index}>
+                          <strong>
+                            {String(entity.label ?? entity.name ?? "")}
+                          </strong>{" "}
+                          {String(entity.description ?? "")}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {rows(result.semanticEntries).length > 0 && (
+                    <div>
+                      <FieldLabel>{t("blueprint.sourceEvents")}</FieldLabel>
+                      {rows(result.semanticEntries).map((entry, index) => (
+                        <p
+                          key={index}
+                          className="mb-2 border-l-2 border-[var(--color-border)] pl-2"
+                        >
+                          {typeof entry.startMs === "number"
+                            ? `${entry.startMs / 1000}s–${
+                                Number(entry.endMs) / 1000
+                              }s · `
+                            : ""}
+                          {String(entry.text ?? "")}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p role="status">
+                  {t(
+                    loadError
+                      ? "blueprint.sourceResultFailed"
+                      : "blueprint.sourceResultLoading",
+                  )}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
         {intelligence && Object.keys(intelligence.coverage).length > 0 && (
           <div>
             <FieldLabel>{t("blueprint.coverage")}</FieldLabel>
@@ -438,11 +632,14 @@ export default function BlueprintPrepDrawer({
   const [kind, setKind] = useState<VisualKind>("character");
   useEffect(() => {
     setDetail(focus);
-    if (focus?.type === "visual") {
-      const entity = project.visual.entities.items[focus.entityId];
-      if (entity) setKind(entity.kind);
-    }
-  }, [focus, open, project]);
+  }, [focus, open]);
+  const focusedKind =
+    focus?.type === "visual"
+      ? project.visual.entities.items[focus.entityId]?.kind
+      : null;
+  useEffect(() => {
+    if (focusedKind) setKind(focusedKind);
+  }, [focusedKind]);
 
   // Escape closes the page (detail level first, then the page itself).
   useEffect(() => {
@@ -682,12 +879,12 @@ export default function BlueprintPrepDrawer({
           </span>
           <span
             className={`shrink-0 rounded px-1.5 text-[10px] font-semibold leading-[18px] ${
-              source.current_intelligence_version_id
+              currentSourceIntelligence(project, source.source_id)
                 ? TONE_CHIP.done
                 : TONE_CHIP.wait
             }`}
           >
-            {source.current_intelligence_version_id
+            {currentSourceIntelligence(project, source.source_id)
               ? t("blueprint.board.sourceUnderstood")
               : t("blueprint.board.sourcePending")}
           </span>

@@ -98,6 +98,65 @@ def _bind(
 # ── model name derivation ────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+def test_reference_uploads_overlap_but_keep_order_and_stop_together(
+    monkeypatch,
+    outcome,
+):
+    async def scenario():
+        active = set()
+        finished = []
+        peak = 0
+        first_wave = asyncio.Event()
+        release = {str(i): asyncio.Event() for i in range(5)}
+
+        async def upload(url, backend):
+            nonlocal peak
+            assert backend == "wan"
+            active.add(url)
+            peak = max(peak, len(active))
+            if len(active) == 3:
+                first_wave.set()
+            try:
+                await release[url].wait()
+                if url == "2" and outcome == "failure":
+                    raise ModelError("upload failed")
+                finished.append(url)
+                return f"oss://{url}", "image"
+            finally:
+                active.remove(url)
+
+        monkeypatch.setattr(
+            video_model,
+            "_resolve_reference_media_url",
+            upload,
+        )
+        pending = asyncio.create_task(
+            video_model._resolve_reference_media_urls(list(release), "wan"),
+        )
+        await asyncio.wait_for(first_wave.wait(), 1)
+        assert active == {"0", "1", "2"}
+        if outcome == "cancel":
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        elif outcome == "failure":
+            release["2"].set()
+            with pytest.raises(ModelError, match="upload failed"):
+                await pending
+        else:
+            # Complete later references first; prompt image numbering stays.
+            for key in reversed(release):
+                release[key].set()
+                await asyncio.sleep(0)
+            assert await pending == [(f"oss://{i}", "image") for i in range(5)]
+            assert finished != list(release)
+        assert peak == 3
+        assert not active
+
+    asyncio.run(scenario())
+
+
 def test_derive_model_name_appends_or_replaces_mode_segments() -> None:
     for configured, mode, expected in (
         # Base names gain the suffix.

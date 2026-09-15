@@ -536,8 +536,8 @@ _VOICE_ENROLLMENT_ARGUMENTS = _arguments_schema(
         "sampleSourceVersionId": {
             "type": "string",
             "description": (
-                "可选；已存在的 exact 音频 SourceAssetVersion id 作为 10–20 秒"
-                "音色样本（复刻路径）。"
+                "可选；已存在的 exact 音频或视频 SourceAssetVersion id 作为 "
+                "10–20 秒音色样本（复刻路径）；视频会自动提取音轨。"
             ),
         },
         "sampleText": {
@@ -1099,12 +1099,16 @@ class FileSpecialistToolRegistry:
         role: SpecialistRole,
         *,
         admitted_target_refs: Sequence[str],
+        include_project_readers: bool = True,
     ) -> tuple[dict[str, Any], ...]:
         project_tools = [
             item
             for item in agent_project_tool_manifest()
             if role is not SpecialistRole.SOURCE_INTELLIGENCE
-            or item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+            or (
+                include_project_readers
+                and item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+            )
         ]
         business_tools = []
         for spec in _SPECS:
@@ -1626,6 +1630,14 @@ async def invoke_character_voice_tool(
         "voiceBound": True,
         "voiceOrigin": enrollment.origin,
         "sampleSourceVersionId": enrollment.sample_source_version_id,
+        "sampleReady": enrollment.sample_source_version_id is not None,
+        **(
+            {
+                "warning": "音色已创建，但试听样本尚未就绪；当前不能把它作为视频参考音频。请先补全试听绑定，不要重复设计已经创建的音色。",
+            }
+            if enrollment.sample_source_version_id is None
+            else {}
+        ),
         "generation": enrollment.project_generation,
         "etag": enrollment.project_etag,
         "replayed": enrollment.replayed,

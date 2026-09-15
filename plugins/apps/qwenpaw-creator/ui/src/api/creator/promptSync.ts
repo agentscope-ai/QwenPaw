@@ -51,9 +51,10 @@ function scopePath(scope: PromptSyncScope) {
 export async function getPromptSync(
   scope: PromptSyncScope,
   signal?: AbortSignal,
+  stage?: "storyboard" | "video",
 ): Promise<PromptSyncState> {
   const result = await creatorRequest<PromptSyncState>(
-    `${scopePath(scope)}/prompt-sync`,
+    `${scopePath(scope)}/prompt-sync${stage ? `?stage=${stage}` : ""}`,
     { signal },
   );
   if (

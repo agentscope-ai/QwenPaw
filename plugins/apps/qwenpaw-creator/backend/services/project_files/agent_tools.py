@@ -41,7 +41,7 @@ from .auto_snapshot import auto_snapshot_timelines, frozen_snapshot_edits
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
-from .models import EditPlan, Project, TimelineElement
+from .models import EditPlan, Project, R2VCreation, TimelineElement
 from .patch_ops import PatchOpError, apply_patch_ops
 from .schema_prompt import ProjectSchemaPrompt, build_project_schema_prompt
 from .store import ProjectSnapshot, ProjectStore
@@ -229,6 +229,7 @@ class _ToolModel(BaseModel):
 class ReadProjectToolInput(_ToolModel):
     project_id: str = Field(alias="projectId", min_length=1)
     pointer: str | None = None
+    fields: list[str] | None = Field(default=None, min_length=1, max_length=32)
     offset: int = Field(default=0, ge=0)
     max_bytes: int = Field(default=16_384, alias="maxBytes", ge=4, le=32_768)
     expected_etag: str | None = Field(default=None, alias="expectedEtag")
@@ -466,7 +467,9 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "description": (
             "读取当前 Project 的已验证模型视图（历史快照只列索引，大内容会标明省略）。"
             "可传 pointer 读取任意 JSON Pointer（包括历史快照），按 UTF-8 字节 offset/maxBytes 分页；"
-            "下一页携带返回的 etag 作为 expectedEtag，避免混合不同版本。"
+            "需要续读时直接使用返回的 nextPage 参数（包含 offset 与 expectedEtag），避免混合不同版本。"
+            "核对同一对象的多个字段时优先读取父对象，maxBytes 可取 32768，减少往返回合。"
+            "可用 fields 一次只读取该对象的指定字段，省去不需要的大段提示词或历史内容。"
             "部分视图不能用于整体替换集合，应按稳定 ID 修改；Runtime 始终保有完整提交基线。"
             "并返回 generation 与 ETag。修改前先调用此工具了解当前结构；"
             "jq_project 会自动基于你最近一次读到的快照提交，无需回传 ETag。"
@@ -478,6 +481,13 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "pointer": {
                     "type": "string",
                     "description": "JSON Pointer；空字符串代表整个 Project。",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "description": "只读取 pointer 所指对象的这些字段；不传则读取完整对象。",
                 },
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "maxBytes": {
@@ -788,11 +798,27 @@ _ELEMENT_LEVEL_FIELDS = frozenset(
 
 
 def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
-    """Name the bracket-misplacement when element fields sit in creation."""
+    """Name a known field placed on the wrong side of ``creation``."""
 
+    loc = item.get("loc") or ()
+    if (
+        item.get("type") == "extra_forbidden"
+        and len(loc) == 6
+        and loc[:2] == ("timelines", "items")
+        and loc[3] == "elements_by_id"
+        and loc[-1] in R2VCreation.model_fields
+    ):
+        pointer = "/" + "/".join(
+            str(part).replace("~", "~0").replace("/", "~1")
+            for part in (*loc[:-1], "creation", loc[-1])
+        )
+        return (
+            "该创作字段误写在 Element 顶层，应放入 creation 内。"
+            f"正确 patch 路径：{pointer}；"
+            "移除本次候选的顶层字段后重新提交，项目尚未修改"
+        )
     if item.get("type") != "missing":
         return ""
-    loc = item.get("loc") or ()
     if not loc or str(loc[-1]) not in _ELEMENT_LEVEL_FIELDS:
         return ""
     parent = item.get("input")
@@ -808,7 +834,11 @@ def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
     return ""
 
 
-def _translate_project_schema_error(error: ValidationError) -> str:
+def _translate_project_schema_error(
+    error: ValidationError,
+    *,
+    tool_name: str = JQ_PROJECT_TOOL_NAME,
+) -> str:
     """Render post-jq Project validation errors as located, fixable items."""
 
     items = error.errors()
@@ -845,9 +875,13 @@ def _translate_project_schema_error(error: ValidationError) -> str:
             f"- ...另有 {len(items) - _MAX_SCHEMA_ERROR_LINES} 处错误",
         )
     return (
-        "jq 输出未通过 Project Schema 校验，项目未被修改：\n"
+        f"{tool_name} 输出未通过 Project Schema 校验，项目未被修改：\n"
         + "\n".join(lines)
-        + "\n请修正 program/jsonArgs 后重试。"
+        + (
+            "\n请修正 ops 后重试。"
+            if tool_name == PATCH_PROJECT_TOOL_NAME
+            else "\n请修正 program/jsonArgs 后重试。"
+        )
     )
 
 
@@ -943,9 +977,24 @@ class AgentProjectTools:
         )
         if value is MISSING:
             raise AgentProjectToolError(
-                "Project pointer does not exist",
+                f"Project pointer does not exist: {request.pointer}. "
+                "If user review removed this target, recreate its intended "
+                "content instead of repeating the same read.",
                 code="PROJECT_POINTER_NOT_FOUND",
             )
+        if request.fields is not None:
+            if not isinstance(value, dict):
+                raise AgentProjectToolError(
+                    "fields requires a JSON object pointer",
+                    code="PROJECT_FIELDS_REQUIRE_OBJECT",
+                )
+            missing = [key for key in request.fields if key not in value]
+            if missing:
+                raise AgentProjectToolError(
+                    f"Fields do not exist at {request.pointer or '/'}: {missing}",
+                    code="PROJECT_FIELD_NOT_FOUND",
+                )
+            value = {key: value[key] for key in request.fields}
         raw = json_text(value).encode("utf-8")
         if request.offset > len(raw):
             raise AgentProjectToolError(
@@ -963,6 +1012,18 @@ class AgentProjectTools:
                     ) from exc
                 page = page[: exc.start]
         next_offset = request.offset + len(page)
+        next_page = (
+            {
+                "projectId": request.project_id,
+                "pointer": request.pointer or "",
+                "offset": next_offset,
+                "maxBytes": request.max_bytes,
+                "expectedEtag": snapshot.etag,
+                **({"fields": request.fields} if request.fields else {}),
+            }
+            if next_offset < len(raw)
+            else None
+        )
         return {
             "resultKind": "project_value_page",
             "projectId": request.project_id,
@@ -971,6 +1032,7 @@ class AgentProjectTools:
             "pointer": request.pointer,
             "offset": request.offset,
             "nextOffset": next_offset,
+            "nextPage": next_page,
             "eof": next_offset >= len(raw),
             "totalBytes": len(raw),
             "content": content,
@@ -1083,8 +1145,11 @@ class AgentProjectTools:
             base.project.model_dump(mode="json"),
             candidate,
         )
-        normalized_pointers = normalize_project_candidate(candidate)
         base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         changed_protected = [
             pointer
             for pointer in sorted(PROTECTED_EXACT_POINTERS)
@@ -1497,7 +1562,11 @@ class AgentProjectTools:
             base.project.model_dump(mode="json"),
             candidate,
         )
-        normalized_pointers = normalize_project_candidate(candidate)
+        base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         sync_fence = self._begin_sync_review_fence(
             base.project.model_dump(mode="json"),
             candidate,
@@ -1593,7 +1662,7 @@ class AgentProjectTools:
 
         if tool_name == READ_PROJECT_TOOL_NAME:
             request = ReadProjectToolInput.model_validate(dict(arguments))
-            if request.pointer is not None:
+            if request.pointer is not None or request.fields is not None:
                 return self.read_project_page(request)
             result: BaseModel = self.read_project(request.project_id)
         elif tool_name == READ_PROJECT_FILE_TOOL_NAME:
@@ -1671,7 +1740,10 @@ class AgentProjectTools:
                 ) from exc
             except ValidationError as exc:
                 raise AgentProjectToolError(
-                    _translate_project_schema_error(exc),
+                    _translate_project_schema_error(
+                        exc,
+                        tool_name=PATCH_PROJECT_TOOL_NAME,
+                    ),
                     code="PATCH_PROJECT_SCHEMA_INVALID",
                     details={
                         "validationErrors": exc.errors(

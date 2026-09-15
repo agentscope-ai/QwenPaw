@@ -223,7 +223,7 @@ async function continueLaunchInBackground({
           project.projectId,
           att.file,
           "NONE",
-          newClientId("asset"),
+          { clientRequestId: newClientId("asset") },
         );
         const taskRefs = accepted.assetVersionId
           ? [`asset-version:${accepted.assetVersionId}`]

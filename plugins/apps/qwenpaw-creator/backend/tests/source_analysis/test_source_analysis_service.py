@@ -244,17 +244,36 @@ def _execute_with_interrupt(
     return asyncio.run(scenario())
 
 
-def test_changed_project_head_quarantines_late_provider_result(
+@pytest.mark.parametrize("mutation", ["unrelated", "source_removed"])
+def test_late_provider_result_survives_unrelated_head_changes(
     tmp_path,
+    mutation,
 ) -> None:
+    """Only the delegated source's own identity gates the publication.
+
+    Parallel per-asset specialists advance the head with sibling commits;
+    quarantining a paid result over an unrelated generation/ETag change
+    burned a full re-analysis per collision (CR 2026-09-11). Losing the
+    delegated source itself must still quarantine.
+    """
+
     services, asset_id, _ = _services_with_source(tmp_path)
     analyzer = BlockingAnalyzer()
     service = SourceMediaAnalysisService(services, analyzer=analyzer)
 
-    async def change_head(_dispatch_result):
+    async def change_head(dispatch_result):
         base = services.projects.read("project-1")
         candidate = base.project.model_dump(mode="json")
-        candidate["description"] = "user changed while provider was running"
+        if mutation == "unrelated":
+            candidate["description"] = "user changed while provider running"
+        else:
+            source_id = dispatch_result.job.source_id
+            del candidate["sources"]["sources"]["items"][source_id]
+            candidate["sources"]["sources"]["order"] = [
+                item
+                for item in candidate["sources"]["sources"]["order"]
+                if item != source_id
+            ]
         services.commits.commit(
             base=base,
             candidate=candidate,
@@ -273,17 +292,26 @@ def test_changed_project_head_quarantines_late_provider_result(
         "analyze-stale",
         change_head,
     )
-    assert completed.status is TaskStatus.QUARANTINED
-    assert (
-        _run_status(service, dispatch.job.run_id) is SpecialistRunStatus.STALE
-    )
-    quarantine = service.executions.get_quarantine_record(
-        "project-1",
-        dispatch.job.task_id,
-    )
-    assert "generation/ETag" in quarantine.reason
     project = services.projects.read("project-1").project
-    assert not project.assets.intelligence_versions_by_id
+    if mutation == "unrelated":
+        assert completed.status is TaskStatus.SUCCEEDED
+        assert project.assets.intelligence_versions_by_id
+        assert (
+            _run_status(service, dispatch.job.run_id)
+            is SpecialistRunStatus.SUCCEEDED
+        )
+    else:
+        assert completed.status is TaskStatus.QUARANTINED
+        assert (
+            _run_status(service, dispatch.job.run_id)
+            is SpecialistRunStatus.STALE
+        )
+        quarantine = service.executions.get_quarantine_record(
+            "project-1",
+            dispatch.job.task_id,
+        )
+        assert "SourceAssetVersion" in quarantine.reason
+        assert not project.assets.intelligence_versions_by_id
 
 
 def test_cancelled_task_quarantines_provider_result_without_project_commit(

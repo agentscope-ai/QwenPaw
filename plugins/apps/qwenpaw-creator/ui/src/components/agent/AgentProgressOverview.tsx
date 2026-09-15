@@ -254,6 +254,13 @@ export default function AgentProgressOverview({
   const runningGroups = model.groups.filter(
     (group) => group.counts.running > 0,
   ).length;
+  const activeItems = model.groups
+    .flatMap((group) => group.items)
+    .filter((item) => item.phase === "running")
+    .sort(
+      (left, right) =>
+        Number(right.source === "run") - Number(left.source === "run"),
+    );
   const subtitle = pendingAuthorizations
     ? t("agent.productionConfirmPending", { count: pendingAuthorizations })
     : runningGroups > 1
@@ -347,6 +354,29 @@ export default function AgentProgressOverview({
         </span>
         <ChevronDown className="agent-progress-chevron" aria-hidden />
       </button>
+      {activeItems.length > 0 && (
+        <div
+          data-agent-active-work
+          className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-accent-soft)] px-3 py-1.5"
+          role="status"
+          aria-label={t("progressOverview.activeWork")}
+        >
+          {activeItems.slice(0, 2).map((item) => (
+            <div
+              key={item.id}
+              className="flex min-w-0 items-center gap-1.5 text-[11px] leading-5 text-[var(--color-text-primary)]"
+            >
+              <AgentActivityIndicator phase="running" />
+              <span
+                className="truncate"
+                title={`${item.label} · ${item.statusLabel}`}
+              >
+                {item.label} · {item.statusLabel}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {expanded && (
         <div id={detailsId} className="agent-progress-body">
           {stats()}

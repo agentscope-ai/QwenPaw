@@ -51,7 +51,6 @@ from services.runtime_files.errors import (
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import IdempotencyStatus
-from services.file_agent_runtime import get_creator_agent_runtime
 from services.storage_root import require_creator_data_root
 
 # QwenPaw secret store for reading encrypted provider API keys
@@ -628,7 +627,12 @@ def save_model_config(data: ModelConfigData) -> None:
 def mutate_model_config(
     mutator: Callable[[ModelConfigData], ModelConfigData],
 ) -> ModelConfigData:
-    """Apply one read-modify-write transaction under the config lock."""
+    """Update global defaults without admitting or resuming Project work.
+
+    Cache invalidation makes subsequent operations observe the new settings.
+    Project wakes belong to explicit message/commit boundaries, never a
+    settings save or an idempotent replay of that save.
+    """
 
     config_path = _config_paths()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -927,14 +931,6 @@ async def bind_creator_tool_config(request: Request):
         model_config.reset_request_tool_configs(token)
 
 
-def _notify_agent_model_config_changed() -> None:
-    runtime = get_creator_agent_runtime()
-    if runtime is None:
-        return
-    for project in runtime.services.projects.list():
-        runtime.notify(project.project_id)
-
-
 async def _validate_section_connectivity(
     section: str,
     config: dict[str, Any],
@@ -1214,14 +1210,12 @@ async def update_model_config(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return True
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
             mutate_model_config(mutate)
-            _notify_agent_model_config_changed()
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-update",
@@ -1269,11 +1263,7 @@ async def patch_creation_checkpoints(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1327,11 +1317,7 @@ async def patch_permission_mode(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1354,11 +1340,7 @@ async def patch_media_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1381,11 +1363,7 @@ async def patch_execution_authorization(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1465,11 +1443,7 @@ async def patch_self_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1531,14 +1505,12 @@ async def patch_model_config_section(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
             mutate_model_config(mutate)
-            _notify_agent_model_config_changed()
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-patch",

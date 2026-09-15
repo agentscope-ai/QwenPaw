@@ -2,6 +2,7 @@
 """Explicit text proposal/accept workflow; never dispatches media."""
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import Field
@@ -30,6 +31,7 @@ async def prompt_status(
     project_id: str,
     timeline_id: str,
     element_id: str,
+    stage: Literal["storyboard", "video"] | None = None,
     services=Depends(project_file_services),
 ):
     return await asyncio.to_thread(
@@ -37,6 +39,7 @@ async def prompt_status(
         project_id,
         timeline_id,
         element_id,
+        stage=stage,
     )
 
 

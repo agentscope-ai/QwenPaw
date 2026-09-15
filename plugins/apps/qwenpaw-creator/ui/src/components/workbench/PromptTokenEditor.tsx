@@ -12,7 +12,7 @@ export interface PromptTokenEditorHandle {
 
 // Complete literals so Tailwind ships the classes injected into editor DOM.
 const TOKEN_PILL_CLASS =
-  "prompt-token-pill mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--color-accent)_35%,var(--color-border))] bg-[var(--color-bg-primary)] py-0.5 pl-0.5 pr-2 align-[-5px] text-[11px] leading-none shadow-xs hover:border-[var(--color-danger)]";
+  "prompt-token-pill relative mx-0.5 inline-flex select-none items-center rounded-full border border-[color-mix(in_srgb,var(--color-accent)_35%,var(--color-border))] bg-[var(--color-bg-primary)] py-0.5 pl-0.5 pr-3 align-[-5px] text-[11px] leading-none shadow-xs hover:border-[var(--color-accent)]";
 const TOKEN_IMG_CLASS =
   "h-5 w-5 rounded-full border border-[var(--color-border)] object-cover";
 const TOKEN_INDEX_CLASS =
@@ -20,18 +20,37 @@ const TOKEN_INDEX_CLASS =
 const TOKEN_NAME_CLASS =
   "max-w-[108px] truncate font-medium text-[var(--color-text-primary)]";
 
+function appendRemoveButton(pill: HTMLSpanElement, name: string) {
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.dataset.promptTokenRemove = pill.dataset.imageIndex;
+  remove.className =
+    "absolute -right-1 -top-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-sm leading-none text-[var(--color-text-secondary)] shadow-xs hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-40";
+  remove.title = i18n.t("r2v.tokenRemove", { name });
+  remove.setAttribute("aria-label", remove.title);
+  remove.textContent = "×";
+  pill.append(remove);
+}
+
 function createTokenPill(token: PromptRichToken): HTMLSpanElement {
   const pill = document.createElement("span");
   pill.className = TOKEN_PILL_CLASS;
   pill.contentEditable = "false";
   pill.dataset.imageIndex = String(token.index);
-  pill.title = i18n.t("r2v.tokenClickRemove");
+  const preview = document.createElement("button");
+  preview.type = "button";
+  preview.dataset.promptTokenPreview = String(token.index);
+  preview.disabled = !token.thumbUrl;
+  preview.className =
+    "inline-flex cursor-zoom-in items-center gap-1 rounded-full disabled:cursor-default";
+  preview.title = i18n.t("r2v.tokenPreview", { name: token.name });
+  preview.setAttribute("aria-label", preview.title);
   if (token.thumbUrl) {
     const img = document.createElement("img");
     img.src = token.thumbUrl;
     img.alt = "";
     img.className = TOKEN_IMG_CLASS;
-    pill.append(img);
+    preview.append(img);
   }
   const indexBadge = document.createElement("span");
   indexBadge.className = TOKEN_INDEX_CLASS;
@@ -39,7 +58,9 @@ function createTokenPill(token: PromptRichToken): HTMLSpanElement {
   const name = document.createElement("span");
   name.className = TOKEN_NAME_CLASS;
   name.textContent = token.name;
-  pill.append(indexBadge, name);
+  preview.append(indexBadge, name);
+  pill.append(preview);
+  appendRemoveButton(pill, token.name);
   return pill;
 }
 
@@ -53,8 +74,9 @@ function createMissingTokenPill(
   pill.dataset.imageLiteral = literal;
   pill.dataset.imageMissing = "true";
   pill.className =
-    "mx-0.5 inline-flex rounded border border-dashed border-[var(--color-danger)] px-1 text-[var(--color-danger)]";
+    "relative mx-0.5 inline-flex rounded border border-dashed border-[var(--color-danger)] pl-1 pr-3 text-[var(--color-danger)]";
   pill.textContent = i18n.t("r2v.tokenMissing", { index });
+  appendRemoveButton(pill, `IMG ${index}`);
   return pill;
 }
 
@@ -92,7 +114,8 @@ function serialize(root: HTMLElement): string {
  * Fullscreen prompt editor surface: a contenteditable whose [Image N]
  * citations live as thumbnail pills (the same visual as the read preview),
  * so inserting a reference drops the pill itself — not a bare marker.
- * Clicking a pill removes it. Value serializes back to plain prompt text.
+ * A pill previews its image; only its remove button deletes the citation.
+ * Value serializes back to plain prompt text.
  */
 const PromptTokenEditor = forwardRef<
   PromptTokenEditorHandle,
@@ -101,9 +124,10 @@ const PromptTokenEditor = forwardRef<
     tokens: PromptRichToken[];
     disabled?: boolean;
     onChange: (value: string) => void;
+    onPreview: (token: PromptRichToken) => void;
   }
 >(function PromptTokenEditor(
-  { initialValue, tokens, disabled, onChange },
+  { initialValue, tokens, disabled, onChange, onPreview },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -132,6 +156,14 @@ const PromptTokenEditor = forwardRef<
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    editorRef.current
+      ?.querySelectorAll<HTMLButtonElement>("[data-prompt-token-remove]")
+      .forEach((button) => {
+        button.disabled = Boolean(disabled);
+      });
+  }, [disabled]);
 
   const emit = () => {
     if (editorRef.current) onChange(serialize(editorRef.current));
@@ -171,6 +203,7 @@ const PromptTokenEditor = forwardRef<
 
   useImperativeHandle(ref, () => ({
     insertToken: (index: number) => {
+      if (disabled) return;
       const token = promptTokenAt(tokensRef.current, index);
       if (!token) return;
       const range = insertionRange();
@@ -195,10 +228,21 @@ const PromptTokenEditor = forwardRef<
   }));
 
   const handleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const pill = (event.target as HTMLElement).closest?.("[data-image-index]");
+    const target = event.target as HTMLElement;
+    const pill = target.closest?.("[data-image-index]");
     if (pill && editorRef.current?.contains(pill)) {
-      pill.remove();
-      emit();
+      if (target.closest("[data-prompt-token-remove]")) {
+        if (!disabled) {
+          pill.remove();
+          emit();
+        }
+      } else {
+        const token = promptTokenAt(
+          tokensRef.current,
+          Number((pill as HTMLElement).dataset.imageIndex),
+        );
+        if (token?.thumbUrl) onPreview(token);
+      }
     }
     saveRange();
   };
@@ -217,6 +261,12 @@ const PromptTokenEditor = forwardRef<
       }}
       onKeyUp={saveRange}
       onMouseUp={saveRange}
+      onMouseDown={(event) => {
+        if ((event.target as HTMLElement).closest?.("[data-image-index]")) {
+          saveRange();
+          event.preventDefault();
+        }
+      }}
       onBlur={saveRange}
       onClick={handleClick}
       className="min-h-[360px] w-full flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-2.5 text-xs leading-[2] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"

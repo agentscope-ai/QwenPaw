@@ -8,13 +8,15 @@ import type {
 import { selectLiveTimelineIds } from "@/selectors/timelineElementSelectors";
 import {
   creatorRoleLabel,
-  creatorStatusLabel,
+  creatorTaskStatusLabel,
+  creatorRunStatusLabel,
   creatorTargetLabel,
   creatorWorkNodeLabel,
   taskKindLabel,
 } from "@/lib/creatorPresentation";
 import i18n from "@/i18n";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
+import { taskProgressPercent } from "@/lib/taskPresentation";
 
 export type AgentProgressPhase =
   | "preparing"
@@ -109,13 +111,17 @@ function phaseOf(status: string): AgentProgressPhase {
     return "preparing";
   return "attention";
 }
-function percent(value: number | null, phase: AgentProgressPhase) {
+function percent(
+  value: number | null,
+  phase: AgentProgressPhase,
+  kind: string,
+) {
   return phase === "running" &&
     typeof value === "number" &&
     Number.isFinite(value) &&
     value >= 0 &&
     value <= 1
-    ? Math.round(value * 100)
+    ? taskProgressPercent(value, kind)
     : null;
 }
 function isLater(a: { createdAt?: string }, b: { createdAt?: string }) {
@@ -494,7 +500,20 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
             },
           )
         : projectedTask
-        ? creatorStatusLabel(projectedTask.status)
+        ? creatorTaskStatusLabel(projectedTask)
+        : node.status === "running" &&
+          ["visual", "lineup", "storyboard", "video", "compose"].includes(
+            node.kind,
+          )
+        ? creatorTaskStatusLabel({
+            kind:
+              node.kind === "video"
+                ? "r2v_generation"
+                : node.kind === "compose"
+                ? "compose"
+                : "image_generation",
+            status: "RUNNING",
+          })
         : i18n.t(`agentActivity.${graphStates[node.status] ?? "currentStage"}`),
       phase,
       locator: operationLocator(
@@ -511,6 +530,7 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       progressPercent: percent(
         projectedTask ? projectedTask.progress : node.progress,
         phase,
+        node.kind,
       ),
     });
   }
@@ -554,6 +574,26 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
     visibleRunIds.add(run.id);
     const group = groupFor(run.targetRefs ?? []);
     const phase = phaseOf(run.status);
+    const sourceResultSaved =
+      phase === "running" &&
+      String(run.role).includes("source_intelligence") &&
+      project &&
+      (run.targetRefs?.length ?? 0) > 0 &&
+      run.targetRefs!.every((ref) => {
+        const source = Object.values(project.sources.sources.items).find(
+          (item) => `asset:${item.logical_asset_id}` === ref,
+        );
+        const intelligence = source?.current_intelligence_version_id
+          ? project.assets.intelligence_versions_by_id[
+              source.current_intelligence_version_id
+            ]
+          : null;
+        return (
+          intelligence &&
+          intelligence.source_asset_version_id ===
+            source?.selected_asset_version_id
+        );
+      });
     const targetLabels = [
       ...new Set(
         (run.targetRefs ?? []).map((ref) => creatorTargetLabel(ref, project)),
@@ -568,7 +608,9 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         ...targetLabels.filter((label) => label !== group.label),
       ].join(" · "),
       status: run.status,
-      statusLabel: creatorStatusLabel(run.status),
+      statusLabel: sourceResultSaved
+        ? i18n.t("progressOverview.finishingSource")
+        : creatorRunStatusLabel(run, tasks),
       phase,
       locator: group.locator,
       progressPercent: null,
@@ -624,12 +666,12 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       task,
       label: target && target !== group.label ? `${label} · ${target}` : label,
       status: task.status,
-      statusLabel: creatorStatusLabel(task.status),
+      statusLabel: creatorTaskStatusLabel(task),
       phase,
       locator: locator
         ? operationLocator(String(task.kind), locator, project)
         : null,
-      progressPercent: percent(task.progress, phase),
+      progressPercent: percent(task.progress, phase, task.kind),
     });
   }
   const result = [...groups.values()].filter((group) => group.items.length);

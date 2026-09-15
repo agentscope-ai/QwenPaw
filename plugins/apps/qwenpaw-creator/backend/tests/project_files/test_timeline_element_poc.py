@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -33,6 +34,7 @@ from services.project_files.models import (
 )
 from services.project_files.review import ReviewDecisionItem
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
+from services.runtime_files.errors import LockTimeoutError
 
 from .conftest import (
     FakeImageProvider,
@@ -170,10 +172,22 @@ def test_named_element_output_requires_its_owned_artifact_slot():
         Project.model_validate(project.model_dump(mode="json"))
 
 
+@pytest.mark.parametrize("self_review", [False, True])
 def test_storyboard_and_r2v_publish_named_element_outputs(
     tmp_path,
     monkeypatch,
+    self_review,
 ):
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", str(int(self_review)))
+    reviewed = []
+
+    async def record_review(_services, *, published, **_kwargs):
+        reviewed.append(published["artifactVersion"]["version_id"])
+
+    monkeypatch.setattr(
+        "services.run_review.media_review.run_media_review_loop",
+        record_review,
+    )
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
     services = CreatorFileServices.create(tmp_path.resolve())
     project = Project.new(project_id="r2v-project", name="R2V")
@@ -183,11 +197,12 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
         Project.model_validate(project.model_dump(mode="json")),
     )
 
+    image_worker = FileImageExecutionService(
+        services,
+        provider=FakeImageProvider(),
+    )
     image = asyncio.run(
-        FileImageExecutionService(
-            services,
-            provider=FakeImageProvider(),
-        ).execute(
+        image_worker.execute(
             project_id="r2v-project",
             command="GENERATE_STORYBOARD_IMAGE",
             target_ref="element:r2v-1",
@@ -195,6 +210,8 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
             idempotency_key="storyboard-1",
         ),
     )
+    image_task = image_worker.executions.get_task("r2v-project", image.task_id)
+    assert image_task.result["selfReviewEnabled"] is self_review
     after_image = services.projects.read("r2v-project").project
     element = after_image.timelines.items["timeline:main"].elements_by_id[
         "r2v-1"
@@ -241,6 +258,15 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
 
     task = asyncio.run(generate())
     assert task.status.value == "SUCCEEDED"
+    assert task.result["selfReviewEnabled"] is self_review
+    assert set(reviewed) == (
+        {
+            image.artifact_version_id,
+            task.result["artifactVersion"]["version_id"],
+        }
+        if self_review
+        else set()
+    )
     finished = services.projects.read("r2v-project").project
     element = finished.timelines.items["timeline:main"].elements_by_id["r2v-1"]
     assert element.outputs["main"].slot_id == "element:r2v-1:main"
@@ -248,8 +274,11 @@ def test_storyboard_and_r2v_publish_named_element_outputs(
     assert element.render_source.type == "element_output"
 
 
+@pytest.mark.parametrize("progress_fault", [None, "initial", "completion"])
 def test_each_edit_selection_is_an_element_and_timeline_executes_them(
     tmp_path,
+    monkeypatch,
+    progress_fault,
 ):
     services = CreatorFileServices.create(tmp_path.resolve())
     project = Project.new(
@@ -304,8 +333,30 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
         review_policy=ReviewPolicy.AUTO_FIX,
     )
     edit_runner = RecordingLocalRunner()
+    worker = FileLocalMediaExecutionService(services, runner=edit_runner)
+    transition = worker.executions.transition_task
+    event_loop_thread = threading.get_ident()
+    injected = []
+
+    def report(*args, **kwargs):
+        updates = kwargs.get("updates", {})
+        metadata = updates.get("metadata", {})
+        if "completedElements" in metadata:
+            phase = (
+                "initial"
+                if metadata["completedElements"] == 0
+                else "completion"
+            )
+            if phase == "initial":
+                assert threading.get_ident() != event_loop_thread
+            if phase == progress_fault:
+                injected.append(phase)
+                raise LockTimeoutError(tmp_path / "progress.lock", 0.01)
+        return transition(*args, **kwargs)
+
+    monkeypatch.setattr(worker.executions, "transition_task", report)
     edit = asyncio.run(
-        FileLocalMediaExecutionService(services, runner=edit_runner).execute(
+        worker.execute(
             project_id="edit-project",
             command="EXECUTE_EDIT",
             target_ref="timeline:timeline:main",
@@ -313,6 +364,8 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
             idempotency_key="edit-1",
         ),
     )
+    assert injected == ([progress_fault] if progress_fault else [])
+    assert len(edit_runner.calls) == 1
     snapshot = services.projects.read("edit-project").project
     timeline = snapshot.timelines.items["timeline:main"]
     creations = [

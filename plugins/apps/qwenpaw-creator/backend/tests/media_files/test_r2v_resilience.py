@@ -18,6 +18,7 @@ from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.r2v_execution import FileR2VExecutionService
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.execution_store import ProjectExecutionStore
+from services.runtime_files.errors import LockTimeoutError
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
 from utils.paths import unique_task_work_path
 from scripts.recover_completed_r2v_materialization import (
@@ -471,6 +472,140 @@ def _run_video(services: CreatorFileServices, provider):
     return asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "start",
+        "prepare",
+        "bind",
+        "heartbeat",
+        "submitted",
+        "polled",
+        "shutdown",
+        "bind_shutdown",
+    ],
+)
+def test_local_contention_preserves_the_same_provider_task(
+    tmp_path,
+    monkeypatch,
+    phase,
+) -> None:
+    services = _services(tmp_path, monkeypatch)
+    provider = _MutatingR2VProvider(services, lambda _candidate: None)
+    submitted = []
+    original_submit = provider.submit
+
+    async def submit(**kwargs):
+        submitted.append(1)
+        if phase == "heartbeat":
+            await asyncio.sleep(0.8)
+        return await original_submit(**kwargs)
+
+    monkeypatch.setattr(provider, "submit", submit)
+
+    async def scenario():
+        worker = FileR2VExecutionService(
+            services,
+            provider=provider,
+            poll_interval_seconds=0.01,
+            poll_lease_seconds=0.1,
+            submit_timeout_seconds=1,
+            submit_claim_seconds=2,
+        )
+        dispatched = await worker.dispatch(
+            project_id=PROJECT_ID,
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments={},
+            idempotency_key="lock-recovery",
+            start=False,
+        )
+        get_task = worker.executions.get_task
+        update_state = worker._update_state_sync
+        blocked = False
+
+        def read(*args, **kwargs):
+            nonlocal blocked
+            should_block = (
+                phase in {"start", "shutdown"}
+                or (phase == "submitted" and submitted)
+                or (
+                    phase == "prepare"
+                    and worker._read_state_sync(
+                        PROJECT_ID,
+                        dispatched.task_id,
+                    ).phase
+                    == "SUBMIT_CLAIMED"
+                )
+            )
+            if should_block and (not blocked or phase == "shutdown"):
+                blocked = True
+                raise LockTimeoutError(tmp_path / "project.lock", 10.0)
+            return get_task(*args, **kwargs)
+
+        def update(project_id, task_id, change):
+            nonlocal blocked
+            target = {"polled": "success", "heartbeat": "heartbeat"}.get(
+                phase,
+                "bind",
+            )
+            if phase in {"polled", "bind", "bind_shutdown", "heartbeat"} and (
+                change.__name__ == target
+                and (not blocked or phase == "bind_shutdown")
+            ):
+                blocked = True
+                raise LockTimeoutError(tmp_path / "project.lock", 10.0)
+            return update_state(project_id, task_id, change)
+
+        monkeypatch.setattr(worker.executions, "get_task", read)
+        monkeypatch.setattr(worker, "_update_state_sync", update)
+        job = worker.start_task(PROJECT_ID, dispatched.task_id)
+        try:
+            if phase in {"shutdown", "bind_shutdown"}:
+                async with asyncio.timeout(2):
+                    while not blocked:
+                        await asyncio.sleep(0.01)
+                await worker.shutdown()
+                assert job.cancelled()
+            else:
+                await asyncio.wait_for(job, timeout=8)
+            return get_task(PROJECT_ID, dispatched.task_id), blocked
+        finally:
+            await worker.shutdown()
+
+    task, blocked = asyncio.run(scenario())
+    assert blocked
+    assert _r2v_task_count(services) == 1
+    if phase in {"shutdown", "bind_shutdown"}:
+        assert task.status.value == (
+            "RUNNING" if phase == "bind_shutdown" else "QUEUED"
+        )
+        assert len(submitted) == (1 if phase == "bind_shutdown" else 0)
+        assert task.error is None
+    else:
+        assert task.status.value == "SUCCEEDED"
+        assert len(submitted) == 1
+        assert task.result["providerTaskId"] == "provider-task-stale"
+
+
+def test_submit_timeout_keeps_a_nonempty_diagnostic(tmp_path, monkeypatch):
+    services = _services(tmp_path, monkeypatch)
+
+    class TimedOutProvider:
+        calls = 0
+
+        async def submit(self, **_kwargs):
+            self.calls += 1
+            raise TimeoutError()
+
+    provider = TimedOutProvider()
+    task = _run_video(services, provider)
+    assert task.status.value == "FAILED"
+    assert task.error["code"] == "R2V_PROVIDER_SUBMISSION_FAILED"
+    assert "exceeded 180 seconds" in task.error["message"]
+    assert task.error["errorId"]
+    assert provider.calls == 1
+
+
 def test_unrelated_commit_during_render_does_not_quarantine(
     tmp_path,
     monkeypatch,
@@ -519,143 +654,73 @@ def test_changed_render_inputs_during_render_still_quarantine(
     assert (task.error or {}).get("code") == "PROJECT_INPUT_SNAPSHOT_STALE"
 
 
-def test_frozen_inputs_still_current_t2v(tmp_path, monkeypatch) -> None:
-    """T2V elements have no external references, so inputs are always current."""
-
-    from services.project_files.models import (
-        ElementLocation,
-        T2VCreation,
-        TimelineElement,
-        TimelineSpan,
-    )
-
-    services = r2v_project_services(
-        tmp_path,
-        monkeypatch,
-        project_id="t2v-stale-project",
-        name="T2V Stale",
-        elements=(
-            TimelineElement(
-                element_id="t2v-1",
-                label="T2V Element",
-                span=TimelineSpan(start_tick=0, duration_tick=4_000),
-                location=ElementLocation(),
-                creation=T2VCreation(video_prompt="A beautiful sunset"),
-            ),
+@pytest.mark.parametrize(
+    "mode,inputs,frozen",
+    [
+        (
+            "t2v",
+            {"video_prompt": "A beautiful sunset"},
+            {"referenceVersionIds": []},
         ),
-    )
-    project = services.projects.read("t2v-stale-project").project
-    task = SimpleNamespace(
-        task_id="task-1",
-        project_id="t2v-stale-project",
-        kind="r2v_generation",
-        status="RUNNING",
-        input_refs=["element:t2v-1"],
-        metadata={
-            "requestSnapshot": {
-                "elementId": "t2v-1",
-                "referenceVersionIds": [],
+        (
+            "i2v",
+            {
+                "video_prompt": "A beautiful sunset",
+                "first_frame_version_id": "img:first-frame",
             },
-        },
-    )
-    assert r2v_execution.FileR2VExecutionService._frozen_inputs_still_current(
-        project,
-        task,
-    )
-
-
-def test_frozen_inputs_still_current_i2v(tmp_path, monkeypatch) -> None:
-    """I2V elements check first_frame_version_id."""
-
-    from services.project_files.models import (
-        ElementLocation,
-        I2VCreation,
-        TimelineElement,
-        TimelineSpan,
-    )
-
-    services = r2v_project_services(
-        tmp_path,
-        monkeypatch,
-        project_id="i2v-stale-project",
-        name="I2V Stale",
-        elements=(
-            TimelineElement(
-                element_id="i2v-1",
-                label="I2V Element",
-                span=TimelineSpan(start_tick=0, duration_tick=4_000),
-                location=ElementLocation(),
-                creation=I2VCreation(
-                    video_prompt="A beautiful sunset",
-                    first_frame_version_id="img:first-frame",
-                ),
-            ),
-        ),
-    )
-    project = services.projects.read("i2v-stale-project").project
-    task = SimpleNamespace(
-        task_id="task-1",
-        project_id="i2v-stale-project",
-        kind="r2v_generation",
-        status="RUNNING",
-        input_refs=["element:i2v-1"],
-        metadata={
-            "requestSnapshot": {
-                "elementId": "i2v-1",
+            {
                 "referenceVersionIds": ["img:first-frame"],
                 "firstFrameVersionId": "img:first-frame",
             },
-        },
-    )
-    assert r2v_execution.FileR2VExecutionService._frozen_inputs_still_current(
-        project,
-        task,
-    )
-
-
-def test_frozen_inputs_still_current_s2v(tmp_path, monkeypatch) -> None:
-    """S2V elements check portrait + audio."""
-
-    from services.project_files.models import (
-        ElementLocation,
-        S2VCreation,
-        TimelineElement,
-        TimelineSpan,
-    )
-
-    services = r2v_project_services(
-        tmp_path,
-        monkeypatch,
-        project_id="s2v-stale-project",
-        name="S2V Stale",
-        elements=(
-            TimelineElement(
-                element_id="s2v-1",
-                label="S2V Element",
-                span=TimelineSpan(start_tick=0, duration_tick=4_000),
-                location=ElementLocation(),
-                creation=S2VCreation(
-                    portrait_version_id="img:portrait",
-                    audio_version_id="aud:voice",
-                ),
-            ),
         ),
-    )
-    project = services.projects.read("s2v-stale-project").project
-    task = SimpleNamespace(
-        task_id="task-1",
-        project_id="s2v-stale-project",
-        kind="r2v_generation",
-        status="RUNNING",
-        input_refs=["element:s2v-1"],
-        metadata={
-            "requestSnapshot": {
-                "elementId": "s2v-1",
+        (
+            "s2v",
+            {
+                "portrait_version_id": "img:portrait",
+                "audio_version_id": "aud:voice",
+            },
+            {
                 "referenceVersionIds": ["img:portrait", "aud:voice"],
                 "s2vImageVersionId": "img:portrait",
                 "s2vAudioVersionId": "aud:voice",
             },
-        },
+        ),
+    ],
+)
+def test_frozen_inputs_still_current_by_video_mode(
+    tmp_path,
+    monkeypatch,
+    mode,
+    inputs,
+    frozen,
+):
+    from services.project_files.models import TimelineElement
+
+    services = r2v_project_services(
+        tmp_path,
+        monkeypatch,
+        project_id="stale-project",
+        name="Video input snapshot",
+        elements=(
+            TimelineElement.model_validate(
+                {
+                    "element_id": "video-1",
+                    "label": "Video",
+                    "span": {"start_tick": 0, "duration_tick": 4000},
+                    "location": {},
+                    "creation": {"type": mode, **inputs},
+                },
+            ),
+        ),
+    )
+    project = services.projects.read("stale-project").project
+    task = SimpleNamespace(
+        task_id="task-1",
+        project_id="stale-project",
+        kind="r2v_generation",
+        status="RUNNING",
+        input_refs=["element:video-1"],
+        metadata={"requestSnapshot": {"elementId": "video-1", **frozen}},
     )
     assert r2v_execution.FileR2VExecutionService._frozen_inputs_still_current(
         project,
