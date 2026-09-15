@@ -525,6 +525,13 @@ class ConsoleChannel(BaseChannel):
             self._clear_session_turn_usage(session_id)
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
+            err_event = _json.dumps(
+                {
+                    "type": "error",
+                    "error": err_msg,
+                },
+            )
+            yield f"data: {err_event}\n\n"
             self._print_error(err_msg)
         finally:
             try:
