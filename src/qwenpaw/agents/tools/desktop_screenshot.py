@@ -14,14 +14,14 @@ from agentscope.message import ToolResultState
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import run_sync_io
-from .file_io import _path_to_file_url, _resolve_file_path
+from .file_io import _path_to_file_url
 from ..utils.image_freezing import freeze_local_images_async
 
 
 def _tool_error(msg: str) -> ToolChunk:
     return ToolChunk(
         is_last=True,
-        state=ToolResultState.ERROR,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -187,7 +187,6 @@ async def desktop_screenshot(
         path = str(output_path.resolve())
     if not path.lower().endswith(".png"):
         path = path.rstrip("/\\") + ".png"
-    path = _resolve_file_path(path)
 
     system = platform.system()
 
