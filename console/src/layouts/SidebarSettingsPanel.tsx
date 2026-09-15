@@ -14,6 +14,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Rows3,
   Settings,
   Sun,
   UnfoldHorizontal,
@@ -39,6 +40,11 @@ import {
   getChatWideModePreference,
   setChatWideModePreference,
 } from "../utils/chatLayoutPreference";
+import {
+  getSidebarDensityPreference,
+  setSidebarDensityPreference,
+  type SidebarDensity,
+} from "../utils/sidebarDensityPreference";
 import {
   getAssistantMessageDisplayPreference,
   getShowThinkingPreference,
@@ -195,6 +201,9 @@ export default function SidebarSettingsPanel({
   const { t, i18n } = useTranslation();
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
+  const [sidebarDensity, setSidebarDensity] = useState(
+    getSidebarDensityPreference,
+  );
   const [showThinking, setShowThinking] = useState(getShowThinkingPreference);
   const [toolDisplayMode, setToolDisplayMode] = useState(
     getToolDisplayPreference,
@@ -231,6 +240,13 @@ export default function SidebarSettingsPanel({
     finishAction(() => {
       setChatWideModePreference(enabled);
       setWideMode(enabled);
+    });
+  };
+
+  const changeSidebarDensity = (density: SidebarDensity) => {
+    finishAction(() => {
+      setSidebarDensityPreference(density);
+      setSidebarDensity(density);
     });
   };
 
@@ -309,6 +325,27 @@ export default function SidebarSettingsPanel({
     />
   );
 
+  const densityChoices = (
+    <ChoicePanel<SidebarDensity>
+      choices={[
+        {
+          value: "auto",
+          label: t("settingsCenter.densityAuto", "Auto"),
+        },
+        {
+          value: "standard",
+          label: t("settingsCenter.densityStandard", "Standard"),
+        },
+        {
+          value: "compact",
+          label: t("settingsCenter.densityCompact", "Compact"),
+        },
+      ]}
+      value={sidebarDensity}
+      onChange={changeSidebarDensity}
+    />
+  );
+
   const toolDisplayChoices = (
     <ChoicePanel<ToolDisplayPreference>
       choices={[
@@ -361,6 +398,11 @@ export default function SidebarSettingsPanel({
         icon={<Palette size={16} />}
         label={t("sidebar.settings.theme", "Theme")}
         content={themeChoices}
+      />
+      <FlyoutItem
+        icon={<Rows3 size={16} />}
+        label={t("settingsCenter.sessionHeight", "Conversation height")}
+        content={densityChoices}
       />
       <button
         type="button"
