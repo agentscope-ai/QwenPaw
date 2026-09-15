@@ -69,32 +69,4 @@ describe("SessionGroupHeader", () => {
     expect(onRename).toHaveBeenCalledWith("Project Alpha");
     expect(onToggle).not.toHaveBeenCalled();
   });
-
-  it("marks empty groups for the compact slim header", () => {
-    renderWithProviders(
-      <SessionGroupHeader
-        group={group}
-        count={0}
-        collapsed={false}
-        onToggle={vi.fn()}
-      />,
-    );
-
-    const header = screen.getByRole("button", { name: /Project/ });
-    expect(header.className).toContain("empty");
-  });
-
-  it("does not mark non-empty groups as empty", () => {
-    renderWithProviders(
-      <SessionGroupHeader
-        group={group}
-        count={3}
-        collapsed={false}
-        onToggle={vi.fn()}
-      />,
-    );
-
-    const header = screen.getByRole("button", { name: /Project/ });
-    expect(header.className).not.toContain("empty");
-  });
 });

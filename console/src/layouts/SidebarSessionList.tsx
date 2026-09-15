@@ -81,8 +81,6 @@ const DATE_HEADER_HEIGHT = 24;
  */
 const SESSION_ROW_HEIGHT_COMPACT = 30;
 const GROUP_HEADER_HEIGHT_COMPACT = 32;
-/** Empty groups carry no rows to scan, so their header slims further. */
-const EMPTY_GROUP_HEADER_HEIGHT_COMPACT = 24;
 const DATE_HEADER_HEIGHT_COMPACT = 20;
 
 /** A flattened row rendered by the virtualized session list. */
@@ -559,25 +557,29 @@ export default function SidebarSessionList({
       ];
     }
     if (!groups) return [];
-    return groups.map(({ group, sessions }) => {
-      const collapsed = isSessionDragging || collapsedGroups.has(group.id);
-      return {
-        id: group.id,
-        header: {
-          kind: "groupHeader" as const,
-          group,
-          count: sessions.length,
+    // Empty groups carry nothing to scan — hide them entirely; they
+    // reappear as soon as a session lands in them.
+    return groups
+      .filter(({ sessions }) => sessions.length > 0)
+      .map(({ group, sessions }) => {
+        const collapsed = isSessionDragging || collapsedGroups.has(group.id);
+        return {
+          id: group.id,
+          header: {
+            kind: "groupHeader" as const,
+            group,
+            count: sessions.length,
+            collapsed,
+          },
+          // Keep the pinned-first, recency-second order the nested date
+          // headers used to provide, without rendering the date rows.
+          sessions: groupChatsByDate(sessions).flatMap(
+            (dateGroup) => dateGroup.sessions,
+          ),
+          groupId: group.id,
           collapsed,
-        },
-        // Keep the pinned-first, recency-second order the nested date
-        // headers used to provide, without rendering the date rows.
-        sessions: groupChatsByDate(sessions).flatMap(
-          (dateGroup) => dateGroup.sessions,
-        ),
-        groupId: group.id,
-        collapsed,
-      };
-    });
+        };
+      });
   }, [
     collapsedGroups,
     groupMode,
@@ -690,10 +692,7 @@ export default function SidebarSessionList({
         return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
       }
       if (row.kind === "groupHeader") {
-        if (!compact) return GROUP_HEADER_HEIGHT;
-        return row.count === 0
-          ? EMPTY_GROUP_HEADER_HEIGHT_COMPACT
-          : GROUP_HEADER_HEIGHT_COMPACT;
+        return compact ? GROUP_HEADER_HEIGHT_COMPACT : GROUP_HEADER_HEIGHT;
       }
       if (row.kind === "dateHeader") {
         return compact ? DATE_HEADER_HEIGHT_COMPACT : DATE_HEADER_HEIGHT;

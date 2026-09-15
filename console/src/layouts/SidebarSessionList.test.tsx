@@ -857,32 +857,19 @@ describe("SidebarSessionList", () => {
       });
     }
 
-    it("slims empty group headers on short viewports", async () => {
-      setCompactViewport(true);
+    it("hides empty groups in source mode", async () => {
       localStorage.setItem("qwenpaw_session_group_mode", "source");
       mockData([sessionA]);
       addEmptyCronGroup();
       renderWithProviders(<SidebarSessionList />);
       await waitFor(() => {
-        expect(screen.getByTestId("group-header-cron")).toBeTruthy();
+        expect(screen.getByTestId("group-header-default")).toBeTruthy();
       });
+      // the empty cron group renders no header at all
+      expect(screen.queryByTestId("group-header-cron")).toBeNull();
       const list = mockListProps.current!;
-      // rows: groupHeader(default, 1), session, groupHeader(cron, 0)
-      expect(list.itemSize(0)).toBe(32);
-      expect(list.itemSize(2)).toBe(24);
-    });
-
-    it("keeps empty group headers full height on tall viewports", async () => {
-      localStorage.setItem("qwenpaw_session_group_mode", "source");
-      mockData([sessionA]);
-      addEmptyCronGroup();
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("group-header-cron")).toBeTruthy();
-      });
-      const list = mockListProps.current!;
-      expect(list.itemSize(0)).toBe(42);
-      expect(list.itemSize(2)).toBe(42);
+      // rows: groupHeader(default, 1), session
+      expect(list.itemCount).toBe(2);
     });
   });
 });
