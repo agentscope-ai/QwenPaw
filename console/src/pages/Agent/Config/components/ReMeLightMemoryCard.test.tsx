@@ -765,6 +765,37 @@ describe("embedding card separation", () => {
     },
   );
 
+  it.each(["0.001", "300"])(
+    "tests the embedding service with valid boundary timeout %s",
+    async (value) => {
+      const testEmbedding = vi.spyOn(api, "testEmbedding").mockResolvedValue({
+        success: true,
+        configured_dimensions: 1024,
+        actual_dimensions: 1024,
+        latency_ms: 1,
+        message: "ok",
+      });
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(testEmbedding).toHaveBeenCalledWith(
+          expect.objectContaining({ health_check_timeout: Number(value) }),
+        ),
+      );
+    },
+  );
+
   it("keeps embedding settings out of the long-term memory card", async () => {
     renderWithProviders(<MemoryForm />);
 
