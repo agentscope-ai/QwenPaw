@@ -61,7 +61,7 @@ def live_session(session_id="old", principal="owner"):
 
 
 @pytest.mark.asyncio
-async def test_release_bootstrap_is_exact_idempotent_and_preserves_chat_bridge():
+async def test_release_bootstrap_is_idempotent_and_preserves_chat_bridge():
     service = RealtimeVoiceService(ProviderManager())
     old, new = live_session(), live_session("new")
     service._sessions = {"old": old, "new": new}
@@ -163,5 +163,7 @@ def test_capabilities_advertise_the_media_protocol_version():
     manager.list_realtime_voice_capabilities = lambda: []
     current_workspace = workspace()
     current_workspace.agent_id = "default"
-    capabilities = RealtimeVoiceService(manager).capabilities(current_workspace)
+    capabilities = RealtimeVoiceService(manager).capabilities(
+        current_workspace
+    )
     assert capabilities["protocol_version"] == PROTOCOL_VERSION

@@ -30,6 +30,10 @@ from qwenpaw.providers.realtime_voice import (
     ProviderEvent,
     ProviderResponseResult,
 )
+from qwenpaw.runtime.reply_cycle import (
+    set_reply_block_metadata,
+    update_reply_block_metadata,
+)
 
 
 class Provider:
@@ -1069,22 +1073,25 @@ async def test_reply_error_is_scoped_and_not_reannounced_on_save(
     coordinator, _, _ = build_coordinator(Provider(), bridge, AsyncMock())
     events = coordinator.events()
     pump = asyncio.create_task(coordinator._pump_bridge_events())
+    block = TextBlock(
+        id="b",
+        text="模型未生成可用答复，请稍后重试。",
+    )
     msg = Msg(
         id="m",
         name="assistant",
         role="assistant",
-        content=[
-            TextBlock(
-                id="b",
-                text="模型未生成可用答复，请稍后重试。",
-                metadata={
-                    "run_id": "run",
-                    "responds_to_input_ids": ["failed-input"],
-                    "reply_phase": "final",
-                    "reply_error": "empty_response",
-                },
-            )
-        ],
+        content=[block],
+    )
+    set_reply_block_metadata(
+        msg,
+        block,
+        {
+            "run_id": "run",
+            "responds_to_input_ids": ["failed-input"],
+            "reply_phase": "final",
+            "reply_error": "empty_response",
+        },
     )
     [reply] = project_replies([msg]).values()
     first = replace(
@@ -1142,26 +1149,26 @@ async def test_error_change_notifies_without_text_change():
     coordinator, _, _ = build_coordinator(Provider(), Bridge(), AsyncMock())
     events = coordinator.events()
     pump = asyncio.create_task(coordinator._pump_bridge_events())
+    block = TextBlock(id="b", text="失败")
     msg = Msg(
         id="m",
         name="assistant",
         role="assistant",
-        content=[
-            TextBlock(
-                id="b",
-                text="失败",
-                metadata={
-                    "responds_to_input_ids": ["input"],
-                    "reply_phase": "final",
-                },
-            )
-        ],
+        content=[block],
+    )
+    set_reply_block_metadata(
+        msg,
+        block,
+        {
+            "responds_to_input_ids": ["input"],
+            "reply_phase": "final",
+        },
     )
     try:
         for version, code in enumerate(
             ("empty_response", "future_error", "future_error"), 1
         ):
-            msg.content[0].metadata["reply_error"] = code
+            update_reply_block_metadata(msg, block, {"reply_error": code})
             [reply] = project_replies([msg]).values()
             await coordinator._bridge_events.put(
                 VoiceTaskEvent(
@@ -1194,22 +1201,22 @@ async def test_live_reply_handoff_does_not_reannounce_previous_blocks():
     messages = []
     try:
         for index in range(1, 4):
+            block = TextBlock(id=str(index), text=str(200 + index))
             msg = Msg(
                 id="shared",
                 name="assistant",
                 role="assistant",
-                content=[
-                    TextBlock(
-                        id=str(index),
-                        text=str(200 + index),
-                        metadata={
-                            "responds_to_input_ids": [str(index)],
-                            "run_id": "run",
-                            "timeline_order": index,
-                            "reply_phase": "final",
-                        },
-                    )
-                ],
+                content=[block],
+            )
+            set_reply_block_metadata(
+                msg,
+                block,
+                {
+                    "responds_to_input_ids": [str(index)],
+                    "run_id": "run",
+                    "timeline_order": index,
+                    "reply_phase": "final",
+                },
             )
             messages.append(msg)
             view.observe(msg, "run")

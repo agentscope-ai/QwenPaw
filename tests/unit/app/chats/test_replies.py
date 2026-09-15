@@ -6,27 +6,43 @@ import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolResultBlock
 
 from qwenpaw.app.chats.replies import ChatReplyView, project_replies
+from qwenpaw.runtime.reply_cycle import (
+    reply_block_metadata,
+    set_reply_block_metadata,
+    update_reply_block_metadata,
+)
 
 
 def message(
     text="42", block_id="b", inputs=("first",), phase="final", order=1
 ):
-    return Msg(
+    block = TextBlock(id=block_id, text=text)
+    msg = Msg(
         id="m",
         name="assistant",
         role="assistant",
-        content=[
-            TextBlock(
-                id=block_id,
-                text=text,
-                metadata={
-                    "responds_to_input_ids": list(inputs),
-                    "run_id": "run",
-                    "timeline_order": order,
-                    "reply_phase": phase,
-                },
-            )
-        ],
+        content=[block],
+    )
+    set_reply_block_metadata(
+        msg,
+        block,
+        {
+            "responds_to_input_ids": list(inputs),
+            "run_id": "run",
+            "timeline_order": order,
+            "reply_phase": phase,
+        },
+    )
+    return msg
+
+
+def append_reply_block(target: Msg, source: Msg) -> None:
+    block = source.content[0]
+    target.content.append(block)
+    set_reply_block_metadata(
+        target,
+        block,
+        reply_block_metadata(source, block),
     )
 
 
@@ -36,8 +52,9 @@ def state(msg):
 
 def test_equal_answers_are_distinct_and_shared_reply_keeps_all_inputs():
     msg = message(inputs=("a", "b"))
-    msg.content.extend(
-        message(block_id="next", inputs=("c",), order=2).content
+    append_reply_block(
+        msg,
+        message(block_id="next", inputs=("c",), order=2),
     )
     replies = list(project_replies([msg]).values())
     assert len(replies) == 2
@@ -97,9 +114,13 @@ async def test_read_does_not_increment_content_version_or_truncate():
 
 def test_continuation_message_can_include_blocks_from_an_older_saved_run():
     msg = message()
-    continuation = message("new result", "new-block").content[0]
-    continuation.metadata["run_id"] = "next-run"
-    msg.content.append(continuation)
+    continuation = message("new result", "new-block")
+    update_reply_block_metadata(
+        continuation,
+        continuation.content[0],
+        {"run_id": "next-run"},
+    )
+    append_reply_block(msg, continuation)
     view = ChatReplyView()
     view.observe(msg, "next-run")
     view.saved("next-run")
@@ -115,13 +136,23 @@ def test_separate_messages_with_same_reply_id_keep_every_live_block():
     view = ChatReplyView()
     for index in range(1, 4):
         agent.context.append(
-            Msg(name="user", role="user",
-                content=[TextBlock(text=f"input-{index}")])
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text=f"input-{index}")],
+            )
         )
         agent.append_context(
             "assistant",
-            message(str(200 + index), f"b-{index}", (str(index),),
-                    order=index).content,
+            [TextBlock(id=f"b-{index}", text=str(200 + index))],
+        )
+        source = message(
+            str(200 + index), f"b-{index}", (str(index),), order=index
+        )
+        set_reply_block_metadata(
+            agent.context[-1],
+            agent.context[-1].content[-1],
+            reply_block_metadata(source, source.content[0]),
         )
         view.observe(agent.context[-1], "run")
         assert [r.text for r in view.capture({})] == [
@@ -143,7 +174,11 @@ def test_block_update_and_save_handoff_have_independent_owners():
     view = ChatReplyView()
     first = message("old run", "first")
     second = message("partial", "second", ("next",), order=2)
-    second.content[0].metadata["run_id"] = "next-run"
+    update_reply_block_metadata(
+        second,
+        second.content[0],
+        {"run_id": "next-run"},
+    )
     view.observe(first, "run")
     view.observe(second, "next-run")
     second.content[0].text = "fresh"
@@ -151,7 +186,8 @@ def test_block_update_and_save_handoff_have_independent_owners():
     view.saved("run")
     results = view.capture(state(first))
     assert [(r.text, r.persisted) for r in results] == [
-        ("old run", True), ("fresh", False)
+        ("old run", True),
+        ("fresh", False),
     ]
     replacement = second.model_copy(deep=True)
     replacement.content[0].text = "final"
@@ -174,13 +210,21 @@ def test_cancelled_projection_cannot_remove_other_live_reply_blocks():
     assert [r.text for r in view.capture({})] == ["completed result"]
 
 
-@pytest.mark.parametrize("code,stage", [
-    ("empty_response", "answer_generation"), ("future_error", "unknown"),
-])
+@pytest.mark.parametrize(
+    "code,stage",
+    [
+        ("empty_response", "answer_generation"),
+        ("future_error", "unknown"),
+    ],
+)
 def test_reply_error_survives_projection_and_stale_disk_handoff(code, stage):
     current = message("请稍后重试", inputs=("failed-input",))
     old_disk = state(current)
-    current.content[0].metadata["reply_error"] = code
+    update_reply_block_metadata(
+        current,
+        current.content[0],
+        {"reply_error": code},
+    )
     raw = current.model_dump(mode="json")
     view = ChatReplyView()
     view.observe(current)
@@ -199,6 +243,10 @@ def test_reply_error_survives_projection_and_stale_disk_handoff(code, stage):
 
 def test_reply_error_does_not_serialize_runtime_objects():
     msg = message()
-    msg.content[0].metadata["reply_error"] = RuntimeError("internal")
+    update_reply_block_metadata(
+        msg,
+        msg.content[0],
+        {"reply_error": RuntimeError("internal")},
+    )
     [reply] = project_replies([msg]).values()
     assert "error" not in reply.public_dict()

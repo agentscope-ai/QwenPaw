@@ -13,7 +13,10 @@ from ...constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
-from ...runtime.reply_cycle import TIMELINE_ORDER_METADATA_KEY
+from ...runtime.reply_cycle import (
+    TIMELINE_ORDER_METADATA_KEY,
+    reply_block_metadata,
+)
 from ...schemas import Message
 from .conversation_view import ChatConversationView
 from .utils import agentscope_msg_to_message
@@ -37,9 +40,7 @@ def _max_message_order(message: Msg) -> int:
     highest = _message_order(message) or 0
     if isinstance(message.content, list):
         for block in message.content:
-            metadata = getattr(block, "metadata", None)
-            if not isinstance(metadata, dict):
-                continue
+            metadata = reply_block_metadata(message, block)
             value = metadata.get(TIMELINE_ORDER_METADATA_KEY)
             if (
                 isinstance(value, int)

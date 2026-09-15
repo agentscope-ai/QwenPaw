@@ -39,7 +39,7 @@ class InputStateEvent:
 
 @dataclass(frozen=True)
 class ReplyContentEvent:
-    """A saved model occurrence changed; consumers read canonical Chat content."""
+    """Notify consumers that canonical saved Chat content changed."""
 
     run_id: str
     input_ids: tuple[str, ...]
@@ -58,6 +58,53 @@ REPLY_CYCLE_METADATA_KEYS = (
     TIMELINE_ORDER_METADATA_KEY,
     RESPONDS_TO_INPUT_IDS_METADATA_KEY,
 )
+REPLY_BLOCKS_METADATA_KEY = "qwenpaw_reply_blocks"
+
+
+def reply_block_metadata(message: Any, block: Any) -> dict[str, Any]:
+    """Return reply ownership for one content block on its owning message."""
+    block_id = block if isinstance(block, str) else getattr(block, "id", "")
+    metadata = getattr(message, "metadata", None)
+    if not block_id or not isinstance(metadata, dict):
+        return {}
+    by_block = metadata.get(REPLY_BLOCKS_METADATA_KEY)
+    if not isinstance(by_block, dict):
+        return {}
+    value = by_block.get(block_id)
+    return value if isinstance(value, dict) else {}
+
+
+def set_reply_block_metadata(
+    message: Any,
+    block: Any,
+    metadata: dict[str, Any],
+) -> None:
+    """Persist one block's reply ownership inside official Msg metadata."""
+    block_id = block if isinstance(block, str) else getattr(block, "id", "")
+    if not block_id:
+        raise ValueError("reply content block id is required")
+    message_metadata = getattr(message, "metadata", None)
+    if not isinstance(message_metadata, dict):
+        message_metadata = {}
+        message.metadata = message_metadata
+    by_block = message_metadata.get(REPLY_BLOCKS_METADATA_KEY)
+    if not isinstance(by_block, dict):
+        by_block = {}
+        message_metadata[REPLY_BLOCKS_METADATA_KEY] = by_block
+    by_block[block_id] = dict(metadata)
+
+
+def update_reply_block_metadata(
+    message: Any,
+    block: Any,
+    metadata: dict[str, Any],
+) -> None:
+    """Merge fields into one block's persisted reply ownership."""
+    set_reply_block_metadata(
+        message,
+        block,
+        {**reply_block_metadata(message, block), **metadata},
+    )
 
 
 @dataclass(frozen=True)
@@ -150,7 +197,7 @@ class ReplyCycleContext:
             self._emit_input_state((input_id,), "queued")
 
     def reply_content_changed(self, message: Any) -> None:
-        """Expose the same message object owned by the Agent, not another log."""
+        """Expose the Agent-owned message object instead of another log."""
         if self._on_reply_content is not None:
             self._on_reply_content(
                 ReplyContentEvent(
@@ -365,6 +412,7 @@ class ReplyCycleContext:
 __all__ = [
     "InputStateEvent",
     "InputStatus",
+    "REPLY_BLOCKS_METADATA_KEY",
     "REPLY_CYCLE_METADATA_KEYS",
     "RESPONDS_TO_INPUT_IDS_METADATA_KEY",
     "RUN_ID_METADATA_KEY",
@@ -374,4 +422,7 @@ __all__ = [
     "ReplyCycleContext",
     "ReplyCycleSnapshot",
     "ReplyOccurrenceSnapshot",
+    "reply_block_metadata",
+    "set_reply_block_metadata",
+    "update_reply_block_metadata",
 ]

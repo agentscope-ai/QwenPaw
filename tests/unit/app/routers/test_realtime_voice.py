@@ -24,11 +24,13 @@ async def test_playback_feedback_is_generation_scoped():
             side_effect=[
                 {
                     "type": "websocket.receive",
-                    "text": '{"type":"output.playback","generation":1,"output_id":"old","status":"drained"}',
+                    "text": '{"type":"output.playback","generation":1,'
+                    '"output_id":"old","status":"drained"}',
                 },
                 {
                     "type": "websocket.receive",
-                    "text": '{"type":"output.playback","generation":2,"output_id":"current","status":"interrupted"}',
+                    "text": '{"type":"output.playback","generation":2,'
+                    '"output_id":"current","status":"interrupted"}',
                 },
                 {"type": "websocket.disconnect"},
             ]

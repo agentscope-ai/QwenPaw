@@ -12,7 +12,7 @@ from qwenpaw.runtime.prompt_contributors import (
 )
 
 
-def test_user_visible_progress_requires_real_updates_not_fixed_acknowledgement():
+def test_user_visible_progress_requires_real_updates():
     fragment = UserVisibleProgressContributor().contribute_sync(
         SimpleNamespace()
     )

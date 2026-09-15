@@ -136,64 +136,131 @@ def store(tmp_path: Path) -> HistoryStore:
 
 
 @pytest.mark.parametrize("legacy_row", [False, True])
-def test_same_id_occurrences_import_and_live_writer_agree(store, tmp_path, legacy_row):
+def test_same_id_occurrences_import_and_live_writer_agree(
+    store, tmp_path, legacy_row
+):
     from qwenpaw.agents.context.scroll.manager import ScrollContextManager
     from qwenpaw.agents.context.scroll.serialize import msg_to_entries
 
-    first = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="FIRST")])
-    second = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="SECOND")])
+    first = Msg(
+        id="shared",
+        name="a",
+        role="assistant",
+        content=[TextBlock(text="FIRST")],
+    )
+    second = Msg(
+        id="shared",
+        name="a",
+        role="assistant",
+        content=[TextBlock(text="SECOND")],
+    )
     if legacy_row:
-        store.append(session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id)
+        store.append(
+            session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id
+        )
     sessions = tmp_path / "sessions"
     path = _write_session_2x(sessions, "s.json", "s", [first, second])
     original = path.read_bytes()
     _sync_registered(store, sessions, [_chat("s")])
-    assert [r["content"] for r in store._conn.execute(
-        "SELECT content FROM conversation_history ORDER BY seq",
-    ).fetchall()] == ["FIRST", "SECOND"]
+    assert [
+        r["content"]
+        for r in store._conn.execute(
+            "SELECT content FROM conversation_history ORDER BY seq",
+        ).fetchall()
+    ] == ["FIRST", "SECOND"]
     assert _sync_registered(store, sessions, [_chat("s")]).rows_inserted == 0
     mgr = ScrollContextManager(history=store, session_id="s", agent_id="a")
-    mgr.on_save(SimpleNamespace(state=SimpleNamespace(context=[first, second])), [])
+    mgr.on_save(
+        SimpleNamespace(state=SimpleNamespace(context=[first, second])), []
+    )
     assert store.count("s") == 2
     assert path.read_bytes() == original
 
 
-def test_v2_manifest_does_not_hide_previously_skipped_occurrence(store, tmp_path):
+def test_v2_manifest_does_not_hide_previously_skipped_occurrence(
+    store, tmp_path
+):
     from qwenpaw.agents.context.scroll.serialize import msg_to_entries
 
-    first = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="FIRST")])
-    second = Msg(id="shared", name="a", role="assistant", content=[TextBlock(text="SECOND")])
-    store.append(session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id)
+    first = Msg(
+        id="shared",
+        name="a",
+        role="assistant",
+        content=[TextBlock(text="FIRST")],
+    )
+    second = Msg(
+        id="shared",
+        name="a",
+        role="assistant",
+        content=[TextBlock(text="SECOND")],
+    )
+    store.append(
+        session_id="s", entry=msg_to_entries(first)[0], dedup_key=first.id
+    )
     sessions = tmp_path / "sessions"
     path = _write_session_2x(sessions, "s.json", "s", [first, second])
-    (sessions / MANIFEST_NAME).write_text(json.dumps({
-        "version": 2, "files": {"s.json": {
-            "sha256": sync_mod._sha256(path), "session_id": "s",
-            "rows_processed": 2, "rows_inserted": 1,
-        }},
-    }), encoding="utf-8")
+    (sessions / MANIFEST_NAME).write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "files": {
+                    "s.json": {
+                        "sha256": sync_mod._sha256(path),
+                        "session_id": "s",
+                        "rows_processed": 2,
+                        "rows_inserted": 1,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     report = _sync_registered(store, sessions, [_chat("s")])
     assert report.rows_inserted == 1
     assert store.count("s") == 2
     assert _sync_registered(store, sessions, [_chat("s")]).skipped_files == 1
 
 
-def test_legacy_generated_block_ids_do_not_duplicate_existing_history(store, tmp_path):
+def test_legacy_generated_block_ids_do_not_duplicate_existing_history(
+    store, tmp_path
+):
     from qwenpaw.agents.context.scroll.manager import ScrollContextManager
     from qwenpaw.agents.context.scroll.serialize import msg_to_entries
 
     raw = {"id": "legacy", "name": "a", "role": "assistant", "content": "OLD"}
-    old_msg = Msg(id="legacy", name="a", role="assistant", content=[TextBlock(text="OLD")])
-    store.append(session_id="s", entry=msg_to_entries(old_msg)[0], dedup_key="legacy")
+    old_msg = Msg(
+        id="legacy",
+        name="a",
+        role="assistant",
+        content=[TextBlock(text="OLD")],
+    )
+    store.append(
+        session_id="s", entry=msg_to_entries(old_msg)[0], dedup_key="legacy"
+    )
     sessions = tmp_path / "sessions"
     sessions.mkdir()
-    (sessions / "s.json").write_text(json.dumps({
-        "agent": {"memory": {"content": [[raw, []]]}},
-    }), encoding="utf-8")
+    (sessions / "s.json").write_text(
+        json.dumps(
+            {
+                "agent": {"memory": {"content": [[raw, []]]}},
+            }
+        ),
+        encoding="utf-8",
+    )
     for _ in range(2):
-        assert _sync_registered(store, sessions, [_chat("s")], use_manifest=False).rows_inserted == 0
+        assert (
+            _sync_registered(
+                store, sessions, [_chat("s")], use_manifest=False
+            ).rows_inserted
+            == 0
+        )
         mgr = ScrollContextManager(history=store, session_id="s", agent_id="a")
-        mgr.on_save(SimpleNamespace(state=SimpleNamespace(context=[Msg.from_dict(raw)])), [])
+        mgr.on_save(
+            SimpleNamespace(
+                state=SimpleNamespace(context=[Msg.from_dict(raw)])
+            ),
+            [],
+        )
     assert store.count("s") == 1
 
 
@@ -348,8 +415,8 @@ def test_existing_synthetic_manifest_is_rekeyed_to_canonical_session(
     )
 
     assert second.rows_inserted == 0
-    # A v1 manifest is deliberately re-read once under the current version so the
-    # source can be imported under the canonical registry ID.
+    # A v1 manifest is deliberately re-read once under the current version so
+    # the source can be imported under the canonical registry ID.
     assert not any(result.skipped for result in second.files)
     assert store.count("sync:default_legacy-session") == 0
     after = store._conn.execute(

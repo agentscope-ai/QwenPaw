@@ -9,7 +9,7 @@ SESSION_SAVE_SUCCEEDED_KEY = "qwenpaw.session_save_succeeded"
 
 @dataclass
 class SessionSaveResult:
-    """Run-local persistence fact; unknown cannot authorize history handover."""
+    """Run-local persistence fact used to authorize history handover."""
 
     status: Literal["unknown", "saved", "failed"] = "unknown"
 
@@ -26,4 +26,8 @@ def record_session_save(ctx, succeeded: bool) -> None:
         result.status = "saved" if succeeded else "failed"
 
 
-__all__ = ["SESSION_SAVE_SUCCEEDED_KEY", "SessionSaveResult", "record_session_save"]
+__all__ = [
+    "SESSION_SAVE_SUCCEEDED_KEY",
+    "SessionSaveResult",
+    "record_session_save",
+]

@@ -33,7 +33,9 @@ from qwenpaw.utils.io_utils import (
 def test_active_path_lock_does_not_reopen_target_to_resolve(tmp_path):
     path = tmp_path / "state.json"
     lock = get_path_lock(path)
-    with patch("qwenpaw.utils.io_utils._path_lock_key", side_effect=AssertionError):
+    with patch(
+        "qwenpaw.utils.io_utils._path_lock_key", side_effect=AssertionError
+    ):
         assert get_path_lock(path) is lock
         assert get_path_lock(str(path)) is lock
 
@@ -71,7 +73,7 @@ def test_atomic_commit_retries_only_same_replace(tmp_path, winerror):
     ) as delay:
         write_text_atomic(path, "new")
     assert attempts[0] == attempts[1]
-    delay.assert_called_once_with(.01)
+    delay.assert_called_once_with(0.01)
     assert path.read_text(encoding="utf-8") == "new"
 
 
@@ -81,9 +83,13 @@ def test_atomic_commit_permanent_access_error_is_bounded(tmp_path):
     path.write_text("old", encoding="utf-8")
     failure = PermissionError("permanently denied")
     failure.winerror = 5
-    with patch("qwenpaw.utils.io_utils.os.replace", side_effect=failure) as replace, patch(
+    with patch(
+        "qwenpaw.utils.io_utils.os.replace", side_effect=failure
+    ) as replace, patch(
         "qwenpaw.utils.io_utils.time.sleep"
-    ) as delay, pytest.raises(PermissionError, match="permanently denied"):
+    ) as delay, pytest.raises(
+        PermissionError, match="permanently denied"
+    ):
         write_text_atomic(path, "new")
     assert replace.call_count == 4
     assert delay.call_count == 3

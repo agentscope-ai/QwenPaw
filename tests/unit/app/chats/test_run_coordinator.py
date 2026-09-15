@@ -158,26 +158,27 @@ async def test_live_conversation_observes_accepted_input_and_public_reply(
         cycle = channel.payload["meta"]["request_context"][
             "_reply_cycle_context"
         ]
+        from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
+
         for index in range(2):
-            cycle.reply_content_changed(
-                Msg(
-                    id="shared",
-                    name="assistant",
-                    role="assistant",
-                    content=[
-                        TextBlock(
-                            id=str(index),
-                            text=f"answer-{index}",
-                            metadata={
-                                "run_id": cycle.run_id,
-                                "responds_to_input_ids": ["keyboard-1"],
-                                "timeline_order": index + 2,
-                                "reply_phase": "final",
-                            },
-                        )
-                    ],
-                )
+            block = TextBlock(id=str(index), text=f"answer-{index}")
+            message = Msg(
+                id="shared",
+                name="assistant",
+                role="assistant",
+                content=[block],
             )
+            set_reply_block_metadata(
+                message,
+                block,
+                {
+                    "run_id": cycle.run_id,
+                    "responds_to_input_ids": ["keyboard-1"],
+                    "timeline_order": index + 2,
+                    "reply_phase": "final",
+                },
+            )
+            cycle.reply_content_changed(message)
         assert [item.text for item in view._ordered()] == [
             "keyboard question",
             "answer-0",

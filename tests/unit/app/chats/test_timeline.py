@@ -14,6 +14,7 @@ from qwenpaw.app.chats.timeline import (
 )
 from qwenpaw.app.chats.utils import agentscope_msg_to_message
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
 from qwenpaw.schemas import Message, Role, TextContent
 
 
@@ -245,20 +246,16 @@ async def test_reserve_order_seeds_from_content_block_occurrences(tmp_path):
     journal, workspace, chat = build_journal(tmp_path)
 
     def seed_agent_state(state):
+        block = TextBlock(text="late output")
+        message = Msg(
+            name="assistant",
+            role="assistant",
+            content=[block],
+        )
+        set_reply_block_metadata(message, block, {"timeline_order": 8})
         agent_state = AgentState(
             session_id=chat.session_id,
-            context=[
-                Msg(
-                    name="assistant",
-                    role="assistant",
-                    content=[
-                        TextBlock(
-                            text="late output",
-                            metadata={"timeline_order": 8},
-                        ),
-                    ],
-                ),
-            ],
+            context=[message],
         )
         state["agent"] = {"state": agent_state.model_dump(mode="json")}
 
@@ -345,6 +342,8 @@ def test_occurrence_order_interleaves_late_output_with_voice_exchange():
 
 
 def test_durable_block_occurrences_interleave_with_voice_messages():
+    started = TextBlock(text="任务已开始")
+    finished = TextBlock(text="任务已完成")
     agent_reply = Msg(
         name="assistant",
         role="assistant",
@@ -353,17 +352,10 @@ def test_durable_block_occurrences_interleave_with_voice_messages():
             "timeline_group_id": "task-1",
             "timeline_revision": 1,
         },
-        content=[
-            TextBlock(
-                text="任务已开始",
-                metadata={"timeline_order": 2},
-            ),
-            TextBlock(
-                text="任务已完成",
-                metadata={"timeline_order": 5},
-            ),
-        ],
+        content=[started, finished],
     )
+    set_reply_block_metadata(agent_reply, started, {"timeline_order": 2})
+    set_reply_block_metadata(agent_reply, finished, {"timeline_order": 5})
     voice_status = Msg(
         name="QwenPaw Voice",
         role="assistant",
