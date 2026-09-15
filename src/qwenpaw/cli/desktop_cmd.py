@@ -270,6 +270,11 @@ def desktop_cmd(
             env=env,
             bufsize=1,
             universal_newlines=True,
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if is_windows
+                else 0
+            ),
         )
         try:
             if is_windows:

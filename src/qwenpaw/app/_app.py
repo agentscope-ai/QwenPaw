@@ -609,6 +609,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await PORTABILITY_IMPORT_JOBS.shutdown()
 
+        # Stop workspaces early so bounded memory drains are not delayed by
+        # unrelated application cleanup.
+        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
+        if multi_agent_mgr is not None:
+            logger.info("Stopping MultiAgentManager...")
+            try:
+                await multi_agent_mgr.stop_all()
+            except Exception as e:
+                logger.error(f"Error stopping MultiAgentManager: {e}")
+
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
 
@@ -668,15 +678,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await _app_svc.stop()
             except Exception as e:
                 logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # Stop multi-agent manager (stops all agents and their components)
-        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
-        if multi_agent_mgr is not None:
-            logger.info("Stopping MultiAgentManager...")
-            try:
-                await multi_agent_mgr.stop_all()
-            except Exception as e:
-                logger.error(f"Error stopping MultiAgentManager: {e}")
 
         await PORTABILITY_IMPORT_JOBS.drain()
 
