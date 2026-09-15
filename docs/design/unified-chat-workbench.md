@@ -97,6 +97,7 @@ loop.
 ## Performance budgets
 
 - Closed Workbench loads no editor, diff, terminal, or task-history bundle.
+- Opening the default Files capability has no nested lazy-loading waterfall.
 - Opening or resizing the drawer never applies `scale` to Chat.
 - Persisted geometry is available before the first painted open frame.
 - Directory pages are bounded to 200 entries and loaded on demand.

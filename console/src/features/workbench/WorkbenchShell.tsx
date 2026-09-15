@@ -2,6 +2,7 @@ import { Files, GitBranch, SquareTerminal, Wrench, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCodingMode } from "../../stores/codingModeStore";
+import FilesWorkspace from "../files-workspace/FilesWorkspace";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import type { FileTarget } from "../files-workspace/types";
 import styles from "./WorkbenchShell.module.less";
@@ -11,7 +12,6 @@ import {
   workbenchTabStorageKey,
 } from "./workbenchPreferences";
 
-const FilesWorkspace = lazy(() => import("../files-workspace/FilesWorkspace"));
 const GitPanel = lazy(() => import("../../pages/Coding/GitPanel"));
 
 interface WorkbenchShellProps {
