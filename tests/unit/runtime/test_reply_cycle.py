@@ -112,7 +112,9 @@ def test_waiting_input_ownership_round_trips_to_new_run():
     first = ReplyCycleContext("first", "original")
     first.start_inputs(("original",))
     first.finish_reply("waiting")
-    second = ReplyCycleContext("second", "approval", on_input_state=events.append)
+    second = ReplyCycleContext(
+        "second", "approval", on_input_state=events.append
+    )
     second.start_inputs(("approval",))
     second.resume_inputs(first.waiting_inputs())
     assert events[-1].resumed_from == "first"

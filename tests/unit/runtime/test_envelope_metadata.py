@@ -516,6 +516,4 @@ async def test_late_tool_result_keeps_call_owner_after_cycle_switch():
         output["metadata"]["timeline_group_id"] == "input-a"
         for output in outputs
     )
-    assert all(
-        output["metadata"]["timeline_order"] == 2 for output in outputs
-    )
+    assert all(output["metadata"]["timeline_order"] == 2 for output in outputs)

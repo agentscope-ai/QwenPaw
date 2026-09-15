@@ -55,6 +55,9 @@ from ..providers.model_capability_cache import get_capability_cache
 from ..runtime.reply_cycle import (
     InternalResultInput,
     TIMELINE_ORDER_METADATA_KEY,
+    reply_block_metadata,
+    set_reply_block_metadata,
+    update_reply_block_metadata,
 )
 from ..utils.io_utils import run_sync_io
 from ..utils.tool_call_extra import (
@@ -467,10 +470,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     last_message.content, list
                 ):
                     for block in last_message.content:
-                        if block.id in final_ids and getattr(
-                            block, "metadata", None
+                        if block.id in final_ids and reply_block_metadata(
+                            last_message, block
                         ):
-                            block.metadata["reply_phase"] = "final"
+                            update_reply_block_metadata(
+                                last_message,
+                                block,
+                                {"reply_phase": "final"},
+                            )
                     cycle.reply_content_changed(last_message)
             if completed and not reply_failed:
                 results = (getattr(self, "_request_context", None) or {}).get(
@@ -580,6 +587,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         block_list = list(blocks or [])
         tool_call_extras = collect_transient_tool_call_extras(block_list)
         reply_cycle = getattr(self, "_reply_cycle_context", None)
+        ownership_by_id: dict[str, dict[str, Any]] = {}
         if reply_cycle is not None:
             for block in block_list:
                 owner = reply_cycle.output_snapshot
@@ -587,18 +595,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     owner = reply_cycle.bind_call(block.id)
                 elif isinstance(block, ToolResultBlock):
                     owner = reply_cycle.owner_of_call(block.id) or owner
-                metadata = dict(getattr(block, "metadata", None) or {})
-                metadata.update(owner.metadata())
+                metadata = owner.metadata()
                 if isinstance(block, (TextBlock, DataBlock)):
                     metadata["reply_phase"] = getattr(
                         self, "_model_reply_phase", "progress"
                     )
-                try:
-                    block.metadata = metadata
-                except (AttributeError, ValueError) as exc:
-                    raise RuntimeError(
-                        "AgentScope content blocks must support metadata",
-                    ) from exc
+                ownership_by_id[block.id] = metadata
 
         super()._save_to_context(block_list, usage)
         last_msg = self._get_last_msg()
@@ -610,6 +612,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 # the Msg; visible occurrence order belongs to each block.
                 metadata.update(reply_cycle.snapshot.metadata())
                 last_msg.metadata = metadata
+                persisted_ids = {
+                    block.id
+                    for block in last_msg.content
+                    if hasattr(block, "id")
+                }
+                for block_id, block_metadata in ownership_by_id.items():
+                    if block_id in persisted_ids:
+                        set_reply_block_metadata(
+                            last_msg,
+                            block_id,
+                            block_metadata,
+                        )
             if tool_call_extras:
                 persist_tool_call_extras(last_msg, tool_call_extras)
             if reply_cycle is not None:
@@ -1519,7 +1533,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             }
             notice = TextBlock(
                 text="模型未生成可用答复。不会自动重跑已执行的操作，请稍后重试。",
-                metadata={"reply_error": "empty_response"},
             )
             start = TextBlockStartEvent(
                 reply_id=self.state.reply_id,
@@ -1528,6 +1541,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
             await start_occurrence_for(start)
             self._model_reply_phase = "final"
             self._save_to_context([notice])
+            saved_message = self._get_last_msg()
+            cycle = getattr(self, "_reply_cycle_context", None)
+            if saved_message is not None and cycle is not None:
+                update_reply_block_metadata(
+                    saved_message,
+                    notice,
+                    {"reply_error": "empty_response"},
+                )
+                cycle.reply_content_changed(saved_message)
             outgoing_msg.content.append(notice)
             yield start
             yield TextBlockDeltaEvent(

@@ -346,7 +346,8 @@ def _sync_file(
     res.unparseable = unparseable
 
     assign_message_keys(
-        messages, lambda mid: history.message_anchor(session_id, mid),
+        messages,
+        lambda mid: history.message_anchor(session_id, mid),
     )
     pending_entries = []
     for row_index, msg in enumerate(messages):

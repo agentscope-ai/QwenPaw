@@ -260,7 +260,9 @@ class TestSend:
 
 
 @pytest.mark.asyncio
-async def test_stream_failure_before_response_is_visible_to_run_owner(console_channel):
+async def test_stream_failure_before_response_is_visible_to_run_owner(
+    console_channel,
+):
     async def failing_process(_request):
         if False:
             yield

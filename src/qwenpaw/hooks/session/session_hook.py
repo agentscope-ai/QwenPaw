@@ -119,7 +119,7 @@ class SessionSaveHook(LifecycleHook):
 
 
 async def save_snapshot(ctx: HookContext, proxy: StateProxy) -> None:
-    """Join actual storage I/O before propagating even repeated cancellation."""
+    """Join storage I/O before propagating repeated cancellation."""
     record_session_save(ctx, False)
     request = ctx.request
     write = asyncio.create_task(

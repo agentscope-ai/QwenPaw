@@ -88,16 +88,23 @@ class TestConsoleChannelUnit:
         assert ch.bot_prefix == "[TEST] "
 
     def test_sse_cleanup_preserves_user_tool_and_metadata_text(self, channel):
-        from qwenpaw.schemas import AgentResponse, DataContent, Message, TextContent
+        from qwenpaw.schemas import (
+            AgentResponse,
+            DataContent,
+            Message,
+            TextContent,
+        )
 
         literal = "document content\n⟦ keep this literal line ⟧"
         user = Message(role="user", content=[TextContent(text=literal)])
         tool = Message(
-            role="tool", type="plugin_call_output",
+            role="tool",
+            type="plugin_call_output",
             content=[DataContent(data={"output": literal})],
         )
         answer = Message(
-            role="assistant", content=[TextContent(text="answer\n⟦ index ⟧")],
+            role="assistant",
+            content=[TextContent(text="answer\n⟦ index ⟧")],
             metadata={"original_document": literal},
         )
         event = AgentResponse(output=[user, tool, answer], object="response")
@@ -106,7 +113,10 @@ class TestConsoleChannelUnit:
 
         assert result["output"][0] == original["output"][0]
         assert result["output"][1] == original["output"][1]
-        assert result["output"][2]["metadata"] == original["output"][2]["metadata"]
+        assert (
+            result["output"][2]["metadata"]
+            == original["output"][2]["metadata"]
+        )
         assert result["output"][2]["content"][0]["text"] == "answer"
         assert event.model_dump(mode="json") == original
 
@@ -115,10 +125,14 @@ class TestConsoleChannelUnit:
 
         event = DataContent(
             data={"output": "file contents\n⟦ literal, not an index ⟧"},
-            delta=True, msg_id="tool-message", index=0,
+            delta=True,
+            msg_id="tool-message",
+            index=0,
         )
         original = event.model_dump(mode="json")
-        assert json.loads(channel._serialize_event_for_sse(event, {})) == original
+        assert (
+            json.loads(channel._serialize_event_for_sse(event, {})) == original
+        )
 
     def test_sse_headline_strip_only_cleans_declared_answer_fields(self):
         """An unknown field is not an assistant text stream."""

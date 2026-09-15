@@ -281,7 +281,9 @@ class ProviderManager(
         active_missing = (
             active is not None
             and self._normalize_provider_id(active.provider_id) == provider_id
-            and all(model.id != active.model for model in provider.realtime_models)
+            and all(
+                model.id != active.model for model in provider.realtime_models
+            )
         )
         if (active is None or active_missing) and provider.realtime_models:
             self.active_realtime_model = ModelSlotConfig(
@@ -301,7 +303,10 @@ class ProviderManager(
     def list_realtime_voice_capabilities(self) -> list[dict[str, object]]:
         """Return sanitized Provider-owned realtime catalogs."""
         result: list[dict[str, object]] = []
-        for provider_id, registration in self._realtime_voice_registrations.items():
+        for (
+            provider_id,
+            registration,
+        ) in self._realtime_voice_registrations.items():
             provider = self.get_provider(provider_id)
             if provider is None:
                 continue
@@ -310,7 +315,8 @@ class ProviderManager(
                     "id": provider.id,
                     "label": provider.name,
                     "models": [
-                        model.model_dump() for model in provider.realtime_models
+                        model.model_dump()
+                        for model in provider.realtime_models
                     ],
                     **registration.public_capability().model_dump(),
                 },
@@ -333,7 +339,11 @@ class ProviderManager(
         if provider is None or registration is None:
             return None
         return next(
-            (model for model in provider.realtime_models if model.id == model_id),
+            (
+                model
+                for model in provider.realtime_models
+                if model.id == model_id
+            ),
             None,
         )
 
@@ -348,7 +358,8 @@ class ProviderManager(
             )
         if model.vad.mode not in registration.vad_modes:
             raise ValueError(
-                f"VAD mode '{model.vad.mode}' is not supported by the provider.",
+                f"VAD mode '{model.vad.mode}' is not supported by "
+                "the provider.",
             )
         if model.realtime_model not in {
             option.id for option in registration.speech_models
@@ -366,7 +377,8 @@ class ProviderManager(
         model = self.get_realtime_voice_model(slot.provider_id, slot.model)
         if registration is None or model is None:
             raise ValueError(
-                f"Realtime model '{slot.provider_id}/{slot.model}' is unavailable.",
+                f"Realtime model '{slot.provider_id}/{slot.model}' "
+                "is unavailable.",
             )
         self._validate_realtime_voice_model(registration, model)
         return EffectiveRealtimeVoiceConfig.from_model(slot.provider_id, model)
