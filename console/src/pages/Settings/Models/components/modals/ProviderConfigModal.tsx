@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
   Form,
   Input,
+  InputNumber,
   Modal,
   Button,
   Select,
@@ -28,9 +29,19 @@ import styles from "../../index.module.less";
 interface ProviderConfigFormValues
   extends Omit<
     ProviderConfigRequest,
-    "generate_kwargs" | "custom_headers" | "auth_mode"
+    | "generate_kwargs"
+    | "custom_headers"
+    | "auth_mode"
+    | "max_inline_media_bytes"
+    | "max_image_bytes"
+    | "max_video_bytes"
+    | "max_audio_bytes"
   > {
   generate_kwargs_text?: string;
+  max_inline_media_bytes?: number | null;
+  max_image_bytes?: number | null;
+  max_video_bytes?: number | null;
+  max_audio_bytes?: number | null;
 }
 
 interface HeaderEntry {
@@ -48,7 +59,7 @@ interface JsonCodeEditorProps {
 function highlightJson(text: string): ReactNode[] {
   const tokens: ReactNode[] = [];
   const pattern =
-    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -273,11 +284,19 @@ interface ProviderConfigModalProps {
     chat_model: string;
     support_connection_check: boolean;
     generate_kwargs: Record<string, unknown>;
+    max_inline_media_bytes?: number;
+    max_image_bytes?: number | null;
+    max_video_bytes?: number | null;
+    max_audio_bytes?: number | null;
     custom_headers?: Record<string, string>;
     auth_mode?: "api_key" | "auth_token";
     meta?: Record<string, unknown>;
   };
-  activeModels: any;
+  activeModels?: {
+    active_llm?: {
+      provider_id?: string;
+    } | null;
+  } | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -347,6 +366,9 @@ export function ProviderConfigModal({
     return parsed as Record<string, unknown>;
   };
 
+  const normalizeOptionalCap = (value: number | null | undefined) =>
+    typeof value === "number" ? value : null;
+
   const effectiveChatModel = useMemo(() => {
     if (!provider.is_custom) {
       return provider.chat_model;
@@ -364,7 +386,7 @@ export function ProviderConfigModal({
 
   const validApiKeyPrefixes = useMemo(
     () => getValidApiKeyPrefixes(provider),
-    [provider.api_key_prefix, provider.api_key_prefixes],
+    [provider],
   );
 
   const apiKeyPlaceholder = useMemo(() => {
@@ -465,6 +487,10 @@ export function ProviderConfigModal({
           Object.keys(provider.generate_kwargs).length > 0
             ? JSON.stringify(provider.generate_kwargs, null, 2)
             : undefined,
+        max_inline_media_bytes: provider.max_inline_media_bytes ?? 2097152,
+        max_image_bytes: provider.max_image_bytes ?? null,
+        max_video_bytes: provider.max_video_bytes ?? null,
+        max_audio_bytes: provider.max_audio_bytes ?? null,
       });
       setAdvancedOpen(false);
       setFormDirty(false);
@@ -524,6 +550,10 @@ export function ProviderConfigModal({
         base_url: values.base_url,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
+        max_inline_media_bytes: values.max_inline_media_bytes ?? 2097152,
+        max_image_bytes: normalizeOptionalCap(values.max_image_bytes),
+        max_video_bytes: normalizeOptionalCap(values.max_video_bytes),
+        max_audio_bytes: normalizeOptionalCap(values.max_audio_bytes),
         custom_headers: headersObj,
         auth_mode: isAnthropicProvider ? authMode : undefined,
       });
@@ -674,6 +704,10 @@ export function ProviderConfigModal({
             Object.keys(provider.generate_kwargs).length > 0
               ? JSON.stringify(provider.generate_kwargs, null, 2)
               : undefined,
+          max_inline_media_bytes: provider.max_inline_media_bytes ?? 2097152,
+          max_image_bytes: provider.max_image_bytes ?? null,
+          max_video_bytes: provider.max_video_bytes ?? null,
+          max_audio_bytes: provider.max_audio_bytes ?? null,
         }}
         onValuesChange={() => setFormDirty(true)}
       >
@@ -898,6 +932,60 @@ export function ProviderConfigModal({
                 </button>
               </div>
             </Form.Item>
+          )}
+
+          {advancedOpen && (
+            <div className={styles.mediaCapsGrid}>
+              <Form.Item
+                name="max_inline_media_bytes"
+                label={t("models.maxInlineMediaBytes")}
+                extra={t("models.maxInlineMediaBytesHint")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("models.maxInlineMediaBytesRequired"),
+                  },
+                ]}
+              >
+                <InputNumber min={0} precision={0} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item
+                name="max_image_bytes"
+                label={t("models.maxImageBytes")}
+                extra={t("models.mediaKindCapHint")}
+              >
+                <InputNumber
+                  min={0}
+                  precision={0}
+                  style={{ width: "100%" }}
+                  placeholder={t("models.inheritDefaultCap")}
+                />
+              </Form.Item>
+              <Form.Item
+                name="max_video_bytes"
+                label={t("models.maxVideoBytes")}
+                extra={t("models.mediaKindCapHint")}
+              >
+                <InputNumber
+                  min={0}
+                  precision={0}
+                  style={{ width: "100%" }}
+                  placeholder={t("models.inheritDefaultCap")}
+                />
+              </Form.Item>
+              <Form.Item
+                name="max_audio_bytes"
+                label={t("models.maxAudioBytes")}
+                extra={t("models.mediaKindCapHint")}
+              >
+                <InputNumber
+                  min={0}
+                  precision={0}
+                  style={{ width: "100%" }}
+                  placeholder={t("models.inheritDefaultCap")}
+                />
+              </Form.Item>
+            </div>
           )}
 
           <Form.Item

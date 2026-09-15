@@ -193,7 +193,9 @@ describe("CheckpointsPage", () => {
       truncated: true,
     });
     await renderPage();
-    expect(screen.getByText("checkpoints.showingLatest")).toBeInTheDocument();
+    expect(
+      await screen.findByText("checkpoints.showingLatest"),
+    ).toBeInTheDocument();
   });
 
   it("shows the error state with retry when loading fails", async () => {

@@ -26,7 +26,12 @@ from qwenpaw.providers.provider import (
 
 from .multimodal_prober import evaluate_video_probe_answer
 from ..utils.logging import sanitize_log_value
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
+from .capping_formatter import (
+    OPENAI_AUDIO_BYTES,
+    OPENAI_IMAGE_BYTES,
+    OPENAI_VIDEO_BYTES,
+    _CappingOpenAIFormatter,
+)
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -142,7 +147,7 @@ class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
 
     max_inline_media_bytes: int = Field(
-        default=MAX_INLINE_MEDIA_BYTES,
+        default=OPENAI_IMAGE_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
@@ -152,6 +157,9 @@ class OpenAIProvider(Provider):
             "conversation history. 0 disables capping."
         ),
     )
+    max_image_bytes: int | None = Field(default=OPENAI_IMAGE_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=OPENAI_VIDEO_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=OPENAI_AUDIO_BYTES, ge=0)
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -545,6 +553,9 @@ class OpenAIProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                max_image_bytes=self.max_image_bytes,
+                max_video_bytes=self.max_video_bytes,
+                max_audio_bytes=self.max_audio_bytes,
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

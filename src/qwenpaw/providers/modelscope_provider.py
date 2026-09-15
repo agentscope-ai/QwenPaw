@@ -5,12 +5,20 @@ from __future__ import annotations
 
 from typing import List
 
+from pydantic import Field
+
+from .capping_formatter import DASHSCOPE_MEDIA_BYTES
 from .openai_provider import OpenAIProvider
 from .provider import ModelInfo
 
 
 class ModelScopeProvider(OpenAIProvider):
     """Exclude catalog entries that clearly cannot use chat completions."""
+
+    max_inline_media_bytes: int = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
+    max_image_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
+    max_video_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
+    max_audio_bytes: int | None = Field(default=DASHSCOPE_MEDIA_BYTES, ge=0)
 
     @staticmethod
     def _is_non_chat_model(model_id: str) -> bool:
