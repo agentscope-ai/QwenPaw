@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from agentscope.message import Msg
 
-from .serialize import msg_to_entries
+from .serialize import assign_message_keys, message_key, msg_to_entries
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MANIFEST_NAME = ".synced.json"
-_MANIFEST_VERSION = 2
+_MANIFEST_VERSION = 3
 _SESSION_PREFIX = "sync:"
 
 
@@ -203,12 +203,18 @@ def _load_manifest(manifest_path: Path) -> dict:
         return {"version": _MANIFEST_VERSION, "files": {}}
     if not isinstance(data, dict) or data.get("version") not in {
         1,
+        2,
         _MANIFEST_VERSION,
     }:
         return {"version": _MANIFEST_VERSION, "files": {}}
-    # Keep v1 provenance long enough to reconcile any legacy session ID.
+    # Keep provenance long enough to reconcile any legacy session ID.
     # Dropping the whole manifest on a version bump would lose the only source
     # for rows imported under an arbitrary (non-synthetic) ID.
+    if data["version"] != _MANIFEST_VERSION:
+        # Re-import once with occurrence-aware keys, including previously
+        # skipped same-ID messages. Keep source IDs for legacy reconciliation.
+        for record in data.get("files", {}).values():
+            record.pop("sha256", None)
     data["version"] = _MANIFEST_VERSION
     data.setdefault("files", {})
     return data
@@ -339,6 +345,9 @@ def _sync_file(
     res.messages = len(messages)
     res.unparseable = unparseable
 
+    assign_message_keys(
+        messages, lambda mid: history.message_anchor(session_id, mid),
+    )
     pending_entries = []
     for row_index, msg in enumerate(messages):
         # Skip messages older than the retention window so we don't import rows
@@ -350,7 +359,7 @@ def _sync_file(
             continue
         # Fallback id from row position: a re-run derives the same key (unlike
         # id(msg)), keeping dedup stable.
-        mid = getattr(msg, "id", None) or f"{session_id}#row{row_index}"
+        mid = message_key(msg) or f"{session_id}#row{row_index}"
         anon_pos = 0
         try:
             entries = list(msg_to_entries(msg))

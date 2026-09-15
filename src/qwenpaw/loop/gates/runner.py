@@ -80,6 +80,21 @@ def _filter_by_scope(
     return result
 
 
+def reset_reply_cycle_handlers(handlers: list) -> None:
+    """Reset reply-local state on handlers in the active mode scope."""
+    for registration in _filter_by_scope(handlers):
+        reset = getattr(registration.handler, "reset_reply_cycle", None)
+        if callable(reset):
+            try:
+                reset()
+            except Exception:
+                logger.warning(
+                    "Stop handler '%s' reply-cycle reset raised",
+                    registration.name,
+                    exc_info=True,
+                )
+
+
 async def run_stop_handlers(
     handlers: list,
     *,
@@ -241,4 +256,5 @@ __all__ = [
     "apply_stop_result",
     "check_pending_gates",
     "clear_pending_gate_state",
+    "reset_reply_cycle_handlers",
 ]

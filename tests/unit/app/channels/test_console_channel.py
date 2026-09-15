@@ -9,10 +9,9 @@ elsewhere; here we exercise pure helpers and async lifecycle methods.
 from __future__ import annotations
 
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
-
-import asyncio
+import json
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,10 +19,7 @@ import pytest
 from qwenpaw.schemas import (
     ContentType,
     ImageContent,
-    Message,
-    MessageType,
     RefusalContent,
-    RunStatus,
     TextContent,
     VideoContent,
 )
@@ -260,6 +256,23 @@ class TestSend:
         await console_channel.send("u1", "hi", {"bot_prefix": "Bot:"})
         out = capsys.readouterr().out
         assert "Bot:hi" in out.replace(" ", "") or "Bot:" in out
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_before_response_is_visible_to_run_owner(console_channel):
+    async def failing_process(_request):
+        if False:
+            yield
+        raise RuntimeError("executor unavailable")
+
+    console_channel._process = failing_process
+    console_channel._on_response_cycle_end = AsyncMock()
+    request = SimpleNamespace(
+        session_id="chat", user_id="user", channel="console", input=[]
+    )
+    events = [event async for event in console_channel.stream_one(request)]
+    assert len(events) == 1
+    assert json.loads(events[0][6:]) == {"error": "executor unavailable"}
 
 
 # ---------------------------------------------------------------------------

@@ -60,6 +60,10 @@ class StopHandler:
         """Reset turn-local state without ending mode sessions."""
         self._reset_gates("reset_turn")
 
+    def reset_reply_cycle(self) -> None:
+        """Reset only gate state scoped to one independent reply."""
+        self._reset_gates("reset_reply_cycle")
+
     def reset_session(self) -> None:
         """Remove current-session state from all gates."""
         self._reset_gates("reset_session")
@@ -143,18 +147,12 @@ class StopHandler:
                 continue_result and continue_result.inject_on_tool_call,
             ),
             reason=(
-                continue_result.reason
-                if continue_result
-                else "Active gate continues"
+                continue_result.reason if continue_result else "Active gate continues"
             ),
             continuation_metadata=(
-                continue_result.continuation_metadata
-                if continue_result
-                else None
+                continue_result.continuation_metadata if continue_result else None
             ),
-            final_message=(
-                continue_result.final_message if continue_result else None
-            ),
+            final_message=(continue_result.final_message if continue_result else None),
         )
 
     def _maybe_reset_peers(

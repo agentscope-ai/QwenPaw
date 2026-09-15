@@ -12,6 +12,23 @@ export function createClientMessageId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${randomBase36(16)}`;
 }
 
+export function latestUserMessageId(
+  messages:
+    | ReadonlyArray<{ id?: unknown; role?: unknown }>
+    | null
+    | undefined,
+): string | undefined {
+  if (!messages) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+    return typeof message.id === "string" && message.id
+      ? message.id
+      : undefined;
+  }
+  return undefined;
+}
+
 export function attachClientMessageId(
   message: Record<string, unknown>,
   clientMessageId: string,

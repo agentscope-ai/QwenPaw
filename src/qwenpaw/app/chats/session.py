@@ -5,15 +5,16 @@ compatibility.
 Windows filenames cannot contain: \\ / : * ? " < > |
 """
 
+import logging
 import os
 import re
-import logging
 import shutil
-
+from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Union, Sequence
+from typing import Any, TypeVar, Union
 
 from qwenpaw.exceptions import ConfigurationException
+
 from ...exceptions import AgentStateError
 from ...utils.io_utils import (
     get_path_lock,
@@ -23,6 +24,7 @@ from ...utils.io_utils import (
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -282,7 +284,7 @@ class SafeJSONSession:
         channel: str = "",
         **state_modules_mapping,
     ) -> None:
-        """Save state modules to a JSON file using async I/O."""
+        """Atomically save named state modules without replacing siblings."""
         state_dicts = {
             name: state_module.state_dict()
             for name, state_module in state_modules_mapping.items()
@@ -294,9 +296,17 @@ class SafeJSONSession:
             channel,
         )
         async with get_path_lock(session_save_path):
+            try:
+                states = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
+            except FileNotFoundError:
+                states = {}
+            states.update(state_dicts)
             await write_json_atomic_async(
                 session_save_path,
-                state_dicts,
+                states,
                 indent=None,
             )
 
@@ -321,10 +331,11 @@ class SafeJSONSession:
             channel,
         )
         try:
-            states = await run_sync_io(
-                _read_session_json,
-                session_save_path,
-            )
+            async with get_path_lock(session_save_path):
+                states = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
         except FileNotFoundError:
             states = None
         if states is not None:
@@ -411,6 +422,36 @@ class SafeJSONSession:
             session_save_path,
         )
 
+    async def mutate_session_state(
+        self,
+        session_id: str,
+        mutator: Callable[[dict[str, Any]], _T],
+        user_id: str = "",
+        channel: str = "",
+    ) -> _T:
+        """Atomically read, mutate and replace one complete session state."""
+        session_save_path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(session_save_path):
+            try:
+                states = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
+            except FileNotFoundError:
+                states = {}
+            result = mutator(states)
+            await write_json_atomic_async(
+                session_save_path,
+                states,
+                indent=None,
+            )
+        return result
+
     async def get_session_state_dict(
         self,
         session_id: str,
@@ -444,10 +485,11 @@ class SafeJSONSession:
             channel,
         )
         try:
-            states = await run_sync_io(
-                _read_session_json,
-                session_save_path,
-            )
+            async with get_path_lock(session_save_path):
+                states = await run_sync_io(
+                    _read_session_json,
+                    session_save_path,
+                )
         except FileNotFoundError:
             states = None
         if states is not None:

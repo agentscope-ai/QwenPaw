@@ -10,6 +10,7 @@ import pytest
 from agentscope.event import EventType
 
 from qwenpaw.runtime.envelope import Envelope, _propagate_event_metadata
+from qwenpaw.runtime.reply_cycle import ReplyCycleContext
 from qwenpaw.schemas import ContentType, MessageType, RunStatus, TextContent
 
 
@@ -320,3 +321,201 @@ async def test_empty_metadata_keeps_existing_content_shape():
 
     assert message["metadata"] is None
     assert "metadata" not in delta
+
+
+@pytest.mark.asyncio
+async def test_reply_id_is_preserved_as_timeline_group_metadata():
+    envelope = Envelope()
+    for event in (
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+        ),
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+            delta="hello",
+        ),
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text",
+        ),
+    ):
+        payloads = await _translate(envelope, event)
+        assert all(
+            payload.get("metadata", {}).get("timeline_group_id")
+            == "reply-stable"
+            for payload in payloads
+            if payload.get("object") == "message"
+        )
+
+    completed = await _dump(envelope.finalize())
+    response = completed[-1]
+    assert response["metadata"]["timeline_group_id"] == "reply-stable"
+    assert all(
+        message["metadata"]["timeline_group_id"] == "reply-stable"
+        for message in response["output"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_envelope_can_rotate_assistant_message_inside_one_response():
+    """Characterize the primitive a reply-cycle revision can reuse."""
+    envelope = Envelope()
+    [first_message] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+            delta="answer A",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-a",
+        ),
+    )
+
+    thinking_outputs = await _translate(
+        envelope,
+        _event(
+            EventType.THINKING_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="thinking-b",
+        ),
+    )
+    completed_first = next(
+        payload
+        for payload in thinking_outputs
+        if payload.get("type") == MessageType.MESSAGE
+    )
+    [second_message] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="reply-stable",
+            block_id="text-b",
+        ),
+    )
+
+    assert completed_first["id"] == first_message["id"]
+    assert completed_first["status"] == RunStatus.Completed
+    assert second_message["id"] != first_message["id"]
+
+
+@pytest.mark.asyncio
+async def test_reply_cycle_overrides_reply_id_and_rotates_message():
+    context = ReplyCycleContext("run-1", "input-a")
+    envelope = Envelope(reply_cycle_context=context)
+    [first] = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_DELTA,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+            delta="answer A",
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_END,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-a",
+        ),
+    )
+
+    context.activate(["input-b", "input-c"])
+    switched = await _translate(
+        envelope,
+        _event(
+            EventType.TEXT_BLOCK_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            block_id="text-c",
+        ),
+    )
+
+    completed_a, started_c = switched
+    assert completed_a["id"] == first["id"]
+    assert completed_a["metadata"]["timeline_group_id"] == "input-a"
+    assert started_c["id"] != first["id"]
+    assert started_c["metadata"] == context.snapshot.metadata()
+
+
+@pytest.mark.asyncio
+async def test_late_tool_result_keeps_call_owner_after_cycle_switch():
+    orders = iter((2, 4))
+
+    async def reserve_order():
+        return next(orders)
+
+    context = ReplyCycleContext("run-1", "input-a", reserve_order)
+    await context.start_occurrence()
+    envelope = Envelope(reply_cycle_context=context)
+    await _translate(
+        envelope,
+        _event(
+            EventType.TOOL_CALL_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            tool_call_id="call-a",
+            tool_call_name="slow_tool",
+        ),
+    )
+
+    context.activate(["input-b"])
+    await context.start_occurrence()
+    outputs = await _translate(
+        envelope,
+        _event(
+            EventType.TOOL_RESULT_START,
+            metadata={},
+            reply_id="agentscope-reply",
+            tool_call_id="call-a",
+            tool_call_name="slow_tool",
+        ),
+    )
+
+    assert outputs
+    assert all(
+        output["metadata"]["timeline_group_id"] == "input-a"
+        for output in outputs
+    )
+    assert all(
+        output["metadata"]["timeline_order"] == 2 for output in outputs
+    )

@@ -14,6 +14,7 @@ interface ProviderGroupCardProps {
   onSaved: () => void;
   onOpenConfig: (provider: ProviderInfo) => void;
   onOpenModels: (provider: ProviderInfo) => void;
+  onOpenRealtimeVoice: (provider: ProviderInfo) => void;
 }
 
 const VARIANT_LABELS: Record<string, string> = {
@@ -35,6 +36,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   onSaved,
   onOpenConfig,
   onOpenModels,
+  onOpenRealtimeVoice,
 }: ProviderGroupCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -116,6 +118,18 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
             {activeProvider.base_url || "—"}
           </div>
         </div>
+        {activeProvider.realtime_voice && (
+          <div className={styles.groupCardField}>
+            <span className={styles.groupCardFieldLabel}>
+              {t("realtimeVoice.settings")}
+            </span>
+            <span className={styles.groupCardFieldValue}>
+              {t("models.modelsCount", {
+                count: activeProvider.realtime_models.length,
+              })}
+            </span>
+          </div>
+        )}
 
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>API Key</span>
@@ -179,6 +193,14 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         >
           {t("models.models")}
         </button>
+        {activeProvider.realtime_voice && (
+          <button
+            className={styles.groupCardActBtn}
+            onClick={() => onOpenRealtimeVoice(activeProvider)}
+          >
+            {t("realtimeVoice.settings")}
+          </button>
+        )}
         <button
           className={styles.groupCardActBtn}
           onClick={() => onOpenConfig(activeProvider)}

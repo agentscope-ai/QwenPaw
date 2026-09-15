@@ -41,6 +41,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Message, ChatHistory } from "../../../api/types/chat";
+import * as AgentScopeChat from "@agentscope-ai/chat";
 
 // Mock chatApi.filePreviewUrl so toDisplayUrl() is deterministic and does
 // not touch real config/token code paths. Preserve all other named exports
@@ -399,6 +400,88 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
   });
 });
 
+describe("convertMessages — tool lifecycle correlation", () => {
+  const call = {
+    role: "assistant",
+    type: "plugin_call",
+    content: [
+      {
+        type: "data",
+        data: {
+          call_id: "call-voice-1",
+          name: "desktop_screenshot",
+          arguments: "{}",
+        },
+      },
+    ],
+    metadata: { timestamp: "2026-08-26T10:00:01.000Z" },
+  } as Message;
+
+  const result = {
+    role: "system",
+    type: "plugin_call_output",
+    content: [
+      {
+        type: "data",
+        data: {
+          call_id: "call-voice-1",
+          output: "screenshot saved",
+        },
+      },
+    ],
+    metadata: { timestamp: "2026-08-26T10:00:04.000Z" },
+  } as Message;
+
+  it("pairs a tool result across an interleaved user message", () => {
+    const converted = convertMessages([
+      {
+        id: "backend-random-voice-id",
+        role: "user",
+        content: "take a screenshot",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-1" },
+        },
+      },
+      call,
+      {
+        role: "user",
+        content: "and inspect the disk",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-2" },
+        },
+      },
+      result,
+      { role: "assistant", content: "done", metadata: {} },
+    ]);
+
+    expect(converted).toHaveLength(4);
+    expect(converted[0].id).toBe("voice-user-1");
+    const toolOutput = (converted[1].cards?.[0]?.data as any).output;
+    expect(toolOutput).toHaveLength(2);
+    expect(toolOutput[0].content[0].data.call_id).toBe("call-voice-1");
+    expect(toolOutput[1].content[0].data.call_id).toBe("call-voice-1");
+    expect(converted[2].id).toBe("voice-user-2");
+    const finalOutput = (converted[3].cards?.[0]?.data as any).output;
+    expect(finalOutput).toHaveLength(1);
+    expect(extractTextFromContent(finalOutput[0].content)).toBe("done");
+  });
+
+  it("keeps the tool response card id stable when its result arrives", () => {
+    const pending = convertMessages([
+      { role: "user", content: "take a screenshot", metadata: {} },
+      call,
+    ]);
+    const completed = convertMessages([
+      { role: "user", content: "take a screenshot", metadata: {} },
+      call,
+      { role: "user", content: "still there?", metadata: {} },
+      result,
+    ]);
+
+    expect(completed[1].id).toBe(pending[1].id);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 3. Output card structure correctness on large inputs
 // ---------------------------------------------------------------------------
@@ -492,6 +575,177 @@ describe("convertMessages — structural correctness on large input", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildUserCard / buildResponseCard helpers", () => {
+  it("uses the locally validated session timeline contract", () => {
+    expect(AgentScopeChat.SESSION_TIMELINE_MODE_VERSION).toBe(4);
+    expect(typeof AgentScopeChat.projectAgentScopeRuntimeTimeline).toBe(
+      "function",
+    );
+  });
+
+  it("projects late output as a new occurrence while keeping tool ownership", () => {
+    const project = AgentScopeChat.projectAgentScopeRuntimeTimeline as unknown as (
+      events: Array<Record<string, unknown>>,
+    ) => Array<{ role: string; cards?: Array<{ data?: any }> }>;
+    const metadata = (group: string, order: number) => ({
+      run_id: "run-1",
+      timeline_group_id: group,
+      timeline_revision: 1,
+      timeline_order: order,
+      responds_to_input_ids: [group],
+    });
+    const events = [
+      {
+        id: "response-1",
+        object: "response",
+        status: "in_progress",
+        output: [],
+      },
+      {
+        id: "input-1",
+        object: "message",
+        role: "user",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "run a long task" }],
+        metadata: metadata("input-1", 1),
+      },
+      {
+        id: "call-message",
+        object: "message",
+        role: "assistant",
+        type: "plugin_call",
+        status: "completed",
+        content: [
+          {
+            type: "data",
+            data: { call_id: "call-1", name: "shell", arguments: "{}" },
+          },
+        ],
+        metadata: metadata("input-1", 2),
+      },
+      {
+        id: "voice-status",
+        object: "message",
+        role: "user",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "status?" }],
+        metadata: metadata("voice-status", 3),
+      },
+      {
+        id: "voice-answer",
+        object: "message",
+        role: "assistant",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "still running" }],
+        metadata: metadata("voice-status", 3),
+      },
+      {
+        id: "result-message",
+        object: "message",
+        role: "tool",
+        type: "plugin_call_output",
+        status: "completed",
+        content: [
+          {
+            type: "data",
+            data: { call_id: "call-1", name: "shell", output: "done" },
+          },
+        ],
+        metadata: metadata("input-1", 2),
+      },
+      {
+        id: "final-message",
+        object: "message",
+        role: "assistant",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "task finished" }],
+        metadata: metadata("input-1", 4),
+      },
+      {
+        id: "response-1",
+        object: "response",
+        status: "completed",
+        output: [],
+      },
+    ];
+
+    const projected = project(events);
+
+    expect(projected.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "assistant",
+    ]);
+    const firstTaskOutput = projected[1].cards?.[0].data.output;
+    expect(firstTaskOutput.map((message: any) => message.id)).toEqual([
+      "call-message",
+      "result-message",
+    ]);
+    expect(projected[4].cards?.[0].data.output[0].id).toBe("final-message");
+  });
+
+  it("restores occurrence order from nested durable block metadata", () => {
+    const durableMetadata = (group: string, order: number) => ({
+      metadata: {
+        run_id: "run-1",
+        timeline_group_id: group,
+        timeline_revision: 1,
+        timeline_order: order,
+        responds_to_input_ids: [group],
+      },
+    });
+
+    const projected = convertMessages([
+      {
+        id: "input-1",
+        role: "user",
+        type: "message",
+        content: "run a long task",
+        metadata: durableMetadata("input-1", 1),
+      },
+      {
+        id: "early-output",
+        role: "assistant",
+        type: "message",
+        content: "working",
+        metadata: durableMetadata("input-1", 2),
+      },
+      {
+        id: "voice-status",
+        role: "user",
+        type: "message",
+        content: "status?",
+        metadata: durableMetadata("voice-status", 3),
+      },
+      {
+        id: "voice-answer",
+        role: "assistant",
+        type: "message",
+        content: "still running",
+        metadata: durableMetadata("voice-status", 3),
+      },
+      {
+        id: "late-output",
+        role: "assistant",
+        type: "message",
+        content: "finished",
+        metadata: durableMetadata("input-1", 4),
+      },
+    ] as Message[]);
+
+    expect(projected.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "assistant",
+    ]);
+  });
   it("buildUserCard wraps a string content into a single text part", () => {
     const card = buildUserCard({ role: "user", content: "hi" });
     const input = (card.cards![0].data as any).input[0];
@@ -547,6 +801,66 @@ describe("buildUserCard / buildResponseCard helpers", () => {
     ]);
     const data = card.cards![0].data as any;
     expect(data.sequence_number).toBe(13);
+  });
+
+  it("keeps timeline ids stable when the same history is converted again", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "voice request",
+        metadata: {
+          metadata: { qwenpaw_client_message_id: "voice-user-1" },
+        },
+      },
+      {
+        role: "assistant",
+        content: "agent result",
+        metadata: { timestamp: "2026-08-25T10:00:00.000Z" },
+      },
+    ] as any[];
+
+    const first = convertMessages(messages);
+    const second = convertMessages(messages);
+
+    expect(second.map((message) => message.id)).toEqual(
+      first.map((message) => message.id),
+    );
+    expect(
+      second.map((message) => (message.cards?.[0].data as any).id),
+    ).toEqual(first.map((message) => (message.cards?.[0].data as any).id));
+  });
+
+  it("does not treat legacy original_id as a timeline group", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "first",
+        metadata: { metadata: { qwenpaw_client_message_id: "user-1" } },
+      },
+      {
+        role: "assistant",
+        content: "first answer",
+        metadata: { original_id: "reply-1" },
+      },
+      {
+        role: "user",
+        content: "second",
+        metadata: { metadata: { qwenpaw_client_message_id: "user-2" } },
+      },
+      {
+        role: "assistant",
+        content: "second answer",
+        metadata: { original_id: "reply-1" },
+      },
+    ] as any[];
+
+    const cards = convertMessages(messages);
+    expect(cards.map((card) => card.id)).toEqual([
+      "user-1",
+      "runtime-response-user-1",
+      "user-2",
+      "runtime-response-user-2",
+    ]);
   });
 
   it("parseTimestamp handles malformed timestamps without throwing", () => {
@@ -648,6 +962,26 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("retains the authoritative Chat source through session hydration", async () => {
+    const apiImport = await import("../../../api");
+    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+      id: "voice-1",
+      name: "Voice Chat",
+      session_id: "console:voice-1",
+      user_id: "default",
+      channel: "console",
+      created_at: null,
+      updated_at: null,
+      source: "realtime_voice",
+      messages: [],
+      status: "idle",
+    });
+
+    const session = await sessionApiDefaultExport.getSession("voice-1");
+    expect((session as { source?: string }).source).toBe("realtime_voice");
+    expect(getChat).toHaveBeenCalledTimes(1);
   });
 
   it("returns a fully-converted session for a 600KB backend payload without throwing", async () => {

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -87,3 +88,94 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_repeated_cancel_waits_for_actual_save_before_returning(fail):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowSession(_FakeSession):
+        async def save_session_state(self, **kwargs):
+            entered.set()
+            await release.wait()
+            return await super().save_session_state(**kwargs)
+
+    session = SlowSession(save_error=OSError("disk full") if fail else None)
+    ctx = _ctx(session, ephemeral=False)
+    task = asyncio.create_task(SessionSaveHook().run(ctx))
+    await entered.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+    release.set()
+    await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelled()
+    assert session.saved is not fail
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is not fail
+
+
+@pytest.mark.asyncio
+async def test_cancelled_wait_is_not_saved_as_resumable_work():
+    from qwenpaw.runtime.reply_cycle import ReplyCycleContext
+    from qwenpaw.runtime.runtime import Runtime
+
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+    cycle = ReplyCycleContext("run", "input")
+    cycle.start_inputs(("input",))
+    cycle.finish_reply("waiting")
+    ctx.agent._reply_cycle_context = cycle
+    ctx.agent.state_dict = lambda: {"waiting_inputs": cycle.waiting_inputs()}
+    runtime = Runtime(workspace=ctx.workspace, app_services=None)
+    await runtime._try_save_on_cancel(ctx)
+    assert session.saved
+    assert session.saved_payload["waiting_inputs"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["cancelled", "failed"])
+async def test_request_termination_is_persisted_once_and_scoped(outcome):
+    from agentscope.message import Msg, TextBlock
+    from qwenpaw.runtime.reply_cycle import ReplyCycleContext
+    from qwenpaw.runtime.runtime import Runtime
+
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+    cycle = ReplyCycleContext("run", "done")
+    cycle.start_inputs(("done",))
+    cycle.finish_reply("completed")
+    cycle.activate(("old-request",))
+    cycle.accept_input("queued-request")
+    context = [
+        Msg(
+            id="old-request",
+            name="user",
+            role="user",
+            content=[TextBlock(text="old")],
+        )
+    ]
+    ctx.agent.state = SimpleNamespace(context=context)
+    ctx.agent._reply_cycle_context = cycle
+    ctx.agent.state_dict = lambda: {
+        "state": {"context": [m.model_dump(mode="json") for m in context]}
+    }
+    runtime = Runtime(workspace=ctx.workspace, app_services=None)
+    await runtime._try_save_on_cancel(ctx, outcome=outcome)
+    await runtime._try_save_on_cancel(ctx, outcome=outcome)
+    saved = session.saved_payload["state"]["context"]
+    assert len(saved) == 2
+    notice = saved[-1]
+    assert notice["metadata"]["request_termination"] == {
+        "run_id": "run",
+        "input_ids": ["old-request", "queued-request"],
+        "status": outcome,
+    }
+    assert "不再自动续做" in notice["content"][0]["text"]
+    assert "明确重新提交" in notice["content"][0]["text"]
+    next_cycle = ReplyCycleContext("next", "new-request")
+    assert next_cycle.pending_input_ids() == ("new-request",)

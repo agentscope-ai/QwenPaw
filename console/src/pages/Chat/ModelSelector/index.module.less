@@ -17,6 +17,16 @@
   }
 }
 
+.triggerDisabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+
+  &:hover {
+    color: inherit;
+    box-shadow: none;
+  }
+}
+
 .triggerName {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -43,6 +53,14 @@
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 11px;
+}
+
+.realtimeTrigger {
+  max-width: 340px;
+}
+
+.realtimeTriggerName {
+  max-width: 250px;
 }
 
 .marquee {
@@ -152,6 +170,14 @@
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+}
+
+.providerHeaderStatic {
+  cursor: default;
+
+  &:hover {
+    color: #999;
+  }
 }
 
 .collapseIcon {

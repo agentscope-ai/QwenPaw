@@ -119,6 +119,7 @@ const ChatSessionInitializer: React.FC = () => {
 
     if (matching && currentSessionIdRef.current !== matching.id) {
       lastAppliedChatIdRef.current = chatId;
+      sessionApi.trackNavigatedSession(chatId);
       setCurrentSessionId(matching.id);
     } else if (matching) {
       // Already in sync, just record that we've handled this chatId

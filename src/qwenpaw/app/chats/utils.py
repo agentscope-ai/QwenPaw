@@ -30,7 +30,7 @@ from ...config import load_config
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
-    SYNTHETIC_USER_MESSAGE_TAGS,
+    TIMELINE_HIDDEN_USER_MESSAGE_TAGS,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,17 @@ def _process_local_tz():
     return datetime.now().astimezone().tzinfo or timezone.utc
 
 
+def _timestamp_instant(ts_value: str) -> datetime | None:
+    """Parse one stored timestamp into an aware UTC instant."""
+    try:
+        dt_obj = datetime.fromisoformat(ts_value)
+    except (ValueError, TypeError):
+        return None
+    if dt_obj.tzinfo is None:
+        dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
+    return dt_obj.astimezone(timezone.utc)
+
+
 def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
     """Normalize a Msg timestamp string into the user's timezone.
 
@@ -49,13 +60,10 @@ def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
     ``user_timezone``. Aware values keep their encoded offset.
     Unparseable inputs are returned unchanged.
     """
-    try:
-        dt_obj = datetime.fromisoformat(ts_value)
-        if dt_obj.tzinfo is None:
-            dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
-        return dt_obj.astimezone(user_tz).isoformat()
-    except (ValueError, TypeError):
+    instant = _timestamp_instant(ts_value)
+    if instant is None:
         return ts_value
+    return instant.astimezone(user_tz).isoformat()
 
 
 def _is_scroll_memory_placeholder(msg: Msg) -> bool:
@@ -82,25 +90,31 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     )
 
 
-def _is_synthetic_user_message(msg: Msg) -> bool:
-    """Return whether *msg* is a runtime-injected user-role message.
+# Visual compression collapses history/context ranges into user-role
+# messages with these names. They are model-only reconstructions.
+_VISUAL_PLACEHOLDER_NAMES = frozenset(
+    {"visual_context", "visual_history"},
+)
+
+
+def _is_timeline_hidden_user_message(msg: Msg) -> bool:
+    """Return whether *msg* has another authoritative timeline entry.
 
     Loop gates, stop handlers, and rubric evaluation append tagged
     ``role="user"`` stubs to keep a turn going; visual compression
-    collapses history into ``visual_history``
-    user messages. None of them is user transcript — rendering them as
-    user cards made the original instruction appear rewritten after a
-    session switch.
+    collapses history into ``visual_history`` / ``visual_context``
+    user messages. Voice-routed task payloads remain real Agent context,
+    but their finalized transcript is already the visible user event.
     """
     if msg.role != "user":
         return False
-    if msg.name == "visual_history":
+    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
         return True
     metadata = getattr(msg, "metadata", None)
     return (
         isinstance(metadata, dict)
         and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
-        in SYNTHETIC_USER_MESSAGE_TAGS
+        in TIMELINE_HIDDEN_USER_MESSAGE_TAGS
     )
 
 
@@ -486,14 +500,10 @@ def strip_injected_skill_block(text: str, role: str) -> str:
 
 
 def clean_display_text(text: str, role: str) -> str:
-    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
-    headline fence and the injected ``<skill>`` block. The SSE stream already
-    strips the headline; the HTTP history path didn't, so it reappeared on
-    reload — do both here so every display path matches. Headline first: the
-    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
-    un-anchored.
-    """
-    return strip_injected_skill_block(strip_headline(text) or "", role)
+    """Hide assistant headlines and user skill expansions in their own roles."""
+    if role == "assistant":
+        text = strip_headline(text) or ""
+    return strip_injected_skill_block(text, role)
 
 
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
@@ -530,9 +540,15 @@ def agentscope_msg_to_message(
         user_tz = timezone.utc
 
     for msg in msgs:
+        if msg.role == "assistant" and (msg.metadata or {}).get(
+            "internal_result_id"
+        ):
+            # Model-only observation. Its ordinary Agent answer is the visible
+            # result; never display protocol notifications as a second answer.
+            continue
         if _is_scroll_memory_placeholder(msg):
             continue
-        if _is_synthetic_user_message(msg):
+        if _is_timeline_hidden_user_message(msg):
             continue
         role = msg.role or "assistant"
 
@@ -559,8 +575,25 @@ def agentscope_msg_to_message(
             "finished_at": finished_value or None,
         }
 
+        termination = (msg.metadata or {}).get("request_termination")
+        if role == "assistant" and isinstance(termination, dict):
+            text = {
+                "cancelled": "已取消尚未完成的请求；已执行的操作不会回滚。",
+                "failed": "请求执行失败，已停止；已执行的操作不会回滚。",
+            }.get(termination.get("status"))
+            if text:
+                message = Message(
+                    id=f"{msg.id}:0", type=MessageType.MESSAGE, role=role,
+                )
+                message.metadata = metadata
+                message.add_content(new_content=TextContent(text=text))
+                results.append(message.completed())
+            continue
+
         if isinstance(msg.content, str):
-            message = Message(type=MessageType.MESSAGE, role=role)
+            message = Message(
+                id=f"{msg.id}:0", type=MessageType.MESSAGE, role=role,
+            )
             message.metadata = metadata
             text_content = TextContent(
                 delta=False,
@@ -574,14 +607,39 @@ def agentscope_msg_to_message(
         current_message = None
         current_type = None
 
-        for block in msg.content:
+        for block_index, block in enumerate(msg.content):
             # Normalize pydantic block models to dict so the rest of
             # this conversion (which uses .get) handles both shapes.
             if hasattr(block, "model_dump"):
                 block = block.model_dump()
             if not isinstance(block, dict):
                 continue
+            block_metadata = metadata
+            raw_block_metadata = block.get("metadata")
+            if isinstance(raw_block_metadata, dict) and raw_block_metadata:
+                message_metadata = (
+                    metadata.get("metadata")
+                    if isinstance(metadata.get("metadata"), dict)
+                    else {}
+                )
+                block_metadata = {
+                    **metadata,
+                    "metadata": {
+                        **message_metadata,
+                        **raw_block_metadata,
+                    },
+                }
+            block_timestamp = block.get("created_at")
+            if block_timestamp:
+                block_metadata = {
+                    **block_metadata,
+                    "timestamp": _normalize_msg_timestamp(
+                        str(block_timestamp),
+                        user_tz,
+                    ),
+                }
             btype = block.get("type", "text")
+            block_message_id = f"{msg.id}:{btype}:{block.get('id') or block_index}"
 
             # DataBlock (2.0): map type="data" to concrete media type
             if btype == "data":
@@ -601,14 +659,18 @@ def agentscope_msg_to_message(
                     btype = "file"
 
             if btype == "text":
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 text_content = TextContent(
@@ -629,14 +691,18 @@ def agentscope_msg_to_message(
                 continue
 
             elif btype == "thinking":
-                if current_type != MessageType.REASONING:
+                if current_type != MessageType.REASONING or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.REASONING,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.REASONING
 
                 text_content = TextContent(
@@ -651,10 +717,11 @@ def agentscope_msg_to_message(
                     results.append(current_message.completed())
 
                 current_message = Message(
+                    id=block_message_id,
                     type=MessageType.PLUGIN_CALL,
                     role=role,
                 )
-                current_message.metadata = metadata
+                current_message.metadata = block_metadata
                 current_type = MessageType.PLUGIN_CALL
 
                 if isinstance(block.get("input"), (dict, list)):
@@ -683,10 +750,11 @@ def agentscope_msg_to_message(
                     results.append(current_message.completed())
 
                 current_message = Message(
+                    id=block_message_id,
                     type=MessageType.PLUGIN_CALL_OUTPUT,
                     role=role,
                 )
-                current_message.metadata = metadata
+                current_message.metadata = block_metadata
                 current_type = MessageType.PLUGIN_CALL_OUTPUT
 
                 if isinstance(block.get("output"), (dict, list)):
@@ -717,14 +785,18 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=data_content)
 
             elif btype == "image":
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 kwargs = {}
@@ -756,14 +828,18 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=image_content)
 
             elif btype == "audio":
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 kwargs = {}
@@ -797,14 +873,18 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=audio_content)
 
             elif btype == "video":
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 kwargs = {}
@@ -836,14 +916,18 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=video_content)
 
             elif btype == "file":
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 kwargs = {
@@ -880,14 +964,18 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=file_content)
 
             else:
-                if current_type != MessageType.MESSAGE:
+                if current_type != MessageType.MESSAGE or (
+                    current_message is not None
+                    and current_message.metadata != block_metadata
+                ):
                     if current_message:
                         results.append(current_message.completed())
                     current_message = Message(
+                        id=block_message_id,
                         type=MessageType.MESSAGE,
                         role=role,
                     )
-                    current_message.metadata = metadata
+                    current_message.metadata = block_metadata
                     current_type = MessageType.MESSAGE
 
                 text_content = TextContent(

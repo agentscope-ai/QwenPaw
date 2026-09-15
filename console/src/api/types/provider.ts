@@ -55,6 +55,10 @@ export interface ProviderInfo {
   models_last_sync_error?: string | null;
   models_syncing?: boolean;
   hidden_model_ids?: string[];
+  /** User-configurable realtime voice models for this Provider. */
+  realtime_models: RealtimeVoiceModelConfig[];
+  /** Optional runtime capability; absent when realtime voice is unsupported. */
+  realtime_voice?: RealtimeVoiceCapability | null;
   is_custom: boolean;
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
@@ -125,6 +129,9 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm: ModelSlotConfig | null;
+  active_realtime_voice?: ModelSlotConfig;
+  active_voice_router?: ModelSlotConfig;
+  effective_voice_router?: ModelSlotConfig;
   effective_max_input_length?: number | null;
 }
 
@@ -140,6 +147,48 @@ export interface ModelSlotRequest {
   model: string;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
+  slot?: "llm" | "realtime_voice" | "voice_router";
+  inherit?: boolean;
+}
+
+export interface RealtimeVoiceVadConfig {
+  mode: string;
+  threshold: number;
+  silence_duration_ms: number;
+}
+
+export interface RealtimeVoiceModelConfig {
+  id: string;
+  name: string;
+  region: string;
+  realtime_model: string;
+  endpoint: string | null;
+  voice: string;
+  language: string;
+  vad: RealtimeVoiceVadConfig;
+  continuation_grace_ms: number;
+  presentation_capacity: number;
+  playback_timeout_seconds: number;
+  max_history_turns: number;
+  max_session_seconds: number;
+}
+
+export interface RealtimeVoiceMedia {
+  encoding: "pcm_s16le";
+  input_sample_rate: number;
+  output_sample_rate: number;
+  channels: number;
+}
+
+export interface RealtimeVoiceCapability {
+  regions: Array<{ id: string; label: string }>;
+  vad_modes: string[];
+  speech_models: Array<{ id: string; label: string }>;
+  media: RealtimeVoiceMedia;
+  endpoint_override: { scheme: "wss"; optional: boolean };
+  supports_context_items: boolean;
+  supports_manual_response: boolean;
+  supports_output_cancel: boolean;
 }
 
 /* ---- Custom provider CRUD ---- */

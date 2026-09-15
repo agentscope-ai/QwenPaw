@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 
 import ChatActionGroup from "./index";
@@ -21,6 +22,26 @@ describe("ChatActionGroup", () => {
     expect(
       document.querySelector('[data-icon="SparkNewChatLine"]'),
     ).toBeInTheDocument();
+  });
+
+  it("offers normal and Voice Chat from the new-chat split menu", async () => {
+    const onCreateVoiceChat = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup onCreateVoiceChat={onCreateVoiceChat} />,
+    );
+
+    expect(
+      document.querySelector('[data-icon="SparkVoiceChat01Line"]'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.newChatMenu" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "realtimeVoice.newChat",
+      }),
+    );
+
+    expect(onCreateVoiceChat).toHaveBeenCalledOnce();
   });
 
   it("renders the Session workspace toggle next to essential actions", () => {

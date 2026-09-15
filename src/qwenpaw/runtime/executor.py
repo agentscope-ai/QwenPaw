@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, AsyncGenerator
 
 from .envelope import Envelope
+from .reply_cycle import InternalResultInput
 from .heartbeat import (
     _iter_with_heartbeat,
     _HEARTBEAT_TICK,
@@ -37,6 +38,7 @@ class AgentExecutor:
     async def run(
         self,
         msgs: list[Any],
+        result_input: InternalResultInput | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Drive ``agent.reply_stream`` and yield SSE envelope objects.
 
@@ -44,7 +46,14 @@ class AgentExecutor:
         idle periods (e.g. tool-guard approval waits) emit keep-alive
         envelopes instead of letting the connection drop.
         """
-        agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
+        if not isinstance(result_input, InternalResultInput):
+            result_input = None
+        if result_input is not None:
+            if not await self._agent.observe_background_result(result_input):
+                return
+        agent_iter = self._agent.reply_stream(
+            inputs=None if result_input is not None else msgs,
+        ).__aiter__()
         async for event in _iter_with_heartbeat(
             agent_iter,
             HEARTBEAT_INTERVAL_SECONDS,

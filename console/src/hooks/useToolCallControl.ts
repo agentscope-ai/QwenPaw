@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toolCallsApi } from "../api/modules/toolCalls";
+import { isHttpRequestError } from "../api/request";
 import { resolveBackendSessionId } from "../utils/resolveBackendSessionId";
 import { registerBackgroundTask } from "./useBackgroundTaskWatcher";
 import { useBackgroundTasksStore } from "../stores/backgroundTasksStore";
@@ -8,6 +9,8 @@ const AUTO_POPUP_SECS = 30;
 /** Minimum foreground runtime before auto-opening the control panel. */
 const MIN_FOREGROUND_SECS = 15;
 const OFFLOAD_POLL_MS = 2000;
+const HYDRATION_RETRY_MS = 250;
+const MAX_NOT_FOUND_ATTEMPTS = 20;
 
 export interface ToolCallControlState {
   bannerVisible: boolean;
@@ -21,6 +24,8 @@ export interface ToolCallControlState {
   maxInternalTimeoutSecs: number | null;
   /** Seconds since tool start (from last backend snapshot + local tick). */
   elapsed: number;
+  /** The streamed card has no matching backend execution record. */
+  recordMissing: boolean;
 }
 
 function resolveSessionId(sessionId: string): string {
@@ -43,6 +48,7 @@ export function useToolCallControl(
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
+    recordMissing: false,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -50,7 +56,6 @@ export function useToolCallControl(
   const serverKillRef = useRef<number | null>(null);
   const serverElapsedRef = useRef(0);
   const serverTimestampRef = useRef<number>(0);
-  const fetchedRef = useRef(false);
   const autoTriggeredRef = useRef(false);
   const autoOffloadRegisteredRef = useRef(false);
   /** First positive offload_remaining seen for this call (popup gating). */
@@ -205,101 +210,42 @@ export function useToolCallControl(
     [startLocalCountdown],
   );
 
-  // Fetch deadlines when the tool starts. Backend session_id may not be ready
-  // on the first paint (new chat / mapping lag) — retry like bg-task hydrate
-  // instead of permanently locking fetchedRef after a failed/empty attempt.
+  // Hydrate and poll one authoritative backend record. A new chat may need a
+  // short mapping grace period; a stable 404 after that window is terminal for
+  // this streamed card, while network/server failures remain retryable.
   useEffect(() => {
     if (!isCalling || !toolCallId) return;
 
-    fetchedRef.current = false;
     autoOffloadRegisteredRef.current = false;
     initialOffloadRef.current = null;
     autoTriggeredRef.current = false;
+    setState((s) => (s.recordMissing ? { ...s, recordMissing: false } : s));
     let cancelled = false;
-    let attempts = 0;
-    let policyLoaded = false;
+    let notFoundAttempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const tryFetch = async () => {
-      if (cancelled || fetchedRef.current) return;
-
-      const sid = resolveSessionId(sessionId);
-      const infoPromise = sid
-        ? toolCallsApi.getInfo(sid, toolCallId).catch(() => null)
-        : Promise.resolve(null);
-      const policyPromise = policyLoaded
-        ? Promise.resolve(null)
-        : toolCallsApi.getOffloadPolicy().catch(() => null);
-
-      const [info, policy] = await Promise.all([infoPromise, policyPromise]);
+    const schedule = (delay: number) => {
       if (cancelled) return;
-
-      if (policy) {
-        policyLoaded = true;
-        const dp =
-          (policy.default_action as "offload" | "keep_foreground") ??
-          "keep_foreground";
-        defaultPolicyRef.current = dp;
-        setState((s) => ({ ...s, defaultPolicy: dp }));
-      }
-
-      if (!info) return;
-
-      fetchedRef.current = true;
-      if (info.status === "offloaded") {
-        tryRegisterBackground("initial-getInfo-offloaded");
-      }
-      applyServerValues(
-        info.offload_remaining ?? null,
-        info.kill_remaining ?? null,
-        {
-          elapsed: info.elapsed ?? 0,
-          maxInternalTimeoutSecs: info.max_internal_timeout_secs ?? null,
-        },
-      );
+      retryTimer = setTimeout(poll, delay);
     };
 
-    void tryFetch();
-    const timer = setInterval(() => {
-      attempts += 1;
-      if (fetchedRef.current || attempts >= 20) {
-        clearInterval(timer);
-        return;
-      }
-      void tryFetch();
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [
-    isCalling,
-    sessionId,
-    toolCallId,
-    applyServerValues,
-    tryRegisterBackground,
-  ]);
-
-  // Poll backend status while calling — catches system auto-offload even when
-  // the tool card leaves "calling" before the local countdown hits zero.
-  useEffect(() => {
-    if (!isCalling || !toolCallId) return;
-
-    let cancelled = false;
     const poll = async () => {
       if (cancelled || autoOffloadRegisteredRef.current) return;
       const sid = resolveSessionId(sessionId);
-      if (!sid) return;
+      if (!sid) {
+        schedule(HYDRATION_RETRY_MS);
+        return;
+      }
+
       try {
         const info = await toolCallsApi.getInfo(sid, toolCallId);
         if (cancelled) return;
+        notFoundAttempts = 0;
         if (info.status === "offloaded") {
           tryRegisterBackground("poll-offloaded");
           return;
         }
         if (info.status === "running") {
-          // Refresh remaining so kill countdown stays correct after offload
-          // deadline clears under keep_foreground.
           applyServerValues(
             info.offload_remaining ?? null,
             info.kill_remaining ?? null,
@@ -309,23 +255,53 @@ export function useToolCallControl(
             },
           );
         }
-      } catch {
-        /* ignore transient errors */
+        schedule(OFFLOAD_POLL_MS);
+      } catch (reason) {
+        if (cancelled) return;
+        if (isHttpRequestError(reason) && reason.status === 404) {
+          notFoundAttempts += 1;
+          if (notFoundAttempts >= MAX_NOT_FOUND_ATTEMPTS) {
+            setState((s) => ({
+              ...s,
+              bannerVisible: false,
+              recordMissing: true,
+            }));
+            return;
+          }
+          schedule(HYDRATION_RETRY_MS);
+          return;
+        }
+        schedule(OFFLOAD_POLL_MS);
       }
     };
 
+    void toolCallsApi
+      .getOffloadPolicy()
+      .then((policy) => {
+        if (cancelled) return;
+        const defaultPolicy =
+          (policy.default_action as "offload" | "keep_foreground") ??
+          "keep_foreground";
+        defaultPolicyRef.current = defaultPolicy;
+        setState((s) => ({ ...s, defaultPolicy }));
+      })
+      .catch(() => {
+        // Policy is optional for hydration; retain the safe foreground default.
+      });
     void poll();
-    const id = setInterval(poll, OFFLOAD_POLL_MS);
+
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [
     isCalling,
     sessionId,
     toolCallId,
-    tryRegisterBackground,
     applyServerValues,
+    tryRegisterBackground,
   ]);
 
   // When the card leaves "calling" (offloaded ToolResponse often flips status
@@ -342,7 +318,6 @@ export function useToolCallControl(
     }
 
     if (!wasCalling || !toolCallId || autoOffloadRegisteredRef.current) {
-      fetchedRef.current = false;
       autoTriggeredRef.current = false;
       initialOffloadRef.current = null;
       return;
@@ -385,7 +360,6 @@ export function useToolCallControl(
         });
     }
 
-    fetchedRef.current = false;
     autoTriggeredRef.current = false;
     initialOffloadRef.current = null;
   }, [isCalling, sessionId, toolCallId, tryRegisterBackground]);
