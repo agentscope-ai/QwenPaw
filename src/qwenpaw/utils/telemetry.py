@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Telemetry collection for installation analytics."""
+
 from __future__ import annotations
 
 import json
@@ -214,16 +215,22 @@ def has_telemetry_been_collected(working_dir: Path) -> bool:
 
 
 def is_telemetry_opted_out(working_dir: Path) -> bool:
-    """Check if the user has explicitly opted out of telemetry.
+    """Check the process setting and saved telemetry opt-out.
 
-    Once opted out, telemetry is never collected again regardless of version.
+    QWENPAW_TELEMETRY_DISABLED disables telemetry for this process without
+    persisting the choice. A saved opt-out applies regardless of version.
 
     Args:
         working_dir: Path to QwenPaw working directory
 
     Returns:
-        True if user has opted out, False otherwise
+        True if telemetry is disabled or the user has opted out.
     """
+    from ..constant import EnvVarLoader
+
+    if EnvVarLoader.get_bool("QWENPAW_TELEMETRY_DISABLED"):
+        return True
+
     marker_file = working_dir / TELEMETRY_MARKER_FILE
     if not marker_file.exists():
         return False
@@ -290,8 +297,11 @@ def collect_and_upload_telemetry(working_dir: Path) -> bool:
         working_dir: Path to QwenPaw working directory
 
     Returns:
-        True if upload succeeded, False otherwise
+        True if upload succeeded, False if disabled or upload failed.
     """
+    if is_telemetry_opted_out(working_dir):
+        return False
+
     # Collect system info
     info = get_system_info()
 
