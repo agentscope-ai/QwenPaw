@@ -220,8 +220,31 @@ class TaskTracker:
             except ValueError:
                 pass
 
-    async def request_stop(self, run_key: str) -> bool:
-        """Cancel the run. Returns ``True`` if it was running."""
+    async def get_run_age_seconds(self, run_key: str) -> float | None:
+        """Return seconds since the run started, or ``None`` if idle."""
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None or state.task.done():
+                return None
+            started = state.start_time
+        if started is None:
+            return 0.0
+        now = datetime.now(timezone.utc)
+        return (now - started).total_seconds()
+
+    async def request_stop(
+        self,
+        run_key: str,
+        timeout: float | None = None,
+    ) -> bool:
+        """Cancel the run. Returns ``True`` if it was running.
+
+        Args:
+            run_key: Chat / run identifier
+            timeout: If set, abandon waiting for the producer after
+                this many seconds so a wedged run cannot block the
+                caller (the producer may still be finishing).
+        """
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
             state = self._runs.get(run_key)
@@ -245,8 +268,11 @@ class TaskTracker:
             task.cancel()
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
         try:
-            await task
-        except asyncio.CancelledError:
+            if timeout is None:
+                await task
+            else:
+                await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
         return True
 

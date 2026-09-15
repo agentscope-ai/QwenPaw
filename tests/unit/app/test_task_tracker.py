@@ -241,6 +241,59 @@ async def test_request_stop_returns_false_when_no_run():
     assert await tracker.request_stop("missing") is False
 
 
+@pytest.mark.asyncio
+async def test_get_run_age_seconds_none_when_idle():
+    tracker = TaskTracker()
+    assert await tracker.get_run_age_seconds("missing") is None
+
+
+@pytest.mark.asyncio
+async def test_get_run_age_seconds_for_live_run():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+
+    async def long_stream(_payload):
+        started.set()
+        await asyncio.sleep(60)
+        yield "never"
+
+    await tracker.attach_or_start(
+        "run-age",
+        payload=None,
+        stream_fn=long_stream,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    age = await tracker.get_run_age_seconds("run-age")
+    assert age is not None
+    assert age >= 0
+    await tracker.request_stop("run-age", timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_request_stop_timeout_does_not_hang():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+
+    async def ignore_cancel(_payload):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.Event().wait()
+        if False:  # pylint: disable=using-constant-test
+            yield "never"
+
+    await tracker.attach_or_start(
+        "run-hang",
+        payload=None,
+        stream_fn=ignore_cancel,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    stopped = await tracker.request_stop("run-hang", timeout=0.05)
+    assert stopped is True
+
+
+
 # ---------------------------------------------------------------------------
 # Error path: producer exception broadcasts an error SSE.
 # ---------------------------------------------------------------------------
