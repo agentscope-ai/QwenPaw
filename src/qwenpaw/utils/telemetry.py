@@ -13,6 +13,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..constant import EnvVarLoader
+
 logger = logging.getLogger(__name__)
 
 TELEMETRY_ENDPOINT = (
@@ -31,8 +33,6 @@ def _safe_get(func: Callable[[], str], default: str = "unknown") -> str:
 
 def _detect_install_method() -> str:
     """Detect how QwenPaw was installed based on environment signals."""
-    from ..constant import EnvVarLoader
-
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return "docker"
     if EnvVarLoader.get_bool("QWENPAW_DESKTOP_APP"):
@@ -226,8 +226,6 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
     Returns:
         True if telemetry is disabled or the user has opted out.
     """
-    from ..constant import EnvVarLoader
-
     if EnvVarLoader.get_bool("QWENPAW_TELEMETRY_DISABLED"):
         return True
 
