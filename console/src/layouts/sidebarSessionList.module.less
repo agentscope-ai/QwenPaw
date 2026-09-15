@@ -82,43 +82,6 @@
   margin-bottom: 4px;
 }
 
-.loadMoreRow {
-  display: flex;
-  align-items: center;
-  height: 44px;
-  padding: 0 8px;
-}
-
-.loadMoreButton {
-  display: flex;
-  width: 100%;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--app-border-subtle);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--app-text-tertiary);
-  cursor: pointer;
-  font-size: 11px;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.loadMoreButton:hover {
-  border-color: var(--app-accent-border);
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
-}
-
-.loadMoreButton:focus-visible {
-  outline: 2px solid var(--app-accent-border);
-  outline-offset: 1px;
-}
-
 /* Date group label (clickable to collapse/expand) */
 .groupLabel {
   display: flex;
@@ -250,17 +213,5 @@
       color: rgba(255, 255, 255, 0.92);
       background: rgba(255, 255, 255, 0.08);
     }
-  }
-}
-
-/* Compact density on short viewports — keep in sync with
-   LOAD_MORE_ROW_HEIGHT_COMPACT (36px) in SidebarSessionList.tsx. */
-@media (max-height: 850px) {
-  .loadMoreRow {
-    height: 36px;
-  }
-
-  .loadMoreButton {
-    height: 36px;
   }
 }

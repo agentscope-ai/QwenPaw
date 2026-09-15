@@ -13,7 +13,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
-import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 
 // ---- Hoisted mocks ---------------------------------------------------------
@@ -263,15 +262,6 @@ function mockData(
   });
 }
 
-function NavigatingSessionList() {
-  const navigate = useNavigate();
-  return (
-    <SidebarSessionList
-      onSessionClick={(sessionId) => navigate(`/chat/${sessionId}`)}
-    />
-  );
-}
-
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -436,7 +426,7 @@ describe("SidebarSessionList", () => {
     );
   });
 
-  it("loads more conversations and hides the button when all are visible", async () => {
+  it("renders every conversation without a load-more control", async () => {
     const sessions = Array.from({ length: 12 }, (_, index) => ({
       ...sessionA,
       id: `session-${index + 1}`,
@@ -447,16 +437,9 @@ describe("SidebarSessionList", () => {
     renderWithProviders(<SidebarSessionList />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
+      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
     });
-    expect(screen.queryByTestId("session-item-session-11")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
-    });
-    expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+    expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
   });
 
@@ -486,7 +469,7 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("keeps the active conversation visible when loading more", async () => {
+  it("renders the full history around the active conversation", async () => {
     const sessions = Array.from({ length: 25 }, (_, index) => ({
       ...sessionA,
       id: `session-${index + 1}`,
@@ -501,54 +484,12 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.getByTestId("session-item-session-21")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
-    });
+    expect(screen.getByTestId("session-item-session-21")).toBeTruthy();
+    expect(screen.getByTestId("session-item-session-25")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
   });
 
-  it("keeps the load more control after selecting a later conversation", async () => {
-    const sessions = Array.from({ length: 25 }, (_, index) => ({
-      ...sessionA,
-      id: `session-${index + 1}`,
-      name: `Conversation ${index + 1}`,
-      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
-    }));
-    mockData(sessions);
-    renderWithProviders(<NavigatingSessionList />, {
-      initialEntries: ["/chat/session-1"],
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.queryByTestId("session-item-session-21")).toBeNull();
-      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByTestId("session-item-session-12"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.queryByTestId("session-item-session-21")).toBeNull();
-      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.getByTestId("session-item-session-25")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
-    });
-  });
-
-  it("resets pagination when switching agents", async () => {
+  it("swaps the rendered list when switching agents", async () => {
     const agentOneSessions = Array.from({ length: 25 }, (_, index) => ({
       ...sessionA,
       id: `agent-one-${index + 1}`,
@@ -566,11 +507,7 @@ describe("SidebarSessionList", () => {
     const { rerender } = renderWithProviders(<SidebarSessionList />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("session-item-agent-one-10")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-agent-one-20")).toBeTruthy();
+      expect(screen.getByTestId("session-item-agent-one-25")).toBeTruthy();
     });
 
     mockSelectedAgent.current = "agent-2";
@@ -578,38 +515,8 @@ describe("SidebarSessionList", () => {
     rerender(<SidebarSessionList />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("session-item-agent-two-10")).toBeTruthy();
-      expect(screen.queryByTestId("session-item-agent-two-11")).toBeNull();
-      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
-    });
-  });
-
-  it("resets pagination after the list is remounted", async () => {
-    const sessions = Array.from({ length: 12 }, (_, index) => ({
-      ...sessionA,
-      id: `session-${index + 1}`,
-      name: `Conversation ${index + 1}`,
-      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
-    }));
-    mockData(sessions);
-    const { unmount } = renderWithProviders(<SidebarSessionList />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
-    });
-
-    unmount();
-    renderWithProviders(<SidebarSessionList />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-10")).toBeTruthy();
-      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
-      expect(screen.getByRole("button", { name: /Load more/ })).toBeTruthy();
+      expect(screen.getByTestId("session-item-agent-two-25")).toBeTruthy();
+      expect(screen.queryByTestId("session-item-agent-one-1")).toBeNull();
     });
   });
 
@@ -624,18 +531,19 @@ describe("SidebarSessionList", () => {
     renderWithProviders(<SidebarSessionList />);
 
     await waitFor(() => {
-      expect(screen.queryByTestId("session-item-session-11")).toBeNull();
+      expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(await screen.findByText("Search conversations"));
     fireEvent.change(screen.getByPlaceholderText("Search…"), {
-      target: { value: "Conversation" },
+      target: { value: "Conversation 1" },
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+      expect(screen.queryByTestId("session-item-session-2")).toBeNull();
     });
+    expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
+    expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
   });
 
   it("routes session clicks through the injected callback", async () => {
@@ -850,13 +758,13 @@ describe("SidebarSessionList", () => {
       });
       const list = mockListProps.current;
       expect(list).toBeTruthy();
-      // rows: groupHeader(default, 12), 10 sessions, loadMore(2 remaining)
+      // rows: groupHeader(default, 12) followed by all 12 sessions
       expect(list!.itemSize(0)).toBe(42);
       expect(list!.itemSize(1)).toBe(42);
-      expect(list!.itemSize(11)).toBe(44);
+      expect(list!.itemSize(11)).toBe(42);
     });
 
-    it("compacts group headers, sessions, and load-more on short viewports", async () => {
+    it("compacts group headers and sessions on short viewports", async () => {
       setCompactViewport(true);
       localStorage.setItem("qwenpaw_session_group_mode", "source");
       mockData(conversationFixture(12));
@@ -867,7 +775,7 @@ describe("SidebarSessionList", () => {
       const list = mockListProps.current!;
       expect(list.itemSize(0)).toBe(32);
       expect(list.itemSize(1)).toBe(30);
-      expect(list.itemSize(11)).toBe(36);
+      expect(list.itemSize(11)).toBe(30);
     });
 
     it("compacts session rows in none mode on short viewports", async () => {

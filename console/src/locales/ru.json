@@ -2824,8 +2824,7 @@
     "newTask": "Новая задача",
     "groups": {
       "cronShort": "Расписание",
-      "subagentShort": "Субагент",
-      "loadMore": "Загрузить ещё · осталось {{count}}"
+      "subagentShort": "Субагент"
     },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"

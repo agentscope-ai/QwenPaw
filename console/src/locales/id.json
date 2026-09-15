@@ -760,8 +760,7 @@
     "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen",
-      "loadMore": "Muat lebih banyak · {{count}} tersisa"
+      "subagentShort": "Subagen"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"

@@ -82,8 +82,6 @@ import styles from "./sidebarSessionList.module.less";
 const SESSION_ROW_HEIGHT = 42;
 /** Fixed height of each group header row */
 const GROUP_HEADER_HEIGHT = 42;
-const LOAD_MORE_ROW_HEIGHT = 44;
-const GROUP_PAGE_SIZE = 10;
 
 /**
  * Compact row metrics for short viewports (see useCompactDensity).
@@ -95,7 +93,6 @@ const SESSION_ROW_HEIGHT_COMPACT = 30;
 const GROUP_HEADER_HEIGHT_COMPACT = 32;
 /** Empty groups carry no rows to scan, so their header slims further. */
 const EMPTY_GROUP_HEADER_HEIGHT_COMPACT = 24;
-const LOAD_MORE_ROW_HEIGHT_COMPACT = 36;
 
 /** A flattened row rendered by the virtualized session list. */
 type FlatRow =
@@ -105,17 +102,11 @@ type FlatRow =
       count: number;
       collapsed: boolean;
     }
-  | {
-      kind: "loadMore";
-      sectionId: string;
-      remaining: number;
-    }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
 /**
- * A paginated section of the session list. Sections are chat groups in
- * source mode, date buckets in date mode, and one flat list in none
- * mode; `visibleSessionCounts` pages each section independently.
+ * A header-delimited section of the session list: chat groups in
+ * source mode, one flat recency list in none mode.
  */
 interface ListSection {
   id: string;
@@ -148,7 +139,6 @@ interface VirtualRowData {
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  loadMoreGroup: (sectionId: string) => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
@@ -210,29 +200,6 @@ const VirtualRow = React.memo(function VirtualRow({
       >
         <GroupHeaderContent row={row} data={data} />
       </SessionDropZone>
-    );
-  }
-
-  if (row.kind === "loadMore") {
-    const label = data.t(
-      "chat.groups.loadMore",
-      "Load more · {{count}} remaining",
-      {
-        count: row.remaining,
-      },
-    );
-    return (
-      <div className={styles.loadMoreRow} style={style}>
-        <button
-          type="button"
-          className={styles.loadMoreButton}
-          aria-label={label}
-          onClick={() => data.loadMoreGroup(row.sectionId)}
-        >
-          <span>{label}</span>
-          <ChevronDown size={13} />
-        </button>
-      </div>
     );
   }
 
@@ -382,9 +349,6 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [visibleSessionCounts, setVisibleSessionCounts] = useState<
-    Record<string, number>
-  >({});
   const searchInputRef = useRef<InputRef>(null);
   const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
@@ -591,8 +555,8 @@ export default function SidebarSessionList({
 
   /**
    * Sections drive the virtual list: one per chat group (source mode)
-   * or a single flat section (none mode). Pagination and active-session
-   * reveal operate on section ids.
+   * or a single flat section (none mode). Every session renders — the
+   * virtualized list keeps large histories cheap.
    */
   const sections = useMemo<ListSection[]>(() => {
     if (searchQuery.trim()) return [];
@@ -644,29 +608,11 @@ export default function SidebarSessionList({
     searchQuery,
   ]);
 
-  const activeSessionPage = useMemo(() => {
-    if (!currentSessionId) return null;
-    for (const section of sections) {
-      const sessionIndex = section.sessions.findIndex(
-        (session) =>
-          session.id === currentSessionId ||
-          session.realId === currentSessionId,
-      );
-      if (sessionIndex < 0) continue;
-      return {
-        sectionId: section.id,
-        requiredCount:
-          Math.floor(sessionIndex / GROUP_PAGE_SIZE + 1) * GROUP_PAGE_SIZE,
-      };
-    }
-    return null;
-  }, [currentSessionId, sections]);
-
   /**
    * Group that owns the active session, resolved through `groupChats`
    * so sessions in deleted groups fall back to their source bucket.
    * Mode-independent: it keeps source-mode collapse defaults stable
-   * while the list is displayed in date or none mode.
+   * while the list is displayed in none mode.
    */
   const activeGroupId = useMemo(() => {
     if (!currentSessionId || !groups) return null;
@@ -730,30 +676,6 @@ export default function SidebarSessionList({
     initializeCollapsedGroups(defaultCollapsedGroupIds);
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
-  useEffect(() => {
-    setVisibleSessionCounts({});
-  }, [selectedAgent]);
-
-  const loadMoreGroup = useCallback((sectionId: string) => {
-    setVisibleSessionCounts((previous) => ({
-      ...previous,
-      [sectionId]: (previous[sectionId] ?? GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE,
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (!activeSessionPage) return;
-    setVisibleSessionCounts((previous) => {
-      const currentCount =
-        previous[activeSessionPage.sectionId] ?? GROUP_PAGE_SIZE;
-      if (currentCount >= activeSessionPage.requiredCount) return previous;
-      return {
-        ...previous,
-        [activeSessionPage.sectionId]: activeSessionPage.requiredCount,
-      };
-    });
-  }, [activeSessionPage]);
-
   useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
   /** Flatten sections into a single array of rows for virtual list */
@@ -769,27 +691,16 @@ export default function SidebarSessionList({
     for (const section of sections) {
       if (section.header) rows.push(section.header);
       if (section.collapsed) continue;
-      const visibleCount = Math.min(
-        visibleSessionCounts[section.id] ?? GROUP_PAGE_SIZE,
-        section.sessions.length,
-      );
-      for (const session of section.sessions.slice(0, visibleCount)) {
+      for (const session of section.sessions) {
         rows.push({
           kind: "session",
           session,
           groupId: section.groupId ?? resolveChatGroupId(session),
         });
       }
-      if (visibleCount < section.sessions.length) {
-        rows.push({
-          kind: "loadMore",
-          sectionId: section.id,
-          remaining: section.sessions.length - visibleCount,
-        });
-      }
     }
     return rows;
-  }, [sections, searchQuery, filteredSessions, visibleSessionCounts]);
+  }, [sections, searchQuery, filteredSessions]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -803,9 +714,6 @@ export default function SidebarSessionList({
         return row.count === 0
           ? EMPTY_GROUP_HEADER_HEIGHT_COMPACT
           : GROUP_HEADER_HEIGHT_COMPACT;
-      }
-      if (row.kind === "loadMore") {
-        return compact ? LOAD_MORE_ROW_HEIGHT_COMPACT : LOAD_MORE_ROW_HEIGHT;
       }
       return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
     },
@@ -877,7 +785,6 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      loadMoreGroup,
       toggleGroup,
       groups: visibleChatGroups,
       renameGroup,
@@ -901,7 +808,6 @@ export default function SidebarSessionList({
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      loadMoreGroup,
       toggleGroup,
       visibleChatGroups,
       renameGroup,

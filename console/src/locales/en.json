@@ -3599,7 +3599,6 @@
       "subagents": "Conversations with subagents",
       "subagentShort": "Subagent",
       "subagentsHint": "Separate conversations created for child-agent tasks; collapsed by default and fixed at the bottom",
-      "loadMore": "Load more · {{count}} remaining",
       "pin": "Pin group",
       "unpin": "Unpin group",
       "pinned": "Pinned group",
