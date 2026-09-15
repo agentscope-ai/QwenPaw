@@ -26,10 +26,10 @@ import { copyText } from "../../utils/clipboard";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import { workbenchWidthStorageKey } from "../workbench/workbenchPreferences";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
-const WORKSPACE_WIDTH_STORAGE_PREFIX = "qwenpaw-workbench-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const WorkbenchShell = lazy(() => import("../workbench/WorkbenchShell"));
@@ -84,9 +84,12 @@ export default function FilesDrawer({
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
-  const workspaceWidthStorageKey = `${WORKSPACE_WIDTH_STORAGE_PREFIX}:${scope.agentId}:${scope.sessionId}`;
+  const workspaceWidthKey = workbenchWidthStorageKey(
+    scope.agentId,
+    scope.sessionId,
+  );
   const widthStorageKey = isWorkspace
-    ? workspaceWidthStorageKey
+    ? workspaceWidthKey
     : PREVIEW_WIDTH_STORAGE_KEY;
   const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 

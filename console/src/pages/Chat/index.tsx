@@ -131,6 +131,7 @@ import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
 } from "../../stores/filesSurfaceStore";
+import { migrateWorkbenchPreferences } from "../../features/workbench/workbenchPreferences";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
@@ -2513,6 +2514,7 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, realId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      migrateWorkbenchPreferences(agentId, tempId, realId);
       try {
         useMessageQueueStore.getState().migrateQueue(tempId, realId);
       } catch {
@@ -2652,6 +2654,7 @@ export default function ChatPage() {
       const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
+      migrateWorkbenchPreferences(agentId, "new", sessionId);
       try {
         useMessageQueueStore
           .getState()

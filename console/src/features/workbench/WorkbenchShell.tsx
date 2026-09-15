@@ -1,43 +1,23 @@
 import { Files, GitBranch, SquareTerminal, Wrench, X } from "lucide-react";
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useLayoutEffect,
-  useState,
-} from "react";
+import { lazy, Suspense, useCallback, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCodingMode } from "../../stores/codingModeStore";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import type { FileTarget } from "../files-workspace/types";
 import styles from "./WorkbenchShell.module.less";
+import {
+  readStoredWorkbenchTab,
+  type WorkbenchTab,
+  workbenchTabStorageKey,
+} from "./workbenchPreferences";
 
 const FilesWorkspace = lazy(() => import("../files-workspace/FilesWorkspace"));
 const GitPanel = lazy(() => import("../../pages/Coding/GitPanel"));
-
-export type WorkbenchTab = "files" | "changes" | "terminal" | "tools";
 
 interface WorkbenchShellProps {
   initialTarget?: FileTarget;
   scope: Extract<FilesWorkspaceScope, { kind: "session" }>;
   onClose: () => void;
-}
-
-const TAB_STORAGE_PREFIX = "qwenpaw-workbench-tab";
-
-function tabStorageKey(scope: WorkbenchShellProps["scope"]): string {
-  return `${TAB_STORAGE_PREFIX}:${scope.agentId}:${scope.sessionId}`;
-}
-
-function readStoredTab(storageKey: string): WorkbenchTab {
-  if (typeof window === "undefined") return "files";
-  const value = localStorage.getItem(storageKey);
-  return value === "files" ||
-    value === "changes" ||
-    value === "terminal" ||
-    value === "tools"
-    ? value
-    : "files";
 }
 
 export default function WorkbenchShell({
@@ -47,18 +27,18 @@ export default function WorkbenchShell({
 }: WorkbenchShellProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
-  const storageKey = tabStorageKey(scope);
+  const storageKey = workbenchTabStorageKey(scope.agentId, scope.sessionId);
   const changesAvailable =
     codingMode && Boolean(scope.chatId || !scope.projectDirOverride);
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => {
-    const stored = readStoredTab(storageKey);
+    const stored = readStoredWorkbenchTab(storageKey);
     return initialTarget || (!changesAvailable && stored === "changes")
       ? "files"
       : stored;
   });
 
   useLayoutEffect(() => {
-    const stored = readStoredTab(storageKey);
+    const stored = readStoredWorkbenchTab(storageKey);
     if (!changesAvailable && stored === "changes") {
       localStorage.setItem(storageKey, "files");
     }
