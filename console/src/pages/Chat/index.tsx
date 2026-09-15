@@ -4397,47 +4397,39 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: !isVoiceChat && whisperChecked && !whisperEnabled,
-        beforeUI: isVoiceChat ? (
-          <>
-            {isQueueOnlyTab && (
-              <Alert
-                type="info"
-                showIcon
-                banner
-                message={t("chat.queue.otherTabOwner")}
-              />
-            )}
-            <RealtimeVoiceControls
-              voice={realtimeVoice}
-              canStart={canStartRealtimeVoice}
-            />
-          </>
-        ) : showSenderBeforeUI ? (
-          <>
-            {!isVoiceChat && isQueueOnlyTab && (
-              <Alert
-                type="info"
-                showIcon
-                banner
-                message={t("chat.queue.otherTabOwner")}
-              />
-            )}
-            {!isVoiceChat && (
-              <ChatSenderTabsPanel
-                bgSessionId={bgBackendSessionId}
-                queueSessionId={queueKey}
-                onRemove={handleQueueRemove}
-                onEdit={handleQueueEdit}
-                onReorder={handleQueueReorder}
-                onInterruptAndSend={handleQueueInterruptAndSend}
-                onClear={handleQueueClear}
-                onPauseResume={handleQueuePauseResume}
-                onRetry={handleQueueRetry}
-                onSkip={handleQueueSkip}
-              />
-            )}
-          </>
-        ) : undefined,
+        beforeUI:
+          isVoiceChat || showSenderBeforeUI ? (
+            <>
+              {isQueueOnlyTab && (
+                <Alert
+                  type="info"
+                  showIcon
+                  banner
+                  message={t("chat.queue.otherTabOwner")}
+                />
+              )}
+              {isVoiceChat && (
+                <RealtimeVoiceControls
+                  voice={realtimeVoice}
+                  canStart={canStartRealtimeVoice}
+                />
+              )}
+              {showSenderBeforeUI && (
+                <ChatSenderTabsPanel
+                  bgSessionId={bgBackendSessionId}
+                  queueSessionId={queueKey}
+                  onRemove={handleQueueRemove}
+                  onEdit={handleQueueEdit}
+                  onReorder={handleQueueReorder}
+                  onInterruptAndSend={handleQueueInterruptAndSend}
+                  onClear={handleQueueClear}
+                  onPauseResume={handleQueuePauseResume}
+                  onRetry={handleQueueRetry}
+                  onSkip={handleQueueSkip}
+                />
+              )}
+            </>
+          ) : undefined,
         prefix: (
           <>
             {!isVoiceChat && whisperEnabled ? (
@@ -4463,13 +4455,13 @@ export default function ChatPage() {
           >
             {!isVoiceChat &&
               (usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
-                />
-              </span>
-            )}
+                <span className={styles.senderContextAffix}>
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
             {!isVoiceChat && usesQwenPawBackend && !isAgentTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
@@ -5033,62 +5025,67 @@ export default function ChatPage() {
           Array.from(
             chatId && !isAgentTransition ? approvalRequests.values() : [],
           ).map((request) => {
-          const renderer = approvalRenderers.get(request.sourceType);
-          const CustomApprovalCard = renderer?.item.render;
-          const defaultApprovalCard = (
-            <ApprovalCard
-              requestId={request.requestId}
-              agentId={request.agentId}
-              toolName={request.toolName}
-              toolSource={request.toolSource}
-              severity={request.severity}
-              findingsCount={request.findingsCount}
-              findingsSummary={request.findingsSummary}
-              toolParams={request.toolParams}
-              reasoning={request.reasoning}
-              createdAt={request.createdAt}
-              timeoutSeconds={request.timeoutSeconds}
-              sessionId={request.sessionId}
-              rootSessionId={request.rootSessionId}
-              isGeneralized={request.isGeneralized}
-              exactTarget={request.exactTarget}
-              similarTarget={request.similarTarget}
-              onApprove={(reqId, scope) => handleApprove(reqId, scope)}
-              onDeny={handleDeny}
-              onCancel={() => {
-                const routeChatId = chatIdRef.current;
-                const routeIdentity =
-                  sessionApi.getSessionIdentity(routeChatId);
-                const rootSessionId =
-                  request.rootSessionId || request.sessionId;
-                const resolvedChatId = resolveBackendChatId(routeChatId);
+            const renderer = approvalRenderers.get(request.sourceType);
+            const CustomApprovalCard = renderer?.item.render;
+            const defaultApprovalCard = (
+              <ApprovalCard
+                requestId={request.requestId}
+                agentId={request.agentId}
+                toolName={request.toolName}
+                toolSource={request.toolSource}
+                severity={request.severity}
+                findingsCount={request.findingsCount}
+                findingsSummary={request.findingsSummary}
+                toolParams={request.toolParams}
+                reasoning={request.reasoning}
+                createdAt={request.createdAt}
+                timeoutSeconds={request.timeoutSeconds}
+                sessionId={request.sessionId}
+                rootSessionId={request.rootSessionId}
+                isGeneralized={request.isGeneralized}
+                exactTarget={request.exactTarget}
+                similarTarget={request.similarTarget}
+                onApprove={(reqId, scope) => handleApprove(reqId, scope)}
+                onDeny={handleDeny}
+                onCancel={() => {
+                  const routeChatId = chatIdRef.current;
+                  const routeIdentity =
+                    sessionApi.getSessionIdentity(routeChatId);
+                  const rootSessionId =
+                    request.rootSessionId || request.sessionId;
+                  const resolvedChatId = resolveBackendChatId(routeChatId);
 
-                if (
-                  !isAgentTransitionRef.current &&
-                  rootSessionId &&
-                  routeIdentity.sessionId === rootSessionId &&
-                  resolvedChatId
-                ) {
-                  console.log("[Chat] Calling stopChat with:", resolvedChatId);
-                  chatApi
-                    .stopChat(resolvedChatId)
-                    .then(() => {
-                      console.log("[Chat] stopChat succeeded");
-                      setApprovals((prev) =>
-                        prev.filter(
-                          (item) => item.root_session_id !== rootSessionId,
-                        ),
-                      );
-                    })
-                    .catch((err) => {
-                      console.error("[Chat] stopChat failed:", err);
-                    });
-                } else {
-                  console.warn("[Chat] Ignoring stale approval cancel target");
-                }
-              }}
-            />
-          );
+                  if (
+                    !isAgentTransitionRef.current &&
+                    rootSessionId &&
+                    routeIdentity.sessionId === rootSessionId &&
+                    resolvedChatId
+                  ) {
+                    console.log(
+                      "[Chat] Calling stopChat with:",
+                      resolvedChatId,
+                    );
+                    chatApi
+                      .stopChat(resolvedChatId)
+                      .then(() => {
+                        console.log("[Chat] stopChat succeeded");
+                        setApprovals((prev) =>
+                          prev.filter(
+                            (item) => item.root_session_id !== rootSessionId,
+                          ),
+                        );
+                      })
+                      .catch((err) => {
+                        console.error("[Chat] stopChat failed:", err);
+                      });
+                  } else {
+                    console.warn(
+                      "[Chat] Ignoring stale approval cancel target",
+                    );
+                  }
+                }}
+              />
+            );
 
             return (
               <div

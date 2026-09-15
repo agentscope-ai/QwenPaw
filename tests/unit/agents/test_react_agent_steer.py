@@ -1,8 +1,9 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from agentscope.agent import Agent
+from agentscope.agent import Agent, ReActConfig
 from agentscope.agent._utils import Exit, Reasoning
 from agentscope.event import (
     ReplyEndEvent,
@@ -10,19 +11,39 @@ from agentscope.event import (
     TextBlockEndEvent,
     TextBlockStartEvent,
 )
-from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
+from agentscope.message import (
+    HintBlock,
+    Msg,
+    TextBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
+from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
+from agentscope.model import ChatResponse
+from agentscope.tool import FunctionTool, Toolkit
 
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.manager import ScrollContextManager
+from qwenpaw.agents.context.scroll.recall_tool import make_recall_history
+from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.app.task_tracker import RunInput, RunInputMailbox
-from qwenpaw.constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
+from qwenpaw.constant import (
+    CHAT_CONVERSATION_CONTEXT_KEY,
+    QWENPAW_CLIENT_MESSAGE_ID_KEY,
+)
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
-from qwenpaw.runtime.reply_cycle import ReplyCycleContext
+from qwenpaw.runtime.reply_cycle import InputStateEvent, ReplyCycleContext
 from qwenpaw.schemas import TextContent
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("formatter_name", ["OpenAIChatFormatter", "DashScopeChatFormatter"])
-async def test_model_boundary_reads_updates_without_releasing_queue(monkeypatch, formatter_name):
+@pytest.mark.parametrize(
+    "formatter_name", ["OpenAIChatFormatter", "DashScopeChatFormatter"]
+)
+async def test_model_boundary_reads_updates_without_releasing_queue(
+    monkeypatch, formatter_name
+):
     import json
     import agentscope.formatter as formatters
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
@@ -33,7 +54,16 @@ async def test_model_boundary_reads_updates_without_releasing_queue(monkeypatch,
     source = mailbox.input_context = ChatInputContext()
     agent._reply_cycle_context = ReplyCycleContext("run", "original")
     agent._context_manager = None
-    agent.state = SimpleNamespace(context=[], reply_id="reply")
+    agent.state = SimpleNamespace(
+        context=[],
+        reply_id="reply",
+        summary="",
+        tool_context=SimpleNamespace(activated_groups=[]),
+    )
+    agent._get_system_prompt = AsyncMock(return_value="Be helpful")
+    agent.toolkit = SimpleNamespace(
+        get_tool_schemas=AsyncMock(return_value=[])
+    )
     agent._inject_pending_hints = AsyncMock()
     agent._model_rejects_media = lambda: False
     agent._model_rejects_audio = lambda: False
@@ -42,46 +72,81 @@ async def test_model_boundary_reads_updates_without_releasing_queue(monkeypatch,
     source.register("correction-source", "Correction: 302", target="original")
     source.bind("correction", "correction-source")
     for i in range(10):
-        mailbox.submit(run_input(f"Future job {i}", f"future-{i}", mode="queue"))
+        source.register_execution(f"future-{i}", f"Future job {i}")
+        mailbox.submit(
+            run_input(f"Future job {i}", f"future-{i}", mode="queue")
+        )
     mailbox.submit(run_input("Correction: 302", "correction", mode="queue"))
-    source.register("constraint", "Do not rerun; only report actual output", target="original", context_only=True)
+    source.register(
+        "constraint",
+        "Do not rerun; only report actual output",
+        target="original",
+        context_only=True,
+    )
     captured = []
 
     class ModelBoundary(Exception):
         pass
 
     async def model_boundary(_self, tool_choice=None):
-        captured.extend(await getattr(formatters, formatter_name)().format(agent.state.context))
+        prepared = await agent._prepare_model_input()
+        captured.extend(
+            await getattr(formatters, formatter_name)().format(
+                prepared["messages"]
+            )
+        )
         raise ModelBoundary
         yield
 
     monkeypatch.setattr(Agent, "_reasoning", model_boundary)
-    monkeypatch.setattr("qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None)
-    monkeypatch.setattr("qwenpaw.agents.model_factory._supports_multimodal_for_current_model", lambda: True)
+    monkeypatch.setattr(
+        "qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
+        lambda: True,
+    )
     before = agent._reply_cycle_context.snapshot
     with pytest.raises(ModelBoundary):
         async for _ in agent._reasoning():
             pass
     assert agent._reply_cycle_context.snapshot == before
     assert "Do not rerun" in json.dumps(captured)
-    assert "Future job" not in json.dumps(captured)
+    assert "Future job" in json.dumps(captured)
+    assert "readonly_requests" in json.dumps(captured)
     # The context channel must not publish a second visible user message.
     assert agentscope_msg_to_message(agent.state.context) == []
-    assert [mailbox.drain_after_reply()[0].idempotency_key for _ in range(10)] == [f"future-{i}" for i in range(10)]
+    assert [
+        mailbox.drain_after_reply()[0].idempotency_key for _ in range(10)
+    ] == [f"future-{i}" for i in range(10)]
     assert agent._consume_pending_run_inputs() is True
-    agent._inject_input_context()
-    latest = json.loads(agent.state.context[-1].content[0].hint.split("\n", 1)[1])
-    assert [row["source_id"] for row in latest["inputs"]] == ["original", "correction-source", "constraint"]
-    assert [row["text"] for row in latest["inputs"]][-2:] == ["Correction: 302", "Do not rerun; only report actual output"]
+    prepared = await agent._prepare_model_input()
+    latest = json.loads(
+        prepared["messages"][-1].content[0].hint.split("\n", 1)[1]
+    )
+    assert [row["source_id"] for row in latest["inputs"]] == [
+        "original",
+        "correction-source",
+        "constraint",
+    ]
+    assert [row["text"] for row in latest["inputs"]][-2:] == [
+        "Correction: 302",
+        "Do not rerun; only report actual output",
+    ]
     assert mailbox.drain_after_reply() == []
     assert agent._reply_cycle_context.terminated_input_ids("cancelled") == ()
     size = len(agent.state.context)
-    agent._inject_input_context()
+    again = await agent._prepare_model_input()
     assert len(agent.state.context) == size
-    # A context manager dropping the hint cannot suppress redelivery forever.
-    agent.state.context.pop()
-    agent._inject_input_context()
-    assert len(agent.state.context) == size
+    assert (
+        again["messages"][-1].content[0].hint
+        == prepared["messages"][-1].content[0].hint
+    )
+    assert not any(
+        b.type == "hint" and b.source == "chat_input_context"
+        for m in agent.state.context
+        for b in m.content
+    )
 
 
 def run_input(
@@ -100,17 +165,175 @@ def run_input(
     )
 
 
-def test_busy_agent_consumes_each_frozen_snapshot_without_extra_input_identity():
+def context_agent():
+    from qwenpaw.runtime.input_context import ChatInputContext
+
+    agent = object.__new__(QwenPawAgent)
+    agent._run_input_mailbox = RunInputMailbox()
+    owner = agent._run_input_mailbox.input_context = ChatInputContext()
+    owner.register_execution("apple", "Run apple")
+    owner.register_execution("banana", "Run banana")
+    owner.observe_state(InputStateEvent("run", ("apple",), "processing"))
+    owner.observe_state(InputStateEvent("run", ("banana",), "queued"))
+    agent._reply_cycle_context = ReplyCycleContext("run", "apple")
+    agent._context_manager = None
+    agent._get_system_prompt = AsyncMock(return_value="Be helpful")
+    agent.toolkit = SimpleNamespace(
+        get_tool_schemas=AsyncMock(return_value=[])
+    )
+    agent.state = SimpleNamespace(
+        context=[
+            Msg(
+                name="user", role="user", content=[TextBlock(text="Run apple")]
+            )
+        ],
+        summary="",
+        tool_context=SimpleNamespace(activated_groups=[]),
+    )
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_request_filters_dynamic_blocks_and_reads_current_revision():
+    import json
+
+    agent = context_agent()
+    old = HintBlock(source="chat_input_context", hint="OLD_DYNAMIC_FACTS")
+    other = HintBlock(source="other_hint", hint="KEEP_OTHER_HINT")
+    message = Msg(
+        name="assistant",
+        role="assistant",
+        content=[old, TextBlock(text="KEEP_REAL_TEXT"), other],
+    )
+    agent.state.context.append(message)
+    first = await agent._prepare_model_input()
+    assert first["messages"][-2].content == [message.content[1], other]
+    assert message.content == [old, message.content[1], other]
+    assert "OLD_DYNAMIC_FACTS" not in str(first)
+    owner = agent._run_input_mailbox.input_context
+    owner.observe_state(InputStateEvent("run", ("banana",), "processing"))
+    second = await agent._prepare_model_input()
+    view = lambda prepared: json.loads(
+        prepared["messages"][-1].content[0].hint.split("\n", 1)[1]
+    )
+    assert view(first)["readonly_requests"][0]["input_status"] == "queued"
+    assert view(second)["readonly_requests"][0]["input_status"] == "processing"
+    assert view(second)["revision"] > view(first)["revision"]
+    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
+        "apple",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "formatter_name", ["OpenAIChatFormatter", "DashScopeChatFormatter"]
+)
+async def test_public_expression_hint_preserves_keyboard_detail_requests(
+    formatter_name,
+):
+    import agentscope.formatter as formatters
+    from qwenpaw.runtime.input_context import INPUT_CONTEXT_INSTRUCTION
+
+    agent = context_agent()
+    request = (
+        "Please explain run_id, admission_status and coverage in detail, "
+        "with a table and code."
+    )
+    agent.state.context[0].content = [TextBlock(text=request)]
+    prepared = await agent._prepare_model_input()
+    hint = prepared["messages"][-1].content[0].hint
+    assert hint.startswith(INPUT_CONTEXT_INSTRUCTION)
+    assert "explicitly requests technical or diagnostic details" in hint
+    assert (
+        "preserve requested depth, tables and code"
+        in INPUT_CONTEXT_INSTRUCTION
+    )
+    formatted = await getattr(formatters, formatter_name)().format(
+        prepared["messages"]
+    )
+    assert request in str(formatted)
+    assert agent.state.context[0].content[0].text == request
+    assert (
+        len(agent.state.context) == 1
+    )  # Internal guidance is not a visible reply.
+
+
+@pytest.mark.asyncio
+async def test_real_scroll_counts_view_without_persisting_or_truncating(
+    tmp_path,
+):
+    import json
+    from agentscope.formatter import OpenAIChatFormatter
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+    from qwenpaw.agents.context.scroll.manager import ScrollContextManager
+    from qwenpaw.agents.context.types import ContextWindowUnfitError
+
+    history = HistoryStore(tmp_path / "history.db")
+    agent = context_agent()
+    owner = agent._run_input_mailbox.input_context
+    constraint = "Background. " * 2000 + "Do not rerun any task."
+    owner.register("query", constraint, context_only=True)
+    counted = []
+
+    async def count_tokens(**kwargs):
+        encoded = json.dumps(
+            await OpenAIChatFormatter().format(kwargs["messages"]),
+            ensure_ascii=False,
+        )
+        counted.append(encoded)
+        return len(encoded)
+
+    agent.model = SimpleNamespace(
+        context_size=100000, count_tokens=count_tokens
+    )
+    agent.context_config = SimpleNamespace(
+        trigger_ratio=0.8, reserve_ratio=0.5
+    )
+    try:
+        manager = ScrollContextManager(history=history, session_id="probe")
+        agent._context_manager = manager
+        await manager.compress(agent)
+        assert "Run banana" in counted[-1] and constraint in counted[-1]
+        assert history.count("probe") == 1
+        assert len(agent.state.context) == 1
+        agent.state.context = [
+            Msg.model_validate(m.model_dump()) for m in agent.state.context
+        ]
+        restored = ScrollContextManager(history=history, session_id="probe")
+        agent._context_manager = restored
+        owner.observe_state(InputStateEvent("run", ("banana",), "processing"))
+        await restored.compress(agent)
+        assert "processing" in counted[-1]
+        assert history.count("probe") == 1
+        assert await restored._live_tokens(agent) == len(counted[-1])
+        agent.model.context_size = 1000
+        with pytest.raises(ContextWindowUnfitError):
+            await restored.compress(agent)
+        assert (
+            constraint in counted[-1]
+        )  # Never silently trim user constraints.
+        assert history.count("probe") == 1
+    finally:
+        history.close()
+
+
+def test_busy_agent_consumes_frozen_snapshots_without_extra_input_identity():
     from qwenpaw.constant import CHAT_CONVERSATION_CONTEXT_KEY
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
     mailbox = RunInputMailbox()
     for number, phrase in enumerate(("BLUE_CAT", "RED_CAT")):
-        mailbox.submit(RunInput(
-            (TextContent(text="Print it"),), f"input-{number}",
-            request_context={CHAT_CONVERSATION_CONTEXT_KEY: phrase,
-                             "project_id": "project"}, mode="queue",
-        ))
+        mailbox.submit(
+            RunInput(
+                (TextContent(text="Print it"),),
+                f"input-{number}",
+                request_context={
+                    CHAT_CONVERSATION_CONTEXT_KEY: phrase,
+                    "project_id": "project",
+                },
+                mode="queue",
+            )
+        )
     agent = object.__new__(QwenPawAgent)
     agent._run_input_mailbox = mailbox
     agent._context_manager = Mock()
@@ -131,21 +354,33 @@ def test_busy_agent_consumes_each_frozen_snapshot_without_extra_input_identity()
 @pytest.mark.parametrize("mode", ["queue", "steer"])
 async def test_busy_agent_preserves_each_target_in_actual_formatter(mode):
     import json
-    from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
+    from agentscope.formatter import (
+        DashScopeChatFormatter,
+        OpenAIChatFormatter,
+    )
     from qwenpaw.constant import CHAT_INPUT_TARGET_KEY
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
     mailbox = RunInputMailbox()
     for number in (1, 2):
-        context = {CHAT_INPUT_TARGET_KEY: json.dumps({
-            "task_id": f"target-{number}", "task_ref": f"TASK_{number}",
-            "relationship": "follow_up",
-        })}
-        mailbox.submit(RunInput(
-            (TextContent(text=f"append-{number}"),), f"input-{number}",
-            {QWENPAW_CLIENT_MESSAGE_ID_KEY: f"input-{number}"},
-            request_context=context, mode=mode,
-        ))
+        context = {
+            CHAT_INPUT_TARGET_KEY: json.dumps(
+                {
+                    "task_id": f"target-{number}",
+                    "task_ref": f"TASK_{number}",
+                    "relationship": "follow_up",
+                }
+            )
+        }
+        mailbox.submit(
+            RunInput(
+                (TextContent(text=f"append-{number}"),),
+                f"input-{number}",
+                {QWENPAW_CLIENT_MESSAGE_ID_KEY: f"input-{number}"},
+                request_context=context,
+                mode=mode,
+            )
+        )
         context[CHAT_INPUT_TARGET_KEY] = "MUTATED_AFTER_ADMISSION"
     agent = object.__new__(QwenPawAgent)
     agent._run_input_mailbox = mailbox
@@ -157,7 +392,7 @@ async def test_busy_agent_preserves_each_target_in_actual_formatter(mode):
     assert consumed == ("input-1", "input-2")
     assert len(agent.state.context) == 4
     for index, number in enumerate((1, 2)):
-        hint, user = agent.state.context[index * 2:index * 2 + 2]
+        hint, user = agent.state.context[index * 2 : index * 2 + 2]
         assert hint.content[0].type == "hint" and user.id == f"input-{number}"
         assert f"target-{number}" in hint.content[0].hint
         assert f"target-{3 - number}" not in hint.content[0].hint
@@ -191,14 +426,18 @@ def test_next_action_advances_queued_input_after_completed_exit(monkeypatch):
                 exit_msg=final_msg,
                 exit_events=[
                     ReplyEndEvent(
-                        session_id="s", reply_id="r", finished_reason="completed"
+                        session_id="s",
+                        reply_id="r",
+                        finished_reason="completed",
                     )
                 ],
             )
         return Reasoning()
 
     monkeypatch.setattr(Agent, "_next_action", base_next_action)
-    assert isinstance(QwenPawAgent._next_action(agent, previous_final), Reasoning)
+    assert isinstance(
+        QwenPawAgent._next_action(agent, previous_final), Reasoning
+    )
     assert captured == [previous_final, None]
     assert len(agent.state.context) == 2
     assert agent.state.context[0] is previous_final
@@ -247,7 +486,9 @@ def test_next_action_does_not_insert_steer_before_tool_result(monkeypatch):
     assert QwenPawAgent._next_action(agent, None) == "tool"
     assert captured == [None]
     assert agent.state.context == []
-    assert [item.content_parts[0].text for item in mailbox.drain_after_reply()] == [
+    assert [
+        item.content_parts[0].text for item in mailbox.drain_after_reply()
+    ] == [
         "also inspect the disk",
     ]
 
@@ -344,7 +585,9 @@ async def test_reasoning_does_not_advance_input_before_exit_decision(
     assert events == [start, delta, end, final]
     assert agent.state.context[0] is final
     assert len(agent.state.context) == 1
-    assert [item.idempotency_key for item in mailbox.drain_after_reply()] == ["event-2"]
+    assert [item.idempotency_key for item in mailbox.drain_after_reply()] == [
+        "event-2"
+    ]
 
 
 @pytest.mark.asyncio
@@ -428,7 +671,10 @@ async def test_reasoning_preserves_cycle_until_exit_boundary(
         "timeline_revision": 1,
         "responds_to_input_ids": ["event-a"],
     }
-    assert agent._reply_cycle_context.output_snapshot.metadata()["timeline_order"] == 6
+    assert (
+        agent._reply_cycle_context.output_snapshot.metadata()["timeline_order"]
+        == 6
+    )
     assert [item.idempotency_key for item in mailbox.drain_after_reply()] == [
         "event-b",
         "event-c",
@@ -439,7 +685,9 @@ async def test_reasoning_preserves_cycle_until_exit_boundary(
 @pytest.mark.parametrize("raw", ["", "   ", '⟦ 任务完成｜echo 输出测试口令"蓝色小猫"｜无后续'])
 @pytest.mark.parametrize("pending_work", [False, True])
 async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
-    monkeypatch, raw, pending_work,
+    monkeypatch,
+    raw,
+    pending_work,
 ):
     from agentscope.state import AgentState
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
@@ -460,11 +708,16 @@ async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     agent.state.reply_id = "reply-1"
     states = []
     agent._reply_cycle_context = ReplyCycleContext(
-        "run-1", "event-a", on_input_state=states.append,
-        has_pending_work=lambda input_id: pending_work and input_id == "event-a",
+        "run-1",
+        "event-a",
+        on_input_state=states.append,
+        has_pending_work=lambda input_id: pending_work
+        and input_id == "event-a",
     )
     agent._reply_cycle_context.start_inputs(("event-a",))
-    final = Msg(name="assistant", role="assistant", content=[TextBlock(text=raw)])
+    final = Msg(
+        name="assistant", role="assistant", content=[TextBlock(text=raw)]
+    )
     calls = 0
 
     async def base_reasoning(_self, tool_choice=None):
@@ -476,7 +729,9 @@ async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
         yield final
 
     monkeypatch.setattr(Agent, "_reasoning", base_reasoning)
-    monkeypatch.setattr("qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None)
+    monkeypatch.setattr(
+        "qwenpaw.loop.gates.runner.check_pending_gates", lambda _: None
+    )
     monkeypatch.setattr(
         "qwenpaw.agents.model_factory._supports_multimodal_for_current_model",
         lambda: True,
@@ -485,48 +740,83 @@ async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     assert calls == 1
     assert final.metadata["reply_error"] == "empty_response"
     assert agent.state.context[-1].content[0].text == raw
-    notice = next(e.delta for e in events if isinstance(e, TextBlockDeltaEvent))
+    notice = next(
+        e.delta for e in events if isinstance(e, TextBlockDeltaEvent)
+    )
     assert "请稍后重试" in notice
     assert "不会自动重跑" in notice
     assert events[-1] is final
     assert notice in str(agentscope_msg_to_message(agent.state.context))
 
     def base_next_action(_self, final_msg=None):
-        return (Exit(exit_msg=final_msg, exit_events=[ReplyEndEvent(
-            session_id="session-1", reply_id="reply-1", finished_reason="completed",
-        )]) if final_msg is not None else Reasoning())
+        return (
+            Exit(
+                exit_msg=final_msg,
+                exit_events=[
+                    ReplyEndEvent(
+                        session_id="session-1",
+                        reply_id="reply-1",
+                        finished_reason="completed",
+                    )
+                ],
+            )
+            if final_msg is not None
+            else Reasoning()
+        )
 
     monkeypatch.setattr(Agent, "_next_action", base_next_action)
     assert isinstance(agent._next_action(final), Reasoning)
     expected = "waiting" if pending_work else "failed"
-    assert any(s.input_ids == ("event-a",) and s.status == expected for s in states)
-    assert not any(s.input_ids == ("event-a",) and s.status == "completed" for s in states)
-    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == ("event-b",)
+    assert any(
+        s.input_ids == ("event-a",) and s.status == expected for s in states
+    )
+    assert not any(
+        s.input_ids == ("event-a",) and s.status == "completed" for s in states
+    )
+    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
+        "event-b",
+    )
     assert calls == 1
 
 
-@pytest.mark.parametrize("media_type", ["image/png", "audio/wav", "video/mp4", "application/pdf"])
+@pytest.mark.parametrize(
+    "media_type", ["image/png", "audio/wav", "video/mp4", "application/pdf"]
+)
 def test_media_only_reply_is_a_public_answer(media_type):
     from agentscope.message import DataBlock, Base64Source
 
     agent = object.__new__(QwenPawAgent)
     agent.state = SimpleNamespace()
-    msg = Msg(name="assistant", role="assistant", content=[DataBlock(
-        source=Base64Source(data="YQ==", media_type=media_type),
-    )])
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            DataBlock(
+                source=Base64Source(data="YQ==", media_type=media_type),
+            )
+        ],
+    )
     assert agent._has_public_reply(msg)
 
 
 def test_structured_reply_does_not_require_public_text():
     agent = object.__new__(QwenPawAgent)
-    agent.state = SimpleNamespace(reply_context=SimpleNamespace(structured_schema={}))
-    assert agent._has_public_reply(Msg(name="assistant", role="assistant", content=[]))
+    agent.state = SimpleNamespace(
+        reply_context=SimpleNamespace(structured_schema={})
+    )
+    assert agent._has_public_reply(
+        Msg(name="assistant", role="assistant", content=[])
+    )
 
 
 def test_queue_consumes_one_independent_reply_cycle_at_a_time():
     mailbox = RunInputMailbox()
-    mailbox.submit(run_input("first task", "event-1", mode="queue", timeline_order=2))
-    mailbox.submit(run_input("second task", "event-2", mode="queue", timeline_order=3))
+    mailbox.submit(
+        run_input("first task", "event-1", mode="queue", timeline_order=2)
+    )
+    mailbox.submit(
+        run_input("second task", "event-2", mode="queue", timeline_order=3)
+    )
     agent = object.__new__(QwenPawAgent)
     agent._run_input_mailbox = mailbox
     agent._context_manager = None
@@ -543,8 +833,12 @@ def test_queue_consumes_one_independent_reply_cycle_at_a_time():
     agent.state = SimpleNamespace(context=[])
 
     assert QwenPawAgent._consume_pending_run_inputs(agent) is True
-    assert [msg.content[0].text for msg in agent.state.context] == ["first task"]
-    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == ("event-1",)
+    assert [msg.content[0].text for msg in agent.state.context] == [
+        "first task"
+    ]
+    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
+        "event-1",
+    )
     assert agent.state.context[0].metadata["timeline_order"] == 2
 
     assert QwenPawAgent._consume_pending_run_inputs(agent) is True
@@ -552,7 +846,9 @@ def test_queue_consumes_one_independent_reply_cycle_at_a_time():
         "first task",
         "second task",
     ]
-    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == ("event-2",)
+    assert agent._reply_cycle_context.snapshot.responds_to_input_ids == (
+        "event-2",
+    )
     assert reset_reply_cycle.call_count == 2
 
 
@@ -588,7 +884,9 @@ async def test_save_to_context_stamps_each_block_occurrence(monkeypatch):
 
     assert captured == blocks
     assert all(block.metadata["timeline_order"] == 5 for block in blocks)
-    assert all(block.metadata["timeline_group_id"] == "input-a" for block in blocks)
+    assert all(
+        block.metadata["timeline_group_id"] == "input-a" for block in blocks
+    )
 
 
 @pytest.mark.asyncio
@@ -635,5 +933,152 @@ def test_queue_waits_for_reply_while_steer_can_enter_reasoning():
     agent._context_manager = None
     agent.state = SimpleNamespace(context=[])
 
-    assert QwenPawAgent._consume_pending_run_inputs(agent, steer_only=True) is False
+    assert (
+        QwenPawAgent._consume_pending_run_inputs(agent, steer_only=True)
+        is False
+    )
     assert agent.state.context == []
+
+
+# Integration boundary: real Agent, Scroll, SQLite, tool and formatter.
+# Only model responses and token counts are scripted; this is not audio E2E.
+
+
+class HistoryReadingModel:
+    """Only model output is fixed; ordinary Agent executes the real tool."""
+
+    model = "offline-shared-agent-preflight"
+    context_size = 100000
+
+    def __init__(self, formatter):
+        self.formatter = formatter
+        self.requests = []
+
+    async def count_tokens(self, *args, **kwargs):
+        return 100
+
+    async def __call__(self, *, messages, tools, **kwargs):
+        wire = await self.formatter.format(messages)
+        self.requests.append({"messages": wire, "tools": tools})
+        if len(self.requests) == 1:
+            return ChatResponse(
+                content=[
+                    ToolCallBlock(
+                        id="read-old-result",
+                        name="recall_history",
+                        input=json.dumps(
+                            {
+                                "op": "search",
+                                "query": "ARCHIVE_K7",
+                                "session_id": "chat-session",
+                            }
+                        ),
+                    )
+                ],
+                is_last=True,
+            )
+        assert len(self.requests) == 2, "Unexpected extra model attempt"
+        assert "HTTP 403: expired permission" in json.dumps(wire)
+        return ChatResponse(
+            content=[TextBlock(text="旧资料记录的是权限过期导致 HTTP 403；未重新执行任务。")],
+            is_last=True,
+        )
+
+
+@pytest.fixture
+def ordinary_history_store(tmp_path):
+    history = HistoryStore(tmp_path / "history.db")
+    try:
+        for key, role, content in (
+            ("old-user", "user", "检查 ARCHIVE_K7"),
+            (
+                "old-answer",
+                "assistant",
+                "ARCHIVE_K7 failed: HTTP 403: expired permission",
+            ),
+        ):
+            history.append(
+                session_id="chat-session",
+                agent_id="fixture-agent",
+                dedup_key=key,
+                entry=LogEntry(kind="context_msg", role=role, content=content),
+            )
+        yield history
+    finally:
+        history.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "formatter_type", [OpenAIChatFormatter, DashScopeChatFormatter]
+)
+@pytest.mark.parametrize("mode", ["queue", "steer"])
+async def test_ordinary_agent_handoff_uses_existing_history_tool(
+    tmp_path, ordinary_history_store, formatter_type, mode, record_property
+):
+    recall = make_recall_history(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="chat-session",
+        agent_id="fixture-agent",
+    )
+    mailbox = RunInputMailbox()
+    original = "查之前资料失败的原因，不重新执行。"
+    snapshot = "用户此前指的是 ARCHIVE_K7，不是当前任务。"
+    mailbox.submit(
+        RunInput(
+            (TextContent(text=original),),
+            "speech-input-1",
+            mode=mode,
+            message_metadata={QWENPAW_CLIENT_MESSAGE_ID_KEY: "speech-input-1"},
+            request_context={CHAT_CONVERSATION_CONTEXT_KEY: snapshot},
+        )
+    )
+    model = HistoryReadingModel(formatter_type())
+    agent = QwenPawAgent(
+        name="Preflight",
+        model=model,
+        system_prompt="Use the available history tool.",
+        toolkit=Toolkit(tools=[FunctionTool(recall)]),
+        react_config=ReActConfig(),
+        middlewares=[],
+        agent_config=SimpleNamespace(language="zh"),
+        workspace_dir=tmp_path,
+        request_context={"source": "realtime_voice"},
+        run_input_mailbox=mailbox,
+        context_manager=ScrollContextManager(
+            history=ordinary_history_store,
+            session_id="chat-session",
+            agent_id="fixture-agent",
+        ),
+    )
+    agent.state.context = [
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="这是当前 Chat 的普通前文。")],
+        )
+    ]
+    assert agent._append_pending_run_inputs(activate=False) == (
+        "speech-input-1",
+    )
+    result = await agent.reply()
+    assert "HTTP 403" in result.get_text_content()
+    assert len(model.requests) == 2
+    first = json.dumps(model.requests[0], ensure_ascii=False)
+    assert original in first and snapshot in first
+    assert "当前 Chat 的普通前文" in first and "recall_history" in first
+    assert first.count(original) == 1
+    saved = [m for m in agent.state.context if m.id == "speech-input-1"]
+    assert len(saved) == 1 and saved[0].get_text_content() == original
+    calls = [
+        b.name
+        for m in agent.state.context
+        for b in m.content
+        if b.type == "tool_call"
+    ]
+    assert calls == ["recall_history"]
+    record_property(
+        "model_requests", json.dumps(model.requests, ensure_ascii=False)
+    )
+    record_property("scripted_model", "true")
+    record_property("real_agent_scroll_sqlite_tool_formatter", "true")
