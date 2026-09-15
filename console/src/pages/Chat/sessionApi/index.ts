@@ -1,4 +1,3 @@
-import * as AgentScopeChat from "@agentscope-ai/chat";
 import type {
   IAgentScopeRuntimeWebUICreateSessionResult,
   IAgentScopeRuntimeWebUISession,
@@ -48,60 +47,12 @@ const TOOL_RESULT_TYPES = new Set([
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 
-type SessionTimelineProjector = (
-  events: Array<Record<string, unknown>>,
-  options?: { status?: string },
-) => IAgentScopeRuntimeWebUIMessage[];
-
-const sessionTimelineVersion =
-  "SESSION_TIMELINE_MODE_VERSION" in AgentScopeChat
-    ? Reflect.get(AgentScopeChat, "SESSION_TIMELINE_MODE_VERSION")
-    : undefined;
-const projectSessionTimeline =
-  typeof sessionTimelineVersion === "number" && sessionTimelineVersion >= 3
-    ? (Reflect.get(
-        AgentScopeChat,
-        "projectAgentScopeRuntimeTimeline",
-      ) as unknown as SessionTimelineProjector | undefined)
-    : undefined;
-
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
   useTurnUsageStore.getState().invalidateTurn();
   const snap = extractLatestSnapshotFromCards(messages);
   useTurnUsageStore.getState().setSnapshot(snap);
-}
-
-function decorateProjectedTurnUsage(
-  messages: IAgentScopeRuntimeWebUIMessage[],
-): IAgentScopeRuntimeWebUIMessage[] {
-  return messages.map((message) => {
-    if (message.role !== ROLE_ASSISTANT) return message;
-    const cards = message.cards;
-    const cardIndex = cards?.findIndex(
-      (candidate) => candidate.code === CARD_RESPONSE,
-    );
-    if (cardIndex === undefined || cardIndex < 0 || !cards) return message;
-    const card = cards[cardIndex];
-    const data = card?.data as Record<string, unknown> | undefined;
-    const output = data?.output;
-    if (!data || !Array.isArray(output)) return message;
-    const snapshot = extractTurnUsageFromOutputMessages(
-      output as Array<{ metadata?: unknown }>,
-    );
-    if (!snapshot) return message;
-    const nextCards = [...cards];
-    nextCards[cardIndex] = {
-      ...card,
-      data: {
-        ...data,
-        usage: snapshot.usage,
-        context_usage: snapshot.context_usage,
-      },
-    };
-    return { ...message, cards: nextCards };
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -224,25 +175,6 @@ function stableBackendMessageId(msg: Message, historyIndex: number): string {
   )}-${historyIndex}`;
 }
 
-function stableTimelineEventId(msg: Message, historyIndex: number): string {
-  const clientMessageId = extractClientMessageId(msg.metadata);
-  if (clientMessageId) return clientMessageId;
-  if (typeof msg.id === "string" && msg.id) return msg.id;
-  const callId = msg.call_id;
-  if (typeof callId === "string" && callId) {
-    return `timeline-call-${callId}-${String(msg.type || msg.role)}`;
-  }
-  return `timeline-${stableHash(
-    JSON.stringify([
-      msg.role,
-      msg.type,
-      msg.sequence_number,
-      msg.metadata,
-      msg.content,
-    ]),
-  )}-${historyIndex}`;
-}
-
 /**
  * Parse a metadata time string (e.g. "2026-05-27 10:44:53.362") to unix
  * seconds; returns 0 when the value is absent or not parseable.
@@ -317,61 +249,6 @@ function contentToRequestParts(
 
   return parts;
 }
-
-function normalizeTimelineMetadata(metadata: unknown): Record<string, unknown> {
-  const normalized =
-    metadata && typeof metadata === "object"
-      ? { ...(metadata as Record<string, unknown>) }
-      : {};
-  const nested =
-    normalized.metadata && typeof normalized.metadata === "object"
-      ? (normalized.metadata as Record<string, unknown>)
-      : {};
-  [
-    "run_id",
-    "timeline_group_id",
-    "timeline_revision",
-    "timeline_order",
-    "responds_to_input_ids",
-  ].forEach((key) => {
-    if (normalized[key] === undefined && nested[key] !== undefined) {
-      normalized[key] = nested[key];
-    }
-  });
-  return normalized;
-}
-
-function normalizeTimelineContent(
-  content: unknown,
-): Array<Record<string, unknown>> {
-  return contentToRequestParts(content).map((item) => ({
-    ...item,
-    status: "completed",
-  }));
-}
-
-function toTimelineEvent(
-  message: Message,
-  historyIndex: number,
-): Record<string, unknown> {
-  return {
-    ...message,
-    id: stableTimelineEventId(message, historyIndex),
-    object: "message",
-    role: message.role,
-    type: String(message.type || "message"),
-    status: String(message.status || "completed"),
-    content: normalizeTimelineContent(message.content),
-    metadata: normalizeTimelineMetadata(message.metadata),
-    created_at: parseTimestamp(message),
-  };
-}
-
-// This adapter is the only boundary between backend Message and SDK entities.
-export const toTimelineEvents = (messages: Message[]) =>
-  messages.map(toTimelineEvent) as unknown as NonNullable<
-    IAgentScopeRuntimeWebUISession["timelineEvents"]
-  >;
 
 function normalizeOutputMessageContent(content: unknown): unknown {
   if (typeof content === "string") return content;
@@ -525,7 +402,7 @@ export const buildResponseCard = (
  * - A tool result is correlated by call_id with its call even when a Voice
  *   follow-up user message arrived while the tool was running.
  */
-const convertMessagesFallback = (
+export const convertMessages = (
   messages: Message[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
   type OutputGroup = {
@@ -607,24 +484,6 @@ const convertMessagesFallback = (
       entry.terminal,
     );
   });
-};
-
-/**
- * Restore durable history through the same session projector used by live SSE.
- * The fallback is a release bridge for the currently published AgentScope
- * package and can be removed when the capability lands in the locked version.
- */
-export const convertMessages = (
-  messages: Message[],
-): IAgentScopeRuntimeWebUIMessage[] => {
-  if (typeof projectSessionTimeline !== "function") {
-    return convertMessagesFallback(messages);
-  }
-  return decorateProjectedTurnUsage(
-    projectSessionTimeline(messages.map(toTimelineEvent), {
-      status: "completed",
-    }),
-  );
 };
 
 const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
@@ -1465,19 +1324,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return session.realId ?? (session.id !== sessionId ? session.id : null);
   }
 
-  async loadTimeline(sessionId: string, signal?: AbortSignal) {
-    const owner = this.getActiveOwner();
-    const id = this.getRealIdForSession(sessionId) ?? sessionId;
-    const history = await api.getChat(id, {
-      signal,
-      include_app_owned: false,
-      fresh: true,
-    });
-    if (signal?.aborted || !this.isActiveOwner(owner))
-      throw new DOMException("Aborted", "AbortError");
-    return toTimelineEvents(history.messages || []);
-  }
-
   /** Resolves the effective ID for URL navigation (prefers backend UUID). */
   getEffectiveSessionId(
     sessionId: string,
@@ -1892,7 +1738,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       userId: chatHistory.user_id || listEntry?.userId || DEFAULT_USER_ID,
       channel: chatHistory.channel || listEntry?.channel || DEFAULT_CHANNEL,
       messages,
-      timelineEvents: toTimelineEvents(chatHistory.messages || []),
       meta: chatHistory.meta || listEntry?.meta || {},
       realId:
         listEntry?.realId ?? (backendId !== displayId ? backendId : undefined),
