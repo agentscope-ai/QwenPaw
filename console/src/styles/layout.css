@@ -9,7 +9,7 @@ body {
 
 /* Restore a keyboard-only focus indicator removed by the design reset. */
 a[href]:focus-visible {
-  outline: 2px solid var(--app-accent);
+  outline: 2px solid var(--app-focus-ring);
   outline-offset: 2px;
 }
 
