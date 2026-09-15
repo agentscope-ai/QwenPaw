@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli.main import cli
 from qwenpaw.cli import shutdown_cmd as shutdown_cmd_module
 from qwenpaw.cli.shutdown_cmd import (
     _find_windows_wrapper_ancestor_pids,
+    _signal_process_windows,
     _terminate_pid,
 )
 
@@ -93,6 +95,12 @@ def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
 
 
 def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
+    termination_order: list[int] = []
+
+    def terminate_pid(pid: int) -> bool:
+        termination_order.append(pid)
+        return True
+
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "win32")
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._listening_pids_for_port",
@@ -112,7 +120,7 @@ def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_pid",
-        lambda _pid: True,
+        terminate_pid,
     )
 
     result = CliRunner().invoke(cli, ["shutdown"])
@@ -120,6 +128,7 @@ def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "1052" in result.output
     assert "24692" in result.output
+    assert termination_order == [24692, 1052]
 
 
 def test_terminate_pid_force_kills_on_windows(monkeypatch) -> None:
@@ -132,8 +141,12 @@ def test_terminate_pid_force_kills_on_windows(monkeypatch) -> None:
         lambda _pid: True,
     )
     monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._signal_process_windows",
+        lambda _pid: False,
+    )
+    monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_process_tree_windows",
-        lambda pid, force=False: calls.append((pid, force)),
+        lambda pid, force=False, **_kwargs: calls.append((pid, force)),
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
@@ -155,8 +168,12 @@ def test_terminate_pid_uses_windows_fallback(monkeypatch) -> None:
         lambda _pid: True,
     )
     monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._signal_process_windows",
+        lambda _pid: False,
+    )
+    monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_process_tree_windows",
-        lambda pid, force=False: calls.append((pid, force)),
+        lambda pid, force=False, **_kwargs: calls.append((pid, force)),
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._force_terminate_windows_process",
@@ -170,6 +187,83 @@ def test_terminate_pid_uses_windows_fallback(monkeypatch) -> None:
     assert _terminate_pid(17944) is True
     assert calls == [(17944, False), (17944, True)]
     assert fallback_calls == [17944]
+
+
+def test_terminate_pid_requests_graceful_windows_shutdown(monkeypatch) -> None:
+    signals: list[int] = []
+    force_calls: list[tuple[int, bool]] = []
+
+    def signal_process(pid: int) -> bool:
+        signals.append(pid)
+        return True
+
+    monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "win32")
+    monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._pid_exists",
+        lambda _pid: True,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._signal_process_windows",
+        signal_process,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._terminate_process_tree_windows",
+        lambda pid, force=False, **_kwargs: force_calls.append((pid, force)),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
+        lambda _pid, _timeout, _interval: True,
+    )
+
+    assert _terminate_pid(17944) is True
+    assert signals == [17944]
+    assert not force_calls
+
+
+def test_signal_process_windows_uses_ctrl_break(monkeypatch) -> None:
+    calls: list[tuple[int, object]] = []
+    ctrl_break = object()
+    monkeypatch.setattr(
+        shutdown_cmd_module,
+        "signal_shutdown_event",
+        lambda _pid: False,
+    )
+    monkeypatch.setattr(
+        shutdown_cmd_module.signal,
+        "CTRL_BREAK_EVENT",
+        ctrl_break,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        shutdown_cmd_module.os,
+        "kill",
+        lambda pid, sig: calls.append((pid, sig)),
+    )
+
+    assert _signal_process_windows(17944) is True
+    assert calls == [(17944, ctrl_break)]
+
+
+def test_signal_process_windows_prefers_named_event(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def signal_event(pid: int) -> bool:
+        calls.append(pid)
+        return True
+
+    monkeypatch.setattr(
+        shutdown_cmd_module,
+        "signal_shutdown_event",
+        signal_event,
+    )
+    monkeypatch.setattr(
+        shutdown_cmd_module.os,
+        "kill",
+        lambda *_args: pytest.fail("CTRL_BREAK_EVENT should not be sent"),
+    )
+
+    assert _signal_process_windows(17944) is True
+    assert calls == [17944]
 
 
 def test_pid_exists_uses_windows_snapshot(monkeypatch) -> None:
@@ -209,7 +303,12 @@ def test_find_windows_wrapper_ancestor_pids(monkeypatch) -> None:
 
 def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     calls: list[tuple[int, object]] = []
+    wait_calls: list[tuple[float, float]] = []
     waits = iter([False, True])
+
+    def wait_for_exit(_pid: int, timeout: float, interval: float) -> bool:
+        wait_calls.append((timeout, interval))
+        return next(waits)
 
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "darwin")
     monkeypatch.setattr(
@@ -222,7 +321,7 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
-        lambda _pid, _timeout, _interval: next(waits),
+        wait_for_exit,
     )
 
     assert _terminate_pid(4242) is True
@@ -236,3 +335,6 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
             shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
         ),
     ]
+    assert 11.9 < wait_calls[0][0] <= 12.0
+    assert wait_calls[0][1] == 0.2
+    assert wait_calls[1] == (2.0, 0.1)

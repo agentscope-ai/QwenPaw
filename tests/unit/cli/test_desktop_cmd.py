@@ -6,6 +6,7 @@ import types
 import urllib.request
 
 from qwenpaw.cli import desktop_cmd
+from qwenpaw.cli.desktop_cmd import _shutdown_backend_process
 
 
 class _Response(io.BytesIO):
@@ -14,6 +15,48 @@ class _Response(io.BytesIO):
 
     def __exit__(self, *_args: object) -> None:
         self.close()
+
+
+class _Process:
+    pid = 17944
+
+    def __init__(self) -> None:
+        self.wait_timeouts: list[float] = []
+
+    def wait(self, timeout: float) -> int:
+        self.wait_timeouts.append(timeout)
+        return 0
+
+
+def test_shutdown_backend_process_uses_shared_graceful_shutdown(
+    monkeypatch,
+) -> None:
+    proc = _Process()
+    terminated: list[int] = []
+
+    def terminate(pid: int) -> bool:
+        terminated.append(pid)
+        return True
+
+    monkeypatch.setattr(
+        desktop_cmd,
+        "_terminate_pid",
+        terminate,
+    )
+
+    assert _shutdown_backend_process(proc) is True
+    assert terminated == [17944]
+    assert proc.wait_timeouts == [1.0]
+
+
+def test_shutdown_backend_process_reports_failed_force_fallback(
+    monkeypatch,
+) -> None:
+    proc = _Process()
+    monkeypatch.setattr(desktop_cmd, "_terminate_pid", lambda _pid: False)
+
+    assert _shutdown_backend_process(proc) is False
+    assert not proc.wait_timeouts
 
 
 def test_save_file_passes_headers_to_download_request(

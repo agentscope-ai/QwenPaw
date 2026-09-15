@@ -16,12 +16,14 @@ from .process_utils import (
     _process_table,
     _windows_process_snapshot,
 )
+from .windows_shutdown import signal_shutdown_event
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
 _SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
+_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 12.0
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
@@ -220,7 +222,25 @@ def _signal_process_tree_unix(pid: int, sig: signal.Signals) -> None:
         pass
 
 
-def _terminate_process_tree_windows(pid: int, force: bool = False) -> None:
+def _signal_process_windows(pid: int) -> bool:
+    """Request graceful shutdown from a Windows process group."""
+    if signal_shutdown_event(pid):
+        return True
+    ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+    if ctrl_break is None:
+        return False
+    try:
+        os.kill(pid, ctrl_break)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _terminate_process_tree_windows(
+    pid: int,
+    force: bool = False,
+    timeout_sec: float = 10.0,
+) -> None:
     """Terminate a Windows process tree."""
     command = ["taskkill", "/T", "/PID", str(pid)]
     if force:
@@ -230,7 +250,7 @@ def _terminate_process_tree_windows(pid: int, force: bool = False) -> None:
             command,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=max(0.1, timeout_sec),
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -264,21 +284,33 @@ def _force_terminate_windows_process(pid: int) -> None:
             continue
 
 
-def _terminate_pid(pid: int, timeout_sec: float = 5.0) -> bool:
+def _terminate_pid(
+    pid: int,
+    timeout_sec: float = _GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+) -> bool:
     """Terminate a process tree gracefully, then force kill if needed."""
     if not _pid_exists(pid):
         return True
 
+    deadline = time.monotonic() + timeout_sec
     if sys.platform == "win32":
-        _terminate_process_tree_windows(pid)
+        if not _signal_process_windows(pid):
+            _terminate_process_tree_windows(
+                pid,
+                timeout_sec=max(0.0, deadline - time.monotonic()),
+            )
     else:
         _signal_process_tree_unix(pid, _SIGTERM)
 
-    if _wait_for_pid_exit(pid, timeout_sec, 0.2):
+    if _wait_for_pid_exit(
+        pid,
+        max(0.0, deadline - time.monotonic()),
+        0.2,
+    ):
         return True
 
     if sys.platform == "win32":
-        _terminate_process_tree_windows(pid, force=True)
+        _terminate_process_tree_windows(pid, force=True, timeout_sec=2.0)
         if _wait_for_pid_exit(pid, 2.0, 0.1):
             return True
         _force_terminate_windows_process(pid)
@@ -348,20 +380,20 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             "No running QwenPaw backend/frontend process was found.",
         )
 
-    wrapper_stopped, wrapper_failed = _stop_pid_set(wrapper_pids)
+    # Stop listening server processes before their reload supervisors. On
+    # Windows the server owns the lifespan and its PID-scoped shutdown event;
+    # stopping the supervisor first can leave it waiting on the server until
+    # the graceful deadline expires and the whole tree is force-terminated.
+    backend_stopped, backend_failed = _stop_pid_set(backend_pids)
+    wrapper_stopped, wrapper_failed = _stop_pid_set(
+        wrapper_pids - set(backend_stopped),
+    )
     frontend_stopped, frontend_failed = _stop_pid_set(frontend_pids)
     desktop_stopped, desktop_failed = _stop_pid_set(
         desktop_pids - set(wrapper_stopped) - set(frontend_stopped),
     )
-    backend_stopped, backend_failed = _stop_pid_set(
-        backend_pids
-        - set(wrapper_stopped)
-        - set(frontend_stopped)
-        - set(desktop_stopped),
-    )
-
     stopped = (
-        wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
+        backend_stopped + wrapper_stopped + frontend_stopped + desktop_stopped
     )
     failed = list(
         set(

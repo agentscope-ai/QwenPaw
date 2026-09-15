@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+from ..cli.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -64,6 +65,11 @@ from .routers.voice import voice_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
+# Uvicorn imports this module inside the serving process. Under ``--reload``
+# that is a spawned child, distinct from the CLI/reloader process, so it must
+# expose its own PID-scoped graceful-shutdown event.
+install_shutdown_handlers()
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -609,6 +615,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await PORTABILITY_IMPORT_JOBS.shutdown()
 
+        # Stop workspaces early so bounded memory drains are not delayed by
+        # unrelated application cleanup.
+        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
+        if multi_agent_mgr is not None:
+            logger.info("Stopping MultiAgentManager...")
+            try:
+                await multi_agent_mgr.stop_all()
+            except Exception as e:
+                logger.error(f"Error stopping MultiAgentManager: {e}")
+
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
 
@@ -668,15 +684,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await _app_svc.stop()
             except Exception as e:
                 logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # Stop multi-agent manager (stops all agents and their components)
-        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
-        if multi_agent_mgr is not None:
-            logger.info("Stopping MultiAgentManager...")
-            try:
-                await multi_agent_mgr.stop_all()
-            except Exception as e:
-                logger.error(f"Error stopping MultiAgentManager: {e}")
 
         await PORTABILITY_IMPORT_JOBS.drain()
 

@@ -24,6 +24,7 @@ import click
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
+from .shutdown_cmd import _terminate_pid
 
 try:
     import webview
@@ -185,6 +186,17 @@ def _stream_reader(in_stream, out_stream) -> None:
             pass
 
 
+def _shutdown_backend_process(proc: subprocess.Popen[str]) -> bool:
+    """Gracefully stop a desktop backend, with the shared force fallback."""
+    try:
+        if not _terminate_pid(proc.pid):
+            return False
+        proc.wait(timeout=1.0)
+        return True
+    except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
 @click.command("desktop")
 @click.option(
     "--host",
@@ -270,6 +282,11 @@ def desktop_cmd(
             env=env,
             bufsize=1,
             universal_newlines=True,
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if is_windows
+                else 0
+            ),
         )
         try:
             if is_windows:
@@ -332,31 +349,10 @@ def desktop_cmd(
                 manually_terminated = (
                     True  # Mark that we're intentionally terminating
                 )
-                try:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5.0)
-                        logger.info("Backend server terminated cleanly.")
-                    except subprocess.TimeoutExpired:
-                        logger.warning(
-                            "Backend did not exit in 5s, force killing...",
-                        )
-                        try:
-                            proc.kill()
-                            proc.wait()
-                            logger.info("Backend server force killed.")
-                        except (ProcessLookupError, OSError) as e:
-                            # Process already exited, which is fine
-                            logger.debug(
-                                f"kill() raised {e.__class__.__name__} "
-                                f"(process already exited)",
-                            )
-                except (ProcessLookupError, OSError) as e:
-                    # Process already exited between poll() and terminate()
-                    logger.debug(
-                        f"terminate() raised {e.__class__.__name__} "
-                        f"(process already exited)",
-                    )
+                if _shutdown_backend_process(proc):
+                    logger.info("Backend server terminated cleanly.")
+                else:
+                    logger.error("Failed to terminate backend server.")
             elif proc:
                 logger.info(
                     f"Backend already exited with code {proc.returncode}",
