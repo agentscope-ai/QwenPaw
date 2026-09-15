@@ -86,20 +86,25 @@ export async function loadSessionProjectDirs(
   }
 
   // Nothing pending: the agent default is the starting point.
-  const next = await projectDirectoryApi.get();
+  const next = await projectDirectoryApi.getDirs();
+  if (next.project_dirs.length > 0) {
+    return {
+      dirs: next.project_dirs,
+      source: next.source,
+      agentProjectDir: next.project_dirs[0].path,
+    };
+  }
   return {
     dirs: [
       {
-        path: next.path,
+        path: next.workspace_dir,
         label: null,
-        exists: next.exists ?? true,
+        exists: true,
         nested_with: null,
-        // The agent default either is the workspace or is a directory of its
-        // own, and this endpoint already says which — no path comparison.
-        is_workspace: next.is_workspace_default,
+        is_workspace: true,
       },
     ],
-    source: next.is_workspace_default ? "workspace_fallback" : "agent",
-    agentProjectDir: next.is_workspace_default ? null : next.path,
+    source: "workspace_fallback",
+    agentProjectDir: null,
   };
 }

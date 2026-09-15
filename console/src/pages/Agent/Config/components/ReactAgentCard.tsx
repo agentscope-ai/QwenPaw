@@ -21,10 +21,7 @@ import {
   useCodingMode,
   useCodingModeStore,
 } from "../../../../stores/codingModeStore";
-import {
-  useProjectDirectoryStore,
-  useProjectDir,
-} from "../../../../stores/projectDirectoryStore";
+import { useProjectDirectoryStore } from "../../../../stores/projectDirectoryStore";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -46,23 +43,34 @@ interface ReactAgentCardProps {
 function ProjectDirectorySetting() {
   const { t } = useTranslation();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
-  const { projectDir } = useProjectDir();
   const setProjectDir = useProjectDirectoryStore(
     (state) => state.setProjectDir,
   );
-  const [projectName, setProjectName] = useState("");
+  const [projectDirs, setProjectDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const primaryDir = projectDirs[0] ?? "";
+  const primaryName =
+    primaryDir
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() || primaryDir;
+  const extraDirCount = Math.max(0, projectDirs.length - 1);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const project = await projectDirectoryApi.get();
+      const defaults = await projectDirectoryApi.getDirs();
+      const dirs = defaults.project_dirs.length
+        ? defaults.project_dirs.map((entry) => entry.path)
+        : [defaults.workspace_dir];
+      setProjectDirs(dirs);
       setProjectDir(
         selectedAgent,
-        project.is_workspace_default ? null : project.path,
+        defaults.source === "workspace_fallback"
+          ? null
+          : defaults.project_dirs[0]?.path ?? null,
       );
-      setProjectName(project.name);
     } finally {
       setLoading(false);
     }
@@ -81,12 +89,18 @@ function ProjectDirectorySetting() {
       >
         <div className={styles.projectDirectorySetting}>
           <FolderOpen size={17} />
-          <div>
-            <strong>{projectName || t("codingMode.defaultWorkspace")}</strong>
-            <span>
-              {projectDir || t("agentConfig.projectDirectoryWorkspaceFallback")}
-            </span>
+          <div className={styles.projectDirectoryPaths}>
+            <strong>{primaryName}</strong>
+            <span title={primaryDir}>{primaryDir}</span>
           </div>
+          {extraDirCount > 0 && (
+            <em
+              className={styles.projectDirectoryCount}
+              title={t("projectDirectory.countTitle")}
+            >
+              +{extraDirCount}
+            </em>
+          )}
           {loading ? (
             <LoaderCircle className={styles.spin} size={16} />
           ) : (
@@ -97,6 +111,7 @@ function ProjectDirectorySetting() {
         </div>
       </Form.Item>
       <ProjectSelectModal
+        agentId={selectedAgent}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onConfirm={() => {

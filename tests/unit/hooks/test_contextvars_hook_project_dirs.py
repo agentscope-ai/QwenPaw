@@ -231,3 +231,27 @@ class TestProjectDirsUnavailableMsg:
         text = msg.content[0].text
         assert "project directories could not be read" in text
         assert "turn was stopped" in text
+
+
+def test_resolve_turn_inherits_agent_default_directory_list(tmp_path):
+    primary = tmp_path / "primary"
+    extra = tmp_path / "extra"
+    primary.mkdir()
+    extra.mkdir()
+
+    resolved = cvh._resolve_turn_project_dirs(
+        workspace_dir=tmp_path,
+        agent_project_dir="/legacy",
+        agent_project_dirs=[
+            {"path": str(primary), "label": "Primary"},
+            {"path": str(extra), "label": "Extra"},
+        ],
+        session_project_dirs=None,
+        request_context=None,
+        mission_loop_dir=None,
+    )
+
+    assert resolved is not None
+    assert resolved.primary_path == primary
+    assert [entry.path for entry in resolved.dirs] == [primary, extra]
+    assert resolved.source == "agent"

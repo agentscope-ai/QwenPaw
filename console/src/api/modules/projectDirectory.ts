@@ -1,6 +1,17 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type {
+  ChatProjectDirSource,
+  ProjectDirEntry,
+  ProjectDirPayloadEntry,
+} from "./chatProjectDirectory";
+
+export interface AgentProjectDirs {
+  project_dirs: ProjectDirEntry[];
+  source: ChatProjectDirSource;
+  workspace_dir: string;
+}
 
 export interface ProjectDirectoryInfo {
   path: string;
@@ -25,6 +36,16 @@ export interface BrowseDirsResponse {
 }
 
 export const projectDirectoryApi = {
+  getDirs: () => request<AgentProjectDirs>("/workspace/project-directory/dirs"),
+  setDirs: (entries: ProjectDirPayloadEntry[]) =>
+    request<AgentProjectDirs>("/workspace/project-directory/dirs", {
+      method: "PUT",
+      body: JSON.stringify({ project_dirs: entries }),
+    }),
+  clearDirs: () =>
+    request<AgentProjectDirs>("/workspace/project-directory/dirs", {
+      method: "DELETE",
+    }),
   /** Get the current Agent default project directory. */
   get: () => request<ProjectDirectoryInfo>("/workspace/project-directory"),
 

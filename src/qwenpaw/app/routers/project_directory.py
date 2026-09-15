@@ -13,17 +13,27 @@ import asyncio
 import io
 import json
 import logging
+import stat
 import sys
 import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..agent_context import get_agent_for_request, get_agent_project_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...services.project_directory import (
+    MAX_PROJECT_DIRS,
+    agent_project_dirs_from_config,
+    nested_root_pairs,
+    normalize_dir_entry,
+    normalize_dir_entry_list,
+    normalize_project_dir_list,
+    resolve_effective_project_dirs,
+)
 from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
@@ -68,14 +78,48 @@ def _projects_base(workspace_dir: Path) -> Path:
 
 
 def _save_project_dir(agent_id: str, project_dir: str | None) -> None:
-    """Persist the agent default project_dir to agent.json.
+    """Promote one directory to primary without dropping other defaults.
 
     Intended to run inside an executor thread.
     """
     from ...config.config import load_agent_config, save_agent_config
 
     config = load_agent_config(agent_id)
-    config.project_dir = project_dir
+    if project_dir is None:
+        config.project_dir = None
+        config.project_dirs = []
+        save_agent_config(config.id, config)
+        return
+
+    primary = normalize_dir_entry(project_dir)
+    if primary is None:
+        raise ValueError("project_dir must contain a valid directory")
+
+    existing = normalize_dir_entry_list(
+        getattr(config, "project_dirs", []),
+    )
+    matched = next(
+        (entry for entry in existing if entry.key == primary.key),
+        None,
+    )
+    ordered = [matched or primary] + [
+        entry for entry in existing if entry.key != primary.key
+    ]
+    ordered = ordered[:MAX_PROJECT_DIRS]
+    config.project_dir = str(primary.path)
+    config.project_dirs = [
+        {"path": str(entry.path), "label": entry.label} for entry in ordered
+    ]
+    save_agent_config(config.id, config)
+
+
+def _save_project_dirs(agent_id: str, project_dirs: list[dict]) -> None:
+    """Persist all defaults and the legacy primary mirror."""
+    from ...config.config import load_agent_config, save_agent_config
+
+    config = load_agent_config(agent_id)
+    config.project_dirs = project_dirs
+    config.project_dir = project_dirs[0]["path"] if project_dirs else None
     save_agent_config(config.id, config)
 
 
@@ -88,6 +132,49 @@ class SetProjectRequest(BaseModel):
     """Body for PUT /workspace/project-directory."""
 
     path: str | None = None  # None = reset to default workspace
+
+
+class ProjectDirPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1)
+    label: str | None = Field(default=None, max_length=50)
+
+
+class SetProjectDirsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_dirs: list[ProjectDirPayload] = Field(min_length=1, max_length=10)
+
+
+def _project_dirs_snapshot(workspace) -> dict:
+    from ...config.config import load_agent_config
+
+    config = load_agent_config(workspace.agent_id)
+    resolved = resolve_effective_project_dirs(
+        workspace.workspace_dir,
+        agent_project_dirs=agent_project_dirs_from_config(config),
+    )
+    nearest: dict[int, str] = {}
+    for child, ancestor in nested_root_pairs(
+        [entry.path for entry in resolved.dirs],
+    ):
+        candidate = str(resolved.dirs[ancestor].path)
+        if child not in nearest or len(candidate) > len(nearest[child]):
+            nearest[child] = candidate
+    return {
+        "project_dirs": [
+            {
+                "path": str(entry.path),
+                "label": entry.label,
+                "exists": entry.exists,
+                "nested_with": nearest.get(index),
+                "is_workspace": bool(entry.key)
+                and entry.key == resolved.workspace_key,
+            }
+            for index, entry in enumerate(resolved.dirs)
+        ],
+        "source": resolved.source,
+        "workspace_dir": str(workspace.workspace_dir),
+    }
 
 
 class CreateProjectRequest(BaseModel):
@@ -109,6 +196,50 @@ class CloneProjectRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@router.get("/dirs", summary="Get ordered agent default directories")
+async def get_project_dirs(request: Request) -> dict:
+    workspace = await get_agent_for_request(request)
+    return await asyncio.to_thread(_project_dirs_snapshot, workspace)
+
+
+@router.put("/dirs", summary="Set ordered agent default directories")
+async def set_project_dirs(
+    body: SetProjectDirsRequest,
+    request: Request,
+) -> dict:
+    workspace = await get_agent_for_request(request)
+
+    def _save() -> dict:
+        entries = normalize_project_dir_list(
+            [entry.model_dump() for entry in body.project_dirs],
+        )
+        if not entries:
+            raise ValueError("project_dirs must contain a valid directory")
+        missing = next(
+            (str(path) for path, _ in entries if not path.is_dir()),
+            None,
+        )
+        if missing:
+            raise NotADirectoryError(missing)
+        _save_project_dirs(
+            workspace.agent_id,
+            [{"path": str(path), "label": label} for path, label in entries],
+        )
+        return _project_dirs_snapshot(workspace)
+
+    try:
+        return await asyncio.to_thread(_save)
+    except (ValueError, NotADirectoryError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/dirs", summary="Reset agent default directories")
+async def clear_project_dirs(request: Request) -> dict:
+    workspace = await get_agent_for_request(request)
+    await asyncio.to_thread(_save_project_dirs, workspace.agent_id, [])
+    return await asyncio.to_thread(_project_dirs_snapshot, workspace)
 
 
 @router.get("", summary="Get the agent default project directory")
@@ -504,7 +635,6 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
 
     def _copy() -> Path:
         import shutil
-        import stat
 
         _pattern_ignore = shutil.ignore_patterns(
             "node_modules",
@@ -653,17 +783,24 @@ async def upload_zip(
         dest.mkdir(parents=True, exist_ok=True)
         dest_resolved = dest.resolve()
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            for member in zf.namelist():
-                if Path(member).is_absolute():
+            for member in zf.infolist():
+                if stat.S_ISLNK(
+                    (member.external_attr >> 16) & 0xFFFF,
+                ):
                     raise ValueError(
-                        f"Absolute path in zip not allowed: {member}",
+                        f"Symlink in zip not allowed: {member.filename}",
                     )
-                member_path = (dest_resolved / member).resolve()
+                if Path(member.filename).is_absolute():
+                    raise ValueError(
+                        "Absolute path in zip not allowed: "
+                        f"{member.filename}",
+                    )
+                member_path = (dest_resolved / member.filename).resolve()
                 try:
                     member_path.relative_to(dest_resolved)
                 except ValueError as exc:
                     raise ValueError(
-                        f"Zip slip detected for member: {member}",
+                        f"Zip slip detected for member: {member.filename}",
                     ) from exc
             zf.extractall(str(dest))
         return dest
