@@ -15,6 +15,7 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
+from wcmatch import glob as wcglob
 
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
@@ -561,7 +562,7 @@ def _walk_and_glob(
     pattern: str,
     cancel: threading.Event,
 ) -> tuple[list[str], bool]:
-    """Iterate ``search_root.glob(pattern)`` with cancellation support.
+    """Match glob patterns with brace expansion and cancellation support.
 
     Returns ``(result_lines, truncated)``.
     """
@@ -569,7 +570,13 @@ def _walk_and_glob(
     truncated = False
 
     try:
-        for entry in search_root.glob(pattern):
+        for relative_path in wcglob.iglob(
+            pattern,
+            root_dir=search_root,
+            # Preserve pathlib's recursive and hidden-file matching.
+            flags=wcglob.GLOBSTAR | wcglob.BRACE | wcglob.DOTGLOB,
+        ):
+            entry = search_root / relative_path
             if cancel.is_set():
                 break
             try:
