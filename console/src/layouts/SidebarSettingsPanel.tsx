@@ -32,7 +32,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { settingsApi } from "../api/modules/language";
+import { applyLanguagePreference } from "../utils/languagePreference";
 import { LANGUAGE_LIST } from "../constants/languageList";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import {
@@ -216,10 +216,9 @@ export default function SidebarSettingsPanel({
 
   const changeLanguage = (language: string) => {
     finishAction(() => {
-      void i18n.changeLanguage(language);
-      localStorage.setItem("language", language);
-      void settingsApi.updateLanguage(language).catch(() => {
-        message.error(t("agentConfig.languageSaveFailed"));
+      applyLanguagePreference(i18n, language, {
+        onPersistError: () =>
+          message.error(t("agentConfig.languageSaveFailed")),
       });
     });
   };

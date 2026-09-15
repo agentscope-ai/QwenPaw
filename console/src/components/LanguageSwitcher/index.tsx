@@ -1,8 +1,8 @@
 import { Dropdown } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { Button, message, type MenuProps } from "antd";
-import { settingsApi } from "../../api/modules/language";
 import { LANGUAGE_LIST } from "../../constants/languageList";
+import { applyLanguagePreference } from "../../utils/languagePreference";
 import styles from "./index.module.less";
 export { LANGUAGE_LIST };
 
@@ -23,14 +23,9 @@ export default function LanguageSwitcher({
     : currentLanguage.split("-")[0];
 
   const changeLanguage = (lang: string) => {
-    i18n.changeLanguage(lang);
-    localStorage.setItem("language", lang);
-    if (!persistRemotely) {
-      return;
-    }
-    settingsApi.updateLanguage(lang).catch((err) => {
-      console.error("Failed to save language preference:", err);
-      message.error(t("agentConfig.languageSaveFailed"));
+    applyLanguagePreference(i18n, lang, {
+      persistRemotely,
+      onPersistError: () => message.error(t("agentConfig.languageSaveFailed")),
     });
   };
 
