@@ -1,3 +1,4 @@
+import * as AgentScopeChat from "@agentscope-ai/chat";
 import type {
   IAgentScopeRuntimeWebUICreateSessionResult,
   IAgentScopeRuntimeWebUISession,
@@ -17,7 +18,10 @@ import {
   extractLatestSnapshotFromCards,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
-import { extractClientMessageId } from "../../../utils/clientMessageId";
+import {
+  extractClientMessageId,
+  QWENPAW_CLIENT_MESSAGE_ID_KEY,
+} from "../../../utils/clientMessageId";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
 import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 
@@ -31,8 +35,35 @@ const DEFAULT_SESSION_NAME = "New Chat";
 const ROLE_TOOL = "tool";
 const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
+const TOOL_CALL_TYPES = new Set([
+  "plugin_call",
+  "function_call",
+  "mcp_tool_call",
+]);
+const TOOL_RESULT_TYPES = new Set([
+  "plugin_call_output",
+  "function_call_output",
+  "mcp_tool_call_output",
+]);
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+type SessionTimelineProjector = (
+  events: Array<Record<string, unknown>>,
+  options?: { status?: string },
+) => IAgentScopeRuntimeWebUIMessage[];
+
+const sessionTimelineVersion =
+  "SESSION_TIMELINE_MODE_VERSION" in AgentScopeChat
+    ? Reflect.get(AgentScopeChat, "SESSION_TIMELINE_MODE_VERSION")
+    : undefined;
+const projectSessionTimeline =
+  typeof sessionTimelineVersion === "number" && sessionTimelineVersion >= 3
+    ? (Reflect.get(
+        AgentScopeChat,
+        "projectAgentScopeRuntimeTimeline",
+      ) as unknown as SessionTimelineProjector | undefined)
+    : undefined;
 
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
@@ -71,6 +102,37 @@ function hydrateTurnUsageFromMessages(
   useTurnUsageStore.getState().setSnapshot(snap);
 }
 
+function decorateProjectedTurnUsage(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): IAgentScopeRuntimeWebUIMessage[] {
+  return messages.map((message) => {
+    if (message.role !== ROLE_ASSISTANT) return message;
+    const cards = message.cards;
+    const cardIndex = cards?.findIndex(
+      (candidate) => candidate.code === CARD_RESPONSE,
+    );
+    if (cardIndex === undefined || cardIndex < 0 || !cards) return message;
+    const card = cards[cardIndex];
+    const data = card?.data as Record<string, unknown> | undefined;
+    const output = data?.output;
+    if (!data || !Array.isArray(output)) return message;
+    const snapshot = extractTurnUsageFromOutputMessages(
+      output as Array<{ metadata?: unknown }>,
+    );
+    if (!snapshot) return message;
+    const nextCards = [...cards];
+    nextCards[cardIndex] = {
+      ...card,
+      data: {
+        ...data,
+        usage: snapshot.usage,
+        context_usage: snapshot.context_usage,
+      },
+    };
+    return { ...message, cards: nextCards };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Local helper types
 // ---------------------------------------------------------------------------
@@ -83,7 +145,7 @@ interface ContentItem {
 }
 
 /** A backend message after role-normalisation (output of toOutputMessage). */
-interface OutputMessage extends Omit<Message, "role"> {
+interface OutputMessage extends Message {
   role: string;
   metadata: unknown;
   sequence_number?: number;
@@ -151,8 +213,63 @@ function randomBase36(length: number): string {
   return out;
 }
 
-function generateId(): string {
-  return `${Date.now()}-${randomBase36(9)}`;
+function stableHash(value: string): string {
+  let first = 0xdeadbeef;
+  let second = 0x41c6ce57;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 2654435761);
+    second = Math.imul(second ^ code, 1597334677);
+  }
+  first = Math.imul(first ^ (first >>> 16), 2246822507);
+  second = Math.imul(second ^ (second >>> 13), 3266489909);
+  return `${(first >>> 0).toString(36)}${(second >>> 0).toString(36)}`;
+}
+
+function stableBackendMessageId(msg: Message, historyIndex: number): string {
+  const metadata =
+    msg.metadata && typeof msg.metadata === "object"
+      ? (msg.metadata as Record<string, unknown>)
+      : {};
+  const clientMessageId = extractClientMessageId(msg.metadata);
+  if (clientMessageId) return clientMessageId;
+  const originalId = metadata.original_id;
+  if (typeof originalId === "string" && originalId) {
+    return originalId;
+  }
+  if (typeof msg.id === "string" && msg.id) return msg.id;
+  const callId = msg.call_id;
+  if (typeof callId === "string" && callId) {
+    return `call-${callId}-${String(msg.type || msg.role)}`;
+  }
+  return `history-${stableHash(
+    JSON.stringify([
+      msg.role,
+      msg.type,
+      msg.sequence_number,
+      metadata.timestamp,
+      msg.content,
+    ]),
+  )}-${historyIndex}`;
+}
+
+function stableTimelineEventId(msg: Message, historyIndex: number): string {
+  const clientMessageId = extractClientMessageId(msg.metadata);
+  if (clientMessageId) return clientMessageId;
+  if (typeof msg.id === "string" && msg.id) return msg.id;
+  const callId = msg.call_id;
+  if (typeof callId === "string" && callId) {
+    return `timeline-call-${callId}-${String(msg.type || msg.role)}`;
+  }
+  return `timeline-${stableHash(
+    JSON.stringify([
+      msg.role,
+      msg.type,
+      msg.sequence_number,
+      msg.metadata,
+      msg.content,
+    ]),
+  )}-${historyIndex}`;
 }
 
 /**
@@ -229,6 +346,62 @@ function contentToRequestParts(
 
   return parts;
 }
+
+function normalizeTimelineMetadata(metadata: unknown): Record<string, unknown> {
+  const normalized =
+    metadata && typeof metadata === "object"
+      ? { ...(metadata as Record<string, unknown>) }
+      : {};
+  const nested =
+    normalized.metadata && typeof normalized.metadata === "object"
+      ? (normalized.metadata as Record<string, unknown>)
+      : {};
+  [
+    "run_id",
+    "timeline_group_id",
+    "timeline_revision",
+    "timeline_order",
+    "responds_to_input_ids",
+  ].forEach((key) => {
+    if (normalized[key] === undefined && nested[key] !== undefined) {
+      normalized[key] = nested[key];
+    }
+  });
+  return normalized;
+}
+
+function normalizeTimelineContent(
+  content: unknown,
+): Array<Record<string, unknown>> {
+  return contentToRequestParts(content).map((item) => ({
+    ...item,
+    status: "completed",
+  }));
+}
+
+function toTimelineEvent(
+  message: Message,
+  historyIndex: number,
+): Record<string, unknown> {
+  return {
+    ...message,
+    id: stableTimelineEventId(message, historyIndex),
+    object: "message",
+    role: message.role,
+    type: String(message.type || "message"),
+    status: String(message.status || "completed"),
+    content: normalizeTimelineContent(message.content),
+    metadata: normalizeTimelineMetadata(message.metadata),
+    created_at: parseTimestamp(message),
+  };
+}
+
+// This adapter is the only boundary between backend Message and SDK entities.
+export const toTimelineEvents = (messages: Message[]) =>
+  messages.map(toTimelineEvent) as unknown as NonNullable<
+    IAgentScopeRuntimeWebUISession["timelineEvents"]
+  >;
+
 function normalizeOutputMessageContent(content: unknown): unknown {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content;
@@ -256,11 +429,34 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
   metadata: msg.metadata ?? null,
 });
 
+function toolCallId(msg: Message): string | undefined {
+  const type = String(msg.type || "");
+  if (!TOOL_CALL_TYPES.has(type) && !TOOL_RESULT_TYPES.has(type)) {
+    return undefined;
+  }
+  if (typeof msg.call_id === "string" && msg.call_id) return msg.call_id;
+  if (!Array.isArray(msg.content)) return undefined;
+  for (const item of msg.content) {
+    if (!item || typeof item !== "object") continue;
+    const itemRecord = item as Record<string, unknown>;
+    const data =
+      itemRecord.data && typeof itemRecord.data === "object"
+        ? (itemRecord.data as Record<string, unknown>)
+        : itemRecord;
+    const candidate = data.call_id ?? data.id;
+    if (typeof candidate === "string" && candidate) return candidate;
+  }
+  return undefined;
+}
+
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
-function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
+export function buildUserCard(
+  msg: Message,
+  historyIndex = 0,
+): IAgentScopeRuntimeWebUIMessage {
   const contentParts = contentToRequestParts(msg.content);
   return {
-    id: (msg.id as string) || generateId(),
+    id: stableBackendMessageId(msg, historyIndex),
     role: "user",
     cards: [
       {
@@ -281,13 +477,18 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
   };
 }
 
+/** Terminal state stamped on a user message by the backend when a turn ended. */
+type TurnTerminal = { status?: string; error?: unknown };
+
 /**
  * Build an assistant response card (AgentScopeRuntimeResponseCard)
  * wrapping a group of consecutive non-user output messages.
  */
-const buildResponseCard = (
+export const buildResponseCard = (
   outputMessages: OutputMessage[],
-  terminal?: { status?: string; error?: unknown },
+  historyIndex = 0,
+  groupOrdinal = 0,
+  terminal?: TurnTerminal,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -313,15 +514,20 @@ const buildResponseCard = (
   }));
 
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
+  const cardId = `runtime-response-${
+    outputMessages.length
+      ? stableBackendMessageId(outputMessages[0], historyIndex)
+      : `terminal-${historyIndex}`
+  }-${groupOrdinal}`;
 
   return {
-    id: generateId(),
+    id: cardId,
     role: ROLE_ASSISTANT,
     cards: [
       {
         code: CARD_RESPONSE,
         data: {
-          id: `response_${generateId()}`,
+          id: `response_${cardId}`,
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
@@ -345,35 +551,109 @@ const buildResponseCard = (
  * - User messages → AgentScopeRuntimeRequestCard
  * - Consecutive non-user messages (assistant / system / tool) → grouped
  *   into a single AgentScopeRuntimeResponseCard with all output messages.
+ * - A tool result is correlated by call_id with its call even when a Voice
+ *   follow-up user message arrived while the tool was running.
  */
-const convertMessages = (
+const convertMessagesFallback = (
   messages: Message[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
-  const result: IAgentScopeRuntimeWebUIMessage[] = [];
-  const len = messages.length;
-  let i = 0;
+  type OutputGroup = {
+    kind: "output";
+    historyIndex: number;
+    messages: OutputMessage[];
+    terminal?: TurnTerminal;
+  };
+  type TimelineEntry =
+    | { kind: "user"; historyIndex: number; message: Message }
+    | OutputGroup;
 
-  while (i < len) {
-    let terminal: { status?: string; error?: unknown } | undefined;
-    if (messages[i].role === ROLE_USER) {
-      const user = messages[i++];
-      const meta = user.metadata as Record<string, any> | undefined;
-      terminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
-      result.push(buildUserCard(user));
+  const entries: TimelineEntry[] = [];
+  const callOwners = new Map<string, OutputGroup>();
+  let currentGroup: OutputGroup | null = null;
+  let pendingTerminal: TurnTerminal | undefined;
+
+  messages.forEach((message, historyIndex) => {
+    if (message.role === ROLE_USER) {
+      entries.push({ kind: "user", historyIndex, message });
+      const meta = message.metadata as Record<string, any> | undefined;
+      pendingTerminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
+      currentGroup = null;
+      // A turn that produced no output at all still needs a card, otherwise a
+      // cancelled or failed request leaves no trace in restored history.
+      if (
+        pendingTerminal?.status === "failed" ||
+        pendingTerminal?.status === "canceled"
+      ) {
+        currentGroup = {
+          kind: "output",
+          historyIndex: historyIndex + 1,
+          messages: [],
+          terminal: pendingTerminal,
+        };
+        entries.push(currentGroup);
+      }
+      return;
     }
-    const startIdx = i;
-    while (i < len && messages[i].role !== ROLE_USER) i++;
-    const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
-    if (
-      outputMsgs.length ||
-      terminal?.status === "failed" ||
-      terminal?.status === "canceled"
-    ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+
+    const callId = toolCallId(message);
+    if (TOOL_RESULT_TYPES.has(String(message.type || "")) && callId) {
+      const owner = callOwners.get(callId);
+      if (owner) {
+        owner.messages.push(toOutputMessage(message));
+        return;
+      }
     }
+
+    if (!currentGroup) {
+      currentGroup = {
+        kind: "output",
+        historyIndex,
+        messages: [],
+        terminal: pendingTerminal,
+      };
+      entries.push(currentGroup);
+    }
+    currentGroup.messages.push(toOutputMessage(message));
+    if (TOOL_CALL_TYPES.has(String(message.type || "")) && callId) {
+      callOwners.set(callId, currentGroup);
+    }
+  });
+
+  const groupOrdinals = new Map<string, number>();
+  return entries.map((entry) => {
+    if (entry.kind === "user") {
+      return buildUserCard(entry.message, entry.historyIndex);
+    }
+    const groupId = entry.messages.length
+      ? stableBackendMessageId(entry.messages[0], entry.historyIndex)
+      : `terminal-${entry.historyIndex}`;
+    const ordinal = groupOrdinals.get(groupId) || 0;
+    groupOrdinals.set(groupId, ordinal + 1);
+    return buildResponseCard(
+      entry.messages,
+      entry.historyIndex,
+      ordinal,
+      entry.terminal,
+    );
+  });
+};
+
+/**
+ * Restore durable history through the same session projector used by live SSE.
+ * The fallback is a release bridge for the currently published AgentScope
+ * package and can be removed when the capability lands in the locked version.
+ */
+export const convertMessages = (
+  messages: Message[],
+): IAgentScopeRuntimeWebUIMessage[] => {
+  if (typeof projectSessionTimeline !== "function") {
+    return convertMessagesFallback(messages);
   }
-
-  return result;
+  return decorateProjectedTurnUsage(
+    projectSessionTimeline(messages.map(toTimelineEvent), {
+      status: "completed",
+    }),
+  );
 };
 
 const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
@@ -406,7 +686,9 @@ const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
  *  When status is missing (undefined) treat the chat as idle to avoid
  *  false-positive reconnects that cause infinite loading (issue #4903).
  */
-const isGenerating = (chatHistory: ChatHistory): boolean => {
+const isGenerating = (
+  chatHistory: Pick<ChatHistory, "messages" | "status">,
+): boolean => {
   return chatHistory.status === "running";
 };
 
@@ -1077,14 +1359,25 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
+      let matchingClientMessageId = false;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
-        lastUserText = extractTextFromContent(input?.content);
-        break;
+        if (!lastUserText) {
+          lastUserText = extractTextFromContent(input?.content);
+        }
+        if (
+          cached.clientMessageId &&
+          extractClientMessageId(input?.metadata) === cached.clientMessageId
+        ) {
+          matchingClientMessageId = true;
+          break;
+        }
+        if (!cached.clientMessageId) break;
       }
-      const persistenceConfirmed =
-        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
+      const persistenceConfirmed = cached.clientMessageId
+        ? matchingClientMessageId
+        : lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         pendingIds.forEach(clearPendingUserMessage);
         return false;
@@ -1099,24 +1392,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       cached.content ??
       (cached.text ? [{ type: "text", text: cached.text }] : []);
 
+    const pendingMessage = {
+      content: msgContent,
+      role: ROLE_USER,
+      ...(cached.clientMessageId
+        ? {
+            metadata: {
+              metadata: {
+                [QWENPAW_CLIENT_MESSAGE_ID_KEY]: cached.clientMessageId,
+              },
+            },
+          }
+        : {}),
+    } as Message;
+    const pendingCard = buildUserCard(pendingMessage, messages.length);
+
     const lastMsg = messages[messages.length - 1];
     if (lastMsg?.role === ROLE_USER) {
       const text = extractTextFromContent(
         lastMsg?.cards?.[0]?.data?.input?.[0]?.content,
       );
       if (!text) {
-        lastMsg.cards = buildUserCard({
-          content: msgContent,
-          role: ROLE_USER,
-        } as Message).cards;
+        messages[messages.length - 1] = pendingCard;
+      } else if (lastMsg.id !== pendingCard.id) {
+        messages.push(pendingCard);
       }
     } else {
-      messages.push(
-        buildUserCard({
-          content: msgContent,
-          role: ROLE_USER,
-        } as Message),
-      );
+      messages.push(pendingCard);
     }
     return true;
   }
@@ -1163,6 +1465,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return session.realId ?? (session.id !== sessionId ? session.id : null);
   }
 
+  async loadTimeline(sessionId: string, signal?: AbortSignal) {
+    const owner = this.getActiveOwner();
+    const id = this.getRealIdForSession(sessionId) ?? sessionId;
+    const history = await api.getChat(id, {
+      signal,
+      include_app_owned: false,
+      fresh: true,
+    });
+    if (signal?.aborted || !this.isActiveOwner(owner))
+      throw new DOMException("Aborted", "AbortError");
+    return toTimelineEvents(history.messages || []);
+  }
+
   /** Resolves the effective ID for URL navigation (prefers backend UUID). */
   getEffectiveSessionId(
     sessionId: string,
@@ -1200,6 +1515,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (!isLocalTimestamp(id)) return false;
     const session = this.findSession(id);
     return !!session && !session.realId;
+  }
+
+  /**
+   * Return the active blank Chat when an obsolete session load is trying to
+   * replace it. This can happen when the SDK's initial auto-selection finishes
+   * after the user has already created a new local session.
+   */
+  private getActiveBlankSession(
+    requestedId: string,
+  ): ExtendedSession | undefined {
+    const activeId = this.lastActiveChatId;
+    if (!activeId || activeId === requestedId) return undefined;
+    if (!this.isUnresolvedLocalSession(activeId)) return undefined;
+    return this.findSession(activeId);
   }
 
   /** Returns the backend-compatible session_id. Falls back to the id itself. */
@@ -1447,6 +1776,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   async getSession(sessionId: string, signal?: AbortSignal) {
     const owner = this.getActiveOwner();
 
+    const activeBlank = this.getActiveBlankSession(sessionId);
+    if (activeBlank) {
+      this.applySessionView(activeBlank, owner);
+      return activeBlank;
+    }
+
     // Check short-lived result cache first (populated by preloadSession).
     // Entries from a previous ownership epoch are never served.
     const cached = this.sessionResultCache.get(sessionId);
@@ -1456,16 +1791,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // new agent never adopts a request (and its captured owner) started by a
     // previous agent.
     const existingRequest = this.sessionRequests.get(sessionId);
-    if (existingRequest && this.isActiveOwner(existingRequest.owner)) {
-      return existingRequest.promise;
-    }
-
-    const requestPromise = this._doGetSession(sessionId, signal, owner);
-    const entry = { promise: requestPromise, owner };
-    this.sessionRequests.set(sessionId, entry);
+    const reuseExisting = Boolean(
+      existingRequest && this.isActiveOwner(existingRequest.owner),
+    );
+    const entry = reuseExisting
+      ? existingRequest!
+      : { promise: this._doGetSession(sessionId, signal, owner), owner };
+    if (!reuseExisting) this.sessionRequests.set(sessionId, entry);
 
     try {
-      const session = await requestPromise;
+      const session = await entry.promise;
+      const supersedingBlank = this.getActiveBlankSession(sessionId);
+      if (supersedingBlank) {
+        this.applySessionView(supersedingBlank, owner);
+        return supersedingBlank;
+      }
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
@@ -1483,7 +1823,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     } finally {
       // Delete by entry identity so a stale request cannot remove a newer
       // epoch's in-flight entry stored under the same key.
-      if (this.sessionRequests.get(sessionId) === entry) {
+      if (!reuseExisting && this.sessionRequests.get(sessionId) === entry) {
         this.sessionRequests.delete(sessionId);
       }
     }
@@ -1544,14 +1884,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     const session: ExtendedSession = {
       id: displayId,
-      name: listEntry?.name || DEFAULT_SESSION_NAME,
-      sessionId: listEntry?.sessionId || displayId,
-      userId: listEntry?.userId || DEFAULT_USER_ID,
-      channel: listEntry?.channel || DEFAULT_CHANNEL,
+      name: chatHistory.name || listEntry?.name || DEFAULT_SESSION_NAME,
+      sessionId: chatHistory.session_id || listEntry?.sessionId || displayId,
+      userId: chatHistory.user_id || listEntry?.userId || DEFAULT_USER_ID,
+      channel: chatHistory.channel || listEntry?.channel || DEFAULT_CHANNEL,
       messages,
-      meta: listEntry?.meta || {},
+      timelineEvents: toTimelineEvents(chatHistory.messages || []),
+      meta: chatHistory.meta || listEntry?.meta || {},
       realId:
         listEntry?.realId ?? (backendId !== displayId ? backendId : undefined),
+      status: chatHistory.status,
+      createdAt: chatHistory.created_at ?? listEntry?.createdAt ?? null,
+      updatedAt: chatHistory.updated_at ?? listEntry?.updatedAt ?? null,
+      pinned: chatHistory.pinned ?? listEntry?.pinned ?? false,
+      archived: chatHistory.archived ?? listEntry?.archived ?? false,
+      archivedAt: chatHistory.archived_at ?? listEntry?.archivedAt ?? null,
+      source: chatHistory.source ?? listEntry?.source,
       generating,
     };
 
@@ -1605,7 +1953,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             signal,
             owner,
           );
-        } catch (error) {
+        } catch {
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
           this.applySessionView(fromList, owner);
@@ -1654,12 +2002,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         signal,
         owner,
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
       // return an empty session to prevent repeated 404 API calls.
       // Note: the request layer throws Error(message) without attaching .status,
       // so only message-based detection is reliable here.
-      if (error.message?.includes("Chat not found")) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("Chat not found")) {
         const emptySession = this.createEmptySession(sessionId, owner);
         emptySession.id = sessionId;
         return emptySession;
@@ -1732,7 +2081,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // session list. Use destructuring instead of mutating the input object
     // — the library may pass its own internal session reference, and
     // mutating session.messages would corrupt its React state.
-    const { messages: _msgs, ...metadata } = session;
+    const metadata = { ...session };
+    delete metadata.messages;
     const index = this.sessionList.findIndex((s) => s.id === metadata.id);
 
     if (index > -1) {

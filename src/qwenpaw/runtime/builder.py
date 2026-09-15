@@ -342,6 +342,14 @@ class AgentBuilder:
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
+        # Storage completion is Runtime-owned, never a tool/prompt parameter.
+        request_context.pop("_session_save_result", None)
+        request_context.pop("_internal_result", None)
+        run_input_mailbox = request_context.pop("_run_input_mailbox", None)
+        reply_cycle_context = request_context.pop(
+            "_reply_cycle_context",
+            None,
+        )
         agent_config = self._apply_request_project(
             agent_config,
             request_context,
@@ -550,6 +558,8 @@ class AgentBuilder:
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             request_context=request_context,
+            run_input_mailbox=run_input_mailbox,
+            reply_cycle_context=reply_cycle_context,
             offloader=offloader,
             context_config=self._build_context_config(agent_config),
             context_manager=(
@@ -579,6 +589,7 @@ class AgentBuilder:
         :class:`PromptManager`.
         """
         from types import SimpleNamespace
+
         from ..constant import WORKING_DIR
 
         if agent_config is None:
@@ -860,6 +871,7 @@ class AgentBuilder:
     def _build_env_context(ctx: Any, agent_config: Any) -> str:
         import os
         import sys
+
         from ..app.chats.utils import build_env_context
         from ..constant import WORKING_DIR
 
@@ -1335,6 +1347,7 @@ class AgentBuilder:
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — innermost pre-provider transform
+        5. ReasoningBoundaryMiddleware — provider-neutral output normalization
         """
         mws: list[Any] = []
 
@@ -1432,6 +1445,10 @@ class AgentBuilder:
             agent_config.running.light_context_config.visual_compact_config
         )
         mws.append(VisualCompressionMiddleware(visual_config))
+
+        from ..agents.middlewares import ReasoningBoundaryMiddleware
+
+        mws.append(ReasoningBoundaryMiddleware())
 
         return mws
 

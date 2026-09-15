@@ -1085,7 +1085,7 @@ class BaseChannel(ABC):
         fallback: str,
         headline_stream_states: dict[str, Any] | None = None,
     ) -> str:
-        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
+        """Hide Scroll headlines in assistant text, not arbitrary JSON strings.
 
         Channels strip headlines via ``MessageRenderer``, but this raw-event
         SSE path (console + web UI) bypasses it, so the comment leaks into the
@@ -1108,11 +1108,13 @@ class BaseChannel(ABC):
         # A content delta may split the protocol line over several events.
         # Track that state inside the current SSE request rather than on the
         # shared channel instance, where concurrent sessions could interfere.
-        if (
+        is_stream_delta = (
             headline_stream_states is not None
             and getattr(event, "object", None) == "content"
+            and getattr(event, "type", None) == "text"
             and getattr(event, "delta", False)
-        ):
+        )
+        if is_stream_delta:
             msg_id = str(getattr(event, "msg_id", "") or "")
             index = int(getattr(event, "index", 0) or 0)
             stream_key = f"{msg_id}:{index}"
@@ -1127,23 +1129,32 @@ class BaseChannel(ABC):
             )
             if isinstance(payload, dict) and "text" in payload:
                 payload["text"] = clean_text
-            if state.suppressing or state.pending:
-                headline_stream_states[stream_key] = state
+            # Even an ordinary delta carries line context for the next one.
+            # Message/response completion releases these per-stream states.
+            headline_stream_states[stream_key] = state
+
+        def clean_message(message: Any) -> None:
+            if not isinstance(message, dict) or (
+                message.get("role") != "assistant"
+                or message.get("type") not in {"message", "reasoning"}
+            ):
+                return
+            for block in message.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    block["text"] = strip_headline(block.get("text"))
+
+        if isinstance(payload, dict):
+            if payload.get("object") == "response":
+                for message in payload.get("output") or []:
+                    clean_message(message)
+            elif payload.get("object") == "content":
+                # Runtime envelopes emit assistant text/reasoning as TextContent;
+                # tool arguments and outputs use DataContent and stay untouched.
+                if payload.get("type") == "text" and not is_stream_delta:
+                    payload["text"] = strip_headline(payload.get("text"))
             else:
-                headline_stream_states.pop(stream_key, None)
-
-        def walk(node: Any) -> Any:
-            if isinstance(node, str):
-                return strip_headline(node)
-            if isinstance(node, dict):
-                for key, value in list(node.items()):
-                    node[key] = walk(value)
-                return node
-            if isinstance(node, list):
-                return [walk(value) for value in node]
-            return node
-
-        payload = walk(payload)
+                clean_message(payload)
+                clean_message(payload.get("message"))
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     def _serialize_event_for_sse(
@@ -1165,6 +1176,7 @@ class BaseChannel(ABC):
             is_tracked_delta = (
                 headline_stream_states is not None
                 and getattr(event, "object", None) == "content"
+                and getattr(event, "type", None) == "text"
                 and getattr(event, "delta", False)
             )
             should_strip = (

@@ -17,7 +17,12 @@ import qwenpaw.app.multi_agent_manager as multi_agent_manager_module
 import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
-from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.task_tracker import (
+    REPLAY_END_SSE,
+    RunOutcome,
+    RunStarted,
+    TaskTracker,
+)
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.memory.reme_light_memory_manager import (
@@ -318,6 +323,31 @@ async def test_reload_marks_rejected_reusable_service_for_cleanup(
 
 
 @pytest.mark.asyncio
+async def test_failed_reload_does_not_close_shared_background_results(
+    monkeypatch,
+) -> None:
+    manager = MultiAgentManager()
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: _config("agent-1"),
+    )
+    old_workspace = _ReloadWorkspace("agent-1")
+    new_workspace = _ReloadWorkspace("agent-1")
+    manager.agents["agent-1"] = old_workspace
+    manager._create_workspace = MagicMock(return_value=new_workspace)
+    manager._setup_workspace_plugins = AsyncMock(
+        side_effect=RuntimeError("replacement setup failed")
+    )
+    new_workspace.stop = AsyncMock()
+
+    assert await manager.reload_agent("agent-1") is False
+    assert manager.agents["agent-1"] is old_workspace
+    assert new_workspace.task_tracker is old_workspace.task_tracker
+    new_workspace.stop.assert_awaited_once_with(final=False)
+    assert not old_workspace.stopped
+
+
+@pytest.mark.asyncio
 async def test_reload_reuses_tracker_for_active_stream_reconnect(
     monkeypatch,
 ) -> None:
@@ -355,6 +385,9 @@ async def test_reload_reuses_tracker_for_active_stream_reconnect(
 
     reconnect_queue = await new_workspace.task_tracker.attach("chat-1")
     assert reconnect_queue is not None
+    started = await reconnect_queue.get()
+    assert isinstance(started, RunStarted)
+    assert started.replay is True
     assert await reconnect_queue.get() == "data: replayed\n\n"
     assert await reconnect_queue.get() == REPLAY_END_SSE
 
@@ -362,6 +395,10 @@ async def test_reload_reuses_tracker_for_active_stream_reconnect(
     assert cleanup_tasks
     release.set()
     assert await reconnect_queue.get() == "data: live\n\n"
+    sealed = await reconnect_queue.get()
+    assert isinstance(sealed, RunOutcome)
+    assert sealed.run_id == started.run_id
+    assert sealed.status == "completed"
     assert await reconnect_queue.get() is None
     async for _ in old_workspace.task_tracker.stream_from_queue(
         original_queue,

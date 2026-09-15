@@ -166,3 +166,61 @@ async def test_consume_forwards_call_kwargs():
 
     await consume_model_response(model, [], disable_thinking=True)
     assert seen == {"disable_thinking": True}
+
+
+async def test_response_observer_does_not_change_text_or_provider_kwargs():
+    chunks = [{"text": "part"}, {"text": "partial"}, {"text": ""}]
+    observed = []
+    kwargs = {}
+
+    async def model(messages, **kw):
+        kwargs.update(kw)
+
+        async def stream():
+            for chunk in chunks:
+                yield chunk
+
+        return stream()
+
+    result = await consume_model_response(
+        model,
+        [],
+        on_response=observed.append,
+        max_tokens=256,
+    )
+    assert result == "partial"
+    assert observed == chunks
+    assert kwargs == {"max_tokens": 256}
+
+
+async def test_observer_sees_non_streaming_response():
+    response = {"text": "ok", "usage": {"output_tokens": 1}}
+    observed = []
+
+    async def model(messages, **kw):
+        return response
+
+    assert (
+        await consume_model_response(
+            model,
+            [],
+            on_response=observed.append,
+        )
+        == "ok"
+    )
+    assert observed == [response]
+
+
+async def test_observer_keeps_partial_response_when_stream_fails():
+    observed = []
+
+    async def model(messages, **kw):
+        async def stream():
+            yield {"text": "partial"}
+            raise ConnectionError("closed")
+
+        return stream()
+
+    with pytest.raises(ConnectionError):
+        await consume_model_response(model, [], on_response=observed.append)
+    assert observed == [{"text": "partial"}]

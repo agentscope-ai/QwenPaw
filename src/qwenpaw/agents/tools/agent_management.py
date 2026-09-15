@@ -426,6 +426,14 @@ def submit_agent_chat_task(
     payload = dict(request_payload)
     if task_timeout is not None:
         payload["timeout"] = task_timeout
+    from ...tool_calls._ctxvars import get_call_context
+
+    context = get_call_context()
+    route = context.result_route if context is not None else None
+    # Explicit remote endpoints retain the existing polling API; an in-process
+    # capability must not be sent to another QwenPaw server.
+    if route is not None and base_url is None:
+        payload["background_result_token"] = route.issue_ticket(to_agent)
     with create_agent_api_client(base_url) as client:
         response = client.post(
             "/console/chat/task",
@@ -442,7 +450,10 @@ def submit_agent_chat_task(
                 "error": detail or "A task is already running for this chat",
             }
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        if "background_result_token" in payload:
+            result["result_delivery"] = "current_chat"
+        return result
 
 
 def get_agent_chat_task_status(
@@ -496,6 +507,16 @@ def format_background_submission_text(
     timeout = task_result.get("timeout")
     if timeout is not None:
         lines.append(f"[TIMEOUT: {timeout}s]")
+    if task_result.get("result_delivery") == "current_chat":
+        lines.extend(
+            [
+                "",
+                "Task submitted; execution has not completed yet.",
+                "The result will return to this Chat automatically.",
+                "Do not poll or repeat the task just to obtain its result.",
+            ]
+        )
+        return "\n".join(lines)
     lines.extend(
         [
             "",
@@ -818,6 +839,13 @@ async def check_agent_task(
         to_agent=None,
         timeout=10,
     )
+    if isinstance(result, dict) and result.get("status") == "finished":
+        from ...tool_calls._ctxvars import get_call_context
+
+        context = get_call_context()
+        route = context.result_route if context else None
+        if route is not None:
+            route.record_polled_result(normalized_task_id)
     # Background fork workers: commit on success, mark failed otherwise.
     if isinstance(result, dict) and result.get("status") == "finished":
         task_result = result.get("result")
@@ -1182,14 +1210,16 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
             A JSON/string boolean (e.g. ``"false"``) is also accepted
             for LLM mis-serialization; ambiguous values return ERROR.
         background: If True, submit as a background task and return
-            immediately with a task_id.  The subagent typically runs for
-            **minutes, not seconds** — do NOT poll immediately.  Wait at
-            least 30 seconds before the first ``check_agent_task`` call,
-            and use 30-60 second intervals between subsequent polls.
-            Prefer ``background=False`` (foreground) when only spawning
-            a single subagent — it blocks until completion, eliminating
-            the need to poll entirely.  String booleans are accepted
-            like ``fork``; ambiguous values return ERROR.
+            immediately with a task_id. Follow the returned receipt's
+            delivery instructions: when results return to the current
+            Chat automatically, report submission and let the reply end;
+            the result will resume the Chat. Do not poll or spawn another
+            worker merely to retrieve that result. If the receipt requires
+            polling, wait at least 30 seconds before ``check_agent_task``
+            and use 30-60 second intervals between checks. Foreground
+            (False) waits for completion; honor the user's requested mode.
+            String booleans are accepted like ``fork``; ambiguous values
+            return ERROR.
         timeout: Time budget in seconds.  Numeric strings (e.g.
             ``"1800"``) are accepted for LLM mis-serialization; invalid
             values return ERROR.  Foreground: parent HTTP wait on

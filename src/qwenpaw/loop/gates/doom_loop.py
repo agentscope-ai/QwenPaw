@@ -39,6 +39,7 @@ class _DoomState:
     consecutive_hits: int = 0
     prompt: str = ""
     last_recorded_iter: int = -1
+    last_recorded_call_id: str = ""
 
 
 class DoomLoopGate(LoopGate):
@@ -103,12 +104,17 @@ class DoomLoopGate(LoopGate):
 
     def reset_turn(self) -> None:
         """Clear history and counters for current session."""
+        self.reset_reply_cycle()
+
+    def reset_reply_cycle(self) -> None:
+        """Do not compare repeated tool patterns across user replies."""
         state = self._state()
         if state is not None:
             state.history.clear()
             state.consecutive_hits = 0
             state.prompt = ""
             state.last_recorded_iter = -1
+            state.last_recorded_call_id = ""
 
     async def check(
         self,
@@ -123,7 +129,17 @@ class DoomLoopGate(LoopGate):
             action=StopAction.BYPASS,
         )
         state = self._ensure_state()
-        self._auto_record_from_ctx(ctx, state)
+        recorded = self._auto_record_from_ctx(ctx, state)
+        if (
+            isinstance(ctx, dict)
+            and ctx.get("agent") is not None
+            and not recorded
+        ):
+            # Native messages accumulate multiple reasoning/acting rounds.
+            # A text-only answer must not replay the previous tool call and
+            # force another answer from a stale repetition warning.
+            state.prompt = ""
+            return _bypass
 
         is_looping = self._detect_repetition(state)
 
@@ -178,16 +194,16 @@ class DoomLoopGate(LoopGate):
         self,
         ctx: Any,
         state: _DoomState,
-    ) -> None:
+    ) -> bool:
         """Extract latest tool call from agent context."""
         if not isinstance(ctx, dict):
-            return
+            return False
         agent = ctx.get("agent")
         if agent is None:
-            return
+            return False
         cur_iter = ctx.get("iteration", 0)
         if cur_iter <= state.last_recorded_iter:
-            return
+            return False
         state.last_recorded_iter = cur_iter
 
         context = getattr(
@@ -196,16 +212,24 @@ class DoomLoopGate(LoopGate):
             [],
         )
         if not context:
-            return
+            return False
         last_msg = context[-1]
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
-            return
+            return False
         for block in reversed(content):
             btype = getattr(block, "type", None)
             if isinstance(block, dict):
                 btype = block.get("type")
             if btype in ("tool_call", "tool_use"):
+                call_id = (
+                    block.get("id", "")
+                    if isinstance(block, dict)
+                    else getattr(block, "id", "")
+                )
+                if not call_id or call_id == state.last_recorded_call_id:
+                    return False
+                state.last_recorded_call_id = call_id
                 name = (
                     block.get("name", "")
                     if isinstance(block, dict)
@@ -223,7 +247,8 @@ class DoomLoopGate(LoopGate):
                         args_hash=args_hash,
                     ),
                 )
-                return
+                return True
+        return False
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:

@@ -123,6 +123,39 @@ def test_strip_headline_preserves_inline_plain_fence() -> None:
     assert strip_headline(text) == text
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("compare ⟦left⟧ and ⟦right⟧", "compare ⟦left⟧ and ⟦right⟧"),
+        ("compare 〚left〛 and 〚right〛", "compare 〚left〛 and 〚right〛"),
+        ("answer\n  compare ⟦left⟧", "answer\n  compare ⟦left⟧"),
+        ("answer\n\t  ⟦ hidden ⟧", "answer"),
+        ("answer\r\n\t  〚 hidden 〛", "answer"),
+        ("answer\n⟦ unfinished", "answer"),
+        ("answer\n<!-- ⟦ hidden ⟧ -->", "answer"),
+        ("<!important ⟦left⟧", "<!important ⟦left⟧"),
+        ("数学表达式\n⟨x, y⟩", "数学表达式\n⟨x, y⟩"),
+        ("正文\n⟨ 任务一｜已完成：301 ⟩", "正文\n⟨ 任务一｜已完成：301 ⟩"),
+    ],
+)
+def test_headline_display_is_independent_of_chunk_boundaries(
+    text: str,
+    expected: str,
+) -> None:
+    partitions = [(text[:i], text[i:]) for i in range(1, len(text))]
+    partitions.append(tuple(text))
+    assert strip_headline(text) == expected
+    for chunks in partitions:
+        state = HeadlineDeltaState()
+        visible = []
+        for chunk in chunks:
+            delta, state = strip_headline_delta(chunk, state=state)
+            visible.append(delta)
+        visible.append(flush_headline_delta(state))
+        assert "".join(visible).strip() == expected, chunks
+        assert state == HeadlineDeltaState()
+
+
 def test_strip_headline_delta_suppresses_split_protocol_line() -> None:
     state = HeadlineDeltaState()
     visible, state = strip_headline_delta(
@@ -166,6 +199,7 @@ def test_strip_headline_delta_buffers_every_legacy_marker_split(
     )
 
     assert first + second == "answer\n"
+    assert flush_headline_delta(state) == ""
     assert state == HeadlineDeltaState()
 
 
@@ -175,6 +209,7 @@ def test_strip_headline_delta_releases_non_protocol_prefix() -> None:
     second, state = strip_headline_delta("important", state=state)
 
     assert first + second == "answer\n<!important"
+    assert flush_headline_delta(state) == ""
     assert state == HeadlineDeltaState()
 
 

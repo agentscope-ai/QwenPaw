@@ -207,6 +207,9 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    active_realtime_voice: ModelSlotConfig | None = None
+    active_voice_router: ModelSlotConfig | None = None
+    effective_voice_router: ModelSlotConfig | None = None
     effective_max_input_length: int | None = None
 
 
@@ -2375,6 +2378,14 @@ class AgentProfileConfig(BaseModel):
     ] = Field(
         default="inherit",
         description="Provider-independent agent reasoning level",
+    )
+    active_realtime_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Active realtime voice model for this agent",
+    )
+    active_voice_router_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional semantic voice router model for this agent",
     )
     language: str = Field(
         default="zh",

@@ -21,12 +21,15 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.console import _extract_session_and_payload
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.constant import QWENPAW_MESSAGE_TAG_KEY
 from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
 
 
 @pytest.fixture
-def console_workspace(workspace_mock):
+def console_workspace():
     """Workspace with a console channel, chat manager, and empty tracker."""
+    workspace_mock = MagicMock(name="Workspace")
+    workspace_mock.channel_manager = MagicMock(name="ChannelManager")
     console_channel = MagicMock(name="ConsoleChannel")
     console_channel.resolve_session_id = MagicMock(
         return_value="console:default",
@@ -60,12 +63,14 @@ def console_workspace(workspace_mock):
 
 
 @pytest.fixture
-def app(manager_mock, console_workspace) -> FastAPI:
+def app(console_workspace) -> FastAPI:
     """A fresh FastAPI app mounting only the console router under /api."""
     from qwenpaw.app.routers.console import router as console_router
 
     application = FastAPI()
-    application.state.multi_agent_manager = manager_mock
+    manager = MagicMock(name="MultiAgentManager")
+    manager.get_agent = AsyncMock(return_value=console_workspace)
+    application.state.multi_agent_manager = manager
     application.include_router(console_router, prefix="/api")
     return application
 
@@ -107,6 +112,27 @@ def test_extract_payload_preserves_user_message_metadata():
                     content=[TextContent(text="continue")],
                     metadata={
                         "qwenpaw_client_message_id": "client-new",
+                    },
+                ),
+            ],
+        ),
+    )
+
+    assert payload["message_metadata"] == {
+        "qwenpaw_client_message_id": "client-new",
+    }
+
+
+def test_extract_payload_rejects_public_runtime_message_tag():
+    payload = _extract_session_and_payload(
+        AgentRequest(
+            input=[
+                Message(
+                    role=Role.USER,
+                    content=[TextContent(text="continue")],
+                    metadata={
+                        "qwenpaw_client_message_id": "client-new",
+                        QWENPAW_MESSAGE_TAG_KEY: "internal_only",
                     },
                 ),
             ],
@@ -173,9 +199,13 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     finally:
         release.set()
 
-    assert received[0] == "data: first\n\n"
-    payload = json.loads(received[1][len("data: ") :])
+    start = json.loads(received[0][len("data: ") :])
+    assert start["type"] == "run_started" and start["replay"] is True
+    assert received[1] == "data: first\n\n"
+    payload = json.loads(received[2][len("data: ") :])
     assert payload == {"type": "replay_end"}
+    end = json.loads(received[-1][len("data: ") :])
+    assert end["type"] == "run_sealed" and end["run_id"] == start["run_id"]
     # No fresh run was started by the reconnect.
     assert console_workspace.console_channel.stream_calls == []
 

@@ -22,14 +22,16 @@ html2text_stub.HTML2Text = type("HTML2Text", (), {})
 sys.modules.setdefault("html2text", html2text_stub)
 
 from qwenpaw.agents.middlewares import (  # noqa: E402
+    ReasoningBoundaryMiddleware,
     ToolResultPruningMiddleware,
 )
+from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.agents.tools.utils import (  # noqa: E402
-    build_truncation_metadata,
     MAX_TRUNCATION_NOTICE_BYTES,
-    ToolResultPruner,
-    truncate_text_output,
     TRUNCATION_METADATA_KEY,
+    ToolResultPruner,
+    build_truncation_metadata,
+    truncate_text_output,
 )
 from qwenpaw.config.config import (  # noqa: E402
     ContextCompactConfig,
@@ -39,7 +41,6 @@ from qwenpaw.config.config import (  # noqa: E402
 )
 from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
 from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
-from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.tool_calls import (  # noqa: E402
     COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
     ToolCoordinator,
@@ -635,6 +636,7 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
         coordinator_middleware._background_result_processor
         == middlewares[pruning_index].prune_tool_response_async
     )
+    assert isinstance(middlewares[-1], ReasoningBoundaryMiddleware)
 
 
 def test_spawn_subagent_hook_exposes_internal_timeout_cap():
