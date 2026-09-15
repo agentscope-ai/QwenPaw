@@ -18,6 +18,7 @@ vi.mock("../../../../hooks/useToolCallControl", () => ({
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
+    recordMissing: false,
     toggleBanner: vi.fn(),
     closeBanner: vi.fn(),
     updateRemaining: vi.fn(),
@@ -30,6 +31,12 @@ vi.mock("./ToolCallControlPopover", () => ({
 
 import ToolCardShell from "./ToolCardShell";
 import type { ToolCallContent } from "./types";
+import { adaptCardForV1 } from "../adapters/v1Adapter";
+import ShellCard from "../cards/ShellCard";
+import ReadFileCard from "../cards/ReadFileCard";
+import WriteFileCard from "../cards/WriteFileCard";
+import SendFileCard from "../cards/SendFileCard";
+import GenericToolCard from "../cards/GenericToolCard";
 
 const content: ToolCallContent = {
   type: "tool_call",
@@ -53,6 +60,140 @@ const streamingInputContent: ToolCallContent = {
     truncated: false,
   },
 };
+
+describe("ToolCardShell interruption", () => {
+  it.each([
+    ShellCard,
+    ReadFileCard,
+    WriteFileCard,
+    SendFileCard,
+    GenericToolCard,
+  ])(
+    "preserves interruption through the registered %s renderer",
+    (CardComponent) => {
+      const Card = adaptCardForV1(CardComponent);
+      render(
+        <Card
+          data={{
+            status: "completed",
+            content: [
+              {
+                data: { name: "any_tool", call_id: "call-1", arguments: "{}" },
+              },
+              { data: { state: "interrupted", output: "partial output" } },
+            ],
+          }}
+        />,
+      );
+      expect(screen.getByText("tool.interrupted")).toBeInTheDocument();
+      expect(screen.queryByText("Error")).not.toBeInTheDocument();
+    },
+  );
+
+  it("replaces the running state with a neutral interruption and keeps diagnostics", () => {
+    const result =
+      "first step finished\n<system-reminder>interrupted</system-reminder>";
+    const { container, rerender } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Tool"
+        isStreaming
+      />,
+    );
+    expect(
+      container.querySelector('[class*="toolCallSpinner"]'),
+    ).not.toBeNull();
+    rerender(
+      <ToolCardShell
+        content={{ ...runningContent, status: "interrupted", result }}
+        icon={<span />}
+        title="Tool"
+        isStreaming
+        defaultExpanded
+        inlineResult="success result"
+        badges={<span>success badge</span>}
+        summaryAction={<button>success action</button>}
+      >
+        <div>success body</div>
+      </ToolCardShell>,
+    );
+    expect(screen.getByText("tool.interrupted")).toBeInTheDocument();
+    expect(screen.getByText("tool.interruptedDescription")).toBeInTheDocument();
+    expect(container.querySelector('[class*="toolCallSpinner"]')).toBeNull();
+    expect(
+      container.querySelector('[class*="toolCallCompactError"]'),
+    ).toBeNull();
+    expect(screen.queryByText("Error")).not.toBeInTheDocument();
+    for (const text of [
+      "success result",
+      "success badge",
+      "success action",
+      "success body",
+    ]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+    const diagnostics = screen
+      .getByText("tool.interruptedOutput")
+      .closest("details");
+    expect(diagnostics).not.toHaveAttribute("open");
+    diagnostics!.open = true;
+    fireEvent(diagnostics!, new Event("toggle"));
+    expect(diagnostics).toHaveTextContent("first step finished");
+    expect(diagnostics).toHaveTextContent(
+      "<system-reminder>interrupted</system-reminder>",
+    );
+  });
+
+  it("does not fabricate output when an interrupted tool returned nothing", () => {
+    render(
+      <ToolCardShell
+        content={{ ...content, status: "interrupted", result: "" }}
+        icon={<span />}
+        title="Tool"
+        defaultExpanded
+      />,
+    );
+    expect(screen.getByText("tool.interrupted")).toBeInTheDocument();
+    expect(
+      screen.queryByText("tool.interruptedOutput"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps structured partial output intact in diagnostics", () => {
+    const result = [
+      { type: "text", text: "partial" },
+      { type: "image", data: "image-payload" },
+    ];
+    render(
+      <ToolCardShell
+        content={{ ...content, status: "interrupted", result }}
+        icon={<span />}
+        title="Tool"
+        defaultExpanded
+      />,
+    );
+    const diagnostics = screen
+      .getByText("tool.interruptedOutput")
+      .closest("details");
+    expect(diagnostics).toHaveTextContent("partial");
+    expect(diagnostics).toHaveTextContent("image-payload");
+  });
+
+  it("continues to show genuine execution errors as errors", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={{ ...content, status: "error", result: "permission denied" }}
+        icon={<span />}
+        title="Tool"
+        defaultExpanded
+      />,
+    );
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(container).toHaveTextContent("permission denied");
+    expect(screen.queryByText("tool.interrupted")).not.toBeInTheDocument();
+  });
+});
 
 describe("ToolCardShell lazy body", () => {
   beforeEach(() => {

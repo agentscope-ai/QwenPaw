@@ -77,6 +77,35 @@ afterEach(() => {
 });
 
 describe("agent session ownership epochs", () => {
+  it("handover bypasses preloads and in-flight session reads", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const pending = deferred<ChatHistory>();
+    const getSpy = vi
+      .spyOn(api, "getChat")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(makeHistory());
+    const preload = sessionApi.preloadSession(A_CHAT);
+    await flush();
+    await expect(sessionApi.loadTimeline(A_CHAT)).resolves.toEqual([]);
+    expect(getSpy).toHaveBeenLastCalledWith(A_CHAT, {
+      signal: undefined,
+      include_app_owned: false,
+      fresh: true,
+    });
+    expect(getSpy).toHaveBeenCalledTimes(2);
+    pending.resolve(makeHistory());
+    await preload;
+  });
+
+  it("handover rejects a history response belonging to an old agent", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const pending = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockReturnValue(pending.promise);
+    const read = sessionApi.loadTimeline(A_CHAT);
+    sessionApi.setActiveAgent("agent-b");
+    pending.resolve(makeHistory());
+    await expect(read).rejects.toThrow();
+  });
   it("requests only host-owned sessions and history in main Chat", async () => {
     const listSpy = vi
       .spyOn(api, "listChats")
@@ -417,5 +446,46 @@ describe("agent session ownership epochs", () => {
     listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, "console:b")]);
     const fresh = await sessionApi.getSessionList();
     expect(fresh.map((s) => s.id)).toEqual([B_CHAT]);
+  });
+});
+
+describe("session creation", () => {
+  it("clears stale input messages before the SDK installs a new session", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const spec = {
+      messages: [{ id: "stale-message" }],
+    } as unknown as Parameters<typeof sessionApi.createSession>[0];
+
+    await sessionApi.createSession(spec);
+
+    expect(spec.messages).toEqual([]);
+  });
+
+  it("keeps a new blank Chat when an older session load finishes late", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      makeChatSpec(A_CHAT, "console:a"),
+    ]);
+    const history = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockReturnValue(history.promise);
+    const onSessionSelected = vi.fn();
+    sessionApi.onSessionSelected = onSessionSelected;
+
+    await sessionApi.getSessionList();
+    const oldLoad = sessionApi.getSession(A_CHAT);
+
+    sessionApi.onSessionCreated = (sessionId) => {
+      sessionApi.lastActiveChatId = sessionId;
+    };
+    sessionApi.userInitiatedCreate = true;
+    const blankSpec: { id?: string } = {};
+    await sessionApi.createSession(blankSpec);
+
+    history.resolve(makeHistory());
+    const result = await oldLoad;
+
+    expect(result.id).toBe(blankSpec.id);
+    expect(result.messages).toEqual([]);
+    expect(onSessionSelected).not.toHaveBeenCalled();
   });
 });

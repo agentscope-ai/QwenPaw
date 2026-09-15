@@ -8,7 +8,10 @@ import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
+
+if TYPE_CHECKING:
+    from ..app.chats.background_results import CallResultRoute
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
@@ -104,7 +107,9 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None = None,
+        offload_on_deadline: bool | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
+        result_route: CallResultRoute | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
             tool_call,
@@ -114,6 +119,7 @@ class ToolCoordinator:
             deadline_override,
         )
         ctx = entry.ctx
+        ctx.result_route = result_route
 
         async with self._entries_lock:
             self._entries[ctx.tool_call_id] = entry
@@ -140,8 +146,9 @@ class ToolCoordinator:
                 elif event.type == "deadline_reached":
                     if (
                         self._offload_on_deadline
-                        or ctx.offload_reason == OffloadReason.USER
-                    ):
+                        if offload_on_deadline is None
+                        else offload_on_deadline
+                    ) or ctx.offload_reason == OffloadReason.USER:
                         # Offload must not create unbounded background work.
                         if not self._ensure_kill_deadline_for_offload(ctx):
                             ctx.cancel_event.set()
@@ -271,6 +278,11 @@ class ToolCoordinator:
         ctx = entry.ctx
         entry.status = ToolCallStatus.OFFLOADED
         ctx.offload_deadline = None
+        route = ctx.result_route
+        if route is not None:
+            work = route.register()
+            work.cancel = ctx.cancel_event.set
+            ctx.background_work = work
 
         asyncio.create_task(
             self._supervise(entry, background_result_processor),
@@ -825,11 +837,20 @@ class ToolCoordinator:
                 logger.exception("background result processor failed")
 
         hint = make_offload_hint_msg(entry)
-        async with self._hints_lock:
-            self._pending_hints.setdefault(
-                entry.ctx.session_id,
-                [],
-            ).append(hint)
+        work = entry.ctx.background_work
+        if work is not None:
+            status = {
+                "success": "completed",
+                "error": "failed",
+                "interrupted": "cancelled",
+            }.get(str(entry.final_response.state), "failed")
+            work.complete(status, hint)
+        else:
+            # Non-Chat channels retain their existing next-reasoning hint path.
+            async with self._hints_lock:
+                self._pending_hints.setdefault(
+                    entry.ctx.session_id, []
+                ).append(hint)
 
         for handler in list(self._completion_handlers):
             try:

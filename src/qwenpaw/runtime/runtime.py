@@ -26,6 +26,7 @@ from .envelope import Envelope
 from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
+from ..constant import CHAT_CONVERSATION_CONTEXT_KEY, CHAT_INPUT_TARGET_KEY
 from .phases import Phase
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,22 @@ class Runtime:
         ctx = self._build_context(request)
         hooks = self.workspace.plugins.hook_registry
 
-        envelope = Envelope(session_id=ctx.session_id)
+        request_context = getattr(request, "request_context", None)
+        reply_cycle_context = (
+            request_context.get("_reply_cycle_context")
+            if isinstance(request_context, dict)
+            else None
+        )
+        envelope = Envelope(
+            session_id=ctx.session_id,
+            reply_cycle_context=reply_cycle_context,
+        )
+        if reply_cycle_context is not None:
+            input_metadata = reply_cycle_context.snapshot.metadata()
+            for message in ctx.input_msgs:
+                metadata = dict(getattr(message, "metadata", None) or {})
+                metadata.update(input_metadata)
+                message.metadata = metadata
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
 
@@ -132,7 +148,17 @@ class Runtime:
                     )
                     or "(empty)",
                 )
-                async for ev in executor.run(ctx.input_msgs):
+                result_input = (
+                    request_context.get("_internal_result")
+                    if isinstance(request_context, dict)
+                    else None
+                )
+                execution = (
+                    executor.run(ctx.input_msgs, result_input=result_input)
+                    if result_input is not None
+                    else executor.run(ctx.input_msgs)
+                )
+                async for ev in execution:
                     yield ev
 
             # --- [phase 6] POST_RESPONSE ---
@@ -180,7 +206,7 @@ class Runtime:
                 yield ev
             raise
         except BaseException as e:
-            await self._try_save_on_cancel(ctx)
+            await self._try_save_on_cancel(ctx, outcome="failed")
 
             ctx.error = e
             logger.error(
@@ -234,7 +260,9 @@ class Runtime:
                     exc_info=True,
                 )
 
-    async def _try_save_on_cancel(self, ctx: HookContext) -> None:
+    async def _try_save_on_cancel(
+        self, ctx: HookContext, *, outcome: str = "cancelled"
+    ) -> None:
         """Best-effort session save on cancellation.
 
         Before snapshotting, any partial streaming content accumulated in
@@ -245,8 +273,8 @@ class Runtime:
         state *before* any further event-loop iteration.  The I/O write
         is wrapped in ``asyncio.shield`` so it completes even when the
         outer task's ``_must_cancel`` flag triggers a re-cancellation on
-        the next ``await``.  In that case the shielded inner task still
-        runs to completion in the background; the ``proxy`` owns an
+        the next ``await``. The actual write is joined before returning;
+        the ``proxy`` owns an
         independent copy of the data so ``agent.close()`` in the
         ``finally`` block cannot corrupt it.
 
@@ -285,35 +313,32 @@ class Runtime:
         if session is None:
             return
         try:
+            # A cancelled/failed wait must not be restored as resumable work.
+            reply_cycle = getattr(agent, "_reply_cycle_context", None)
+            if reply_cycle is not None:
+                reply_cycle.finish_run(outcome)
             envelope = getattr(ctx, "_envelope", None)
             if envelope is not None:
                 self._inject_partial_response(agent, envelope)
+            if reply_cycle is not None:
+                self._record_request_termination(agent, reply_cycle, outcome)
 
             from ..hooks.cron.cron_hook import restore_cron_context
+            from ..hooks.session.session_hook import save_snapshot
             from ._state_utils import StateProxy
 
             restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = agent.state_dict()
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-            await asyncio.shield(
-                session.save_session_state(
-                    session_id=ctx.session_id,
-                    user_id=user_id,
-                    channel=channel,
-                    agent=proxy,
-                ),
-            )
+            proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
+            await save_snapshot(ctx, proxy)
             logger.info(
                 "cancel-save: persisted interrupted turn (session=%s)",
                 ctx.session_id,
             )
         except asyncio.CancelledError:
             logger.info(
-                "cancel-save: outer await re-cancelled, inner save "
-                "continues in background (session=%s)",
+                "cancel-save: re-cancelled after storage settled (session=%s)",
                 ctx.session_id,
             )
         except Exception:
@@ -322,6 +347,45 @@ class Runtime:
                 ctx.session_id,
                 exc_info=True,
             )
+
+    @staticmethod
+    def _record_request_termination(
+        agent: Any, cycle: Any, outcome: str
+    ) -> None:
+        """Put the runtime fact in the context read by the next run."""
+        from agentscope.message import Msg, TextBlock
+
+        input_ids = cycle.terminated_input_ids(outcome)
+        context = getattr(getattr(agent, "state", None), "context", None)
+        if not input_ids or context is None:
+            return
+        identity = f"termination:{cycle.run_id}:{outcome}"
+        if any(message.id == identity for message in context):
+            return
+        reason = "用户已取消" if outcome == "cancelled" else "执行失败，已停止"
+        context.append(
+            Msg(
+                id=identity,
+                name="runtime_notice",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        text=(
+                            f"以下请求{reason}：{', '.join(input_ids)}。"
+                            "这些旧请求不再自动续做；已执行操作可能有部分结果，停止不代表回滚。"
+                            "只处理后续新请求；用户明确重新提交相同工作时，按新请求处理。"
+                        )
+                    )
+                ],
+                metadata={
+                    "request_termination": {
+                        "run_id": cycle.run_id,
+                        "input_ids": list(input_ids),
+                        "status": outcome,
+                    }
+                },
+            )
+        )
 
     # pylint: disable=too-many-branches
     @staticmethod
@@ -501,6 +565,7 @@ class Runtime:
         session_id = request.session_id
         root_session_id = getattr(request, "root_session_id", "") or session_id
         root_agent_id = getattr(request, "root_agent_id", "") or agent_id
+        request_context = getattr(request, "request_context", None) or {}
 
         return HookContext(
             request=request,
@@ -511,7 +576,13 @@ class Runtime:
             workspace_dir=workspace_dir,
             workspace=self.workspace,
             app_services=self.app_services,
-            input_msgs=_request_input_to_msgs(request.input),
+            input_msgs=_request_input_to_msgs(
+                request.input,
+                conversation_context=request_context.get(
+                    CHAT_CONVERSATION_CONTEXT_KEY, ""
+                ),
+                input_target=request_context.get(CHAT_INPUT_TARGET_KEY, ""),
+            ),
         )
 
     @staticmethod

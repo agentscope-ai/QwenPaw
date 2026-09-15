@@ -841,10 +841,18 @@ class Workspace:
         )
 
         # Stop all services via ServiceManager (handles reuse automatically)
+        if final:
+            for results in self._task_tracker.background_results.values():
+                await results.close()
         await self._service_manager.stop_all(
             final=final,
             preserve_reused=preserve_reused,
         )
+        if final:
+            for view in self._task_tracker.conversation_views.values():
+                await view.close()
+            self._task_tracker.conversation_views.clear()
+            self._task_tracker.close_input_contexts()
 
         if self._harness_runtime is not None:
             await self._harness_runtime.stop()

@@ -119,6 +119,10 @@ PROJECT_NAME = "QwenPaw"
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 QWENPAW_CLIENT_MESSAGE_ID_KEY = "qwenpaw_client_message_id"
+QWENPAW_RECEIVED_AT_KEY = "qwenpaw_received_at"
+# Frozen, quoted Chat material carried with an input, never visible metadata.
+CHAT_CONVERSATION_CONTEXT_KEY = "_conversation_context"
+CHAT_INPUT_TARGET_KEY = "_input_target"
 SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
@@ -136,6 +140,9 @@ SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
         RUBRIC_EVALUATION_MESSAGE_TAG,
     },
 )
+# User-role messages that remain part of Agent context but are represented by
+# another durable user event in the Chat timeline.
+TIMELINE_HIDDEN_USER_MESSAGE_TAGS = SYNTHETIC_USER_MESSAGE_TAGS
 AUTO_MEMORY_SEARCH_TEXT = (
     "I'll check memory for relevant context before answering."
 )

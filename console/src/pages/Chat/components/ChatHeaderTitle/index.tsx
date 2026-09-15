@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { getSessionIdFromPath } from "../../../../utils/sessionRoute";
+import type { ExtendedSession } from "../../../../stores/sessionListStore";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import styles from "./index.module.less";
 
@@ -11,8 +15,20 @@ const ChatHeaderTitle: React.FC = () => {
   const { sessions, currentSessionId, setCurrentSessionId } =
     useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const chatName = currentSession?.name || "New Chat";
+  const { t } = useTranslation();
+  const routeChatId = getSessionIdFromPath(useLocation().pathname);
+  const currentSession = routeChatId
+    ? (sessions as ExtendedSession[]).find(
+        (s) =>
+          s.id === routeChatId ||
+          s.realId === routeChatId ||
+          s.sessionId === routeChatId,
+      )
+    : undefined;
+  const chatName =
+    !currentSession && routeChatId
+      ? t("common.loading")
+      : currentSession?.name || "New Chat";
 
   const [open, setOpen] = useState(false);
 

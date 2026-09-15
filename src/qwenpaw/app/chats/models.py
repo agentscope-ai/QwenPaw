@@ -28,6 +28,7 @@ class SessionSource(str, Enum):
     chat = "chat"
     cron = "cron"
     subagent = "subagent"
+    realtime_voice = "realtime_voice"
 
 
 class ChatGroupKind(str, Enum):
@@ -216,14 +217,10 @@ class ChatGroupOrderUpdate(BaseModel):
     group_ids: list[str] = Field(min_length=2)
 
 
-class ChatHistory(BaseModel):
+class ChatHistory(ChatSpec):
     """Complete chat view with spec and state."""
 
     messages: list[Message] = Field(default_factory=list)
-    status: str = Field(
-        default="idle",
-        description="Conversation status: idle or running",
-    )
 
 
 class BatchFailure(BaseModel):

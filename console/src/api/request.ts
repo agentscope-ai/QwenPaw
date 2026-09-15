@@ -71,6 +71,24 @@ const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_RETRIES = 0;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 
+export class HttpRequestError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(message: string, status: number, body: string) {
+    super(message);
+    this.name = "HttpRequestError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export function isHttpRequestError(
+  reason: unknown,
+): reason is HttpRequestError {
+  return reason instanceof HttpRequestError;
+}
+
 export async function request<T = unknown>(
   path: string,
   options: RequestOptions = {},
@@ -138,7 +156,7 @@ export async function request<T = unknown>(
           ? `${errorMessage} - ${text}`
           : `Request failed: ${response.status} ${response.statusText}`;
 
-        throw new Error(finalMessage);
+        throw new HttpRequestError(finalMessage, response.status, text);
       }
 
       if (response.status === 204) {

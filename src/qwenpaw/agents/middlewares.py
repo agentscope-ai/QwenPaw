@@ -12,28 +12,32 @@ Currently provided:
 
 * :class:`ToolResultPruningMiddleware` — truncation of current and historical
   tool-call outputs so oversized results don't exhaust the context budget.
+* :class:`ReasoningBoundaryMiddleware` — removes a provider protocol marker
+  only when typed thinking content proves that it is structural.
 """
 
 import asyncio
+import inspect
 import logging
-from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
 
+from agentscope.message import Msg, TextBlock, ThinkingBlock
 from agentscope.middleware import MiddlewareBase
-from agentscope.message import Msg
+from agentscope.model import ChatResponse
 from agentscope.tool import ToolResponse
 
-from .tools.utils import (
-    DEFAULT_MAX_BYTES,
-    ToolResultPruner,
-)
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 from ..utils.io_utils import run_sync_io
+from .tools.utils import (
+    DEFAULT_MAX_BYTES,
+    ToolResultPruner,
+)
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -43,6 +47,8 @@ MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
 _MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
+_REASONING_CLOSE_MARKER = "</think>"
+_MAX_BOUNDARY_WHITESPACE = 64
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
     "manual_compact_memory_by_handler",
     default=False,
@@ -89,6 +95,133 @@ def reset_auto_memory_turn_state(agent_state: Any) -> None:
     middle_context = getattr(agent_state, "middle_context", None)
     if isinstance(middle_context, dict):
         middle_context.pop(AUTO_MEMORY_TURN_STATE_KEY, None)
+
+
+class _ReasoningBoundaryState:
+    """Recognize one leading close marker across streaming text deltas."""
+
+    def __init__(self) -> None:
+        self.enabled = False
+        self.mode = "seeking"
+        self.buffer = ""
+        self.block_id = ""
+
+    def observe_thinking(self) -> None:
+        if self.mode != "done":
+            self.enabled = True
+
+    def feed(self, text: str, block_id: str) -> str:
+        if not self.enabled or self.mode == "done":
+            return text
+        self.block_id = block_id or self.block_id
+        if self.mode == "after_marker":
+            visible = text.lstrip()
+            if visible:
+                self.mode = "done"
+            return visible
+
+        candidate = self.buffer + text
+        without_space = candidate.lstrip()
+        if not without_space:
+            if len(candidate) <= _MAX_BOUNDARY_WHITESPACE:
+                self.buffer = candidate
+                return ""
+            self.mode = "done"
+            self.buffer = ""
+            return candidate
+        if without_space.startswith(_REASONING_CLOSE_MARKER):
+            self.buffer = ""
+            self.mode = "after_marker"
+            visible = without_space[len(_REASONING_CLOSE_MARKER) :].lstrip()
+            if visible:
+                self.mode = "done"
+            return visible
+        if _REASONING_CLOSE_MARKER.startswith(without_space):
+            self.buffer = candidate
+            return ""
+
+        self.mode = "done"
+        self.buffer = ""
+        return candidate
+
+    def finish(self) -> tuple[str, str]:
+        pending = self.buffer if self.mode == "seeking" else ""
+        self.buffer = ""
+        self.mode = "done"
+        return pending, self.block_id
+
+
+class ReasoningBoundaryMiddleware(MiddlewareBase):
+    """Normalize typed model output before live events and persistence."""
+
+    async def on_model_call(
+        self,
+        agent: "Agent",  # pylint: disable=unused-argument
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., Any],
+    ) -> Any:
+        result = await next_handler(**input_kwargs)
+        if inspect.isasyncgen(result):
+            return self._normalize_stream(result)
+        if isinstance(result, ChatResponse):
+            self._normalize_complete(result)
+        return result
+
+    async def _normalize_stream(
+        self,
+        stream: AsyncGenerator[ChatResponse, None],
+    ) -> AsyncGenerator[ChatResponse, None]:
+        state = _ReasoningBoundaryState()
+        async for response in stream:
+            if response.is_last:
+                pending, block_id = state.finish()
+                if pending:
+                    yield ChatResponse(
+                        content=[TextBlock(text=pending, id=block_id)],
+                        is_last=False,
+                        id=response.id,
+                    )
+                self._normalize_complete(response)
+            else:
+                self._normalize_response(response, state)
+            yield response
+
+    @classmethod
+    def _normalize_complete(cls, response: ChatResponse) -> None:
+        state = _ReasoningBoundaryState()
+        cls._normalize_response(response, state, drop_empty=False)
+        pending, block_id = state.finish()
+        if pending:
+            for block in reversed(response.content):
+                if isinstance(block, TextBlock) and (
+                    not block_id or block.id == block_id
+                ):
+                    block.text += pending
+                    break
+        response.content = [
+            block
+            for block in response.content
+            if not isinstance(block, TextBlock) or block.text
+        ]
+
+    @staticmethod
+    def _normalize_response(
+        response: ChatResponse,
+        state: _ReasoningBoundaryState,
+        *,
+        drop_empty: bool = True,
+    ) -> None:
+        for block in response.content:
+            if isinstance(block, ThinkingBlock):
+                state.observe_thinking()
+            elif isinstance(block, TextBlock):
+                block.text = state.feed(block.text, block.id)
+        if drop_empty:
+            response.content = [
+                block
+                for block in response.content
+                if not isinstance(block, TextBlock) or block.text
+            ]
 
 
 class MemoryMiddleware(MiddlewareBase):

@@ -15,6 +15,7 @@ interface RemoteProviderCardProps {
   onSaved: () => void;
   onOpenConfig: (provider: ProviderInfo) => void;
   onOpenModels: (provider: ProviderInfo) => void;
+  onOpenRealtimeVoice: (provider: ProviderInfo) => void;
 }
 
 export const RemoteProviderCard = React.memo(function RemoteProviderCard({
@@ -22,6 +23,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   onSaved,
   onOpenConfig,
   onOpenModels,
+  onOpenRealtimeVoice,
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -87,6 +89,18 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           <span className={styles.groupCardFieldLabel}>Endpoint</span>
           <div className={styles.groupCardMono}>{provider.base_url || "—"}</div>
         </div>
+        {provider.realtime_voice && (
+          <div className={styles.groupCardField}>
+            <span className={styles.groupCardFieldLabel}>
+              {t("realtimeVoice.settings")}
+            </span>
+            <span className={styles.groupCardFieldValue}>
+              {t("models.modelsCount", {
+                count: provider.realtime_models.length,
+              })}
+            </span>
+          </div>
+        )}
 
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>API Key</span>
@@ -177,6 +191,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         >
           {t("models.models")}
         </button>
+        {provider.realtime_voice && (
+          <button
+            className={styles.groupCardActBtn}
+            onClick={() => onOpenRealtimeVoice(provider)}
+          >
+            {t("realtimeVoice.settings")}
+          </button>
+        )}
         <button
           className={styles.groupCardActBtn}
           onClick={() => onOpenConfig(provider)}

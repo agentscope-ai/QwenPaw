@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
 
 from qwenpaw.app.chats.utils import (
     _abspath_from_url,
@@ -23,6 +23,14 @@ from qwenpaw.constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
+
+
+def test_display_headline_cleanup_is_only_for_assistant_text():
+    text = "literal document\n⟦ a quoted line ⟧"
+    for role in ("user", "tool", "system"):
+        assert clean_display_text(text, role) == text
+    assert clean_display_text("answer\n⟦ index ⟧", "assistant") == "answer"
 
 
 # ---------------------------------------------------------------------------
@@ -135,10 +143,9 @@ def test_clean_display_text_keeps_plain_text():
     assert clean_display_text("hello world", "user") == "hello world"
 
 
-def test_clean_display_text_strips_both_skill_and_headline():
+def test_clean_display_text_preserves_user_suffix_not_owned_by_scroll():
     text = "/run<skill name='x'>body</skill>\n<!-- ⟦ h ⟧ -->"
-    out = clean_display_text(text, "user")
-    assert "<skill" not in out and "⟦" not in out and "/run" in out
+    assert clean_display_text(text, "user") == text
 
 
 def test_msg_to_message_hides_headline_in_history_path():
@@ -408,7 +415,13 @@ def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
     msg = Msg(
         name="user",
         role="user",
-        content=[{"type": "text", "text": "hi"}],
+        content=[
+            {
+                "type": "text",
+                "text": "hi",
+                "created_at": "2026-08-10T12:52:57.000000",
+            },
+        ],
         created_at="2026-08-10T12:52:57.000000",
     )
     shanghai = ZoneInfo("Asia/Shanghai")
@@ -429,6 +442,146 @@ def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
     converted = datetime.fromisoformat(message.metadata["timestamp"])
     assert converted.hour == 12
     assert converted.tzinfo is not None
+
+
+def test_agentscope_msg_to_message_uses_each_block_created_at():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        created_at="2026-08-25T14:14:57.338880",
+        content=[
+            {
+                "type": "thinking",
+                "thinking": "first",
+                "created_at": "2026-08-25T14:14:58.000000",
+            },
+            {
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "shell",
+                "input": '{"command":"dir"}',
+                "created_at": "2026-08-25T14:15:00.000000",
+            },
+            {
+                "type": "text",
+                "text": "done",
+                "created_at": "2026-08-25T14:15:47.510253",
+            },
+        ],
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        messages = agentscope_msg_to_message(msg)
+
+    assert [message.metadata["timestamp"] for message in messages] == [
+        "2026-08-25T14:14:58+08:00",
+        "2026-08-25T14:15:00+08:00",
+        "2026-08-25T14:15:47.510253+08:00",
+    ]
+
+
+def test_history_message_ids_are_stable_and_keep_distinct_occurrences():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {"type": "text", "text": "started"},
+            {
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "shell",
+                "input": "{}",
+            },
+            {"type": "text", "text": "finished"},
+        ],
+    )
+    before = agentscope_msg_to_message(msg)
+    replay = agentscope_msg_to_message(
+        Msg.from_dict(msg.model_dump(mode="json")),
+    )
+    assert [item.id for item in before] == [item.id for item in replay]
+    assert len({item.id for item in before}) == 3
+    later = TextBlock(text="later")
+    msg.content.append(later)
+    set_reply_block_metadata(msg, later, {"timeline_order": 9})
+    grown = agentscope_msg_to_message(msg)
+    assert [item.id for item in grown[:3]] == [item.id for item in before]
+    assert len({item.id for item in grown}) == 4
+    segment_block = TextBlock(text="another reply")
+    segment = Msg(
+        id=msg.id,
+        name="assistant",
+        role="assistant",
+        content=[segment_block],
+    )
+    set_reply_block_metadata(segment, segment_block, {"timeline_order": 10})
+    segmented = agentscope_msg_to_message([msg, segment])
+    assert len({item.id for item in segmented}) == len(segmented)
+    restored_segment = Msg(
+        id=msg.id,
+        name="assistant",
+        role="assistant",
+        content=[msg.content[-1]],
+    )
+    assert agentscope_msg_to_message(restored_segment)[0].id == grown[-1].id
+    repeated_text = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="same words")],
+    )
+    other_turn = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="same words")],
+    )
+    assert (
+        agentscope_msg_to_message(repeated_text)[0].id
+        != agentscope_msg_to_message(other_turn)[0].id
+    )
+
+
+def test_agentscope_msg_to_message_preserves_each_block_metadata():
+    started = TextBlock(text="started")
+    finished = TextBlock(text="finished")
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        metadata={"run_id": "run-1"},
+        content=[started, finished],
+    )
+    set_reply_block_metadata(
+        msg,
+        started,
+        {"timeline_group_id": "input-1", "timeline_order": 2},
+    )
+    set_reply_block_metadata(
+        msg,
+        finished,
+        {"timeline_group_id": "input-1", "timeline_order": 5},
+    )
+
+    messages = agentscope_msg_to_message(msg)
+
+    assert [message.content[0].text for message in messages] == [
+        "started",
+        "finished",
+    ]
+    assert [
+        message.metadata["metadata"]["timeline_order"] for message in messages
+    ] == [2, 5]
+    assert all(
+        message.metadata["metadata"]["run_id"] == "run-1"
+        for message in messages
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -505,3 +658,22 @@ def test_clean_title_truncates_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert len(result) <= 80
+
+
+def test_termination_display_hides_internal_instructions():
+    from qwenpaw.runtime.runtime import Runtime
+    from qwenpaw.app.chats.replies import project_replies
+
+    agent = SimpleNamespace(state=SimpleNamespace(context=[]))
+    cycle = SimpleNamespace(
+        run_id="run", terminated_input_ids=lambda _: ["private-input-id"]
+    )
+    Runtime._record_request_termination(agent, cycle, "cancelled")
+    notice = agent.state.context[0]
+    original = notice.model_dump(mode="json")
+    [visible] = agentscope_msg_to_message(notice)
+    assert visible.content[0].text == "已取消尚未完成的请求；已执行的操作不会回滚。"
+    assert "private-input-id" not in visible.content[0].text
+    assert notice.model_dump(mode="json") == original
+    assert "只处理后续新请求" in notice.content[0].text
+    assert not project_replies([notice])

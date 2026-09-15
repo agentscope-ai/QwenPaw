@@ -10,9 +10,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import { useUploadLimitStore } from "@/stores/uploadLimitStore";
+import { useMessageQueueStore } from "@/stores/messageQueueStore";
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -28,6 +31,15 @@ const {
   mockSelectedAgent,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
+  mockGetChatSpec,
+  mockPreloadSession,
+  mockChatInputSubmit,
+  mockChatMessageUpdate,
+  mockChatMessageRemove,
+  mockChatMessages,
+  mockVoiceOptions,
+  mockVoiceControlsProps,
+  mockRealtimeVoice,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -37,6 +49,24 @@ const {
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
+  mockGetChatSpec: vi.fn(),
+  mockPreloadSession: vi.fn(),
+  mockChatInputSubmit: vi.fn(),
+  mockChatMessageUpdate: vi.fn(),
+  mockChatMessageRemove: vi.fn(),
+  mockChatMessages: [] as any[],
+  mockVoiceOptions: { current: null as any },
+  mockVoiceControlsProps: {
+    current: null as { canStart?: boolean } | null,
+  },
+  mockRealtimeVoice: {
+    capabilities: null,
+    status: "idle",
+    reloadCapabilities: vi.fn(async () => null),
+    start: vi.fn(),
+    stop: vi.fn(),
+    observeAgentRun: vi.fn(),
+  },
 }));
 
 vi.mock("../../hooks/useAppMessage", () => ({
@@ -65,23 +95,65 @@ vi.mock("./components/ChatSessionInitializer", () => ({
   default: () => null,
 }));
 
-vi.mock("@agentscope-ai/chat", () => ({
-  // render rightHeader so child components appear in the DOM
-  AgentScopeRuntimeWebUI: vi.fn((props: any) => {
-    capturedOptions = props.options;
-    return <div data-testid="chat-ui">{props.options?.theme?.rightHeader}</div>;
-  }),
-  useChatAnywhereSessionsState: vi.fn(() => ({
-    sessions: [],
-    currentSessionId: null,
-    setCurrentSessionId: vi.fn(),
-    setSessions: vi.fn(),
-  })),
-  useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
-  useChatAnywhereInput: vi.fn(() => ({
-    setLoading: vi.fn(),
-    getLoading: vi.fn(),
-  })),
+vi.mock("@agentscope-ai/chat", async () => {
+  const React = await import("react");
+  return {
+    SESSION_TIMELINE_MODE_VERSION: 4,
+    AgentScopeRuntimeWebUI: React.forwardRef((props: any, ref) => {
+      capturedOptions = props.options;
+      React.useImperativeHandle(
+        ref,
+        () => ({
+          messages: {
+            appendTimelineEvents: vi.fn(),
+            updateMessage: mockChatMessageUpdate,
+            removeMessage: mockChatMessageRemove,
+            getMessages: () => mockChatMessages,
+          },
+          input: {
+            setDisabled: vi.fn(),
+            submit: mockChatInputSubmit,
+          },
+        }),
+        [],
+      );
+      return (
+        <div data-testid="chat-ui">
+          {props.options?.theme?.rightHeader}
+          {props.options?.sender?.beforeUI}
+          {!mockChatMessages.length && props.options?.welcome?.render?.({})}
+        </div>
+      );
+    }),
+    useChatAnywhereSessionsState: vi.fn(() => ({
+      sessions: [],
+      currentSessionId: null,
+      setCurrentSessionId: vi.fn(),
+      setSessions: vi.fn(),
+    })),
+    useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
+    useChatAnywhereInput: vi.fn(() => ({
+      setLoading: vi.fn(),
+      getLoading: vi.fn(),
+    })),
+  };
+});
+
+vi.mock("../../features/realtime-voice/useRealtimeVoice", () => ({
+  useRealtimeVoice: (options: any) => {
+    mockVoiceOptions.current = options;
+    return mockRealtimeVoice;
+  },
+  isRealtimeVoiceActive: (status: string) => status !== "idle",
+  isRealtimeVoiceReady: () => false,
+}));
+
+vi.mock("../../features/realtime-voice/RealtimeVoicePanel", () => ({
+  RealtimeVoiceControls: (props: { canStart?: boolean }) => {
+    mockVoiceControlsProps.current = props;
+    return <div data-testid="voice-controls" />;
+  },
+  RealtimeVoiceConflictModal: () => null,
 }));
 
 vi.mock("@/api/modules/provider", () => ({
@@ -96,6 +168,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     stopChat: vi.fn(),
+    getChatSpec: mockGetChatSpec,
   },
   sessionApi: {
     getRealIdForSession: vi.fn(() => null),
@@ -134,7 +207,7 @@ vi.mock("@/stores/agentStore", () => {
   const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
-    agents: [],
+    agents: [{ id: "default", backend: "qwenpaw" }],
     setLastChatId: vi.fn(),
     getLastChatId: vi.fn(() => null),
     removeLastChatId: vi.fn(),
@@ -158,6 +231,16 @@ vi.mock("./sessionApi", () => ({
     onSessionSelected: null,
     onSessionCreated: null,
     getRealIdForSession: vi.fn(() => null),
+    getBackendSessionId: vi.fn((chatId: string) => chatId),
+    triggerResolve: vi.fn(),
+    preloadSession: mockPreloadSession,
+    getSessionIdentity: vi.fn((chatId: string) => ({
+      chatId,
+      sessionId: chatId,
+      sdkSessionId: chatId,
+      userId: "admin",
+      channel: "console",
+    })),
     setLastUserMessage: vi.fn(),
   },
 }));
@@ -228,6 +311,10 @@ describe("ChatPage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    mockVoiceOptions.current = null;
+    mockVoiceControlsProps.current = null;
+    mockRealtimeVoice.status = "idle";
+    mockChatMessages.length = 0;
     mockListProviders.mockResolvedValue(mockProviders);
     mockGetActiveModels.mockResolvedValue(mockActiveModel);
     mockUploadFile.mockResolvedValue({
@@ -237,10 +324,14 @@ describe("ChatPage", () => {
     mockGetTranscriptionProviderType.mockResolvedValue({
       transcription_provider_type: "disabled",
     });
+    mockGetChatSpec.mockResolvedValue({ source: "chat" });
+    mockPreloadSession.mockResolvedValue({ session: {}, realId: null });
+    useUploadLimitStore.setState({ uploadMaxSizeMb: 10 });
   });
 
   afterEach(() => {
     chatExtensions.__resetForTests();
+    useUploadLimitStore.setState({ uploadMaxSizeMb: null });
     vi.clearAllMocks();
   });
 
@@ -258,6 +349,263 @@ describe("ChatPage", () => {
     expect(screen.getByTestId("model-selector")).toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
+  });
+
+  it("selects the Voice surface without waiting for large history", async () => {
+    const chatId = "ae7fd036-d5e9-4a57-af67-e50b6e8d6052";
+    let resolveSpec!: (spec: { source: string }) => void;
+    mockGetChatSpec.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSpec = resolve;
+      }),
+    );
+    mockPreloadSession.mockReturnValueOnce(new Promise(() => {}));
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading...");
+    expect(screen.queryByTestId("chat-ui")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
+
+    await act(async () => resolveSpec({ source: "realtime_voice" }));
+
+    expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
+    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(capturedOptions.sender.placeholder).toBe(
+      "Type into the live Voice Chat...",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading...");
+    expect(capturedOptions.welcome.render).toBeTypeOf("function");
+    expect(capturedOptions.welcome.nick).toBe("QwenPaw");
+    expect(capturedOptions.sender.beforeUI).toBeTruthy();
+    expect(mockVoiceControlsProps.current?.canStart).toBe(true);
+    expect(mockGetChatSpec).toHaveBeenCalledWith(chatId, {
+      signal: expect.anything(),
+      include_app_owned: false,
+    });
+    expect(mockPreloadSession).toHaveBeenCalledWith(chatId, expect.anything());
+  });
+
+  it("shows pending keyboard input alongside Voice controls", async () => {
+    const chatId = "c2854085-6be2-43d3-baab-ad1d40b9fcad";
+    mockGetChatSpec.mockResolvedValue({ source: "realtime_voice" });
+    useMessageQueueStore.getState().setRunState(chatId, "paused");
+    useMessageQueueStore.getState().enqueue(chatId, {
+      text: "排队中的键盘查询",
+      agentId: "default",
+      bizParams: {},
+    });
+    const { unmount } = renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+    try {
+      expect(await screen.findByTestId("voice-controls")).toBeInTheDocument();
+      expect(await screen.findByText("排队中的键盘查询")).toBeInTheDocument();
+      expect(mockChatInputSubmit).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+      useMessageQueueStore.getState().clear(chatId);
+    }
+  });
+
+  it.each(["messages", "timelineEvents"])(
+    "keeps loading until populated %s reaches the message list",
+    async (field) => {
+      mockPreloadSession.mockResolvedValueOnce({
+        session: { [field]: [{ id: "saved" }] },
+      });
+      const { rerender } = renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/ae7fd036-d5e9-4a57-af67-e50b6e8d6052"],
+      });
+      await screen.findByTestId("chat-ui");
+      expect(screen.getByRole("status")).toHaveTextContent("Loading...");
+      mockChatMessages.push({ id: "saved" });
+      rerender(<ChatPage />);
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    },
+  );
+
+  it("retains the normal welcome for confirmed empty history", async () => {
+    mockPreloadSession.mockResolvedValueOnce({ session: { messages: [] } });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/ae7fd036-d5e9-4a57-af67-e50b6e8d6052"],
+    });
+    await screen.findByTestId("chat-ui");
+    await waitFor(() => expect(capturedOptions.welcome.render).toBeUndefined());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("restores the ordinary plugin welcome only after confirming empty history", async () => {
+    chatExtensions.setScalar("test", "welcome.render", () => (
+      <div>Plugin welcome</div>
+    ));
+    let resolve!: (value: unknown) => void;
+    mockPreloadSession.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/ae7fd036-d5e9-4a57-af67-e50b6e8d6052"],
+    });
+    await screen.findByTestId("chat-ui");
+    expect(screen.queryByText("Plugin welcome")).not.toBeInTheDocument();
+    await act(async () =>
+      resolve({ session: { messages: [], timelineEvents: [] } }),
+    );
+    expect(await screen.findByText("Plugin welcome")).toBeInTheDocument();
+  });
+
+  it("shows history failure and retries instead of presenting an empty Chat", async () => {
+    mockPreloadSession
+      .mockRejectedValueOnce(new Error("history unavailable"))
+      .mockResolvedValueOnce({ session: { messages: [] } });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/ae7fd036-d5e9-4a57-af67-e50b6e8d6052"],
+    });
+    expect(await screen.findByText("Failed to load page")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-ui")).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mockPreloadSession).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(capturedOptions.welcome.render).toBeUndefined());
+  });
+
+  it.each(["resolve", "reject"])(
+    "ignores a previous route's late history %s",
+    async (outcome) => {
+      let resolve!: (value: unknown) => void;
+      let reject!: (error: Error) => void;
+      mockPreloadSession
+        .mockReturnValueOnce(
+          new Promise((yes, no) => {
+            resolve = yes;
+            reject = no;
+          }),
+        )
+        .mockReturnValueOnce(new Promise(() => {}));
+      function SwitchChat() {
+        const navigate = useNavigate();
+        return (
+          <>
+            <button
+              onClick={() =>
+                navigate("/chat/1a498700-e22f-4a31-81f4-a6ce1a470579")
+              }
+            >
+              Switch Chat
+            </button>
+            <ChatPage />
+          </>
+        );
+      }
+      renderWithProviders(<SwitchChat />, {
+        initialEntries: ["/chat/ae7fd036-d5e9-4a57-af67-e50b6e8d6052"],
+      });
+      await screen.findByTestId("chat-ui");
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Switch Chat" }));
+      await waitFor(() => expect(mockPreloadSession).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        if (outcome === "resolve") resolve({ session: { messages: [] } });
+        else reject(new Error("old history failure"));
+      });
+      expect(screen.getByRole("status")).toHaveTextContent("Loading...");
+      expect(screen.queryByText("Failed to load page")).not.toBeInTheDocument();
+    },
+  );
+
+  it("disables and stops Voice when another tab owns the Chat", async () => {
+    const chatId = "ae7fd036-d5e9-4a57-af67-e50b6e8d6052";
+    const locksDescriptor = Object.getOwnPropertyDescriptor(navigator, "locks");
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: vi.fn(() => new Promise(() => {})) },
+    });
+    mockGetChatSpec.mockResolvedValueOnce({ source: "realtime_voice" });
+    mockRealtimeVoice.status = "listening";
+
+    try {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: [`/chat/${chatId}`],
+      });
+
+      await screen.findByTestId("chat-ui");
+      await waitFor(
+        () => {
+          expect(mockVoiceControlsProps.current?.canStart).toBe(false);
+          expect(
+            screen.getByText(
+              "This tab queues only; sending is handled by another tab",
+            ),
+          ).toBeVisible();
+          expect(mockRealtimeVoice.stop).toHaveBeenCalledOnce();
+        },
+        { timeout: 1500 },
+      );
+    } finally {
+      if (locksDescriptor) {
+        Object.defineProperty(navigator, "locks", locksDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "locks");
+      }
+    }
+  });
+
+  it("reconnects the standard timeline when a speech Agent run starts", async () => {
+    const chatId = "ae7fd036-d5e9-4a57-af67-e50b6e8d6052";
+    mockGetChatSpec.mockResolvedValueOnce({ source: "realtime_voice" });
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+
+    await screen.findByTestId("chat-ui");
+    const dispatch = vi.spyOn(document, "dispatchEvent");
+    mockVoiceOptions.current.onAgentRunStarted();
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "handleReconnect" }),
+    );
+  });
+
+  it("mounts ordinary Chat controls after an ordinary deep link resolves", async () => {
+    const chatId = "1a498700-e22f-4a31-81f4-a6ce1a470579";
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+
+    expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
+    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(capturedOptions.sender.placeholder).toBe(
+      '"↑↓" for message navigation · "/" for quick commands',
+    );
+  });
+
+  it("fails closed and retries Chat source hydration", async () => {
+    const chatId = "ae7fd036-d5e9-4a57-af67-e50b6e8d6052";
+    mockGetChatSpec
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ source: "realtime_voice" });
+    const user = userEvent.setup();
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: [`/chat/${chatId}`],
+    });
+
+    expect(await screen.findByText("Failed to load page")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-ui")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
+    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(mockGetChatSpec).toHaveBeenCalledTimes(2);
   });
 
   // ── customFetch: model not configured → show modal ────────────────────────

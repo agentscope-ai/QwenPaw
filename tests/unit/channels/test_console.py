@@ -86,13 +86,62 @@ class TestConsoleChannelUnit:
         assert ch.enabled is False
         assert ch.bot_prefix == "[TEST] "
 
-    def test_sse_headline_strip_covers_delta_fields(self):
-        """Raw SSE payload cleanup must hide streamed headline deltas."""
+    def test_sse_cleanup_preserves_user_tool_and_metadata_text(self, channel):
+        from qwenpaw.schemas import (
+            AgentResponse,
+            DataContent,
+            Message,
+            TextContent,
+        )
+
+        literal = "document content\n⟦ keep this literal line ⟧"
+        user = Message(role="user", content=[TextContent(text=literal)])
+        tool = Message(
+            role="tool",
+            type="plugin_call_output",
+            content=[DataContent(data={"output": literal})],
+        )
+        answer = Message(
+            role="assistant",
+            content=[TextContent(text="answer\n⟦ index ⟧")],
+            metadata={"original_document": literal},
+        )
+        event = AgentResponse(output=[user, tool, answer], object="response")
+        original = event.model_dump(mode="json")
+        result = json.loads(channel._serialize_event_for_sse(event, {}))
+
+        assert result["output"][0] == original["output"][0]
+        assert result["output"][1] == original["output"][1]
+        assert (
+            result["output"][2]["metadata"]
+            == original["output"][2]["metadata"]
+        )
+        assert result["output"][2]["content"][0]["text"] == "answer"
+        assert event.model_dump(mode="json") == original
+
+    def test_sse_cleanup_preserves_streamed_tool_payload(self, channel):
+        from qwenpaw.schemas import DataContent
+
+        event = DataContent(
+            data={"output": "file contents\n⟦ literal, not an index ⟧"},
+            delta=True,
+            msg_id="tool-message",
+            index=0,
+        )
+        original = event.model_dump(mode="json")
+        assert (
+            json.loads(channel._serialize_event_for_sse(event, {})) == original
+        )
+
+    def test_sse_headline_strip_only_cleans_declared_answer_fields(self):
+        """An unknown field is not an assistant text stream."""
         payload = {
             "object": "response",
             "delta": "<!-- ⟦ streamed headline should be hidden ⟧ -->",
             "output": [
                 {
+                    "role": "assistant",
+                    "type": "message",
                     "content": [
                         {
                             "type": "text",
@@ -111,7 +160,7 @@ class TestConsoleChannelUnit:
             "{}",
         )
 
-        assert "streamed headline" not in data
+        assert json.loads(data)["delta"] == payload["delta"]
         assert "completed headline" not in data
         assert "visible" in data
 
@@ -128,6 +177,7 @@ class TestConsoleChannelUnit:
         for text in chunks:
             payload = {
                 "object": "content",
+                "type": "text",
                 "delta": True,
                 "msg_id": "message-1",
                 "index": 0,
@@ -144,6 +194,9 @@ class TestConsoleChannelUnit:
         assert all("model discovery" not in item for item in rendered)
         assert all("status: fixed" not in item for item in rendered)
         assert all("anchors: TC-1" not in item for item in rendered)
+        assert (
+            ConsoleChannel._flush_headline_stream_states(stream_states) == []
+        )
         assert not stream_states
 
     def test_sse_serializer_hides_split_delta_line(self, channel):
@@ -160,6 +213,7 @@ class TestConsoleChannelUnit:
             event = _FakeDumpEvent(
                 {
                     "object": "content",
+                    "type": "text",
                     "delta": True,
                     "msg_id": "message-1",
                     "index": 0,
@@ -177,6 +231,7 @@ class TestConsoleChannelUnit:
         assert all("model discovery" not in item for item in rendered)
         assert all("status: fixed" not in item for item in rendered)
         assert all("anchors: TC-1" not in item for item in rendered)
+        assert channel._flush_headline_stream_states(stream_states) == []
         assert not stream_states
 
     def test_sse_serializer_buffers_split_opening_marker(self, channel):
@@ -192,6 +247,7 @@ class TestConsoleChannelUnit:
             event = _FakeDumpEvent(
                 {
                     "object": "content",
+                    "type": "text",
                     "delta": True,
                     "msg_id": "message-1",
                     "index": 0,
@@ -202,6 +258,72 @@ class TestConsoleChannelUnit:
             visible.append(json.loads(data)["text"])
 
         assert "".join(visible) == "answer\n"
+        assert channel._flush_headline_stream_states(stream_states) == []
+        assert not stream_states
+
+    def test_sse_serializer_preserves_inline_text_at_every_split(
+        self,
+        channel,
+    ):
+        from qwenpaw.schemas import TextContent
+
+        text = "compare ⟦left⟧ and ⟦right⟧"
+        partitions = [(text[:i], text[i:]) for i in range(1, len(text))]
+        partitions.append(tuple(text))
+        for chunks in partitions:
+            stream_states = {}
+            visible = []
+            for chunk in chunks:
+                event = TextContent(
+                    text=chunk,
+                    delta=True,
+                    msg_id="answer",
+                    index=0,
+                )
+                original = event.model_dump(mode="json")
+                data = channel._serialize_event_for_sse(event, stream_states)
+                visible.append(json.loads(data)["text"])
+                assert event.model_dump(mode="json") == original
+            assert "".join(visible) == text, chunks
+            assert channel._flush_headline_stream_states(stream_states) == []
+            assert not stream_states
+
+    def test_sse_serializer_isolates_line_context_and_releases_it(
+        self,
+        channel,
+    ):
+        from qwenpaw.schemas import TextContent
+
+        stream_states = {}
+        chunks = [
+            ("answer-a", 0, "compare ", "compare "),
+            ("answer-b", 0, "⟦ hidden ⟧", ""),
+            ("answer-a", 1, "⟦ hidden too ⟧", ""),
+            ("answer-a", 0, "⟦left⟧ and ", "⟦left⟧ and "),
+            ("answer-b", 0, " inline ⟦literal⟧", " inline ⟦literal⟧"),
+            ("answer-a", 0, "⟦right⟧", "⟦right⟧"),
+        ]
+        for msg_id, index, text, expected in chunks:
+            event = TextContent(
+                text=text,
+                delta=True,
+                msg_id=msg_id,
+                index=index,
+            )
+            data = channel._serialize_event_for_sse(event, stream_states)
+            assert json.loads(data)["text"] == expected
+
+        flushed = channel._flush_headline_stream_states(
+            stream_states,
+            msg_id="answer-b",
+        )
+        assert flushed == []
+        assert set(stream_states) == {"answer-a:0", "answer-a:1"}
+        flushed = channel._flush_headline_stream_states(
+            stream_states,
+            msg_id="answer-a",
+        )
+        assert flushed == []
         assert not stream_states
 
     @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
@@ -214,6 +336,7 @@ class TestConsoleChannelUnit:
         event = _FakeDumpEvent(
             {
                 "object": "content",
+                "type": "text",
                 "delta": True,
                 "msg_id": "message-1",
                 "index": 0,
@@ -233,6 +356,7 @@ class TestConsoleChannelUnit:
         event = _FakeDumpEvent(
             {
                 "object": "content",
+                "type": "text",
                 "delta": True,
                 "msg_id": "message-1",
                 "index": 0,
@@ -674,6 +798,7 @@ class TestConsoleStreaming:
                 "msg_id": "message-1",
                 "index": 0,
                 "text": "ordinary comparison ends in " + suffix,
+                "type": "text",
             },
         )
         completed = Event(

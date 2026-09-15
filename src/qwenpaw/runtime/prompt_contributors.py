@@ -424,6 +424,24 @@ class ScrollContextContributor(SyncPromptContributor):
         return build_scroll_system_prompt(language)
 
 
+class UserVisibleProgressContributor(SyncPromptContributor):
+    """Ask every Agent surface to communicate real, observable progress."""
+
+    name = "user_visible_progress"
+    priority = 87
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        return (
+            "# User-visible progress\n\n"
+            "Before tool calls or multi-step work that will take noticeable "
+            "time, send a brief user-facing update that states the actual "
+            "next action. During longer work, add concise updates only when "
+            "there is meaningful new progress. Do not expose private "
+            "reasoning, invent progress, or repeat a fixed acknowledgement. "
+            "For a direct answer with no meaningful wait, answer immediately."
+        )
+
+
 class EnvContextContributor(SyncPromptContributor):
     """Append the environment context block (time / session / OS)."""
 
@@ -496,6 +514,7 @@ _ALL_CONTRIBUTORS = (
     DirectoryContextContributor,
     CodingModeContributor,
     ScrollContextContributor,
+    UserVisibleProgressContributor,
     DriverPolicyHintContributor,
     EnvContextContributor,
     PreloadedSkillsContributor,
@@ -523,5 +542,6 @@ __all__ = [
     "DriverPolicyHintContributor",
     "EnvContextContributor",
     "PreloadedSkillsContributor",
+    "UserVisibleProgressContributor",
     "build_default_prompt_manager",
 ]

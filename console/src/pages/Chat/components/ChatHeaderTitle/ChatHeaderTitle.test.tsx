@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
+import "@/i18n";
 import ChatHeaderTitle from "./index";
 import styles from "./index.module.less";
 
@@ -14,12 +15,51 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 describe("ChatHeaderTitle", () => {
+  it("keeps the new-chat title when SDK selection still points to old history", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "old", name: "Voice Chat" }],
+      currentSessionId: "old",
+    });
+    renderWithProviders(<ChatHeaderTitle />, { initialEntries: ["/chat"] });
+    expect(screen.queryAllByText("Voice Chat")).toHaveLength(0);
+    expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
+  });
+
+  it("does not call a routed Chat new while the session list is pending", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [],
+      currentSessionId: null,
+    });
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/existing"],
+    });
+    expect(screen.queryAllByText("New Chat")).toHaveLength(0);
+    expect(screen.getAllByText("Loading...")[0]).toBeInTheDocument();
+  });
+
+  it("uses the routed session title before SDK selection catches up", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [
+        { id: "old", name: "Previous" },
+        { id: "local", realId: "target", name: "Target Chat" },
+      ],
+      currentSessionId: "old",
+    });
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/target"],
+    });
+    expect(screen.getAllByText("Target Chat")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Previous")).not.toBeInTheDocument();
+  });
+
   it("displays the current session name", () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [{ id: "sess-1", name: "My Chat" }],
       currentSessionId: "sess-1",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-1"],
+    });
     expect(screen.getAllByText("My Chat")[0]).toBeInTheDocument();
   });
 
@@ -28,7 +68,9 @@ describe("ChatHeaderTitle", () => {
       sessions: [{ id: "sess-1", name: "" }],
       currentSessionId: "sess-1",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-1"],
+    });
     expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
@@ -41,7 +83,7 @@ describe("ChatHeaderTitle", () => {
     expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
-  it("displays the correct session name after switching currentSessionId", () => {
+  it("displays the correct session name after switching the route", () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [
         { id: "sess-1", name: "Chat A" },
@@ -49,7 +91,9 @@ describe("ChatHeaderTitle", () => {
       ],
       currentSessionId: "sess-2",
     });
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-2"],
+    });
     expect(screen.getAllByText("Chat B")[0]).toBeInTheDocument();
     expect(screen.queryByText("Chat A")).not.toBeInTheDocument();
   });
@@ -65,7 +109,9 @@ describe("ChatHeaderTitle", () => {
       setCurrentSessionId: vi.fn(),
     });
 
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-0"],
+    });
     const trigger = screen.getByRole("button", { name: "Chat 0" });
     await user.click(trigger);
 

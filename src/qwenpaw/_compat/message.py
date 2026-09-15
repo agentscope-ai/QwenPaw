@@ -34,6 +34,8 @@ _MODALITY_DEFAULT_MIME = {
     "video": "video/*",
 }
 
+LEGACY_MESSAGE_ID_KEY = "qwenpaw_legacy_message_id"
+
 
 def _ensure_url_scheme(url: str) -> str:
     """Prepend ``file://`` when *url* is an absolute local path.
@@ -197,6 +199,9 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
     from agentscope.message import Msg  # local import to ease shim usage
 
     payload: dict[str, Any] = dict(data)
+    legacy_identity = "timestamp" in data or isinstance(
+        data.get("content"), str
+    )
 
     # Field rename: 1.x ``timestamp`` -> 2.0 ``created_at``.
     if "created_at" not in payload and "timestamp" in payload:
@@ -243,5 +248,12 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
     # ``metadata`` must be a dict; legacy sessions may store ``None``.
     if payload.get("metadata") is None:
         payload["metadata"] = {}
+    if legacy_identity and payload.get("id"):
+        # Legacy message IDs identify messages, not replies. Generated block
+        # IDs on this conversion must not turn a reload into a new occurrence.
+        payload["metadata"] = {
+            **payload["metadata"],
+            LEGACY_MESSAGE_ID_KEY: payload["id"],
+        }
 
     return Msg.model_validate(payload)

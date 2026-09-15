@@ -214,6 +214,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     local_model_manager = await asyncio.to_thread(
         LocalModelManager.get_instance,
     )
+    from .realtime_voice import RealtimeVoiceService
+    from ..providers.realtime_voice.dashscope import DASHSCOPE_REGISTRATION
+
+    provider_manager.register_realtime_voice_provider(DASHSCOPE_REGISTRATION)
+    app.state.realtime_voice_service = RealtimeVoiceService(provider_manager)
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -609,8 +614,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await PORTABILITY_IMPORT_JOBS.shutdown()
 
-        logger.info("Stopping BackupManager...")
-        await backup_manager.shutdown()
+    logger.info("Stopping BackupManager...")
+    await backup_manager.shutdown()
+
+    realtime_voice_service = getattr(
+        app.state,
+        "realtime_voice_service",
+        None,
+    )
+    if realtime_voice_service is not None:
+        await realtime_voice_service.shutdown()
 
         await _stop_browser_runtime(app)
         from ..agents.tools import shutdown_browser_runtime

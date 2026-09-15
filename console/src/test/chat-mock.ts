@@ -5,6 +5,10 @@
  */
 import { vi } from "vitest";
 import React from "react";
+export {
+  projectAgentScopeRuntimeTimeline,
+  SESSION_TIMELINE_MODE_VERSION,
+} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Timeline/Projector";
 
 export const AgentScopeRuntimeWebUI = vi.fn(() =>
   React.createElement("div", { "data-testid": "chat-ui" }),
