@@ -52,6 +52,13 @@ _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
 
+# Unknown root fields are normally discarded on save. These non-secret keys
+# remain only long enough for an optional plugin to adopt pre-plugin state.
+# Remove an entry after its documented compatibility window closes.
+LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION = frozenset(
+    {"powercontext_installation_id"},
+)
+
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
     """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
@@ -688,9 +695,15 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         config_path = get_config_path()
     candidate = config.model_copy(deep=True)
     with _config_lock:
+        payload = candidate.model_dump(mode="json", by_alias=True)
+        if config_path.is_file():
+            existing = _read_config_data(config_path) or {}
+            for legacy_key in LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION:
+                if legacy_key in existing:
+                    payload[legacy_key] = existing[legacy_key]
         write_json_atomic(
             config_path,
-            candidate.model_dump(mode="json", by_alias=True),
+            payload,
         )
         _config_cache = candidate.model_copy(deep=True)
         try:
@@ -711,30 +724,6 @@ def mutate_config(
         mutator(candidate)
         save_config(candidate, config_path)
         return candidate.model_copy(deep=True)
-
-
-def get_or_create_powercontext_installation_id() -> str:
-    """Return the stable installation identity used by default PC scopes.
-
-    The identity is generated only when PowerContext is first configured and
-    persisted through the root-config transaction, so independently created
-    QwenPaw installations do not share an implicit memory scope.
-    """
-    existing = load_config().powercontext_installation_id
-    if existing:
-        return existing
-
-    generated = uuid.uuid4().hex
-
-    def ensure_identity(config: Config) -> None:
-        nonlocal generated
-        if config.powercontext_installation_id:
-            generated = config.powercontext_installation_id
-        else:
-            config.powercontext_installation_id = generated
-
-    mutate_config(ensure_identity)
-    return generated
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:

@@ -123,7 +123,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       max_input_length: 1000,
     } as unknown as Config["light_context_config"],
     memory_manager_backend: "remelight",
-    adbpg_memory_config: null,
+    memory_backend_configs: {},
     reme_light_memory_config:
       {} as unknown as Config["reme_light_memory_config"],
     approval_level: "AUTO",
@@ -274,7 +274,7 @@ describe("useAgentConfig", () => {
     expect(callArg.context_manager_backend).toBe("light");
   });
 
-  it("falls back memory_manager_backend to 'remelight' when not in MAPPINGS", async () => {
+  it("preserves an unavailable plugin backend for diagnostics", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ memory_manager_backend: "nope" }),
     );
@@ -285,7 +285,7 @@ describe("useAgentConfig", () => {
     const callArg = mockSetFieldsValue.mock.calls[0][0] as {
       memory_manager_backend: string;
     };
-    expect(callArg.memory_manager_backend).toBe("remelight");
+    expect(callArg.memory_manager_backend).toBe("nope");
   });
 
   it("handleSave calls updateAgentRunningConfig and message.success on success", async () => {
@@ -513,11 +513,13 @@ describe("useAgentConfig", () => {
           history_retention_days: 14,
         },
       } as unknown as Config["light_context_config"],
-      adbpg_memory_config: {
-        auto_search_enabled: true,
-        auto_save_enabled: true,
-        search_top_k: 10,
-      } as unknown as Config["adbpg_memory_config"],
+      memory_backend_configs: {
+        adbpg: {
+          auto_search_enabled: true,
+          auto_save_enabled: true,
+          search_top_k: 10,
+        },
+      },
     });
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(originalConfig);
@@ -536,7 +538,7 @@ describe("useAgentConfig", () => {
         // inside a collapsed sub-panel.
         needs_reindex: true,
       },
-      // adbpg_memory_config is entirely inside a collapsed panel — not in form values at all.
+      // The plugin config is entirely inside a collapsed panel.
     });
 
     const { result } = renderConfigHook();
@@ -572,9 +574,9 @@ describe("useAgentConfig", () => {
     );
     expect((saved.reme_light_memory_config as any).search_top_k).toBe(5);
 
-    // adbpg_memory_config: entirely collapsed — original values fully preserved
-    expect((saved.adbpg_memory_config as any).auto_search_enabled).toBe(true);
-    expect((saved.adbpg_memory_config as any).auto_save_enabled).toBe(true);
-    expect((saved.adbpg_memory_config as any).search_top_k).toBe(10);
+    // Plugin config: entirely collapsed — original values fully preserved.
+    expect(saved.memory_backend_configs?.adbpg.auto_search_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.auto_save_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.search_top_k).toBe(10);
   });
 });

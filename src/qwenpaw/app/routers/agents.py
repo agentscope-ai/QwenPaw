@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
+@router.get("/memory/backends")
+async def list_memory_backends() -> list[dict[str, Any]]:
+    """Describe memory backends registered by core and preloaded plugins."""
+    from qwenpaw.memory import memory_registry
+
+    return memory_registry.describe()
+
+
 class AgentSummary(BaseModel):
     """Agent summary information."""
 

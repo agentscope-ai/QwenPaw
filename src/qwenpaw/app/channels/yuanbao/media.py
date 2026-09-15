@@ -19,9 +19,11 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import aiohttp
+
+from ..utils import file_url_to_local_path, parse_data_url_async
 
 logger = logging.getLogger(__name__)
 
@@ -297,9 +299,15 @@ async def download_and_upload_media(
     file_data: bytes
     filename: str
 
-    # Resolve local file (file:// URI or absolute path)
-    local_path = _resolve_local_path(media_path)
-    if local_path and os.path.isfile(local_path):
+    data_media = await parse_data_url_async(media_path)
+    local_path = None if data_media else _resolve_local_path(media_path)
+    if data_media is not None:
+        file_data = data_media.data
+        filename = f"file{data_media.suffix}"
+        logger.info(
+            f"yuanbao media: decoded data URL ({len(file_data)} bytes)",
+        )
+    elif local_path and os.path.isfile(local_path):
         file_data = Path(local_path).read_bytes()
         filename = os.path.basename(local_path)
         logger.info(
@@ -330,7 +338,7 @@ async def download_and_upload_media(
             f"> {MAX_UPLOAD_MB} MB",
         )
 
-    mime_type = _guess_mime(filename)
+    mime_type = data_media.media_type if data_media else _guess_mime(filename)
     file_uuid = hashlib.md5(file_data).hexdigest()
     width, height = (0, 0)
     if mime_type.startswith("image/"):
@@ -366,15 +374,8 @@ async def download_and_upload_media(
 
 
 def _resolve_local_path(url: str) -> Optional[str]:
-    """Resolve file:// URI or local absolute path to filesystem path."""
-    if not url:
-        return None
-    if url.startswith("file://"):
-        parsed = urlparse(url)
-        return unquote(parsed.path)
-    if url.startswith("/") and not url.startswith("http"):
-        return url
-    return None
+    """Resolve a local path or file URI using platform-specific conversion."""
+    return file_url_to_local_path(url)
 
 
 def build_image_msg_body(result: UploadResult) -> list:

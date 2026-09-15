@@ -862,3 +862,120 @@ describe("messageQueueStore", () => {
     controller.abort();
   });
 });
+
+describe("upstream queue regressions", () => {
+  it("enqueue clones and persists frozen business parameters", () => {
+    resetStore();
+    localStorage.clear();
+    const bizParams = {
+      session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
+      request_context: { source: "console_chat_queue" },
+    };
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      agentId: "agent-a",
+      text: "hi",
+      bizParams,
+    });
+
+    bizParams.session_id = "session-b";
+    bizParams.request_context.source = "changed";
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.bizParams).toEqual({
+      session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
+      request_context: { source: "console_chat_queue" },
+    });
+
+    resetStore();
+    useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
+    expect(
+      useMessageQueueStore.getState().getQueue(SESSION_ID)[0].bizParams,
+    ).toEqual({
+      session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
+      request_context: { source: "console_chat_queue" },
+    });
+  });
+});
+
+describe("upstream queue regressions", () => {
+  it("does not request background ownership after it is aborted", async () => {
+    const request = vi.fn();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await withBackgroundSendLock(
+      SESSION_ID,
+      vi.fn(),
+      controller.signal,
+    );
+
+    expect(result).toBeNull();
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("main queue snapshot compatibility", () => {
+  it("restores the captured backend identity from main's persisted format", () => {
+    resetStore();
+    localStorage.clear();
+    const item = {
+      id: "main-item",
+      text: "queued",
+      agentId: "agent-a",
+      status: "pending",
+      retryCount: 0,
+      createdAt: 1,
+      bizParams: {
+        session_id: "runtime-a",
+        user_id: "user-a",
+        channel: "console",
+        request_context: { agent_id: "agent-a", chat_id: "chat-a" },
+      },
+    } as QueueItem;
+    localStorage.setItem(
+      getStorageKey("chat-a"),
+      JSON.stringify({
+        version: 2,
+        items: [item],
+        runState: "paused",
+      }),
+    );
+    const store = useMessageQueueStore.getState();
+    store.loadFromStorage("chat-a");
+    expect(store.getQueue("chat-a")[0]).toMatchObject({
+      backendSessionId: "runtime-a",
+      userId: "user-a",
+      channel: "console",
+      requestContext: { agent_id: "agent-a", chat_id: "chat-a" },
+    });
+    store.applyRemoteItems("chat-b", [item]);
+    expect(store.getQueue("chat-b")[0].backendSessionId).toBe("runtime-a");
+  });
+
+  it("recovers main's Agent-scoped draft without dispatching it as a Chat", async () => {
+    resetStore();
+    localStorage.clear();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+    const store = useMessageQueueStore.getState();
+    store.enqueue("new:agent-a", { text: "draft", agentId: "agent-a" });
+    store.setRunState("new:agent-a", "paused");
+    expect(isDraftQueueKey("new:agent-a")).toBe(true);
+    await recoverLegacyDraftQueue(getQueueKey("agent-a"));
+    expect(store.getQueue(getQueueKey("agent-a"))[0].text).toBe("draft");
+    expect(store.getRunState(getQueueKey("agent-a"))).toBe("paused");
+    expect(store.getQueue("new:agent-a")).toEqual([]);
+  });
+});

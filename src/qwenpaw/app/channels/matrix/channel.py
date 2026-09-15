@@ -72,6 +72,7 @@ from qwenpaw.schemas import (
 from ....app.channels.renderer import ChannelDisplayConfig
 from ....app.channels.base import BaseChannel
 from ....app.channels.utils import file_url_to_local_path
+from ....app.channels.utils import data_url_filename, parse_data_url_async
 from ....constant import WORKING_DIR
 
 logger = logging.getLogger("qwenpaw.channels.matrix")
@@ -177,6 +178,16 @@ def _md_to_html(text: str) -> str:
 HISTORY_CONTEXT_MARKER = "[Chat messages since your last reply - for context]"
 CURRENT_MESSAGE_MARKER = "[Current message - respond to this]"
 DEFAULT_HISTORY_LIMIT = 50
+
+
+@dataclass(frozen=True)
+class _UploadedMedia:
+    """Metadata shared by the media upload and its room event."""
+
+    uri: str
+    filename: str
+    mime_type: str
+    size: int
 
 
 @dataclass
@@ -2370,11 +2381,38 @@ class MatrixChannel(BaseChannel):
     # send_media outbound path (same role as worker _upload_file).
     # ------------------------------------------------------------------
 
-    async def _upload_file(self, file_ref: str) -> Optional[str]:
-        """Upload a local file to Matrix; return mxc:// URI or None."""
+    async def _upload_file(
+        self,
+        file_ref: str,
+        filename_hint: Optional[str] = None,
+    ) -> Optional[_UploadedMedia]:
+        """Upload media and return the URI and metadata for its room event."""
         if not self._client:
             return None
         try:
+            data_media = await parse_data_url_async(file_ref)
+            if data_media is not None:
+                data = data_media.data
+                mime_type = data_media.media_type
+                filename = data_url_filename(filename_hint, data_media.suffix)
+                resp, _ = await self._client.upload(
+                    io.BytesIO(data),
+                    content_type=mime_type,
+                    filename=filename,
+                    filesize=len(data),
+                )
+                if isinstance(resp, UploadResponse):
+                    return _UploadedMedia(
+                        uri=resp.content_uri,
+                        filename=filename,
+                        mime_type=mime_type,
+                        size=len(data),
+                    )
+                logger.warning(
+                    f"MatrixChannel: data URL upload failed: {resp}",
+                )
+                return None
+
             # file_ref may be a file:// URI or a plain path
             path = Path(file_url_to_local_path(file_ref) or file_ref)
             if not path.exists():
@@ -2398,7 +2436,12 @@ class MatrixChannel(BaseChannel):
                     path.name,
                     resp.content_uri,
                 )
-                return resp.content_uri
+                return _UploadedMedia(
+                    uri=resp.content_uri,
+                    filename=path.name,
+                    mime_type=mime_type,
+                    size=len(data),
+                )
             logger.warning("MatrixChannel: upload failed: %s", resp)
             return None
         except Exception as exc:
@@ -3433,8 +3476,11 @@ class MatrixChannel(BaseChannel):
             return
 
         # Upload to Matrix media repository
-        mxc_uri = await self._upload_file(file_ref)
-        if not mxc_uri:
+        uploaded = await self._upload_file(
+            file_ref,
+            filename_hint=getattr(part, "filename", None),
+        )
+        if not uploaded:
             logger.warning(
                 "MatrixChannel: send_media upload failed for %s",
                 file_ref,
@@ -3443,22 +3489,13 @@ class MatrixChannel(BaseChannel):
 
         # Build and send the Matrix room event
         try:
-            path_str = file_url_to_local_path(file_ref) or file_ref
-            filename = os.path.basename(path_str) or "file"
-            mime_type, _ = mimetypes.guess_type(path_str)
-            mime_type = mime_type or "application/octet-stream"
-            try:
-                file_size = os.path.getsize(path_str)
-            except OSError:
-                file_size = 0
-
             event_content: dict[str, Any] = {
                 "msgtype": matrix_msgtype,
-                "body": filename,
-                "url": mxc_uri,
+                "body": uploaded.filename,
+                "url": uploaded.uri,
                 "info": {
-                    "mimetype": mime_type,
-                    "size": file_size,
+                    "mimetype": uploaded.mime_type,
+                    "size": uploaded.size,
                 },
             }
             sender_id = (meta or {}).get("sender_id") or (meta or {}).get(
@@ -3477,7 +3514,7 @@ class MatrixChannel(BaseChannel):
             logger.debug(
                 "MatrixChannel: sent %s %s to %s",
                 matrix_msgtype,
-                filename,
+                uploaded.filename,
                 room_id,
             )
         except Exception as exc:

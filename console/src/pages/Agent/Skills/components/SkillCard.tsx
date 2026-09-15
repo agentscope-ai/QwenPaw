@@ -231,6 +231,13 @@ export const SkillCard = React.memo(function SkillCard({
         </Tooltip>
       </div>
 
+      {skill.version_text && (
+        <div className={styles.metaInfoRow}>
+          <span className={styles.metaInfoLabel}>{t("skillPool.version")}</span>
+          <span className={styles.metaInfoValue}>{skill.version_text}</span>
+        </div>
+      )}
+
       {/* Channels row */}
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.channels")}</span>

@@ -72,18 +72,6 @@ function hydrateTurnUsageFromMessages(
 }
 
 // ---------------------------------------------------------------------------
-// Window globals
-// ---------------------------------------------------------------------------
-
-interface CustomWindow extends Window {
-  currentSessionId?: string;
-  currentUserId?: string;
-  currentChannel?: string;
-}
-
-declare const window: CustomWindow;
-
-// ---------------------------------------------------------------------------
 // Local helper types
 // ---------------------------------------------------------------------------
 
@@ -136,6 +124,14 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   groupId?: string | null;
   parentSessionId?: string | null;
   rootSessionId?: string | null;
+}
+
+export interface SessionIdentity {
+  sdkSessionId: string;
+  chatId?: string;
+  sessionId: string;
+  userId: string;
+  channel: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -853,17 +849,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /**
-   * Applies the view-facing side effects of a loaded session (window identity
-   * globals and the turn-usage store) only while the owner epoch that started
-   * the load is still active. A stale load must never rewrite the current
-   * agent's identity or usage view.
+   * Applies view-facing turn usage only while the owner epoch that started the
+   * load is still active.
    */
   private applySessionView(
     session: ExtendedSession,
     owner: SessionOwnerToken,
   ): void {
     if (!this.isActiveOwner(owner)) return;
-    this.updateWindowVariables(session);
     hydrateTurnUsageFromMessages(session.messages ?? []);
   }
 
@@ -1044,6 +1037,23 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       savePendingUserMessage(canonicalId, cached);
     }
 
+    // A request is confirmed as soon as its unique client id appears
+    // anywhere in history. This also prevents an already-persisted turn from
+    // being appended again while the backend still reports "running".
+    if (cached.clientMessageId) {
+      const persistenceConfirmed = messages.some((message) => {
+        if (message.role !== ROLE_USER) return false;
+        const input = message?.cards?.[0]?.data?.input?.[0];
+        return (
+          extractClientMessageId(input?.metadata) === cached.clientMessageId
+        );
+      });
+      if (persistenceConfirmed) {
+        pendingIds.forEach(clearPendingUserMessage);
+        return false;
+      }
+    }
+
     // When the chat is idle, clear the cache only after the fetched
     // history actually contains the pending text. Clearing
     // unconditionally lost the last message in two windows: POST sent
@@ -1051,17 +1061,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
-      let lastUserClientMessageId: string | undefined;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
         lastUserText = extractTextFromContent(input?.content);
-        lastUserClientMessageId = extractClientMessageId(input?.metadata);
         break;
       }
-      const persistenceConfirmed = cached.clientMessageId
-        ? lastUserClientMessageId === cached.clientMessageId
-        : lastUserText.trim() === cached.text.trim();
+      const persistenceConfirmed =
+        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         pendingIds.forEach(clearPendingUserMessage);
         return false;
@@ -1103,9 +1110,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     owner: SessionOwnerToken,
   ): ExtendedSession {
     if (this.isActiveOwner(owner)) {
-      window.currentSessionId = sessionId;
-      window.currentUserId = DEFAULT_USER_ID;
-      window.currentChannel = DEFAULT_CHANNEL;
       useTurnUsageStore.getState().setSnapshot(null);
     }
     return {
@@ -1117,22 +1121,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       messages: [],
       meta: {},
     } as ExtendedSession;
-  }
-
-  private updateWindowVariables(session: ExtendedSession): void {
-    window.currentSessionId = session.sessionId || "";
-    window.currentUserId = session.userId || DEFAULT_USER_ID;
-    window.currentChannel = session.channel || DEFAULT_CHANNEL;
-  }
-
-  /** Resets window identity globals to their defaults. Called on agent
-   *  switch: the globals are otherwise only rewritten when another session
-   *  loads, so a new agent would inherit the previous agent's session and
-   *  channel (possibly one that has since been deleted). */
-  resetWindowIdentity(): void {
-    window.currentSessionId = "";
-    window.currentUserId = DEFAULT_USER_ID;
-    window.currentChannel = DEFAULT_CHANNEL;
   }
 
   private findSession(id: string): ExtendedSession | undefined {
@@ -1203,60 +1191,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(libraryId)?.sessionId || libraryId;
   }
 
-  /** Resolve an explicit SDK/Chat ID without consulting another view's
-   *  globals. Omitted IDs retain the legacy fallback for a fresh blank chat. */
-  getSessionIdentity(libraryId?: string): {
-    sessionId: string;
-    userId: string;
-    channel: string;
-  } {
-    if (libraryId !== undefined) {
-      const session = this.findSession(libraryId);
-      return {
-        sessionId: session?.sessionId || libraryId,
-        userId: session?.userId || DEFAULT_USER_ID,
-        channel: session?.channel || DEFAULT_CHANNEL,
-      };
-    }
-    // Legacy blank-chat fallback: prefer the recorded selection/new-chat
-    // intent over globals written by history requests. Existing Chat sends
-    // must use the explicit-ID branch above, including when history is cached.
-    const session = this.lastActiveChatId
-      ? this.findSession(this.lastActiveChatId)
-      : undefined;
-    if (session?.userId) {
-      return {
-        sessionId: session.sessionId || "",
-        userId: session.userId,
-        channel: session.channel || DEFAULT_CHANNEL,
-      };
-    }
-    // Window globals can outlive the session they came from (they are only
-    // rewritten when another session loads), so trust them only when they
-    // still resolve to a session in the current list. After an agent switch
-    // the list is reloaded and a stale identity — including a channel that
-    // may no longer exist — fails this lookup and falls through to defaults.
-    const windowSessionId = window.currentSessionId || "";
-    const windowSession = windowSessionId
-      ? (this.sessionList.find(
-          (s) =>
-            (s as ExtendedSession).sessionId === windowSessionId ||
-            s.id === windowSessionId,
-        ) as ExtendedSession | undefined)
-      : undefined;
-    if (windowSession?.userId) {
-      return {
-        sessionId: windowSession.sessionId || "",
-        userId: windowSession.userId,
-        channel: windowSession.channel || DEFAULT_CHANNEL,
-      };
-    }
-    // A fresh local id is still safe to keep: blank chats are always
-    // created on the console channel.
+  /** Resolve one immutable identity from an explicit SDK, chat, or runtime id. */
+  getSessionIdentity(referenceId?: string | null): SessionIdentity {
+    const explicitId = referenceId || "";
+    const session = explicitId
+      ? this.findSession(explicitId)
+      : (this.sessionList.find(
+          (item) =>
+            isLocalTimestamp(item.id) && !(item as ExtendedSession).realId,
+        ) as ExtendedSession | undefined);
+    const sdkSessionId = session?.id || explicitId;
+    const chatId =
+      session?.realId ??
+      (session && sdkSessionId && !isLocalTimestamp(sdkSessionId)
+        ? sdkSessionId
+        : undefined);
     return {
-      sessionId: isLocalTimestamp(windowSessionId) ? windowSessionId : "",
-      userId: DEFAULT_USER_ID,
-      channel: DEFAULT_CHANNEL,
+      sdkSessionId,
+      chatId,
+      sessionId:
+        session?.sessionId ||
+        (isLocalTimestamp(sdkSessionId) ? sdkSessionId : ""),
+      userId: session?.userId || DEFAULT_USER_ID,
+      channel: session?.channel || DEFAULT_CHANNEL,
     };
   }
 
@@ -1520,7 +1477,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Fetch chat history from backend and build an ExtendedSession.
    * Centralises the repeated fetch-convert-patch-build pattern used by
    * _doGetSession in multiple branches. Construction is applied to shared
-   * state (window identity, turn-usage store, converted cache) only while
+   * state (turn-usage store and converted cache) only while
    * the caller's owner epoch is still active.
    */
   private async fetchAndBuildSession(
@@ -1823,7 +1780,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             realId: chat.id,
             sessionId: chat.session_id || runtimeSessionId,
           };
-          this.updateWindowVariables(extended);
           this.sessionList.unshift(extended);
           this.onSessionCreated?.(chat.id);
           return { sessions: [...this.sessionList], session: extended };

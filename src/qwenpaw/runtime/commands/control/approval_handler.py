@@ -11,6 +11,8 @@ import logging
 import time
 
 from ....app.approvals import (
+    ApprovalActor,
+    ApprovalIdentityMismatchError,
     ApprovalService,
     PendingApproval,
     get_approval_service,
@@ -27,17 +29,43 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
     Features:
     - Approve/deny pending tool executions
-    - List all pending approvals
+    - List pending approvals visible to the current caller
     - Cancel specific approval requests
 
     Usage:
         /approval approve [request_id]  # Approve specific or queue head
         /approval deny [request_id] [reason]  # Deny with optional reason
-        /approval list                  # List all pending approvals
+        /approval list                  # List caller-visible approvals
         /approval cancel <request_id>   # Cancel specific request
     """
 
     command_name = "/approval"
+
+    @staticmethod
+    def _actor(context: ControlContext) -> ApprovalActor:
+        """Build the resolving identity from the current request context."""
+        payload = context.payload
+        if isinstance(payload, dict):
+            channel = str(payload.get("channel") or "")
+            root_session_id = str(payload.get("root_session_id") or "")
+        else:
+            channel = str(getattr(payload, "channel", "") or "")
+            root_session_id = str(
+                getattr(payload, "root_session_id", "") or "",
+            )
+        if not channel:
+            channel = str(getattr(context.channel, "channel", "") or "console")
+        return ApprovalActor(
+            session_id=context.session_id,
+            root_session_id=root_session_id or context.session_id,
+            user_id=context.user_id or context.session_id,
+            channel=channel,
+            agent_id=context.agent_id,
+        )
+
+    @staticmethod
+    def _identity_denied() -> str:
+        return "❌ **权限不足**\n\n" "此审批只能由发起请求的同一用户、频道和会话处理。"
 
     @staticmethod
     async def _get_spawn_child_queue_head(
@@ -55,6 +83,21 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 and pending.owner_agent_id == context.agent_id
                 and (pending.extra or {}).get("_spawn_subagent")
             ):
+                return pending
+        return None
+
+    @classmethod
+    async def _get_direct_queue_head(
+        cls,
+        context: ControlContext,
+        svc: ApprovalService,
+    ) -> PendingApproval | None:
+        """Return the first current-session approval visible to this caller."""
+        actor = cls._actor(context)
+        for pending in await svc.get_all_pending_by_session(
+            context.session_id,
+        ):
+            if svc.actor_can_resolve(pending, actor):
                 return pending
         return None
 
@@ -95,7 +138,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
         # If no request_id provided, get queue head (FIFO)
         if not request_id:
-            pending = await svc.get_pending_by_session(context.session_id)
+            pending = await self._get_direct_queue_head(context, svc)
             if pending is None:
                 pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
@@ -121,11 +164,15 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
 
         # Resolve the Future to unblock waiting agent
-        resolved = await svc.resolve_request(
-            request_id,
-            ApprovalDecision.APPROVED,
-            scope=scope,
-        )
+        try:
+            resolved = await svc.resolve_request(
+                request_id,
+                ApprovalDecision.APPROVED,
+                scope=scope,
+                actor=self._actor(context),
+            )
+        except ApprovalIdentityMismatchError:
+            return self._identity_denied()
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -156,7 +203,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
         # If no request_id provided, get queue head
         if not request_id:
-            pending = await svc.get_pending_by_session(context.session_id)
+            pending = await self._get_direct_queue_head(context, svc)
             if pending is None:
                 pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
@@ -182,10 +229,14 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
 
         # Resolve the Future to unblock waiting agent
-        resolved = await svc.resolve_request(
-            request_id,
-            ApprovalDecision.DENIED,
-        )
+        try:
+            resolved = await svc.resolve_request(
+                request_id,
+                ApprovalDecision.DENIED,
+                actor=self._actor(context),
+            )
+        except ApprovalIdentityMismatchError:
+            return self._identity_denied()
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -209,7 +260,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         )
 
     async def _handle_list(self, context: ControlContext) -> str:
-        """List pending approvals.
+        """List approvals visible under each pending request's policy.
 
         Supports:
             /approval list           # Current session (includes children)
@@ -224,13 +275,20 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             pending_list = await svc.get_all_pending_by_agent(
                 context.agent_id,
             )
-            header = "📋 **全局待审批工具列表** (所有会话)\n"
+            header = "📋 **全局待审批工具列表** (当前调用者可见)\n"
         else:
             # Default: query current root session (includes children)
             pending_list = await svc.get_pending_by_root_session(
                 context.session_id,
             )
             header = "📋 **待审批工具列表** (当前会话)\n"
+
+        actor = self._actor(context)
+        pending_list = [
+            pending
+            for pending in pending_list
+            if svc.actor_can_resolve(pending, actor)
+        ]
 
         if not pending_list:
             return "✅ **无待审批工具**\n\n当前无需要审批的工具调用。"
@@ -278,10 +336,14 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
 
         svc = get_approval_service()
-        resolved = await svc.resolve_request(
-            request_id,
-            ApprovalDecision.DENIED,
-        )
+        try:
+            resolved = await svc.resolve_request(
+                request_id,
+                ApprovalDecision.DENIED,
+                actor=self._actor(context),
+            )
+        except ApprovalIdentityMismatchError:
+            return self._identity_denied()
 
         if resolved is None:
             return f"❌ **审批请求不存在**\n\n" f"请求 ID: `{request_id[:16]}`"

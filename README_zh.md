@@ -60,6 +60,8 @@
 
 ## 新闻
 
+- [2026-09-10] **v2.2.1** | Creator 1.2 蓝图工作台、按智能体配置的模型路由和统一环境管理。[v2.2.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
+
 - [2026-09-03] **v2.2.0** | 新增可自托管的多用户 QwenPaw Hub、QwenPaw Mail、原生 QwenPaw Data、统一模型路由和 Creator 1.1，并全面改进应用市场、控制台、Skills、频道与运行可靠性。[v2.2.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)

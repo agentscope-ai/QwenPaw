@@ -15,8 +15,6 @@ import { createSdkSessionAdapter } from "../sdkSessionAdapter";
 import { groupChatsByDate } from "../../../utils/chatGroups";
 import type { ExtendedSession } from "../../../stores/sessionListStore";
 
-const sessionWindow = window as Window & { currentSessionId?: string };
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -44,13 +42,11 @@ describe("createSession owner-epoch singleflight", () => {
   beforeEach(() => {
     sessionApi.resetForTests();
     sessionApi.setActiveAgent("A");
-    sessionApi.resetWindowIdentity();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     sessionApi.resetForTests();
-    sessionApi.resetWindowIdentity();
   });
 
   it("shares concurrent first sends and publishes the created Chat once", async () => {
@@ -162,7 +158,8 @@ describe("createSession owner-epoch singleflight", () => {
       sessionApi.setActiveAgent("A");
       create.mockReturnValue(current.promise);
       const newResult = sessionApi.createSession({ name: "new A" });
-      const identityBefore = sessionWindow.currentSessionId;
+      const identityBefore =
+        sessionApi.getSessionIdentity("fresh-chat").sessionId;
       if (settle === "resolve") old.resolve(createdChat("stale-chat"));
       else old.reject(new Error("old failure"));
       const [stale] = await oldResult;
@@ -171,7 +168,9 @@ describe("createSession owner-epoch singleflight", () => {
         expect(stale.reason).toMatchObject({ name: "AbortError" });
       }
       expect(selected).not.toHaveBeenCalled();
-      expect(sessionWindow.currentSessionId).toBe(identityBefore);
+      expect(sessionApi.getSessionIdentity("fresh-chat").sessionId).toBe(
+        identityBefore,
+      );
       await expect(oldBound.createSession({})).rejects.toMatchObject({
         name: "AbortError",
       });
@@ -184,7 +183,9 @@ describe("createSession owner-epoch singleflight", () => {
       expect(result.sessions.map((session) => session.id)).toEqual([
         "fresh-chat",
       ]);
-      expect(sessionWindow.currentSessionId).toBe("runtime-fresh-chat");
+      expect(sessionApi.getSessionIdentity("fresh-chat").sessionId).toBe(
+        "runtime-fresh-chat",
+      );
       expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
     },
   );
@@ -206,7 +207,9 @@ describe("createSession owner-epoch singleflight", () => {
         reason: expect.objectContaining({ name: "AbortError" }),
       },
     ]);
-    expect(sessionWindow.currentSessionId).toBe("runtime-fresh-chat");
+    expect(sessionApi.getSessionIdentity("fresh-chat").sessionId).toBe(
+      "runtime-fresh-chat",
+    );
     expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
     create.mockResolvedValue(createdChat("next-chat"));
     const next = await sessionApi.createSession({});
@@ -222,13 +225,11 @@ describe("bound session history owner epochs", () => {
   beforeEach(() => {
     sessionApi.resetForTests();
     sessionApi.setActiveAgent("A");
-    sessionApi.resetWindowIdentity();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     sessionApi.resetForTests();
-    sessionApi.resetWindowIdentity();
   });
 
   it("suppresses A1's late idle observer after A -> B -> A2 while preserving direct getSession results", async () => {

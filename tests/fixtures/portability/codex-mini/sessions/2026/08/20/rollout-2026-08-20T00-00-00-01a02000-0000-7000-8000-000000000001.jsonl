@@ -1,0 +1,3 @@
+{"timestamp":"2026-08-20T00:00:00Z","type":"session_meta","payload":{"id":"01a02000-0000-7000-8000-000000000001","cwd":"/fixture/codex-project","source":"vscode","thread_source":"user"}}
+{"timestamp":"2026-08-20T00:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Continue the Codex fixture"}}
+{"timestamp":"2026-08-20T00:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Codex fixture complete"}}

@@ -25,14 +25,70 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw.schemas import ContentType
 
 from tests.fixtures.channels.mock_http import MockAiohttpSession
+
+
+async def test_data_url_c2c_upload_uses_encoded_bytes(qq_channel):
+    """QQ's C2C uploader receives validated Base64 and a stable filename."""
+    with (
+        patch(
+            "qwenpaw.app.channels.qq.channel._upload_media_async",
+            new=AsyncMock(return_value="file-info"),
+        ) as upload,
+        patch(
+            "qwenpaw.app.channels.qq.channel._send_media_message_async",
+            new_callable=AsyncMock,
+        ) as send,
+    ):
+        await qq_channel._send_media_c2c_or_group(
+            message_type="c2c",
+            content_type=ContentType.IMAGE,
+            sender_id="recipient",
+            group_openid=None,
+            url="data:image/png;base64,cG5nLWRhdGE=",
+            local_path=None,
+            msg_id=None,
+            token="token",
+        )
+    assert upload.call_args.kwargs["file_data"] == "cG5nLWRhdGE="
+    assert upload.call_args.kwargs["file_name"] == "file.png"
+    send.assert_awaited_once()
+
+
+async def test_data_url_guild_upload_cleans_up(qq_channel):
+    """Guild uploads receive a separate display name and a live file."""
+    paths = []
+
+    async def upload(_http, _token, _endpoint, path, _msg_id, *, filename):
+        paths.append(Path(path))
+        assert Path(path).read_bytes() == b"png-data"
+        assert filename == "image.png"
+
+    with patch(
+        "qwenpaw.app.channels.qq.channel._send_guild_image_file_async",
+        new=AsyncMock(side_effect=upload),
+    ) as send:
+        await qq_channel._send_media_guild_or_dm(
+            message_type="guild",
+            content_type=ContentType.IMAGE,
+            channel_id="channel",
+            guild_id=None,
+            url="data:image/png;base64,cG5nLWRhdGE=",
+            local_path=None,
+            msg_id=None,
+            token="token",
+        )
+    send.assert_awaited_once()
+    assert not paths[0].exists()
 
 
 # =============================================================================

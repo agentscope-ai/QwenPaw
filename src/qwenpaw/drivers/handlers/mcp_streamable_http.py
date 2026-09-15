@@ -128,7 +128,7 @@ def _ids_match(left: Any, right: Any) -> bool:
     return left == right or str(left) == str(right)
 
 
-def _timeout_seconds(value: float | timedelta) -> float:
+def timeout_seconds(value: float | timedelta) -> float:
     return (
         value.total_seconds() if isinstance(value, timedelta) else float(value)
     )
@@ -522,8 +522,11 @@ class _HttpClientBase:
         self.transport = transport
         self.url = url
         self.headers = headers
-        self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
+        self.timeout = timeout_seconds(timeout)
+        self.sse_read_timeout = max(
+            timeout_seconds(sse_read_timeout),
+            self.timeout,
+        )
         self.client_kwargs = dict(client_kwargs)
         self.is_stateful = False
         self.is_connected = False
@@ -565,8 +568,8 @@ class HttpStatelessClient(_HttpClientBase):
         """Connect and negotiate the modern protocol version."""
         if self.is_connected or self._http is not None:
             raise _already_connected(self.name)
-        t = _timeout_seconds(self.timeout)
-        r = _timeout_seconds(self.sse_read_timeout)
+        t = self.timeout
+        r = self.sse_read_timeout
         # Drop leftover session ids without mutating caller-owned headers.
         headers = _headers_without_session_id(self.headers)
         self._http = _AsyncClient(

@@ -156,9 +156,8 @@ function startPolling(sessionId: string, toolCallId: string): AbortFn {
  * Register a task in the background queue and start the SSE/poll watcher.
  * Idempotent: safe for both manual offload and system auto-offload.
  *
- * sessionId may be empty on the first turn before window.currentSessionId is
- * set — we still enqueue the task (panel shows it) and resolve session later
- * for the watcher from window when possible.
+ * sessionId may be empty on the first turn before the local session resolves.
+ * We still enqueue the task so the panel can display it.
  */
 export function registerBackgroundTask(opts: {
   sessionId: string;

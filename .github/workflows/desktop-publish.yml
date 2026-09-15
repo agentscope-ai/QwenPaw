@@ -20,7 +20,7 @@ on:
         type: string
         required: true
       ref:
-        description: "Git ref/SHA to checkout for the packaging scripts"
+        description: "Release target ref/SHA used for product source and version"
         type: string
         required: false
         default: ""
@@ -31,17 +31,38 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
   # ── Attach installers to the (draft) GitHub Release ────────────────────────
   upload-release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     permissions:
+      actions: read
       contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout release target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          # Helpers must come from the revision that defined this workflow,
+          # even when the release target predates those helpers.
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Download and verify desktop installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2
 
       - name: Attach desktop installers to the draft release
         env:
@@ -57,6 +78,9 @@ jobs:
           fi
           echo "Attaching to draft release ${{ inputs.tag }}: ${files[*]}"
           gh release upload "${{ inputs.tag }}" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          bash "$RELEASE_INFRA/scripts/pack/verify_github_release_assets.sh" \
+            "${{ inputs.tag }}" \
+            "${files[@]}"
 
   # ── Publish files + updater metadata to OSS (skipped on dry_run) ───────────
   upload-oss:
@@ -65,11 +89,20 @@ jobs:
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
       OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+      RELEASE_INFRA: ${{ github.workspace }}/.release-infra
     steps:
-      - name: Checkout (for scripts)
+      - name: Checkout release target
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Checkout release infrastructure
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: scripts
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -83,8 +116,13 @@ jobs:
         id: version
         uses: ./.github/actions/get-version
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download and verify desktop artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
+            --attempts 2 \
+            --include-updater-metadata
 
       - name: Install ossutil
         run: |
@@ -125,21 +163,19 @@ jobs:
             fi
 
             echo "Processing ${platform} Tauri artifact: ${artifact}"
-            python scripts/pack/generate_oss_metadata.py \
+            python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "${artifact}" \
               --product desktop \
               --platform "${platform}" \
               --version "${VERSION}" \
               --output "${metadata}"
 
-            ossutil cp "${artifact}" \
-              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
-              --acl public-read \
-              --force
-            ossutil cp "${metadata}" \
-              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
-              --acl public-read \
-              --force
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}"
+            bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+              "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json"
           }
 
           upload_versioned \
@@ -166,10 +202,9 @@ jobs:
             echo "No macOS .app.tar.gz found, skipping"
             exit 0
           fi
-          ossutil cp "$APP_TAR_GZ" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz" \
-            --acl public-read \
-            --force
+          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
+            "$APP_TAR_GZ" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz"
 
       # NOTE: the `latest` files, the updater manifest
       # (qwenpaw-tauri-latest.json) and the index are intentionally NOT uploaded

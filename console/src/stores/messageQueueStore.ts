@@ -88,7 +88,7 @@ export function getQueueKey(agentId: string, chatId?: string | null): string {
 }
 
 export function isDraftQueueKey(key: string): boolean {
-  return key === "new" || key.startsWith("draft:");
+  return key === "new" || key.startsWith("draft:") || key.startsWith("new:");
 }
 
 /** Locate an item after a `new` queue has migrated to its backend chat id. */
@@ -152,6 +152,25 @@ export function getStorageKey(sessionId: string): string {
   return `${STORAGE_PREFIX}${sessionId}`;
 }
 
+/** Read main's business-parameter snapshots through the SDK 1.2 queue shape. */
+function restoreQueueIdentity(item: QueueItem): QueueItem {
+  const params = item.bizParams;
+  if (!params) return item;
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" && value ? value : undefined;
+  return {
+    ...item,
+    backendSessionId: item.backendSessionId || text(params.session_id),
+    userId: item.userId || text(params.user_id),
+    channel: item.channel || text(params.channel),
+    requestContext:
+      item.requestContext ||
+      (params.request_context && typeof params.request_context === "object"
+        ? (params.request_context as Record<string, unknown>)
+        : undefined),
+  };
+}
+
 function readQueueFromStorage(sessionId: string): PersistedQueue | null {
   try {
     const key = getStorageKey(sessionId);
@@ -175,7 +194,10 @@ function readQueueFromStorage(sessionId: string): PersistedQueue | null {
       if (Array.isArray(parsed)) {
         return { items: parsed as QueueItem[], runState: "idle" };
       }
-      return parsed as PersistedQueue;
+      return {
+        ...parsed,
+        items: parsed.items.map(restoreQueueIdentity),
+      } as PersistedQueue;
     }
   } catch {
     // ignore
@@ -315,7 +337,9 @@ export async function withSendLock<T>(
 export async function withAvailableOwnershipLock<T>(
   sessionId: string,
   fn: () => Promise<T> | T,
+  abortSignal?: AbortSignal,
 ): Promise<T | null> {
+  if (abortSignal?.aborted) return null;
   const locks = getLockManager();
   if (!locks) {
     return await fn();
@@ -325,7 +349,7 @@ export async function withAvailableOwnershipLock<T>(
       `qwenpaw:queue-owner:${sessionId}`,
       { mode: "exclusive", ifAvailable: true },
       async (lock: unknown) => {
-        if (!lock) return null;
+        if (!lock || abortSignal?.aborted) return null;
         return await fn();
       },
     )) as T | null;
@@ -339,9 +363,12 @@ export async function withAvailableOwnershipLock<T>(
 export function withBackgroundSendLock<T>(
   sessionId: string,
   fn: () => Promise<T> | T,
+  abortSignal?: AbortSignal,
 ): Promise<T | null> {
-  return withAvailableOwnershipLock(sessionId, () =>
-    withSendLock(sessionId, fn),
+  return withAvailableOwnershipLock(
+    sessionId,
+    () => withSendLock(sessionId, fn),
+    abortSignal,
   );
 }
 
@@ -499,8 +526,10 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       backendSessionId,
       userId: input.userId,
       channel: input.channel,
-      requestContext: input.requestContext,
-      bizParams: input.bizParams,
+      requestContext: input.requestContext
+        ? structuredClone(input.requestContext)
+        : undefined,
+      bizParams: input.bizParams ? structuredClone(input.bizParams) : undefined,
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),
@@ -760,7 +789,7 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       if (items.length === 0) {
         delete queues[sessionId];
       } else {
-        queues[sessionId] = items;
+        queues[sessionId] = items.map(restoreQueueIdentity);
       }
       return { queues };
     });
@@ -779,19 +808,19 @@ export async function recoverLegacyDraftQueue(
   queueKey: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (
-    !queueKey.startsWith("draft:") ||
-    !readQueueFromStorage("new")?.items.length
-  )
-    return;
+  if (!queueKey.startsWith("draft:")) return;
+  const agentId = decodeURIComponent(queueKey.slice(6));
+  const sources = ["new", `new:${agentId}`];
+  if (!sources.some((key) => readQueueFromStorage(key)?.items.length)) return;
   const recover = () => {
     if (signal?.aborted) return;
-    const legacy = readQueueFromStorage("new");
-    if (!legacy?.items.length) return;
     const store = useMessageQueueStore.getState();
-    store.loadFromStorage("new");
     store.loadFromStorage(queueKey);
-    store.migrateQueue("new", queueKey, decodeURIComponent(queueKey.slice(6)));
+    for (const source of sources) {
+      if (!readQueueFromStorage(source)?.items.length) continue;
+      store.loadFromStorage(source);
+      store.migrateQueue(source, queueKey, agentId);
+    }
   };
   const locks = getLockManager();
   if (!locks) {

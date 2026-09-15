@@ -10,6 +10,7 @@ and delegates to the original handler.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -278,11 +279,123 @@ _CONVERSATION_COMMANDS = frozenset(
         "proactive",
         "plan",
         "system_prompt",
-        "dream",
-        "memorize",
-        "reme_status",
+        "reme",
     },
 )
+
+
+async def _request_reme_action_approval(
+    ctx: Any,
+    action: str,
+    kwargs: dict[str, Any],
+) -> bool:
+    """Use the shared approval pipeline for side-effecting ReMe actions."""
+    import json
+
+    from ..app.approvals import (
+        ApprovalActor,
+        ApprovalIdentityPolicy,
+        get_approval_service,
+    )
+    from ..app.approvals.models import ApprovalRequestSummary
+    from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+    from ..security.tool_guard.approval import ApprovalDecision
+
+    request = getattr(ctx, "request", None)
+    session_id = str(getattr(ctx, "session_id", "") or "")
+    agent_id = str(getattr(ctx, "agent_id", "") or "default")
+    root_session_id = str(
+        getattr(ctx, "root_session_id", "") or session_id,
+    )
+    root_agent_id = str(getattr(ctx, "root_agent_id", "") or agent_id)
+    user_id = str(getattr(request, "user_id", "") or session_id)
+    channel_name = str(getattr(request, "channel", "") or "console")
+    channel_meta = getattr(request, "channel_meta", None) or getattr(
+        request,
+        "metadata",
+        None,
+    )
+
+    channel_instance = None
+    channel_manager = getattr(
+        getattr(ctx, "workspace", None),
+        "channel_manager",
+        None,
+    )
+    if channel_manager is not None and channel_name != "console":
+        try:
+            channel_instance = await channel_manager.get_channel(channel_name)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Could not resolve channel for ReMe approval: %s",
+                channel_name,
+                exc_info=True,
+            )
+
+    arguments = json.dumps(
+        kwargs,
+        ensure_ascii=False,
+        default=str,
+        separators=(",", ":"),
+    )
+    if len(arguments) > 2000:
+        arguments = arguments[:1999] + "…"
+    arguments = arguments.replace("`", "\\`")
+
+    summary = ApprovalRequestSummary(
+        source_type="reme_action",
+        name=f"reme:{action}",
+        severity="medium",
+        result_summary=(
+            f"ReMe action `{action}` can consume model/network resources "
+            "and write persistent memory.\n\n"
+            f"Arguments: `{arguments}`"
+        ),
+        payload={"action": action},
+    )
+    service = get_approval_service()
+    pending = await service.create_pending_summary(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        owner_agent_id=root_agent_id,
+        user_id=user_id,
+        channel=channel_name,
+        agent_id=agent_id,
+        summary=summary,
+        timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        extra={
+            "channel_meta": channel_meta,
+            "_channel_instance": channel_instance,
+        },
+        # These commands originate outside the governed tool loop. Bind the
+        # decision to the exact caller so another session on the same Agent
+        # cannot authorize its model/network use or persistent writes.
+        identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
+    )
+    actor = ApprovalActor(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        user_id=user_id,
+        channel=channel_name,
+        agent_id=agent_id,
+    )
+    try:
+        decision = await service.wait_for_approval(
+            pending.request_id,
+            TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        )
+    except asyncio.CancelledError:
+        # A disconnected/cancelled command can no longer consume a decision;
+        # remove its pending prompt instead of leaving a stale approval behind.
+        await asyncio.shield(
+            service.resolve_request(
+                pending.request_id,
+                ApprovalDecision.DENIED,
+                actor=actor,
+            ),
+        )
+        raise
+    return decision == ApprovalDecision.APPROVED
 
 
 async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
@@ -473,6 +586,9 @@ def _make_conversation_adapter(
             scroll_state=existing_scroll,
             session_id=getattr(ctx, "session_id", None),
             prompt_context=ctx,
+            reme_action_authorizer=lambda action, kwargs: (
+                _request_reme_action_approval(ctx, action, kwargs)
+            ),
         )
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"

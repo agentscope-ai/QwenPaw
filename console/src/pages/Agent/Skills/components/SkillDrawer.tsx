@@ -13,6 +13,7 @@ import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillDetail } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
+import { SkillConfigEditor } from "../../../../components/SkillConfigEditor";
 import { api } from "../../../../api";
 import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
@@ -376,14 +377,13 @@ export function SkillDrawer({
             validateStatus={configError ? "error" : undefined}
             help={configError || undefined}
           >
-            <Input.TextArea
-              rows={4}
+            <SkillConfigEditor
               value={configText}
-              onChange={(e) => {
-                setConfigText(e.target.value);
+              onChange={(value) => {
+                setConfigText(value);
                 setConfigError("");
               }}
-              placeholder={t("skills.configPlaceholder")}
+              requirements={editing ? editingSkill?.requirements : undefined}
             />
           </Form.Item>
 
