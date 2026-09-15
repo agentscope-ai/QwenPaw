@@ -90,6 +90,7 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
+  SESSION_TIMELINE_MODE_VERSION: 4,
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
     useEffect(() => {
@@ -133,6 +134,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
+    getChatSpec: vi.fn(() => Promise.resolve({ source: "chat" })),
     stopChat: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -180,6 +182,9 @@ vi.mock("./sessionApi", () => ({
     userInitiatedCreate: false,
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
+    preloadSession: vi.fn(() =>
+      Promise.resolve({ session: { messages: [] }, realId: null }),
+    ),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
     lastActiveChatId: "last-chat-1",
@@ -863,7 +868,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── responseParser: turn_usage → null ──────────────────────────────────
-  it("responseParser returns null for turn_usage payload", async () => {
+  it("responseParser maps turn_usage to a stream heartbeat", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -873,12 +878,12 @@ describe("ChatPage coverage", () => {
       const parsed = capturedOptions.api.responseParser(
         JSON.stringify({ type: "turn_usage", tokens: 1234 }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 
   // ── responseParser: replay_end → heartbeat ─────────────────────────────
-  it("responseParser maps replay_end to heartbeat", async () => {
+  it("responseParser preserves replay_end for session timeline mode", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -888,8 +893,7 @@ describe("ChatPage coverage", () => {
       const parsed = capturedOptions.api.responseParser(
         JSON.stringify({ type: "replay_end" }),
       );
-      expect(parsed).toBeTruthy();
-      expect(parsed.type).toBe("heartbeat");
+      expect(parsed).toEqual({ type: "replay_end" });
     }
   });
 
@@ -914,7 +918,7 @@ describe("ChatPage coverage", () => {
           ],
         }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 
@@ -1340,6 +1344,7 @@ describe("ChatPage coverage", () => {
   });
 
   it("releases an unconsumed direct-send slot when switching sessions", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
     const sourceChatId = "33322222-2222-4222-8222-222222222224";
     const targetChatId = "33322222-2222-4222-8222-222222222225";
 
@@ -1366,6 +1371,13 @@ describe("ChatPage coverage", () => {
     expect(first).toEqual({ proceed: true, query: "abandoned direct send" });
 
     fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+
+    await waitFor(() =>
+      expect(chatApi.getChatSpec).toHaveBeenCalledWith(
+        targetChatId,
+        expect.objectContaining({ include_app_owned: false }),
+      ),
+    );
 
     let second: unknown;
     await act(async () => {

@@ -80,6 +80,92 @@ async def connect_session(
     return session, socket
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("late_created", [False, True])
+async def test_input_identity_survives_a_newer_turn(late_created):
+    session = DashScopeRealtimeSession(config(), "unused")
+    try:
+        for item in ("first", "second"):
+            await session._handle(
+                {"type": "input_audio_buffer.speech_started", "item_id": item}
+            )
+            await session._handle(
+                {"type": "input_audio_buffer.speech_stopped", "item_id": item}
+            )
+        if late_created:
+            await session._handle(
+                {
+                    "type": "conversation.item.created",
+                    "item": {"id": "first", "role": "user"},
+                }
+            )
+        await session._handle(
+            {
+                "type": (
+                    "conversation.item.input_audio_transcription.completed"
+                ),
+                "item_id": "first",
+                "transcript": "first request",
+            }
+        )
+        assert (
+            session._input_item_turns["first"]
+            != session._input_item_turns["second"]
+        )
+        assert session._input_turns[
+            session._input_item_turns["first"]
+        ].transcript_final
+        assert not session._input_turns[
+            session._input_item_turns["second"]
+        ].transcript_final
+        events = [session._events.get_nowait() for _ in range(5)]
+        assert [event.correlation_id for event in events] == [
+            "first",
+            "first",
+            "second",
+            "second",
+            "first",
+        ]
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_empty_or_failed_input_has_an_explicit_terminal_event(failed):
+    session = DashScopeRealtimeSession(config(), "unused")
+    try:
+        await session._handle(
+            {"type": "input_audio_buffer.speech_started", "item_id": "input"}
+        )
+        terminal = {
+            "type": "conversation.item.input_audio_transcription."
+            + ("failed" if failed else "completed"),
+            "item_id": "input",
+            "transcript": "",
+        }
+        if failed:
+            terminal["error"] = {
+                "code": "asr_failure",
+                "message": "recognition unavailable",
+            }
+        await session._handle(terminal)
+        assert session._events.qsize() == 2
+        session._events.get_nowait()
+        event = session._events.get_nowait()
+        assert event.kind == (
+            "input_transcript.failed" if failed else "input_transcript.final"
+        )
+        assert event.correlation_id == "input"
+        assert session._input_turns[
+            session._input_item_turns["input"]
+        ].transcript_final
+        await session._handle(terminal)
+        assert session._events.empty()
+    finally:
+        await session.close()
+
+
 @pytest.mark.parametrize("suffix", ["delta", "text"])
 async def test_input_preview_is_a_revisable_snapshot(monkeypatch, suffix):
     session, socket = await connect_session(monkeypatch)
@@ -98,7 +184,10 @@ async def test_input_preview_is_a_revisable_snapshot(monkeypatch, suffix):
         ):
             socket.feed(
                 {
-                    "type": f"conversation.item.input_audio_transcription.{suffix}",
+                    "type": (
+                        "conversation.item.input_audio_transcription."
+                        f"{suffix}"
+                    ),
                     "event_id": f"preview-{index}",
                     "item_id": "input-1",
                     "text": text,
@@ -442,20 +531,22 @@ async def test_item_commands_are_acknowledged_between_responses(
     assert (await anext(events)).kind == "response.finished"
     await eventually(
         lambda: any(
-            item["type"] == "conversation.item.delete"
-            for item in socket.sent
+            item["type"] == "conversation.item.delete" for item in socket.sent
         )
     )
 
     second = asyncio.create_task(second_sequence())
     await asyncio.sleep(0)
-    assert len(
-        [
-            item
-            for item in socket.sent
-            if item["type"] == "conversation.item.create"
-        ]
-    ) == 1
+    assert (
+        len(
+            [
+                item
+                for item in socket.sent
+                if item["type"] == "conversation.item.create"
+            ]
+        )
+        == 1
+    )
 
     await finish_presentation(socket, first)
     await acknowledge_item(socket, 1)
@@ -568,6 +659,7 @@ async def test_audio_turn_items_are_deleted_before_next_presentation(
         {
             "type": "input_audio_buffer.speech_started",
             "event_id": "speech",
+            "item_id": "audio-input",
         },
     )
     socket.feed(

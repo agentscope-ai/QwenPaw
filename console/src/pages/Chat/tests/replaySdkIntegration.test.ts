@@ -102,7 +102,7 @@ async function readSsePayloads(response: Response): Promise<string[]> {
     buf += decoder.decode(value, { stream: true });
   }
   return buf
-    .split("\n\n")
+    .split(/\r?\n\r?\n/)
     .map((e) => e.trim())
     .filter(Boolean)
     .map((e) => e.replace(/^data:\s*/, ""));

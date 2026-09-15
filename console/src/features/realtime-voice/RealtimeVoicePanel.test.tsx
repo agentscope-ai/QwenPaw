@@ -104,12 +104,34 @@ describe("Realtime Voice Chat surfaces", () => {
     expect(stop).toHaveBeenCalledOnce();
   });
 
-  it("shows live transcript inside the compact control row", () => {
+  it("keeps the full live transcript available alongside all active controls", () => {
     const voice = voiceState("listening");
-    voice.inputTranscript = "继续处理刚才的任务";
+    voice.inputTranscript = "继续处理刚才的任务".repeat(20);
+    voice.canCommitPending = true;
+    voice.inputDevices = [
+      {
+        deviceId: "microphone",
+        label: "USB microphone",
+        groupId: "usb",
+        kind: "audioinput",
+        toJSON: () => ({}),
+      },
+    ];
     renderInRouter(<RealtimeVoiceControls voice={voice} />);
 
-    expect(screen.getByText("继续处理刚才的任务")).toBeVisible();
+    expect(
+      screen.getByTitle(`realtimeVoice.you ${voice.inputTranscript}`),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("combobox", { name: "realtimeVoice.microphone" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("realtimeVoice.defaultMicrophone")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "realtimeVoice.commitPending" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "realtimeVoice.stop" }),
+    ).toBeVisible();
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
 

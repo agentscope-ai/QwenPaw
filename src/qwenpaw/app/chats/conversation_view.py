@@ -31,6 +31,7 @@ class ConversationItem:
     generation: str = ""
     persisted: bool = False
     truncated: bool = False
+    query_target_input_ids: tuple[str, ...] = ()
 
 
 def reply_item(reply: ChatReply) -> ConversationItem:
@@ -65,6 +66,7 @@ def conversation_items(message: Msg) -> Iterable[ConversationItem]:
         identity = str(
             metadata.get(QWENPAW_CLIENT_MESSAGE_ID_KEY) or message.id
         )
+        targets = metadata.get("query_target_input_ids")
         yield ConversationItem(
             identity,
             metadata.get("timeline_order", 0),
@@ -73,6 +75,16 @@ def conversation_items(message: Msg) -> Iterable[ConversationItem]:
             tuple(metadata.get("responds_to_input_ids") or (identity,)),
             "voice" if native else "user",
             str(metadata.get("voice_generation_status", "")),
+            query_target_input_ids=(
+                tuple(dict.fromkeys(targets))
+                if native
+                and message.role == "user"
+                and isinstance(targets, list)
+                and all(
+                    isinstance(target, str) and target for target in targets
+                )
+                else ()
+            ),
         )
     else:
         for reply in project_replies([message]).values():
@@ -80,7 +92,9 @@ def conversation_items(message: Msg) -> Iterable[ConversationItem]:
 
 
 class ChatConversationView:
-    """One cold snapshot plus bounded source upserts, not another history store.
+    """One cold snapshot plus bounded source upserts.
+
+    This is not another history store.
 
     All mutations occur on the owning event loop. Loading constructs a separate
     bounded snapshot off-loop; newer source records win its handoff. A false
@@ -205,7 +219,7 @@ class ChatConversationView:
         max_chars: int,
         replies: Any = None,
     ) -> str:
-        """Return bounded JSON data, with explicit unavailable/omitted state."""
+        """Return bounded JSON with explicit unavailable/omitted state."""
         if not self._loaded and not self._closed:
             if self._load_task is None:
                 self._load_task = asyncio.create_task(
@@ -252,6 +266,8 @@ class ChatConversationView:
                 break
             turns.update(item.input_ids)
             row = asdict(item)
+            if not item.query_target_input_ids:
+                row.pop("query_target_input_ids")
             payload["messages"].insert(0, row)
             if len(encoded()) > max_chars:
                 payload["omitted"] = True

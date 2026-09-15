@@ -53,11 +53,12 @@ async def _close_background_results(workspace, chat_ids: list[str]) -> None:
     tracker = workspace.task_tracker
     owners = getattr(tracker, "background_results", {})
     for chat_id in chat_ids:
+        tracker.release_input_context(chat_id)
         results = owners.get(chat_id)
         if results is not None:
             await results.close()
-            await tracker.request_stop(chat_id)
             owners.pop(chat_id, None)
+        await tracker.request_stop(chat_id)
         getattr(tracker, "reply_views", {}).pop(chat_id, None)
         view = getattr(tracker, "conversation_views", {}).pop(chat_id, None)
         if view is not None:

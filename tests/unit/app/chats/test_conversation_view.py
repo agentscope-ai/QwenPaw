@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolResultBlock
 
-from qwenpaw.app.chats.conversation_view import ConversationItem
+from qwenpaw.app.chats.conversation_view import (
+    ConversationItem,
+    conversation_items,
+)
 from qwenpaw.app.chats.replies import ChatReplyView
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.timeline import (
@@ -40,6 +43,62 @@ async def read(journal, order=10, max_turns=20, max_chars=8000):
     )
 
 
+@pytest.mark.parametrize(
+    "targets", [None, "original-input", [None], [1], [""]]
+)
+def test_invalid_query_association_does_not_replace_public_text(targets):
+    message = voice_exchange_messages("q", "original words", timeline_order=1)[
+        0
+    ]
+    message.metadata["query_target_input_ids"] = targets
+    (item,) = conversation_items(message)
+    assert item.text == "original words"
+    assert item.input_ids == ("q",)
+    assert item.query_target_input_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_query_identity_keeps_ownership_cutoff_and_budget(tmp_path):
+    journal, _, _ = build(tmp_path)
+    journal.observe_voice_exchange(
+        "query",
+        "public question " * 200,
+        "answer",
+        timeline_order=1,
+        query_target_input_ids=("old-input",),
+    )
+    journal.observe_voice_exchange(
+        "future",
+        "independent new work",
+        timeline_order=2,
+    )
+    data = await journal.read_context(
+        turn_id="old-input",
+        order=2,
+        max_turns=1,
+        max_chars=700,
+    )
+    payload = json.loads(data)
+    assert len(data) <= 700 and payload["omitted"]
+    query, answer = payload["messages"]
+    assert query["id"] == "query" and query["input_ids"] == ["query"]
+    assert query["query_target_input_ids"] == ["old-input"]
+    assert query["truncated"]
+    assert answer["input_ids"] == ["query"]
+    assert "query_target_input_ids" not in answer
+    assert "future" not in data
+    empty = json.loads(
+        await journal.read_context(
+            turn_id="query",
+            order=2,
+            max_turns=1,
+            max_chars=700,
+        )
+    )
+    assert empty["messages"] == []
+    await journal.conversation_view().close()
+
+
 def public_reply(text="result", block_id="b", order=2):
     return Msg(
         id="shared",
@@ -60,12 +119,16 @@ def public_reply(text="result", block_id="b", order=2):
     )
 
 
-async def test_current_snapshot_is_bounded_frozen_and_does_not_project_hints(tmp_path):
+async def test_current_snapshot_is_bounded_frozen_and_does_not_project_hints(
+    tmp_path,
+):
     from qwenpaw.runtime.message_convert import _request_input_to_msgs
     from qwenpaw.schemas import Message, TextContent
 
     journal, _, _ = build(tmp_path)
-    journal.observe_voice_exchange("q", "phrase", "BLUE_CAT", timeline_order=10)
+    journal.observe_voice_exchange(
+        "q", "phrase", "BLUE_CAT", timeline_order=10
+    )
     snapshot = await journal.read_context(max_turns=20, max_chars=4000)
     assert len(snapshot) <= 4000 and "BLUE_CAT" in snapshot
     for msg in _request_input_to_msgs(
@@ -73,15 +136,19 @@ async def test_current_snapshot_is_bounded_frozen_and_does_not_project_hints(tmp
         conversation_context=snapshot,
     ):
         journal.conversation_view().observe_message(msg)
-    journal.observe_voice_exchange("q2", "change phrase", "RED_CAT", timeline_order=11)
+    journal.observe_voice_exchange(
+        "q2", "change phrase", "RED_CAT", timeline_order=11
+    )
     latest = await journal.read_context(max_turns=20, max_chars=4000)
     assert "RED_CAT" not in snapshot and "RED_CAT" in latest
     assert "Prior public Chat conversation" not in latest
-    assert not any(row["text"] == snapshot for row in json.loads(latest)["messages"])
+    assert not any(
+        row["text"] == snapshot for row in json.loads(latest)["messages"]
+    )
 
 
 @pytest.mark.asyncio
-async def test_generated_before_save_is_visible_and_same_identity_becomes_durable(
+async def test_generated_before_save_is_visible_then_becomes_durable(
     tmp_path,
 ):
     journal, workspace, chat = build(tmp_path)
@@ -177,7 +244,7 @@ async def test_loading_old_snapshot_merges_newer_sources_without_quiet_retry(
 
 
 @pytest.mark.asyncio
-async def test_failed_load_is_not_misreported_as_empty_history_and_later_turn_retries(
+async def test_failed_load_is_not_empty_history_and_later_turn_retries(
     tmp_path,
 ):
     journal, workspace, _ = build(tmp_path)

@@ -109,7 +109,9 @@ describe("ChatHeaderTitle", () => {
       setCurrentSessionId: vi.fn(),
     });
 
-    renderWithProviders(<ChatHeaderTitle />);
+    renderWithProviders(<ChatHeaderTitle />, {
+      initialEntries: ["/chat/sess-0"],
+    });
     const trigger = screen.getByRole("button", { name: "Chat 0" });
     await user.click(trigger);
 

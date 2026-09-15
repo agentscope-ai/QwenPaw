@@ -21,7 +21,12 @@ import json
 
 import pytest
 
-from qwenpaw.app.task_tracker import RunInput, RunOutcome, RunStarted, TaskTracker
+from qwenpaw.app.task_tracker import (
+    RunInput,
+    RunOutcome,
+    RunStarted,
+    TaskTracker,
+)
 from qwenpaw.runtime.reply_cycle import InputStateEvent
 
 # ---------------------------------------------------------------------------
@@ -63,6 +68,41 @@ async def test_get_status_idle_for_unknown_run_key():
 
 
 @pytest.mark.asyncio
+async def test_released_chat_rejects_delayed_admission_at_the_writer_lock():
+    tracker = TaskTracker()
+    old = tracker.input_context("deleted")
+    old.register_execution("one", "first")
+    async with tracker.lock:
+        pending = asyncio.create_task(
+            tracker.submit_or_start(
+                "deleted",
+                {},
+                _make_stream([]),
+                RunInput(("late",), "late"),
+            )
+        )
+        await asyncio.sleep(0)
+        tracker.release_input_context("deleted")
+    with pytest.raises(RuntimeError, match="released"):
+        await pending
+    old.observe_state(InputStateEvent("old", ("one",), "processing"))
+    assert old.state("one") is None
+    assert await tracker.get_status("deleted") == "idle"
+    assert tracker.input_context("different") is not old
+
+
+def test_workspace_release_retires_all_contexts():
+    tracker = TaskTracker()
+    contexts = [tracker.input_context(name) for name in ("one", "two")]
+    tracker.close_input_contexts()
+    for name, context in zip(("one", "two"), contexts):
+        with pytest.raises(RuntimeError, match="released"):
+            tracker.input_context(name)
+        context.register_execution("late", "late")
+        assert context.capture(("late",)) == ""
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload,status",
     [
@@ -74,15 +114,23 @@ async def test_get_status_idle_for_unknown_run_key():
             },
             "failed",
         ),
-        ({"object": "message", "type": "tool_call", "status": "failed"}, "completed"),
+        (
+            {"object": "message", "type": "tool_call", "status": "failed"},
+            "completed",
+        ),
     ],
 )
-async def test_outcome_distinguishes_run_failure_from_tool_failure(payload, status):
+async def test_outcome_distinguishes_run_failure_from_tool_failure(
+    payload, status
+):
     tracker = TaskTracker()
     queue, _ = await tracker.attach_or_start(
         "chat", None, _make_stream([f"data: {json.dumps(payload)}\n\n"])
     )
-    events = [event async for event in tracker.stream_events_from_queue(queue, "chat")]
+    events = [
+        event
+        async for event in tracker.stream_events_from_queue(queue, "chat")
+    ]
     assert isinstance(events[-1], RunOutcome)
     assert events[-1].status == status
 
@@ -94,7 +142,10 @@ async def test_stop_before_producer_starts_still_publishes_outcome():
     await tracker.request_stop("chat")
 
     async def collect():
-        return [item async for item in tracker.stream_events_from_queue(queue, "chat")]
+        return [
+            item
+            async for item in tracker.stream_events_from_queue(queue, "chat")
+        ]
 
     events = await asyncio.wait_for(collect(), 1)
     assert isinstance(events[0], RunStarted)
@@ -192,6 +243,12 @@ async def test_attach_or_start_reports_completion_before_becoming_idle():
         payload=None,
         stream_fn=_make_stream([]),
         on_finished=on_finished,
+    )
+    assert isinstance(
+        await asyncio.wait_for(queue.get(), timeout=1), RunStarted
+    )
+    assert isinstance(
+        await asyncio.wait_for(queue.get(), timeout=1), RunOutcome
     )
     assert await asyncio.wait_for(queue.get(), timeout=1) is None
 
@@ -417,7 +474,9 @@ async def test_submit_or_start_is_atomic_and_idempotent():
     assert status == "duplicate"
     assert duplicate_run_id == run_id
     mailbox = captured_payload["meta"]["request_context"]["_run_input_mailbox"]
-    reply_cycle = captured_payload["meta"]["request_context"]["_reply_cycle_context"]
+    reply_cycle = captured_payload["meta"]["request_context"][
+        "_reply_cycle_context"
+    ]
     assert reply_cycle.run_id == run_id
     assert reply_cycle.snapshot.group_id == "initial"
     assert (await reply_cycle.start_occurrence()).timeline_order == 12
@@ -562,7 +621,9 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
         stream_fn=_make_stream(events),
     )
 
-    collected = [item async for item in tracker.stream_from_queue(queue, "run-stream")]
+    collected = [
+        item async for item in tracker.stream_from_queue(queue, "run-stream")
+    ]
 
     assert collected == events
     # After streaming, run is cleaned up, so detach should be a no-op.
@@ -777,7 +838,10 @@ async def test_reconnect_after_retirement_preserves_storage_result(saved):
     assert await tracker.wait_all_done(timeout=2)
     queue = await tracker.attach("chat", include_finished=True)
     events = [
-        item async for item in tracker.stream_from_queue(queue, "chat", lifecycle=True)
+        item
+        async for item in tracker.stream_from_queue(
+            queue, "chat", lifecycle=True
+        )
     ]
     event = json.loads(events[0][len("data: ") :])
     assert event["type"] == "run_sealed"
