@@ -30,6 +30,11 @@ _PATH_ARG_KEYS = (
 # the tool arguments arrived earlier in the ToolCallStart.
 _MERGEABLE_LIST_KEYS = frozenset({"content", "locations"})
 
+# How many paths a permission prompt lists before falling back to a count.
+# Display-only: the boundary check in ``_is_hard_blocked`` must see every
+# path, so ``_paths`` itself is uncapped.
+_MAX_DISPLAY_PATHS = 5
+
 
 def _is_blank(value: Any) -> bool:
     """Return True for values that carry nothing worth merging."""
@@ -111,7 +116,7 @@ class ACPPermissionAdapter:
             action=self._action(tool_call_payload),
             summary=self._summary(tool_call_payload),
             command=self._command(tool_call_payload),
-            paths=self._paths(tool_call_payload),
+            paths=self._paths(tool_call_payload)[:_MAX_DISPLAY_PATHS],
             requires_user_confirmation=True,
         )
 
@@ -294,6 +299,14 @@ class ACPPermissionAdapter:
         return None
 
     def _paths(self, tool_call: dict[str, Any]) -> list[str]:
+        """Return every filesystem path this tool call mentions.
+
+        Uncapped on purpose: ``_is_hard_blocked`` iterates this list, so
+        truncating it here would let an out-of-workspace target slip through
+        whenever it is not among the first few paths of a multi-file call.
+        Truncation belongs at the display boundary instead — see
+        ``_MAX_DISPLAY_PATHS``.
+        """
         paths: list[str] = []
         seen: set[str] = set()
 
@@ -332,7 +345,7 @@ class ACPPermissionAdapter:
         for args in self._argument_dicts(tool_call):
             add_from_args(args)
 
-        return paths[:5]
+        return paths
 
     def _target(self, tool_call: dict[str, Any]) -> str | None:
         paths = self._paths(tool_call)
