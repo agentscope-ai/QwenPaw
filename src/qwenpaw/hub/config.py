@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 
+from .config_migration import upgrade_registration
 from .database import (
     connect_hub_database,
     initialize_hub_database,
@@ -280,10 +282,24 @@ class HubConfigStore:
         available_provisioners: set[str] | None = None,
     ) -> HubConfig:
         """Apply explicit YAML or return the database-owned settings."""
-        overlay = load_hub_config(path) if path is not None else None
-        if overlay is not None and available_provisioners is not None:
-            _validate_provisioners(overlay, available_provisioners)
         with self._connect() as connection:
+            mode_row = connection.execute(
+                "SELECT value_json FROM hub_settings "
+                "WHERE key = 'registration_mode'",
+            ).fetchone()
+            overlay = (
+                load_hub_config(
+                    path,
+                    legacy_invitation_mode=(
+                        mode_row is not None
+                        and json.loads(mode_row["value_json"]) == "invite"
+                    ),
+                )
+                if path is not None
+                else None
+            )
+            if overlay is not None and available_provisioners is not None:
+                _validate_provisioners(overlay, available_provisioners)
             persisted = self._load_persisted(connection)
             if overlay is not None:
                 if persisted is None:
@@ -496,7 +512,11 @@ class HubConfigStore:
         )
 
 
-def load_hub_config(path: Path | None) -> HubConfig:
+def load_hub_config(
+    path: Path | None,
+    *,
+    legacy_invitation_mode: bool = False,
+) -> HubConfig:
     """Load one strict YAML file or return built-in defaults."""
     if path is None:
         return HubConfig()
@@ -513,6 +533,17 @@ def load_hub_config(path: Path | None) -> HubConfig:
         )
     if "version" not in raw:
         raise ValueError(f"Hub config is missing version: {resolved}")
+    raw, upgraded = upgrade_registration(
+        raw,
+        invitation_mode=legacy_invitation_mode,
+    )
+    if upgraded:
+        logging.getLogger(__name__).warning(
+            "Hub config %s uses deprecated registration.enabled; "
+            "use registration.mode (open, invite, or closed). "
+            "The file was not modified.",
+            resolved,
+        )
     try:
         config = HubConfig.model_validate(raw)
     except ValidationError as exc:
