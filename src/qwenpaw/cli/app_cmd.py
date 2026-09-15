@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
+import sys
+import threading
 
 import click
 import uvicorn
@@ -14,8 +17,41 @@ from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
+from .windows_shutdown import create_shutdown_event, wait_for_shutdown_event
 
 logger = logging.getLogger(__name__)
+
+
+def _sigbreak_to_sigint(_signum: int, _frame: object) -> None:
+    """Route Windows CTRL_BREAK_EVENT through Uvicorn's graceful exit."""
+    signal.raise_signal(signal.SIGINT)
+
+
+def _install_windows_sigbreak_handler() -> None:
+    """Install graceful handling for CTRL_BREAK_EVENT on Windows."""
+    if sys.platform != "win32":
+        return
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        signal.signal(sigbreak, _sigbreak_to_sigint)
+
+
+def _wait_for_windows_shutdown(handle: int) -> None:
+    """Forward the named shutdown event to Uvicorn's SIGINT handler."""
+    if wait_for_shutdown_event(handle):
+        signal.raise_signal(signal.SIGINT)
+
+
+def _install_windows_shutdown_handlers() -> None:
+    """Install console and cross-process graceful shutdown handling."""
+    _install_windows_sigbreak_handler()
+    handle = create_shutdown_event()
+    if handle is not None:
+        threading.Thread(
+            target=_wait_for_windows_shutdown,
+            args=(handle,),
+            daemon=True,
+        ).start()
 
 
 def _format_bind_address(host: str, port: int) -> str:
@@ -156,6 +192,7 @@ def app_cmd(
         reload=reload,
     )
     _warn_if_auth_off_non_loopback_bind(host, port)
+    _install_windows_shutdown_handlers()
 
     uvicorn.run(
         "qwenpaw.app._app:app",

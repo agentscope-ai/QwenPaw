@@ -16,6 +16,7 @@ from .process_utils import (
     _process_table,
     _windows_process_snapshot,
 )
+from .windows_shutdown import signal_shutdown_event
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -223,6 +224,8 @@ def _signal_process_tree_unix(pid: int, sig: signal.Signals) -> None:
 
 def _signal_process_windows(pid: int) -> bool:
     """Request graceful shutdown from a Windows process group."""
+    if signal_shutdown_event(pid):
+        return True
     ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
     if ctrl_break is None:
         return False

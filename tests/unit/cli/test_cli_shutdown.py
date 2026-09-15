@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli.main import cli
@@ -216,6 +217,11 @@ def test_signal_process_windows_uses_ctrl_break(monkeypatch) -> None:
     calls: list[tuple[int, object]] = []
     ctrl_break = object()
     monkeypatch.setattr(
+        shutdown_cmd_module,
+        "signal_shutdown_event",
+        lambda _pid: False,
+    )
+    monkeypatch.setattr(
         shutdown_cmd_module.signal,
         "CTRL_BREAK_EVENT",
         ctrl_break,
@@ -229,6 +235,28 @@ def test_signal_process_windows_uses_ctrl_break(monkeypatch) -> None:
 
     assert _signal_process_windows(17944) is True
     assert calls == [(17944, ctrl_break)]
+
+
+def test_signal_process_windows_prefers_named_event(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def signal_event(pid: int) -> bool:
+        calls.append(pid)
+        return True
+
+    monkeypatch.setattr(
+        shutdown_cmd_module,
+        "signal_shutdown_event",
+        signal_event,
+    )
+    monkeypatch.setattr(
+        shutdown_cmd_module.os,
+        "kill",
+        lambda *_args: pytest.fail("CTRL_BREAK_EVENT should not be sent"),
+    )
+
+    assert _signal_process_windows(17944) is True
+    assert calls == [17944]
 
 
 def test_pid_exists_uses_windows_snapshot(monkeypatch) -> None:
