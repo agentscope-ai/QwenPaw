@@ -484,6 +484,24 @@ class HistoryStore:
 
     # --- write path ----------------------------------------------------
 
+    def message_anchor(self, session_id: str, message_id: str) -> str | None:
+        """Read the original occurrence without changing existing row keys."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT metadata, blocks FROM conversation_history "
+                "WHERE session_id = ? AND dedup_key = ?",
+                (session_id, message_id),
+            ).fetchone()
+        if row is None:
+            return None
+        metadata = json.loads(row["metadata"] or "{}")
+        if metadata.get("_scroll_record_anchor"):
+            return str(metadata["_scroll_record_anchor"])
+        return next(
+            (b["id"] for b in json.loads(row["blocks"] or "[]") if b.get("id")),
+            None,
+        )
+
     @staticmethod
     def _insert_row(
         session_id: str,

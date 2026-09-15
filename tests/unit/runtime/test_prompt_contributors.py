@@ -6,9 +6,21 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.runtime.prompt_contributors import (
+    UserVisibleProgressContributor,
     WorkspacePromptFilesContributor,
     build_default_prompt_manager,
 )
+
+
+def test_user_visible_progress_requires_real_updates_not_fixed_acknowledgement():
+    fragment = UserVisibleProgressContributor().contribute_sync(
+        SimpleNamespace()
+    )
+
+    assert fragment is not None
+    assert "actual next action" in fragment
+    assert "Do not expose private reasoning" in fragment
+    assert "repeat a fixed acknowledgement" in fragment
 
 
 def _ctx(tmp_path, system_prompt_files):

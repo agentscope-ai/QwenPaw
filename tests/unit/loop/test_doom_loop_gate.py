@@ -91,6 +91,18 @@ def test_reset_clears_history(gate):
     assert len(gate._ensure_state().history) == 0
 
 
+def test_reply_cycle_reset_clears_only_doom_state(gate):
+    """An independent reply must not inherit repeated tool signatures."""
+    state = gate._ensure_state()
+    gate.record("execute", "same-command")
+    state.consecutive_hits = 2
+
+    gate.reset_reply_cycle()
+
+    assert list(state.history) == []
+    assert state.consecutive_hits == 0
+
+
 def test_reset_clears_counters(gate):
     """reset() zeroes consecutive_hits and prompt."""
     state = gate._ensure_state()
@@ -146,6 +158,45 @@ def test_reset_when_no_state():
         stages=[],
     )
     g.reset_turn()
+
+
+@pytest.mark.asyncio
+async def test_accumulated_old_call_does_not_force_another_answer(gate):
+    content = []
+    agent = SimpleNamespace(
+        state=SimpleNamespace(context=[SimpleNamespace(content=content)])
+    )
+    for iteration in range(1, 4):
+        content.append(
+            {
+                "type": "tool_call",
+                "id": f"call-{iteration}",
+                "name": "check_agent_task",
+                "input": '{"task_id":"task-1"}',
+            }
+        )
+        result = await gate.check({"agent": agent, "iteration": iteration})
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert len(gate._ensure_state().history) == 3
+
+    content.append({"type": "text", "text": "The result is 53."})
+    for iteration in (4, 5):
+        result = await gate.check({"agent": agent, "iteration": iteration})
+        assert result.action == StopAction.BYPASS
+    assert len(gate._ensure_state().history) == 3
+    assert gate.build_continuation() == ""
+
+    # A genuinely new call with the same arguments still counts.
+    content.append(
+        {
+            "type": "tool_call",
+            "id": "call-4",
+            "name": "check_agent_task",
+            "input": '{"task_id":"task-1"}',
+        }
+    )
+    result = await gate.check({"agent": agent, "iteration": 6})
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
 
 
 @pytest.mark.asyncio

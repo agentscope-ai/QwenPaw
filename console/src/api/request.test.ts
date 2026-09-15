@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { request } from "./request";
+import { HttpRequestError, request } from "./request";
 
 // mock config so URL is predictable and token is empty by default
 vi.mock("./config", () => ({
@@ -142,7 +142,13 @@ describe("request", () => {
       text: () => Promise.resolve("server exploded"),
     } as unknown as Response);
 
-    await expect(request("/models")).rejects.toThrow("server exploded");
+    const result = request("/models");
+    await expect(result).rejects.toThrow("server exploded");
+    await expect(result).rejects.toMatchObject({
+      name: "HttpRequestError",
+      status: 500,
+      body: "server exploded",
+    } satisfies Partial<HttpRequestError>);
   });
 
   it("injects Authorization header when token is present", async () => {

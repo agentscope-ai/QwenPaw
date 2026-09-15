@@ -16,6 +16,7 @@ interface ProviderGroupCardProps {
   onSaved: () => void;
   onOpenConfig: (provider: ProviderInfo) => void;
   onOpenModels: (provider: ProviderInfo) => void;
+  onOpenRealtimeVoice: (provider: ProviderInfo) => void;
 }
 
 const VARIANT_LABELS: Record<string, string> = {
@@ -39,6 +40,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   onSaved,
   onOpenConfig,
   onOpenModels,
+  onOpenRealtimeVoice,
 }: ProviderGroupCardProps) {
   const { t } = useTranslation();
   const [activeIdx, setActiveIdx] = useState(0);
@@ -105,6 +107,18 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
             {activeProvider.base_url || "—"}
           </div>
         </div>
+        {activeProvider.realtime_voice && (
+          <div className={styles.groupCardField}>
+            <span className={styles.groupCardFieldLabel}>
+              {t("realtimeVoice.settings")}
+            </span>
+            <span className={styles.groupCardFieldValue}>
+              {t("models.modelsCount", {
+                count: activeProvider.realtime_models.length,
+              })}
+            </span>
+          </div>
+        )}
 
         <ProviderCredentialField
           provider={activeProvider}
@@ -129,6 +143,16 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           </span>
           <ChevronRight size={16} />
         </button>
+        {activeProvider.realtime_voice && (
+          <button
+            type="button"
+            className={styles.selectedModelsLink}
+            onClick={() => onOpenRealtimeVoice(activeProvider)}
+          >
+            {t("realtimeVoice.settings")}
+            <ChevronRight size={16} />
+          </button>
+        )}
       </div>
     </ModelCardSurface>
   );

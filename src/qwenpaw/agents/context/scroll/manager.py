@@ -44,7 +44,7 @@ from .continuation_summary import (
 )
 from .eviction_index import EvictionIndex, Leaf, render_live_turn_banner
 from .history import HistoryStore
-from .serialize import msg_to_entries
+from .serialize import assign_message_keys, message_key, msg_to_entries
 from ..types import ContextWindowUnfitError
 from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
@@ -134,16 +134,16 @@ class ScrollContextManager:
         self._seq_by_id: dict[
             str,
             tuple[int, int],
-        ] = {}  # msg.id -> (first, last) seq
+        ] = {}  # message key -> (first, last) seq
         self._model_turn_seq: dict[
             str,
             int,
-        ] = {}  # msg.id -> seq of its model_turn row
+        ] = {}  # message key -> seq of its model_turn row
         self._model_turn_nblk: dict[
             str,
             int,
-        ] = {}  # msg.id -> #non-result blocks persisted
-        self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
+        ] = {}  # message key -> #non-result blocks persisted
+        self._leaf_by_id: dict[str, Leaf] = {}  # message key -> index leaf
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
         self._continuation_summary: ContinuationSummary | None = None
         self._summary_update_failed = False
@@ -565,17 +565,18 @@ class ScrollContextManager:
             tail = self._restore_full_tail_messages(agent, tail)
             # A split boundary Msg appears in both halves under the same id.
             # Never index it while its complete live copy remains in the tail.
-            tail_ids = {m.id for m in tail}
+            tail_ids = {message_key(m) for m in tail}
             active_tail = self._active_turn_tail(agent)
-            active_ids = {m.id for m in active_tail}
+            active_ids = {message_key(m) for m in active_tail}
             middle = [
                 m
                 for m in real(to_compress)
-                if m.id not in tail_ids and m.id not in active_ids
+                if message_key(m) not in tail_ids
+                and message_key(m) not in active_ids
             ]
             if active_tail:
                 # Keep the whole active turn at the end in original order.
-                tail = [m for m in tail if m.id not in active_ids]
+                tail = [m for m in tail if message_key(m) not in active_ids]
                 tail.extend(active_tail)
             middle, tail = self._repair_dangling_user_boundary(
                 middle,
@@ -731,7 +732,7 @@ class ScrollContextManager:
 
     def _evicted_span(self, messages: list[Msg]) -> tuple[int, int] | None:
         ranges = [
-            self._seq_by_id.get(getattr(msg, "id", None) or str(id(msg)))
+            self._seq_by_id.get(message_key(msg))
             for msg in messages
         ]
         known = [span for span in ranges if span is not None]
@@ -793,7 +794,7 @@ class ScrollContextManager:
         """Recover pre-folded tool output by its exact persisted seq."""
         result_seqs: dict[tuple[str, int], int] = {}
         for msg in messages:
-            mid = getattr(msg, "id", None) or str(id(msg))
+            mid = message_key(msg)
             anonymous_position = 0
             result_position = 0
             for entry in msg_to_entries(msg):
@@ -868,7 +869,7 @@ class ScrollContextManager:
         tool_results: list[tuple[int, str]] = []
         order = 0
         for msg in middle:
-            mid = getattr(msg, "id", None) or str(id(msg))
+            mid = message_key(msg)
             span = self._seq_by_id.get(mid)
             pointer = f"[seq:{span[0]}-{span[1]}]" if span else "[seq:unknown]"
             role = getattr(msg, "role", "unknown")
@@ -1719,14 +1720,18 @@ class ScrollContextManager:
         # pylint: disable=import-outside-toplevel
         from ...memory.base_memory_manager import BaseMemoryManager
 
+        assign_message_keys(
+            (m for m in agent.state.context if m.id not in self._synthetic_ids),
+            lambda mid: self._history.message_anchor(self._session_id, mid),
+        )
         for raw_msg in agent.state.context:
             msg = BaseMemoryManager.message_without_auto_memory_search(
                 raw_msg,
             )
             if msg is None:
                 continue
-            mid = getattr(msg, "id", None) or str(id(msg))
-            if mid in self._synthetic_ids:
+            mid = message_key(msg)
+            if msg.id in self._synthetic_ids:
                 continue
             anon_pos = 0  # stable index for results lacking a tool_call_id
             for entry in msg_to_entries(msg):
@@ -1860,17 +1865,17 @@ class ScrollContextManager:
         blocks between ``to_compress`` and ``to_reserve``.  Both fragments
         keep the same message id, which is useful for native summarization but
         unsafe for Scroll: Scroll retains the reserve half verbatim, where a
-        block-level split can create orphan tool calls/results.  Message ids
-        are stable in the live context, so use them to recover the original
+        block-level split can create orphan tool calls/results. Record keys
+        survive splitting, so use them to recover the original
         object.  Unknown ids are kept unchanged for compatibility with custom
         AgentScope splitters.
         """
         live_by_id = {
-            getattr(msg, "id", None): msg
+            message_key(msg): msg
             for msg in getattr(agent.state, "context", []) or []
             if getattr(msg, "id", None) not in self._synthetic_ids
         }
-        return [live_by_id.get(getattr(msg, "id", None), msg) for msg in tail]
+        return [live_by_id.get(message_key(msg), msg) for msg in tail]
 
     def _repair_dangling_user_boundary(
         self,
@@ -1897,7 +1902,7 @@ class ScrollContextManager:
 
         move_count = 0
         for msg in tail:
-            mid = getattr(msg, "id", None)
+            mid = message_key(msg)
             if mid in active_ids or getattr(msg, "role", None) == "user":
                 break
             move_count += 1
@@ -1983,7 +1988,7 @@ class ScrollContextManager:
         live_tool_ids: set[str] = set()
         live_thinking_ids: set[str] = set()
         for msg in getattr(agent.state, "context", []) or []:
-            mid = getattr(msg, "id", None) or str(id(msg))
+            mid = message_key(msg)
             live_msg_ids.add(str(mid))
             for block in getattr(msg, "content", None) or []:
                 btype = (
@@ -2054,7 +2059,7 @@ class ScrollContextManager:
         lo: int | None = None
         hi: int | None = None
         for m in middle:
-            mid = getattr(m, "id", None) or str(id(m))
+            mid = message_key(m)
             rng = self._seq_by_id.get(mid)
             if rng:
                 lo = rng[0] if lo is None else min(lo, rng[0])
@@ -2087,7 +2092,7 @@ class ScrollContextManager:
         """Snapshot the dedup bookkeeping + eviction index for the agent
         checkpoint.
 
-        All maps are keyed by ``msg.id``, which round-trips identically through
+        Message maps use record keys, which round-trip identically through
         ``AgentState`` (de)serialization — so on reload these seed the dedup
         sets and ``_persist_new`` recognizes the restored window as already
         durable instead of re-appending it.

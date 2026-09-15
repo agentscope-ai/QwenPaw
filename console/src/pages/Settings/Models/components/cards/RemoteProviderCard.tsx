@@ -20,6 +20,7 @@ interface RemoteProviderCardProps {
   onSaved: () => void;
   onOpenConfig: (provider: ProviderInfo) => void;
   onOpenModels: (provider: ProviderInfo) => void;
+  onOpenRealtimeVoice: (provider: ProviderInfo) => void;
 }
 
 export const RemoteProviderCard = React.memo(function RemoteProviderCard({
@@ -27,6 +28,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   onSaved,
   onOpenConfig,
   onOpenModels,
+  onOpenRealtimeVoice,
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -105,6 +107,18 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
                 {provider.base_url || "—"}
               </div>
             </div>
+            {provider.realtime_voice && (
+              <div className={styles.groupCardField}>
+                <span className={styles.groupCardFieldLabel}>
+                  {t("realtimeVoice.settings")}
+                </span>
+                <span className={styles.groupCardFieldValue}>
+                  {t("models.modelsCount", {
+                    count: provider.realtime_models.length,
+                  })}
+                </span>
+              </div>
+            )}
 
             <ProviderCredentialField
               provider={provider}
@@ -141,6 +155,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             onClick={() => setOauthModalOpen(true)}
           >
             {t("models.connect")}
+          </button>
+        )}
+        {provider.realtime_voice && (
+          <button
+            className={styles.groupCardActBtn}
+            onClick={() => onOpenRealtimeVoice(provider)}
+          >
+            {t("realtimeVoice.settings")}
           </button>
         )}
         {!isManaged && provider.is_custom && (

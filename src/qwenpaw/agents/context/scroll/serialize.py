@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from agentscope.message import Msg
 
-from ....constant import QWENPAW_MESSAGE_TAG_KEY
+from ...._compat.message import LEGACY_MESSAGE_ID_KEY
+from ....constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
+from ....runtime.reply_cycle import REPLY_CYCLE_METADATA_KEYS
 from ....utils.tool_call_extra import TOOL_CALL_EXTRAS_METADATA_KEY
 from ..types import LogEntry
 from ...utils.tool_message_utils import (
@@ -17,6 +24,51 @@ from ...utils.tool_message_utils import (
     flatten_output,
     media_ref as _media_ref,
 )
+
+_RECORD_KEY = "_scroll_record_key"
+_RECORD_ANCHOR = "_scroll_record_anchor"
+
+
+def message_key(msg: Msg) -> str:
+    """Identity of one persisted Msg, not the SDK reply containing it."""
+    return (msg.metadata or {}).get(_RECORD_KEY) or msg.id
+
+
+def assign_message_keys(
+    messages: Iterable[Msg],
+    lookup_anchor: Callable[[str], str | None],
+) -> None:
+    """Keep legacy keys; disambiguate repeated reply IDs with a block anchor.
+
+    Metadata survives SDK splitting and session reload. The original durable
+    anchor distinguishes a new occurrence after its predecessor was evicted.
+    """
+    originals: dict[str, str] = {}
+    for msg in messages:
+        metadata = dict(msg.metadata or {})
+        if metadata.get(LEGACY_MESSAGE_ID_KEY) == msg.id:
+            metadata[_RECORD_KEY] = metadata[_RECORD_ANCHOR] = msg.id
+            msg.metadata = metadata
+        if metadata.get(_RECORD_KEY):
+            if metadata[_RECORD_KEY] == msg.id:
+                originals[msg.id] = metadata[_RECORD_ANCHOR]
+            continue
+        transient = set(metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY) or ())
+        anchor = next(
+            (
+                b.id for b in msg.content
+                if getattr(b, "id", None) and b.id not in transient
+            ),
+            None,
+        )
+        anchor = anchor or uuid4().hex
+        if msg.id not in originals:
+            originals[msg.id] = lookup_anchor(msg.id) or anchor
+        metadata[_RECORD_KEY] = (
+            msg.id if originals[msg.id] == anchor else f"{msg.id}#msg:{anchor}"
+        )
+        metadata[_RECORD_ANCHOR] = anchor
+        msg.metadata = metadata
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
@@ -57,6 +109,7 @@ class HeadlineDeltaState:
     pending: str = ""
     suppressing: bool = False
     legacy_comment: bool = False
+    at_line_start: bool = True
 
 
 def _state_value(state: Any) -> str | None:
@@ -112,8 +165,15 @@ def strip_headline_delta(
     fence in the same delta is intentionally hidden.
     """
     state = state or HeadlineDeltaState()
+    at_line_start = state.at_line_start
     text = state.pending + text
     state.pending = ""
+    # Chunk boundaries are not line boundaries. Track source text, including
+    # hidden markers, so a following inline fence remains ordinary content.
+    if "\n" in text:
+        state.at_line_start = not text.rsplit("\n", 1)[1].strip(" \t")
+    elif text.strip(" \t"):
+        state.at_line_start = False
     visible: list[str] = []
 
     while text:
@@ -124,6 +184,7 @@ def strip_headline_delta(
             close = close_re.search(text)
             if close is not None:
                 text = text[close.end() :]
+                at_line_start = False
                 state.suppressing = False
                 state.legacy_comment = False
                 continue
@@ -136,7 +197,10 @@ def strip_headline_delta(
             return "".join(visible), state
 
         legacy = _LEGACY_START_RE.search(text)
-        plain = _PLAIN_START_RE.search(text)
+        plain = _PLAIN_START_RE.search(
+            text,
+            0 if at_line_start or text.startswith("\n") else 1,
+        )
         starts = [
             (match.start(), match.end(), is_legacy)
             for match, is_legacy in ((legacy, True), (plain, False))
@@ -170,6 +234,7 @@ def flush_headline_delta(state: HeadlineDeltaState) -> str:
     state.pending = ""
     state.suppressing = False
     state.legacy_comment = False
+    state.at_line_start = True
     return visible
 
 
@@ -249,6 +314,9 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
                 persisted_metadata[TOOL_CALL_EXTRAS_METADATA_KEY] = deepcopy(
                     tool_call_extras,
                 )
+            for key in (*REPLY_CYCLE_METADATA_KEYS, _RECORD_KEY, _RECORD_ANCHOR):
+                if key in msg_meta:
+                    persisted_metadata[key] = deepcopy(msg_meta[key])
         entries.append(
             LogEntry(
                 kind="model_turn"

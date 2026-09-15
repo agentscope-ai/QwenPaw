@@ -48,6 +48,7 @@ class _ResettableGate(StopGate):
     def __init__(self, gate_name: str = "resettable"):
         self._name = gate_name
         self.reset_count = 0
+        self.reply_cycle_reset_count = 0
 
     @property
     def name(self) -> str:
@@ -61,6 +62,9 @@ class _ResettableGate(StopGate):
 
     def reset_turn(self) -> None:
         self.reset_count += 1
+
+    def reset_reply_cycle(self) -> None:
+        self.reply_cycle_reset_count += 1
 
 
 @pytest.mark.asyncio
@@ -178,3 +182,14 @@ def test_reset_turn_skips_legacy_gate_without_reset_method():
     handler.reset_turn()
 
     assert peer.reset_count == 1
+
+
+def test_reply_cycle_reset_uses_narrow_gate_hook_only():
+    handler = StopHandler()
+    peer = _ResettableGate("peer")
+    handler.register(peer)
+
+    handler.reset_reply_cycle()
+
+    assert peer.reply_cycle_reset_count == 1
+    assert peer.reset_count == 0

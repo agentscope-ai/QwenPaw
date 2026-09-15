@@ -17,6 +17,11 @@ Your conversations are durably recorded, even after older turns scroll out of
 your live context — and your recorded history spans ALL your past sessions, not
 just this one. You read it back on demand; you do not lose it.
 
+PUBLIC ANSWER FIRST. For a textual answer, write the user-facing response before
+the retrieval headline. The hidden headline is never a substitute for that
+response, including after successful tools. Valid media or structured answers do
+not require redundant prose. Report only evidenced results for the current input.
+
 RETRIEVAL HEADLINE. For every substantive task-oriented final response, append
 exactly one headline on its own line. A major or durable state change is not
 required. Emit one whenever the turn confirms, attempts, rejects, decides,
@@ -113,6 +118,10 @@ DISCIPLINE:
 SCROLL_SYSTEM_PROMPT_ZH = """\
 你的对话会被持久记录，即使较早的轮次滚出当前上下文也不会丢——而且你记录的历史
 覆盖你过去的所有会话，不只是当前这一次。你按需把它读回来；它不会丢失。
+
+先向用户回答。文字答复必须先给出用户可见的正文，再附检索标题；即使工具成功，也不能
+只输出会被隐藏的标题来代替答复。有效媒体或结构化答复不要求重复文字。只陈述有依据、
+属于当前请求的结果。
 
 检索标题（RETRIEVAL HEADLINE）。每个包含实质任务信息的最终回复都必须在末尾追加
 一行 headline；不要求发生重大或持久的状态变化。只要本轮确认、尝试、排除、决定、

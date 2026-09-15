@@ -37,10 +37,12 @@ from ...services.session_thinking import (
     thinking_view,
 )
 from ...config.config import ModelSlotConfig
+from ...constant import QWENPAW_MESSAGE_TAG_KEY
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
+from ..chats.run_coordinator import ChatInputRequest, ChatRunCoordinator
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
@@ -324,6 +326,15 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     if isinstance(rc, dict) and rc:
         meta["request_context"] = rc
 
+    # The public Chat request cannot choose runtime-only message visibility
+    # tags. Trusted internal routes add their tag only after validation.
+    if isinstance(message_metadata, dict):
+        message_metadata = {
+            key: value
+            for key, value in message_metadata.items()
+            if key != QWENPAW_MESSAGE_TAG_KEY
+        }
+
     native_payload = {
         "channel_id": channel_id,
         "sender_id": sender_id,
@@ -463,7 +474,7 @@ async def post_console_chat(
     is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
-        queue = await tracker.attach(chat.id)
+        queue = await tracker.attach(chat.id, include_finished=True)
         if queue is None:
             # The run finished (or never existed): reply with an
             # immediately-terminated SSE stream so the client's reader
@@ -495,24 +506,6 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
-        queue, is_new_run = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
-            on_finished=workspace.chat_manager.mark_chat_finished,
-        )
-        if not is_new_run:
-            await tracker.detach_subscriber(chat.id, queue)
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "A task is already running for this chat. Wait for it "
-                    "to finish or use a different session_id."
-                ),
-            )
-
-        # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:
             asyncio.create_task(
                 generate_and_update_title(
@@ -522,11 +515,25 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
+        try:
+            submission = await ChatRunCoordinator.submit(
+                workspace,
+                chat,
+                ChatInputRequest.from_native_payload(
+                    native_payload,
+                    origin="keyboard",
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OverflowError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        queue = submission.events
 
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
         # finally (detach_subscriber) on client abort / generator teardown.
-        stream_it = tracker.stream_from_queue(queue, chat.id)
+        stream_it = tracker.stream_from_queue(queue, chat.id, lifecycle=True)
         try:
             try:
                 async for event_data in stream_it:
@@ -966,6 +973,19 @@ async def post_console_chat_task(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     task_id = f"task-{uuid.uuid4().hex[:12]}"
+    parent_work = None
+    result_token = request_data.get("background_result_token")
+    if result_token is not None:
+        from ..chats.background_results import consume_result_ticket
+
+        try:
+            parent_work = consume_result_ticket(
+                str(result_token),
+                workspace.agent_id,
+                consume=False,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     native_payload = _extract_session_and_payload(request_data)
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
@@ -1152,8 +1172,17 @@ async def post_console_chat_task(
                 "output": [],
             }
 
+    if parent_work is not None:
+        try:
+            parent_work = consume_result_ticket(
+                str(result_token), workspace.agent_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask
+    if parent_work is not None:
+        parent_work.task_id = task_id
 
     async def _timeout_guard() -> None:
         nonlocal timed_out
@@ -1170,8 +1199,45 @@ async def post_console_chat_task(
     def _stop_timeout_guard(_task: asyncio.Task) -> None:
         if not guard_task.done():
             guard_task.cancel()
+        if parent_work is not None:
+            from agentscope.message import Msg, TextBlock
+            from ...agents.tools.agent_management import (
+                extract_agent_text_content,
+            )
+
+            result = bg.result or {
+                "status": "failed",
+                "error": "Task ended without a result",
+            }
+            status = str(result.get("status") or "failed")
+            if timed_out:
+                status = "failed"
+            elif _task.cancelled():
+                status = "cancelled"
+            error = result.get("error")
+            text = extract_agent_text_content(result)
+            parent_work.complete(
+                status,
+                Msg(
+                    name="background",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            text=str(error)
+                            if error
+                            else text or "No textual result was returned."
+                        )
+                    ],
+                    metadata={
+                        "background_task_id": task_id,
+                        "background_status": status,
+                    },
+                ),
+            )
 
     atask.add_done_callback(_stop_timeout_guard)
+    if parent_work is not None:
+        parent_work.cancel = atask.cancel
 
     async with _bg_lock:
         _bg_tasks[task_id] = bg

@@ -1,5 +1,5 @@
 export type ChatStatus = "idle" | "running";
-export type ChatSource = "chat" | "cron" | "subagent";
+export type ChatSource = "chat" | "cron" | "subagent" | "realtime_voice";
 export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
 
 export interface ChatGroup {
@@ -37,9 +37,8 @@ export interface Message {
   [key: string]: unknown;
 }
 
-export interface ChatHistory {
+export interface ChatHistory extends ChatSpec {
   messages: Message[];
-  status?: ChatStatus; // Conversation status: idle or running
 }
 
 export interface ChatUpdateRequest {

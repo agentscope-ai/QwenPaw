@@ -105,6 +105,10 @@ class DoomLoopGate(LoopGate):
 
     def reset_turn(self) -> None:
         """Clear history and counters for current session."""
+        self.reset_reply_cycle()
+
+    def reset_reply_cycle(self) -> None:
+        """Do not compare repeated tool patterns across user replies."""
         state = self._state()
         if state is not None:
             state.history.clear()
@@ -200,7 +204,7 @@ class DoomLoopGate(LoopGate):
             [],
         )
         if not context:
-            return
+            return False
         last_msg = context[-1]
         if last_msg.id == state.last_recorded_msg_id:
             return
@@ -213,6 +217,14 @@ class DoomLoopGate(LoopGate):
             if isinstance(block, dict):
                 btype = block.get("type")
             if btype in ("tool_call", "tool_use"):
+                call_id = (
+                    block.get("id", "")
+                    if isinstance(block, dict)
+                    else getattr(block, "id", "")
+                )
+                if not call_id or call_id == state.last_recorded_call_id:
+                    return False
+                state.last_recorded_call_id = call_id
                 name = (
                     block.get("name", "")
                     if isinstance(block, dict)

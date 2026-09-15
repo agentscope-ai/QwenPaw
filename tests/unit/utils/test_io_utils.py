@@ -16,6 +16,7 @@ import yaml
 
 from qwenpaw.utils.io_utils import (
     append_text_async,
+    get_path_lock,
     read_bytes_async,
     read_json_async,
     read_text_async,
@@ -27,6 +28,67 @@ from qwenpaw.utils.io_utils import (
     write_text_atomic,
     write_yaml_atomic,
 )
+
+
+def test_active_path_lock_does_not_reopen_target_to_resolve(tmp_path):
+    path = tmp_path / "state.json"
+    lock = get_path_lock(path)
+    with patch("qwenpaw.utils.io_utils._path_lock_key", side_effect=AssertionError):
+        assert get_path_lock(path) is lock
+        assert get_path_lock(str(path)) is lock
+
+
+def test_path_lock_still_shares_symlink_alias(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("{}", encoding="utf-8")
+    alias = tmp_path / "alias.json"
+    try:
+        alias.symlink_to(path)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+    lock = get_path_lock(path)
+    assert get_path_lock(alias) is lock
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows commit retry contract")
+@pytest.mark.parametrize("winerror", [5, 32])
+def test_atomic_commit_retries_only_same_replace(tmp_path, winerror):
+    path = tmp_path / "state.txt"
+    path.write_text("old", encoding="utf-8")
+    failure = PermissionError("temporarily held")
+    failure.winerror = winerror
+    replace = os.replace
+    attempts = []
+
+    def transient(source, target):
+        attempts.append((source, target))
+        if len(attempts) == 1:
+            raise failure
+        replace(source, target)
+
+    with patch("qwenpaw.utils.io_utils.os.replace", transient), patch(
+        "qwenpaw.utils.io_utils.time.sleep"
+    ) as delay:
+        write_text_atomic(path, "new")
+    assert attempts[0] == attempts[1]
+    delay.assert_called_once_with(.01)
+    assert path.read_text(encoding="utf-8") == "new"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows commit retry contract")
+def test_atomic_commit_permanent_access_error_is_bounded(tmp_path):
+    path = tmp_path / "state.txt"
+    path.write_text("old", encoding="utf-8")
+    failure = PermissionError("permanently denied")
+    failure.winerror = 5
+    with patch("qwenpaw.utils.io_utils.os.replace", side_effect=failure) as replace, patch(
+        "qwenpaw.utils.io_utils.time.sleep"
+    ) as delay, pytest.raises(PermissionError, match="permanently denied"):
+        write_text_atomic(path, "new")
+    assert replace.call_count == 4
+    assert delay.call_count == 3
+    assert path.read_text(encoding="utf-8") == "old"
+    assert not list(tmp_path.glob(".state.txt.*.tmp"))
 
 
 def test_write_json_atomic_replaces_complete_document(tmp_path: Path) -> None:

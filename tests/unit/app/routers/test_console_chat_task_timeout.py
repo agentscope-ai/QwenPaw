@@ -17,7 +17,7 @@ from qwenpaw.app.routers.console import (
     _background_task_cancel_error,
     _resolve_effective_stream_task_timeout,
 )
-from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.task_tracker import REPLAY_END_SSE, RunStarted, TaskTracker
 from qwenpaw.constant import DEFAULT_STREAM_TASK_TIMEOUT_SECONDS
 from qwenpaw.utils.timeout import parse_positive_timeout_seconds
 
@@ -398,6 +398,8 @@ async def test_chat_task_is_tracked_and_reconnectable(
 
         reconnect_queue = await tracker.attach("chat-1")
         assert reconnect_queue is not None
+        replay_start = await reconnect_queue.get()
+        assert replay_start == RunStarted(replay_start.run_id, replay=True)
         assert await reconnect_queue.get() == message_sse
         assert await reconnect_queue.get() == REPLAY_END_SSE
 
