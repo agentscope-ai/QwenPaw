@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import unquote
 
 import httpx
 import uvicorn
@@ -255,12 +256,14 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         authorization: str | None = Header(default=None),
     ) -> HubUser:
+        # Match decoding by the Runtime ASGI server and file preview router.
+        normalized_path = unquote(unquote(path)).replace("\\", "/")
         # Native file previews cannot attach an Authorization header.
         if (
             authorization is None
             and request.method in {"GET", "HEAD"}
             and path.startswith("files/preview/")
-            and ".." not in path.split("/")
+            and not {".", ".."}.intersection(normalized_path.split("/"))
         ):
             token = request.query_params.get("token", "")
             authorization = f"Bearer {token}"
