@@ -33,6 +33,62 @@ describe("SessionItem status indicator", () => {
   });
 });
 
+describe("SessionItem keyboard selection", () => {
+  it.each(["Enter", " "])("selects the focused session with %s", (key) => {
+    const onClick = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-keyboard"
+        name="Keyboard chat"
+        onClick={onClick}
+      />,
+    );
+    const row = screen.getByText("Keyboard chat").closest('[role="button"]')!;
+    fireEvent.keyDown(row, { key });
+    fireEvent.keyDown(row, { key, repeat: true });
+    expect(onClick).toHaveBeenCalledExactlyOnceWith("chat-keyboard");
+  });
+
+  it("does not select a session while submitting its rename input", () => {
+    const onClick = vi.fn();
+    const onEditSubmit = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-editing"
+        name="Original"
+        editing
+        editValue="Renamed"
+        onClick={onClick}
+        onEditSubmit={onEditSubmit}
+      />,
+    );
+    const input = screen.getByRole("textbox");
+    expect(input).toBeEnabled();
+    expect(input.closest('[aria-disabled="true"]')).toBeNull();
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onEditSubmit).toHaveBeenCalledOnce();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps disabled sessions out of keyboard navigation", () => {
+    const onClick = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-disabled"
+        name="Disabled chat"
+        disabled
+        onClick={onClick}
+      />,
+    );
+    const row = screen.getByText("Disabled chat").closest('[role="button"]')!;
+    expect(row).toHaveAttribute("tabindex", "-1");
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+});
+
 describe("SessionItem actions", () => {
   it("hides the drag hint while keeping the more actions menu", async () => {
     render(<SessionItem sessionId="chat-1" name="Chat" />);

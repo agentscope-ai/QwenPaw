@@ -394,9 +394,8 @@ export default function Sidebar({
 
   /**
    * New chat: if we're already on the chat page, dispatch the event so
-   * ChatSessionInitializer (which is mounted) creates the session.
-   * If we're on another page, navigate to /chat without a session id —
-   * the chat page will auto-create a new session on mount.
+   * ChatSessionInitializer opens a blank composer. From another page,
+   * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
     const onChatPage = location.pathname.startsWith("/chat");
